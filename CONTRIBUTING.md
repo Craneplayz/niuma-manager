@@ -2,8 +2,8 @@
 
 ## 开始前
 
-1. 在 GitHub Project 中选择已经进入当前 Sprint 的 Issue。
-2. 确认 Issue 包含验收标准、优先级、Story Points 和负责人。
+1. 只处理在冲刺计划会议中由团队共同选入当前 Sprint 的任务。
+2. 确认 Sprint Goal、任务描述、执行人、估算和状态已经记录。
 3. 将 Issue 状态改为 `In Progress`。
 
 ## 分支规范
@@ -47,7 +47,7 @@ refactor: simplify task status transitions
 4. 填写变更说明、验证方式、截图和风险。
 5. 至少由一名非作者成员审查。
 6. 处理审查意见并确保验收标准通过。
-7. 合并后删除功能分支，并将 Issue 移至 `Done`。
+7. 在冲刺评审中核对产出与预期；确认完成后合并并将 Issue 移至 `Done`。
 
 ## Review 重点
 
@@ -64,4 +64,4 @@ refactor: simplify task status transitions
 - 不在没有 Issue 的情况下开始较大功能。
 - 不把多个无关需求放进同一个 PR。
 - 不在当前 Sprint 中随意增加未评估需求。
-- 不将“代码写完”视为完成；必须满足 Definition of Done。
+- 不将“代码写完”直接视为完成；冲刺评审还需要核对产出与预期是否一致。
