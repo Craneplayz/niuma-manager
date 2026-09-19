@@ -1,0 +1,68 @@
+name: 用户故事
+description: 提交一个面向用户、可以独立验收的产品需求
+title: "[Feature] "
+labels:
+  - feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先确认该需求没有重复。进入 Sprint 前必须补全验收标准、优先级和估算。
+  - type: textarea
+    id: user-story
+    attributes:
+      label: 用户故事
+      description: 使用“作为……我希望……从而……”描述用户价值。
+      placeholder: |
+        作为一名需要管理课程任务的学生，
+        我希望粘贴课程通知后自动识别任务和截止时间，
+        从而避免遗漏任务。
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 功能说明
+      description: 描述范围、交互和必要约束，不在此处预设过多实现细节。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 每条标准都应能被验证。
+      placeholder: |
+        - [ ] 用户可以粘贴文本
+        - [ ] 系统能够识别任务名称和截止时间
+        - [ ] 模糊时间会要求用户确认
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 建议优先级
+      options:
+        - P0 - MVP 必须完成
+        - P1 - 核心增强
+        - P2 - 探索性功能
+    validations:
+      required: true
+  - type: dropdown
+    id: estimate
+    attributes:
+      label: 初步估算
+      options:
+        - 1
+        - 2
+        - 3
+        - 5
+        - 8 - 进入 Sprint 前需要继续拆分
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: 依赖与风险
+      description: 填写依赖的 Issue、权限、外部平台或隐私风险；没有则写“无”。
+    validations:
+      required: true

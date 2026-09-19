@@ -1,0 +1,38 @@
+name: 技术调研 Spike
+description: 为未知技术或高风险方案创建有时间限制的调研任务
+title: "[Research] "
+labels:
+  - research
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: 需要回答的问题
+      description: 调研结束时必须能够给出明确结论的问题。
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: 背景与约束
+      description: 包括时间、权限、隐私、平台和技术限制。
+    validations:
+      required: true
+  - type: input
+    id: timebox
+    attributes:
+      label: 时间盒
+      description: 例如 4 小时或 1 个工作日；调研不能无限延长。
+    validations:
+      required: true
+  - type: textarea
+    id: deliverable
+    attributes:
+      label: 预期产出
+      placeholder: |
+        - 可行/不可行/需要更多信息的结论
+        - 推荐方案及原因
+        - 已知风险
+        - 后续 Issue 建议
+    validations:
+      required: true
