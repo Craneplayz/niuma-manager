@@ -8,6 +8,14 @@ body:
     attributes:
       value: |
         请先确认该需求没有重复。进入 Sprint 前必须补全验收标准、优先级和估算。
+  - type: input
+    id: backlog-id
+    attributes:
+      label: 关联 Product Backlog
+      description: 填写该用户故事由哪个整体需求拆分而来，例如 PB-002。
+      placeholder: PB-___
+    validations:
+      required: true
   - type: textarea
     id: user-story
     attributes:
@@ -40,7 +48,7 @@ body:
   - type: dropdown
     id: priority
     attributes:
-      label: 建议优先级
+      label: 优先级
       options:
         - P0 - MVP 必须完成
         - P1 - 核心增强
@@ -50,7 +58,7 @@ body:
   - type: dropdown
     id: estimate
     attributes:
-      label: 初步估算
+      label: 工作量估算
       options:
         - 1
         - 2

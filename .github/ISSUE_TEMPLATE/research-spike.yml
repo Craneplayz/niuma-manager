@@ -4,6 +4,14 @@ title: "[Research] "
 labels:
   - research
 body:
+  - type: input
+    id: backlog-id
+    attributes:
+      label: 关联 Product Backlog
+      description: 填写该调研支持的整体需求编号；跨需求事项须列出全部编号。
+      placeholder: PB-___
+    validations:
+      required: true
   - type: textarea
     id: question
     attributes:
@@ -31,8 +39,8 @@ body:
       label: 预期产出
       placeholder: |
         - 可行/不可行/需要更多信息的结论
-        - 推荐方案及原因
+        - 采用方案及依据
         - 已知风险
-        - 后续 Issue 建议
+        - 后续事项
     validations:
       required: true
