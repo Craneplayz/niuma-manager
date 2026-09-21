@@ -1,144 +1,104 @@
 # Scrum 开发流程
 
-本文档按照课程课件中的 Scrum 建议组织项目。具体 Sprint 内容不在项目开始时预先指定，而是在每次冲刺计划会议中由团队共同选择。
+## 1. 角色
 
-## 1. Scrum 的三个阶段
+- **Product Owner**：维护需求和优先级，回答产品问题，验收结果。
+- **Scrum Master**：维护流程、主持会议、帮助清除阻塞，不负责替成员分配所有任务。
+- **Developers**：共同完成设计、开发、测试、文档和交付。
 
-### 规划纲要阶段
+课程项目中可以一人兼任角色，但 Product Owner 的优先级决策与开发实现责任应明确区分。
 
-- 建立大致的项目目标。
-- 设计软件体系结构。
-- 建立并初步排序产品任务清单。
-- 对智能化软件中的关键 AI 能力进行可行性验证。
+## 2. Scrum 工件
 
-### Sprint 循环
+- **Product Backlog**：所有希望实现的需求，持续排序和细化。
+- **Sprint Backlog**：团队为当前 Sprint 选择并承诺完成的需求。
+- **Increment**：本周期结束时可运行、可演示、满足完成标准的产品增量。
 
-- 项目由一系列 Sprint 组成。
-- 课程图示给出了 2 至 4 周的常见 Sprint 周期，但本项目不机械固定时长。每轮根据课程进度、任务风险和成员可投入时间决定，并在 Sprint 开始前记录在 Sprint Backlog 中。
-- 每个 Sprint 都应开发出一个可以评审的系统增量。
-- 每轮包含冲刺计划、每日站会、冲刺评审和冲刺回顾。
+## 3. GitHub Project 看板
 
-### 项目结束阶段
-
-- 总结项目结果和经验。
-- 完善需要交付的文档，例如系统帮助和用户手册。
-- 整理未完成事项、已知问题和后续建议。
-
-## 2. Scrum 角色
-
-- **Product Owner**：维护产品目标和产品任务清单的优先级。
-- **Scrum Master**：维护 Scrum 流程，帮助团队发现和处理阻塞。
-- **Scrum Team**：共同理解、选择和完成 Sprint 中承诺的工作。
-
-角色人选由团队另行确定；本文档不预设具体成员。
-
-## 3. Scrum 的三个主要工件
-
-### 产品任务清单（Product Backlog）
-
-产品任务清单由需求、故事或特性等组成，并按照重要程度排序，而且持续完善。清单不仅包含功能，也包含非功能需求、已知 Bug、新技术或平台事项，以及待回答的问题和未来功能。
-
-项目中的初始内容见 [产品任务清单](product-backlog.md)。
-
-### 冲刺任务清单（Sprint Backlog）
-
-冲刺计划会议中，团队从产品任务清单中挑选高优先级任务，确定本次 Sprint Goal，并把产品条目进一步拆成可执行任务。
-
-团队能够选取多少内容，取决于团队能够承诺完成多少，而不是取决于产品任务清单中有多少高优先级需求。
-
-冲刺任务清单至少记录：
-
-- Sprint Goal
-- 对应的产品任务清单条目
-- 具体任务描述
-- 任务执行人
-- 工作量估算
-- 完成状态
-- 是否受阻以及阻塞原因
-
-每个 Sprint 使用 [空白 Sprint Backlog 模板](sprint-backlog-template.md) 创建独立记录。模板不预设任何功能或负责人。
-
-### 燃尽图（Burndown Chart）
-
-燃尽图展示 Sprint 中累计剩余工作量及其变化趋势：
-
-- Sprint 开始时记录总估算工作量。
-- 每天更新剩余工作量，而不是只记录已经花费的时间。
-- 通过实际曲线观察进度过快、过慢或工作量新增的情况。
-- 曲线异常时在每日站会中讨论原因和调整措施。
-
-数据使用 [空白燃尽图记录模板](burndown-template.md) 收集，再在 GitHub Project、表格或其他工具中生成图表。
-
-## 4. Scrum 的四个主要活动
-
-### 冲刺计划会议
-
-在 Sprint 开始前召开。团队共同选择和理解即将到来的 Sprint 中要完成的工作，并形成 Sprint Backlog。
-
-会议需要完成：
-
-1. 确定一个清晰的 Sprint Goal。
-2. 从 Product Backlog 中选择高优先级条目。
-3. 将条目拆成可执行任务。
-4. 确定执行人、估算和初始状态。
-5. 检查总工作量是否符合团队能够承诺完成的能力。
-
-### 每日站立会议
-
-在整个 Sprint 中每天进行，用于了解项目的真实进度。站会不要求必须线下，可以采用线下面对面、线上语音/视频，或设置固定截止时间的异步文字更新。无论采用哪种形式，每位成员都回答：
-
-1. 上次会议之后做了什么？
-2. 下次会议之前准备做什么？
-3. 有没有困难？
-
-同步站会结束后，或异步站会截止时间到达后，更新任务状态、阻塞信息和燃尽图数据。站会用于同步和发现问题，不替代详细的问题讨论。
-
-### 冲刺评审会议
-
-在 Sprint 结束时评审产出，确保实际成果与 Sprint Goal 和预期一致。团队应演示可工作的系统增量，并记录反馈以及需要回到 Product Backlog 的内容。
-
-### 冲刺回顾会议
-
-评价本次 Sprint 的过程，并酝酿改进，使下一轮 Sprint 进行得更好。回顾至少记录：
-
-- 本轮有效的做法
-- 影响完成工作的困难
-- 下一轮准备采取的具体改进
-
-## 5. GitHub 中的对应方式
-
-| 课程中的 Scrum 内容 | GitHub 中的记录位置 |
-| --- | --- |
-| 产品任务清单 | GitHub Issues + Product Backlog 视图 |
-| 冲刺任务清单 | 当前 Sprint 视图 + 独立 Sprint Backlog 文档 |
-| Sprint Goal | Sprint Backlog 顶部字段 |
-| 执行人 | Issue Assignee / Sprint Backlog Owner |
-| 工作量估算 | GitHub Project 数字字段或估算小时 |
-| 完成状态 | `Not started`、`In progress`、`Blocked`、`Done` |
-| 燃尽图 | 每日剩余工作量记录和图表 |
-| 冲刺评审结果 | Sprint Backlog 的 Review 记录 |
-| 冲刺回顾结果 | Sprint Backlog 的 Retrospective 记录 |
-
-建议看板状态：
+建议状态：
 
 ```text
-Product Backlog → Sprint Backlog → In Progress → In Review → Done
+Product Backlog → Ready → Sprint Backlog → In Progress → In Review → Done
                                       ↘ Blocked
 ```
 
-状态列是 GitHub 中的展示方式，不替代三个 Scrum 工件。
+- `Product Backlog`：已记录，但尚未准备开发。
+- `Ready`：需求和验收标准清楚，可以被选择。
+- `Sprint Backlog`：本周期承诺完成。
+- `In Progress`：负责人正在处理。
+- `In Review`：已发起 PR，等待审查或测试。
+- `Done`：满足完成标准并已合并。
+- `Blocked`：存在明确阻塞，并在 Issue 中说明原因。
 
-## 6. Issue、分支和 PR 流程
+建议创建三个视图：全部 Backlog、当前 Sprint 看板、按负责人分组视图。
+
+## 4. 一周 Sprint 节奏
+
+### Sprint Planning（周期开始）
+
+1. Product Owner 说明最高优先级需求。
+2. 团队确定一个清晰的 Sprint Goal。
+3. 检查候选 Issue 是否满足 Definition of Ready。
+4. 团队估算并选择能够完成的工作量。
+5. 成员认领任务并移入 `Sprint Backlog`。
+
+### Daily Scrum（每日异步或 10 分钟会议）
+
+每名成员回答：
+
+- 昨天完成了什么？
+- 今天准备完成什么？
+- 当前有什么阻塞？
+
+Daily Scrum 用于同步和暴露问题，不用于详细汇报或责罚。
+
+### Sprint Review（周期结束）
+
+- 演示实际可以运行的产品增量。
+- 按 Issue 验收标准检查结果。
+- 未达到完成标准的任务返回 Product Backlog，不算部分完成。
+
+### Sprint Retrospective（Review 后）
+
+- 哪些做法有效？
+- 哪些问题影响了交付？
+- 下个 Sprint 只选择一至两个明确改进项。
+
+## 5. Definition of Ready
+
+Issue 进入 Sprint 前必须满足：
+
+- 用户价值或研究目标清楚。
+- 范围足够小，可以在一个 Sprint 内完成。
+- 验收标准可以验证。
+- 依赖和风险已经标明。
+- 已完成 Story Points 估算。
+- 团队没有关键理解分歧。
+
+## 6. Definition of Done
+
+一个 Issue 只有同时满足以下条件才进入 `Done`：
+
+- 验收标准全部通过。
+- 代码和必要测试已完成。
+- Pull Request 至少由一名其他成员审查。
+- 分支已经合并到主分支。
+- 没有已知的阻塞性缺陷。
+- 相关文档已经更新。
+- 可以在 Sprint Review 中演示。
+
+## 7. 从 Issue 到合并的流程
 
 ```text
-产品任务进入 Product Backlog
-  → Sprint Planning 时被团队选中
-  → 拆分任务并填写 Sprint Backlog
-  → 创建 Issue 和功能分支
-  → 开发、验证并更新每日剩余工作量
-  → 发起 Pull Request
-  → 冲刺评审核对产出与预期
-  → 合并并记录回顾结果
+创建/细化 Issue
+  → 进入 Sprint Backlog
+  → 创建功能分支
+  → 提交代码和测试
+  → 发起 PR 并关联 Issue
+  → 代码审查与验收
+  → 合并主分支
+  → Issue 进入 Done
 ```
 
 分支示例：
@@ -150,25 +110,37 @@ docs/7-api-design
 research/5-wechat-access
 ```
 
-## 7. 智能化软件项目的调整
+每名成员原则上同时只保持一个主要 `In Progress` 任务，减少大量工作同时开始却无法完成。
 
-课程指出，AI 模型的每次迭代不一定取得更好效果。智能化软件的需求可能相对明确，但团队并不确定 AI 是否能够有效解决问题。因此：
+## 8. 建议迭代计划
 
-- 把关键 AI 能力写成有明确问题、时间盒和结论的技术验证项。
-- 在模型探索阶段，重点记录实验条件、结果和结论；不为了形式提前堆积大量工程文档和自动化测试。
-- 评审 AI 工作时不能只检查“代码是否完成”，还要检查效果是否达到预期。
-- 模型达到预期后，再进行工程化过渡，包括流水线、维护迭代、基础设施和工具。
-- 验证失败也可以是有效的 Sprint 产出，但必须给出证据、结论和下一步建议。
+### Sprint 0：准备和技术验证
 
-## 8. Sprint 内容填写原则
+目标：让项目具备正式开发条件。
 
-仓库不预先规定 Sprint 1、Sprint 2 或后续 Sprint 必须实现哪些功能。每次 Sprint 的目标和任务保持空白，直到团队召开 Sprint Planning，并结合以下信息共同决定：
+- 确定 MVP 范围和技术栈。
+- 设计任务数据结构和主要页面原型。
+- 验证 AI 提取 DDL 的效果。
+- 调研微信数据获取与隐私风险。
+- 建立 GitHub Project、Issue 和 PR 流程。
 
-- Product Backlog 的当前优先级
-- 上一次 Review 的反馈
-- AI 可行性验证结果
-- 成员在本周期的实际时间和能力
-- 适合本轮工作的 Sprint 时长与站会形式
-- 团队能够承诺完成的总工作量
+### Sprint 1：最小闭环
 
-决定后复制空白模板，按实际编号保存，例如 `docs/sprints/sprint-01.md`。
+目标：用户能够粘贴文本、确认 AI 提取结果并创建任务。
+
+### Sprint 2：任务规划
+
+目标：用户能够填写预计耗时，并获得可调整的执行时间建议。
+
+### Sprint 3：提醒与重新规划
+
+目标：系统能够追踪进度，并在计划变化时提供重新排程和提醒。
+
+邮件、教学平台、微信自动读取、位置感知和课程回放在 MVP 稳定后重新排序。
+
+## 9. 推荐标签
+
+- 类型：`feature`、`bug`、`research`、`documentation`、`test`
+- 优先级：`priority:P0`、`priority:P1`、`priority:P2`
+- 模块：`area:frontend`、`area:backend`、`area:ai`、`area:database`、`area:privacy`
+- 工作量通过 GitHub Project 的 Story Points 字段管理，不再创建重复标签。

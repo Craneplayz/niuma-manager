@@ -1,69 +1,68 @@
-name: 产品任务清单条目
-description: 添加功能、非功能需求、Bug、技术事项或待确认问题
-title: "[Backlog] "
+name: 用户故事
+description: 提交一个面向用户、可以独立验收的产品需求
+title: "[Feature] "
+labels:
+  - feature
 body:
   - type: markdown
     attributes:
       value: |
-        产品任务清单会持续完善并按重要程度排序。不要在创建条目时预先指定 Sprint；由团队在冲刺计划会议中选择。
-  - type: dropdown
-    id: item-type
-    attributes:
-      label: 条目类型
-      options:
-        - 功能需求或用户故事
-        - 非功能需求
-        - Bug
-        - 新技术或平台支持
-        - 待回答的问题
-        - 未来可能增加的功能
-    validations:
-      required: true
+        请先确认该需求没有重复。进入 Sprint 前必须补全验收标准、优先级和估算。
   - type: textarea
-    id: story-or-problem
+    id: user-story
     attributes:
-      label: 需求、故事或问题
-      description: 用户故事可以使用“作为……我希望……从而……”，技术或问题类条目应写清需要回答的内容。
+      label: 用户故事
+      description: 使用“作为……我希望……从而……”描述用户价值。
+      placeholder: |
+        作为一名需要管理课程任务的学生，
+        我希望粘贴课程通知后自动识别任务和截止时间，
+        从而避免遗漏任务。
     validations:
       required: true
   - type: textarea
     id: details
     attributes:
-      label: 描述
-      description: 说明范围、背景和必要约束，不在此处预先拆分 Sprint 任务。
+      label: 功能说明
+      description: 描述范围、交互和必要约束，不在此处预设过多实现细节。
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
-      label: 预期结果或验收依据
-      description: 功能需求填写可验证结果；探索事项填写预期得到的证据和结论。
+      label: 验收标准
+      description: 每条标准都应能被验证。
       placeholder: |
-        - [ ] 预期结果一
-        - [ ] 预期结果二
+        - [ ] 用户可以粘贴文本
+        - [ ] 系统能够识别任务名称和截止时间
+        - [ ] 模糊时间会要求用户确认
     validations:
       required: true
   - type: dropdown
     id: priority
     attributes:
-      label: 当前优先级
+      label: 建议优先级
       options:
-        - P0 - 最小闭环所必需
+        - P0 - MVP 必须完成
         - P1 - 核心增强
-        - P2 - 探索性或远期
+        - P2 - 探索性功能
     validations:
       required: true
-  - type: input
-    id: issuer
+  - type: dropdown
+    id: estimate
     attributes:
-      label: 提出人
-      description: 填写提出该条目的成员、用户或会议来源。
+      label: 初步估算
+      options:
+        - 1
+        - 2
+        - 3
+        - 5
+        - 8 - 进入 Sprint 前需要继续拆分
     validations:
       required: true
   - type: textarea
     id: dependencies
     attributes:
       label: 依赖与风险
-      description: 包括权限、数据、隐私、平台或模型效果风险；没有则写“无”。
+      description: 填写依赖的 Issue、权限、外部平台或隐私风险；没有则写“无”。
     validations:
       required: true

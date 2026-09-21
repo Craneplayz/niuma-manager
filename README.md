@@ -9,8 +9,6 @@
 - [产品需求](docs/product-requirements.md)
 - [Product Backlog](docs/product-backlog.md)
 - [Scrum 开发流程](docs/scrum-workflow.md)
-- [空白 Sprint Backlog 模板](docs/sprint-backlog-template.md)
-- [空白燃尽图记录模板](docs/burndown-template.md)
 - [参与开发](CONTRIBUTING.md)
 
 ## MVP
@@ -25,10 +23,10 @@
 
 ## 协作方式
 
-1. 每项产品任务建立一个 Issue，包括功能、非功能需求、Bug、技术事项和待确认问题。
-2. Sprint 计划会议时，团队根据优先级和实际承诺能力共同选择本次任务。
+1. 每项需求建立一个 Issue，并写明用户故事和验收标准。
+2. Sprint Planning 时从 Product Backlog 中选择本周期任务。
 3. 开发者从主分支创建功能分支，不直接向主分支提交。
 4. 完成后发起 Pull Request，至少经过一名成员审查。
-5. 冲刺结束时通过评审核对实际产出与预期目标，并在回顾会议中确定改进项。
+5. 满足 Definition of Done 后合并，并关闭对应 Issue。
 
 详细规则见 [Scrum 开发流程](docs/scrum-workflow.md)。
