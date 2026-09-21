@@ -6,23 +6,13 @@
 
 ## 项目文档
 
-- [产品需求](docs/product-requirements.md)
-- [Product Backlog](docs/product-backlog.md)
-- [项目协作规范](docs/scrum-workflow.md)
-- [参与开发](CONTRIBUTING.md)
+- [产品定义与需求说明](docs/product-requirements.md)：项目背景、目标用户、产品边界和全局质量要求。
+- [Product Backlog](docs/product-backlog.md)：高层级功能需求及其当前状态。
+- [项目协作规范](docs/scrum-workflow.md)：Scrum 角色、工件、活动、任务状态和完成条件。
+- [参与开发](CONTRIBUTING.md)：领取 Issue、创建分支、提交 Commit、发起 PR 和完成 Review 的操作步骤。
 
-## 功能范围
+## 当前工作方式
 
-项目当前已记录课程与自学信息获取、多渠道 DDL 识别、日程生成、学习时间分配、任务规划与提醒、主任务拆解、进度与优先级管理、任务依赖、OCR 信息提取、位置场景辅助和课程回放整理等高层级需求。
+小组使用 GitHub Issues 记录细化后的需求和任务，使用 GitHub Project 跟踪 Sprint、状态、负责人和工作量，使用 Pull Request 审查代码与文档变更。
 
-各项需求的优先级、验收标准和开发顺序尚未确定，具体内容见 [Product Backlog](docs/product-backlog.md)。
-
-## 协作方式
-
-1. 每项需求建立一个 Issue，并写明用户故事和验收标准。
-2. Sprint Planning 时从 Product Backlog 中选择本周期任务。
-3. 开发者从主分支创建功能分支，不直接向主分支提交。
-4. 完成后发起 Pull Request，至少经过一名成员审查。
-5. 满足 Definition of Done 后合并，并关闭对应 Issue。
-
-详细规则见 [项目协作规范](docs/scrum-workflow.md)。
+产品范围和待实现功能分别以产品定义与需求说明、Product Backlog 为准；团队管理规则和开发操作分别以项目协作规范、参与开发文档为准。

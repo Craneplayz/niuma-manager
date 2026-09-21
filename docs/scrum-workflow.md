@@ -54,13 +54,13 @@
 | 信息 | 正式记录位置 |
 | --- | --- |
 | 项目简介与文档入口 | `README.md` |
-| 产品范围和需求说明 | `docs/product-requirements.md` |
-| 整体产品需求 | `docs/product-backlog.md` |
-| 细化后的需求与开发任务 | GitHub Issues |
-| Sprint、状态、优先级、估算和负责人 | GitHub Project |
-| 具体需求、Bug、调研任务及验收标准 | GitHub Issues |
+| 产品目标、边界和全局质量要求 | `docs/product-requirements.md` |
+| 高层级功能需求清单 | `docs/product-backlog.md` |
+| 细化后的需求、Bug、调研任务及验收标准 | GitHub Issues |
+| Sprint、任务状态、优先级、估算和负责人 | GitHub Project |
 | 代码与文档修改 | Git 分支与 Pull Request |
-| 项目协作规则 | 本文档与 `CONTRIBUTING.md` |
+| Scrum 角色、活动、状态和完成条件 | 本文档 |
+| 分支、Commit、PR 和 Review 操作 | `CONTRIBUTING.md` |
 | 临时讨论 | 小组群聊或会议 |
 
 临时讨论产生的决定须由相关负责人同步到正式记录。未同步的信息不作为最终项目依据。
@@ -69,11 +69,9 @@
 
 ### 5.1 Product Backlog
 
-Product Backlog 首先记录项目希望实现的整体产品能力，包括：
+Product Backlog 记录项目希望实现的高层级功能需求、条目状态和后续排序。产品目标、产品边界以及适用于全部功能的隐私、可靠性等全局要求统一记录在产品定义与需求说明中，不在 Backlog 内重复。
 
-- 主要功能模块；
-- 性能、隐私、可靠性等非功能要求；
-- 尚未解决的问题与未来能力。
+当某项全局要求需要独立实现或验证时，小组为其建立 Issue，并关联受影响的 Product Backlog 条目。
 
 Product Owner 负责维护排序。小组在需求变化、Sprint Review 结束或技术验证产生新结论后更新 Backlog。
 
@@ -191,47 +189,12 @@ Issue 在进入 Sprint 前还须明确负责人和工作量估算。范围超过
 
 每名成员原则上同时只负责一个主要的 `In Progress` 任务。开始新任务前，须先完成、移交或说明当前任务状态。
 
-## 8. Git 与代码协作规范
+## 8. 代码协作要求
 
-### 8.1 分支
-
-所有修改从最新主分支创建独立分支：
-
-```text
-feature/<issue-number>-<short-name>
-fix/<issue-number>-<short-name>
-docs/<issue-number>-<short-name>
-research/<issue-number>-<short-name>
-```
-
-一个分支只处理一个明确目标，不得混入无关修改。
-
-### 8.2 Commit
-
-Commit 使用 Conventional Commits：
-
-```text
-feat: add DDL extraction result editor
-fix: handle ambiguous relative dates
-docs: update collaboration rules
-test: cover task deadline parsing
-refactor: simplify task status transitions
-```
-
-一次 Commit 只表达一个完整目的。仓库中不得提交密钥、账号信息、个人数据、构建产物或仅适用于个人电脑的配置。
-
-### 8.3 Pull Request
-
-每个 PR 须满足：
-
-1. 关联对应 Issue，并使用 `Closes #<issue-number>`；
-2. 说明变更内容、验证方式、风险及影响；
-3. 提供必要的测试结果，界面改动提供截图或录屏；
-4. 由至少一名非作者成员审查；
-5. 处理全部阻塞性审查意见；
-6. 通过验收后再合并到主分支。
-
-合并完成后删除功能分支，并同步更新 Issue 与 Project 状态。
+1. 代码和文档修改须关联 Issue，并通过独立分支和 Pull Request 提交。
+2. 主分支不得直接推送；PR 须由至少一名非作者成员审查后才能合并。
+3. PR 合并前须满足对应 Issue 的验收标准和本规范规定的完成条件。
+4. 分支命名、Commit 格式、PR 填写和 Review 操作统一按照[参与开发](../CONTRIBUTING.md)执行，本文件不重复规定具体操作步骤。
 
 ## 9. AI 与技术调研规范
 
