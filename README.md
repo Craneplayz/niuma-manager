@@ -19,7 +19,7 @@
 
 ## 文本任务识别模块
 
-阶段 A 提供可评审的约定与合成样例，尚未实现识别程序或接通模型。
+阶段 A 提供约定与合成样例，阶段 B 提供可运行的离线处理骨架。当前尚未接通真实模型，离线回放不代表识别效果。
 
 - [需求基线与职责边界](docs/text-extraction-requirements.md)
 - [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)
@@ -29,3 +29,4 @@
 - [人工标注与阶段 A 验收](docs/text-annotation-guide.md)
 - [合成契约样例](docs/examples/text-contract-v0.1.json)
 - [阶段 A 交付与复核记录](docs/text-stage-a-review.md)
+- [阶段 B 运行、配置与检查](docs/text-stage-b-runner.md)
