@@ -16,6 +16,10 @@ def render_text(result, mode):
                       "课程/项目：" + (task["course_or_project"] or "未提供"),
                       "通知性质：" + notice_types[task["notice_type"]],
                       label + "：" + (deadline["value"] or "待核实") + "（" + date_states[deadline["status"]] + "）"])
+        if task["description"].strip():
+            lines.append("具体要求：" + task["description"])
+        if deadline["raw"]:
+            lines.append("时间原文：" + deadline["raw"])
         if deadline["precision"] == "date":
             lines.append("时间精度：仅日期，未指定时刻。")
         if task["prerequisites"]:
