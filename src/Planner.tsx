@@ -1,57 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Task } from './App'
-import { eligible, requestPlanning, validateAvailability, type Availability, type PlanningRequest, type PlanningResult } from './planning'
-import { useUserData } from './account'
-
-export default function Planner({userId,tasks,onClose,onApply}:{userId:string;tasks:Task[];onClose:()=>void;onApply:(result:PlanningResult,snapshot:string)=>boolean}) {
-  const date = new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date())
-  const end = new Date(Date.parse(date+'T00:00:00Z')+13*86400000).toISOString().slice(0,10)
-  const [saved,savePreferences,storageError] = useUserData<Availability>(userId,'availability',{startDate:date,endDate:end,startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5],focusMinutes:60,dailyMinutes:120})
-  const [a,setA]=useState<Availability>({...saved,startDate:date,endDate:end})
-  const pending=eligible(tasks)
-  const [hours,setHours]=useState<Record<string,number>>(Object.fromEntries(pending.map(t=>[t.id,(t.estimatedMinutes||60)/60])))
-  const [selected,setSelected]=useState(pending.map(t=>t.id))
-  const [busy,setBusy]=useState(false), [error,setError]=useState('')
-  const [notice,setNotice]=useState('')
-  const [result,setResult]=useState<PlanningResult|null>(null)
-  const [snapshot,setSnapshot]=useState('')
+import { api, useUserData } from './account'
+type Availability={startTime:string;endTime:string;weekdays:number[]}
+type Result={requestId:string;blocks:{taskId:string;title:string;startAt:string;endAt:string}[];estimates:Record<string,number>;warnings:string[]}
+export default function Planner({userId,tasks,onClose,onTasks,onApplied}:{userId:string;tasks:Task[];onClose:()=>void;onTasks:(tasks:Task[])=>Promise<boolean>;onApplied:()=>Promise<void>}) {
+  const [saved,save,error]=useUserData<Availability>(userId,'availability',{startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]})
+  const [availability,setAvailability]=useState(saved)
+  const [busy,setBusy]=useState(false),[message,setMessage]=useState(''),[result,setResult]=useState<Result|null>(null)
   const controller=useRef<AbortController|null>(null)
   useEffect(()=>()=>controller.current?.abort(),[])
-  const change=(patch:Partial<Availability>)=>{setA({...a,...patch});setResult(null)}
-  return <div className="modal-layer"><section className="editor planning-editor" role="dialog" aria-modal="true" aria-label="开始规划">
-    <header className="editor-head"><div><p className="eyebrow">独立规划 · Asia/Shanghai</p><h2>把未安排任务放进可用时间</h2></div><button className="icon-button" aria-label="关闭规划" onClick={()=>{controller.current?.abort();onClose()}}>×</button></header>
-    <div className="form-scroll">
-      <p className="local-note">{import.meta.env.VITE_API_BASE_URL?'将所选任务、真实 DDL、当前安排和可用时间发送给规划服务。':'本地演示规划器（未连接大模型）：按截止日期和可用时间生成建议。'} 确认前不会修改任务或日历。</p>
-      <fieldset disabled={busy}><legend>1. 可用时间</legend><div className="form-grid">
-        <label>开始日期<input type="date" value={a.startDate} onChange={e=>change({startDate:e.target.value})}/></label><label>结束日期<input type="date" value={a.endDate} onChange={e=>change({endDate:e.target.value})}/></label>
-        <label>每日开始<input type="time" value={a.startTime} onChange={e=>change({startTime:e.target.value})}/></label><label>每日结束<input type="time" value={a.endTime} onChange={e=>change({endTime:e.target.value})}/></label>
-        <label>单次专注（分钟）<input type="number" min="15" max="240" value={a.focusMinutes} onChange={e=>change({focusMinutes:Number(e.target.value)})}/></label><label>每日新增计划上限（分钟）<input type="number" min="15" max="1440" value={a.dailyMinutes} onChange={e=>change({dailyMinutes:Number(e.target.value)})}/></label>
-      </div><div className="weekday-options">{[1,2,3,4,5,6,0].map(d=><label key={d}><input type="checkbox" checked={a.weekdays.includes(d)} onChange={()=>change({weekdays:a.weekdays.includes(d)?a.weekdays.filter(x=>x!==d):[...a.weekdays,d]})}/>{['周日','周一','周二','周三','周四','周五','周六'][d]}</label>)}</div>
-      <button className="secondary-button" onClick={()=>{setError('');setNotice('');try{validateAvailability(a);if(savePreferences(a))setNotice('可用时间偏好已保存')}catch(e){setError((e as Error).message)}}}>保存为默认偏好</button>
-      {notice&&<p role="status">{notice}</p>}
-      </fieldset>
-      <fieldset disabled={busy}><legend>2. 未安排任务（{pending.length}）</legend><p className="muted">仅列出未完成且没有执行计划的主任务。没有预计工时的任务默认 1 小时，请核对。</p>
-      {pending.map(t=><div className="planning-task" key={t.id}><label><input type="checkbox" checked={selected.includes(t.id)} onChange={()=>{setSelected(selected.includes(t.id)?selected.filter(id=>id!==t.id):[...selected,t.id]);setResult(null)}}/><span>{t.title}<small>真实 DDL：{t.due?`${t.due.date} ${t.due.time||'仅日期'}`:'未设置'}</small></span></label><label>预计小时<input aria-label={`${t.title}预计小时`} type="number" min="0.25" step="0.25" max="1000" value={hours[t.id]} onChange={e=>{setHours({...hours,[t.id]:Number(e.target.value)});setResult(null)}}/></label></div>)}
-      {!pending.length&&<p>没有未安排任务。先创建任务并确认真实 DDL，再回来规划。</p>}</fieldset>
-      <details><summary>会一起提交的现有安排（{tasks.reduce((n,t)=>n+t.plans.length,0)}）</summary>{tasks.flatMap(t=>t.plans.map(p=><p key={p.id}>{t.title} · {p.startAt.replace('T',' ')} — {p.endAt?.replace('T',' ')}{p.isLocked?' · 已固定':''}</p>))}<p className="muted">现有安排保持不变，并作为不可重叠的占用时段。</p></details>
-      {(error||storageError)&&<p className="form-error" role="alert">{storageError||error}</p>}
-      {result&&<section className="proposal"><h3>3. 规划预览 · 新增 {result.blocks.length} 个时段</h3>{result.warnings.map((w,i)=><p className="warning" key={i}>{w}</p>)}{result.blocks.map((b,i)=><article key={i}><strong>{b.title}</strong><p>{b.startAt.slice(0,10)} · {b.startAt.slice(11,16)}–{b.endAt.slice(11,16)}</p></article>)}<p>真实 DDL 和已有安排均保持不变。确认后新增时段才进入日历。</p></section>}
-    </div>
-    <footer className="editor-footer">{busy?<button className="secondary-button" onClick={()=>controller.current?.abort()}>取消等待</button>:<button className="secondary-button" disabled={!selected.length} onClick={async()=>{
-      setError('');setResult(null)
-      try {
-        validateAvailability(a)
-        const chosen=pending.filter(t=>selected.includes(t.id))
-        if(!chosen.length||chosen.some(t=>!Number.isFinite(hours[t.id])||hours[t.id]<=0||hours[t.id]>1000))throw new Error('请选择任务并填写有效预计工时')
-        const request:PlanningRequest={schemaVersion:'1.0',requestId:crypto.randomUUID(),requestedAt:new Date().toISOString(),timezone:'Asia/Shanghai',availability:a,tasks:chosen.map(t=>({id:t.id,title:t.title,description:t.description,due:t.due,priority:t.priority,estimatedMinutes:Math.round(hours[t.id]*60)})),existingPlans:tasks.flatMap(t=>t.plans.map(p=>({...p,taskId:t.id})))}
-        setSnapshot(JSON.stringify(tasks));setBusy(true);controller.current=new AbortController()
-        const timeout=window.setTimeout(()=>controller.current?.abort(),30000)
-        let next: PlanningResult
-        try { next=await requestPlanning(request,controller.current.signal) }
-        finally { clearTimeout(timeout) }
-        if(!controller.current.signal.aborted)setResult(next)
-      }catch(e){setError((e as Error).name==='AbortError'?'已取消或请求超时，任务保持不变；可以重新生成':(e as Error).message)}finally{setBusy(false)}
-    }}>{result?'重新生成':'开始规划'}</button>}
-    {result&&<button className="primary-button" disabled={!result.blocks.length||busy} onClick={()=>{if(onApply(result,snapshot))onClose();else setError('任务数据已变化或保存失败，请重新生成规划')}}>确认应用计划</button>}</footer>
-  </section></div>
+  const pending=tasks.filter(t=>!['completed','cancelled'].includes(t.status)&&!t.plans.length)
+  const count=pending.filter(t=>!t.planningExcluded).length
+  return <div className="modal-layer"><section className="editor planning-editor" role="dialog" aria-modal="true" aria-label="开始规划"><header className="editor-head"><div><p className="eyebrow">智能规划</p><h2>让任务找到合适的时间</h2></div><button className="icon-button" aria-label="关闭规划" onClick={onClose}>×</button></header><div className="form-scroll">
+    <p className="local-note">默认规划全部需要安排的任务。模型会结合真实截止日期、已有安排和你的完成记录评估用时。确认前不会修改日历。</p>
+    <fieldset disabled={busy}><legend>你的可用时间</legend><div className="form-grid"><label>每日开始<input type="time" value={availability.startTime} onChange={e=>{setAvailability({...availability,startTime:e.target.value});setResult(null)}}/></label><label>每日结束<input type="time" value={availability.endTime} onChange={e=>{setAvailability({...availability,endTime:e.target.value});setResult(null)}}/></label></div><div className="weekday-options">{[1,2,3,4,5,6,0].map(d=><label key={d}><input type="checkbox" checked={availability.weekdays.includes(d)} onChange={()=>{setAvailability({...availability,weekdays:availability.weekdays.includes(d)?availability.weekdays.filter(x=>x!==d):[...availability.weekdays,d]});setResult(null)}}/>{['周日','周一','周二','周三','周四','周五','周六'][d]}</label>)}</div>
+    <details className="exclusion-list"><summary>无需规划的任务 · 已排除 {pending.length-count} 项</summary><p className="muted">勾选后不参与规划，选择会保存到账号。已有安排的任务保持不变。</p>{pending.map(t=><label className="exclude-row" key={t.id}><input type="checkbox" checked={!!t.planningExcluded} onChange={async()=>{setBusy(true);setResult(null);try{if(!await onTasks(tasks.map(x=>x.id===t.id?{...x,planningExcluded:!x.planningExcluded}:x)))setMessage('保存选择失败，请刷新后重试')}finally{setBusy(false)}}}/><span>{t.title}</span><small>{t.due?.date||'无截止日期'}</small></label>)}{!pending.length&&<p>当前没有需要安排的任务。</p>}</details></fieldset>
+    <p className="muted">本次将评估 {count} 个任务，保留 {tasks.reduce((n,t)=>n+t.plans.length,0)} 个已有时段。</p>
+    {(message||error)&&<p className="form-error" role="alert">{message||error}</p>}
+    {result&&<section className="proposal"><h3>规划预览</h3>{Object.entries(result.estimates).map(([id,minutes])=><p key={id}>{tasks.find(t=>t.id===id)?.title} · 模型评估 {minutes} 分钟</p>)}{result.warnings.map((w,i)=><p key={i}>{w}</p>)}{result.blocks.map((b,i)=><article key={i}><strong>{b.title}</strong><p>{b.startAt.slice(0,10)} · {b.startAt.slice(11,16)}–{b.endAt.slice(11,16)}</p></article>)}</section>}
+  </div><footer className="editor-footer">{busy?<button className="secondary-button" onClick={()=>controller.current?.abort()}>取消等待</button>:<button className="secondary-button" disabled={!count} onClick={async()=>{setMessage('');setResult(null);if(!availability.weekdays.length||!availability.startTime||availability.endTime<=availability.startTime){setMessage('请选择有效可用时间和星期');return}setBusy(true);controller.current=new AbortController();const timer=setTimeout(()=>controller.current?.abort(),30000);try{if(await save(availability))setResult(await api('/planning/proposals','POST',{},controller.current.signal))}catch(e){setMessage((e as Error).name==='AbortError'?'已取消或请求超时，任务未变更':(e as Error).message)}finally{clearTimeout(timer);setBusy(false)}}}>{result?'重新生成':'开始规划'}</button>}
+  {result&&<button className="primary-button" disabled={busy||!result.blocks.length} onClick={async()=>{setBusy(true);try{await api('/planning/apply','POST',{requestId:result.requestId});await onApplied();onClose()}catch(e){setMessage((e as Error).message)}finally{setBusy(false)}}}>确认应用计划</button>}</footer></section></div>
 }
