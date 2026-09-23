@@ -16,3 +16,16 @@
 小组使用 GitHub Issues 记录细化后的需求和任务，使用 GitHub Project 跟踪 Sprint、状态、负责人和工作量，使用 Pull Request 审查代码与文档变更。
 
 产品范围和待实现功能分别以产品定义与需求说明、Product Backlog 为准；团队管理规则和开发操作分别以项目协作规范、参与开发文档为准。
+
+## 文本任务识别模块
+
+阶段 A 提供可评审的约定与合成样例，尚未实现识别程序或接通模型。
+
+- [需求基线与职责边界](docs/text-extraction-requirements.md)
+- [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)
+- [分阶段开发、检查与提交计划](docs/text-development-plan.md)
+- [输入输出约定 v0.1](docs/text-contract-v0.1.md)
+- [上游样例观察与映射](docs/text-source-mapping.md)
+- [人工标注与阶段 A 验收](docs/text-annotation-guide.md)
+- [合成契约样例](docs/examples/text-contract-v0.1.json)
+- [阶段 A 交付与复核记录](docs/text-stage-a-review.md)
