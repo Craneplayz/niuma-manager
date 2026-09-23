@@ -21,6 +21,8 @@
 
 阶段 A 提供约定与合成样例，阶段 B 提供可运行的离线处理骨架。当前尚未接通真实模型，离线回放不代表识别效果。
 
+阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。可用合成草稿测试，真实模型识别仍待接通和评测。
+
 - [需求基线与职责边界](docs/text-extraction-requirements.md)
 - [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)
 - [分阶段开发、检查与提交计划](docs/text-development-plan.md)
@@ -30,3 +32,4 @@
 - [合成契约样例](docs/examples/text-contract-v0.1.json)
 - [阶段 A 交付与复核记录](docs/text-stage-a-review.md)
 - [阶段 B 运行、配置与检查](docs/text-stage-b-runner.md)
+- [阶段 C 文件说明、演示与测试](docs/text-stage-c-extraction.md)

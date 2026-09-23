@@ -2,6 +2,34 @@
 
 关联 [TXT-02 / #4](https://github.com/Craneplayz/niuma-manager/issues/4)。阶段 A 的 [PR #11](https://github.com/Craneplayz/niuma-manager/pull/11) 尚未合并时，本分支暂以其提交为基础；本阶段不代表真实模型已接通。
 
+阶段 B 已随 PR #12 合并。新增的 skill、草稿处理与日期代码见[阶段 C 文件说明](text-stage-c-extraction.md)；下面保留原有骨架的使用方式。
+
+## 文件用途速查
+
+以下路径均相对于仓库根目录。第一次阅读建议先看本文件，再看输入输出约定，最后看 `pipeline.py`。
+
+| 文件 | 用途 |
+| --- | --- |
+| `ddl_text/__init__.py` | 标记文本模块为 Python 包。 |
+| `ddl_text/__main__.py` | 命令行入口：读取文件或标准输入，选择演示、配置与输出格式。 |
+| `ddl_text/config.py` | 集中定义和检查配置，例如超时时间、重试次数及预留模型参数。 |
+| `ddl_text/adapters.py` | 定义 Agent 调用接口、离线样例回放和未接入模型时的明确报错。后续真实模型从这里的接口接入。 |
+| `ddl_text/contracts.py` | 补齐输入的未知字段，检查输入格式及候选任务的结构、来源和证据。 |
+| `ddl_text/pipeline.py` | 整体处理流程：逐条处理、决定是否重试、汇总任务与失败结果。 |
+| `ddl_text/runner.py` | 在独立子进程中调用适配器，处理超时、进程回收及安全的错误返回。 |
+| `ddl_text/render.py` | 将内部结果转换为中文说明，包括任务、日期、来源和待核实原因。 |
+| `tests/__init__.py` | 标记测试目录为 Python 包。 |
+| `tests/fake_adapters.py` | 测试用适配器，用于模拟失败、超时等情况，不是真实模型。 |
+| `tests/test_pipeline.py` | 自动测试批量处理、重试、超时、格式校验和命令行入口等行为。 |
+| `scripts/check_text_contract_examples.py` | 检查阶段 A 的合成输入和期望输出是否符合样例约定。 |
+| `docs/examples/text-contract-v0.1.json` | 合成输入及人工期望结果，供演示和测试使用。 |
+| `docs/examples/text-runner-config.json` | 配置文件示例。 |
+| `docs/text-contract-v0.1.md` | 各个输入输出字段、日期和不确定性的详细约定。 |
+| `.gitignore` | 排除缓存、环境文件和本地私人测试数据，避免误提交。 |
+| `README.md` | 项目入口和其他需求、计划、交付文档的导航。 |
+
+简单理解调用流程：命令行入口 → `pipeline` 汇总处理 → `runner` 调用 `adapter` → 检查结果 → 输出 JSON 或由 `render` 转为中文文本。
+
 ## 运行方式
 
 仓库根目录执行，要求 Python 3.9 或更新版本。当前机器以 Windows / Python 3.9.12 验证。仅使用标准库，无需安装第三方依赖或配置密钥。本选择用于独立文本模块，不要求团队其他部分采用 Python；传输协议、运行服务器仍可调整。
