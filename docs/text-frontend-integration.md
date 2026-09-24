@@ -1,5 +1,7 @@
 # 文本识别与前端对接（v0.2）
 
+最新状态：前端 PR #15/#16 已合并，目录变为 `frontend/`。首轮网页验收及本轮真实识别超时记录见[阶段 E 进度](text-stage-e-progress.md)；下方早期成功记录不代表当前服务稳定性已验收。
+
 2026-09-24 对接前端 [PR #15](https://github.com/Craneplayz/niuma-manager/pull/15)，验证基线为 `3251c8eabf1224df9090b0752b94d1c9e3abc0b8`。前端页面与账户 API 无需改动，文本模块增加 v0.2 输出及本地 HTTP 服务。运行完整产品需要同时包含文本模块 PR #14 和前端 PR #15 的代码；本分支没有复制整套前端。
 
 ## 数据如何流动
@@ -25,7 +27,7 @@ Python 3.9+；Windows 需要可用的 IANA 时区数据库，若 `python -c "fro
    python server/app.py
    ```
 
-3. 按前端 PR 的说明安装依赖并启动网页：`npm ci`、`npm run dev`。登录后进入“待确认”，输入一段合成通知，点击“识别为候选”，核对后确认。
+3. 新开终端，先 `cd frontend`，再按前端说明安装依赖并启动网页：`npm ci`、`npm run dev`。登录后进入“待确认”，输入一段合成通知，点击“识别为候选”，核对后确认。最新前端代码已独立到 `frontend/`，不要在仓库根目录运行 npm。
 
 `GET http://127.0.0.1:1333/health` 只检查服务是否启动，不调用模型。端口可用 `--port` 修改；同时修改 `TEXT_HARNESS_URL`。不要把真实 API 密钥填入前端页面或 `VITE_*` 变量。
 
