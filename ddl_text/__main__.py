@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .adapters import ReplayAdapter, UnavailableAdapter
 from .config import Settings
+from .codex_client import ROOT, CodexClient, live_options, preflight, validate_endpoint
 from .extraction import ExtractionAdapter, OfflineDraftClient
 from .pipeline import process_request
 from .render import render_text
@@ -21,8 +22,8 @@ def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="文本处理、结果回放与合成草稿验证；真实 Agent 尚未接入")
-    source = parser.add_mutually_exclusive_group(required=True)
+    parser = argparse.ArgumentParser(description="文本识别：离线回放或 DeepSeek 经 Codex 调用")
+    source = parser.add_mutually_exclusive_group()
     source.add_argument("--demo", help="合成样例 case_id，例如 absolute、multiple、partial-batch")
     source.add_argument("--input", help="UTF-8 JSON 请求路径，- 表示标准输入")
     parser.add_argument("--replay", help="人工合成回放文件，格式与契约样例相同")
@@ -31,7 +32,13 @@ def main(argv=None):
     parser.add_argument("--format", choices=["text", "json"], default="text")
     parser.add_argument("--config", help="仅含非敏感参数的 JSON 配置路径")
     parser.add_argument("--audit", action="store_true", help="向标准错误输出不含正文的状态与耗时")
+    parser.add_argument("--env-file", default=str(ROOT / ".env"), help="真实模式的本地密钥配置文件")
+    parser.add_argument("--check-connection", action="store_true", help="只检查本地配置和 CLI，不访问模型")
     args = parser.parse_args(argv)
+    if not (args.demo or args.input or args.check_connection):
+        parser.error("请选择 --demo、--input 或 --check-connection")
+    if args.check_connection and (args.demo or args.input or args.replay or args.drafts):
+        parser.error("本地配置检查不能与输入或回放同时使用")
     if args.demo and (args.mode != "offline" or args.replay or args.drafts):
         parser.error("--demo 只允许离线内置回放")
     if args.mode == "real" and (args.replay or args.drafts):
@@ -42,8 +49,27 @@ def main(argv=None):
         config = json.loads(Path(args.config).read_text(encoding="utf-8-sig")) if args.config else {}
         if not isinstance(config, dict) or "mode" in config:
             raise ValueError("mode must be selected explicitly by CLI")
+        options = None
+        if args.mode == "real" or args.check_connection:
+            options = live_options(Path(args.env_file))
+            config.setdefault("model", options["model"])
+            config.setdefault("endpoint", options["endpoint"])
+            config.setdefault("timeout_seconds", 120)
+            if config.get("credential_env") not in (None, "DEEPSEEK_API_KEY"):
+                raise ValueError("use DEEPSEEK_API_KEY")
         settings = Settings(mode=args.mode, **config)
         adapter = UnavailableAdapter()
+        if options is not None:
+            if not settings.model or not settings.endpoint:
+                raise ValueError("real mode requires model and endpoint")
+            validate_endpoint(settings.endpoint)
+            executable = preflight(options) if args.check_connection or options["key"].strip() else None
+            if args.check_connection:
+                print("Codex CLI：可用；配置格式：通过；密钥：" +
+                      ("已配置" if options["key"].strip() else "未填写") + "。本检查未调用模型。")
+                return 0 if options["key"].strip() else 1
+            if executable is not None:
+                adapter = ExtractionAdapter(CodexClient(executable, options["key"]))
         if args.drafts:
             entries = json.loads(Path(args.drafts).read_text(encoding="utf-8-sig"))
             if not isinstance(entries, list):
@@ -68,8 +94,8 @@ def main(argv=None):
     if args.audit:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
     # Diagnostics describe mode; JSON stdout stays a pure v0.1 result object.
-    print("mode=%s; live_adapter=unavailable; offline=%s" %
-          (settings.mode, "synthetic_drafts" if args.drafts else "replay_only"), file=sys.stderr)
+    print("mode=%s; adapter=%s" % (settings.mode,
+          "codex" if settings.mode == "real" else "synthetic_drafts" if args.drafts else "replay_only"), file=sys.stderr)
     result = process_request(request, adapter, settings)
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.format == "json"
           else render_text(result, "drafts" if args.drafts else settings.mode))

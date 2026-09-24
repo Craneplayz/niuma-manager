@@ -7,7 +7,7 @@ def render_text(result, mode):
     notice_types = {"create": "任务要求", "update": "修改", "postpone": "延期", "cancel": "取消", "uncertain": "待核实"}
     modes = {"offline": "离线样例回放（非模型识别）",
              "drafts": "离线合成草稿处理（非真实模型调用）",
-             "real": "真实 Agent（当前尚未接通）"}
+             "real": "真实 Agent（DeepSeek 经 Codex）"}
     lines = ["运行模式：" + modes[mode],
              "请求标识：" + (result["request_id"] or "未提供"),
              "处理状态：" + statuses[result["status"]], "失败输入：%d 条" % len(result["errors"])]

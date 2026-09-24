@@ -2,7 +2,7 @@
 
 “牛马管理器”是 DDL压鼠人小组开发的、面向学生的 AI 任务管理与学习规划助手。项目希望从课程通知、邮件或聊天文本中识别任务和截止时间（DDL），经用户确认后生成任务，并逐步提供排程、提醒和进度管理能力。
 
-> 当前阶段：需求整理与 Scrum 流程搭建，尚未进入具体功能实现。
+> 文本模块已进入实现与联调，整体产品仍按团队计划开发。
 
 ## 项目文档
 
@@ -23,6 +23,8 @@
 
 阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。可用合成草稿测试，真实模型识别仍待接通和评测。
 
+阶段 D 已提供 DeepSeek 经 Codex 的真实调用适配器和 `.env` 配置。请按[填写密钥与 API 验证](docs/text-api-setup.md)操作；本机模拟接口联调通过，真实服务尚待密钥验证。
+
 - [需求基线与职责边界](docs/text-extraction-requirements.md)
 - [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)
 - [分阶段开发、检查与提交计划](docs/text-development-plan.md)
@@ -33,3 +35,5 @@
 - [阶段 A 交付与复核记录](docs/text-stage-a-review.md)
 - [阶段 B 运行、配置与检查](docs/text-stage-b-runner.md)
 - [阶段 C 文件说明、演示与测试](docs/text-stage-c-extraction.md)
+- [阶段 D 输出校验进度](docs/text-stage-d-progress.md)
+- [API 配置与测试操作](docs/text-api-setup.md)

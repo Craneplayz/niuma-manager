@@ -1,5 +1,6 @@
 import json
 import multiprocessing
+import os
 import subprocess
 import sys
 import tempfile
@@ -165,8 +166,12 @@ class PipelineTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def run_cli(self, *args, input=None):
+        # Tests must never start a paid call after a developer fills their .env.
+        environment = dict(os.environ)
+        environment["DEEPSEEK_API_KEY"] = ""
         return subprocess.run([sys.executable, "-m", "ddl_text", *args], cwd=ROOT, input=input,
-                              encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+                              encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20,
+                              env=environment)
 
     def test_json_stdout_and_mode_stderr(self):
         result = self.run_cli("--demo", "multiple", "--format", "json")
