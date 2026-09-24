@@ -27,6 +27,15 @@ class ApiTests(unittest.TestCase):
         cls.server.shutdown();cls.server.server_close();cls.thread.join();cls.tmp.cleanup()
 
     def client(self): return build_opener(HTTPCookieProcessor(CookieJar()))
+    def test_connection_closes_on_success_and_failure(self):
+        import sqlite3
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT 1').fetchone()[0],1)
+        with self.assertRaises(sqlite3.ProgrammingError): db.execute('SELECT 1')
+        with self.assertRaises(RuntimeError):
+            with app.connection() as failed:
+                raise RuntimeError('synthetic transaction failure')
+        with self.assertRaises(sqlite3.ProgrammingError): failed.execute('SELECT 1')
     def test_seed_is_shareable_and_idempotent(self):
         app.seed()
         with app.connection() as db:
@@ -116,7 +125,7 @@ class ApiTests(unittest.TestCase):
 
     def test_recognition_transport_and_request_idempotence(self):
         a=self.client();self.register(a,'text-transport@test.local')
-        fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text())
+        fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text(encoding='utf-8'))
         captured=[]
         def harness(request,timeout):
             captured.append(json.loads(request.data))

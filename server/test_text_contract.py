@@ -6,7 +6,7 @@ from text_contract import validate_request,validate_result
 
 class TextContractTests(unittest.TestCase):
     def setUp(self):
-        self.fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text())
+        self.fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text(encoding='utf-8'))
         self.request=self.fixture['request'];self.result=self.fixture['expected']
     def test_example_and_no_mutation(self):
         before=copy.deepcopy(self.result)
