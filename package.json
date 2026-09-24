@@ -1,0 +1,30 @@
+{
+  "name": "niuma-manager",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "node scripts/run-python.mjs server/app.py",
+    "db:seed": "node scripts/run-python.mjs server/app.py --seed",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "tsc -b --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test tests/*.test.mjs && node scripts/run-python.mjs -m unittest discover -s server"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0"
+  }
+}
