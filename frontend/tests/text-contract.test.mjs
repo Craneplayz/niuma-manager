@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 
 // Fixture checks supplement the server runtime validator.
 test('contract example has consistent IDs, evidence and partial status',()=>{
-  const {request,expected}=JSON.parse(readFileSync(new URL('../docs/examples/text-contract-v0.2.json',import.meta.url),'utf8'))
+  const {request,expected}=JSON.parse(readFileSync(new URL('../../docs/examples/text-contract-v0.2.json',import.meta.url),'utf8'))
   assert.equal(request.contract_version,expected.contract_version)
   assert.equal(request.request_id,expected.request_id)
   const records=new Map(request.records.map(r=>[r.input_id,r]))

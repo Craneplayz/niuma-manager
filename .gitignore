@@ -34,6 +34,7 @@ build/
 .next/
 .nuxt/
 .cache/
+.vite/
 
 # Python
 __pycache__/
@@ -63,11 +64,12 @@ coverage.xml
 *.sqlite3
 *.db
 docs/frontend-review.md
+frontend/docs/frontend-review.md
 server/data/
 *.sqlite3-wal
 *.sqlite3-shm
 output/playwright/
 .playwright-cli/
 
-# Local text samples, credentials helpers, and isolated review checkouts
+# Shared text extraction local data
 local-data/

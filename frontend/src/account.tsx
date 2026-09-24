@@ -46,6 +46,6 @@ export function useUserData<T>(userId:string,name:string,fallback:T) {
       workspace[name]={value:next,version:result.version};current.current=next;setValue(next);setError('');return true
     }catch(e){setError((e as Error).message);return false}finally{busy.current=false}
   }
-  const refresh=async()=>{if(activeUserId!==userId)return;const nextWorkspace=await api('/workspace');if(activeUserId!==userId)return;workspace=nextWorkspace;const next=(workspace[name]?.value as T)??fallback;current.current=next;setValue(next)}
+  const refresh=async()=>{if(activeUserId!==userId)return;const nextWorkspace=await api('/workspace');if(activeUserId!==userId)return;if(nextWorkspace[name])workspace[name]=nextWorkspace[name];else delete workspace[name];const next=(workspace[name]?.value as T)??fallback;current.current=next;setValue(next)}
   return [value,save,error,refresh] as const
 }

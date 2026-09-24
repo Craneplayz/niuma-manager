@@ -133,9 +133,26 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
             if path.startswith('/api/data/') and self.command=='PUT':
                 name=path.rsplit('/',1)[1]
-                if name not in ['tasks','candidates','availability','feedback']: raise ApiError(404,'未知数据类型')
+                if name not in ['tasks','candidates','availability','feedback','courses','focus']: raise ApiError(404,'未知数据类型')
                 value=body.get('value')
-                if not isinstance(value,dict if name=='availability' else list): raise ApiError(400,'数据格式不正确')
+                if not isinstance(value,dict if name in ['availability','focus'] else list): raise ApiError(400,'数据格式不正确')
+                if name=='courses':
+                    from urllib.parse import urlsplit
+                    ids,names=set(),set()
+                    for course in value:
+                        if not isinstance(course,dict) or any(not isinstance(course.get(k),str) or len(course[k])>limit for k,limit in [('id',100),('name',120),('teacher',120),('notes',20000),('url',2000)]): raise ApiError(400,'课程格式不正确')
+                        if not course['id'] or not course['name'].strip() or course['id'] in ids or course['name'].strip() in names: raise ApiError(400,'课程名称或编号为空或重复')
+                        try:
+                            link=urlsplit(course['url'])
+                            if course['url'] and (link.scheme not in ['http','https'] or not link.hostname or link.username or link.password): raise ValueError()
+                        except ValueError: raise ApiError(400,'资料链接必须是不带账号密码的 HTTP(S) 地址')
+                        ids.add(course['id']);names.add(course['name'].strip())
+                if name=='focus':
+                    if type(value.get('duration'))!=int or value['duration'] not in [1500,3000] or type(value.get('remaining'))!=int or not 0<=value['remaining']<=value['duration'] or type(value.get('running'))!=bool or type(value.get('endsAt')) not in [int,float] or not math.isfinite(value['endsAt']) or value['endsAt']<0 or not isinstance(value.get('taskId'),str): raise ApiError(400,'专注计时格式不正确')
+                    if value['running'] and not 0<value['endsAt']<=time.time()*1000+value['duration']*1000+60000: raise ApiError(400,'计时结束时间无效')
+                    if value['taskId']:
+                        taskrow=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+                        if not any(t['id']==value['taskId'] for t in json.loads(taskrow['value'] if taskrow else '[]')): raise ApiError(400,'关联任务不存在或不属于当前账号')
                 if name=='tasks':
                     ids=[]
                     for task in value:
