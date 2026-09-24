@@ -68,3 +68,6 @@ server/data/
 *.sqlite3-shm
 output/playwright/
 .playwright-cli/
+
+# Local text samples, credentials helpers, and isolated review checkouts
+local-data/

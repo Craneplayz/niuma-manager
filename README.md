@@ -4,7 +4,7 @@ React + TypeScript 前端，Python 3.9+ 本地 API，SQLite 数据库。区分�
 
 ## 本地启动
 
-需要 Node.js 20.19+、Python 3.9+，无需安装额外 Python 依赖。
+需要 Node.js 20.19+、Python 3.9+ 和可用的 IANA 时区数据库（Windows 缺少时运行 `python -m pip install tzdata`）。npm 脚本会寻找本机 Python，也可用环境变量 `PYTHON` 指定解释器路径。
 
 ```bash
 npm ci
@@ -45,3 +45,33 @@ npm run build
 ```
 
 前端产物在 dist/。当前 Python HTTP 服务仅绑定回环地址，用于本地开发，不可直接用于公网生产部署；上线需替换生产应用服务器、HTTPS/Secure Cookie、登录限流、备份、迁移和完整输入校验。通知、外观等旧占位设置尚未接入系统能力。
+
+## 项目文档
+
+- [产品定义与需求说明](docs/product-requirements.md)：项目背景、目标用户、产品边界和全局质量要求。
+- [Product Backlog](docs/product-backlog.md)：高层级功能需求及其当前状态。
+- [项目协作规范](docs/scrum-workflow.md)：Scrum 角色、工件、活动、任务状态和完成条件。
+- [参与开发](CONTRIBUTING.md)：领取 Issue、创建分支、提交 Commit、发起 PR 和完成 Review 的操作步骤。
+
+## 当前工作方式
+
+小组使用 GitHub Issues 记录细化后的需求和任务，使用 GitHub Project 跟踪 Sprint、状态、负责人和工作量，使用 Pull Request 审查代码与文档变更。
+
+产品范围和待实现功能分别以产品定义与需求说明、Product Backlog 为准；团队管理规则和开发操作分别以项目协作规范、参与开发文档为准。
+
+## 文本任务识别模块
+
+阶段 A 提供约定与合成样例，阶段 B 提供可运行的离线处理骨架。离线回放不代表识别效果。
+
+阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。真实 API 与本文前端所需的 v0.2 HTTP 接口由 [PR #14](https://github.com/Craneplayz/niuma-manager/pull/14) 提供，使用真实识别需同时包含该变更并启动识别服务。
+
+- [需求基线与职责边界](docs/text-extraction-requirements.md)
+- [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)
+- [分阶段开发、检查与提交计划](docs/text-development-plan.md)
+- [输入输出约定 v0.1](docs/text-contract-v0.1.md)
+- [上游样例观察与映射](docs/text-source-mapping.md)
+- [人工标注与阶段 A 验收](docs/text-annotation-guide.md)
+- [合成契约样例](docs/examples/text-contract-v0.1.json)
+- [阶段 A 交付与复核记录](docs/text-stage-a-review.md)
+- [阶段 B 运行、配置与检查](docs/text-stage-b-runner.md)
+- [阶段 C 文件说明、演示与测试](docs/text-stage-c-extraction.md)
