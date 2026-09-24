@@ -15,6 +15,14 @@
 
 ## 数据与会话
 
+前端工程现位于 `frontend/`，npm 命令在该目录执行。参考潘勇圳实现的功能取舍与署名见 [前端贡献说明](../frontend/CONTRIBUTIONS.md)。本次不改动文本识别 v0.2 或规划 2.0 的模型协议。
+
+新增账号工作区数据：`courses` 为 `{id,name,teacher,notes,url}[]`（名称/编号唯一，HTTP(S) 无凭据链接）；`focus` 为 `{duration,remaining,running,endsAt,taskId}`（秒单位 duration/remaining，duration 为 1500 或 3000，endsAt 为 Unix 毫秒，taskId 可空）。沿用 `PUT /api/data/:name` 的版本校验，关联任务必须属于当前账号；无数据的旧账号使用空课程及默认暂停计时，无须迁移已有任务。
+
+计时只在开始、暂停、重置、选择任务或时长时保存，不每秒写数据库；界面按 endsAt 计算剩余秒数。多窗口不实时推送，冲突后可读取服务器最新计时。到时不自动生成完成反馈，避免将经过时间当成真实投入。课程名称与 Task.course 精确匹配，课程改名不批量改写任务。
+
+设置页 JSON 导出 workspace 与当前用户识别批次，不包含密码/会话；ICS 导出任务 DDL 和计划，不包含已取消任务，不改变数据库。仅本地下载，无外部日历授权/同步或 JSON 恢复导入。
+
 数据库 server/data/niuma.sqlite3（NIUMA_DB 可覆盖），表：
 users（邮箱唯一、昵称、随机盐、PBKDF2-SHA256 600000 次哈希）；sessions（会话令牌摘要、用户、24h 过期）；workspace（用户+数据名主键，JSON value、整数 version）；proposals（用户、任务快照版本、模型结果、是否已应用）；recognition_batches（用户+请求 ID、输入指纹、原始请求及规范化结果、演示标记）；recognition_candidates（服务端生成存储 ID、所属用户及批次、完整候选、pending/applied/ignored、版本、确认请求）。
 
@@ -94,12 +102,12 @@ Harness 必须自行评估工时、规划跨度、合理分块和休息；所有
 
 ## 本地验收
 
-npm ci；npm run db:seed；npm run dev:api；另开终端 npm run dev。
+进入 frontend/ 后执行 npm ci；npm run db:seed；npm run dev:api；另开终端在 frontend/ 执行 npm run dev。
 测试账号 demo@niuma.test / Niuma-Test-2026!，seed 幂等且不建立会话。
 npm test 覆盖账号隔离、数据库落盘、错误密码、退出撤销、并发版本、反馈归属、模型约束等；npm run build 验证前端。
 真实模型质量验收仍须配置 TEXT_HARNESS_URL / HARNESS_URL 后进行，本地测试替身不代表模型效果。
 
-识别侧 Python 使用 zoneinfo 验证时区；若系统没有 IANA 时区库（部分 Windows 环境），运行 python -m pip install tzdata。Windows 没有 python3 命令时，使用 py -3 server/app.py --seed 和 py -3 server/app.py。
+识别侧 Python 使用 zoneinfo 验证时区；若系统没有 IANA 时区库（部分 Windows 环境），运行 python -m pip install tzdata。Windows 没有 python3 命令时，使用 py -3 ../server/app.py --seed 和 py -3 ../server/app.py。
 
 # 文本识别契约 v0.2（定稿）
 
