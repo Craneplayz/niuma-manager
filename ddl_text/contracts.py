@@ -116,6 +116,14 @@ def validate_tasks(tasks, record):
             require(task["notice_type"] in {"create", "update", "postpone", "cancel", "uncertain"})
             require(type(task["needs_review"]) is bool)
             require(task["needs_review"] == bool(task["review_reasons"]))
+            if task["course_basis"] == "provided":
+                require(task["course_or_project"] == record["course_or_project"])
+            if task["course_basis"] == "inferred" or task["notice_type"] == "uncertain":
+                require(task["needs_review"])
+            if task["notice_type"] == "create":
+                require(task["target_reference"] is None)
+            elif not nonempty(task["target_reference"]):
+                require(task["needs_review"])
             deadline = task["deadline"]
             require(isinstance(deadline, dict))
             require({"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"} == deadline.keys())
@@ -127,7 +135,13 @@ def validate_tasks(tasks, record):
             require(isinstance(deadline["alternatives"], list) and all(nonempty(s) for s in deadline["alternatives"]))
             require(all(valid_time(s, "date") or valid_time(s, "datetime") for s in deadline["alternatives"]))
             require(bool(deadline["alternatives"]) == (deadline["status"] == "conflict"))
+            if deadline["status"] == "conflict":
+                require(len(set(deadline["alternatives"])) >= 2)
             require((deadline["value"] is None) == (deadline["status"] in {"unknown", "conflict"}))
+            if deadline["value"] is not None:
+                require(deadline["kind"] != "unknown")
+            if deadline["precision"] == "datetime":
+                require(nonempty(deadline["timezone"]))
             require(deadline["kind"] != "reference" or deadline["status"] in {"inferred", "unknown", "conflict"})
             require(deadline["status"] == "explicit" or task["needs_review"])
             for key in ("sources", "evidence"):

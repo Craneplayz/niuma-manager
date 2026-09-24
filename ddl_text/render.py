@@ -9,6 +9,7 @@ def render_text(result, mode):
              "drafts": "离线合成草稿处理（非真实模型调用）",
              "real": "真实 Agent（当前尚未接通）"}
     lines = ["运行模式：" + modes[mode],
+             "请求标识：" + (result["request_id"] or "未提供"),
              "处理状态：" + statuses[result["status"]], "失败输入：%d 条" % len(result["errors"])]
     if result["status"] == "no_tasks":
         lines.append("已处理的文本中未识别到待办。")
@@ -16,6 +17,7 @@ def render_text(result, mode):
         deadline = task["deadline"]
         label = "参考完成时间" if deadline["kind"] == "reference" else "截止日期"
         lines.extend(["", "任务 %d：%s" % (index, task["title"]),
+                      "候选标识：" + task["candidate_id"],
                       "课程/项目：" + (task["course_or_project"] or "未提供"),
                       "通知性质：" + notice_types[task["notice_type"]],
                       label + "：" + (deadline["value"] or "待核实") + "（" + date_states[deadline["status"]] + "）"])
