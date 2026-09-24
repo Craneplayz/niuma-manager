@@ -1,7 +1,75 @@
-__pycache__/
-*.py[cod]
-.venv/
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# IDE and editor settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local environment and secrets
 .env
 .env.*
 !.env.example
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+tmp/
+temp/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+dist/
+build/
+.next/
+.nuxt/
+.cache/
+.vite/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Java / Kotlin / Gradle / Maven
+*.class
+target/
+.gradle/
+out/
+
+# Coverage and test reports
+.coverage
+htmlcov/
+coverage/
+coverage.xml
+
+# Local database files
+*.sqlite
+*.sqlite3
+*.db
+docs/frontend-review.md
+frontend/docs/frontend-review.md
+server/data/
+*.sqlite3-wal
+*.sqlite3-shm
+output/playwright/
+.playwright-cli/
+
+# Shared text extraction local data
 local-data/

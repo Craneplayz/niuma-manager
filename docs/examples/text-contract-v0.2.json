@@ -1,0 +1,195 @@
+{
+  "description": "文本识别 v0.2 人工合成契约样例，非模型运行记录；规范见统一协作协议。",
+  "request": {
+    "contract_version": "0.2",
+    "request_id": "example:partial",
+    "records": [
+      {
+        "input_id": "sample:report",
+        "text": "请在2026年9月30日前提交需求报告。",
+        "text_quality": "complete",
+        "platform": "unknown",
+        "published_at": {
+          "value": null,
+          "precision": "unknown",
+          "basis": "unknown"
+        },
+        "collected_at": null,
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "caller_default",
+        "source_url": null,
+        "source_label": "人工合成样例",
+        "source_item_id": null,
+        "course_or_project": null,
+        "context": [],
+        "upstream_hints": null
+      },
+      {
+        "input_id": "sample:reading",
+        "text": "请阅读介绍材料。",
+        "text_quality": "complete",
+        "platform": "unknown",
+        "published_at": {
+          "value": null,
+          "precision": "unknown",
+          "basis": "unknown"
+        },
+        "collected_at": null,
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "caller_default",
+        "source_url": null,
+        "source_label": "人工合成样例",
+        "source_item_id": null,
+        "course_or_project": null,
+        "context": [],
+        "upstream_hints": null
+      },
+      {
+        "input_id": "sample:missing",
+        "text": "",
+        "text_quality": "missing",
+        "platform": "unknown",
+        "published_at": {
+          "value": null,
+          "precision": "unknown",
+          "basis": "unknown"
+        },
+        "collected_at": null,
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "caller_default",
+        "source_url": null,
+        "source_label": "人工合成样例",
+        "source_item_id": null,
+        "course_or_project": null,
+        "context": [],
+        "upstream_hints": null
+      }
+    ]
+  },
+  "expected": {
+    "contract_version": "0.2",
+    "request_id": "example:partial",
+    "status": "partial_success",
+    "record_results": [
+      {
+        "input_id": "sample:report",
+        "status": "success",
+        "task_ids": [
+          "c1"
+        ],
+        "warnings": []
+      },
+      {
+        "input_id": "sample:reading",
+        "status": "success",
+        "task_ids": [
+          "c2"
+        ],
+        "warnings": []
+      },
+      {
+        "input_id": "sample:missing",
+        "status": "failed",
+        "task_ids": [],
+        "warnings": [
+          "未提供可读正文，不能据此判断是否存在任务"
+        ]
+      }
+    ],
+    "tasks": [
+      {
+        "candidate_id": "c1",
+        "input_id": "sample:report",
+        "title": "提交需求报告",
+        "description": "请在2026年9月30日前提交需求报告。",
+        "prerequisites": [],
+        "course_or_project": null,
+        "course_basis": "unknown",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": "2026-09-30",
+          "precision": "date",
+          "timezone": "Asia/Shanghai",
+          "kind": "deadline",
+          "status": "explicit",
+          "raw": "2026年9月30日前",
+          "basis": "完整原文明确要求此日期前提交；保持日期精度",
+          "alternatives": []
+        },
+        "needs_review": false,
+        "review_reasons": [],
+        "sources": [
+          {
+            "input_id": "sample:report",
+            "platform": "unknown",
+            "url": null,
+            "label": "人工合成样例",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "sample:report",
+            "field": "text",
+            "quote": "请在2026年9月30日前提交需求报告。",
+            "supports": [
+              "title",
+              "deadline"
+            ]
+          }
+        ]
+      },
+      {
+        "candidate_id": "c2",
+        "input_id": "sample:reading",
+        "title": "阅读介绍材料",
+        "description": "请阅读介绍材料。",
+        "prerequisites": [],
+        "course_or_project": null,
+        "course_basis": "unknown",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": null,
+          "precision": "unknown",
+          "timezone": "Asia/Shanghai",
+          "kind": "unknown",
+          "status": "not_provided",
+          "raw": null,
+          "basis": "完整原文仅要求阅读，未提供完成期限",
+          "alternatives": []
+        },
+        "needs_review": false,
+        "review_reasons": [],
+        "sources": [
+          {
+            "input_id": "sample:reading",
+            "platform": "unknown",
+            "url": null,
+            "label": "人工合成样例",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "sample:reading",
+            "field": "text",
+            "quote": "请阅读介绍材料。",
+            "supports": [
+              "title"
+            ]
+          }
+        ]
+      }
+    ],
+    "errors": [
+      {
+        "input_id": "sample:missing",
+        "code": "invalid_input",
+        "message": "缺少可读正文",
+        "retryable": false
+      }
+    ]
+  }
+}

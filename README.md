@@ -33,3 +33,10 @@
 - [阶段 A 交付与复核记录](docs/text-stage-a-review.md)
 - [阶段 B 运行、配置与检查](docs/text-stage-b-runner.md)
 - [阶段 C 文件说明、演示与测试](docs/text-stage-c-extraction.md)
+
+## 前端与本地联调
+
+- [前端说明与启动指南](frontend/README.md)：页面功能、开发环境、测试账号和验证命令。
+- [前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md)：文本识别 v0.2、用户确认接口与规划流程。
+
+前端代码、Node 依赖配置和前端测试集中在 `frontend/`；`server/` 是配套本地开发 API，`docs/` 保留跨团队共享文档。前端 npm 命令请在 `frontend/` 目录执行。
