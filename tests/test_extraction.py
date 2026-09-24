@@ -256,7 +256,7 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(tasks[0]["deadline"]["kind"], "reference")
         self.assertIsNone(tasks[1]["deadline"]["value"])
         self.assertIn("synthetic_drafts", result.stderr)
-        result = subprocess.run(command, cwd=ROOT, capture_output=True, encoding="utf-8")
+        result = subprocess.run(command + ["--format", "text"], cwd=ROOT, capture_output=True, encoding="utf-8")
         self.assertIn("非真实模型调用", result.stdout)
         result = subprocess.run(command + ["--mode", "real"], cwd=ROOT, capture_output=True, encoding="utf-8")
         self.assertEqual(result.returncode, 2)

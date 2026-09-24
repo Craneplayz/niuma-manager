@@ -45,7 +45,15 @@ def check_publication(value):
 
 def check_request(request):
     require(isinstance(request, dict), "invalid_request")
-    require(request.get("contract_version") == "0.1", "unsupported_version")
+    require(isinstance(request.get("contract_version"), str)
+            and request["contract_version"] in {"0.1", "0.2"}, "unsupported_version")
+    if request["contract_version"] == "0.2":
+        from .contract_v02 import validate_request
+        try:
+            validate_request(request)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise ContractError("invalid_request") from None
+        return request["records"]
     require(nonempty(request.get("request_id")), "invalid_request")
     records = request.get("records")
     require(isinstance(records, list) and len(records) <= 100, "invalid_request")
@@ -57,7 +65,7 @@ def check_request(request):
     return records
 
 
-def normalize_record(record):
+def normalize_record(record, version="0.1"):
     result = {
         "text_quality": "complete", "platform": "unknown",
         "published_at": {"value": None, "precision": "unknown", "basis": "unknown"},
@@ -86,10 +94,13 @@ def normalize_record(record):
         require(isinstance(context, dict) and nonempty(context.get("input_id")))
         require(context["input_id"] not in ids)
         ids.add(context["input_id"])
-        require(nonempty(context.get("text")) and len(context["text"]) <= 200000)
+        require(isinstance(context.get("text"), str) and len(context["text"]) <= 200000
+                and (version == "0.2" or nonempty(context["text"])))
         check_publication(context.get("published_at"))
         for key in ("timezone", "source_url", "source_label"):
             require(key in context and nullable_text(context[key]))
+    if version == "0.2":
+        result["contract_version"] = version
     return result
 
 
@@ -102,6 +113,19 @@ def validate_tasks(tasks, record):
         required = {"candidate_id", "input_id", "title", "description", "prerequisites",
                     "course_or_project", "course_basis", "notice_type", "target_reference",
                     "deadline", "needs_review", "review_reasons", "sources", "evidence"}
+        if record.get("contract_version") == "0.2":
+            from .contract_v02 import validate_candidate
+            for task in tasks:
+                require(isinstance(task, dict) and required == task.keys())
+                require(task["candidate_id"] not in seen)
+                seen.add(task["candidate_id"])
+                validate_candidate(task, record)
+                require(set(task["deadline"]) == {"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"})
+                for source in task["sources"]:
+                    require(set(source) == {"input_id", "platform", "url", "label", "source_item_id"})
+                for ref in task["evidence"]:
+                    require(set(ref) == {"input_id", "field", "quote", "supports"})
+            return deepcopy(tasks)
         for task in tasks:
             require(isinstance(task, dict) and required == task.keys())
             require(nonempty(task["candidate_id"]) and task["candidate_id"] not in seen)
@@ -116,6 +140,14 @@ def validate_tasks(tasks, record):
             require(task["notice_type"] in {"create", "update", "postpone", "cancel", "uncertain"})
             require(type(task["needs_review"]) is bool)
             require(task["needs_review"] == bool(task["review_reasons"]))
+            if task["course_basis"] == "provided":
+                require(task["course_or_project"] == record["course_or_project"])
+            if task["course_basis"] == "inferred" or task["notice_type"] == "uncertain":
+                require(task["needs_review"])
+            if task["notice_type"] == "create":
+                require(task["target_reference"] is None)
+            elif not nonempty(task["target_reference"]):
+                require(task["needs_review"])
             deadline = task["deadline"]
             require(isinstance(deadline, dict))
             require({"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"} == deadline.keys())
@@ -127,7 +159,13 @@ def validate_tasks(tasks, record):
             require(isinstance(deadline["alternatives"], list) and all(nonempty(s) for s in deadline["alternatives"]))
             require(all(valid_time(s, "date") or valid_time(s, "datetime") for s in deadline["alternatives"]))
             require(bool(deadline["alternatives"]) == (deadline["status"] == "conflict"))
+            if deadline["status"] == "conflict":
+                require(len(set(deadline["alternatives"])) >= 2)
             require((deadline["value"] is None) == (deadline["status"] in {"unknown", "conflict"}))
+            if deadline["value"] is not None:
+                require(deadline["kind"] != "unknown")
+            if deadline["precision"] == "datetime":
+                require(nonempty(deadline["timezone"]))
             require(deadline["kind"] != "reference" or deadline["status"] in {"inferred", "unknown", "conflict"})
             require(deadline["status"] == "explicit" or task["needs_review"])
             for key in ("sources", "evidence"):

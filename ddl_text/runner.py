@@ -46,6 +46,17 @@ def _worker(connection, adapter, record, settings, attempt):
 
 
 def run_attempt(adapter, record, settings, attempt):
+    # This trusted transport owns and reaps its Codex subprocess itself. Killing
+    # an intermediate multiprocessing worker would orphan the billed request.
+    from .extraction import ExtractionAdapter
+    from .codex_client import CodexClient
+    if type(adapter) is ExtractionAdapter and type(adapter.client) is CodexClient:
+        try:
+            return adapter.extract(record, settings, attempt)
+        except AgentError:
+            raise
+        except Exception:
+            raise AgentError("agent_unavailable", False) from None
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_worker, args=(sender, adapter, record, settings, attempt), daemon=True)

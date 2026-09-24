@@ -1,7 +1,8 @@
-"""One request in, one v0.1 result out; no persistent user state."""
+"""One versioned request in, one JSON result out; no persistent user state."""
 
 import logging
 import time
+from dataclasses import replace
 
 from .adapters import AgentError, UnavailableAdapter
 from .config import Settings
@@ -16,11 +17,13 @@ def error_result(input_id, code, retryable=False):
     return {"input_id": input_id, "code": code, "message": MESSAGES[code], "retryable": retryable}
 
 
-def process_request(request, adapter=None, settings=None):
+def process_request(request, adapter=None, settings=None, budget_seconds=None):
     settings = settings or Settings()
     adapter = adapter if adapter is not None else UnavailableAdapter()
     request_id = request.get("request_id") if isinstance(request, dict) else None
-    result = {"contract_version": "0.1", "request_id": request_id if nonempty(request_id) else None,
+    version = "0.2" if isinstance(request, dict) and request.get("contract_version") == "0.2" else "0.1"
+    expires = time.monotonic() + budget_seconds if budget_seconds is not None else None
+    result = {"contract_version": version, "request_id": request_id if nonempty(request_id) else None,
               "status": "failed", "record_results": [], "tasks": [], "errors": []}
     try:
         records = check_request(request)
@@ -34,7 +37,7 @@ def process_request(request, adapter=None, settings=None):
         attempts = 0
         try:
             try:
-                record = normalize_record(raw)
+                record = normalize_record(raw, version)
             except (ContractError, TypeError, ValueError, KeyError):
                 raise ContractError("invalid_input") from None
             if record["text_quality"] in {"partial", "summary"}:
@@ -42,7 +45,13 @@ def process_request(request, adapter=None, settings=None):
             for attempt in range(settings.max_retries + 1):
                 attempts += 1
                 try:
-                    tasks = validate_tasks(run_attempt(adapter, record, settings, attempt), record)
+                    attempt_settings = settings
+                    if expires is not None:
+                        remaining = expires - time.monotonic()
+                        if remaining <= 0:
+                            raise AgentError("agent_timeout", True)
+                        attempt_settings = replace(settings, timeout_seconds=min(settings.timeout_seconds, remaining))
+                    tasks = validate_tasks(run_attempt(adapter, record, attempt_settings, attempt), record)
                     if any(t["candidate_id"] in used_ids for t in tasks):
                         raise ContractError("invalid_agent_output")
                     break
@@ -62,8 +71,8 @@ def process_request(request, adapter=None, settings=None):
         except AgentError as error:
             result["errors"].append(error_result(raw["input_id"], error.code, error.retryable))
         result["record_results"].append(outcome)
-        LOGGER.info("mode=%s version=0.1 status=%s attempts=%d elapsed_ms=%d",
-                    settings.mode, outcome["status"], attempts, (time.monotonic() - started) * 1000)
+        LOGGER.info("mode=%s version=%s status=%s attempts=%d elapsed_ms=%d",
+                    settings.mode, version, outcome["status"], attempts, (time.monotonic() - started) * 1000)
     failures = sum(item["status"] == "failed" for item in result["record_results"])
     if failures:
         result["status"] = "failed" if failures == len(records) else "partial_success"

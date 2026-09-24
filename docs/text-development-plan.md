@@ -109,6 +109,8 @@ TXT-07 的连接研究应尽早识别外部依赖，不能拖到最后一天才�
 
 ## 六、阶段 E：评测、修复与交付
 
+2026-09-24 调整：负责人决定暂缓独立召回率评测，不作为本次合并门槛。当前优先完成 v0.2 JSON 与前端实际联调、固定功能回归、启动说明及网页人工验收，进展见[前端对接说明](text-frontend-integration.md)。下述独立标注与统计方案保留为后续质量改进计划，不要求本次全部执行。
+
 主要任务：[TXT-06 / #8](https://github.com/Craneplayz/niuma-manager/issues/8)、[TXT-08 / #10](https://github.com/Craneplayz/niuma-manager/issues/10)。
 
 评测工作：

@@ -1,0 +1,245 @@
+{
+  "started_at": "2026-09-24T03:55:22.114864+00:00",
+  "model": "deepseek-flash",
+  "codex_version": "codex-cli 0.155.0-alpha.16.3",
+  "python_version": "3.9.12",
+  "instructions_sha256": "853a4cbe47622f08b628de480cd98cc79dade3136fafad2d1b9e41c15517ce5c",
+  "timeout_seconds": 120,
+  "max_retries": 0,
+  "synthetic_only": true,
+  "usage_and_cost": "not collected",
+  "cases": [
+    {
+      "case_id": "no-date",
+      "elapsed_seconds": 7.3,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-no-date",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "no-date",
+            "status": "success",
+            "task_ids": [
+              "no-date:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "no-date:candidate:1",
+            "input_id": "no-date",
+            "title": "加入课程讨论群",
+            "description": "按通知要求加入课程讨论群。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "unknown",
+              "raw": null,
+              "basis": "原文未给出可确定的完成日期。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "正文未给出群号、二维码或链接，加群方式待核实。",
+              "正文未说明适用对象与截止时间，日期待核实。",
+              "上游元数据标注课程为“示例课程”，但正文未出现课程名称，故不据此填写课程字段。",
+              "原文未给出可确定的完成日期。"
+            ],
+            "sources": [
+              {
+                "input_id": "no-date",
+                "platform": "wechat",
+                "url": null,
+                "label": "示例课程群",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "no-date",
+                "field": "text",
+                "quote": "请加入课程讨论群。"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-no-date\n处理状态：成功\n失败输入：0 条\n\n任务 1：加入课程讨论群\n候选标识：no-date:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：待核实（未知）\n具体要求：按通知要求加入课程讨论群。\n来源：示例课程群；未提供链接\n待核实：正文未给出群号、二维码或链接，加群方式待核实。；正文未说明适用对象与截止时间，日期待核实。；上游元数据标注课程为“示例课程”，但正文未出现课程名称，故不据此填写课程字段。；原文未给出可确定的完成日期。",
+      "synthetic_drafts": [
+        "{\"tasks\":[{\"title\":\"加入课程讨论群\",\"description\":\"按通知要求加入课程讨论群。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"no-date\",\"quote\":\"请加入课程讨论群。\"}],\"times\":[],\"review_reasons\":[\"正文未给出群号、二维码或链接，加群方式待核实。\",\"正文未说明适用对象与截止时间，日期待核实。\",\"上游元数据标注课程为“示例课程”，但正文未出现课程名称，故不据此填写课程字段。\"]}]}"
+      ]
+    },
+    {
+      "case_id": "relative",
+      "elapsed_seconds": 7.25,
+      "passed": false,
+      "mismatches": [
+        "result_status",
+        "task_count_or_time_or_notice"
+      ],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-relative",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "relative",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "relative",
+            "code": "invalid_agent_output",
+            "message": "Agent 结果未通过格式或来源证据校验。",
+            "retryable": true
+          }
+        ]
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-relative\n处理状态：处理失败\n失败输入：1 条\n失败输入 relative：Agent 结果未通过格式或来源证据校验。",
+      "synthetic_drafts": [
+        "{\"tasks\": [{\"title\": \"提交实验报告\", \"description\": \"按要求提交实验报告。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": {\"value\": \"示例课程\", \"input_id\": \"relative\", \"quote\": \"请于明天18:00前提交实验报告。\"}, \"evidence\": [{\"input_id\": \"relative\", \"quote\": \"请于明天18:00前提交实验报告。\"}], \"times\": [{\"input_id\": \"relative\", \"quote\": \"明天18:00\", \"kind\": \"deadline\"}], \"review_reasons\": [\"课程名称“示例课程”来自上游元数据，未在通知正文中出现，正文只提到“实验报告”。\"]}]}"
+      ]
+    },
+    {
+      "case_id": "conflict",
+      "elapsed_seconds": 6.64,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-conflict",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "conflict",
+            "status": "success",
+            "task_ids": [
+              "conflict:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "conflict:candidate:1",
+            "input_id": "conflict",
+            "title": "提交报告",
+            "description": "通知给出报告提交的截止日期；正文同时出现两个不一致的截止日期，需确认以哪个为准。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "conflict",
+              "raw": "2026年10月15日；2026年10月16日",
+              "basis": "同一任务存在多个未消解的时间，请核实。",
+              "alternatives": [
+                "2026-10-15",
+                "2026-10-16"
+              ]
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "同一报告的截止日期出现两个互不消解的时间（2026年10月15日、2026年10月16日），原文未说明更正或延期，需确认有效日期",
+              "正文只写“报告”，未给出具体交付物名称，任务对象待核实",
+              "上游课程为“示例课程”，但课程名称未出现在正文证据中，无法提供逐字课程引用，course 置为 null",
+              "同一任务存在多个未消解的时间，请核实。"
+            ],
+            "sources": [
+              {
+                "input_id": "conflict",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/conflict",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "报告截止日期：2026年10月15日。"
+              },
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "报告截止日期：2026年10月16日。"
+              },
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "2026年10月15日"
+              },
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "2026年10月16日"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-conflict\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交报告\n候选标识：conflict:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：待核实（冲突）\n具体要求：通知给出报告提交的截止日期；正文同时出现两个不一致的截止日期，需确认以哪个为准。\n时间原文：2026年10月15日；2026年10月16日\n冲突时间：2026-10-15；2026-10-16\n来源：合成课程通知；https://example.invalid/notices/conflict\n待核实：同一报告的截止日期出现两个互不消解的时间（2026年10月15日、2026年10月16日），原文未说明更正或延期，需确认有效日期；正文只写“报告”，未给出具体交付物名称，任务对象待核实；上游课程为“示例课程”，但课程名称未出现在正文证据中，无法提供逐字课程引用，course 置为 null；同一任务存在多个未消解的时间，请核实。",
+      "synthetic_drafts": [
+        "{\"tasks\":[{\"title\":\"提交报告\",\"description\":\"通知给出报告提交的截止日期；正文同时出现两个不一致的截止日期，需确认以哪个为准。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"conflict\",\"quote\":\"报告截止日期：2026年10月15日。\"},{\"input_id\":\"conflict\",\"quote\":\"报告截止日期：2026年10月16日。\"}],\"times\":[{\"input_id\":\"conflict\",\"quote\":\"2026年10月15日\",\"kind\":\"deadline\"},{\"input_id\":\"conflict\",\"quote\":\"2026年10月16日\",\"kind\":\"deadline\"}],\"review_reasons\":[\"同一报告的截止日期出现两个互不消解的时间（2026年10月15日、2026年10月16日），原文未说明更正或延期，需确认有效日期\",\"正文只写“报告”，未给出具体交付物名称，任务对象待核实\",\"上游课程为“示例课程”，但课程名称未出现在正文证据中，无法提供逐字课程引用，course 置为 null\"]}]}"
+      ]
+    },
+    {
+      "case_id": "postpone",
+      "elapsed_seconds": 5.66,
+      "passed": false,
+      "mismatches": [
+        "result_status",
+        "task_count_or_time_or_notice"
+      ],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-postpone",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "postpone",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "postpone",
+            "code": "invalid_agent_output",
+            "message": "Agent 结果未通过格式或来源证据校验。",
+            "retryable": true
+          }
+        ]
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-postpone\n处理状态：处理失败\n失败输入：1 条\n失败输入 postpone：Agent 结果未通过格式或来源证据校验。",
+      "synthetic_drafts": [
+        "{\"tasks\":[{\"title\":\"延期提交实验报告\",\"description\":\"上述实验报告延期至2026年10月20日提交。\",\"prerequisites\":[],\"notice_type\":\"postpone\",\"target\":{\"input_id\":\"ctx-report\",\"quote\":\"实验报告\"},\"course\":{\"value\":\"示例课程\"},\"evidence\":[{\"input_id\":\"postpone\",\"quote\":\"上述实验报告延期至2026年10月20日提交。\"},{\"input_id\":\"ctx-report\",\"quote\":\"请于2026年10月15日提交实验报告。\"}],\"times\":[{\"input_id\":\"postpone\",\"quote\":\"2026年10月20日\",\"kind\":\"deadline\"}],\"review_reasons\":[]}]}"
+      ]
+    }
+  ]
+}
