@@ -8,12 +8,12 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:api": "python3 server/app.py",
-    "db:seed": "python3 server/app.py --seed",
+    "dev:api": "python3 ../server/app.py",
+    "db:seed": "python3 ../server/app.py --seed",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "tsc -b --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test tests/*.test.mjs && python3 -m unittest discover -s server -p 'test_*.py'"
+    "test": "tsc -p tsconfig.test.json && node --test tests/*.test.mjs && python3 -m unittest discover -s ../server -p 'test_*.py'"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

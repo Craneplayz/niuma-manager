@@ -73,6 +73,27 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],503)
         self.assertEqual(self.call(a,'/data/availability','PUT',dict(value=dict(startTime='22:00',endTime='19:00',weekdays=[]),version=0))[0],400)
 
+    def test_courses_persist_and_reject_unsafe_links(self):
+        a,b=self.client(),self.client();self.register(a,'courses@test.local');self.register(b,'courses-other@test.local')
+        course=dict(id='c1',name='数学',teacher='老师',url='https://example.com/material',notes='手写笔记')
+        self.assertEqual(self.call(a,'/data/courses','PUT',dict(value=[course],version=0))[0],200)
+        self.assertEqual(self.call(a,'/workspace')[1]['courses']['value'],[course])
+        self.assertNotIn('courses',self.call(b,'/workspace')[1])
+        self.assertEqual(self.call(a,'/data/courses','PUT',dict(value=[course],version=0))[0],409)
+        for url in ['javascript:alert(1)','https://user:password@example.com','https://']:
+            self.assertEqual(self.call(a,'/data/courses','PUT',dict(value=[dict(course,url=url)],version=1))[0],400)
+        self.assertEqual(self.call(a,'/data/courses','PUT',dict(value=[course,dict(course,id='c2')],version=1))[0],400)
+
+    def test_focus_persistence_validation_and_owner(self):
+        a,b=self.client(),self.client();self.register(a,'focus@test.local');self.register(b,'focus-other@test.local')
+        timer=dict(duration=1500,remaining=1500,running=True,endsAt=app.time.time()*1000+1500000,taskId='')
+        self.assertEqual(self.call(a,'/data/focus','PUT',dict(value=timer,version=0))[0],200)
+        self.assertEqual(self.call(a,'/workspace')[1]['focus']['value'],timer)
+        self.assertNotIn('focus',self.call(b,'/workspace')[1])
+        self.assertEqual(self.call(a,'/data/focus','PUT',dict(value=timer,version=0))[0],409)
+        for bad in [dict(timer,remaining=-1),dict(timer,duration=10),dict(timer,taskId='foreign'),dict(timer,endsAt=float('inf'))]:
+            self.assertEqual(self.call(a,'/data/focus','PUT',dict(value=bad,version=1))[0],400)
+
     def test_harness_snapshot_exclusions_feedback_and_atomic_apply(self):
         a=self.client();self.register(a,'planner@test.local')
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()

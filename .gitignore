@@ -34,6 +34,7 @@ build/
 .next/
 .nuxt/
 .cache/
+.vite/
 
 # Python
 __pycache__/
@@ -63,6 +64,7 @@ coverage.xml
 *.sqlite3
 *.db
 docs/frontend-review.md
+frontend/docs/frontend-review.md
 server/data/
 *.sqlite3-wal
 *.sqlite3-shm
