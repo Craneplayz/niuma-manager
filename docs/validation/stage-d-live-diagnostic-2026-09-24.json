@@ -1,0 +1,130 @@
+{
+  "started_at": "2026-09-24T03:54:50.546510+00:00",
+  "model": "deepseek-flash",
+  "codex_version": "codex-cli 0.155.0-alpha.16.3",
+  "python_version": "3.9.12",
+  "instructions_sha256": "853a4cbe47622f08b628de480cd98cc79dade3136fafad2d1b9e41c15517ce5c",
+  "timeout_seconds": 120,
+  "max_retries": 0,
+  "synthetic_only": true,
+  "usage_and_cost": "not collected",
+  "cases": [
+    {
+      "case_id": "multiple",
+      "elapsed_seconds": 7.92,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-multiple",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "multiple",
+            "status": "success",
+            "task_ids": [
+              "multiple:candidate:1",
+              "multiple:candidate:2"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "multiple:candidate:1",
+            "input_id": "multiple",
+            "title": "提交实验报告",
+            "description": "按要求于2026年10月15日提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-15",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月15日",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "multiple",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/multiple",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "请于2026年10月15日提交实验报告"
+              },
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "2026年10月15日"
+              }
+            ]
+          },
+          {
+            "candidate_id": "multiple:candidate:2",
+            "input_id": "multiple",
+            "title": "完成课程报名",
+            "description": "按要求于2026年10月16日完成课程报名。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-16",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月16日",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "multiple",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/multiple",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "并于2026年10月16日完成课程报名"
+              },
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "2026年10月16日"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-multiple\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：multiple:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：2026-10-15（明确）\n具体要求：按要求于2026年10月15日提交实验报告。\n时间原文：2026年10月15日\n时间精度：仅日期，未指定时刻。\n来源：合成课程通知；https://example.invalid/notices/multiple\n\n任务 2：完成课程报名\n候选标识：multiple:candidate:2\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：2026-10-16（明确）\n具体要求：按要求于2026年10月16日完成课程报名。\n时间原文：2026年10月16日\n时间精度：仅日期，未指定时刻。\n来源：合成课程通知；https://example.invalid/notices/multiple",
+      "synthetic_drafts": [
+        "{\"tasks\":[{\"title\":\"提交实验报告\",\"description\":\"按要求于2026年10月15日提交实验报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"multiple\",\"quote\":\"请于2026年10月15日提交实验报告\"}],\"times\":[{\"input_id\":\"multiple\",\"quote\":\"2026年10月15日\",\"kind\":\"deadline\"}],\"review_reasons\":[]},{\"title\":\"完成课程报名\",\"description\":\"按要求于2026年10月16日完成课程报名。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"multiple\",\"quote\":\"并于2026年10月16日完成课程报名\"}],\"times\":[{\"input_id\":\"multiple\",\"quote\":\"2026年10月16日\",\"kind\":\"deadline\"}],\"review_reasons\":[]}]}"
+      ]
+    }
+  ]
+}

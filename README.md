@@ -19,11 +19,11 @@
 
 ## 文本任务识别模块
 
-阶段 A 提供约定与合成样例，阶段 B 提供可运行的离线处理骨架。当前尚未接通真实模型，离线回放不代表识别效果。
+阶段 A 提供约定与合成样例，阶段 B 提供可运行的离线处理骨架。离线回放不代表识别效果。
 
-阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。可用合成草稿测试，真实模型识别仍待接通和评测。
+阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。可用合成草稿测试。
 
-阶段 D 已提供 DeepSeek 经 Codex 的真实调用适配器和 `.env` 配置。请按[填写密钥与 API 验证](docs/text-api-setup.md)操作；本机模拟接口联调通过，真实服务尚待密钥验证。
+阶段 D 已提供 DeepSeek 经 Codex 的真实调用适配器和 `.env` 配置。请按[填写密钥与 API 验证](docs/text-api-setup.md)操作；2026-09-24 已完成十个真实 API 合成场景验证，见[交付与复核记录](docs/text-stage-d-review.md)。独立质量评测、队友评审与团队验收仍待完成。
 
 - [需求基线与职责边界](docs/text-extraction-requirements.md)
 - [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)

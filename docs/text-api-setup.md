@@ -1,6 +1,6 @@
 # 阶段 D：填写密钥并验证 API
 
-当前已实现 DeepSeek → Codex CLI → 草稿编译/校验 → 文本或 JSON 输出。已在本机模拟 Responses 服务上跑通真实 Codex CLI，尚未调用 DeepSeek 公共服务；填入密钥后才能确认账号权限和真实模型效果。
+当前已实现 DeepSeek → Codex CLI → 草稿编译/校验 → 文本或 JSON 输出。2026-09-24 已调用 DeepSeek 公共服务，修复后十条合成场景通过，完整记录见[阶段 D 复核](text-stage-d-review.md)。换环境或密钥后仍需重新确认账号权限。
 
 ## 你现在需要做什么
 
@@ -38,7 +38,7 @@ python -m ddl_text --mode real --input docs/examples/text-stage-c-request.json
 - 每次请求创建临时 Codex home 和空工作目录。共享 skill 内容通过 `model_instructions_file` 传入，正文走标准输入，密钥只进入子进程环境。不会切换你日常 Codex 的模型或修改个人配置。
 - 禁用命令、文件修改、搜索、插件、子代理及交互提问等工具。当前版本的本机模拟测试已检查实际发出的 `tools=[]`、规则与正文分离。Codex 升级后应重跑此检查。
 - 无历史会话复用；禁用历史保存、反馈和分析。退出时清理临时目录和返回文件，错误只显示固定分类，不输出底层含敏感信息的日志。操作系统强制终止 Python 时仍可能留下临时文件，需要本机管理；这不是防取证存储。
-- 没有有效输出、格式错误、日期/证据不合法均按失败处理，不自动回放样例。未知课程、日期或归属按既有规则标待核实。
+- `--output-schema` 约束任务草稿结构，上游已提供课程时禁止模型重编课程字段；仍由程序核对原文证据。没有有效输出、格式错误、日期/证据不合法均按失败处理，不自动回放样例。未知课程、日期或归属按既有规则标待核实。
 
 ## 常见结果
 
@@ -71,4 +71,4 @@ Remove-Item Env:DDL_TEST_CODEX
 
 当前验证环境：Windows、Python 3.9.12、Codex CLI 0.155.0-alpha.16.3。开启本机联调检查后共 67 项测试、17 个契约样例通过；未开启时一项本机联调测试跳过。回归测试强制清空真实 CLI 路径上的密钥，不会因开发者填写 `.env` 而触发付费调用。本机模拟返回人工草稿，不是模型识别效果。规则内容已实际送入 Codex 的模型请求，但没有验证 Codex 自动发现/触发 skill；此项目采用程序显式加载同一份 skill 内容。
 
-配置依据：[Codex 官方配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[DeepSeek Responses 指南](https://api-docs.deepseek.com/guides/responses_api/)。真实质量、耗时、费用及公共服务连通性仍待填入密钥后验收。
+配置依据：[Codex 官方配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[DeepSeek Responses 指南](https://api-docs.deepseek.com/guides/responses_api/)。当前已记录公共服务合成测试耗时，尚未采集账单/token usage；独立真实质量评测仍属于阶段 E。

@@ -1,0 +1,430 @@
+{
+  "started_at": "2026-09-24T03:52:47.788199+00:00",
+  "model": "deepseek-flash",
+  "codex_version": "codex-cli 0.155.0-alpha.16.3",
+  "python_version": "3.9.12",
+  "instructions_sha256": "853a4cbe47622f08b628de480cd98cc79dade3136fafad2d1b9e41c15517ce5c",
+  "timeout_seconds": 120,
+  "max_retries": 0,
+  "synthetic_only": true,
+  "usage_and_cost": "not collected",
+  "cases": [
+    {
+      "case_id": "absolute",
+      "elapsed_seconds": 6.16,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-absolute",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "absolute",
+            "status": "success",
+            "task_ids": [
+              "absolute:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "absolute:candidate:1",
+            "input_id": "absolute",
+            "title": "提交实验报告",
+            "description": "按要求于2026年10月15日18:00前提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-15T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月15日18:00",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "正文未出现课程名称；上游元数据课程为“示例课程”，因无逐字引用证据未填入 course。"
+            ],
+            "sources": [
+              {
+                "input_id": "absolute",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/absolute",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "absolute",
+                "field": "text",
+                "quote": "请于2026年10月15日18:00前提交实验报告。"
+              },
+              {
+                "input_id": "absolute",
+                "field": "text",
+                "quote": "2026年10月15日18:00"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-absolute\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：absolute:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：2026-10-15T18:00:00+08:00（明确）\n具体要求：按要求于2026年10月15日18:00前提交实验报告。\n时间原文：2026年10月15日18:00\n来源：合成课程通知；https://example.invalid/notices/absolute\n待核实：正文未出现课程名称；上游元数据课程为“示例课程”，因无逐字引用证据未填入 course。"
+    },
+    {
+      "case_id": "multiple",
+      "elapsed_seconds": 9.23,
+      "passed": false,
+      "mismatches": [
+        "result_status",
+        "task_count_or_time_or_notice"
+      ],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-multiple",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "multiple",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "multiple",
+            "code": "invalid_agent_output",
+            "message": "Agent 结果未通过格式或来源证据校验。",
+            "retryable": true
+          }
+        ]
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-multiple\n处理状态：处理失败\n失败输入：1 条\n失败输入 multiple：Agent 结果未通过格式或来源证据校验。"
+    },
+    {
+      "case_id": "no-date",
+      "elapsed_seconds": 10.66,
+      "passed": false,
+      "mismatches": [
+        "result_status",
+        "task_count_or_time_or_notice"
+      ],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-no-date",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "no-date",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "no-date",
+            "code": "invalid_agent_output",
+            "message": "Agent 结果未通过格式或来源证据校验。",
+            "retryable": true
+          }
+        ]
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-no-date\n处理状态：处理失败\n失败输入：1 条\n失败输入 no-date：Agent 结果未通过格式或来源证据校验。"
+    },
+    {
+      "case_id": "relative",
+      "elapsed_seconds": 6.55,
+      "passed": false,
+      "mismatches": [
+        "result_status",
+        "task_count_or_time_or_notice"
+      ],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-relative",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "relative",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "relative",
+            "code": "invalid_agent_output",
+            "message": "Agent 结果未通过格式或来源证据校验。",
+            "retryable": true
+          }
+        ]
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-relative\n处理状态：处理失败\n失败输入：1 条\n失败输入 relative：Agent 结果未通过格式或来源证据校验。"
+    },
+    {
+      "case_id": "relative-no-base",
+      "elapsed_seconds": 3.48,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-relative-no-base",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "relative-no-base",
+            "status": "success",
+            "task_ids": [
+              "relative-no-base:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "relative-no-base:candidate:1",
+            "input_id": "relative-no-base",
+            "title": "提交实验报告",
+            "description": "按要求在明天18:00前提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "unknown",
+              "raw": "明天18:00",
+              "basis": "相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "通知发布时间未知（published_at 为 null），无法将“明天”换算为具体日期，截止日期待核实。",
+              "来源元数据课程为“示例课程”，但正文未出现课程名称，任务所属课程待核实。",
+              "相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。"
+            ],
+            "sources": [
+              {
+                "input_id": "relative-no-base",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/relative-no-base",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "relative-no-base",
+                "field": "text",
+                "quote": "请于明天18:00前提交实验报告。"
+              },
+              {
+                "input_id": "relative-no-base",
+                "field": "text",
+                "quote": "明天18:00"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-relative-no-base\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：relative-no-base:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：待核实（未知）\n具体要求：按要求在明天18:00前提交实验报告。\n时间原文：明天18:00\n来源：合成课程通知；https://example.invalid/notices/relative-no-base\n待核实：通知发布时间未知（published_at 为 null），无法将“明天”换算为具体日期，截止日期待核实。；来源元数据课程为“示例课程”，但正文未出现课程名称，任务所属课程待核实。；相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。"
+    },
+    {
+      "case_id": "conflict",
+      "elapsed_seconds": 7.25,
+      "passed": false,
+      "mismatches": [
+        "result_status",
+        "task_count_or_time_or_notice"
+      ],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-conflict",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "conflict",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "conflict",
+            "code": "invalid_agent_output",
+            "message": "Agent 结果未通过格式或来源证据校验。",
+            "retryable": true
+          }
+        ]
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-conflict\n处理状态：处理失败\n失败输入：1 条\n失败输入 conflict：Agent 结果未通过格式或来源证据校验。"
+    },
+    {
+      "case_id": "postpone",
+      "elapsed_seconds": 18.69,
+      "passed": false,
+      "mismatches": [
+        "result_status",
+        "task_count_or_time_or_notice"
+      ],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-postpone",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "postpone",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "postpone",
+            "code": "invalid_agent_output",
+            "message": "Agent 结果未通过格式或来源证据校验。",
+            "retryable": true
+          }
+        ]
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-postpone\n处理状态：处理失败\n失败输入：1 条\n失败输入 postpone：Agent 结果未通过格式或来源证据校验。"
+    },
+    {
+      "case_id": "cancel-unknown",
+      "elapsed_seconds": 1.75,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-cancel-unknown",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "cancel-unknown",
+            "status": "success",
+            "task_ids": [
+              "cancel-unknown:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "cancel-unknown:candidate:1",
+            "input_id": "cancel-unknown",
+            "title": "取消提交任务",
+            "description": "通知此前提到的提交任务已取消。",
+            "prerequisites": [],
+            "course_or_project": null,
+            "course_basis": "unknown",
+            "notice_type": "cancel",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "unknown",
+              "raw": null,
+              "basis": "原文未给出可确定的完成日期。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "被取消任务的原始对象未出现在本条正文或所给上下文中，无法唯一确定取消的是哪个提交任务",
+              "上下文为空，无法确认“之前说的”所指的原始通知及其课程或项目归属",
+              "变更对象未能唯一确定，请查看原通知及上下文。",
+              "原文未给出可确定的完成日期。"
+            ],
+            "sources": [
+              {
+                "input_id": "cancel-unknown",
+                "platform": "wechat",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "cancel-unknown",
+                "field": "text",
+                "quote": "之前说的那个提交任务取消了。"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-cancel-unknown\n处理状态：成功\n失败输入：0 条\n\n任务 1：取消提交任务\n候选标识：cancel-unknown:candidate:1\n课程/项目：未提供\n通知性质：取消\n截止日期：待核实（未知）\n具体要求：通知此前提到的提交任务已取消。\n来源：cancel-unknown；未提供链接\n待核实：被取消任务的原始对象未出现在本条正文或所给上下文中，无法唯一确定取消的是哪个提交任务；上下文为空，无法确认“之前说的”所指的原始通知及其课程或项目归属；变更对象未能唯一确定，请查看原通知及上下文。；原文未给出可确定的完成日期。"
+    },
+    {
+      "case_id": "no-task",
+      "elapsed_seconds": 1.05,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-no-task",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "no-task",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-no-task\n处理状态：无任务\n失败输入：0 条\n已处理的文本中未识别到待办。"
+    },
+    {
+      "case_id": "injection",
+      "elapsed_seconds": 1.55,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-injection",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "injection",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-injection\n处理状态：无任务\n失败输入：0 条\n已处理的文本中未识别到待办。"
+    }
+  ]
+}
