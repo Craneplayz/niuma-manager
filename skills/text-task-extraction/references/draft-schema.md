@@ -19,7 +19,7 @@
 ```
 
 - `title`：非空行动名称；`description`：原文行动含义的说明。
-- `prerequisites`：有原文依据且服务于同一目的的前置步骤字符串列表。
+- `prerequisites`：服务于同一目的的前置步骤字符串列表；每项须逐字摘录，且包含在本任务 `evidence` 的至少一个 quote 中。引用上下文中的步骤时也须在 evidence 中提供对应引用。不得改写或补造步骤。
 - `notice_type`：`create/update/postpone/cancel/uncertain`。
 - `target`：变更对象的逐字引用 `{"input_id": "old-1", "quote": "实验报告"}`，无法唯一确定时为 null。不是数据库任务 ID。create 时必须为 null。
 - `course`：未提供课程元数据时，可用 `{"value": "ICS", "input_id": "msg-1", "quote": "ICS第一次小班课"}`；value 必须实际出现在 quote 中。未知为 null。不要将组织者名称直接当作课程。

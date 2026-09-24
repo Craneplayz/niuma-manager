@@ -52,6 +52,30 @@ class CheckingClient:
 
 
 class DateTests(unittest.TestCase):
+    def test_unresolved_time_preserves_kind_and_source_zone(self):
+        record = message(published_at={"value": None, "precision": "unknown", "basis": "unknown"})
+        for kind in ("deadline", "reference"):
+            for phrase in ("明天18点", "月底", "24小时后", "2026-02-30"):
+                with self.subTest(kind=kind, phrase=phrase):
+                    result = combine_times([resolve_time(phrase, record, kind)])
+                    self.assertEqual((result["value"], result["kind"], result["timezone"]),
+                                     (None, kind, "Asia/Shanghai"))
+
+    def test_ambiguous_twelve_and_contradictory_period_are_reviewable(self):
+        for phrase in ("明晚12点", "明天晚上12点", "明天上午12点", "明晚上午6点"):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(resolve_time(phrase, message(), "deadline")["value"])
+        self.assertEqual(resolve_time("明天12点", message(), "deadline")["value"],
+                         "2027-01-01T12:00:00+08:00")
+
+    def test_conflict_preserves_common_zone_but_not_mixed_zones(self):
+        values = [resolve_time(p, message(), "reference") for p in ("2026-09-25", "2026-09-28")]
+        result = combine_times(values)
+        self.assertEqual((result["kind"], result["timezone"], result["status"]),
+                         ("reference", "Asia/Shanghai", "conflict"))
+        values[1] = resolve_time("2026-09-28", message(timezone="UTC"), "reference")
+        self.assertIsNone(combine_times(values)["timezone"])
+
     def test_relative_cross_year_and_week(self):
         for phrase, value in [("明天18点", "2027-01-01T18:00:00+08:00"),
                               ("后天", "2027-01-02"), ("本周一", "2026-12-28"),
@@ -109,6 +133,25 @@ class DateTests(unittest.TestCase):
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_unresolved_reference_and_no_date_keep_zone(self):
+        record = message("月底开课，请提前加群。")
+        task = compile_tasks(record, draft(record, times=[ref(record, "月底", kind="reference")]))[0]
+        self.assertEqual((task["deadline"]["status"], task["deadline"]["kind"]), ("unknown", "reference"))
+        self.assertTrue(task["needs_review"])
+        no_date = compile_tasks(record, draft(record))[0]["deadline"]
+        self.assertEqual((no_date["kind"], no_date["timezone"]), ("unknown", "Asia/Shanghai"))
+
+    def test_prerequisites_require_quoted_evidence_including_context(self):
+        old = message("请先查邮箱获取班号。", input_id="old")
+        record = message("请加群。", context=[old])
+        for step in ("上传聊天记录", "查邮箱获取班号"):
+            with self.subTest(step=step), self.assertRaises(AgentError):
+                compile_tasks(record, draft(record, prerequisites=[step]))
+        task = compile_tasks(record, draft(record, prerequisites=["查邮箱获取班号"],
+            evidence=[ref(record, record["text"]), ref(old, old["text"])]))[0]
+        self.assertEqual(task["prerequisites"], ["查邮箱获取班号"])
+        self.assertEqual([s["input_id"] for s in task["sources"]], ["m", "old"])
+
     def test_no_date_is_retained_and_zero_tasks_is_valid(self):
         record = message()
         task = compile_tasks(record, draft(record))[0]

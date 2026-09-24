@@ -67,7 +67,7 @@ def check_case(case):
         if deadline["status"] in {"unknown", "conflict"}:
             require(deadline["value"] is None, "Unresolved time cannot have a chosen value")
         if deadline["kind"] == "reference":
-            require(deadline["status"] == "inferred", "Reference time is inferred")
+            require(deadline["status"] in {"inferred", "unknown", "conflict"}, "Reference time cannot be explicit")
         require(bool(deadline["alternatives"]) == (deadline["status"] == "conflict"),
                 "Conflict alternatives mismatch")
     for input_id, outcome in outcomes.items():

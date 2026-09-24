@@ -70,6 +70,9 @@ def compile_drafts(response, record):
             require(isinstance(draft["evidence"], list) and 0 < len(draft["evidence"]) <= 100)
             evidence = [_reference(ref, available) for ref in draft["evidence"]]
             require(any(ref["input_id"] == record["input_id"] for ref in evidence))
+            # Prerequisites are quotations, unlike the summarized title/description.
+            require(all(any(step in ref["quote"] for ref in evidence)
+                        for step in draft["prerequisites"]))
             reasons = list(draft["review_reasons"])
             target = draft["target"]
             require(draft["notice_type"] != "create" or target is None)
@@ -97,7 +100,7 @@ def compile_drafts(response, record):
                 evidence.append(_reference(ref, available, ("kind",)))
                 require(ref["kind"] in {"deadline", "reference"})
                 times.append(resolve_time(ref["quote"], available[ref["input_id"]], ref["kind"]))
-            deadline = combine_times(times)
+            deadline = combine_times(times, record.get("timezone"))
             if deadline["status"] != "explicit":
                 reasons.append(deadline["basis"])
             if record["text_quality"] != "complete":
