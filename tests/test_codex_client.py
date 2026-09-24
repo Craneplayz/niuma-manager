@@ -68,12 +68,12 @@ class CodexClientTests(unittest.TestCase):
             process = Mock(returncode=0)
             process.poll.return_value = 0
             def communicate(data, timeout):
-                self.assertEqual(data, b"private-text")
+                self.assertEqual(json.loads(data), {"text": "private-text"})
                 Path(command[command.index("--output-last-message") + 1]).write_text('{"tasks":[]}', encoding="utf-8")
             process.communicate.side_effect = communicate
             return process
         with patch("ddl_text.codex_client.subprocess.Popen", side_effect=start):
-            result = CodexClient("codex", "secret-key").generate("rules", "private-text", Settings(), 0)
+            result = CodexClient("codex", "secret-key").generate("rules", '{"text":"private-text"}', Settings(), 0)
         self.assertEqual(result, '{"tasks":[]}')
         self.assertNotIn("secret-key", str(seen["command"]))
         self.assertNotIn("private-text", str(seen["command"]))
@@ -86,7 +86,7 @@ class CodexClientTests(unittest.TestCase):
             process.communicate.side_effect = failure
             with patch("ddl_text.codex_client.subprocess.Popen", return_value=process), \
                     patch("ddl_text.codex_client.stop_process") as stop, self.assertRaises(AgentError) as error:
-                CodexClient("codex", "secret").generate("rules", "private", Settings(), 0)
+                CodexClient("codex", "secret").generate("rules", '{"text":"private"}', Settings(), 0)
             self.assertEqual(error.exception.code, "agent_timeout" if failure else "agent_unavailable")
             self.assertNotIn("private", str(error.exception))
             stop.assert_called_once_with(process)
@@ -147,6 +147,8 @@ class LocalCodexIntegrationTests(unittest.TestCase):
             self.assertEqual(tool_names, [], "Unexpected tools: %s" % tool_names)
             self.assertEqual(request["model"], "deepseek-flash")
             self.assertEqual(request["reasoning"]["effort"], "low")
+            self.assertEqual(request["text"]["format"]["type"], "json_schema")
+            self.assertEqual(request["text"]["format"]["schema"]["properties"]["tasks"]["items"]["properties"]["course"], {"type": "null"})
             server.reject_auth = True
             failed = process_request({"contract_version": "0.1", "request_id": "local-failure", "records": [record]},
                                      ExtractionAdapter(CodexClient(os.environ["DDL_TEST_CODEX"], "synthetic-not-a-key")), settings)

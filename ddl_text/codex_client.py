@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .adapters import AgentError
+from .draft_schema import draft_schema
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,14 +122,17 @@ class CodexClient:
             home.mkdir()
             work.mkdir()
             instruction_file, output = root / "instructions.md", root / "answer.json"
+            schema_file = root / "draft-schema.json"
             instruction_file.write_text(instructions, encoding="utf-8")
+            schema_file.write_text(json.dumps(draft_schema(json.loads(record_json)), ensure_ascii=False), encoding="utf-8")
             (home / "config.toml").write_text(build_config(instruction_file, settings.model, settings.endpoint), encoding="utf-8")
             env = {k: v for k, v in os.environ.items() if k.upper() in {
                 "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE",
                 "LOCALAPPDATA", "APPDATA", "COMSPEC", "PATHEXT", "LANG", "SSL_CERT_FILE", "SSL_CERT_DIR"}}
             env.update(CODEX_HOME=str(home), DEEPSEEK_API_KEY=self._key, RUST_LOG="off")
             command = [self.executable, "exec", "--ephemeral", "--skip-git-repo-check",
-                       "--color", "never", "--cd", str(work), "--output-last-message", str(output), "-"]
+                       "--color", "never", "--cd", str(work), "--output-last-message", str(output),
+                       "--output-schema", str(schema_file), "-"]
             flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
             process = None
             try:
@@ -158,6 +162,6 @@ def preflight(options):
     except subprocess.TimeoutExpired:
         raise ValueError("Codex CLI check timed out") from None
     if result.returncode or not all(flag in result.stdout for flag in
-                                    ("--ephemeral", "--output-last-message", "--skip-git-repo-check")):
+                                    ("--ephemeral", "--output-last-message", "--skip-git-repo-check", "--output-schema")):
         raise ValueError("Codex CLI version is incompatible")
     return executable
