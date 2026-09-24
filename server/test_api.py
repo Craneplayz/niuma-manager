@@ -98,6 +98,64 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(applied['value'][0]['due'],base['due'])
         self.assertEqual(self.call(a,'/planning/apply','POST',dict(requestId=result['requestId']))[0],409)
 
+    def test_recognition_demo_and_atomic_idempotent_confirmation(self):
+        a,b=self.client(),self.client();self.register(a,'text-a@test.local');self.register(b,'text-b@test.local')
+        status,batches=self.call(a,'/recognition/demo','POST',{})
+        self.assertEqual(status,200);self.assertEqual(batches[0]['result']['status'],'partial_success')
+        self.assertEqual(self.call(b,'/recognition/batches')[1],[])
+        item=batches[0]['items'][1]
+        body=dict(action='create',version=item['version'],tasks_version=0,reviewed=True,target_id=None,draft=dict(title='阅读材料',description='确认无期限任务',due=None))
+        self.assertEqual(self.call(b,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],404)
+        self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(body,tasks_version=99))[0],409)
+        self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],200)
+        self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],200)
+        tasks=self.call(a,'/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),1);self.assertIsNone(tasks[0]['due']);self.assertEqual(tasks[0]['subtasks'],[])
+        self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(body,action='cancel'))[0],409)
+        self.assertEqual(len(self.call(a,'/recognition/demo','POST',{})[1][0]['items']),2)
+
+    def test_recognition_transport_and_request_idempotence(self):
+        a=self.client();self.register(a,'text-transport@test.local')
+        fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text())
+        captured=[]
+        def harness(request,timeout):
+            captured.append(json.loads(request.data))
+            return io.BytesIO(json.dumps(fixture['expected']).encode())
+        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',harness):
+            self.assertEqual(self.call(a,'/recognition/batches','POST',fixture['request'])[0],200)
+            self.assertEqual(self.call(a,'/recognition/batches','POST',fixture['request'])[0],200)
+        self.assertEqual(captured,[fixture['request']])
+        changed=copy.deepcopy(fixture['request']);changed['records'][0]['text']='不同内容'
+        self.assertEqual(self.call(a,'/recognition/batches','POST',changed)[0],409)
+        self.assertNotIn('tasks',self.call(a,'/workspace')[1])
+        empty=dict(contract_version='0.2',request_id='empty',records=[])
+        status,batches=self.call(a,'/recognition/batches','POST',empty)
+        self.assertEqual(status,200);self.assertEqual(batches[0]['result']['status'],'no_tasks')
+        fresh=copy.deepcopy(fixture['request']);fresh['request_id']='missing-service'
+        with patch.dict(app.os.environ,{},clear=True):
+            self.assertEqual(self.call(a,'/recognition/batches','POST',fresh)[0],503)
+
+    def test_recognition_change_matching_and_preservation(self):
+        a=self.client();self.register(a,'text-change@test.local')
+        self.call(a,'/recognition/demo','POST',{})
+        uid=self.call(a,'/auth/me')[1]['user']['id']
+        original=dict(id='target',title='原任务',description='原要求',status='not_started',plans=[dict(id='plan',title='现有安排')],subtasks=[],due=dict(date='2026-09-25',precision='date'))
+        self.assertEqual(self.call(a,'/data/tasks','PUT',dict(value=[original],version=0))[0],200)
+        for n,action in enumerate(['postpone','update','cancel']):
+            with app.connection() as db:
+                c=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? LIMIT 1',(uid,)).fetchone()['candidate'])
+                c['notice_type']=action
+                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',('change-'+action,uid,'demo:text-contract:0.2',json.dumps(c)))
+            body=dict(action=action,version=1,tasks_version=n+1,reviewed=True,target_id='foreign',draft=dict(title='用户修订',description='用户修订要求',due=dict(date='2026-10-03',precision='date')))
+            path='/recognition/candidates/change-'+action+'/resolve'
+            self.assertEqual(self.call(a,path,'POST',body)[0],400)
+            body['target_id']='target'
+            self.assertEqual(self.call(a,path,'POST',body)[0],200)
+            tasks=self.call(a,'/workspace')[1]['tasks']['value']
+            self.assertEqual(len(tasks),1);self.assertEqual(tasks[0]['plans'],original['plans'])
+            if action=='postpone':self.assertEqual(tasks[0]['title'],'原任务')
+            if action=='cancel':self.assertEqual(tasks[0]['status'],'cancelled')
+
 class ProposalTests(unittest.TestCase):
     def setUp(self):
         self.request=dict(requestedAt='2026-09-23T10:00:00+08:00',tasks=[dict(id='a',title='报告',due=dict(date='2026-09-24',precision='date'))],existingPlans=[],availability=dict(startTime='19:00',endTime='22:00',weekdays=[0,1,2,3,4,5,6]))

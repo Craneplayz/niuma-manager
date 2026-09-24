@@ -3,6 +3,7 @@ export type User = { id: string; name: string; email: string }
 type Entry = { value: unknown; version: number }
 let workspace: Record<string, Entry> = {}
 let activeUserId = ''
+export const userDataVersion = (name:string) => workspace[name]?.version??0
 export async function api(path: string, method = 'GET', body?: unknown, signal?: AbortSignal) {
   const response = await fetch('/api'+path,{method,credentials:'include',headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal})
   let result
@@ -45,6 +46,6 @@ export function useUserData<T>(userId:string,name:string,fallback:T) {
       workspace[name]={value:next,version:result.version};current.current=next;setValue(next);setError('');return true
     }catch(e){setError((e as Error).message);return false}finally{busy.current=false}
   }
-  const refresh=async()=>{workspace=await api('/workspace');const next=(workspace[name]?.value as T)??fallback;current.current=next;setValue(next)}
+  const refresh=async()=>{if(activeUserId!==userId)return;const nextWorkspace=await api('/workspace');if(activeUserId!==userId)return;workspace=nextWorkspace;const next=(workspace[name]?.value as T)??fallback;current.current=next;setValue(next)}
   return [value,save,error,refresh] as const
 }

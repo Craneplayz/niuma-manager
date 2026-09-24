@@ -12,6 +12,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
+import recognition
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -33,6 +34,7 @@ def initialize():
         CREATE TABLE IF NOT EXISTS workspace(user_id TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(user_id,name));
         CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
         ''')
+        recognition.initialize(db)
 
 def seed():
     initialize()
@@ -115,6 +117,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),'niuma_session='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age=86400')
             user,token=self.user(db)
             uid=user['id']
+            if recognition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
@@ -156,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []
                 pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and not t.get('planningExcluded') and not t['plans']]
                 if not pending: raise ApiError(400,'没有需要规划的任务')
-                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=datetime.now(TZ).isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=[dict(p,taskId=t['id']) for t in tasks for p in t['plans']],availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
+                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=datetime.now(TZ).isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']],availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)

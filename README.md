@@ -29,9 +29,15 @@ npm run dev:api
 ```bash
 HARNESS_URL=http://127.0.0.1:8000/planning HARNESS_TOKEN=your-token npm run dev:api
 ```
-模型负责工时评估和安排，接口见 [协作对齐文档](docs/backend-harness-alignment.md)。未配置时明确提示未接入，**不会冒充模型生成演示结果**。自然语言日期提取与信息来源同步仍为本地规则/模拟，不是真实邮箱或教学网接入。
+模型负责工时评估和安排，接口见 [协作对齐文档](docs/backend-harness-alignment.md)。未配置时明确提示未接入，**不会冒充模型生成演示结果**。手动创建页的日期线索提取仍为本地规则；真实来源采集尚未接入。文本识别页使用下述独立服务或明确标记的协议演示。
 
 ## 验证
+
+文本识别 v0.2 已定稿并与前端审核、候选事务确认 API 对齐，统一见 [前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md)。
+
+登录后在“待确认”页粘贴原文识别，或点击“加载协议演示”体验明确标注的人工样例。真实识别需设置服务端 TEXT_HARNESS_URL 和可选 TEXT_HARNESS_TOKEN，独立于规划 HARNESS_URL。无真实服务时返回未接入提示，不用样例冒充识别结果。原文要求单独保存，延期/更新/取消必须匹配目标后确认。
+
+Python 时区校验依赖系统 IANA 数据；若 Windows 等环境缺少时区库，可运行 python -m pip install tzdata。没有 python3 命令时使用 py -3 server/app.py。
 
 ```bash
 npm test
