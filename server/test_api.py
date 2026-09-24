@@ -73,6 +73,18 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],503)
         self.assertEqual(self.call(a,'/data/availability','PUT',dict(value=dict(startTime='22:00',endTime='19:00',weekdays=[]),version=0))[0],400)
 
+    def test_deadline_time_edit_preserves_plans(self):
+        client=self.client();self.register(client,'deadline-edit@test.local')
+        plan=dict(id='p1',title='原执行安排',startAt='2026-10-01T10:00:00+08:00',endAt='2026-10-01T11:00:00+08:00',origin='manual')
+        task=dict(id='ddl-edit',title='截止时间测试',status='not_started',subtasks=[],plans=[plan],due=None)
+        deadlines=[dict(date='2026-10-03',precision='date'),dict(date='2026-10-03',time='18:30',precision='datetime'),dict(date='2026-10-03',time='00:00',precision='datetime'),dict(date='2026-10-03',precision='date'),None]
+        for version,due in enumerate(deadlines):
+            task['due']=due
+            self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=version))[0],200)
+            stored=self.call(client,'/workspace')[1]['tasks']['value'][0]
+            self.assertEqual(stored['due'],due)
+            self.assertEqual(stored['plans'],[plan])
+
     def test_courses_persist_and_reject_unsafe_links(self):
         a,b=self.client(),self.client();self.register(a,'courses@test.local');self.register(b,'courses-other@test.local')
         course=dict(id='c1',name='数学',teacher='老师',url='https://example.com/material',notes='手写笔记')

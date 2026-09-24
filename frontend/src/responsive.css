@@ -25,11 +25,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .month-cell { min-width:0; }
 .calendar-panel { overflow:hidden; }
 .time-grid { min-height:0;height:620px;overflow:auto; }
-.time-column { grid-template-rows:22px repeat(24,52px); }
+.deadline-editor form { margin-top:14px; }
+.deadline-editor fieldset { margin:0;padding:0;border:0;min-width:0; }
+.time-column { padding-top:0;grid-template-rows:42px 22px repeat(24,52px); }
+.time-axis-heading { position:sticky;top:0;z-index:3;background:#fafafc;display:grid;place-items:center; }
+.time-column>span:first-of-type { position:sticky;top:42px;z-index:2;background:#fafafc; }
 .day-column { min-height:1312px; }
 .time-grid.day { grid-template-columns:52px minmax(0,1fr); }
 .timed-event { min-height:44px; }
-.all-day { overflow:auto; }
+.all-day { overflow:auto;position:sticky;top:42px;left:auto;right:auto;margin:0 3px;background:#fff;z-index:2; }
 .task-row { grid-template-columns:4px minmax(0,1fr) 60px 150px 18px; }
 .task-row-main>span { max-width:100%; }
 .two-column { grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); }
