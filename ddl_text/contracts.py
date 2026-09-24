@@ -128,7 +128,7 @@ def validate_tasks(tasks, record):
             require(all(valid_time(s, "date") or valid_time(s, "datetime") for s in deadline["alternatives"]))
             require(bool(deadline["alternatives"]) == (deadline["status"] == "conflict"))
             require((deadline["value"] is None) == (deadline["status"] in {"unknown", "conflict"}))
-            require(deadline["kind"] != "reference" or deadline["status"] == "inferred")
+            require(deadline["kind"] != "reference" or deadline["status"] in {"inferred", "unknown", "conflict"})
             require(deadline["status"] == "explicit" or task["needs_review"])
             for key in ("sources", "evidence"):
                 require(isinstance(task[key], list) and bool(task[key]))

@@ -81,7 +81,7 @@
 - status 为 explicit/inferred/unknown/conflict：明确、推断、未知、冲突。
 - raw 保留时间原话，无时间表达用 null；basis 用文字说明换算或不确定依据；alternatives 为冲突时的候选时间字符串数组，非冲突用 []。
 - 未知或冲突时 value=null、precision=unknown；冲突保留原文和候选，不随意取更早/更晚日期。
-- reference 一律 inferred；inferred/unknown/conflict 都要求 needs_review=true。
+- reference 有唯一日期值时为 inferred；尚不能换算或存在冲突时保留 reference，状态分别为 unknown/conflict。inferred/unknown/conflict 都要求 needs_review=true。时间类型与日期值是否确定分别表达；未知日期不丢弃已知来源时区，不同时区合并时 timezone 为 null。
 - “明天 18 点前交”在可信发布时间和时区下可确定换算，属于 explicit；用采集日猜“明天”不成立。
 - “明晚开会，请提前加群”可用会议开始时间作 reference，不能标为明确的加群截止时间。
 - “周五”“尽快”等缺少唯一解释时先标未知，不固定猜测下一个周五或今天；“本周五”有可信日期基准时可换算。

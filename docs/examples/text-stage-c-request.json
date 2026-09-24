@@ -1,0 +1,14 @@
+{
+  "contract_version": "0.1",
+  "request_id": "synthetic-stage-c",
+  "records": [{
+    "input_id": "synthetic:group",
+    "text": "明晚6:40开小班课，请查邮箱获取班号，提前加入对应小班群。另请提交学习计划。",
+    "platform": "teaching_web",
+    "published_at": {"value": "2026-09-15T18:33:49+08:00", "precision": "datetime", "basis": "source"},
+    "timezone": "Asia/Shanghai",
+    "timezone_basis": "source",
+    "source_label": "合成小班通知",
+    "course_or_project": "示例课程"
+  }]
+}
