@@ -70,3 +70,6 @@ server/data/
 *.sqlite3-shm
 output/playwright/
 .playwright-cli/
+
+# Shared text extraction local data
+local-data/

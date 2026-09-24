@@ -40,4 +40,3 @@
 - [前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md)：文本识别 v0.2、用户确认接口与规划流程。
 
 前端代码、Node 依赖配置和前端测试集中在 `frontend/`；`server/` 是配套本地开发 API，`docs/` 保留跨团队共享文档。前端 npm 命令请在 `frontend/` 目录执行。
-

@@ -1,0 +1,7 @@
+{
+  "model": null,
+  "endpoint": null,
+  "credential_env": null,
+  "timeout_seconds": 5,
+  "max_retries": 0
+}
