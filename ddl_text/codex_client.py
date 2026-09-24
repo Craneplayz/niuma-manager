@@ -15,11 +15,15 @@ from .draft_schema import draft_schema
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_KEYS = {"DEEPSEEK_API_KEY", "DDL_MODEL", "DDL_ENDPOINT", "DDL_CODEX_BIN"}
+# The frontend backend has its own shell configuration. These sibling keys may
+# coexist in a merged .env example but are never provider settings or prompts.
+SIBLING_ENV_KEYS = {"HARNESS_URL", "HARNESS_TOKEN", "TEXT_HARNESS_URL", "TEXT_HARNESS_TOKEN", "NIUMA_DB"}
 
 
 def load_env(path):
     """Small literal dotenv subset: no expansion, execution or environment writes."""
     values = {}
+    seen = set()
     if not path.is_file():
         return values
     for line in path.read_text(encoding="utf-8-sig").splitlines():
@@ -28,13 +32,15 @@ def load_env(path):
             continue
         key, separator, value = line.partition("=")
         key, value = key.strip(), value.strip()
-        if not separator or key not in ENV_KEYS or key in values:
+        if not separator or key not in ENV_KEYS | SIBLING_ENV_KEYS or key in seen:
             raise ValueError("invalid dotenv")
+        seen.add(key)
         if value[:1] in {"'", '"'}:
             if len(value) < 2 or value[-1] != value[0]:
                 raise ValueError("invalid dotenv")
             value = value[1:-1]
-        values[key] = value
+        if key in ENV_KEYS:
+            values[key] = value
     return values
 
 

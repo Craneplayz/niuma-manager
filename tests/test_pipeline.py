@@ -174,7 +174,7 @@ class CliTests(unittest.TestCase):
                               env=environment)
 
     def test_json_stdout_and_mode_stderr(self):
-        result = self.run_cli("--demo", "multiple", "--format", "json")
+        result = self.run_cli("--demo", "multiple")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(json.loads(result.stdout)["tasks"]), 2)
         self.assertIn("mode=offline", result.stderr)
@@ -202,7 +202,7 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("PRIVATE-TEXT-SENTINEL", result.stderr)
 
     def test_text_mode_identifies_replay(self):
-        result = self.run_cli("--demo", "no-date")
+        result = self.run_cli("--demo", "no-date", "--format", "text")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("非模型识别", result.stdout)
         self.assertIn("待核实", result.stdout)

@@ -23,7 +23,9 @@
 
 阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。可用合成草稿测试。
 
-阶段 D 已提供 DeepSeek 经 Codex 的真实调用适配器和 `.env` 配置。请按[填写密钥与 API 验证](docs/text-api-setup.md)操作；2026-09-24 已完成十个真实 API 合成场景验证，见[交付与复核记录](docs/text-stage-d-review.md)。独立质量评测、队友评审与团队验收仍待完成。
+阶段 D 已提供 DeepSeek 经 Codex 的真实调用适配器和 `.env` 配置。请按[填写密钥与 API 验证](docs/text-api-setup.md)操作；2026-09-24 已完成十个真实 API 合成场景验证，见[交付与复核记录](docs/text-stage-d-review.md)。
+
+现已支持前端 PR #15 所需的 v0.2 JSON 和本地 HTTP 入口，并通过真实模型到前端后端的合成通知联调。CLI 默认输出 JSON。启动步骤、输入输出示例、文件职责和验证结果见[前端对接说明](docs/text-frontend-integration.md)。独立召回率评测按负责人要求暂缓，队友评审与网页人工验收仍待完成。
 
 - [需求基线与职责边界](docs/text-extraction-requirements.md)
 - [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)

@@ -38,6 +38,8 @@ class CodexClientTests(unittest.TestCase):
             before = dict(os.environ)
             self.assertEqual(load_env(path)["DEEPSEEK_API_KEY"], "$(not-executed)")
             self.assertEqual(dict(os.environ), before)
+            path.write_text('DEEPSEEK_API_KEY=test-only\nTEXT_HARNESS_URL=http://127.0.0.1:1333/recognize\nHARNESS_TOKEN=other-service\n', encoding="utf-8")
+            self.assertEqual(load_env(path), {"DEEPSEEK_API_KEY": "test-only"})
             with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "env-secret"}):
                 self.assertEqual(live_options(path)["key"], "env-secret")
             for text in ("BAD=x", "DEEPSEEK_API_KEY=a\nDEEPSEEK_API_KEY=b", 'DEEPSEEK_API_KEY="broken'):

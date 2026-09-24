@@ -3,7 +3,7 @@
 
 def render_text(result, mode):
     statuses = {"success": "成功", "no_tasks": "无任务", "partial_success": "部分成功", "failed": "处理失败"}
-    date_states = {"explicit": "明确", "inferred": "推断", "unknown": "未知", "conflict": "冲突"}
+    date_states = {"explicit": "明确", "inferred": "推断", "unknown": "未知", "conflict": "冲突", "not_provided": "原文未提供"}
     notice_types = {"create": "任务要求", "update": "修改", "postpone": "延期", "cancel": "取消", "uncertain": "待核实"}
     modes = {"offline": "离线样例回放（非模型识别）",
              "drafts": "离线合成草稿处理（非真实模型调用）",
@@ -20,7 +20,7 @@ def render_text(result, mode):
                       "候选标识：" + task["candidate_id"],
                       "课程/项目：" + (task["course_or_project"] or "未提供"),
                       "通知性质：" + notice_types[task["notice_type"]],
-                      label + "：" + (deadline["value"] or "待核实") + "（" + date_states[deadline["status"]] + "）"])
+                      label + "：" + (deadline["value"] or ("无 DDL" if deadline["status"] == "not_provided" else "待核实")) + "（" + date_states[deadline["status"]] + "）"])
         if task["description"].strip():
             lines.append("具体要求：" + task["description"])
         if deadline["raw"]:

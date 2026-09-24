@@ -26,7 +26,7 @@ python -m ddl_text --check-connection
 python -m ddl_text --mode real --input docs/examples/text-stage-c-request.json
 ```
 
-如需给前端或其他程序使用，增加 `--format json`。该例预期包含“加入对应小班群”和“提交学习计划”；前者参考时间为 2026-09-16 18:40，后者日期未知。真实模型的文字表达可以不同，需要检查是否漏任务或把参考时间误标为明确截止。
+CLI 默认输出 JSON，需要人工阅读时增加 `--format text`。该 v0.1 例预期包含“加入对应小班群”和“提交学习计划”；前者参考时间为 2026-09-16 18:40，后者日期未知。前端现使用 v0.2 与 HTTP 接口，完整启动方式见[前端对接说明](text-frontend-integration.md)。真实模型的文字表达可以不同，需要检查是否漏任务或把参考时间误标为明确截止。
 
 不要加 `--drafts`、`--replay` 或 `--demo`，这些是离线入口。初次只运行合成样例；私人通知仍按团队的数据权限约束处理。密钥留在本地，不发到聊天或 GitHub。
 

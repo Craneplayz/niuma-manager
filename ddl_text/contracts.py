@@ -45,7 +45,15 @@ def check_publication(value):
 
 def check_request(request):
     require(isinstance(request, dict), "invalid_request")
-    require(request.get("contract_version") == "0.1", "unsupported_version")
+    require(isinstance(request.get("contract_version"), str)
+            and request["contract_version"] in {"0.1", "0.2"}, "unsupported_version")
+    if request["contract_version"] == "0.2":
+        from .contract_v02 import validate_request
+        try:
+            validate_request(request)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            raise ContractError("invalid_request") from None
+        return request["records"]
     require(nonempty(request.get("request_id")), "invalid_request")
     records = request.get("records")
     require(isinstance(records, list) and len(records) <= 100, "invalid_request")
@@ -57,7 +65,7 @@ def check_request(request):
     return records
 
 
-def normalize_record(record):
+def normalize_record(record, version="0.1"):
     result = {
         "text_quality": "complete", "platform": "unknown",
         "published_at": {"value": None, "precision": "unknown", "basis": "unknown"},
@@ -86,10 +94,13 @@ def normalize_record(record):
         require(isinstance(context, dict) and nonempty(context.get("input_id")))
         require(context["input_id"] not in ids)
         ids.add(context["input_id"])
-        require(nonempty(context.get("text")) and len(context["text"]) <= 200000)
+        require(isinstance(context.get("text"), str) and len(context["text"]) <= 200000
+                and (version == "0.2" or nonempty(context["text"])))
         check_publication(context.get("published_at"))
         for key in ("timezone", "source_url", "source_label"):
             require(key in context and nullable_text(context[key]))
+    if version == "0.2":
+        result["contract_version"] = version
     return result
 
 
@@ -102,6 +113,19 @@ def validate_tasks(tasks, record):
         required = {"candidate_id", "input_id", "title", "description", "prerequisites",
                     "course_or_project", "course_basis", "notice_type", "target_reference",
                     "deadline", "needs_review", "review_reasons", "sources", "evidence"}
+        if record.get("contract_version") == "0.2":
+            from .contract_v02 import validate_candidate
+            for task in tasks:
+                require(isinstance(task, dict) and required == task.keys())
+                require(task["candidate_id"] not in seen)
+                seen.add(task["candidate_id"])
+                validate_candidate(task, record)
+                require(set(task["deadline"]) == {"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"})
+                for source in task["sources"]:
+                    require(set(source) == {"input_id", "platform", "url", "label", "source_item_id"})
+                for ref in task["evidence"]:
+                    require(set(ref) == {"input_id", "field", "quote", "supports"})
+            return deepcopy(tasks)
         for task in tasks:
             require(isinstance(task, dict) and required == task.keys())
             require(nonempty(task["candidate_id"]) and task["candidate_id"] not in seen)

@@ -29,7 +29,7 @@ def main(argv=None):
     parser.add_argument("--replay", help="人工合成回放文件，格式与契约样例相同")
     parser.add_argument("--drafts", help="离线合成 Agent 草稿文件；运行真实日期和证据处理，不调用模型")
     parser.add_argument("--mode", choices=["offline", "real"], default="offline")
-    parser.add_argument("--format", choices=["text", "json"], default="text")
+    parser.add_argument("--format", choices=["text", "json"], default="json")
     parser.add_argument("--config", help="仅含非敏感参数的 JSON 配置路径")
     parser.add_argument("--audit", action="store_true", help="向标准错误输出不含正文的状态与耗时")
     parser.add_argument("--env-file", default=str(ROOT / ".env"), help="真实模式的本地密钥配置文件")
@@ -93,7 +93,7 @@ def main(argv=None):
         parser.error("无法读取或解析输入、回放或配置；请检查格式与参数。")
     if args.audit:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
-    # Diagnostics describe mode; JSON stdout stays a pure v0.1 result object.
+    # Diagnostics describe mode; JSON stdout stays a pure versioned result object.
     print("mode=%s; adapter=%s" % (settings.mode,
           "codex" if settings.mode == "real" else "synthetic_drafts" if args.drafts else "replay_only"), file=sys.stderr)
     result = process_request(request, adapter, settings)

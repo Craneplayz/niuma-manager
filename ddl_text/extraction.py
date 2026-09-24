@@ -59,6 +59,7 @@ def compile_drafts(response, record):
         drafts = envelope["tasks"]
         require(isinstance(drafts, list) and len(drafts) <= 100)
         available = {item["input_id"]: item for item in [record] + record["context"]}
+        v02 = record.get("contract_version") == "0.2"
         tasks = []
         for index, draft in enumerate(drafts, 1):
             require(isinstance(draft, dict) and set(draft) == {"title", "description", "prerequisites",
@@ -69,6 +70,13 @@ def compile_drafts(response, record):
                 require(isinstance(draft[key], list) and all(nonempty(s) for s in draft[key]))
             require(isinstance(draft["evidence"], list) and 0 < len(draft["evidence"]) <= 100)
             evidence = [_reference(ref, available) for ref in draft["evidence"]]
+            if v02:
+                for ref in evidence:
+                    ref["supports"] = ["title", "description"]
+                    if draft["notice_type"] != "create":
+                        ref["supports"].append("notice_type")
+                    if any(step in ref["quote"] for step in draft["prerequisites"]):
+                        ref["supports"].append("prerequisites")
             require(any(ref["input_id"] == record["input_id"] for ref in evidence))
             # Prerequisites are quotations, unlike the summarized title/description.
             require(all(any(step in ref["quote"] for ref in evidence)
@@ -77,7 +85,10 @@ def compile_drafts(response, record):
             target = draft["target"]
             require(draft["notice_type"] != "create" or target is None)
             if target is not None:
-                evidence.append(_reference(target, available))
+                target_evidence = _reference(target, available)
+                if v02:
+                    target_evidence["supports"] = ["target_reference"]
+                evidence.append(target_evidence)
             elif draft["notice_type"] != "create":
                 reasons.append("变更对象未能唯一确定，请查看原通知及上下文。")
             if draft["notice_type"] == "uncertain":
@@ -87,7 +98,10 @@ def compile_drafts(response, record):
                 course_basis = "unknown"
             if draft["course"] is not None:
                 course_ref = draft["course"]
-                evidence.append(_reference(course_ref, available, ("value",)))
+                course_evidence = _reference(course_ref, available, ("value",))
+                if v02:
+                    course_evidence["supports"] = ["course_or_project"]
+                evidence.append(course_evidence)
                 require(nonempty(course_ref["value"]) and course_ref["value"] in course_ref["quote"])
                 if course is None:
                     course, course_basis = course_ref["value"], "inferred"
@@ -97,11 +111,25 @@ def compile_drafts(response, record):
             require(isinstance(draft["times"], list) and len(draft["times"]) <= 20)
             times = []
             for ref in draft["times"]:
-                evidence.append(_reference(ref, available, ("kind",)))
+                time_evidence = _reference(ref, available, ("kind",))
+                if v02:
+                    time_evidence["supports"] = ["deadline"]
+                evidence.append(time_evidence)
                 require(ref["kind"] in {"deadline", "reference"})
                 times.append(resolve_time(ref["quote"], available[ref["input_id"]], ref["kind"]))
             deadline = combine_times(times, record.get("timezone"))
-            if deadline["status"] != "explicit":
+            if v02:
+                if not times and record["text_quality"] == "complete":
+                    deadline.update(status="not_provided", basis="完整正文未提供该行动的时间要求。")
+                if deadline["kind"] == "reference" and deadline["status"] != "inferred":
+                    deadline["kind"] = "unknown"
+                    deadline["basis"] += " 引用的是参考活动时间，不能作为明确截止日期。"
+                # Do not manufacture a quotation by concatenating separate messages.
+                # All time quotes remain individually available in evidence.
+                if times and not any(deadline["raw"] in item["text"] for item in available.values()):
+                    deadline["raw"] = times[0]["raw"]
+                    deadline["basis"] += " 多条时间原话见 evidence 中的 deadline 证据。"
+            if deadline["status"] not in {"explicit", "not_provided"}:
                 reasons.append(deadline["basis"])
             if record["text_quality"] != "complete":
                 reasons.append("正文不完整，行动要求或日期可能缺失。")
@@ -111,7 +139,11 @@ def compile_drafts(response, record):
                         "source_item_id": available[key].get("source_item_id")} for key in source_ids]
             unique_evidence = []
             for ref in evidence:
-                if ref not in unique_evidence:
+                existing = next((e for e in unique_evidence if all(e[k] == ref[k]
+                                for k in ("input_id", "field", "quote"))), None)
+                if v02 and existing is not None:
+                    existing["supports"] = list(dict.fromkeys(existing["supports"] + ref["supports"]))
+                elif ref not in unique_evidence:
                     unique_evidence.append(ref)
             tasks.append({"candidate_id": "%s:candidate:%d" % (record["input_id"], index),
                           "input_id": record["input_id"], "title": draft["title"],
@@ -143,7 +175,8 @@ class OfflineDraftClient:
 
     def generate(self, instructions, record_json, settings, attempt):
         record = json.loads(record_json)
-        matches = [entry for entry in self.entries if normalize_record(entry["record"]) == record]
+        matches = [entry for entry in self.entries if normalize_record(
+            entry["record"], record.get("contract_version", "0.1")) == record]
         if len(matches) != 1:
             raise AgentError("agent_unavailable", False)
         return json.dumps(matches[0]["response"], ensure_ascii=False, allow_nan=False)
