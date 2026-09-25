@@ -48,3 +48,4 @@
 [data-theme=dark] .calendar-month-grid,[data-theme=dark] .calendar-month-day,[data-theme=dark] .weekday-options label,[data-theme=dark] .recognition-batch{border-color:#393d49}
 [data-theme=dark] .agent-chat-header b,[data-theme=dark] .agent-welcome h2{color:#f5f5f7}
 @media(max-width:680px){.calendar-time-grid{grid-template-columns:54px repeat(7,145px)}.calendar-month-grid{grid-template-columns:repeat(7,130px)}.plan-block{display:block}.feedback-row{display:block}}
+.btn[data-agent-action="refresh-review"][hidden]{display:none}
