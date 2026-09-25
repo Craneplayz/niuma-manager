@@ -10,7 +10,7 @@ test('collaborator task edits preserve team metadata, plans and cancelled histor
   {id:'active',title:'报告',description:'原文说明',course:'课程',category:'课程作业',
    priority:'high',status:'not_started',due:{date:'2026-09-30',precision:'date'},
    source:'识别',sourceRequirements:['提交 PDF'],recognitionHistory:[{candidateId:'c1'}],
-   subtasks:[{id:'step',title:'起草',status:'pending'}],
+   subtasks:[{id:'step',title:'起草',status:'pending',sourceRequirement:'保留子任务来源'}],
    plans:[{id:'plan',title:'写作',startAt:'2026-09-28T19:00:00+08:00',endAt:'2026-09-28T20:00:00+08:00',origin:'ai'}]},
   {id:'cancelled',title:'取消的任务',status:'cancelled',subtasks:[],plans:[],due:null}
  ];
@@ -27,6 +27,7 @@ test('collaborator task edits preserve team metadata, plans and cancelled histor
  const state=await initSession();
  assert.equal(state.tasks.length,1);
  state.tasks[0].subtasks[0].done=true;
+ state.tasks[0].subtasks[0].title='修改后的步骤标题';
  state.tasks[0].due='2026-10-01';
  state.tasks[0].dueTime='23:59';
  assert.equal(saveStore(state),true);
@@ -36,8 +37,49 @@ test('collaborator task edits preserve team metadata, plans and cancelled histor
  const cancelled=writes[0].value.find(t=>t.id==='cancelled');
  assert.equal(edited.due.time,'23:59');
  assert.equal(edited.subtasks[0].status,'completed');
+ assert.equal(edited.subtasks[0].id,'step');
+ assert.equal(edited.subtasks[0].title,'修改后的步骤标题');
+ assert.equal(edited.subtasks[0].sourceRequirement,'保留子任务来源');
  assert.deepEqual(edited.sourceRequirements,['提交 PDF']);
  assert.deepEqual(edited.recognitionHistory,[{candidateId:'c1'}]);
  assert.deepEqual(edited.plans,original[0].plans);
  assert.deepEqual(cancelled,original[1]);
+});
+
+test('planning exclusion and completion dates survive saving, reloading and reopening',async()=>{
+ let tasks=[{id:'task',title:'测试任务',status:'not_started',due:null,plans:[],subtasks:[]}],version=1;
+ globalThis.fetch=async(path,options={})=>{
+  if(path==='/api/auth/me')return {ok:true,json:async()=>({user:{id:'u',name:'测试'}})};
+  if(path==='/api/workspace')return {ok:true,json:async()=>({tasks:{value:structuredClone(tasks),version}})};
+  if(path==='/api/data/tasks'){
+   const body=JSON.parse(options.body);assert.equal(body.version,version);
+   tasks=body.value;return {ok:true,json:async()=>({version:++version})};
+  }
+  throw new Error('unexpected request '+path);
+ };
+ let state=await initSession();
+ state.tasks[0].planningExcluded=true;
+ state.tasks[0].status='done';
+ saveStore(state);await flushStore();
+ state=await initSession();
+ assert.equal(state.tasks[0].planningExcluded,true);
+ assert.match(state.tasks[0].completedAt,/^\d{4}-\d{2}-\d{2}$/);
+ state.tasks[0].planningExcluded=false;state.tasks[0].status='todo';
+ saveStore(state);await flushStore();
+ state=await initSession();
+ assert.equal(state.tasks[0].planningExcluded,false);
+ assert.equal(state.tasks[0].completedAt,'');
+ state.tasks[0].status='done';state.tasks[0].completedAt='2026-09-20';
+ saveStore(state);await flushStore();
+ assert.equal((await initSession()).tasks[0].completedAt,'2026-09-20');
+});
+
+test('UTC plans display at the same Beijing time as offset timestamps',async()=>{
+ const plan={id:'p',title:'跨日计划',startAt:'2026-09-25T17:30:00Z',endAt:'2026-09-25T18:30:00Z'};
+ globalThis.fetch=async path=>({ok:true,json:async()=>path==='/api/auth/me'?{user:{id:'u',name:'测试'}}:
+  {tasks:{version:1,value:[{id:'t',title:'任务',status:'not_started',due:null,subtasks:[],plans:[plan]}]}}});
+ const state=await initSession();
+ assert.equal(state.schedule[0].date,'2026-09-26');
+ assert.equal(state.schedule[0].start,1.5);
+ assert.equal(state.schedule[0].hours,1);
 });

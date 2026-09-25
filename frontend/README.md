@@ -14,6 +14,8 @@ npm run dev:api
 
 另开终端仍在 `frontend/` 目录运行 `npm run dev`，访问 http://localhost:1331 。前端 /api 代理到本机 1332。已有进程占用 1331 时，请使用当前运行中的页面，或先停止旧的 Vite 进程。不要在仓库根目录运行 npm。
 
+上述 npm 命令共用跨平台 Python 启动器，Windows 会依次尝试 python、python3、py；macOS/Linux 尝试 python3、python。也可通过 PYTHON 环境变量指定解释器路径。
+
 开发测试账号：`demo@niuma.test` / `Niuma-Test-2026!`。账号和模拟数据由 seed 在协作者各自本地的 SQLite 中生成；不默认登录，不提交数据库文件。seed 幂等，已有账号内容不会被覆盖。数据库默认在 `../server/data/niuma.sqlite3`，可用 `NIUMA_DB` 指定路径。
 
 ## 功能与数据

@@ -47,6 +47,6 @@ export function calendarClick(button,rerender){
 export function calendarStep(direction,week){
  if(view==='week')return week+direction;
  if(view==='day'){selectedDay=dateAt(selectedDay,direction);return week;}
- const date=new Date(selectedDay+'T12:00:00');date.setMonth(date.getMonth()+direction);selectedDay=dayKey(date);return week;
+ const date=new Date(selectedDay+'T12:00:00');date.setDate(1);date.setMonth(date.getMonth()+direction);selectedDay=dayKey(date);return week;
 }
 export function calendarToday(){selectedDay=dayKey();return 0;}

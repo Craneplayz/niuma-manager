@@ -1,7 +1,8 @@
-import {flushStore,saveData,workspaceValue} from './store.js';
+import {flushStore,saveData,workspaceValue,accountVersion} from './store.js';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let host={},sample=[],message='',busy=false;
 export function configurePersonalization(callbacks){host=callbacks;}
+window.addEventListener('niuma:account-reset',()=>{sample=[];message='';busy=false;});
 export function personalizationSection(tasks){
  const completed=tasks.filter(t=>t.status==='done'),feedback=workspaceValue('feedback',[]);
  return `<section class="panel settings-panel"><div class="section-title"><div><h2>个性化</h2><p>根据真实完成用时改进后续规划。</p></div><button class="btn" data-feedback-action="sample" ${busy||!completed.length?'disabled':''}>反馈任务用时</button></div>
@@ -18,14 +19,18 @@ export function personalizationClick(button){
 }
 export async function personalizationSubmit(form){
  if(form.id!=='feedback-form')return false;
+ if(busy)return true;
+ const epoch=accountVersion(),current=()=>epoch===accountVersion();
  busy=true;message='';
  try{
   await flushStore();
+  if(!current())return true;
   const old=workspaceValue('feedback',[]),values=new FormData(form);
   const next=sample.map(t=>({taskId:t.id,actualMinutes:Number(values.get(t.id)),recordedAt:new Date().toISOString()}));
   if(next.some(x=>!Number.isFinite(x.actualMinutes)||x.actualMinutes<=0||x.actualMinutes>100000))throw new Error('请输入有效分钟数');
   await saveData('feedback',[...old.filter(f=>!sample.some(t=>t.id===f.taskId)),...next]);
+  if(!current())return true;
   sample=[];message='反馈已保存，下次规划会参考这些用时。';
- }catch(e){message=e.message;}finally{busy=false;host.render();}
+ }catch(e){if(current())message=e.message;}finally{if(current()){busy=false;host.render();}}
  return true;
 }

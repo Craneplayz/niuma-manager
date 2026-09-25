@@ -1,4 +1,4 @@
-import {api,dataVersion,flushStore,session} from './store.js';
+import {api,dataVersion,flushStore,session,accountVersion} from './store.js';
 import {icon} from './icons.js';
 import {startVoice,cancelVoice,voiceSupport} from './voice.js';
 
@@ -7,7 +7,8 @@ const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',
 const batchLabels={success:'识别完成',no_tasks:'未发现任务',partial_success:'部分识别完成',failed:'识别失败'};
 let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null;
 export function configureAssistant(callbacks){host=callbacks;}
-export function resetAssistant(){cancelVoice();batches=[];loaded=false;busy=false;error='';notice='';text='';request=null;voiceState='idle';}
+export function resetAssistant(){cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;}
+window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(location.hash==='#agent')host.render();};
 const pending=()=>batches.flatMap(b=>b.items).filter(i=>i.state==='pending').length;
@@ -28,8 +29,9 @@ function suggestedDue(d){
 }
 async function load(){
  if(!session.user)return;
- try{batches=await api('/api/recognition/batches');loaded=true;error='';refresh();}
- catch(e){error=e.message;loaded=true;refresh();}
+ const epoch=accountVersion();
+ try{const next=await api('/api/recognition/batches');if(epoch!==accountVersion())return;batches=next;loaded=true;error='';refresh();}
+ catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
 }
 export function assistantPage(){
  if(!loaded&&session.user){loaded=true;queueMicrotask(load);}
@@ -80,6 +82,8 @@ function review(item){
  <p id="candidate-error" class="error" role="alert"></p><div class="dialog-actions"><button type="submit" class="btn primary">确认保存</button></div></form>`);
 }
 async function resolve(form){
+ if(busy)return;
+ const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const values=Object.fromEntries(new FormData(form)),item=batches.flatMap(b=>b.items).find(i=>i.id===form.dataset.candidate),action=values.action;
  const errorNode=form.querySelector('#candidate-error');
  if(!item)return;
@@ -91,38 +95,43 @@ async function resolve(form){
  busy=true;
  try{
   await flushStore();
+  if(!current())return;
   const body={action,version:item.version,tasks_version:dataVersion('tasks'),target_id:values.target_id||null,reviewed:true,
    draft:{title:values.title,description:values.description,course:values.course||null,
     due:values.date?{date:values.date,time:values.time,precision:'datetime'}:null}};
   const response=await api('/api/recognition/candidates/'+item.id+'/resolve',body);
-  batches=response.batches;await host.refresh();host.closeDialog();notice='候选已保存，已有执行计划保持原样';
- }catch(e){errorNode.textContent=e.message;}finally{busy=false;refresh();}
+  if(!current())return;
+  batches=response.batches;await host.refresh();if(!current())return;
+  host.closeDialog();notice='候选已保存，已有执行计划保持原样';
+ }catch(e){if(current())errorNode.textContent=e.message;}finally{if(current()){busy=false;refresh();}}
 }
 export async function submitRecognitionText(value){
  text=value.trim();if(!text||busy||!session.user)return;
+ const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const signature=JSON.stringify([text,published,quality]);
  if(request?.signature!==signature)request={signature,id:crypto.randomUUID(),collectedAt:new Date().toISOString()};
  const body={contract_version:'0.2',request_id:request.id,records:[{input_id:'manual:'+request.id,text,
   text_quality:quality,platform:'unknown',published_at:{value:published||null,precision:published?'date':'unknown',basis:published?'upstream_unverified':'unknown'},
   collected_at:request.collectedAt,timezone:'Asia/Shanghai',timezone_basis:'caller_default',source_url:null,source_label:'用户粘贴文本',
   source_item_id:null,course_or_project:null,context:[],upstream_hints:null}]};
- busy=true;error='';activeController=new AbortController();const timeout=setTimeout(()=>activeController?.abort(),30000);refresh();
- try{batches=await api('/api/recognition/batches',body,'POST',{signal:activeController.signal});loaded=true;notice='识别结果已保存为候选，尚未变更任务';}
- catch(e){error=activeController.signal.aborted?'等待已停止；远端可能仍在处理。请刷新候选，必要时再重试。':e.message;}
- finally{clearTimeout(timeout);activeController=null;busy=false;refresh();}
+ busy=true;error='';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),30000);refresh();
+ try{const next=await api('/api/recognition/batches',body,'POST',{signal:controller.signal});if(!current())return;batches=next;loaded=true;notice='识别结果已保存为候选，尚未变更任务';}
+ catch(e){if(current())error=controller.signal.aborted?'等待已停止；远端可能仍在处理。请刷新候选，必要时再重试。':e.message;}
+ finally{clearTimeout(timeout);if(current()){activeController=null;busy=false;refresh();}}
 }
 export function handleAssistantClick(button){
+ const epoch=accountVersion(),current=()=>epoch===accountVersion();
  if(button.dataset.agentReview){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentReview);if(item)review(item);return;}
- if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);if(item)api('/api/recognition/candidates/'+item.id+'/resolve',{action:'ignore',version:item.version}).then(r=>{batches=r.batches;refresh()}).catch(e=>{error=e.message;refresh()});return;}
+ if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);if(item)api('/api/recognition/candidates/'+item.id+'/resolve',{action:'ignore',version:item.version}).then(r=>{if(current()){batches=r.batches;refresh();}}).catch(e=>{if(current()){error=e.message;refresh();}});return;}
  if(button.dataset.agentAction==='refresh'){load();return;}
  if(button.dataset.agentAction==='stop'){activeController?.abort();return;}
  if(button.dataset.agentAction==='new-batch'){request=null;submitRecognitionText(text);return;}
- if(button.dataset.agentAction==='demo'){api('/api/recognition/demo',{}).then(r=>{batches=r;loaded=true;notice='这是人工合成协议样例，不是模型结果';refresh()}).catch(e=>{error=e.message;refresh()});return;}
+ if(button.dataset.agentAction==='demo'){api('/api/recognition/demo',{}).then(r=>{if(current()){batches=r;loaded=true;notice='这是人工合成协议样例，不是模型结果';refresh();}}).catch(e=>{if(current()){error=e.message;refresh();}});return;}
  if(button.dataset.agentAction==='voice'){
   if(voiceState==='listening'){stopVoice?.();return;}
-  stopVoice=startVoice({onInterim:value=>{text=value;const field=document.querySelector('#agent-input');if(field)field.value=value;},
-   onResult:value=>{text=value;submitRecognitionText(value);},onError:value=>{error=value;refresh();},
-   onState:value=>{voiceState=value;refresh();}});return;
+  stopVoice=startVoice({onInterim:value=>{if(!current())return;text=value;const field=document.querySelector('#agent-input');if(field)field.value=value;},
+   onResult:value=>{if(!current())return;text=value;submitRecognitionText(value);},onError:value=>{if(!current())return;error=value;refresh();},
+   onState:value=>{if(!current())return;voiceState=value;refresh();}});return;
  }
 }
 export function handleAssistantInput(event){
