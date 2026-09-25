@@ -11,6 +11,9 @@ importers:
       cheerio:
         specifier: ^1.0.0
         version: 1.2.0
+      domhandler:
+        specifier: ^5.0.3
+        version: 5.0.3
       luxon:
         specifier: ^3.6.1
         version: 3.7.2

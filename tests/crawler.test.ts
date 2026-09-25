@@ -33,7 +33,7 @@ describe("crawl orchestration", () => {
       parse: (document) => [candidate(document.requestedUrl.endsWith("/a") ? "one" : "two", document.requestedUrl)],
     };
     try {
-      const summary = await crawlSources([adapter], fetcher, { logger: pino({ enabled: false }), rawRoot: join(root, "raw"), extractedRoot: join(root, "extracted"), normalizedRoot: join(root, "normalized") });
+      const summary = await crawlSources([adapter], fetcher, { logger: pino({ enabled: false }), rawRoot: join(root, "raw"), extractedRoot: join(root, "extracted"), normalizedRoot: join(root, "normalized"), timeFilterAsOf: "2026-09-22T12:00:00+08:00" });
       expect(summary.pagesFetched).toBe(2);
       expect(summary.pagesFailed).toBe(1);
       expect(summary.normalizedEventsProduced).toBe(1);

@@ -4,6 +4,10 @@ import { dateHint, descriptionFromPage, elementText, firstText, itemContainer, l
 
 const LIST_URL = "https://www.gse.pku.edu.cn/syxw/jzxx/index.htm";
 
+function isListUrl(url: string): boolean {
+  return /\/index(?:_?\d+)?\.htm$/i.test(new URL(url).pathname);
+}
+
 export const gseAdapter: SourceAdapter = {
   metadata: {
     id: "pku-gse-lectures",
@@ -22,18 +26,17 @@ export const gseAdapter: SourceAdapter = {
     const $ = loadHtml(document.body);
     const urls = linksInPage($, document.finalUrl)
       .filter((link) => this.isAllowedUrl(link.url))
-      .filter((link) => /讲座|forum|lecture|下一页|上一页|尾页|index(?:_\d+)?\.htm/i.test(`${link.text} ${link.url}`))
-      .map((link) => ({ url: link.url, kind: /下一页|上一页|尾页|index(?:_\d+)?\.htm/i.test(`${link.text} ${link.url}`) ? "pagination" as const : "detail" as const, discoveredFromUrl: document.finalUrl }));
+      .map((link) => ({ url: link.url, kind: isListUrl(link.url) ? "pagination" as const : "detail" as const, discoveredFromUrl: document.finalUrl }));
     return { urls };
   },
   parse(document) {
     const $ = loadHtml(document.body);
-    const isDetailPage = !/\/index\d*\.htm$/i.test(new URL(document.finalUrl).pathname);
+    const isDetailPage = !isListUrl(document.finalUrl);
     if (isDetailPage) return parseDetailPage(document, $);
     const results: EventCandidate[] = [];
     const seen = new Set<string>();
     for (const link of linksInPage($, document.finalUrl).filter((item) => this.isAllowedUrl(item.url))) {
-      if (/\/index\d*\.htm$/i.test(new URL(link.url).pathname)) continue;
+      if (isListUrl(link.url)) continue;
       const container = itemContainer($, link.node);
       const text = elementText(container) ?? link.text;
       if (!link.text || /首页|上一页|下一页|最后页|跳转/i.test(link.text)) continue;

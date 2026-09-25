@@ -49,4 +49,26 @@ describe("source adapters", () => {
     expect(() => gseAdapter.parse(doc)).not.toThrow();
     expect(gseAdapter.parse(doc)).toEqual([]);
   });
+
+  it.each([
+    ["cs", csAdapter],
+    ["gse", gseAdapter],
+  ] as const)("discovers %s detail URLs without requiring title keywords", async (key, adapter) => {
+    const doc = await document(`tests/fixtures/${key}/list.html`, adapter.metadata.id, adapter.metadata.seedUrls[0]);
+    const detailUrls = adapter.discover(doc).urls.filter((link) => link.kind === "detail").map((link) => link.url);
+    for (const candidate of adapter.parse(doc)) expect(detailUrls).toContain(candidate.source_url);
+    // A relevant detail link is identified by its source path, even if its label is just a title.
+    doc.body = '<a href="' + adapter.parse(doc)[0].source_url + '">Some research topic</a><a href="https://example.test/unrelated">lecture</a>';
+    expect(adapter.discover(doc).urls).toHaveLength(1);
+    expect(adapter.discover(doc).urls[0].kind).toBe("detail");
+  });
+
+  it.each(["index.htm", "index_2.htm", "index2.htm"])("parses GSE %s as a list and excludes pagination from events", async (page) => {
+    const doc = await document("tests/fixtures/gse/list.html", gseAdapter.metadata.id, `https://www.gse.pku.edu.cn/syxw/jzxx/${page}`);
+    doc.body += '<a href="index2.htm">2</a><a href="index_3.htm">3</a>';
+    expect(gseAdapter.parse(doc)).toHaveLength(2);
+    const discovery = gseAdapter.discover(doc).urls;
+    expect(discovery.filter((link) => link.kind === "detail")).toHaveLength(2);
+    expect(discovery.filter((link) => link.kind === "pagination")).toHaveLength(3);
+  });
 });

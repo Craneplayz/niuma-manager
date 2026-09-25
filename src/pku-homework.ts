@@ -144,17 +144,34 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
 }
 
 export function extractHomeworkRecords(text: string, context: { course: string; section: string; sourceUrl: string; asOf: DateTime }): HomeworkRecord[] {
-  const lines = [...new Set(text.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean))];
+  // Repeated deadline lines belong to their respective records; do not deduplicate page text.
+  const lines = text.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
   const records: HomeworkRecord[] = [];
+  const homeworkHeading = /作业|assignment|homework|报告|练习|测验|quiz/i;
+  const deadlineLabel = /截止|到期|deadline|\bdue\b|提交期限|提交时间/i;
+  const genericHeading = /^(?:课程)?(?:作业|报告|练习|测验)$|^(?:assignments?|homework|quizzes)$/i;
+  const isHeading = (line: string) => homeworkHeading.test(line) && !/^(?:截止|到期|deadline|due\b|提交期限|提交时间)/i.test(line);
 
   for (let index = 0; index < lines.length; index += 1) {
-    if (!/作业|assignment|homework|报告|练习|测验|quiz/i.test(lines[index])) continue;
-    const window = lines.slice(index, Math.min(lines.length, index + 12));
+    if (!isHeading(lines[index])) continue;
+    const nextHeading = lines.findIndex((line, position) => position > index && isHeading(line));
+    const window = lines.slice(index, nextHeading < 0 ? lines.length : nextHeading);
+    // Skip navigation/category headings, but retain templates with a separate title line.
+    if (genericHeading.test(lines[index]) && (window.length === 1 || deadlineLabel.test(window[1]))) continue;
     const block = window.join(" ");
-    const deadlineLine = [...window].reverse().find((line) => /截止|到期|deadline|due|提交期限|提交时间/i.test(line) && parseHomeworkDeadline(line, context.asOf));
-    const deadlineRaw = deadlineLine ?? null;
-    const deadlineAt = deadlineRaw ? parseHomeworkDeadline(deadlineRaw, context.asOf) : null;
-    const title = chooseHomeworkTitle(window);
+    const deadlines = window.flatMap((line, position) => {
+      if (!deadlineLabel.test(line)) return [];
+      // Some course templates place the date on the line after the field label.
+      const raw = /^(?:截止(?:日期|时间)?|到期(?:日期|时间)?|deadline|due(?: date)?|提交期限|提交时间)\s*[:：]?$/i.test(line)
+        && window[position + 1] ? `${line}\n${window[position + 1]}` : line;
+      const at = parseHomeworkDeadline(raw, context.asOf);
+      return at ? [{ raw, at }] : [];
+    });
+    const distinctDeadlines = new Set(deadlines.map(({ at }) => at.toMillis()));
+    // Conflicting dates cannot be resolved by choosing the last one on the page.
+    const deadlineAt = distinctDeadlines.size === 1 ? deadlines[0].at : null;
+    const deadlineRaw = deadlines.length ? deadlines.map(({ raw }) => raw).join("\n") : null;
+    const title = genericHeading.test(window[0]) ? window[1] : window[0];
     const status: HomeworkStatus = deadlineAt ? (deadlineAt > context.asOf ? "upcoming" : "past") : "no_deadline";
     records.push({
       course: context.course,
@@ -234,11 +251,6 @@ function discoverSections(anchors: AnchorInfo[]): AnchorInfo[] {
     if (!sections.has(anchor.href)) sections.set(anchor.href, anchor);
   }
   return [...sections.values()];
-}
-
-function chooseHomeworkTitle(window: string[]): string {
-  const generic = /^(课程)?作业$|^assignment$|^homework$/i;
-  return window.find((line) => !generic.test(line) && line.length > 1) ?? window[0] ?? "未命名作业";
 }
 
 function containsExplicitDate(value: string): boolean {

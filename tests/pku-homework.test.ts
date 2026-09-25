@@ -1,8 +1,55 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
-import { currentAcademicTerm, filterUpcomingHomeworks, parseHomeworkDeadline, type HomeworkRecord } from "../src/pku-homework.js";
+import { currentAcademicTerm, extractHomeworkRecords, filterUpcomingHomeworks, parseHomeworkDeadline, type HomeworkRecord } from "../src/pku-homework.js";
 
 const asOf = DateTime.fromISO("2026-09-22T13:46:00+08:00");
+const context = { course: "Synthetic course", section: "课程作业", sourceUrl: "https://example.test/course", asOf };
+
+describe("homework record boundaries", () => {
+  it("keeps adjacent assignments and their deadlines separate", () => {
+    const records = extractHomeworkRecords("课程作业\n作业一：阅读报告\n截止日期：2026-09-26 23:59\n作业二：实验报告\n截止日期：2026-10-10 23:59", context);
+    expect(records.map(({ title, deadline }) => ({ title, deadline }))).toEqual([
+      { title: "作业一：阅读报告", deadline: "2026-09-26T23:59:00+08:00" },
+      { title: "作业二：实验报告", deadline: "2026-10-10T23:59:00+08:00" },
+    ]);
+    expect(records[0].description).not.toContain("作业二");
+  });
+
+  it("does not borrow the next assignment's deadline for an undated one", () => {
+    const records = extractHomeworkRecords("作业一：阅读报告\n时间待定\n作业二：实验报告\n截止日期：2026-10-10 23:59", context);
+    expect(records[0]).toMatchObject({ deadline: null, deadline_raw: null, status: "no_deadline" });
+    expect(records[1].deadline).toBe("2026-10-10T23:59:00+08:00");
+  });
+
+  it("preserves repeated dates and repeated titles in separate records", () => {
+    const records = extractHomeworkRecords("作业：练习\n截止日期：2026-09-26\n作业：练习\n截止日期：2026-10-10\n作业三\n截止日期：2026-09-26", context);
+    expect(records.map((record) => record.deadline)).toEqual([
+      "2026-09-26T23:59:59+08:00", "2026-10-10T23:59:59+08:00", "2026-09-26T23:59:59+08:00",
+    ]);
+  });
+
+  it("handles a separate deadline field without crossing record boundaries", () => {
+    const records = extractHomeworkRecords("Homework A\nDue date:\n2026-09-26 23:59\nHomework B\nDue date:\nHomework C\nDeadline: 2026-10-10", context);
+    expect(records.map((record) => record.deadline)).toEqual([
+      "2026-09-26T23:59:00+08:00", null, "2026-10-10T23:59:59+08:00",
+    ]);
+  });
+
+  it("keeps conflicting dates inspectable instead of guessing a deadline", () => {
+    const records = extractHomeworkRecords("作业一\n截止日期：2026-09-26\n截止日期：2026-10-10", context);
+    expect(records[0]).toMatchObject({ deadline: null, status: "no_deadline" });
+    expect(records[0].deadline_raw).toContain("2026-09-26");
+    expect(records[0].deadline_raw).toContain("2026-10-10");
+  });
+
+  it("retains a separate title after a generic homework heading", () => {
+    const records = extractHomeworkRecords("作业\n第一章\n截止日期：2026-09-26\n作业\n第二章\n截止日期：2026-10-10", context);
+    expect(records.map(({ title, deadline }) => ({ title, deadline }))).toEqual([
+      { title: "第一章", deadline: "2026-09-26T23:59:59+08:00" },
+      { title: "第二章", deadline: "2026-10-10T23:59:59+08:00" },
+    ]);
+  });
+});
 
 describe("PKU homework time filtering", () => {
   it("uses the current PKU academic term", () => {

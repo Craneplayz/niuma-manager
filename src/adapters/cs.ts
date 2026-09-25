@@ -1,5 +1,5 @@
 import type { EventCandidate, RawDocument, SourceAdapter } from "../core/types.js";
-import { absoluteUrl, canonicalizeUrl, cleanText } from "../core/utils.js";
+import { canonicalizeUrl, cleanText } from "../core/utils.js";
 import { dateHint, descriptionFromPage, elementText, firstText, itemContainer, labeledText, linksInPage, loadHtml, publicationHint } from "./helpers.js";
 
 const LIST_URL = "https://cs.pku.edu.cn/xyxw/jzxx.htm";
@@ -22,8 +22,7 @@ export const csAdapter: SourceAdapter = {
     const $ = loadHtml(document.body);
     const urls = linksInPage($, document.finalUrl)
       .filter((link) => this.isAllowedUrl(link.url))
-      .filter((link) => /讲座|lecture|jzxx|page|下页|上一页|下一页|尾页/i.test(`${link.text} ${link.url}`))
-      .map((link) => ({ url: link.url, kind: /page|下页|上一页|下一页|尾页/i.test(`${link.text} ${link.url}`) ? "pagination" as const : "detail" as const, discoveredFromUrl: document.finalUrl }));
+      .map((link) => ({ url: link.url, kind: /\/info\/1019\//i.test(new URL(link.url).pathname) ? "detail" as const : "pagination" as const, discoveredFromUrl: document.finalUrl }));
     return { urls };
   },
   parse(document) {
