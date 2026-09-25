@@ -31,6 +31,7 @@ export interface HomeworkScrapeResult {
   records_found: number;
   past_records: number;
   undated_records: number;
+  records: HomeworkRecord[];
   upcoming: HomeworkRecord[];
 }
 
@@ -125,22 +126,27 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       }
     }
 
-    const deduplicated = deduplicateRecords(records);
-    const upcoming = filterUpcomingHomeworks(deduplicated, asOf);
-    return {
-      checked_at: asOf.toISO({ suppressMilliseconds: true }) ?? asOf.toISO()!,
-      timezone: DEFAULT_TIMEZONE,
-      term,
-      courses_checked: courses.length,
-      sections_checked: sectionsChecked,
-      records_found: deduplicated.length,
-      past_records: deduplicated.filter((record) => record.status === "past").length,
-      undated_records: deduplicated.filter((record) => record.status === "no_deadline").length,
-      upcoming,
-    };
+    return buildHomeworkScrapeResult(records, { asOf, term, coursesChecked: courses.length, sectionsChecked });
   } finally {
     await closeBrowser(browser);
   }
+}
+
+/** Complete records are the primary output; upcoming is an additional filtered view. */
+export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: { asOf: DateTime; term: string | null; coursesChecked: number; sectionsChecked: number }): HomeworkScrapeResult {
+  const deduplicated = deduplicateRecords(records);
+  return {
+    checked_at: context.asOf.toISO({ suppressMilliseconds: true })!,
+    timezone: DEFAULT_TIMEZONE,
+    term: context.term,
+    courses_checked: context.coursesChecked,
+    sections_checked: context.sectionsChecked,
+    records_found: deduplicated.length,
+    past_records: deduplicated.filter((record) => record.status === "past").length,
+    undated_records: deduplicated.filter((record) => record.status === "no_deadline").length,
+    records: deduplicated,
+    upcoming: filterUpcomingHomeworks(deduplicated, context.asOf),
+  };
 }
 
 export function extractHomeworkRecords(text: string, context: { course: string; section: string; sourceUrl: string; asOf: DateTime }): HomeworkRecord[] {
@@ -165,9 +171,9 @@ export function extractHomeworkRecords(text: string, context: { course: string; 
       const raw = /^(?:截止(?:日期|时间)?|到期(?:日期|时间)?|deadline|due(?: date)?|提交期限|提交时间)\s*[:：]?$/i.test(line)
         && window[position + 1] ? `${line}\n${window[position + 1]}` : line;
       const at = parseHomeworkDeadline(raw, context.asOf);
-      return at ? [{ raw, at }] : [];
+      return [{ raw, at }];
     });
-    const distinctDeadlines = new Set(deadlines.map(({ at }) => at.toMillis()));
+    const distinctDeadlines = new Set(deadlines.map(({ at }) => at?.toMillis() ?? null));
     // Conflicting dates cannot be resolved by choosing the last one on the page.
     const deadlineAt = distinctDeadlines.size === 1 ? deadlines[0].at : null;
     const deadlineRaw = deadlines.length ? deadlines.map(({ raw }) => raw).join("\n") : null;
@@ -260,7 +266,7 @@ function containsExplicitDate(value: string): boolean {
 function deduplicateRecords(records: HomeworkRecord[]): HomeworkRecord[] {
   const result = new Map<string, HomeworkRecord>();
   for (const record of records) {
-    const key = [record.course, record.title, record.deadline ?? ""].join("|");
+    const key = [record.course, record.title, record.deadline ?? "", ...(record.deadline === null ? [record.source_url, record.section, record.deadline_raw, record.description] : [])].join("|");
     const previous = result.get(key);
     if (!previous || (record.description?.length ?? 0) > (previous.description?.length ?? 0)) result.set(key, record);
   }

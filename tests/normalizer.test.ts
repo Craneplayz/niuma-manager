@@ -22,3 +22,9 @@ describe("normalization", () => {
     expect(result.event?.parse.warnings.length).toBeGreaterThan(0);
   });
 });
+
+
+it("preserves publication time without substituting it for a pending event", () => {
+  const event = normalizeCandidate({ ...candidate, time_raw: "时间待定", publication_time_raw: "2026-09-25" }).event!;
+  expect(event).toMatchObject({ start_time: null, end_time: null, publication_time: "2026-09-25T00:00:00+08:00", raw: { time: "时间待定" }, parse: { time_resolution: "unresolved" } });
+});

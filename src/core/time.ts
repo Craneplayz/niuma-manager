@@ -21,23 +21,18 @@ export function parseEventTime(rawValue: string | undefined, publicationRaw?: st
   const publication = parseDateParts(publicationRaw);
   const parsedDate = parseDateParts(raw);
   let date = parsedDate;
-  let resolution: ParsedTime["resolution"] = parsedDate?.explicitYear ? "exact" : "context_inferred";
-  if (date && !date.explicitYear) {
-    if (publication?.year) date = { ...date, year: publication.year };
-    else return unresolved("event year is missing and no publication-date context is available");
-  }
-  if (!date) {
-    if (publication?.year && publication.month && publication.day) {
-      date = publication;
-      resolution = "context_inferred";
-    } else {
-      return unresolved("event date is missing or unsupported");
-    }
+  const resolution: ParsedTime["resolution"] = parsedDate?.explicitYear ? "exact" : "context_inferred";
+  if (!date) return unresolved("event date is missing or unsupported");
+  if (!date.explicitYear) {
+    const year = inferNearestYear(date, publication);
+    if (!year) return unresolved("event year is missing and no valid publication-date context is available");
+    date = { ...date, year };
   }
   if (!date.year) return unresolved("event year could not be resolved");
 
   const timeText = removeDateText(raw);
   const clocks = parseClocks(timeText);
+  if (!clocks) return unresolved("event clock is invalid or unsupported");
   if (!clocks.length) {
     const start = makeDateTime(date, { hour: 0, minute: 0 });
     return start ? { start, end: null, allDay: true, resolution, warnings: [] } : unresolved("invalid event date");
@@ -93,19 +88,34 @@ function removeDateText(value: string): string {
     .replace(/\d{1,2}\s*月\s*\d{1,2}\s*日?/g, " ")
 }
 
-function parseClocks(value: string): Clock[] {
+/** Require clock syntax; bare numbers (assignment IDs, rooms) are not times. */
+function parseClocks(value: string): Clock[] | null {
   const result: Clock[] = [];
-  const regex = /(上午|下午|am|pm)?\s*(\d{1,2})(?::|点)?\s*(\d{2})?\s*(am|pm)?/gi;
-  for (const match of value.matchAll(regex)) {
-    const hour = Number(match[2]);
-    const minute = match[3] ? Number(match[3]) : 0;
-    if (hour > 23 || minute > 59) continue;
-    const meridiemRaw = (match[1] || match[4] || "").toLowerCase();
+  const regex = /(?<![\d:：])(上午|下午|am\b|pm\b)?\s*(\d{1,2})(?:\s*[:：]\s*(\d{2})(?!\d)|\s*[点时](?:\s*(\d{1,2})\s*分?)?(?![\d半刻])|\s*(am|pm)\b)\s*(am\b|pm\b)?/gi;
+  const remainder = value.replace(regex, (_match, prefix: string | undefined, hourRaw: string, colonMinute: string | undefined, chineseMinute: string | undefined, suffix: string | undefined, trailing: string | undefined) => {
+    const hour = Number(hourRaw);
+    const minute = Number(colonMinute ?? chineseMinute ?? 0);
+    const meridiemRaw = (prefix || suffix || trailing || "").toLowerCase();
     const meridiem = meridiemRaw === "上午" || meridiemRaw === "am" ? "am" : meridiemRaw === "下午" || meridiemRaw === "pm" ? "pm" : undefined;
     result.push({ hour, minute, meridiem });
-    if (result.length === 2) break;
-  }
+    return " ";
+  });
+  // Do not silently convert malformed clocks to all-day dates or truncate a range.
+  if (/\d\s*[:：点时]|(?:上午|下午)\s*\d|\d\s*(?:am|pm)\b/i.test(remainder)
+    || result.length > 2 || result.some(({ hour, minute }) => hour > 23 || minute > 59)) return null;
   return result;
+}
+
+/** Choose the closest calendar date in the adjacent years, retaining inferred resolution. */
+function inferNearestYear(date: DateParts, context: DateParts | null): number | null {
+  if (!context?.year) return null;
+  const reference = DateTime.fromObject({ year: context.year, month: context.month, day: context.day }, { zone: DEFAULT_TIMEZONE });
+  if (!reference.isValid) return null;
+  const candidates = [context.year, context.year - 1, context.year + 1]
+    .map((year) => DateTime.fromObject({ year, month: date.month, day: date.day }, { zone: DEFAULT_TIMEZONE }))
+    .filter((candidate) => candidate.isValid)
+    .sort((a, b) => Math.abs(a.toMillis() - reference.toMillis()) - Math.abs(b.toMillis() - reference.toMillis()));
+  return candidates[0]?.year ?? null;
 }
 
 function applyMeridiem(clock: Clock, context?: Clock, isRangeEnd = false): Clock {

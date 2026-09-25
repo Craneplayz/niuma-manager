@@ -35,7 +35,7 @@ pnpm pku:homework -- --term=26-27学年第1学期
 pnpm pku:homework -- --all-terms
 ```
 
-The command reports only records whose explicitly parsed deadline is strictly later than the run time in `Asia/Shanghai`. Date-only deadlines are treated as 23:59:59 on that date; `24:00` is treated as the following day's 00:00. Records without an explicit deadline are counted as `undated_records` and are not included in `upcoming`. The default term is derived from the run date.
+The command returns all deduplicated homework records in `records`, including past, pending, conflicting, and unparseable deadlines with their source text. `upcoming` is a separate view containing only records whose parsed deadline is strictly later than the run time in `Asia/Shanghai`. Date-only deadlines are treated as 23:59:59 on that date; `24:00` is treated as the following day's 00:00. Records without an explicit deadline are counted as `undated_records` and are not included in `upcoming`. The default term is derived from the run date. Yearless month/day values use the closest valid date in the scrape year or its adjacent years; explicit years are never shifted. This is a heuristic, so retain the raw deadline for downstream review. Unparseable deadline fields remain in `deadline_raw`.
 
 `review` reads a normalized JSONL file and creates a standalone inspection page at `data/review/<run-id>.html`. Open that file directly in a browser to check titles, times, locations, provenance, warnings, and raw fields. It is intentionally separate from the application frontend and is also ignored by Git.
 
@@ -59,7 +59,7 @@ Adapters explicitly own their seeds, allowed origins, detail URL rules, and pagi
 
 `EventCandidate` preserves source strings (`title_raw`, `time_raw`, `location_raw`, `organizer_raw`, `speaker_raw`, publication time, and source URL). `NormalizedEvent` is Zod-validated and contains a stable source-derived `id`, title/description, Asia/Shanghai timestamps when deterministically resolvable, optional location/organizers/speakers, event type, provenance, raw values, parse status, warnings, and `time_resolution` (`exact`, `context_inferred`, or `unresolved`). Unresolved times remain null; the raw string and warning are retained.
 
-Cleaning is conservative: Unicode/HTML decoding, whitespace and label cleanup, URL canonicalization, explicit event-type mapping, and deterministic date rules only. Exact source identities are deduplicated first; a stronger duplicate key (`source + title + start time + location`) is applied only within one source. Cross-source fuzzy matching is intentionally not implemented.
+Cleaning is conservative: Unicode/HTML decoding, whitespace and label cleanup, URL canonicalization, explicit event-type mapping, and deterministic date rules only. Publication dates provide year context only and never substitute for missing event dates. Year inference chooses the nearest valid date in the context year or its adjacent years and remains marked `context_inferred`. Clock parsing requires a colon, Chinese hour marker, or AM/PM; malformed clocks stay unresolved. Exact source identities are deduplicated first; a stronger duplicate key (`source + title + start time + location`) is applied only within one source. Cross-source fuzzy matching is intentionally not implemented.
 
 ## Adding a source
 
