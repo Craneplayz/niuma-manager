@@ -1,0 +1,627 @@
+{
+  "started_at": "2026-09-25T02:55:56.535203+00:00",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "provider": "qiniu",
+  "codex_version": null,
+  "python_version": "3.9.12",
+  "instructions_sha256": "0ee32ea0cf843409857c3e33d0e67cdbb8a27423e9db2184f770f90dabe83168",
+  "timeout_seconds": 120,
+  "max_retries": 0,
+  "synthetic_only": true,
+  "usage_and_cost": "not collected",
+  "cases": [
+    {
+      "case_id": "multiple",
+      "elapsed_seconds": 4.75,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-multiple",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "multiple",
+            "status": "success",
+            "task_ids": [
+              "multiple:candidate:1",
+              "multiple:candidate:2"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "multiple:candidate:1",
+            "input_id": "multiple",
+            "title": "提交实验报告",
+            "description": "请于2026年10月15日提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-15",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月15日",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "multiple",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/multiple",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "请于2026年10月15日提交实验报告"
+              },
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "2026年10月15日"
+              }
+            ]
+          },
+          {
+            "candidate_id": "multiple:candidate:2",
+            "input_id": "multiple",
+            "title": "完成课程报名",
+            "description": "请于2026年10月16日完成课程报名。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-16",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月16日",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "multiple",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/multiple",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "并于2026年10月16日完成课程报名。"
+              },
+              {
+                "input_id": "multiple",
+                "field": "text",
+                "quote": "2026年10月16日"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-multiple\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：multiple:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：2026-10-15（明确）\n具体要求：请于2026年10月15日提交实验报告。\n时间原文：2026年10月15日\n时间精度：仅日期，未指定时刻。\n来源：合成课程通知；https://example.invalid/notices/multiple\n\n任务 2：完成课程报名\n候选标识：multiple:candidate:2\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：2026-10-16（明确）\n具体要求：请于2026年10月16日完成课程报名。\n时间原文：2026年10月16日\n时间精度：仅日期，未指定时刻。\n来源：合成课程通知；https://example.invalid/notices/multiple",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "no-date",
+      "elapsed_seconds": 2.23,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-no-date",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "no-date",
+            "status": "success",
+            "task_ids": [
+              "no-date:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "no-date:candidate:1",
+            "input_id": "no-date",
+            "title": "加入课程讨论群",
+            "description": "按要求加入课程讨论群。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "unknown",
+              "raw": null,
+              "basis": "原文未给出可确定的完成日期。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "原文未给出可确定的完成日期。"
+            ],
+            "sources": [
+              {
+                "input_id": "no-date",
+                "platform": "wechat",
+                "url": null,
+                "label": "示例课程群",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "no-date",
+                "field": "text",
+                "quote": "请加入课程讨论群。"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-no-date\n处理状态：成功\n失败输入：0 条\n\n任务 1：加入课程讨论群\n候选标识：no-date:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：待核实（未知）\n具体要求：按要求加入课程讨论群。\n来源：示例课程群；未提供链接\n待核实：原文未给出可确定的完成日期。",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "relative",
+      "elapsed_seconds": 2.94,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-relative",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "relative",
+            "status": "success",
+            "task_ids": [
+              "relative:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "relative:candidate:1",
+            "input_id": "relative",
+            "title": "提交实验报告",
+            "description": "请于明天18:00前提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-13T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "明天18:00",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "relative",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/relative",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "relative",
+                "field": "text",
+                "quote": "请于明天18:00前提交实验报告。"
+              },
+              {
+                "input_id": "relative",
+                "field": "text",
+                "quote": "明天18:00"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-relative\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：relative:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：2026-10-13T18:00:00+08:00（明确）\n具体要求：请于明天18:00前提交实验报告。\n时间原文：明天18:00\n来源：合成课程通知；https://example.invalid/notices/relative",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "relative-no-base",
+      "elapsed_seconds": 3.86,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-relative-no-base",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "relative-no-base",
+            "status": "success",
+            "task_ids": [
+              "relative-no-base:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "relative-no-base:candidate:1",
+            "input_id": "relative-no-base",
+            "title": "提交实验报告",
+            "description": "按要求于明天18:00前提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "unknown",
+              "raw": "明天18:00",
+              "basis": "相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "通知发布时间未知，缺少可信时间基准，无法将“明天18:00”换算为具体日期，需核实实际截止日期",
+              "相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。"
+            ],
+            "sources": [
+              {
+                "input_id": "relative-no-base",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/relative-no-base",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "relative-no-base",
+                "field": "text",
+                "quote": "请于明天18:00前提交实验报告。"
+              },
+              {
+                "input_id": "relative-no-base",
+                "field": "text",
+                "quote": "明天18:00"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-relative-no-base\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：relative-no-base:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：待核实（未知）\n具体要求：按要求于明天18:00前提交实验报告。\n时间原文：明天18:00\n来源：合成课程通知；https://example.invalid/notices/relative-no-base\n待核实：通知发布时间未知，缺少可信时间基准，无法将“明天18:00”换算为具体日期，需核实实际截止日期；相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "conflict",
+      "elapsed_seconds": 6.42,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-conflict",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "conflict",
+            "status": "success",
+            "task_ids": [
+              "conflict:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "conflict:candidate:1",
+            "input_id": "conflict",
+            "title": "提交报告",
+            "description": "在报告截止日期前提交报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "conflict",
+              "raw": "2026年10月15日；2026年10月16日",
+              "basis": "同一任务存在多个未消解的时间，请核实。",
+              "alternatives": [
+                "2026-10-15",
+                "2026-10-16"
+              ]
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "原文对同一报告给出了两个无法消解的截止日期（2026年10月15日与2026年10月16日），需确认哪个是有效截止日期。",
+              "同一任务存在多个未消解的时间，请核实。"
+            ],
+            "sources": [
+              {
+                "input_id": "conflict",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/conflict",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "报告截止日期：2026年10月15日。"
+              },
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "报告截止日期：2026年10月16日。"
+              },
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "2026年10月15日"
+              },
+              {
+                "input_id": "conflict",
+                "field": "text",
+                "quote": "2026年10月16日"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-conflict\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交报告\n候选标识：conflict:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：待核实（冲突）\n具体要求：在报告截止日期前提交报告。\n时间原文：2026年10月15日；2026年10月16日\n冲突时间：2026-10-15；2026-10-16\n来源：合成课程通知；https://example.invalid/notices/conflict\n待核实：原文对同一报告给出了两个无法消解的截止日期（2026年10月15日与2026年10月16日），需确认哪个是有效截止日期。；同一任务存在多个未消解的时间，请核实。",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "postpone",
+      "elapsed_seconds": 4.64,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-postpone",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "postpone",
+            "status": "success",
+            "task_ids": [
+              "postpone:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "postpone:candidate:1",
+            "input_id": "postpone",
+            "title": "提交实验报告",
+            "description": "前序通知要求2026年10月15日提交的实验报告，现延期至2026年10月20日提交。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "postpone",
+            "target_reference": "实验报告",
+            "deadline": {
+              "value": "2026-10-20",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月20日",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "postpone",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/postpone",
+                "label": "合成课程通知",
+                "source_item_id": null
+              },
+              {
+                "input_id": "ctx-report",
+                "platform": "unknown",
+                "url": null,
+                "label": "前序合成通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "postpone",
+                "field": "text",
+                "quote": "上述实验报告延期至2026年10月20日提交。"
+              },
+              {
+                "input_id": "ctx-report",
+                "field": "text",
+                "quote": "请于2026年10月15日提交实验报告。"
+              },
+              {
+                "input_id": "postpone",
+                "field": "text",
+                "quote": "实验报告"
+              },
+              {
+                "input_id": "postpone",
+                "field": "text",
+                "quote": "2026年10月20日"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-postpone\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：postpone:candidate:1\n课程/项目：示例课程\n通知性质：延期\n截止日期：2026-10-20（明确）\n具体要求：前序通知要求2026年10月15日提交的实验报告，现延期至2026年10月20日提交。\n时间原文：2026年10月20日\n时间精度：仅日期，未指定时刻。\n变更对象：实验报告\n来源：合成课程通知；https://example.invalid/notices/postpone\n来源：前序合成通知；未提供链接",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "cancel-unknown",
+      "elapsed_seconds": 2.67,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-cancel-unknown",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "cancel-unknown",
+            "status": "success",
+            "task_ids": [
+              "cancel-unknown:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "cancel-unknown:candidate:1",
+            "input_id": "cancel-unknown",
+            "title": "提交任务取消通知",
+            "description": "通知此前提到的提交任务已取消，需确认具体是哪一个提交任务。",
+            "prerequisites": [],
+            "course_or_project": null,
+            "course_basis": "unknown",
+            "notice_type": "cancel",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "unknown",
+              "raw": null,
+              "basis": "原文未给出可确定的完成日期。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "取消对象不明确：正文仅称“那个提交任务”，无上下文可唯一确定对应的课程或任务名称。",
+              "变更对象未能唯一确定，请查看原通知及上下文。",
+              "原文未给出可确定的完成日期。"
+            ],
+            "sources": [
+              {
+                "input_id": "cancel-unknown",
+                "platform": "wechat",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "cancel-unknown",
+                "field": "text",
+                "quote": "之前说的那个提交任务取消了。"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-cancel-unknown\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交任务取消通知\n候选标识：cancel-unknown:candidate:1\n课程/项目：未提供\n通知性质：取消\n截止日期：待核实（未知）\n具体要求：通知此前提到的提交任务已取消，需确认具体是哪一个提交任务。\n来源：cancel-unknown；未提供链接\n待核实：取消对象不明确：正文仅称“那个提交任务”，无上下文可唯一确定对应的课程或任务名称。；变更对象未能唯一确定，请查看原通知及上下文。；原文未给出可确定的完成日期。",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "no-task",
+      "elapsed_seconds": 1.61,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-no-task",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "no-task",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-no-task\n处理状态：无任务\n失败输入：0 条\n已处理的文本中未识别到待办。",
+      "synthetic_drafts": []
+    },
+    {
+      "case_id": "injection",
+      "elapsed_seconds": 1.22,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-injection",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "injection",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": []
+          }
+        ],
+        "tasks": [],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实模型调用\n请求标识：request-injection\n处理状态：无任务\n失败输入：0 条\n已处理的文本中未识别到待办。",
+      "synthetic_drafts": []
+    }
+  ]
+}
