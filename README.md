@@ -21,7 +21,7 @@
 
 阶段 A 提供约定与合成样例，阶段 B 提供可运行的离线处理骨架。离线回放不代表识别效果。
 
-阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。阶段 D 的真实 API 和 v0.2 HTTP 接口位于 PR #14，当前本地集成分支已包含；独立召回率统计暂缓。
+阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。阶段 D 的真实 API 和 v0.2 HTTP 接口已随 PR #14 合并；独立召回率统计暂缓。课程七牛 API 的配置已准备好，支持直接调用 DeepSeek V4.1 Flash，无需 Codex；填写密钥和验证方式见 [API 配置说明](docs/text-api-setup.md)。七牛真实调用尚待新密钥验证。
 
 - [需求基线与职责边界](docs/text-extraction-requirements.md)
 - [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)

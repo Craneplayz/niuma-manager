@@ -13,7 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ddl_text.codex_client import CodexClient, live_options, preflight
+from ddl_text.codex_client import CodexClient, live_options
+from ddl_text.provider import make_client
 from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter, load_instructions
 from ddl_text.pipeline import process_request
@@ -58,9 +59,8 @@ def main():
     options = live_options(ROOT / ".env")
     if not options["key"].strip():
         parser.error("missing local credential")
-    executable = preflight(options)
     settings = Settings(mode="real", model=options["model"], endpoint=options["endpoint"], timeout_seconds=120)
-    client = CodexClient(executable, options["key"])
+    client = make_client(options)
     adapter = ExtractionAdapter(client)
     captured = []
     generate = client.generate
@@ -69,10 +69,12 @@ def main():
         captured.append(response)
         return response
     # This script only accepts fixed synthetic fixture IDs, never private files.
-    client.generate = capture
+    if isinstance(client, CodexClient):
+        client.generate = capture
     cases = json.loads((ROOT / "docs/examples/text-contract-v0.1.json").read_text(encoding="utf-8"))["cases"]
-    version = subprocess.run([executable, "--version"], capture_output=True, encoding="utf-8", timeout=10).stdout.strip()
-    report = {"started_at": datetime.now(timezone.utc).isoformat(), "model": settings.model,
+    version = (subprocess.run([client.executable, "--version"], capture_output=True, encoding="utf-8", timeout=10).stdout.strip()
+               if isinstance(client, CodexClient) else None)
+    report = {"started_at": datetime.now(timezone.utc).isoformat(), "model": settings.model, "provider": options["provider"],
               "codex_version": version, "python_version": platform.python_version(),
               "instructions_sha256": hashlib.sha256(load_instructions().encode("utf-8")).hexdigest(),
               "timeout_seconds": settings.timeout_seconds, "max_retries": 0,

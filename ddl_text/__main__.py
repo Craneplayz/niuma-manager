@@ -8,10 +8,11 @@ from pathlib import Path
 
 from .adapters import ReplayAdapter, UnavailableAdapter
 from .config import Settings
-from .codex_client import ROOT, CodexClient, live_options, preflight, validate_endpoint
+from .codex_client import ROOT, live_options, preflight, validate_endpoint, validate_provider_endpoint
 from .extraction import ExtractionAdapter, OfflineDraftClient
 from .pipeline import process_request
 from .render import render_text
+from .provider import make_client
 
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "docs/examples/text-contract-v0.1.json"
@@ -22,7 +23,7 @@ def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="文本识别：离线回放或 DeepSeek 经 Codex 调用")
+    parser = argparse.ArgumentParser(description="文本识别：离线回放、七牛 API 或 DeepSeek 经 Codex")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--demo", help="合成样例 case_id，例如 absolute、multiple、partial-batch")
     source.add_argument("--input", help="UTF-8 JSON 请求路径，- 表示标准输入")
@@ -55,21 +56,24 @@ def main(argv=None):
             config.setdefault("model", options["model"])
             config.setdefault("endpoint", options["endpoint"])
             config.setdefault("timeout_seconds", 120)
-            if config.get("credential_env") not in (None, "DEEPSEEK_API_KEY"):
-                raise ValueError("use DEEPSEEK_API_KEY")
+            if config.get("credential_env") not in (None, options["credential_env"]):
+                raise ValueError("credential does not match provider")
         settings = Settings(mode=args.mode, **config)
         adapter = UnavailableAdapter()
         if options is not None:
             if not settings.model or not settings.endpoint:
                 raise ValueError("real mode requires model and endpoint")
             validate_endpoint(settings.endpoint)
-            executable = preflight(options) if args.check_connection or options["key"].strip() else None
+            validate_provider_endpoint(options["provider"], settings.endpoint)
             if args.check_connection:
-                print("Codex CLI：可用；配置格式：通过；密钥：" +
+                if options["provider"] == "deepseek":
+                    preflight(options)
+                print("provider=" + options["provider"] + "; model=" + settings.model + "; endpoint=" + settings.endpoint)
+                print(("七牛 API 直连；" if options["provider"] == "qiniu" else "Codex CLI：可用；") + "配置格式：通过；密钥：" +
                       ("已配置" if options["key"].strip() else "未填写") + "。本检查未调用模型。")
                 return 0 if options["key"].strip() else 1
-            if executable is not None:
-                adapter = ExtractionAdapter(CodexClient(executable, options["key"]))
+            if options["key"].strip():
+                adapter = ExtractionAdapter(make_client(options))
         if args.drafts:
             entries = json.loads(Path(args.drafts).read_text(encoding="utf-8-sig"))
             if not isinstance(entries, list):
@@ -95,7 +99,8 @@ def main(argv=None):
         logging.basicConfig(level=logging.INFO, format="%(message)s")
     # Diagnostics describe mode; JSON stdout stays a pure versioned result object.
     print("mode=%s; adapter=%s" % (settings.mode,
-          "codex" if settings.mode == "real" else "synthetic_drafts" if args.drafts else "replay_only"), file=sys.stderr)
+          ("qiniu_api" if options["provider"] == "qiniu" else "codex") if settings.mode == "real"
+          else "synthetic_drafts" if args.drafts else "replay_only"), file=sys.stderr)
     result = process_request(request, adapter, settings)
     print(json.dumps(result, ensure_ascii=False, indent=2) if args.format == "json"
           else render_text(result, "drafts" if args.drafts else settings.mode))

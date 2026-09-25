@@ -14,7 +14,7 @@ from .draft_schema import draft_schema
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ENV_KEYS = {"DEEPSEEK_API_KEY", "DDL_MODEL", "DDL_ENDPOINT", "DDL_CODEX_BIN"}
+ENV_KEYS = {"DEEPSEEK_API_KEY", "QINIU_API_KEY", "DDL_PROVIDER", "DDL_MODEL", "DDL_ENDPOINT", "DDL_CODEX_BIN"}
 # The frontend backend has its own shell configuration. These sibling keys may
 # coexist in a merged .env example but are never provider settings or prompts.
 SIBLING_ENV_KEYS = {"HARNESS_URL", "HARNESS_TOKEN", "TEXT_HARNESS_URL", "TEXT_HARNESS_TOKEN", "NIUMA_DB"}
@@ -48,14 +48,31 @@ def live_options(env_path):
     values = load_env(env_path)
     # Explicit environment values take precedence, including an empty value.
     values.update({k: os.environ[k] for k in ENV_KEYS if k in os.environ})
-    endpoint = values.get("DDL_ENDPOINT") or "https://api.deepseek.com"
+    provider = values.get("DDL_PROVIDER") or "deepseek"
+    if provider not in {"deepseek", "qiniu"}:
+        raise ValueError("unsupported provider")
+    qiniu = provider == "qiniu"
+    credential_env = "QINIU_API_KEY" if qiniu else "DEEPSEEK_API_KEY"
+    endpoint = values.get("DDL_ENDPOINT") or ("https://api.qnaigc.com/v1" if qiniu else "https://api.deepseek.com")
     validate_endpoint(endpoint)
+    validate_provider_endpoint(provider, endpoint)
     return {
-        "key": values.get("DEEPSEEK_API_KEY", ""),
-        "model": values.get("DDL_MODEL") or "deepseek-flash",
+        "provider": provider,
+        "credential_env": credential_env,
+        "key": values.get(credential_env, ""),
+        "model": values.get("DDL_MODEL") or ("deepseek/deepseek-v4.1-flash" if qiniu else "deepseek-flash"),
         "endpoint": endpoint,
         "executable": values.get("DDL_CODEX_BIN") or "codex",
     }
+
+
+def validate_provider_endpoint(provider, endpoint):
+    # Catch stale first-party URLs when switching providers, before reading a key.
+    host = urlsplit(endpoint).hostname
+    if (provider == "qiniu" and host == "api.deepseek.com") or (provider == "deepseek" and host == "api.qnaigc.com"):
+        raise ValueError("provider and endpoint disagree")
+    if provider == "qiniu" and urlsplit(endpoint).path.rstrip("/") != "/v1":
+        raise ValueError("Qiniu chat endpoint must end in /v1")
 
 
 def validate_endpoint(endpoint):
