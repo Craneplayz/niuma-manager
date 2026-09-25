@@ -46,3 +46,7 @@
 ## 本地文本识别集成
 
 团队主线已合并文本 API（PR #14）、前端和七牛接入（PR #17）。启动识别服务、配置前端后端和 JSON 样例见 [前端对接说明](docs/text-frontend-integration.md)。前端 npm 命令在 `frontend/` 中运行。
+
+## 爬虫模块
+
+独立采集学院讲座与课程作业，启动、依赖版本和验证方法见 [爬虫说明](docs/crawler.md)。爬虫命令在仓库根目录使用 pnpm；前端命令仍在 `frontend/` 使用 npm。爬虫输出转 v0.2 识别请求及调用链路另列后续 Issue，本次未接入。

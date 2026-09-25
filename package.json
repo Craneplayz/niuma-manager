@@ -1,0 +1,40 @@
+{
+  "name": "niuma-manager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deterministic public event crawler for PKU websites",
+  "type": "module",
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src tests",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "crawler": "node --import tsx src/cli.ts",
+    "crawl": "node --import tsx src/cli.ts crawl all",
+    "reprocess": "node --import tsx src/cli.ts reprocess",
+    "pku:homework": "node --import tsx src/pku-homework-cli.ts"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "domhandler": "^5.0.3",
+    "luxon": "^3.6.1",
+    "pino": "^9.4.0",
+    "playwright": "^1.55.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/luxon": "^3.4.2",
+    "@types/node": "^22.10.2",
+    "eslint": "^9.39.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^2.1.8"
+  }
+}
