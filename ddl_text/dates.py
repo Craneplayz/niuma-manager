@@ -1,6 +1,6 @@
-"""Conservative date conversion using the quoted message's own publication.
+"""Evidence-based dates with explicit, reviewable missing-year inference.
 
-Unsupported wording is a reviewable unknown, never a best-effort guessed date.
+Missing years follow a documented nearest-date policy; unsupported wording stays unknown.
 """
 
 import re
@@ -49,6 +49,20 @@ def _localize(day, clock, zone):
     return possibilities[0]
 
 
+def _nearest_year(month, day, anchor):
+    """Choose the nearest calendar date, not an unconditional future rollover."""
+    choices = []
+    for year in (anchor.year - 1, anchor.year, anchor.year + 1):
+        try:
+            choices.append(date(year, month, day))
+        except ValueError:
+            continue
+    if not choices:
+        raise ValueError("no valid date in adjacent years")
+    return min(choices, key=lambda candidate: (
+        abs((candidate - anchor).days), candidate < anchor))
+
+
 def resolve_time(raw, message, kind):
     zone_name = message.get("timezone")
     def unresolved(basis):
@@ -56,15 +70,21 @@ def resolve_time(raw, message, kind):
 
     result = unresolved("时间表达尚不能唯一换算，请查看原文。")
     phrase = re.sub(r"\s+", "", raw)
+    # Accept boundary words inside an authentic quotation without editing raw evidence.
+    phrase = re.sub(r"^(?:截止至|截至|截止到)", "", phrase)
+    phrase = re.sub(r"(?:之前|以前|前|截止|为止)$", "", phrase)
     zone = _zone(zone_name)
     try:
         base = _base(message, zone)
         day = None
         stamp = None
+        year_basis = None
         period = ""
         rest = ""
         hours = re.fullmatch(r"([1-9]\d{0,3})小时后", phrase)
         absolute = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})日?(.*)", phrase)
+        month_day = re.fullmatch(r"(今年|明年|去年)?(\d{1,2})月(\d{1,2})[日号]?(.*)", phrase)
+        numeric_month_day = re.fullmatch(r"(\d{1,2})[-/\.](\d{1,2})(.*)", phrase)
         relative = re.fullmatch(r"(今天|今日|明天|明日|明晚|后天)(.*)", phrase)
         weekday = re.fullmatch(r"(本周|下周)([一二三四五六日天])(.*)", phrase)
         if hours:
@@ -74,6 +94,23 @@ def resolve_time(raw, message, kind):
         elif absolute:
             day = date(int(absolute[1]), int(absolute[2]), int(absolute[3]))
             rest = absolute[4]
+        elif month_day or numeric_month_day:
+            qualifier = month_day[1] if month_day else None
+            month, day_number, rest = (month_day[2], month_day[3], month_day[4]) if month_day else numeric_month_day.groups()
+            anchor = base
+            anchor_label = "该条原消息的可信发布时间"
+            if anchor is None and not qualifier and zone is not None and message.get("collected_at"):
+                anchor = datetime.fromisoformat(message["collected_at"].replace("Z", "+00:00")).astimezone(zone)
+                anchor_label = "采集时间（缺可信发布时间，仅作为年份估计基准，并非发布时间）"
+            if anchor is None:
+                return unresolved("缺年份日期需要该消息的可信发布时间，或带时区的采集时间作为推断基准。")
+            anchor_day = anchor.date() if isinstance(anchor, datetime) else anchor
+            if qualifier:
+                day = date(anchor_day.year + {"今年": 0, "明年": 1, "去年": -1}[qualifier], int(month), int(day_number))
+            else:
+                day = _nearest_year(int(month), int(day_number), anchor_day)
+                year_basis = (f"原文未写年份，以{anchor_label} {anchor_day.isoformat()} 为基准，"
+                              f"在相邻年份中选最近有效日期，推断为 {day.year} 年；等距时优先未来。请核实年份。")
         elif relative or weekday:
             if base is None:
                 return unresolved("相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。")
@@ -109,9 +146,10 @@ def resolve_time(raw, message, kind):
         value = stamp.isoformat(timespec="seconds") if stamp else day.isoformat()
         return {"value": value, "precision": "datetime" if stamp else "date",
                 "timezone": zone_name if zone is not None else None,
-                "kind": kind, "status": "inferred" if kind == "reference" else "explicit",
-                "raw": raw, "basis": ("引用活动时间作为参考完成时间，需核实。" if kind == "reference"
-                                        else "按原文日期及该条消息可信的发布时间换算；保留原始精度。"),
+                "kind": kind, "status": "inferred" if kind == "reference" or year_basis else "explicit",
+                "raw": raw, "basis": ((year_basis + (" 引用的是活动参考时间，不是明确截止时间。" if kind == "reference" else "")) if year_basis else
+                                       ("引用活动时间作为参考完成时间，需核实。" if kind == "reference"
+                                        else "按原文日期及该条消息可信的发布时间换算；保留原始精度。")),
                 "alternatives": []}
     except (ValueError, OverflowError, TypeError):
         return unresolved("日期或时刻无效，或处于时区歧义范围，请查看原文。")

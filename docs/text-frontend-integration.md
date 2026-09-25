@@ -1,8 +1,8 @@
 # 文本识别与前端对接（v0.2）
 
-最新状态：前端 PR #15/#16 已合并，目录变为 `frontend/`。首轮网页验收及本轮真实识别超时记录见[阶段 E 进度](text-stage-e-progress.md)；下方早期成功记录不代表当前服务稳定性已验收。
+最新状态（2026-09-25）：前端 PR #15/#16、文本 API PR #14、七牛接入 PR #17 已合并。七牛真实联调和网页候选确认已通过，详见[阶段 E 验收](text-stage-e-review.md)；有限样例成功不代表长期延迟已验收。前端目录为 `frontend/`。
 
-2026-09-24 对接前端 [PR #15](https://github.com/Craneplayz/niuma-manager/pull/15)，验证基线为 `3251c8eabf1224df9090b0752b94d1c9e3abc0b8`。前端页面与账户 API 无需改动，文本模块增加 v0.2 输出及本地 HTTP 服务。运行完整产品需要同时包含文本模块 PR #14 和前端 PR #15 的代码；本分支没有复制整套前端。
+对接历史：2026-09-24 最初基于前端 [PR #15](https://github.com/Craneplayz/niuma-manager/pull/15) 的 `3251c8eabf1224df9090b0752b94d1c9e3abc0b8` 增加 v0.2 输出与 HTTP 服务；当前团队主线已同时包含两端代码，无需手动叠加旧分支。
 
 ## 数据如何流动
 

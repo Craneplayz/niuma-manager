@@ -1,6 +1,6 @@
 # 文本识别模块：分阶段开发、检查与提交计划
 
-更新日期：2026-09-22。本文规定接下来如何实现与交付，不表示功能已经实现。当前产物为需求、任务拆分与计划；尚未运行真实模型。
+原计划日期：2026-09-22。2026-09-25 状态更新：A–D 已随相关 PR 合并，阶段 E 的固定回归、真实链路和网页验收已完成，交付材料待收尾评审合并。当前执行依据见[交付使用说明](text-handoff.md)及[阶段 E 验收](text-stage-e-review.md)。以下保留原计划与拆分历史，独立召回率按负责人决定暂缓；输出已统一为 JSON，默认真实接入为七牛 API 直连，不要求 Codex。
 
 范围及输出语义以[需求基线](text-extraction-requirements.md)为准，Issue 对照与完整验收条件见[冲刺任务](sprint-1-text-processing.md)。看板为 [NiuMa Manager](https://github.com/users/Craneplayz/projects/2)，迭代字段由负责人维护。
 

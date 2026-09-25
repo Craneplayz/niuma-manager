@@ -1,0 +1,469 @@
+{
+  "checked_at": "2026-09-25T14:11:58.548152+00:00",
+  "synthetic_only": true,
+  "instructions_sha256": "f3a8cbbf1851cb84df3f1bf2ea604d83cf094b4252358bbac61ac3c18cbb6642",
+  "elapsed_seconds": 16.94,
+  "request": {
+    "contract_version": "0.2",
+    "request_id": "synthetic:year-inference-v03",
+    "records": [
+      {
+        "text_quality": "complete",
+        "platform": "teaching_web",
+        "published_at": {
+          "value": "2026-09-25",
+          "precision": "date",
+          "basis": "source"
+        },
+        "collected_at": "2026-09-25T12:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "source",
+        "source_url": null,
+        "source_label": "合成年份推断回归",
+        "source_item_id": null,
+        "course_or_project": "示例课程",
+        "context": [],
+        "upstream_hints": null,
+        "input_id": "synthetic:year:same-year",
+        "text": "请9月30日18点前提交实验报告。"
+      },
+      {
+        "text_quality": "complete",
+        "platform": "teaching_web",
+        "published_at": {
+          "value": "2026-12-31",
+          "precision": "date",
+          "basis": "source"
+        },
+        "collected_at": "2026-09-25T12:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "source",
+        "source_url": null,
+        "source_label": "合成年份推断回归",
+        "source_item_id": null,
+        "course_or_project": "示例课程",
+        "context": [],
+        "upstream_hints": null,
+        "input_id": "synthetic:year:cross-year",
+        "text": "请1月5日前提交报名表。"
+      },
+      {
+        "text_quality": "complete",
+        "platform": "teaching_web",
+        "published_at": {
+          "value": null,
+          "precision": "unknown",
+          "basis": "unknown"
+        },
+        "collected_at": "2026-09-25T12:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "source",
+        "source_url": null,
+        "source_label": "合成年份推断回归",
+        "source_item_id": null,
+        "course_or_project": "示例课程",
+        "context": [],
+        "upstream_hints": null,
+        "input_id": "synthetic:year:collection-fallback",
+        "text": "请9/30前提交课程报告。"
+      },
+      {
+        "text_quality": "complete",
+        "platform": "teaching_web",
+        "published_at": {
+          "value": "2026-09-25",
+          "precision": "date",
+          "basis": "source"
+        },
+        "collected_at": "2026-09-25T12:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "source",
+        "source_url": null,
+        "source_label": "合成年份推断回归",
+        "source_item_id": null,
+        "course_or_project": "示例课程",
+        "context": [],
+        "upstream_hints": null,
+        "input_id": "synthetic:year:explicit-year",
+        "text": "请2028年9月30日前提交毕业报告。"
+      },
+      {
+        "text_quality": "complete",
+        "platform": "teaching_web",
+        "published_at": {
+          "value": "2026-09-25",
+          "precision": "date",
+          "basis": "source"
+        },
+        "collected_at": "2026-09-25T12:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "source",
+        "source_url": null,
+        "source_label": "合成年份推断回归",
+        "source_item_id": null,
+        "course_or_project": "示例课程",
+        "context": [],
+        "upstream_hints": null,
+        "input_id": "synthetic:year:recent-overdue",
+        "text": "9月20日截止的实验报告还未提交，请补交，原截止日期保持不变。"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "input_id": "synthetic:year:same-year",
+      "expected": {
+        "value": "2026-09-30T18:00:00+08:00",
+        "status": "inferred"
+      },
+      "passed": true
+    },
+    {
+      "input_id": "synthetic:year:cross-year",
+      "expected": {
+        "value": "2027-01-05",
+        "status": "inferred"
+      },
+      "passed": true
+    },
+    {
+      "input_id": "synthetic:year:collection-fallback",
+      "expected": {
+        "value": "2026-09-30",
+        "status": "inferred"
+      },
+      "passed": true
+    },
+    {
+      "input_id": "synthetic:year:explicit-year",
+      "expected": {
+        "value": "2028-09-30",
+        "status": "explicit"
+      },
+      "passed": true
+    },
+    {
+      "input_id": "synthetic:year:recent-overdue",
+      "expected": {
+        "value": "2026-09-20",
+        "status": "inferred"
+      },
+      "passed": false
+    }
+  ],
+  "result": {
+    "contract_version": "0.2",
+    "request_id": "synthetic:year-inference-v03",
+    "status": "success",
+    "record_results": [
+      {
+        "input_id": "synthetic:year:same-year",
+        "status": "success",
+        "task_ids": [
+          "synthetic:year:same-year:candidate:1"
+        ],
+        "warnings": []
+      },
+      {
+        "input_id": "synthetic:year:cross-year",
+        "status": "success",
+        "task_ids": [
+          "synthetic:year:cross-year:candidate:1"
+        ],
+        "warnings": []
+      },
+      {
+        "input_id": "synthetic:year:collection-fallback",
+        "status": "success",
+        "task_ids": [
+          "synthetic:year:collection-fallback:candidate:1"
+        ],
+        "warnings": []
+      },
+      {
+        "input_id": "synthetic:year:explicit-year",
+        "status": "success",
+        "task_ids": [
+          "synthetic:year:explicit-year:candidate:1"
+        ],
+        "warnings": []
+      },
+      {
+        "input_id": "synthetic:year:recent-overdue",
+        "status": "success",
+        "task_ids": [
+          "synthetic:year:recent-overdue:candidate:1"
+        ],
+        "warnings": []
+      }
+    ],
+    "tasks": [
+      {
+        "candidate_id": "synthetic:year:same-year:candidate:1",
+        "input_id": "synthetic:year:same-year",
+        "title": "提交实验报告",
+        "description": "在9月30日18点前提交实验报告。",
+        "prerequisites": [],
+        "course_or_project": "示例课程",
+        "course_basis": "provided",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": "2026-09-30T18:00:00+08:00",
+          "precision": "datetime",
+          "timezone": "Asia/Shanghai",
+          "kind": "deadline",
+          "status": "inferred",
+          "raw": "9月30日18点",
+          "basis": "原文未写年份，以该条原消息的可信发布时间 2026-09-25 为基准，在相邻年份中选最近有效日期，推断为 2026 年；等距时优先未来。请核实年份。",
+          "alternatives": []
+        },
+        "needs_review": true,
+        "review_reasons": [
+          "原文未写年份，以该条原消息的可信发布时间 2026-09-25 为基准，在相邻年份中选最近有效日期，推断为 2026 年；等距时优先未来。请核实年份。"
+        ],
+        "sources": [
+          {
+            "input_id": "synthetic:year:same-year",
+            "platform": "teaching_web",
+            "url": null,
+            "label": "合成年份推断回归",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "synthetic:year:same-year",
+            "field": "text",
+            "quote": "请9月30日18点前提交实验报告。",
+            "supports": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "input_id": "synthetic:year:same-year",
+            "field": "text",
+            "quote": "9月30日18点",
+            "supports": [
+              "deadline"
+            ]
+          }
+        ]
+      },
+      {
+        "candidate_id": "synthetic:year:cross-year:candidate:1",
+        "input_id": "synthetic:year:cross-year",
+        "title": "提交报名表",
+        "description": "在1月5日前提交报名表。",
+        "prerequisites": [],
+        "course_or_project": "示例课程",
+        "course_basis": "provided",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": "2027-01-05",
+          "precision": "date",
+          "timezone": "Asia/Shanghai",
+          "kind": "deadline",
+          "status": "inferred",
+          "raw": "1月5日",
+          "basis": "原文未写年份，以该条原消息的可信发布时间 2026-12-31 为基准，在相邻年份中选最近有效日期，推断为 2027 年；等距时优先未来。请核实年份。",
+          "alternatives": []
+        },
+        "needs_review": true,
+        "review_reasons": [
+          "原文未写年份，以该条原消息的可信发布时间 2026-12-31 为基准，在相邻年份中选最近有效日期，推断为 2027 年；等距时优先未来。请核实年份。"
+        ],
+        "sources": [
+          {
+            "input_id": "synthetic:year:cross-year",
+            "platform": "teaching_web",
+            "url": null,
+            "label": "合成年份推断回归",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "synthetic:year:cross-year",
+            "field": "text",
+            "quote": "请1月5日前提交报名表。",
+            "supports": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "input_id": "synthetic:year:cross-year",
+            "field": "text",
+            "quote": "1月5日",
+            "supports": [
+              "deadline"
+            ]
+          }
+        ]
+      },
+      {
+        "candidate_id": "synthetic:year:collection-fallback:candidate:1",
+        "input_id": "synthetic:year:collection-fallback",
+        "title": "提交课程报告",
+        "description": "提交课程报告。",
+        "prerequisites": [],
+        "course_or_project": "示例课程",
+        "course_basis": "provided",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": "2026-09-30",
+          "precision": "date",
+          "timezone": "Asia/Shanghai",
+          "kind": "deadline",
+          "status": "inferred",
+          "raw": "9/30",
+          "basis": "原文未写年份，以采集时间（缺可信发布时间，仅作为年份估计基准，并非发布时间） 2026-09-25 为基准，在相邻年份中选最近有效日期，推断为 2026 年；等距时优先未来。请核实年份。",
+          "alternatives": []
+        },
+        "needs_review": true,
+        "review_reasons": [
+          "缺少可信发布时间，9/30 的年份只能以采集时间 2026-09-25 作低置信度估算，具体年份待核实；截点为“9/30前”，无具体时刻，未补默认时间",
+          "原文未写年份，以采集时间（缺可信发布时间，仅作为年份估计基准，并非发布时间） 2026-09-25 为基准，在相邻年份中选最近有效日期，推断为 2026 年；等距时优先未来。请核实年份。"
+        ],
+        "sources": [
+          {
+            "input_id": "synthetic:year:collection-fallback",
+            "platform": "teaching_web",
+            "url": null,
+            "label": "合成年份推断回归",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "synthetic:year:collection-fallback",
+            "field": "text",
+            "quote": "请9/30前提交课程报告。",
+            "supports": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "input_id": "synthetic:year:collection-fallback",
+            "field": "text",
+            "quote": "9/30",
+            "supports": [
+              "deadline"
+            ]
+          }
+        ]
+      },
+      {
+        "candidate_id": "synthetic:year:explicit-year:candidate:1",
+        "input_id": "synthetic:year:explicit-year",
+        "title": "提交毕业报告",
+        "description": "在2028年9月30日前提交毕业报告。",
+        "prerequisites": [],
+        "course_or_project": "示例课程",
+        "course_basis": "provided",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": "2028-09-30",
+          "precision": "date",
+          "timezone": "Asia/Shanghai",
+          "kind": "deadline",
+          "status": "explicit",
+          "raw": "2028年9月30日",
+          "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+          "alternatives": []
+        },
+        "needs_review": false,
+        "review_reasons": [],
+        "sources": [
+          {
+            "input_id": "synthetic:year:explicit-year",
+            "platform": "teaching_web",
+            "url": null,
+            "label": "合成年份推断回归",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "synthetic:year:explicit-year",
+            "field": "text",
+            "quote": "请2028年9月30日前提交毕业报告。",
+            "supports": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "input_id": "synthetic:year:explicit-year",
+            "field": "text",
+            "quote": "2028年9月30日",
+            "supports": [
+              "deadline"
+            ]
+          }
+        ]
+      },
+      {
+        "candidate_id": "synthetic:year:recent-overdue:candidate:1",
+        "input_id": "synthetic:year:recent-overdue",
+        "title": "补交实验报告",
+        "description": "9月20日截止的实验报告还未提交，请补交，原截止日期保持不变。",
+        "prerequisites": [],
+        "course_or_project": "示例课程",
+        "course_basis": "provided",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": null,
+          "precision": "unknown",
+          "timezone": "Asia/Shanghai",
+          "kind": "deadline",
+          "status": "unknown",
+          "raw": "9月20日截止",
+          "basis": "时刻格式不明确或时区不可用，保留原话待核实。",
+          "alternatives": []
+        },
+        "needs_review": true,
+        "review_reasons": [
+          "时刻格式不明确或时区不可用，保留原话待核实。"
+        ],
+        "sources": [
+          {
+            "input_id": "synthetic:year:recent-overdue",
+            "platform": "teaching_web",
+            "url": null,
+            "label": "合成年份推断回归",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "synthetic:year:recent-overdue",
+            "field": "text",
+            "quote": "9月20日截止的实验报告还未提交，请补交，原截止日期保持不变。",
+            "supports": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "input_id": "synthetic:year:recent-overdue",
+            "field": "text",
+            "quote": "9月20日截止",
+            "supports": [
+              "deadline"
+            ]
+          }
+        ]
+      }
+    ],
+    "errors": []
+  },
+  "usage_and_cost": "not collected"
+}
