@@ -1,6 +1,6 @@
 # 牛马管理器：前端 / 后端 / 模型 Harness 对齐说明
 
-文档版本 2.1 · 2026-09-24。本文件是本项目唯一的协作协议基线，统一包含文本识别 v0.2、业务确认 API 和规划 2.0。已按项目负责人授权完成规则取舍及本地实现，不代表外部识别/规划服务已经部署。
+文档版本 2.2 · 2026-09-25。本文件是本项目唯一的协作协议基线，统一包含文本识别 v0.2、业务确认 API 和规划 2.0。已按项目负责人授权完成规则取舍及本地实现，不代表外部识别/规划服务已经部署。
 
 顺序固定为：授权来源 → 文本识别候选 → 用户核对/事务确认 → 正式任务 → 用户点击开始规划 → 模型估时与安排 → 预览确认。识别和规划的版本号、请求 ID、服务地址分别管理。
 
@@ -11,13 +11,13 @@
 - 模型 Harness：待团队实现/配置真实服务。前端与后端均不提供默认 1 小时或规则估时的假模型。未配置 HARNESS_URL 返回 503。
 - v0.2 文本识别提交、批次与记录级状态、证据/来源/日期依据展示、新增/更新/延期/取消/忽略审核、候选事务确认和幂等检查均已实现。本地“加载协议演示”明确为人工样例，不调用模型。
 - 真实文本识别由 TEXT_HARNESS_URL 提供，真实规划由 HARNESS_URL 提供，缺少对应配置返回 503。真实邮箱/教学网/微信采集仍未接入；来源刷新入口只引导至文本识别页，不伪造同步结果。
-- 本地规则现在仅展示日期线索，默认不填写 DDL；用户明确确认日期是截止时间后才能带入编辑表单。审核原文按候选展示，缺失就提示，不用示例补齐证据。
+- 前端以潘勇圳的页面与交互为主；快速收集和浏览器语音输入都进入同一个 v0.2 识别审核流程。没有真实识别服务时不会用本地规则冒充模型结果。
 
 ## 数据与会话
 
-前端工程现位于 `frontend/`，npm 命令在该目录执行。参考潘勇圳实现的功能取舍与署名见 [前端贡献说明](../frontend/CONTRIBUTIONS.md)。本次不改动文本识别 v0.2 或规划 2.0 的模型协议。
+前端工程现位于 `frontend/`，npm 命令在该目录执行。潘勇圳的实现作为前端主版本，独有服务端功能经适配层接入；来源与改写见 [前端贡献说明](../frontend/CONTRIBUTIONS.md)。本次不改动文本识别 v0.2 或规划 2.0 的模型协议。
 
-新增账号工作区数据：`courses` 为 `{id,name,teacher,notes,url}[]`（名称/编号唯一，HTTP(S) 无凭据链接）；`focus` 为 `{duration,remaining,running,endsAt,taskId}`（秒单位 duration/remaining，duration 为 1500 或 3000，endsAt 为 Unix 毫秒，taskId 可空）。沿用 `PUT /api/data/:name` 的版本校验，关联任务必须属于当前账号；无数据的旧账号使用空课程及默认暂停计时，无须迁移已有任务。
+新增账号工作区数据：`courses` 为 `{id,name,teacher,notes,url,color?}[]`（名称/编号唯一，HTTP(S) 无凭据链接）；`materials` 为参考版课程资料列表；`focus` 为 `{duration,remaining,running,endsAt,taskId}`（秒单位 duration/remaining，duration 为 1500 或 3000，endsAt 为 Unix 毫秒，taskId 可空）。沿用 `PUT /api/data/:name` 的版本校验，关联任务必须属于当前账号；无数据的旧账号使用空课程及默认暂停计时，无须迁移已有任务。
 
 计时只在开始、暂停、重置、选择任务或时长时保存，不每秒写数据库；界面按 endsAt 计算剩余秒数。多窗口不实时推送，冲突后可读取服务器最新计时。到时不自动生成完成反馈，避免将经过时间当成真实投入。课程名称与 Task.course 精确匹配，课程改名不批量改写任务。
 
@@ -26,9 +26,9 @@
 数据库 server/data/niuma.sqlite3（NIUMA_DB 可覆盖），表：
 users（邮箱唯一、昵称、随机盐、PBKDF2-SHA256 600000 次哈希）；sessions（会话令牌摘要、用户、24h 过期）；workspace（用户+数据名主键，JSON value、整数 version）；proposals（用户、任务快照版本、模型结果、是否已应用）；recognition_batches（用户+请求 ID、输入指纹、原始请求及规范化结果、演示标记）；recognition_candidates（服务端生成存储 ID、所属用户及批次、完整候选、pending/applied/ignored、版本、确认请求）。
 
-workspace 数据名：tasks、candidates、availability、feedback。任务沿用前端 Task，新增 planningExcluded:boolean；默认 false。due 为 null 或 {date,precision:'date'|'datetime',time?}，date-only 不补伪造的精确时刻。Plan 包含 id/title/startAt/endAt/origin/isLocked；已有计划保持原样。Task.sourceRequirements:string[] 独立保存原文要求，不自动生成 subtasks；recognitionHistory 保存候选存储 ID、识别请求 ID、候选 ID 和确认操作，完整证据在识别表中留存。
+workspace 数据名：tasks、candidates、availability、feedback、courses、materials、focus。服务端 Task 是唯一正式任务格式；前端 `team-store.js` 将其映射为潘勇圳页面所需的显示结构，不建立另一套任务库。planningExcluded:boolean 默认 false。due 为 null 或 {date,precision:'date'|'datetime',time?}，date-only 不补伪造的精确时刻，前端提示补时刻。Plan 包含 id/title/startAt/endAt/origin/isLocked；已有计划保持原样。Task.sourceRequirements:string[] 独立保存原文要求，不自动生成 subtasks；recognitionHistory 保存候选存储 ID、识别请求 ID、候选 ID 和确认操作，完整证据在识别表中留存。
 
-浏览器只保存 HttpOnly、SameSite=Strict 的不透明会话 Cookie，Path=/api，业务数据仅在 React 内存缓存。登录页不自动选择测试账号、不自动提交登录。刷新后需登录，数据库数据保留。退出撤销服务端会话。旧浏览器数据不自动迁移、不删除。
+浏览器只保存 HttpOnly、SameSite=Strict 的不透明会话 Cookie，Path=/api，业务数据仅在页面内存缓存。登录页不自动选择测试账号、不自动提交登录；刷新后有效会话会继续登录。退出撤销服务端会话。旧浏览器数据不自动迁移、不删除。
 
 这是本地开发后端而非生产部署：仅监听 127.0.0.1:1332，前端同源代理端口 1331。上线必须配置 HTTPS + Secure Cookie、生产服务进程、登录限流、完整字段校验、数据备份及迁移机制；不要公开测试账号或开发服务。
 
@@ -45,7 +45,7 @@ workspace 数据名：tasks、candidates、availability、feedback。任务沿�
 | POST /api/planning/proposals | 空对象；服务端读取账号当前数据，调用 Harness，校验后持久化预览 |
 | POST /api/planning/apply | {requestId}；校验所属账号及任务版本，事务追加计划、标记 applied，返回 tasks value/version |
 
-工作区保存先写数据库再更新前端。应用计划在同一事务中完成，旧任务版本、重复应用均 409。v0.2 候选确认也在同一事务更新任务和候选状态；完全相同的确认重试返回 200，不重复新增，变更操作则 409。旧 workspace.candidates 不冒充 v0.2，只保留人工编辑入口，旧版编辑保存仍是两次写入；新流程不再生成该格式。
+工作区保存先写数据库再更新前端。应用计划在同一事务中完成，旧任务版本、重复应用均 409。v0.2 候选确认也在同一事务更新任务和候选状态；完全相同的确认重试返回 200，不重复新增，变更操作则 409。旧 workspace.candidates 不冒充 v0.2，仅保留数据库历史；新前端只处理 v0.2 批次及候选。
 
 ## 规划输入：服务端发送至 HARNESS_URL
 
@@ -344,7 +344,7 @@ action=create/update/postpone/cancel/ignore。
 
 ## v0.2 前端验收入口与剩余外部工作
 
-登录后打开“待确认” → “加载协议演示”：看到部分成功、输入缺失错误、明确 DDL、可保留无 DDL、证据引用和已处理状态。
+登录后打开“识别审核” → “加载人工协议演示”：看到部分成功、输入缺失错误、明确 DDL、可保留无 DDL、证据引用和已处理状态。
 “核对并确认新增/变更”展示独立审核表单；未核对、未匹配目标或未明确不确定通知操作时不可提交。
 输入原文 → “识别为候选”调用真实识别封装；没有 TEXT_HARNESS_URL 时明确失败，不用样例替代实际输入。
 
