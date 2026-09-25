@@ -84,6 +84,6 @@ python scripts/check_frontend_integration.py --frontend-dir .
 - [七牛模型广场](https://www.qiniu.com/ai/models)列出 DeepSeek V4.1 Flash；本次实际读取[公开模型目录](https://api.qnaigc.com/v1/market/models)，确认 ID 为 `deepseek/deepseek-v4.1-flash`，别名为 `deepseek-v4.1-flash`，并标记支持结构化输出。公开目录不证明课程 Key 的权限。
 - [Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)当前仅支持 Responses；[七牛配置工具](https://github.com/qiniu/coding-helper)的 Codex 配置维护 GPT 模型目录。因此按用户最新选择直接调用七牛，不引入协议转换层。
 
-本次检查结果：88 项单元/集成测试中 87 项通过、1 项可选 Codex 检查跳过；17 个契约样例及前端离线联调通过。本机配置检查确认七牛地址、模型和配置格式正确，密钥尚未填写。
+接入准备检查结果：88 项单元/集成测试中 87 项通过、1 项可选 Codex 检查跳过；17 个契约样例及前端离线联调通过。
 
-本次只完成离线和本机模拟验证，未使用课程密钥发起真实推理。2026-09-24 的 DeepSeek 直连测试属于旧供应商记录，不能当作七牛验收结果。密钥填写后需完成一次合成输入验证，再判断课程账户权限和延迟是否满足前端要求。
+2026-09-25 用户填写课程密钥后，七牛真实验证通过：单条明确日期通知耗时 4.59 秒；两条合成通知经前端业务后端约 11 秒生成三个候选，并通过日期类型、账户隔离和确认入库检查。见[验证记录](validation/qiniu-live-2026-09-25.md)。这是有限样例验证，不代表所有输入或高峰时段均能在 HTTP 的 20 秒预算内完成。
