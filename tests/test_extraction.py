@@ -94,11 +94,61 @@ class DateTests(unittest.TestCase):
         self.assertEqual(resolve_time("2028-02-29下午6点30分", message(), "deadline")["value"],
                          "2028-02-29T18:30:00+08:00")
 
-    def test_unknown_phrases_invalid_dates_and_missing_year(self):
-        for phrase in ["周五", "尽快", "月底", "9月30日", "明晚", "2026-02-30", "明天25点",
+    def test_unknown_phrases_and_invalid_dates(self):
+        for phrase in ["周五", "尽快", "月底", "明晚", "2026-02-30", "明天25点",
                        "明天18:99", "2026年9月30日至2026年10月1日", "明天中午1点"]:
             with self.subTest(phrase=phrase):
                 self.assertIsNone(resolve_time(phrase, message(), "deadline")["value"])
+
+    def test_missing_year_nearest_date_and_precision(self):
+        cases = [("2026-09-25", "9月30日18点", "2026-09-30T18:00:00+08:00"),
+                 ("2026-12-31", "1月5日", "2027-01-05"),
+                 ("2027-01-02", "12月30号", "2026-12-30"),
+                 ("2026-09-25", "9月20日", "2026-09-20"),
+                 ("2026-09-25", "9月20日截止", "2026-09-20"),
+                 ("2026-09-25", "截至9月30日18点", "2026-09-30T18:00:00+08:00"),
+                 ("2026-09-25", "9月30日18点前", "2026-09-30T18:00:00+08:00"),
+                 ("2027-12-31", "2月29日", "2028-02-29"),
+                 ("2026-09-25", "9/30", "2026-09-30"),
+                 ("2026-09-25", "9-30", "2026-09-30"),
+                 ("2026-09-25", "9.30", "2026-09-30")]
+        for published, phrase, expected in cases:
+            with self.subTest(phrase=phrase, published=published):
+                record = message(published_at={"value": published, "precision": "date", "basis": "source"})
+                result = resolve_time(phrase, record, "deadline")
+                self.assertEqual(result["value"], expected)
+                self.assertEqual(result["status"], "inferred")
+                self.assertEqual(result["raw"], phrase)
+                self.assertIn(published, result["basis"])
+
+    def test_missing_year_anchor_priority_and_fallback(self):
+        record = message(published_at={"value": "2020-09-25", "precision": "date", "basis": "source"},
+                         collected_at="2026-09-25T12:00:00+08:00")
+        self.assertEqual(resolve_time("9月30日", record, "deadline")["value"], "2020-09-30")
+        record["published_at"] = {"value": "2024-01-01", "precision": "date", "basis": "upstream_unverified"}
+        result = resolve_time("9月30日", record, "deadline")
+        self.assertEqual(result["value"], "2026-09-30")
+        self.assertIn("采集时间", result["basis"])
+        self.assertIsNone(resolve_time("明天", record, "deadline")["value"])
+        record["collected_at"] = None
+        self.assertIsNone(resolve_time("9月30日", record, "deadline")["value"])
+
+    def test_explicit_year_and_year_qualifiers_take_precedence(self):
+        for phrase, expected in [("2028年9月30日", "2028-09-30"), ("今年1月5日", "2026-01-05"),
+                                 ("明年9月30日", "2027-09-30"), ("去年9月30日", "2025-09-30")]:
+            with self.subTest(phrase=phrase):
+                result = resolve_time(phrase, message(), "deadline")
+                self.assertEqual(result["value"], expected)
+                self.assertEqual(result["status"], "explicit")
+        for phrase in ("2月30日", "2月29日", "13月1日", "9月30日25点"):
+            self.assertIsNone(resolve_time(phrase, message(), "deadline")["value"])
+
+    def test_missing_year_uses_local_day_and_preserves_reference(self):
+        record = message(published_at={"value": "2026-12-31T20:00:00Z", "precision": "datetime", "basis": "source"})
+        result = resolve_time("1月2日18点", record, "reference")
+        self.assertEqual(result["value"], "2027-01-02T18:00:00+08:00")
+        self.assertEqual((result["kind"], result["status"]), ("reference", "inferred"))
+        self.assertIn("2027-01-01", result["basis"])
 
     def test_collection_and_unverified_publication_cannot_anchor(self):
         for publication in [{"value": None, "precision": "unknown", "basis": "unknown"},
@@ -133,6 +183,18 @@ class DateTests(unittest.TestCase):
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_missing_year_context_uses_its_own_anchor_and_keeps_evidence(self):
+        old = message("请9月30日18点前交报告。", input_id="old",
+                      published_at={"value": "2024-09-25", "precision": "date", "basis": "source"})
+        record = message("报告按之前的时间提交。", context=[old])
+        task = compile_tasks(record, draft(record, notice_type="update", target=ref(old, "报告"),
+                             times=[ref(old, "9月30日18点", kind="deadline")]))[0]
+        self.assertEqual(task["deadline"]["value"], "2024-09-30T18:00:00+08:00")
+        self.assertEqual(task["deadline"]["status"], "inferred")
+        self.assertTrue(task["needs_review"])
+        self.assertEqual(task["deadline"]["raw"], "9月30日18点")
+        self.assertIn(task["deadline"]["basis"], task["review_reasons"])
+
     def test_unresolved_reference_and_no_date_keep_zone(self):
         record = message("月底开课，请提前加群。")
         task = compile_tasks(record, draft(record, times=[ref(record, "月底", kind="reference")]))[0]

@@ -132,7 +132,7 @@ python scripts/check_frontend_integration.py --frontend-dir . --live --output lo
 | `agent_unavailable` | 检查供应商、模型权限、额度和网络；错误正文已脱敏 |
 | `agent_timeout` | 先用短通知检查；HTTP 整批最多 20 秒，CLI 默认单条 120 秒；失败不是无任务，人工重试可能再次计费 |
 | `invalid_agent_output` | 模型返回格式或原文证据不符；保留错误记录，用获准的最小合成例定位 |
-| 日期为 unknown / conflict | 保留候选，让用户查看原通知并核实；不要在上游补造年份或默认时刻 |
+| 日期为 unknown / conflict | 保留候选，让用户查看原通知并核实；不要在上游补造原文或默认时刻。缺年份月日已支持最近年份推断，具体值和依据保存在 inferred 日期中 |
 | 网页未接入/端口占用 | 检查三个服务、`TEXT_HARNESS_URL` 与端口 1331/1332/1333；`/health` 仅验证识别服务存活 |
 
 问题复现时记录代码提交、规则摘要、模型 ID、合成输入、错误码和耗时。私人原文、Key、演示数据库和本机日志不提交仓库。新规则先跑离线和固定真实场景，再评审合并；遇到供应商波动不反复批量重试。
