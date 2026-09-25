@@ -1,74 +1,89 @@
-# 阶段 D：填写密钥并验证 API
+# 文本识别 API 配置与测试
 
-当前已实现 DeepSeek → Codex CLI → 草稿编译/校验 → 文本或 JSON 输出。2026-09-24 已调用 DeepSeek 公共服务，修复后十条合成场景通过，完整记录见[阶段 D 复核](text-stage-d-review.md)。换环境或密钥后仍需重新确认账号权限。
+当前推荐使用课程提供的七牛 MaaS API，直接调用 DeepSeek V4.1 Flash，无需安装 Codex 或额外 Python SDK。程序继续加载同一份识别 skill，校验原文证据和日期，并输出原来的 v0.1 / v0.2 JSON。
 
-## 你现在需要做什么
+## 现在只需要填密钥
 
-仓库根目录的 `.env` 已为本机准备好（若原来已有则不覆盖）。打开该文件，只填写：
+本机仓库根目录 `.env` 的非敏感配置已准备好，只需填写 `QINIU_API_KEY`。换电脑时复制 `.env.example` 为 `.env`：
 
 ```dotenv
-DEEPSEEK_API_KEY=你的密钥
+DDL_PROVIDER=qiniu
+QINIU_API_KEY=在这里填写课程提供的完整密钥
+DDL_MODEL=deepseek/deepseek-v4.1-flash
+DDL_ENDPOINT=https://api.qnaigc.com/v1
 ```
 
-其他默认配置是 `DDL_MODEL=deepseek-flash`、`DDL_ENDPOINT=https://api.deepseek.com`。`DDL_CODEX_BIN` 可以填写本机 Codex 可执行文件的绝对路径；为空时从 PATH 查找。Windows 需要 `codex.exe`，不能填 `.cmd` 包装文件。换电脑时复制 `.env.example` 为 `.env` 并补齐密钥和必要路径。
+旧 `DEEPSEEK_API_KEY` 可以保留，七牛模式不会读取它，也不会因七牛密钥为空而退回旧密钥。密钥不要填入前端或任何 `VITE_*` 配置。`.env` 已被 Git 忽略。
 
-在仓库目录运行以下命令进行本地检查，**不调用模型、不计费**：
+先在仓库目录检查配置，**不联网、不计费**：
 
 ```text
 python -m ddl_text --check-connection
 ```
 
-出现“Codex CLI：可用；配置格式：通过；密钥：已配置”只表示本地准备通过，不证明密钥有效。缺密钥时返回退出码 1；配置或 CLI 无法读取时为 2。检查不会显示密钥。
+显示“七牛 API 直连；配置格式：通过；密钥：已配置”只表示配置齐全，不证明密钥有效、具有模型权限或有额度。缺密钥退出码为 1，配置错误为 2。
 
-然后用仓库中的合成通知做第一次真实调用（此步骤会请求 API，可能计费）：
+填写后，可用以下合成输入验证真实调用（会访问七牛 API，可能计费）：
 
 ```text
-python -m ddl_text --mode real --input docs/examples/text-stage-c-request.json
+python -m ddl_text --mode real --input docs/examples/text-frontend-v02-request.json
 ```
 
-CLI 默认输出 JSON，需要人工阅读时增加 `--format text`。该 v0.1 例预期包含“加入对应小班群”和“提交学习计划”；前者参考时间为 2026-09-16 18:40，后者日期未知。前端现使用 v0.2 与 HTTP 接口，完整启动方式见[前端对接说明](text-frontend-integration.md)。真实模型的文字表达可以不同，需要检查是否漏任务或把参考时间误标为明确截止。
+样例包含加群、提交学习计划和实验报告三个候选。加群时间应为参考时间，学习计划没有明确日期，实验报告有明确截止时间；模型文字表达可能不同。CLI 默认输出 JSON，添加 `--format text` 可查看文字版。没有有效模型结果时会明确失败，不回放预置答案。
 
-不要加 `--drafts`、`--replay` 或 `--demo`，这些是离线入口。初次只运行合成样例；私人通知仍按团队的数据权限约束处理。密钥留在本地，不发到聊天或 GitHub。
+前端服务启动方式仍是 `python -m ddl_text.http_server --real`，详见[前端对接说明](text-frontend-integration.md)。**更改 `.env` 后要重新启动识别服务**；已运行的进程不会自动刷新密钥或供应商。CLI 每次启动重新读取配置。
 
-## 配置和运行方式
+## 两种接入方式
 
-- `.env` 仅允许模板中的四个键，按字面读取，不执行命令、不展开变量。支持整行注释、可选引号，不支持行尾注释或多行值。
-- 同名环境变量优先于 `.env`；JSON `--config` 中的模型、地址和超时优先于默认配置。真实模式默认单条超时 120 秒、重试 0 次；可按原 Settings 约定调整，最多重试 2 次。服务端内部仍可能消耗已发出的请求，超时不等于免计费。
-- 地址必须是 HTTPS 且不能夹带凭据、查询参数或片段；本机模拟测试使用内部客户端，不开放 HTTP 给正式 CLI。
-- 每次请求创建临时 Codex home 和空工作目录。共享 skill 内容通过 `model_instructions_file` 传入，正文走标准输入，密钥只进入子进程环境。不会切换你日常 Codex 的模型或修改个人配置。
-- 禁用命令、文件修改、搜索、插件、子代理及交互提问等工具。当前版本的本机模拟测试已检查实际发出的 `tools=[]`、规则与正文分离。Codex 升级后应重跑此检查。
-- 无历史会话复用；禁用历史保存、反馈和分析。退出时清理临时目录和返回文件，错误只显示固定分类，不输出底层含敏感信息的日志。操作系统强制终止 Python 时仍可能留下临时文件，需要本机管理；这不是防取证存储。
-- `--output-schema` 约束任务草稿结构，上游已提供课程时禁止模型重编课程字段；仍由程序核对原文证据。没有有效输出、格式错误、日期/证据不合法均按失败处理，不自动回放样例。未知课程、日期或归属按既有规则标待核实。
+| 配置 | 七牛直连（推荐） | 原 DeepSeek + Codex |
+| --- | --- | --- |
+| `DDL_PROVIDER` | `qiniu` | `deepseek` |
+| 密钥变量 | `QINIU_API_KEY` | `DEEPSEEK_API_KEY` |
+| `DDL_MODEL` | `deepseek/deepseek-v4.1-flash` | `deepseek-flash` |
+| `DDL_ENDPOINT` | `https://api.qnaigc.com/v1` | `https://api.deepseek.com` |
+| 协议 | Chat Completions | Responses，经 Codex CLI |
+| Codex 安装 | 不需要 | 需要；`DDL_CODEX_BIN` 可指定路径，否则从 PATH 查找 |
 
-## 常见结果
+旧 `.env` 未配置 `DDL_PROVIDER` 时继续使用 DeepSeek，以保持兼容。切换供应商时同时切换模型和地址；程序会拒绝明显混用的官方域名。JSON `--config` 覆盖地址时也检查这一点。七牛地址应止于 `/v1`，不要再填写 `/chat/completions`。
 
-| 现象 | 检查项 |
+`.env` 按字面读取，支持整行注释和引号，不执行命令、展开变量或接受行尾注释；只接受模板中的已知字段。同名系统环境变量优先于 `.env`。前端后端的 `HARNESS_*`、`TEXT_HARNESS_*` 和 `NIUMA_DB` 字段可共存，识别模块忽略它们；前端后端仍须自行导出环境变量。
+
+## 运行边界
+
+- 七牛模式：规则放在 system 消息，单条通知及其上下文放在 user 消息；请求 JSON Output，并附带草稿 schema。程序随后严格校验草稿和来源证据。JSON Output 本身不保证语义正确。
+- 不开放工具调用、自动网页访问或历史会话。单次输出上限为 8192 tokens；截断、工具调用和空回复均按失败处理。
+- 密钥仅用于服务端请求头。错误显示固定分类，不记录正文、密钥或供应商错误正文；拒绝 HTTP 重定向，避免携带凭据转发。
+- CLI 默认单条 120 秒、0 次重试；`--config` 可调整，最多 300 秒和 2 次重试。调用由独立工作进程执行，超时后回收进程及连接。401 等认证错误不重试；429 / 5xx 可按配置重试。
+- HTTP 批量仍共用 20 秒预算，账户后端等待 25 秒、网页等待 30 秒。更换七牛是否改善延迟尚待真实测试。超时不意味着供应商不计费。
+- DeepSeek + Codex 模式仍使用临时独立配置、空工作目录和禁用工具的执行方式，不修改个人 Codex 设置。
+
+## 文件与检查
+
+| 文件 | 用途 |
 | --- | --- |
-| 无法读取或解析配置 | `.env` 键名/引号、Codex 路径、JSON 格式、CLI 版本 |
-| 密钥未填写 | `.env` 的值是否为空；是否被空环境变量覆盖 |
-| Agent 不可用 | 密钥权限、余额、网络、地址或 Codex 启动；为避免泄露正文，不直接展示底层原始错误 |
-| Agent 调用超时 | 默认 120 秒；先减小输入，再检查服务响应；不会把部分草稿当成功 |
-| Agent 结果未通过校验 | 模型没有返回协议 JSON，或证据/前置步骤等不符合原文；进入后续提示词和真实质量评测 |
+| `ddl_text/chat_client.py` | 七牛兼容的直接 API 调用、JSON 请求和错误处理 |
+| `ddl_text/provider.py` | 按供应商选择客户端 |
+| `ddl_text/codex_client.py` | 共用 `.env` 读取、供应商配置，以及原 Codex 客户端 |
+| `ddl_text/extraction.py` | 加载 skill、校验证据与草稿、生成任务 |
+| `ddl_text/runner.py` | 工作进程、超时和重试边界 |
+| `tests/test_chat_client.py` | 模拟 HTTP、密钥隔离、失败和 v0.2 输出测试 |
 
-## 文件和测试
-
-`ddl_text/codex_client.py` 实现密钥读取、配置检查、独立 Codex 调用及清理。`__main__.py` 选择真实入口；`runner.py` 让此适配器自行管理 Codex 生命周期，避免外层进程被杀后留下计费中的子进程。`.env.example` 可提交，`.env` 已被 Git 忽略。
-
-普通离线回归：
+离线检查，不会调用付费模型：
 
 ```text
 python -m unittest discover -s tests -q
 python scripts/check_text_contract_examples.py
+python scripts/check_frontend_integration.py --frontend-dir .
 ```
 
-开发者可以额外运行真实 CLI + 本机模拟服务检查，不使用密钥、没有公网模型请求（PowerShell）：
+测试强制清空两种供应商的真实模式密钥。可选 Codex 本机检查仍通过 `DDL_TEST_CODEX` 开启，仅请求本机模拟接口。合成真实测试脚本 `scripts/run_text_live_smoke.py` 和前端联调脚本的 `--live` 均支持当前供应商；七牛结果报告不包含 Codex 版本或模型中间草稿。
 
-```powershell
-$env:DDL_TEST_CODEX = (Get-Command codex).Source
-python -m unittest tests.test_codex_client -v
-Remove-Item Env:DDL_TEST_CODEX
-```
+## 文档依据与验证状态（2026-09-25）
 
-当前验证环境：Windows、Python 3.9.12、Codex CLI 0.155.0-alpha.16.3。开启本机联调检查后共 67 项测试、17 个契约样例通过；未开启时一项本机联调测试跳过。回归测试强制清空真实 CLI 路径上的密钥，不会因开发者填写 `.env` 而触发付费调用。本机模拟返回人工草稿，不是模型识别效果。规则内容已实际送入 Codex 的模型请求，但没有验证 Codex 自动发现/触发 skill；此项目采用程序显式加载同一份 skill 内容。
+- [七牛 API 接入说明](https://developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api)提供 `https://api.qnaigc.com/v1` 和 Chat Completions 调用方式。
+- [七牛模型广场](https://www.qiniu.com/ai/models)列出 DeepSeek V4.1 Flash；本次实际读取[公开模型目录](https://api.qnaigc.com/v1/market/models)，确认 ID 为 `deepseek/deepseek-v4.1-flash`，别名为 `deepseek-v4.1-flash`，并标记支持结构化输出。公开目录不证明课程 Key 的权限。
+- [Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)当前仅支持 Responses；[七牛配置工具](https://github.com/qiniu/coding-helper)的 Codex 配置维护 GPT 模型目录。因此按用户最新选择直接调用七牛，不引入协议转换层。
 
-配置依据：[Codex 官方配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[DeepSeek Responses 指南](https://api-docs.deepseek.com/guides/responses_api/)。当前已记录公共服务合成测试耗时，尚未采集账单/token usage；独立真实质量评测仍属于阶段 E。
+接入准备检查结果：88 项单元/集成测试中 87 项通过、1 项可选 Codex 检查跳过；17 个契约样例及前端离线联调通过。
+
+2026-09-25 用户填写课程密钥后，七牛真实验证通过：单条明确日期通知耗时 4.59 秒；两条合成通知经前端业务后端约 11 秒生成三个候选，并通过日期类型、账户隔离和确认入库检查。见[验证记录](validation/qiniu-live-2026-09-25.md)。这是有限样例验证，不代表所有输入或高峰时段均能在 HTTP 的 20 秒预算内完成。

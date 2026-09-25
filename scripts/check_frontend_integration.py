@@ -21,7 +21,8 @@ import hashlib
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from ddl_text.codex_client import CodexClient, live_options, preflight
+from ddl_text.codex_client import live_options
+from ddl_text.provider import make_client
 from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter, OfflineDraftClient
 from ddl_text.http_server import RecognitionServer
@@ -50,7 +51,7 @@ def main():
         options = live_options(ROOT / ".env")
         if not options["key"].strip():
             parser.error("Missing provider credential")
-        adapter = ExtractionAdapter(CodexClient(preflight(options), options["key"]))
+        adapter = ExtractionAdapter(make_client(options))
         settings = Settings(mode="real", model=options["model"], endpoint=options["endpoint"], timeout_seconds=20)
     else:
         adapter, settings = ExtractionAdapter(OfflineDraftClient(entries)), Settings()

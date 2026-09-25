@@ -6,7 +6,7 @@
 
 ## 数据如何流动
 
-前端“待确认”页提交原文 → 账户后端 `/api/recognition/batches` → `TEXT_HARNESS_URL` → DeepSeek 经 Codex 识别 → 裸 v0.2 JSON → 前端显示候选 → 用户确认 → 账户后端保存任务。
+前端“待确认”页提交原文 → 账户后端 `/api/recognition/batches` → `TEXT_HARNESS_URL` → 已配置的模型识别 → 裸 v0.2 JSON → 前端显示候选 → 用户确认 → 账户后端保存任务。当前可使用七牛 API 直连，或原 DeepSeek + Codex 方式；见 [API 配置说明](text-api-setup.md)。更换供应商不改变前端 JSON 契约。
 
 识别服务不管理账号、数据库或最终任务。账户、候选持久化、重复确认和取消操作由前端 PR 自带的后端负责。
 
@@ -14,7 +14,7 @@
 
 Python 3.9+；Windows 需要可用的 IANA 时区数据库，若 `python -c "from zoneinfo import ZoneInfo; print(ZoneInfo('Asia/Shanghai'))"` 报错，运行 `python -m pip install tzdata`。
 
-1. 保留之前已配置的 `.env` 密钥。在项目根目录启动识别服务：
+1. 按 API 配置说明填写 `.env` 对应供应商的密钥。在项目根目录启动识别服务；修改 `.env` 后需停止旧识别进程再重新启动：
 
    ```powershell
    python -m ddl_text.http_server --real

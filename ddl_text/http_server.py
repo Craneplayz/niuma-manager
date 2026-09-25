@@ -8,7 +8,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .codex_client import ROOT, CodexClient, live_options, preflight
+from .codex_client import ROOT, live_options
+from .provider import make_client
 from .config import Settings
 from .extraction import ExtractionAdapter, OfflineDraftClient
 from .pipeline import process_request
@@ -122,7 +123,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=1333)
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--real", action="store_true", help="Use configured DeepSeek API via Codex")
+    source.add_argument("--real", action="store_true", help="Use configured Qiniu API or DeepSeek via Codex")
     source.add_argument("--drafts", help="Synthetic exact-input drafts for offline integration")
     parser.add_argument("--env-file", default=str(ROOT / ".env"))
     args = parser.parse_args(argv)
@@ -131,7 +132,7 @@ def main(argv=None):
             options = live_options(Path(args.env_file))
             if not options["key"].strip():
                 raise ValueError("missing credential")
-            adapter = ExtractionAdapter(CodexClient(preflight(options), options["key"]))
+            adapter = ExtractionAdapter(make_client(options))
             settings = Settings(mode="real", model=options["model"], endpoint=options["endpoint"],
                                 timeout_seconds=20, max_retries=0)
         else:
