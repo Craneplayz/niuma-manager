@@ -1,77 +1,52 @@
-# Niuma Manager crawler
+# 牛马管理器
 
-Deterministic public-event crawling for three PKU sources: the School of Computer Science, the School of Life Sciences, and the Graduate School of Education. This repository contains the first implementation phase only; there is no Electron application, LLM extraction, or calendar synchronization. A separate read-only Playwright command checks authenticated PKU course homework deadlines.
+“牛马管理器”是 DDL压鼠人小组开发的、面向学生的 AI 任务管理与学习规划助手。项目希望从课程通知、邮件或聊天文本中识别任务和截止时间（DDL），经用户确认后生成任务，并逐步提供排程、提醒和进度管理能力。
 
-## Quick start
+> 当前阶段：文本识别已完成固定回归、七牛真实接入及网页审核入库验证；阶段 E 收尾材料待团队评审合并。
 
-Requires Node.js 20 or newer and pnpm.
+## 项目文档
 
-```bash
-pnpm install
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm crawler crawl all
-pnpm crawler crawl all --as-of=2026-09-22T12:00:00+08:00
-pnpm crawler crawl cs
-pnpm crawler crawl bio
-pnpm crawler crawl gse
-pnpm crawler reprocess <run-id>
-pnpm crawler review <run-id>
-pnpm pku:homework
-```
+- [产品定义与需求说明](docs/product-requirements.md)：项目背景、目标用户、产品边界和全局质量要求。
+- [Product Backlog](docs/product-backlog.md)：高层级功能需求及其当前状态。
+- [项目协作规范](docs/scrum-workflow.md)：Scrum 角色、工件、活动、任务状态和完成条件。
+- [参与开发](CONTRIBUTING.md)：领取 Issue、创建分支、提交 Commit、发起 PR 和完成 Review 的操作步骤。
 
-`crawl` writes a run directory under `data/raw/<source>/<run-id>/`, candidate JSONL to `data/extracted/<run-id>.jsonl`, normalized JSONL to `data/normalized/<run-id>.jsonl`, and structured logs under `logs/<run-id>.jsonl`. These generated artifacts are intentionally ignored by Git.
+## 当前工作方式
 
-The public-event crawler applies the same global future-only filter to every registered PKU adapter. Normalized output contains only events whose start time is strictly later than the filter instant; past events and events without a resolvable start time are counted in the crawl summary and excluded from normalized output. Raw snapshots and extracted candidates remain unfiltered for auditability. The default filter instant is the current time in `Asia/Shanghai`; pass `--as-of=<ISO timestamp>` to make a run reproducible.
+小组使用 GitHub Issues 记录细化后的需求和任务，使用 GitHub Project 跟踪 Sprint、状态、负责人和工作量，使用 Pull Request 审查代码与文档变更。
 
-## Read-only PKU homework check
+产品范围和待实现功能分别以产品定义与需求说明、Product Backlog 为准；团队管理规则和开发操作分别以项目协作规范、参与开发文档为准。
 
-The authenticated course check is separate from the public-event pipeline. It uses a one-off headless Playwright browser, reads the first two lines of a local `secret` file as the campus-card username and password, and does not save cookies, storage state, credentials, or page snapshots. It only performs GET navigation and never submits coursework.
+## 文本任务识别模块
 
-```bash
-pnpm pku:homework
-pnpm pku:homework -- --term=26-27学年第1学期
-pnpm pku:homework -- --all-terms
-```
+接手与演示先看 [文本模块交付使用说明](docs/text-handoff.md)；本轮完成范围、测试证据和剩余限制见 [阶段 E 验收记录](docs/text-stage-e-review.md)。
 
-The command reports only records whose explicitly parsed deadline is strictly later than the run time in `Asia/Shanghai`. Date-only deadlines are treated as 23:59:59 on that date; `24:00` is treated as the following day's 00:00. Records without an explicit deadline are counted as `undated_records` and are not included in `upcoming`. The default term is derived from the run date.
+阶段 A 提供约定与合成样例，阶段 B 提供可运行的离线处理骨架。离线回放不代表识别效果。
 
-`review` reads a normalized JSONL file and creates a standalone inspection page at `data/review/<run-id>.html`. Open that file directly in a browser to check titles, times, locations, provenance, warnings, and raw fields. It is intentionally separate from the application frontend and is also ignored by Git.
+阶段 C 增加共享识别 skill，以及 Agent 草稿的日期换算、来源证据核对和候选生成。阶段 D 的真实 API 和 v0.2 HTTP 接口已随 PR #14 合并；独立召回率统计暂缓。课程七牛 API 支持直接调用 DeepSeek V4.1 Flash，无需 Codex；2026-09-25 已通过真实合成样例和前端后端联调。填写密钥和验证方式见 [API 配置说明](docs/text-api-setup.md)。
 
-## Architecture
+- [需求基线与职责边界](docs/text-extraction-requirements.md)
+- [第一轮冲刺任务与验收标准](docs/sprint-1-text-processing.md)
+- [分阶段开发、检查与提交计划](docs/text-development-plan.md)
+- [输入输出约定 v0.1](docs/text-contract-v0.1.md)
+- [上游样例观察与映射](docs/text-source-mapping.md)
+- [人工标注与阶段 A 验收](docs/text-annotation-guide.md)
+- [合成契约样例](docs/examples/text-contract-v0.1.json)
+- [阶段 A 交付与复核记录](docs/text-stage-a-review.md)
+- [阶段 B 运行、配置与检查](docs/text-stage-b-runner.md)
+- [阶段 C 文件说明、演示与测试](docs/text-stage-c-extraction.md)
 
-The pipeline is deliberately composed of small interfaces:
+## 前端与本地联调
 
-```text
-Fetcher -> RawDocument -> SourceAdapter discovery/parser -> EventCandidate
-                                                    -> deterministic normalizer
-                                                    -> NormalizedEvent -> JSONL
-```
+- [前端说明与启动指南](frontend/README.md)：页面功能、开发环境、测试账号和验证命令。
+- [前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md)：文本识别 v0.2、用户确认接口与规划流程。
 
-`Fetcher` has no source-specific knowledge. The current `PublicHttpFetcher` performs ordinary HTTP requests with timeouts, limited retries, per-origin spacing, a descriptive user agent, and cached robots.txt checks. A future local authenticated fetcher can implement the same interface and pass its documents to the same adapters.
+前端代码、Node 依赖配置和前端测试集中在 `frontend/`；`server/` 是配套本地开发 API，`docs/` 保留跨团队共享文档。前端 npm 命令请在 `frontend/` 目录执行。
 
-`RawSnapshotStore` persists the response body and provenance metadata separately from application logs. `StoragePolicy` is a boundary for the future privacy rule where authenticated/private response bodies may remain local or not be persisted.
+## 本地文本识别集成
 
-Adapters explicitly own their seeds, allowed origins, detail URL rules, and pagination discovery. They use Cheerio for deterministic HTML parsing and never call an LLM. A page-level failure is recorded and does not stop other pages or sources.
+团队主线已合并文本 API（PR #14）、前端和七牛接入（PR #17）。启动识别服务、配置前端后端和 JSON 样例见 [前端对接说明](docs/text-frontend-integration.md)。前端 npm 命令在 `frontend/` 中运行。
 
-## Data model
+## 爬虫模块
 
-`EventCandidate` preserves source strings (`title_raw`, `time_raw`, `location_raw`, `organizer_raw`, `speaker_raw`, publication time, and source URL). `NormalizedEvent` is Zod-validated and contains a stable source-derived `id`, title/description, Asia/Shanghai timestamps when deterministically resolvable, optional location/organizers/speakers, event type, provenance, raw values, parse status, warnings, and `time_resolution` (`exact`, `context_inferred`, or `unresolved`). Unresolved times remain null; the raw string and warning are retained.
-
-Cleaning is conservative: Unicode/HTML decoding, whitespace and label cleanup, URL canonicalization, explicit event-type mapping, and deterministic date rules only. Exact source identities are deduplicated first; a stronger duplicate key (`source + title + start time + location`) is applied only within one source. Cross-source fuzzy matching is intentionally not implemented.
-
-## Adding a source
-
-1. Add source metadata and a `SourceAdapter` in `src/adapters/`.
-2. Keep `seedUrls`, `allowedOrigins`, `isAllowedUrl`, discovery, and parsing together in that adapter.
-3. Register the adapter in `src/adapters/index.ts` and add its CLI alias.
-4. Add stable sanitized HTML under `tests/fixtures/<source>/` and parser tests under `tests/`.
-
-An adapter should return candidates with raw source strings and a stable `source_item_id` when the site exposes one. It should not normalize times or write files.
-
-## Privacy boundary and limitations
-
-Public server fetching and public raw HTML persistence are implemented now. The PKU homework command is a separate local authenticated flow: credentials are read from `secret`, used only for the PKU login form, and never persisted. It does not bypass CAPTCHA, submit coursework, save browser state, or persist private page snapshots. No database, scheduler, or encryption is included.
-
-The target sites are traditional CMS sites and change their markup periodically. The adapters intentionally use multiple semantic fallbacks, but a changed detail template may require a fixture update. The Life Sciences site currently exposes lecture summaries prominently on its list page; detail pages are followed only when they match the adapter's same-origin lecture URL rules. The optional aggregate platform is not enabled by default because it is a separate legacy application with different query/rendering behavior.
+独立采集学院讲座与课程作业，启动、依赖版本和验证方法见 [爬虫说明](docs/crawler.md)。爬虫命令在仓库根目录使用 pnpm；前端命令仍在 `frontend/` 使用 npm。爬虫输出转 v0.2 识别请求及调用链路另列后续 Issue，本次未接入。

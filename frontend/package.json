@@ -1,0 +1,20 @@
+{
+  "name": "niuma-manager",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "node ../scripts/run-python.mjs ../server/app.py",
+    "db:seed": "node ../scripts/run-python.mjs ../server/app.py --seed",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js && node ../scripts/run-python.mjs -m unittest discover -s ../server -p test_*.py"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

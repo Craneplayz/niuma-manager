@@ -1,0 +1,84 @@
+{
+  "started_at": "2026-09-25T02:46:46.113105+00:00",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "provider": "qiniu",
+  "codex_version": null,
+  "python_version": "3.9.12",
+  "instructions_sha256": "0ee32ea0cf843409857c3e33d0e67cdbb8a27423e9db2184f770f90dabe83168",
+  "timeout_seconds": 120,
+  "max_retries": 0,
+  "synthetic_only": true,
+  "usage_and_cost": "not collected",
+  "cases": [
+    {
+      "case_id": "absolute",
+      "elapsed_seconds": 4.59,
+      "passed": true,
+      "mismatches": [],
+      "result": {
+        "contract_version": "0.1",
+        "request_id": "request-absolute",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "absolute",
+            "status": "success",
+            "task_ids": [
+              "absolute:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "absolute:candidate:1",
+            "input_id": "absolute",
+            "title": "提交实验报告",
+            "description": "请于2026年10月15日18:00前提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "示例课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-15T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月15日18:00",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "absolute",
+                "platform": "teaching_web",
+                "url": "https://example.invalid/notices/absolute",
+                "label": "合成课程通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "absolute",
+                "field": "text",
+                "quote": "请于2026年10月15日18:00前提交实验报告。"
+              },
+              {
+                "input_id": "absolute",
+                "field": "text",
+                "quote": "2026年10月15日18:00"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "rendered_text": "运行模式：真实 Agent（DeepSeek 经 Codex）\n请求标识：request-absolute\n处理状态：成功\n失败输入：0 条\n\n任务 1：提交实验报告\n候选标识：absolute:candidate:1\n课程/项目：示例课程\n通知性质：任务要求\n截止日期：2026-10-15T18:00:00+08:00（明确）\n具体要求：请于2026年10月15日18:00前提交实验报告。\n时间原文：2026年10月15日18:00\n来源：合成课程通知；https://example.invalid/notices/absolute",
+      "synthetic_drafts": []
+    }
+  ]
+}

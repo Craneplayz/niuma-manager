@@ -1,0 +1,177 @@
+{
+  "contract_version": "0.2",
+  "request_id": "synthetic:frontend-v02",
+  "status": "success",
+  "record_results": [
+    {
+      "input_id": "synthetic:group",
+      "status": "success",
+      "task_ids": [
+        "synthetic:group:candidate:1",
+        "synthetic:group:candidate:2"
+      ],
+      "warnings": []
+    },
+    {
+      "input_id": "synthetic:report",
+      "status": "success",
+      "task_ids": [
+        "synthetic:report:candidate:1"
+      ],
+      "warnings": []
+    }
+  ],
+  "tasks": [
+    {
+      "candidate_id": "synthetic:group:candidate:1",
+      "input_id": "synthetic:group",
+      "title": "加入对应小班群",
+      "description": "小班课开始前加入对应小班群。",
+      "prerequisites": [
+        "查邮箱获取班号"
+      ],
+      "course_or_project": "示例课程",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2026-09-16T18:40:00+08:00",
+        "precision": "datetime",
+        "timezone": "Asia/Shanghai",
+        "kind": "reference",
+        "status": "inferred",
+        "raw": "明晚6:40",
+        "basis": "引用活动时间作为参考完成时间，需核实。",
+        "alternatives": []
+      },
+      "needs_review": true,
+      "review_reasons": [
+        "引用活动时间作为参考完成时间，需核实。"
+      ],
+      "sources": [
+        {
+          "input_id": "synthetic:group",
+          "platform": "teaching_web",
+          "url": null,
+          "label": "合成小班通知",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:group",
+          "field": "text",
+          "quote": "明晚6:40开小班课，请查邮箱获取班号，提前加入对应小班群。",
+          "supports": [
+            "title",
+            "description",
+            "prerequisites"
+          ]
+        },
+        {
+          "input_id": "synthetic:group",
+          "field": "text",
+          "quote": "明晚6:40",
+          "supports": [
+            "deadline"
+          ]
+        }
+      ]
+    },
+    {
+      "candidate_id": "synthetic:group:candidate:2",
+      "input_id": "synthetic:group",
+      "title": "提交学习计划",
+      "description": "提交学习计划。",
+      "prerequisites": [],
+      "course_or_project": "示例课程",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": null,
+        "precision": "unknown",
+        "timezone": "Asia/Shanghai",
+        "kind": "unknown",
+        "status": "not_provided",
+        "raw": null,
+        "basis": "完整正文未提供该行动的时间要求。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "synthetic:group",
+          "platform": "teaching_web",
+          "url": null,
+          "label": "合成小班通知",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:group",
+          "field": "text",
+          "quote": "另请提交学习计划。",
+          "supports": [
+            "title",
+            "description"
+          ]
+        }
+      ]
+    },
+    {
+      "candidate_id": "synthetic:report:candidate:1",
+      "input_id": "synthetic:report",
+      "title": "提交实验报告",
+      "description": "提交实验报告。",
+      "prerequisites": [],
+      "course_or_project": null,
+      "course_basis": "unknown",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2026-09-30T18:00:00+08:00",
+        "precision": "datetime",
+        "timezone": "Asia/Shanghai",
+        "kind": "deadline",
+        "status": "explicit",
+        "raw": "2026年9月30日18点",
+        "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "synthetic:report",
+          "platform": "email",
+          "url": null,
+          "label": "合成报告通知",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:report",
+          "field": "text",
+          "quote": "请在2026年9月30日18点前提交实验报告。",
+          "supports": [
+            "title",
+            "description"
+          ]
+        },
+        {
+          "input_id": "synthetic:report",
+          "field": "text",
+          "quote": "2026年9月30日18点",
+          "supports": [
+            "deadline"
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": []
+}

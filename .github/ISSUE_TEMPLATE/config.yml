@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Product Backlog
+    url: https://github.com/Craneplayz/niuma-manager/blob/master/docs/product-backlog.md
+    about: 创建 Issue 前先查看已有需求和优先级

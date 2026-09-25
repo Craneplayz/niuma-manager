@@ -1,0 +1,46 @@
+{
+  "contract_version": "0.2",
+  "request_id": "synthetic:frontend-v02",
+  "records": [
+    {
+      "text_quality": "complete",
+      "platform": "teaching_web",
+      "published_at": {
+        "value": "2026-09-15T18:33:49+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "collected_at": null,
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_url": null,
+      "source_label": "合成小班通知",
+      "source_item_id": null,
+      "course_or_project": "示例课程",
+      "context": [],
+      "upstream_hints": null,
+      "input_id": "synthetic:group",
+      "text": "明晚6:40开小班课，请查邮箱获取班号，提前加入对应小班群。另请提交学习计划。"
+    },
+    {
+      "text_quality": "complete",
+      "platform": "email",
+      "published_at": {
+        "value": null,
+        "precision": "unknown",
+        "basis": "unknown"
+      },
+      "collected_at": null,
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "caller_default",
+      "source_url": null,
+      "source_label": "合成报告通知",
+      "source_item_id": null,
+      "course_or_project": null,
+      "context": [],
+      "upstream_hints": null,
+      "input_id": "synthetic:report",
+      "text": "请在2026年9月30日18点前提交实验报告。"
+    }
+  ]
+}
