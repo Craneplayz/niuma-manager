@@ -6,12 +6,12 @@
 
 | 入口 | 内容 |
 | --- | --- |
-| [协作协议](backend-harness-alignment.md) | 前端使用的 v0.2 输入、输出和确认流程；当前接口基线 |
-| [输入 JSON](examples/text-frontend-v02-request.json) | 教学网与邮箱合成通知；原文、发布时间、平台、来源及上下文字段 |
-| [离线输出 JSON](examples/text-frontend-v02-output.json) | 三个候选，分别展示参考时间、无日期和明确截止 |
-| [七牛真实输出 JSON](validation/qiniu-frontend-live-2026-09-25.json) | `result` 为识别返回对象，另含合成输入和验证信息 |
-| [API 配置](text-api-setup.md) | 密钥、供应商切换、失败排查 |
-| [阶段 E 验收](text-stage-e-review.md) | 回归结果、网页检查和剩余边界 |
+| [协作协议](../../../docs/backend-harness-alignment.md) | 前端使用的 v0.2 输入、输出和确认流程；当前接口基线 |
+| [输入 JSON](../../../docs/examples/text-frontend-v02-request.json) | 教学网与邮箱合成通知；原文、发布时间、平台、来源及上下文字段 |
+| [离线输出 JSON](../../../docs/examples/text-frontend-v02-output.json) | 三个候选，分别展示参考时间、无日期和明确截止 |
+| [七牛真实输出 JSON](qiniu-frontend-live-2026-09-25.json) | `result` 为识别返回对象，另含合成输入和验证信息 |
+| [API 配置](2026-09-26-text-api-setup.md) | 密钥、供应商切换、失败排查 |
+| [阶段 E 验收](2026-09-26-text-stage-e-review.md) | 回归结果、网页检查和剩余边界 |
 
 v0.1 文档和样例继续兼容旧 CLI；HTTP 与前端统一使用 v0.2。CLI 默认 JSON，`--format text` 可查看文字版。
 
@@ -27,7 +27,7 @@ v0.1 文档和样例继续兼容旧 CLI；HTTP 与前端统一使用 v0.2。CLI 
 | `ddl_text/extraction.py`、`draft_schema.py` | 加载共享规则、草稿格式及来源证据核对 |
 | `ddl_text/dates.py` | 相对日期、精度、冲突与不确定性处理 |
 | `ddl_text/http_server.py` | 本机 `/recognize` 和 `/health` 接口 |
-| `skills/text-task-extraction/` | 识别规则与正反例；程序显式加载，不要求安装到个人 Codex |
+| `ddl_text/skills/text-task-extraction/` | 识别规则与正反例；程序显式加载，不要求安装到个人 Codex |
 | `tests/` | 文本模块离线及本机模拟测试 |
 | `scripts/check_text_contract_examples.py` | 检查 17 个合成契约样例的一致性 |
 | `scripts/run_text_live_smoke.py` | 明确传入 `--live` 后运行固定真实模型场景，可能计费 |
@@ -40,7 +40,7 @@ v0.1 文档和样例继续兼容旧 CLI；HTTP 与前端统一使用 v0.2。CLI 
 
 ```powershell
 python -m ddl_text --input docs/examples/text-frontend-v02-request.json --drafts docs/examples/text-frontend-v02-drafts.json
-python -m unittest discover -s tests -q
+python -m unittest discover -s ddl_text/tests -t . -q
 python scripts/check_text_contract_examples.py
 ```
 
@@ -107,7 +107,7 @@ npm run dev -- --host 127.0.0.1
 普通回归不调用付费 API：
 
 ```powershell
-python -m unittest discover -s tests -q
+python -m unittest discover -s ddl_text/tests -t . -q
 python scripts/check_text_contract_examples.py
 python scripts/check_frontend_integration.py --frontend-dir .
 cd frontend
@@ -137,4 +137,4 @@ python scripts/check_frontend_integration.py --frontend-dir . --live --output lo
 
 问题复现时记录代码提交、规则摘要、模型 ID、合成输入、错误码和耗时。私人原文、Key、演示数据库和本机日志不提交仓库。新规则先跑离线和固定真实场景，再评审合并；遇到供应商波动不反复批量重试。
 
-当前交付是本地开发与联调方案。实际采集、定时同步、生产部署、独立召回率评测及 PDF/图像不在本轮交付内；完整限制和后续事项见[阶段 E 验收记录](text-stage-e-review.md)。
+当前交付是本地开发与联调方案。实际采集、定时同步、生产部署、独立召回率评测及 PDF/图像不在本轮交付内；完整限制和后续事项见[阶段 E 验收记录](2026-09-26-text-stage-e-review.md)。

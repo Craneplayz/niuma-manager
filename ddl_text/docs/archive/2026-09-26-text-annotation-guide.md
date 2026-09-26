@@ -22,7 +22,7 @@
 
 ## 阶段 A 契约场景
 
-可复制的 JSON 样例见 [text-contract-v0.1.json](examples/text-contract-v0.1.json)。每条含输入与人工期望输出，不能称作已运行 Agent 的结果。
+可复制的 JSON 样例见 [text-contract-v0.1.json](../../../docs/examples/text-contract-v0.1.json)。每条含输入与人工期望输出，不能称作已运行 Agent 的结果。
 
 在仓库根目录运行 `python scripts/check_text_contract_examples.py`，仅使用 Python 标准库检查样例引用、证据子串、日期格式、核实标记和状态一致性。该检查不是完整输入校验器或模型评测；程序实现与扩展评测集仍分别属于后续阶段。
 

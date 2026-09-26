@@ -13,7 +13,7 @@ from .contracts import ContractError, nonempty, normalize_record, require, valid
 from .dates import combine_times, resolve_time
 
 
-SKILL_DIR = Path(__file__).resolve().parents[1] / "skills/text-task-extraction"
+SKILL_DIR = Path(__file__).resolve().parent / "skills/text-task-extraction"
 MAX_DRAFT_BYTES = 1024 * 1024
 
 

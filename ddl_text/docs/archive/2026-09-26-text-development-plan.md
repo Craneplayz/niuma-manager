@@ -1,8 +1,8 @@
 # 文本识别模块：分阶段开发、检查与提交计划
 
-原计划日期：2026-09-22。2026-09-25 状态更新：A–D 已随相关 PR 合并，阶段 E 的固定回归、真实链路和网页验收已完成，交付材料待收尾评审合并。当前执行依据见[交付使用说明](text-handoff.md)及[阶段 E 验收](text-stage-e-review.md)。以下保留原计划与拆分历史，独立召回率按负责人决定暂缓；输出已统一为 JSON，默认真实接入为七牛 API 直连，不要求 Codex。
+原计划日期：2026-09-22。2026-09-25 状态更新：A–D 已随相关 PR 合并，阶段 E 的固定回归、真实链路和网页验收已完成，交付材料待收尾评审合并。当前执行依据见[交付使用说明](2026-09-26-text-handoff.md)及[阶段 E 验收](2026-09-26-text-stage-e-review.md)。以下保留原计划与拆分历史，独立召回率按负责人决定暂缓；输出已统一为 JSON，默认真实接入为七牛 API 直连，不要求 Codex。
 
-范围及输出语义以[需求基线](text-extraction-requirements.md)为准，Issue 对照与完整验收条件见[冲刺任务](sprint-1-text-processing.md)。看板为 [NiuMa Manager](https://github.com/users/Craneplayz/projects/2)，迭代字段由负责人维护。
+范围及输出语义以[需求基线](2026-09-26-text-extraction-requirements.md)为准，Issue 对照与完整验收条件见[冲刺任务](2026-09-26-sprint-1-text-processing.md)。看板为 [NiuMa Manager](https://github.com/users/Craneplayz/projects/2)，迭代字段由负责人维护。
 
 ## 一、整体路径与依赖
 
@@ -109,7 +109,7 @@ TXT-07 的连接研究应尽早识别外部依赖，不能拖到最后一天才�
 
 ## 六、阶段 E：评测、修复与交付
 
-2026-09-24 调整：负责人决定暂缓独立召回率评测，不作为本次合并门槛。当前优先完成 v0.2 JSON 与前端实际联调、固定功能回归、启动说明及网页人工验收，进展见[前端对接说明](text-frontend-integration.md)。下述独立标注与统计方案保留为后续质量改进计划，不要求本次全部执行。
+2026-09-24 调整：负责人决定暂缓独立召回率评测，不作为本次合并门槛。当前优先完成 v0.2 JSON 与前端实际联调、固定功能回归、启动说明及网页人工验收，进展见[前端对接说明](2026-09-26-text-frontend-integration.md)。下述独立标注与统计方案保留为后续质量改进计划，不要求本次全部执行。
 
 主要任务：[TXT-06 / #8](https://github.com/Craneplayz/niuma-manager/issues/8)、[TXT-08 / #10](https://github.com/Craneplayz/niuma-manager/issues/10)。
 

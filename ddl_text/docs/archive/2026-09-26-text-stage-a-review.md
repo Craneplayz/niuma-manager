@@ -4,11 +4,11 @@
 
 ## 交付索引
 
-- [需求基线](text-extraction-requirements.md)：任务范围、职责与隐私边界。
-- [接口约定 v0.1](text-contract-v0.1.md)：请求、任务、状态、错误、日期与来源字段。
-- [上游映射观察](text-source-mapping.md)：三份进度样例的静态结构与适配建议。
-- [人工标注指南](text-annotation-guide.md)及[17 个合成样例](examples/text-contract-v0.1.json)。
-- [开发检查与提交计划](text-development-plan.md)及[冲刺 Issue 对照](sprint-1-text-processing.md)。
+- [需求基线](2026-09-26-text-extraction-requirements.md)：任务范围、职责与隐私边界。
+- [接口约定 v0.1](2026-09-26-text-contract-v0.1.md)：请求、任务、状态、错误、日期与来源字段。
+- [上游映射观察](2026-09-26-text-source-mapping.md)：三份进度样例的静态结构与适配建议。
+- [人工标注指南](2026-09-26-text-annotation-guide.md)及[17 个合成样例](../../../docs/examples/text-contract-v0.1.json)。
+- [开发检查与提交计划](2026-09-26-text-development-plan.md)及[冲刺 Issue 对照](2026-09-26-sprint-1-text-processing.md)。
 
 ## 用户可见文本示例
 

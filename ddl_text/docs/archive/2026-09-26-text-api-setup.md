@@ -31,7 +31,7 @@ python -m ddl_text --mode real --input docs/examples/text-frontend-v02-request.j
 
 样例包含加群、提交学习计划和实验报告三个候选。加群时间应为参考时间，学习计划没有明确日期，实验报告有明确截止时间；模型文字表达可能不同。CLI 默认输出 JSON，添加 `--format text` 可查看文字版。没有有效模型结果时会明确失败，不回放预置答案。
 
-前端服务启动方式仍是 `python -m ddl_text.http_server --real`，详见[前端对接说明](text-frontend-integration.md)。**更改 `.env` 后要重新启动识别服务**；已运行的进程不会自动刷新密钥或供应商。CLI 每次启动重新读取配置。
+前端服务启动方式仍是 `python -m ddl_text.http_server --real`，详见[前端对接说明](2026-09-26-text-frontend-integration.md)。**更改 `.env` 后要重新启动识别服务**；已运行的进程不会自动刷新密钥或供应商。CLI 每次启动重新读取配置。
 
 ## 两种接入方式
 
@@ -66,12 +66,12 @@ python -m ddl_text --mode real --input docs/examples/text-frontend-v02-request.j
 | `ddl_text/codex_client.py` | 共用 `.env` 读取、供应商配置，以及原 Codex 客户端 |
 | `ddl_text/extraction.py` | 加载 skill、校验证据与草稿、生成任务 |
 | `ddl_text/runner.py` | 工作进程、超时和重试边界 |
-| `tests/test_chat_client.py` | 模拟 HTTP、密钥隔离、失败和 v0.2 输出测试 |
+| `ddl_text/tests/test_chat_client.py` | 模拟 HTTP、密钥隔离、失败和 v0.2 输出测试 |
 
 离线检查，不会调用付费模型：
 
 ```text
-python -m unittest discover -s tests -q
+python -m unittest discover -s ddl_text/tests -t . -q
 python scripts/check_text_contract_examples.py
 python scripts/check_frontend_integration.py --frontend-dir .
 ```
@@ -86,4 +86,4 @@ python scripts/check_frontend_integration.py --frontend-dir .
 
 接入准备检查结果：88 项单元/集成测试中 87 项通过、1 项可选 Codex 检查跳过；17 个契约样例及前端离线联调通过。
 
-2026-09-25 用户填写课程密钥后，七牛真实验证通过：单条明确日期通知耗时 4.59 秒；两条合成通知经前端业务后端约 11 秒生成三个候选，并通过日期类型、账户隔离和确认入库检查。见[验证记录](validation/qiniu-live-2026-09-25.md)。这是有限样例验证，不代表所有输入或高峰时段均能在 HTTP 的 20 秒预算内完成。
+2026-09-25 用户填写课程密钥后，七牛真实验证通过：单条明确日期通知耗时 4.59 秒；两条合成通知经前端业务后端约 11 秒生成三个候选，并通过日期类型、账户隔离和确认入库检查。见[验证记录](qiniu-live-2026-09-25.md)。这是有限样例验证，不代表所有输入或高峰时段均能在 HTTP 的 20 秒预算内完成。

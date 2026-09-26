@@ -4,7 +4,7 @@ import unittest
 from copy import deepcopy
 
 from ddl_text.render import render_text
-from tests.test_pipeline import example
+from ddl_text.tests.test_pipeline import example
 
 
 class RenderTests(unittest.TestCase):
