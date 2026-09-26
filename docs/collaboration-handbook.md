@@ -21,6 +21,8 @@ niuma-manager/
 
 `你的模块/README.md` 开头要画一张目录树架构图，每个文件、文件夹后面写一句它是做什么的；文件有增删或搬家时记得一起更新。
 
+**文档写重点，不写废话**：每件事一句话讲完，例如「爬取结果放在 `crawler/data/normalized/`」就好；背景、开发过程写在 Issue / PR，不要写进 README。
+
 ## 二、做一件事的流程
 
 1. **开 Issue**：Issues → New issue，写清楚要做什么，Assignees 选自己，记下编号（例如 #25）
