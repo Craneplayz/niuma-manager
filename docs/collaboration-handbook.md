@@ -21,12 +21,12 @@ niuma-manager/
 ## 二、做一件事的流程
 
 1. **开 Issue**：Issues → New issue，写清楚要做什么，Assignees 选自己，记下编号（例如 #25）
-2. **开分支**：在主 repo 上开，不要 fork
+2. **开分支**：在主 repo 上开，不要 fork；分支名以自己的 GitHub 帐号（小写）开头
 
    ```bash
    git switch master
    git pull
-   git switch -c feature/25-简短描述
+   git switch -c 你的GitHub帐号/feature/25-简短描述
    ```
 
 3. **写代码、commit**：只动自己的文件夹

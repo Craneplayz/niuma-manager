@@ -36,6 +36,7 @@
 2. 发起 PR 前先将最新的 `master` 合并到自己的分支，冲突由 PR 作者解决。
 3. 暂不合并的内容以 Draft PR 提交。
 4. 分支在 PR 合并后删除；未合并的分支不得删除。不维护长期个人分支。
+5. 分支名须以自己的 GitHub 帐号（小写）开头，格式见第 2 节。
 
 ### 0.4 审查与合并
 
@@ -71,13 +72,13 @@
 
 ## 2. 创建分支
 
-不得直接向主分支提交。每个 Issue 使用独立分支：
+不得直接向主分支提交。每个 Issue 使用独立分支，分支名以自己的 GitHub 帐号（小写）开头：
 
 ```text
-feature/<issue-number>-<short-name>
-fix/<issue-number>-<short-name>
-docs/<issue-number>-<short-name>
-research/<issue-number>-<short-name>
+<github-id>/feature/<issue-number>-<short-name>
+<github-id>/fix/<issue-number>-<short-name>
+<github-id>/docs/<issue-number>-<short-name>
+<github-id>/research/<issue-number>-<short-name>
 ```
 
 例如：
@@ -85,7 +86,7 @@ research/<issue-number>-<short-name>
 ```bash
 git switch master
 git pull --ff-only
-git switch -c feature/12-ddl-extraction
+git switch -c dhjx1234/feature/12-ddl-extraction
 ```
 
 一个分支只处理一个 Issue 或一个可以独立审查的目标，不得混入无关修改。
