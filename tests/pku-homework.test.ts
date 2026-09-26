@@ -124,3 +124,11 @@ describe("complete homework output", () => {
     expect(parseHomeworkDeadline("2026年1月5日18:00", DateTime.fromISO("2026-12-31T12:00:00+08:00"))?.year).toBe(2026);
   });
 });
+
+
+it("keeps lab prose and attachment names inside the text-only record", () => {
+  const records = extractHomeworkRecords("Lab 1\n本次作业需要报告。\nLab1作业.pdf (100 KB)\n提交要求：代码和报告，截止日期：2026-10-19 23:59.\n本次 lab 报告占1分。", context);
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({ title: "Lab 1", deadline: "2026-10-19T23:59:00+08:00" });
+  expect(records[0].description).toContain("Lab1作业.pdf");
+});

@@ -92,6 +92,10 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         if self.headers.get("Transfer-Encoding") or length < 0 or length > MAX_BYTES:
+            # Consume a bounded oversized upload before closing, so the client
+            # can receive 413 instead of a broken pipe for near-limit bodies.
+            if MAX_BYTES < length <= MAX_BYTES + 1:
+                self.rfile.read(length)
             self.reply(413, {"error": "Invalid or oversized request body"})
             return
         if not self.server.active.acquire(blocking=False):
