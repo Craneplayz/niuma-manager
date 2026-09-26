@@ -10,6 +10,7 @@
 - [Product Backlog](docs/product-backlog.md)：高层级功能需求及其当前状态。
 - [项目协作规范](docs/scrum-workflow.md)：Scrum 角色、工件、活动、任务状态和完成条件。
 - [参与开发](CONTRIBUTING.md)：领取 Issue、创建分支、提交 Commit、发起 PR 和完成 Review 的操作步骤。
+- [协作手册](docs/collaboration-handbook.md)：目录归属、前后端对接与 PR 审查的白话说明。
 
 ## 当前工作方式
 
