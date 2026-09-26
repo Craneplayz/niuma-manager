@@ -1,3 +1,4 @@
+import { extractCourseSourcesFromHtml, deduplicateCourseSources, type CourseSourceRecord } from "./pku-source.js";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { DateTime } from "luxon";
@@ -12,6 +13,7 @@ const SECTION_PATH_PATTERN = /\/content\/listContent(?:Editable)?\.jsp$/i;
 export type HomeworkStatus = "upcoming" | "past" | "no_deadline";
 
 export interface HomeworkRecord {
+  source_item_id?: string;
   course: string;
   section: string;
   title: string;
@@ -31,6 +33,9 @@ export interface HomeworkScrapeResult {
   records_found: number;
   past_records: number;
   undated_records: number;
+  source_records: CourseSourceRecord[];
+  source_records_found: number;
+  coverage_warnings: string[];
   records: HomeworkRecord[];
   upcoming: HomeworkRecord[];
 }
@@ -98,42 +103,43 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     await page.waitForTimeout(2_000);
 
     const courses = discoverCourses(await collectAnchors(page), term);
-    const records: HomeworkRecord[] = [];
+    const sources: CourseSourceRecord[] = [];
     let sectionsChecked = 0;
 
     for (const course of courses) {
-      await page.goto(course.href, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+      await page.goto(course.href, { waitUntil: "domcontentloaded", timeout: 45_000 });
       await page.waitForTimeout(700);
       const coursePageUrl = page.url();
-      records.push(...extractHomeworkRecords(await page.locator("body").innerText().catch(() => ""), {
+      sources.push(...extractCourseSourcesFromHtml(await page.content(), {
         course: course.name,
         section: "课程通知",
         sourceUrl: coursePageUrl,
-        asOf,
+        collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
       }));
 
       const sections = discoverSections(await collectAnchors(page));
       for (const section of sections) {
         sectionsChecked += 1;
-        await page.goto(section.href, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => undefined);
+        await page.goto(section.href, { waitUntil: "domcontentloaded", timeout: 30_000 });
         await page.waitForTimeout(500);
-        records.push(...extractHomeworkRecords(await page.locator("body").innerText().catch(() => ""), {
+        sources.push(...extractCourseSourcesFromHtml(await page.content(), {
           course: course.name,
           section: section.text,
           sourceUrl: page.url(),
-          asOf,
+          collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
         }));
       }
     }
 
-    return buildHomeworkScrapeResult(records, { asOf, term, coursesChecked: courses.length, sectionsChecked });
+    const sourceRecords = deduplicateCourseSources(sources);
+    return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), { asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords });
   } finally {
     await closeBrowser(browser);
   }
 }
 
-/** Complete records are the primary output; upcoming is an additional filtered view. */
-export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: { asOf: DateTime; term: string | null; coursesChecked: number; sectionsChecked: number }): HomeworkScrapeResult {
+/** Source records are the primary output; legacy homework fields remain for compatibility. */
+export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: { asOf: DateTime; term: string | null; coursesChecked: number; sectionsChecked: number; sourceRecords?: CourseSourceRecord[] }): HomeworkScrapeResult {
   const deduplicated = deduplicateRecords(records);
   return {
     checked_at: context.asOf.toISO({ suppressMilliseconds: true })!,
@@ -144,19 +150,68 @@ export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: { 
     records_found: deduplicated.length,
     past_records: deduplicated.filter((record) => record.status === "past").length,
     undated_records: deduplicated.filter((record) => record.status === "no_deadline").length,
+    source_records: context.sourceRecords ?? [],
+    source_records_found: context.sourceRecords?.length ?? 0,
+    coverage_warnings: ["Only course landing pages and their linked content lists were inspected; nested folders, additional detail pages and attachment contents were not read."],
     records: deduplicated,
     upcoming: filterUpcomingHomeworks(deduplicated, context.asOf),
   };
 }
 
+type HomeworkContext = { course: string; section: string; sourceUrl: string; asOf: DateTime };
+const HOMEWORK_TITLE = /作业|assignment|homework|报告|练习|测验|quiz|\blab\s*\d/i;
+const DEADLINE_LABEL = /截止|到期|deadline|\bdue\b|提交期限|提交时间/i;
+
+/** Blackboard item boundaries, not keywords inside prose, define each record. */
+export function extractHomeworkRecordsFromHtml(html: string, context: HomeworkContext): HomeworkRecord[] {
+  return homeworkView(extractCourseSourcesFromHtml(html, { ...context, collectedAt: context.asOf.toISO()! }), context.asOf);
+}
+
+/** Optional legacy view only. Recognition exports always use the full source records. */
+function homeworkView(sources: CourseSourceRecord[], asOf: DateTime): HomeworkRecord[] {
+  return sources.filter((source) => source.kind === "assignment" || HOMEWORK_TITLE.test(source.title)
+    || (source.kind === "announcement" && HOMEWORK_TITLE.test(source.body))).map((source) => {
+    const record = makeHomeworkRecord(source.title, source.body ? source.body.split("\n") : [], {
+      course: source.course, section: source.section, sourceUrl: source.source_url, asOf,
+    });
+    if (source.source_item_id) record.source_item_id = source.source_item_id;
+    return record;
+  });
+}
+
+function makeHomeworkRecord(title: string, lines: string[], context: HomeworkContext): HomeworkRecord {
+  const window = [title, ...lines];
+  const deadlines = window.flatMap((line, position) => {
+    if (!DEADLINE_LABEL.test(line)) return [];
+    const raw = /^(?:截止(?:日期|时间)?|到期(?:日期|时间)?|deadline|due(?: date)?|提交期限|提交时间)\s*[:：]?$/i.test(line)
+      && window[position + 1] ? `${line}\n${window[position + 1]}` : line;
+    return [{ raw, at: parseHomeworkDeadline(raw, context.asOf) }];
+  });
+  const distinctDeadlines = new Set(deadlines.map(({ at }) => at?.toMillis() ?? null));
+  const deadlineAt = distinctDeadlines.size === 1 ? deadlines[0].at : null;
+  return {
+    course: context.course,
+    section: context.section,
+    title,
+    description: lines.length ? window.join("\n") : null,
+    source_url: context.sourceUrl,
+    deadline_raw: deadlines.length ? deadlines.map(({ raw }) => raw).join("\n") : null,
+    deadline: deadlineAt?.toISO({ suppressMilliseconds: true }) ?? null,
+    status: deadlineAt ? (deadlineAt > context.asOf ? "upcoming" : "past") : "no_deadline",
+  };
+}
+
+/** Text-only input has weaker boundaries; live pages use the HTML extractor above. */
 export function extractHomeworkRecords(text: string, context: { course: string; section: string; sourceUrl: string; asOf: DateTime }): HomeworkRecord[] {
   // Repeated deadline lines belong to their respective records; do not deduplicate page text.
   const lines = text.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
   const records: HomeworkRecord[] = [];
-  const homeworkHeading = /作业|assignment|homework|报告|练习|测验|quiz/i;
+  const homeworkHeading = HOMEWORK_TITLE;
   const deadlineLabel = /截止|到期|deadline|\bdue\b|提交期限|提交时间/i;
   const genericHeading = /^(?:课程)?(?:作业|报告|练习|测验)$|^(?:assignments?|homework|quizzes)$/i;
-  const isHeading = (line: string) => homeworkHeading.test(line) && !/^(?:截止|到期|deadline|due\b|提交期限|提交时间)/i.test(line);
+  const isHeading = (line: string) => homeworkHeading.test(line) && line.length <= 100
+    && !/[。；;]|\.(?:pdf|docx?|zip|pptx?)\b/i.test(line)
+    && !/^(?:截止|到期|deadline|due\b|提交期限|提交时间|提交要求|本次|请|上第|第\d+章课后)/i.test(line);
 
   for (let index = 0; index < lines.length; index += 1) {
     if (!isHeading(lines[index])) continue;
@@ -164,31 +219,8 @@ export function extractHomeworkRecords(text: string, context: { course: string; 
     const window = lines.slice(index, nextHeading < 0 ? lines.length : nextHeading);
     // Skip navigation/category headings, but retain templates with a separate title line.
     if (genericHeading.test(lines[index]) && (window.length === 1 || deadlineLabel.test(window[1]))) continue;
-    const block = window.join(" ");
-    const deadlines = window.flatMap((line, position) => {
-      if (!deadlineLabel.test(line)) return [];
-      // Some course templates place the date on the line after the field label.
-      const raw = /^(?:截止(?:日期|时间)?|到期(?:日期|时间)?|deadline|due(?: date)?|提交期限|提交时间)\s*[:：]?$/i.test(line)
-        && window[position + 1] ? `${line}\n${window[position + 1]}` : line;
-      const at = parseHomeworkDeadline(raw, context.asOf);
-      return [{ raw, at }];
-    });
-    const distinctDeadlines = new Set(deadlines.map(({ at }) => at?.toMillis() ?? null));
-    // Conflicting dates cannot be resolved by choosing the last one on the page.
-    const deadlineAt = distinctDeadlines.size === 1 ? deadlines[0].at : null;
-    const deadlineRaw = deadlines.length ? deadlines.map(({ raw }) => raw).join("\n") : null;
     const title = genericHeading.test(window[0]) ? window[1] : window[0];
-    const status: HomeworkStatus = deadlineAt ? (deadlineAt > context.asOf ? "upcoming" : "past") : "no_deadline";
-    records.push({
-      course: context.course,
-      section: context.section,
-      title,
-      description: block.length > title.length ? block : null,
-      source_url: context.sourceUrl,
-      deadline_raw: deadlineRaw,
-      deadline: deadlineAt?.toISO({ suppressMilliseconds: true }) ?? null,
-      status,
-    });
+    records.push(makeHomeworkRecord(title, window.slice(1), context));
   }
   return records;
 }
@@ -266,7 +298,9 @@ function containsExplicitDate(value: string): boolean {
 function deduplicateRecords(records: HomeworkRecord[]): HomeworkRecord[] {
   const result = new Map<string, HomeworkRecord>();
   for (const record of records) {
-    const key = [record.course, record.title, record.deadline ?? "", ...(record.deadline === null ? [record.source_url, record.section, record.deadline_raw, record.description] : [])].join("|");
+    const key = record.source_item_id
+      ? JSON.stringify([record.course, record.source_item_id])
+      : JSON.stringify([record.course, record.title, record.deadline, ...(record.deadline === null ? [record.source_url, record.section, record.deadline_raw, record.description] : [])]);
     const previous = result.get(key);
     if (!previous || (record.description?.length ?? 0) > (previous.description?.length ?? 0)) result.set(key, record);
   }

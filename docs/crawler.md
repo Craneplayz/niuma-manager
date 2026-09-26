@@ -1,6 +1,6 @@
 # Niuma Manager crawler
 
-Deterministic public-event crawling for three PKU sources: the School of Computer Science, the School of Life Sciences, and the Graduate School of Education. This document covers the standalone crawler module; the application frontend and text recognition service are documented in the repository README. A separate read-only Playwright command checks authenticated PKU course homework deadlines.
+Deterministic public-event crawling for three PKU sources: the School of Computer Science, the School of Life Sciences, and the Graduate School of Education. This document covers the standalone crawler module; the application frontend and text recognition service are documented in the repository README. A separate read-only Playwright command collects authenticated PKU course sources and optionally exports text-recognition requests.
 
 ## Quick start
 
@@ -25,7 +25,7 @@ pnpm pku:homework
 
 The public-event crawler applies the same global future-only filter to every registered PKU adapter. Normalized output contains only events whose start time is strictly later than the filter instant; past events and events without a resolvable start time are counted in the crawl summary and excluded from normalized output. Raw snapshots and extracted candidates remain unfiltered for auditability. The default filter instant is the current time in `Asia/Shanghai`; pass `--as-of=<ISO timestamp>` to make a run reproducible.
 
-## Read-only PKU homework check
+## Read-only PKU course collection
 
 The authenticated course check is separate from the public-event pipeline. It uses a one-off headless Playwright browser, reads the first two lines of a local `secret` file as the campus-card username and password, and does not save cookies, storage state, credentials, or page snapshots. After submitting the login form, it only navigates course pages and never submits coursework.
 
@@ -35,7 +35,9 @@ pnpm pku:homework -- --term=26-27学年第1学期
 pnpm pku:homework -- --all-terms
 ```
 
-The command returns all deduplicated homework records in `records`, including past, pending, conflicting, and unparseable deadlines with their source text. `upcoming` is a separate view containing only records whose parsed deadline is strictly later than the run time in `Asia/Shanghai`. Date-only deadlines are treated as 23:59:59 on that date; `24:00` is treated as the following day's 00:00. Records without an explicit deadline are counted as `undated_records` and are not included in `upcoming`. The default term is derived from the run date. Yearless month/day values use the closest valid date in the scrape year or its adjacent years; explicit years are never shifted. This is a heuristic, so retain the raw deadline for downstream review. Unparseable deadline fields remain in `deadline_raw`.
+The primary output is `source_records`: every collected announcement, assignment, and material item, without homework-keyword or deadline filtering. `source_records_found` counts these source records. Each contains the original title/body with paragraph boundaries, source URL and platform ID, course/section, publication metadata, collection time, text quality, unread reference links, and coverage warnings. Navigation and folder links are excluded. `coverage_warnings` on the run describes discovery limits. Navigation failures abort the run instead of extracting a stale page under another course.
+
+For compatibility, `records` and its `records_found`/`past_records`/`undated_records` counts still provide a keyword-based homework view, including past, pending, conflicting, and unparseable deadlines with their source text. `upcoming` is a separate view containing only records whose parsed deadline is strictly later than the run time in `Asia/Shanghai`. Date-only deadlines are treated as 23:59:59 on that date; `24:00` is treated as the following day's 00:00. Records without an explicit deadline are counted as `undated_records` and are not included in `upcoming`. The default term is derived from the run date. Yearless month/day values use the closest valid date in the scrape year or its adjacent years; explicit years are never shifted. This is a heuristic, so retain the raw deadline for downstream review. Unparseable deadline fields remain in `deadline_raw`.
 
 `review` reads a normalized JSONL file and creates a standalone inspection page at `data/review/<run-id>.html`. Open that file directly in a browser to check titles, times, locations, provenance, warnings, and raw fields. It is intentionally separate from the application frontend and is also ignored by Git.
 
@@ -78,6 +80,36 @@ The target sites are traditional CMS sites and change their markup periodically.
 
 ## Text recognition integration
 
-Conversion of crawler output into v0.2 text recognition requests and submission to the recognition service are deferred to a separate issue. This module does not create application tasks.
+The campus-course collector now provides a pure v0.2 conversion layer in `src/pku-recognition.ts`, using the existing contract in `docs/backend-harness-alignment.md`. The skill, recognition engine, and frontend/backend interfaces are unchanged. Exporting does not call an LLM, submit a service request, create tasks, or update a database. The public-event pipeline is separate and does not use this new converter.
 
-Homework extraction uses text boundaries and remains heuristic: records stop at the next homework heading, repeated lines are preserved, and conflicting deadlines within one record remain undated. Check the original course page when its layout is ambiguous.
+```bash
+# Full source records and optional legacy homework views (JSON)
+pnpm pku:homework -- --format=raw
+
+# v0.2 requests: one complete JSON request per line (JSONL)
+pnpm pku:homework -- --format=recognition
+
+# When credentials live outside this checkout
+PKU_SECRET_PATH=/path/to/secret pnpm pku:homework -- --format=recognition
+```
+
+Recognition export uses **all `source_records`**, never `records` or `upcoming`. Requests contain at most 100 records each. A larger run produces multiple JSONL lines with distinct request IDs; each line can be passed as-is to the existing recognition API by the caller. An empty collection produces one valid empty request. Text exceeding the contract's 100,000-character limit fails explicitly without truncating evidence. `--request-id=ID` supplies the request ID (with batch suffixes when necessary); reuse it only when retrying the same saved request, not for a fresh scrape whose collection time/content may differ. Default IDs are fresh for every export.
+
+| Collected field | v0.2 mapping |
+| --- | --- |
+| title + body, retaining paragraphs | text; title is also source_label |
+| original platform ID and source scope | namespaced input_id; unchanged source_item_id |
+| course | course_or_project |
+| source_url | source_url, with URL credentials and sensitive query parameters removed |
+| published_at | source value and original date/datetime precision; unknown stays null |
+| collected_at | collected_at; never substitutes for publication time |
+| text_quality | complete/partial/summary/missing, without upgrading completeness |
+| references, warnings, original publication string | upstream_hints; original strings under raw |
+
+Publication parsing is conservative. A source date remains date-only; no midnight or collection year is added. Unsupported formats remain unknown with the original string retained. `Asia/Shanghai` is explicitly declared as `caller_default` in the recognition request. The converter does not infer a deadline or transfer the legacy parsed deadline into an authoritative field.
+
+Live collection uses Blackboard content-list and announcement items as record boundaries. Item headings supply titles; body paragraphs and attachment names remain in the same source. Platform IDs are scoped by course and source kind for stable input IDs and deduplication. When no platform ID exists, the fallback ID includes the source text and can change when that text changes. These IDs are not database task IDs or an authorization mechanism.
+
+Text quality describes the collected item: title-only items are `summary`; records with unread linked pages, attachments, or images are `partial` when body text is available; absent text is `missing`. A `complete` listing body does not claim complete discovery of the whole course. Unsupported source publication metadata remains separately inspectable.
+
+The text-only homework helper remains available, but live collection does not split the full page body. Attachment contents, nested folders, and additional assignment-detail pages are not inspected. References are exported as unread; this scope is reported rather than treating missing detail as proof that no task or deadline exists. Submission to the recognition service remains the caller's responsibility.
