@@ -93,7 +93,7 @@ pnpm pku:homework -- --format=recognition
 PKU_SECRET_PATH=/path/to/secret pnpm pku:homework -- --format=recognition
 ```
 
-Recognition export uses **all `source_records`**, never `records` or `upcoming`. Requests contain at most 100 records each. A larger run produces multiple JSONL lines with distinct request IDs; each line can be passed as-is to the existing recognition API by the caller. An empty collection produces one valid empty request. Text exceeding the contract's 100,000-character limit fails explicitly without truncating evidence. `--request-id=ID` supplies the request ID (with batch suffixes when necessary); reuse it only when retrying the same saved request, not for a fresh scrape whose collection time/content may differ. Default IDs are fresh for every export.
+Recognition export uses **all `source_records`**, never `records` or `upcoming`. Requests contain at most 100 records and 2,000,000 UTF-8 bytes of serialized JSON each, including metadata, raw evidence and the request ID. A larger run produces multiple JSONL lines with distinct request IDs; each line can be passed as-is to the existing recognition API by the caller. An empty collection produces one valid empty request. Text exceeding the contract's 100,000-character limit, or a single record/envelope that cannot fit the request byte limit, fails explicitly without truncating evidence or emitting partial output. `--request-id=ID` supplies the request ID (with batch suffixes when necessary); reuse it only when retrying the same saved request, not for a fresh scrape whose collection time/content may differ. Default IDs are fresh for every export.
 
 | Collected field | v0.2 mapping |
 | --- | --- |

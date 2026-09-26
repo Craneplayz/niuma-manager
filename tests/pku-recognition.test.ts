@@ -31,6 +31,41 @@ describe("v0.2 source conversion", () => {
     expect(() => toRecognitionRequests([{ ...source(), body: "x".repeat(100_001) }])).toThrow("not truncated");
     expect(() => toRecognitionRequests([], " ")).toThrow("empty");
   });
+  it("splits long Chinese sources by serialized UTF-8 bytes without losing evidence", () => {
+    const original = source();
+    const sources = Array.from({ length: 100 }, (_, i) => ({ ...original, input_id: `test:${i}`, body: "中".repeat(4000) }));
+    const requests = toRecognitionRequests(sources, '中文"请求');
+    expect(requests.length).toBeGreaterThan(1);
+    expect(requests.map((r) => r.request_id)).toEqual(requests.map((_r, i) => `中文"请求:${i + 1}`));
+    for (const request of requests) {
+      expect(request.records.length).toBeLessThanOrEqual(100);
+      expect(Buffer.byteLength(JSON.stringify(request), "utf8")).toBeLessThanOrEqual(2_000_000);
+    }
+    const records = requests.flatMap((r) => r.records);
+    expect(records.map((r) => r.input_id)).toEqual(sources.map((r) => r.input_id));
+    expect(records.every((r) => r.text === `${original.title}\n\n${sources[0].body}` && r.upstream_hints.raw.body === sources[0].body)).toBe(true);
+  });
+  it("counts escaped metadata and the envelope at the exact byte boundary", () => {
+    const original = { ...source(), warnings: ['引号"\\\n'] };
+    const requestId = '中文"请求';
+    const [initial] = toRecognitionRequests([original], requestId);
+    const padding = 2_000_000 - Buffer.byteLength(JSON.stringify(initial), "utf8");
+    original.warnings[0] += "x".repeat(padding);
+    const [request] = toRecognitionRequests([original], requestId);
+    expect(request.request_id).toBe(requestId);
+    expect(Buffer.byteLength(JSON.stringify(request), "utf8")).toBe(2_000_000);
+    original.warnings[0] += "x";
+    expect(() => toRecognitionRequests([original], requestId)).toThrow("not truncated");
+  });
+  it("includes batch suffixes in the size check and fails if one record cannot fit", () => {
+    const original = { ...source(), warnings: [""] };
+    const [initial] = toRecognitionRequests([original], "run");
+    original.warnings[0] = "x".repeat(2_000_000 - Buffer.byteLength(JSON.stringify(initial), "utf8"));
+    expect(() => toRecognitionRequests([original, { ...source(), input_id: "second" }], "run")).toThrow("not truncated");
+  });
+  it("rejects an oversized empty request envelope", () => {
+    expect(() => toRecognitionRequests([], "x".repeat(2_000_000))).toThrow("byte limit");
+  });
   it("exports an empty request and creates a fresh default request ID per run", () => {
     expect(toRecognitionRequests([], "empty")).toEqual([{ contract_version: "0.2", request_id: "empty", records: [] }]);
     expect(toRecognitionRequests([])[0].request_id).not.toBe(toRecognitionRequests([])[0].request_id);

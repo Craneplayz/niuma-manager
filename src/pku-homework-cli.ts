@@ -4,7 +4,7 @@ import { toRecognitionRequests } from "./pku-recognition.js";
 try {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
   if (args.includes("--help")) {
-    console.log("pku:homework [--term=LABEL | --all-terms] [--format=raw|recognition] [--request-id=ID]\nraw: JSON with all source_records and legacy homework views.\nrecognition: JSONL, one v0.2 request per line (up to 100 records); exports only, does not call a model.");
+    console.log("pku:homework [--term=LABEL | --all-terms] [--format=raw|recognition] [--request-id=ID]\nraw: JSON with all source_records and legacy homework views.\nrecognition: JSONL, one v0.2 request per line (up to 100 records and 2,000,000 UTF-8 bytes); exports only, does not call a model.");
   } else {
     if (args.some((arg) => arg !== "--all-terms" && !/^--(?:term|format|request-id)=.+$/.test(arg))) throw new Error("unknown or empty argument; use --help");
     const termArg = args.find((arg) => arg.startsWith("--term="));

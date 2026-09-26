@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { CourseSourceRecord, PublicationTime } from "./pku-source.js";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 
+// Both the business API and recognition HTTP bridge cap request bodies at this size.
+const MAX_REQUEST_BYTES = 2_000_000;
+const MAX_RECORDS = 100;
+
 export interface RecognitionRecord {
   input_id: string;
   text: string;
@@ -52,10 +56,32 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
       },
     };
   });
-  // The existing contract allows at most 100 records per request; preserve every source.
-  const count = Math.max(1, Math.ceil(records.length / 100));
-  return Array.from({ length: count }, (_, index) => ({
-    contract_version: "0.2", request_id: count === 1 ? requestId : `${requestId}:${index + 1}`,
-    records: records.slice(index * 100, (index + 1) * 100),
-  }));
+  const byteLength = (value: unknown) => Buffer.byteLength(JSON.stringify(value), "utf8");
+  const emptyRequest = (id: string): RecognitionRequest => ({ contract_version: "0.2", request_id: id, records: [] });
+  const sizes = records.map(byteLength);
+  const single = emptyRequest(requestId);
+  // Count the envelope, JSON escaping, duplicated raw evidence and array commas.
+  const singleBytes = byteLength(single) + sizes.reduce((sum, size) => sum + size, 0) + Math.max(0, records.length - 1);
+  if (records.length <= MAX_RECORDS && singleBytes <= MAX_REQUEST_BYTES) return [{ ...single, records }];
+  if (!records.length) throw new Error("request_id exceeds the recognition request byte limit");
+
+  const requests: RecognitionRequest[] = [];
+  let batch = emptyRequest(`${requestId}:1`);
+  let batchBytes = byteLength(batch);
+  for (const [index, record] of records.entries()) {
+    let addedBytes = sizes[index] + (batch.records.length ? 1 : 0);
+    if (batch.records.length && (batch.records.length === MAX_RECORDS || batchBytes + addedBytes > MAX_REQUEST_BYTES)) {
+      requests.push(batch);
+      batch = emptyRequest(`${requestId}:${requests.length + 1}`);
+      batchBytes = byteLength(batch);
+      addedBytes = sizes[index];
+    }
+    if (batchBytes + addedBytes > MAX_REQUEST_BYTES) {
+      throw new Error(`source ${record.input_id} exceeds the recognition request byte limit; evidence was not truncated`);
+    }
+    batch.records.push(record);
+    batchBytes += addedBytes;
+  }
+  requests.push(batch);
+  return requests;
 }
