@@ -8,7 +8,7 @@
 
 - 前端：注册/登录/退出、任务与候选结果、可用时段、持久化“无需规划”选择、个性化用时反馈、规划预览与确认。
 - 本地后端：Python 3.9+ 标准库 HTTP API + SQLite，所有读取/写入由 Cookie 会话确认用户。前端不提交 userId，不持久化业务数据。
-- 模型 Harness：待团队实现/配置真实服务。前端与后端均不提供默认 1 小时或规则估时的假模型。未配置 HARNESS_URL 返回 503。
+- 本地规划 Harness：`planning_harness.py` 通过七牛 Chat Completions 接口生成规划 2.0 提案；必须提供自己的 `QINIU_API_KEY`，不提供默认 1 小时或规则估时的假模型。未配置 HARNESS_URL 返回 503。模型质量仍需真实账号测试；服务端会拒绝违规时段。
 - v0.2 文本识别提交、批次与记录级状态、证据/来源/日期依据展示、新增/更新/延期/取消/忽略审核、候选事务确认和幂等检查均已实现。本地“加载协议演示”明确为人工样例，不调用模型。
 - 真实文本识别由 TEXT_HARNESS_URL 提供，真实规划由 HARNESS_URL 提供，缺少对应配置返回 503。真实邮箱/教学网/微信采集仍未接入；来源刷新入口只引导至文本识别页，不伪造同步结果。
 - 前端以潘勇圳的页面与交互为主；快速收集和浏览器语音输入都进入同一个 v0.2 识别审核流程。没有真实识别服务时不会用本地规则冒充模型结果。
@@ -105,7 +105,9 @@ Harness 必须自行评估工时、规划跨度、合理分块和休息；所有
 进入 frontend/ 后执行 npm ci；npm run db:seed；npm run dev:api；另开终端在 frontend/ 执行 npm run dev。
 测试账号 demo@niuma.test / Niuma-Test-2026!，seed 幂等且不建立会话。
 npm test 覆盖账号隔离、数据库落盘、错误密码、退出撤销、并发版本、反馈归属、模型约束等；npm run build 验证前端。
-真实模型质量验收仍须配置 TEXT_HARNESS_URL / HARNESS_URL 后进行，本地测试替身不代表模型效果。
+真实模型本地联调：在仓库根目录将 `.env.example` 复制为未跟踪的 `.env` 并填 `QINIU_API_KEY`。分别在 `frontend/` 运行 `npm run dev:recognition`（端口 1333）、`npm run dev:planning`（端口 1334）；启动业务 API 前设置 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize` 和 `HARNESS_URL=http://127.0.0.1:1334/planning`，再运行 `npm run dev:api` 和 `npm run dev`。`HARNESS_TOKEN` 若设置须同时提供给 API 与规划服务；识别使用单独的 `TEXT_HARNESS_TOKEN`。模型密钥不进入浏览器或 Git。当前本地规划桥只支持七牛 Chat Completions；真实模型质量尚需凭据验证，离线测试替身不代表模型效果。
+
+合成数据真实模型回归：在仓库根目录执行 `python3 scripts/check_frontend_integration.py --frontend-dir . --live` 和 `python3 scripts/check_planning_integration.py`（会产生模型调用费用）。前者检查识别→候选→确认，后者检查估时→预览→应用、已有安排、精确 DDL、排除任务及反馈；都只使用临时数据库和合成任务。模型输出仍有随机性；格式或时间约束不合规时，后端返回错误且不应用计划。
 
 识别侧 Python 使用 zoneinfo 验证时区；若系统没有 IANA 时区库（部分 Windows 环境），运行 python -m pip install tzdata。Windows 没有 python3 命令时，使用 py -3 ../server/app.py --seed 和 py -3 ../server/app.py。
 

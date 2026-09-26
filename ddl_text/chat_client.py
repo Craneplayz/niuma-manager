@@ -23,15 +23,19 @@ class ChatClient:
         self._key = key
 
     def generate(self, instructions, record_json, settings, attempt):
+        schema = draft_schema(json.loads(record_json))
+        return self.complete_json(instructions +
+                                  "\nReturn only a JSON object matching this schema:\n" + json.dumps(schema),
+                                  record_json, settings)
+
+    def complete_json(self, instructions, input_json, settings):
         if not self._key.strip():
             raise AgentError("agent_unavailable", False)
-        schema = draft_schema(json.loads(record_json))
         payload = {
             "model": settings.model,
             "messages": [
-                {"role": "system", "content": instructions +
-                 "\nReturn only a JSON object matching this schema:\n" + json.dumps(schema)},
-                {"role": "user", "content": record_json},
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": input_json},
             ],
             "stream": False, "max_tokens": 8192,
             "response_format": {"type": "json_object"},
