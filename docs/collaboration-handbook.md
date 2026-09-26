@@ -6,9 +6,9 @@
 
 ```text
 niuma-manager/
-├── crawler/     爬虫                → 【待确认】
+├── crawler/     爬虫                → Craneplayz（许智翔）
 ├── ddl_text/    文本识别             → 杨沐之
-├── frontend/    前端（含对接代码）     → Dranix、【待确认】
+├── frontend/    前端（含对接代码）     → Dranix、潘勇圳
 ├── server/      后端                → Dranix
 ├── contracts/   模块间的数据格式       → Ken + 上下游
 └── 根目录、docs/ 公共文件             → Ken
@@ -81,6 +81,6 @@ niuma-manager/
 ## 七、Ken 做什么
 
 - 管 `contracts/` 和公共文件，审查格式时确认示例覆盖了边界情况
-- 每周【待确认】把 爬虫 → 文本识别 → 前端 完整跑一次，发现问题开 Issue 给对应的人
+- 每周六下午把 爬虫 → 文本识别 → 前端 完整跑一次，发现问题开 Issue 给对应的人
 - 分配新任务：属于现有文件夹的交给负责人，全新的功能就新建文件夹并指定负责人
 - 契约有争议时拍板
