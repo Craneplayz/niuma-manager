@@ -7,6 +7,7 @@
 ```text
 niuma-manager/
 ├── crawler/     爬虫                → Craneplayz（许智翔）
+├── wechat/      微信数据             → 肖涵
 ├── ddl_text/    文本识别             → 杨沐之
 ├── frontend/    前端（含对接代码）     → Dranix、潘勇圳
 ├── server/      后端                → Dranix

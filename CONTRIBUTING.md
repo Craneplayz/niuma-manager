@@ -11,6 +11,7 @@
 | 目录 | 内容 | 负责人 |
 | --- | --- | --- |
 | `crawler/` | 学院讲座、课程网爬虫 | Craneplayz |
+| `wechat/` | 微信群 / 聊天数据采集 | Xiao-Han666 |
 | `ddl_text/`、`skills/`、`tests/` | 文本任务识别 | dhjx1234 |
 | `frontend/` | 前端页面及与其他模块的对接代码 | Dranix123、Yongzhen23 |
 | `server/` | 本地业务后端 | Dranix123 |
