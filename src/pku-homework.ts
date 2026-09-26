@@ -99,7 +99,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
 
   try {
     await login(page, credentials.username, credentials.password);
-    await page.goto(PKU_PORTAL_URL, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    await navigateCoursePage(page, PKU_PORTAL_URL);
     await page.waitForTimeout(2_000);
 
     const courses = discoverCourses(await collectAnchors(page), term);
@@ -107,7 +107,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     let sectionsChecked = 0;
 
     for (const course of courses) {
-      await page.goto(course.href, { waitUntil: "domcontentloaded", timeout: 45_000 });
+      await navigateCoursePage(page, course.href);
       await page.waitForTimeout(700);
       const coursePageUrl = page.url();
       sources.push(...extractCourseSourcesFromHtml(await page.content(), {
@@ -120,7 +120,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       const sections = discoverSections(await collectAnchors(page));
       for (const section of sections) {
         sectionsChecked += 1;
-        await page.goto(section.href, { waitUntil: "domcontentloaded", timeout: 30_000 });
+        await navigateCoursePage(page, section.href, 30_000);
         await page.waitForTimeout(500);
         sources.push(...extractCourseSourcesFromHtml(await page.content(), {
           course: course.name,
@@ -223,6 +223,17 @@ export function extractHomeworkRecords(text: string, context: { course: string; 
     records.push(makeHomeworkRecord(title, window.slice(1), context));
   }
   return records;
+}
+
+/** An error page or expired login must not masquerade as a successful empty course. */
+export async function navigateCoursePage(page: Pick<Page, "goto" | "url" | "locator">, url: string, timeout = 45_000): Promise<void> {
+  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout });
+  if (!response || !response.ok()) throw new Error(`course page request failed (HTTP ${response?.status() ?? "unknown"})`);
+  const destination = new URL(page.url());
+  if (destination.origin !== PKU_ORIGIN || !/^\/webapps\/(?:portal|blackboard|announcement)\//i.test(destination.pathname)
+    || await page.locator('input[type="password"]').count()) {
+    throw new Error("course page left the authenticated area; login may have expired");
+  }
 }
 
 async function login(page: Page, username: string, password: string): Promise<void> {

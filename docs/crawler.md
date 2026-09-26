@@ -4,7 +4,7 @@ Deterministic public-event crawling for three PKU sources: the School of Compute
 
 ## Quick start
 
-Run these commands from the repository root. Requires Node.js 20.19+ (20.x), 22.13+ (22.x), or 24+, and pnpm 10.17.1. The frontend retains its separate npm setup in `frontend/`.
+Run these commands from the repository root. Requires Node.js 20.19+ (20.x), 22.13+ (22.x), or 24+, and pnpm 10.17.1. The frontend retains its separate npm setup in `frontend/`. Contract interoperability tests also require Python 3.9+ with IANA timezone data; `python3` is used by default, or set `PYTHON` to its executable path.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -35,7 +35,7 @@ pnpm pku:homework -- --term=26-27学年第1学期
 pnpm pku:homework -- --all-terms
 ```
 
-The primary output is `source_records`: every collected announcement, assignment, and material item, without homework-keyword or deadline filtering. `source_records_found` counts these source records. Each contains the original title/body with paragraph boundaries, source URL and platform ID, course/section, publication metadata, collection time, text quality, unread reference links, and coverage warnings. Navigation and folder links are excluded. `coverage_warnings` on the run describes discovery limits. Navigation failures abort the run instead of extracting a stale page under another course.
+The primary output is `source_records`: every collected announcement, assignment, and material item, without homework-keyword or deadline filtering. `source_records_found` counts these source records. Each contains the original title/body with paragraph boundaries, source URL and platform ID, course/section, publication metadata, collection time, text quality, unread reference links, and coverage warnings. Navigation and folder links are excluded. `coverage_warnings` on the run describes discovery limits. Navigation failures, HTTP error responses, and redirects out of the authenticated area abort the run instead of extracting a stale or login page as course content.
 
 For compatibility, `records` and its `records_found`/`past_records`/`undated_records` counts still provide a keyword-based homework view, including past, pending, conflicting, and unparseable deadlines with their source text. `upcoming` is a separate view containing only records whose parsed deadline is strictly later than the run time in `Asia/Shanghai`. Date-only deadlines are treated as 23:59:59 on that date; `24:00` is treated as the following day's 00:00. Records without an explicit deadline are counted as `undated_records` and are not included in `upcoming`. The default term is derived from the run date. Yearless month/day values use the closest valid date in the scrape year or its adjacent years; explicit years are never shifted. This is a heuristic, so retain the raw deadline for downstream review. Unparseable deadline fields remain in `deadline_raw`.
 
