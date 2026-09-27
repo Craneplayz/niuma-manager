@@ -1,6 +1,35 @@
 # 牛马管理器前端
 
-本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`。主页、侧边栏、任务、课程、主题、快捷搜索、专注和移动端布局保留其 HTML/CSS/JavaScript 实现；接入本项目的 SQLite 账号数据库、文本识别 v0.2 和模型规划 2.0。具体合并边界见 [贡献说明](CONTRIBUTIONS.md)。
+## 目录结构
+
+```text
+frontend/
+├── README.md                  提供目录、启动、功能和验证入口。
+├── CONTRIBUTIONS.md           记录当前界面来源及维护范围。
+├── .gitignore                 排除依赖、构建结果和本地运行数据。
+├── .nvmrc                     固定推荐的 Node.js 主版本。
+├── index.html                 加载应用脚本与样式。
+├── favicon.svg                提供浏览器页签图标。
+├── package.json               定义开发、构建和测试命令。
+├── package-lock.json          锁定前端依赖版本。
+├── vite.config.ts             配置开发端口与 API 代理。
+├── src/
+│   ├── app.js                 组织页面、路由与主要交互。
+│   ├── store.js               导出统一的状态访问接口。
+│   ├── team-store.js          对接账号数据库和业务 API。
+│   ├── team-recognition-ui.js 展示识别、证据与人工确认流程。
+│   ├── team-planner-ui.js     展示规划输入、预览与确认流程。
+│   ├── team-calendar-ui.js    渲染日、周、月日历与 DDL。
+│   ├── team-personalization-ui.js 记录实际用时反馈。
+│   ├── styles.css / polish.css / team-integration.css 维护界面样式。
+│   └── 其他工具模块           提供示例、搜索、计时、语音、主题和图标。
+├── tests/                     覆盖前端行为与团队接口适配。
+└── docs/
+    ├── maintenance.md         说明模块边界和验证要求。
+    └── archive/               保存带日期的历史文档。
+```
+
+本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`，根目录的 `src/` 属于其他模块。
 
 ## 启动
 
