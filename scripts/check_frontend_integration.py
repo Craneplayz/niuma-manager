@@ -45,8 +45,8 @@ def main():
     spec = importlib.util.spec_from_file_location("frontend_app", frontend / "server/app.py")
     app = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(app)
-    entries = json.loads((ROOT / "docs/examples/text-frontend-v02-drafts.json").read_text(encoding="utf-8"))
-    request = json.loads((ROOT / "docs/examples/text-frontend-v02-request.json").read_text(encoding="utf-8"))
+    entries = json.loads((ROOT / "ddl_text/tests/fixtures/text-frontend-v02-drafts.json").read_text(encoding="utf-8"))
+    request = json.loads((ROOT / "contracts/source-to-text/text-frontend-v02-request.json").read_text(encoding="utf-8"))
     if args.live:
         options = live_options(ROOT / ".env")
         if not options["key"].strip():

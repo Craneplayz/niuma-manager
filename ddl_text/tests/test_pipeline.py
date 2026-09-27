@@ -16,7 +16,7 @@ from ddl_text.tests.fake_adapters import ControlledAdapter, NetworkForbiddenRepl
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CASES = json.loads((ROOT / "docs/examples/text-contract-v0.1.json").read_text(encoding="utf-8"))["cases"]
+CASES = json.loads((ROOT / "ddl_text/tests/fixtures/text-contract-v0.1.json").read_text(encoding="utf-8"))["cases"]
 
 
 def example(name="absolute"):
@@ -184,8 +184,8 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "request.json"
             path.write_text(json.dumps(example()["input"]), encoding="utf-8-sig")
-            result = self.run_cli("--input", str(path), "--replay", "docs/examples/text-contract-v0.1.json",
-                                  "--config", "docs/examples/text-runner-config.json", "--format", "json", "--audit")
+            result = self.run_cli("--input", str(path), "--replay", "ddl_text/tests/fixtures/text-contract-v0.1.json",
+                                  "--config", "ddl_text/tests/fixtures/text-runner-config.json", "--format", "json", "--audit")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["status"], "success")
         self.assertIn("attempts=1", result.stderr)
