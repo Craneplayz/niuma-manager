@@ -1,0 +1,6 @@
+data/raw/
+data/extracted/
+data/normalized/
+data/review/
+logs/
+secret
