@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { toRecognitionRequests } from "../src/pku-recognition.js";
@@ -72,7 +73,7 @@ describe("v0.2 source conversion", () => {
   });
   it("passes the existing Python v0.2 validator without changing downstream code", () => {
     const requests = [...toRecognitionRequests([source()], "normal"), ...toRecognitionRequests([], "empty"), ...toRecognitionRequests([{ ...source(), text_quality: "missing", title: "", body: "" }], "missing")];
-    const result = spawnSync(process.env.PYTHON ?? "python3", ["-c", "import json,sys; from ddl_text.contract_v02 import validate_request; [validate_request(r) for r in json.load(sys.stdin)]"], { input: JSON.stringify(requests), encoding: "utf8" });
+    const result = spawnSync(process.env.PYTHON ?? "python3", ["-c", "import json,sys; from ddl_text.contract_v02 import validate_request; [validate_request(r) for r in json.load(sys.stdin)]"], { cwd: fileURLToPath(new URL("../../", import.meta.url)), input: JSON.stringify(requests), encoding: "utf8" });
     expect(result.error).toBeUndefined();
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
