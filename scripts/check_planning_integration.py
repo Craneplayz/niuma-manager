@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "server"))
 
 from ddl_text.codex_client import live_options
-import planning_harness
+from server import planning_harness
 
 
 def main():
