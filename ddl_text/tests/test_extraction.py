@@ -309,8 +309,8 @@ class ExtractionTests(unittest.TestCase):
             adapter.extract(changed, None, 0)
 
     def test_cli_synthetic_drafts_run_real_compilation(self):
-        command = [sys.executable, "-m", "ddl_text", "--input", "docs/examples/text-stage-c-request.json",
-                   "--drafts", "docs/examples/text-stage-c-drafts.json"]
+        command = [sys.executable, "-m", "ddl_text", "--input", "ddl_text/tests/fixtures/text-stage-c-request.json",
+                   "--drafts", "ddl_text/tests/fixtures/text-stage-c-drafts.json"]
         result = subprocess.run(command + ["--format", "json"], cwd=ROOT, capture_output=True, encoding="utf-8")
         self.assertEqual(result.returncode, 0, result.stderr)
         tasks = json.loads(result.stdout)["tasks"]

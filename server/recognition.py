@@ -40,7 +40,7 @@ def route(handler,db,uid,path,body,ApiError):
     if path in ['/api/recognition/batches','/api/recognition/demo'] and handler.command=='POST':
         demo=path.endswith('/demo')
         if demo:
-            fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text(encoding='utf-8'))
+            fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
             request=fixture['request'];request['request_id']='demo:text-contract:0.2'
             result=fixture['expected'];result['request_id']=request['request_id']
         else: request=body

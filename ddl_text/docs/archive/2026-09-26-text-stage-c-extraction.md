@@ -22,8 +22,8 @@
 | [extraction.py](../../extraction.py) | 加载共享规则、调用可替换客户端、校验证据并生成候选。 |
 | [dates.py](../../dates.py) | 根据原文和发布时间确定日期，保留不确定性与冲突。 |
 | [test_extraction.py](../../tests/test_extraction.py) | 日期、来源、上下文、草稿校验和命令行回归测试。 |
-| [text-stage-c-request.json](../../../docs/examples/text-stage-c-request.json) | 合成通知输入。 |
-| [text-stage-c-drafts.json](../../../docs/examples/text-stage-c-drafts.json) | 与该输入严格匹配的人工 Agent 草稿，供离线测试。 |
+| [text-stage-c-request.json](../../../ddl_text/tests/fixtures/text-stage-c-request.json) | 合成通知输入。 |
+| [text-stage-c-drafts.json](../../../ddl_text/tests/fixtures/text-stage-c-drafts.json) | 与该输入严格匹配的人工 Agent 草稿，供离线测试。 |
 
 原有入口、批量处理、超时、配置等文件见[阶段 B 文件速查](2026-09-26-text-stage-b-runner.md#文件用途速查)。
 
@@ -32,8 +32,8 @@
 在仓库根目录使用 Python 3.9 或更新版本，无需额外运行依赖：
 
 ```text
-python -m ddl_text --input docs/examples/text-stage-c-request.json --drafts docs/examples/text-stage-c-drafts.json
-python -m ddl_text --input docs/examples/text-stage-c-request.json --drafts docs/examples/text-stage-c-drafts.json --format json
+python -m ddl_text --input ddl_text/tests/fixtures/text-stage-c-request.json --drafts ddl_text/tests/fixtures/text-stage-c-drafts.json
+python -m ddl_text --input ddl_text/tests/fixtures/text-stage-c-request.json --drafts ddl_text/tests/fixtures/text-stage-c-drafts.json --format json
 python -m unittest discover -s ddl_text/tests -t . -v
 python scripts/check_text_contract_examples.py
 git diff --check

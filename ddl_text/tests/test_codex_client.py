@@ -98,7 +98,7 @@ class CodexClientTests(unittest.TestCase):
 class LocalCodexIntegrationTests(unittest.TestCase):
     def test_real_cli_against_loopback_responses_server(self):
         requests = []
-        fixture = json.loads((ROOT / "docs/examples/text-stage-c-drafts.json").read_text(encoding="utf-8"))[0]
+        fixture = json.loads((ROOT / "ddl_text/tests/fixtures/text-stage-c-drafts.json").read_text(encoding="utf-8"))[0]
         draft_json = json.dumps(fixture["response"], ensure_ascii=False)
         response = {"id": "resp_synthetic", "object": "response", "created_at": 1,
                     "status": "completed", "model": "deepseek-flash", "output": [

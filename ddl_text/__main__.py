@@ -15,7 +15,7 @@ from .render import render_text
 from .provider import make_client
 
 
-EXAMPLES = Path(__file__).resolve().parents[1] / "docs/examples/text-contract-v0.1.json"
+EXAMPLES = Path(__file__).resolve().parents[1] / "ddl_text/tests/fixtures/text-contract-v0.1.json"
 
 
 def main(argv=None):

@@ -37,7 +37,7 @@ Python 3.9+；Windows 需要可用的 IANA 时区数据库，若 `python -c "fro
 
 ## JSON 的关键差异
 
-- 请求必须显式 `contract_version: "0.2"`，输入元数据未知时填写 `null`。完整字段见[输入样例](../../../docs/examples/text-frontend-v02-request.json)。
+- 请求必须显式 `contract_version: "0.2"`，输入元数据未知时填写 `null`。完整字段见[输入样例](../../../contracts/source-to-text/text-frontend-v02-request.json)。
 - 每条证据新增 `supports`，由当前草稿的行动、时间、对象、课程引用生成，不给历史 v0.1 结果事后补证据。
 - 完整原文确实没有时间要求：`deadline.status="not_provided"`、`value=null`，可以保留无 DDL 任务；正文残缺或时间无法确定：`unknown`，要求核实。
 - 活动参考时间仍为 `reference/inferred`，不能自动当作截止时间。参考时间不能换算时用 `unknown`，解释保留在 `basis`。
@@ -48,11 +48,11 @@ CLI 现在默认输出 JSON；需要人工阅读时显式加 `--format text`。v
 
 ## 看样例、跑测试
 
-直接查看：[输入](../../../docs/examples/text-frontend-v02-request.json)、[人工草稿](../../../docs/examples/text-frontend-v02-drafts.json)、[离线处理输出](../../../docs/examples/text-frontend-v02-output.json)、[真实模型联调结果](frontend-v02-live-2026-09-24.json)。两个输入合计三个候选：加群（参考时间）、学习计划（未提供日期）、实验报告（明确 DDL）。这些全部是合成数据。
+直接查看：[输入](../../../contracts/source-to-text/text-frontend-v02-request.json)、[人工草稿](../../../ddl_text/tests/fixtures/text-frontend-v02-drafts.json)、[离线处理输出](../../../contracts/text-to-app/text-frontend-v02-output.json)、[真实模型联调结果](frontend-v02-live-2026-09-24.json)。两个输入合计三个候选：加群（参考时间）、学习计划（未提供日期）、实验报告（明确 DDL）。这些全部是合成数据。
 
 ```powershell
 # 不调用 API，输出可直接解析的 JSON
-python -m ddl_text --input docs/examples/text-frontend-v02-request.json --drafts docs/examples/text-frontend-v02-drafts.json
+python -m ddl_text --input contracts/source-to-text/text-frontend-v02-request.json --drafts ddl_text/tests/fixtures/text-frontend-v02-drafts.json
 
 # 本模块测试；默认不调用付费 API
 python -m unittest discover -s ddl_text/tests -t . -q
@@ -66,7 +66,7 @@ python scripts/check_frontend_integration.py --frontend-dir .
 python scripts/check_frontend_integration.py --frontend-dir . --live --output local-data/frontend-live-new.json
 ```
 
-可单独启动 `python -m ddl_text.http_server --drafts docs/examples/text-frontend-v02-drafts.json` 做无费用接口联调；该模式仅匹配这些样例的完整记录，不能识别任意粘贴文本，遇到其他文本明确失败。
+可单独启动 `python -m ddl_text.http_server --drafts ddl_text/tests/fixtures/text-frontend-v02-drafts.json` 做无费用接口联调；该模式仅匹配这些样例的完整记录，不能识别任意粘贴文本，遇到其他文本明确失败。
 
 ## 本次验证与下一步
 

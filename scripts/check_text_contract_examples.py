@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLES = ROOT / "docs/examples/text-contract-v0.1.json"
+EXAMPLES = ROOT / "ddl_text/tests/fixtures/text-contract-v0.1.json"
 
 
 def require(condition, message):

@@ -158,7 +158,7 @@ class ApiTests(unittest.TestCase):
 
     def test_recognition_transport_and_request_idempotence(self):
         a=self.client();self.register(a,'text-transport@test.local')
-        fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text(encoding='utf-8'))
+        fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
         captured=[]
         def harness(request,timeout):
             captured.append(json.loads(request.data))

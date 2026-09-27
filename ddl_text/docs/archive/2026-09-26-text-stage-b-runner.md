@@ -22,8 +22,8 @@
 | `ddl_text/tests/fake_adapters.py` | 测试用适配器，用于模拟失败、超时等情况，不是真实模型。 |
 | `ddl_text/tests/test_pipeline.py` | 自动测试批量处理、重试、超时、格式校验和命令行入口等行为。 |
 | `scripts/check_text_contract_examples.py` | 检查阶段 A 的合成输入和期望输出是否符合样例约定。 |
-| `docs/examples/text-contract-v0.1.json` | 合成输入及人工期望结果，供演示和测试使用。 |
-| `docs/examples/text-runner-config.json` | 配置文件示例。 |
+| `ddl_text/tests/fixtures/text-contract-v0.1.json` | 合成输入及人工期望结果，供演示和测试使用。 |
+| `ddl_text/tests/fixtures/text-runner-config.json` | 配置文件示例。 |
 | `ddl_text/docs/archive/2026-09-26-text-contract-v0.1.md` | 各个输入输出字段、日期和不确定性的详细约定。 |
 | `.gitignore` | 排除缓存、环境文件和本地私人测试数据，避免误提交。 |
 | `README.md` | 项目入口和其他需求、计划、交付文档的导航。 |
@@ -40,7 +40,7 @@ python -m ddl_text --demo multiple --format json
 python -m ddl_text --demo no-date
 python -m ddl_text --demo partial-batch
 python -m ddl_text --demo agent-failure
-python -m ddl_text --demo multiple --config docs/examples/text-runner-config.json --audit
+python -m ddl_text --demo multiple --config ddl_text/tests/fixtures/text-runner-config.json --audit
 ```
 
 `--demo` 使用阶段 A 的合成输入和人工期望结果，明确显示“离线样例回放（非模型识别）”。这验证处理通路，不验证自然语言识别能力。unknown case_id 会报参数错误，不静默换用其他样例。
@@ -63,7 +63,7 @@ python -m ddl_text --input local-data/request.json --mode real
 }
 ```
 
-若要回放自己的合成数据，使用 `--replay 文件路径`，文件结构与 `docs/examples/text-contract-v0.1.json` 相同。请求的规范化记录必须与回放原始记录完全匹配；只复用 ID、正文或元数据不同的记录不会返回旧答案。真实数据留在被忽略的 local-data 目录或仓库之外；不要把自己的私人数据写入演示 fixture。
+若要回放自己的合成数据，使用 `--replay 文件路径`，文件结构与 `ddl_text/tests/fixtures/text-contract-v0.1.json` 相同。请求的规范化记录必须与回放原始记录完全匹配；只复用 ID、正文或元数据不同的记录不会返回旧答案。真实数据留在被忽略的 local-data 目录或仓库之外；不要把自己的私人数据写入演示 fixture。
 
 当前默认输出 JSON，版本跟随请求（本页历史样例为 v0.1，前端使用 v0.2）；运行模式写入标准错误，便于调用方解析。需要人工阅读时加 `--format text`。成功/无任务退出码为 0，处理失败/部分成功为 1，文件、JSON 或配置错误为 2。语法损坏的 JSON 无法恢复请求标识，故只输出安全的命令行错误，不伪造契约结果。新增 HTTP 入口见[前端对接说明](2026-09-26-text-frontend-integration.md)。
 
@@ -75,7 +75,7 @@ python -m ddl_text --input local-data/request.json --mode real
 
 在独立脚本中调用需放在 `if __name__ == "__main__":` 保护块内，以支持 Windows 的 spawn。入口模块已处理此要求。每个进程只收到一条输入及其提供的上下文；不要把其他用户信息放进适配器实例字段。
 
-配置项集中在 `Settings`，示例见 [text-runner-config.json](../../../docs/examples/text-runner-config.json)：
+配置项集中在 `Settings`，示例见 [text-runner-config.json](../../../ddl_text/tests/fixtures/text-runner-config.json)：
 
 - mode：offline/real，命令行必须显式选择，配置文件不能覆盖。
 - model、endpoint：保留给未来实际适配器，不默认填写未经验证的型号或服务地址。

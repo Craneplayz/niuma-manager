@@ -34,7 +34,7 @@ python -m unittest discover -s ddl_text/tests -t . -v
 完整测试命令仍为上文命令。阶段 C 联调演示：
 
 ```text
-python -m ddl_text --input docs/examples/text-stage-c-request.json --drafts docs/examples/text-stage-c-drafts.json
+python -m ddl_text --input ddl_text/tests/fixtures/text-stage-c-request.json --drafts ddl_text/tests/fixtures/text-stage-c-drafts.json
 python scripts/check_text_contract_examples.py
 ```
 

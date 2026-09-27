@@ -26,7 +26,7 @@ python -m ddl_text --check-connection
 填写后，可用以下合成输入验证真实调用（会访问七牛 API，可能计费）：
 
 ```text
-python -m ddl_text --mode real --input docs/examples/text-frontend-v02-request.json
+python -m ddl_text --mode real --input contracts/source-to-text/text-frontend-v02-request.json
 ```
 
 样例包含加群、提交学习计划和实验报告三个候选。加群时间应为参考时间，学习计划没有明确日期，实验报告有明确截止时间；模型文字表达可能不同。CLI 默认输出 JSON，添加 `--format text` 可查看文字版。没有有效模型结果时会明确失败，不回放预置答案。

@@ -7,8 +7,8 @@
 | 入口 | 内容 |
 | --- | --- |
 | [协作协议](../../../docs/backend-harness-alignment.md) | 前端使用的 v0.2 输入、输出和确认流程；当前接口基线 |
-| [输入 JSON](../../../docs/examples/text-frontend-v02-request.json) | 教学网与邮箱合成通知；原文、发布时间、平台、来源及上下文字段 |
-| [离线输出 JSON](../../../docs/examples/text-frontend-v02-output.json) | 三个候选，分别展示参考时间、无日期和明确截止 |
+| [输入 JSON](../../../contracts/source-to-text/text-frontend-v02-request.json) | 教学网与邮箱合成通知；原文、发布时间、平台、来源及上下文字段 |
+| [离线输出 JSON](../../../contracts/text-to-app/text-frontend-v02-output.json) | 三个候选，分别展示参考时间、无日期和明确截止 |
 | [七牛真实输出 JSON](qiniu-frontend-live-2026-09-25.json) | `result` 为识别返回对象，另含合成输入和验证信息 |
 | [API 配置](2026-09-26-text-api-setup.md) | 密钥、供应商切换、失败排查 |
 | [阶段 E 验收](2026-09-26-text-stage-e-review.md) | 回归结果、网页检查和剩余边界 |
@@ -39,7 +39,7 @@ v0.1 文档和样例继续兼容旧 CLI；HTTP 与前端统一使用 v0.2。CLI 
 需要 Python 3.9+；文本模块使用标准库。Windows 如缺 IANA 时区数据库，安装 `tzdata`。在仓库根目录执行：
 
 ```powershell
-python -m ddl_text --input docs/examples/text-frontend-v02-request.json --drafts docs/examples/text-frontend-v02-drafts.json
+python -m ddl_text --input contracts/source-to-text/text-frontend-v02-request.json --drafts ddl_text/tests/fixtures/text-frontend-v02-drafts.json
 python -m unittest discover -s ddl_text/tests -t . -q
 python scripts/check_text_contract_examples.py
 ```
@@ -60,7 +60,7 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 # 仅检查配置，不访问模型
 python -m ddl_text --check-connection
 # 使用合成通知进行真实调用，可能计费
-python -m ddl_text --mode real --input docs/examples/text-frontend-v02-request.json
+python -m ddl_text --mode real --input contracts/source-to-text/text-frontend-v02-request.json
 ```
 
 不同 `.env` 可通过 `--env-file` 指定。系统同名环境变量优先；更换密钥后重启识别服务。密钥不写入 JSON 输入、浏览器、Git 或共享报告。

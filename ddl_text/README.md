@@ -27,6 +27,12 @@ ddl_text/
 │           ├── examples.md     # 识别正反例
 │           └── time-sources.md # 日期规则的参考资料
 ├── tests/                # 离线单元测试及本机模拟服务测试
+│   ├── fixtures/         # 模块内部回放数据，跨模块 v0.2 样例另见 contracts/
+│   │   ├── text-contract-v0.1.json # 旧 CLI 的 17 个契约回归样例
+│   │   ├── text-runner-config.json # CLI 运行参数样例
+│   │   ├── text-stage-c-request.json # 阶段 C 合成输入
+│   │   ├── text-stage-c-drafts.json # 阶段 C 离线模型草稿
+│   │   └── text-frontend-v02-drafts.json # 与共享 v0.2 输入配套的离线模型草稿
 │   ├── __init__.py       # 测试包入口
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
@@ -46,7 +52,7 @@ ddl_text/
 ## 输入输出与规则
 
 - [共享接口协议](../docs/backend-harness-alignment.md)：v0.2 输入输出及确认流程。
-- [输入样例](../docs/examples/text-frontend-v02-request.json)、[离线草稿](../docs/examples/text-frontend-v02-drafts.json)、[输出样例](../docs/examples/text-frontend-v02-output.json)。样例目录随后由 #38 迁移到 `contracts/`。
+- [输入样例](../contracts/source-to-text/text-frontend-v02-request.json)、[离线草稿](tests/fixtures/text-frontend-v02-drafts.json)、[输出样例](../contracts/text-to-app/text-frontend-v02-output.json)；交接方向与文件说明见 [contracts](../contracts/README.md)。
 - [识别规则](skills/text-task-extraction/SKILL.md)：行动要求、来源和日期判断；未知、推断、冲突的时间保留不确定性，参考时间不直接当作明确截止时间。
 
 ## 运行与测试
@@ -55,7 +61,7 @@ ddl_text/
 
 ```powershell
 # 人工草稿回放：不访问模型，不代表真实模型识别成功
-python -m ddl_text --input docs/examples/text-frontend-v02-request.json --drafts docs/examples/text-frontend-v02-drafts.json
+python -m ddl_text --input contracts/source-to-text/text-frontend-v02-request.json --drafts ddl_text/tests/fixtures/text-frontend-v02-drafts.json
 # 全部文本测试；-t . 保持测试包及子进程导入路径一致
 python -m unittest discover -s ddl_text/tests -t . -q
 python scripts/check_text_contract_examples.py
@@ -69,7 +75,7 @@ python scripts/check_frontend_integration.py --frontend-dir .
 
 ```powershell
 python -m ddl_text --check-connection
-python -m ddl_text --mode real --input docs/examples/text-frontend-v02-request.json
+python -m ddl_text --mode real --input contracts/source-to-text/text-frontend-v02-request.json
 python -m ddl_text.http_server --real
 ```
 

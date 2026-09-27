@@ -71,7 +71,7 @@ def main():
     # This script only accepts fixed synthetic fixture IDs, never private files.
     if isinstance(client, CodexClient):
         client.generate = capture
-    cases = json.loads((ROOT / "docs/examples/text-contract-v0.1.json").read_text(encoding="utf-8"))["cases"]
+    cases = json.loads((ROOT / "ddl_text/tests/fixtures/text-contract-v0.1.json").read_text(encoding="utf-8"))["cases"]
     version = (subprocess.run([client.executable, "--version"], capture_output=True, encoding="utf-8", timeout=10).stdout.strip()
                if isinstance(client, CodexClient) else None)
     report = {"started_at": datetime.now(timezone.utc).isoformat(), "model": settings.model, "provider": options["provider"],

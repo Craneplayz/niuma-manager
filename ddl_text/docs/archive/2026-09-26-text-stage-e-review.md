@@ -8,12 +8,12 @@
 
 - 自动检查：93 项，92 通过、1 项可选 Codex 联调跳过；17 个契约样例通过；实际业务后端离线集成的 5 项检查通过；skill 校验通过。
 - [真实模型首轮记录](qiniu-year-inference-2026-09-25.json)：4/5 通过，发现模型将“截止”收入时间引文，导致日期转换失败，保留原失败记录。
-- 修复后使用相同的 [5 条合成输入](../../../docs/examples/text-year-inference-request.json) 再测：[最终真实输出](qiniu-year-inference-final-2026-09-25.json) **5/5 通过**，串行合计 21.73 秒。分别覆盖同年、跨年、采集时间估年、显式远期年份和刚过期任务。原文证据由程序验证，人工核对任务含义；报告包含原始输入、完整 JSON 输出和规则摘要。该固定回归不是独立准确率评测，也不代表 HTTP 批量能在 20 秒预算内完成。
+- 修复后使用相同的 [5 条合成输入](../../../contracts/source-to-text/text-year-inference-request.json) 再测：[最终真实输出](qiniu-year-inference-final-2026-09-25.json) **5/5 通过**，串行合计 21.73 秒。分别覆盖同年、跨年、采集时间估年、显式远期年份和刚过期任务。原文证据由程序验证，人工核对任务含义；报告包含原始输入、完整 JSON 输出和规则摘要。该固定回归不是独立准确率评测，也不代表 HTTP 批量能在 20 秒预算内完成。
 
 复现真实调用（会调用已配置 API，可能计费）：
 
 ```text
-python -m ddl_text --mode real --input docs/examples/text-year-inference-request.json
+python -m ddl_text --mode real --input contracts/source-to-text/text-year-inference-request.json
 ```
 
 例：2026-09-25 的通知写“9月30日18点”，结果为 `2026-09-30T18:00:00+08:00`、`inferred`；2026-12-31 写“1月5日”，结果为 `2027-01-05`。若发布时间和采集时间都没有，仍需补充基准；“明天”的换算仍要求可信发布时间。本次不修改前端，已有审核界面仍需用户确认推断值。

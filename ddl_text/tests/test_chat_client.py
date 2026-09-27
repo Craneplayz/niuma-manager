@@ -48,7 +48,7 @@ class ChatClientTests(unittest.TestCase):
         self.calls = []
         self.status = 200
         self.delay = 0
-        self.fixture = json.loads((ROOT / 'docs/examples/text-stage-c-drafts.json').read_text(encoding='utf-8'))[0]
+        self.fixture = json.loads((ROOT / 'ddl_text/tests/fixtures/text-stage-c-drafts.json').read_text(encoding='utf-8'))[0]
         self.reply = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(self.fixture['response'])}}]}
         owner = self
         class Handler(BaseHTTPRequestHandler):
@@ -97,8 +97,8 @@ class ChatClientTests(unittest.TestCase):
         self.assertEqual(json.loads(payload['messages'][1]['content'])['text'], self.fixture['record']['text'])
 
     def test_v02_pipeline_keeps_frontend_contract(self):
-        entries = json.loads((ROOT / 'docs/examples/text-frontend-v02-drafts.json').read_text(encoding='utf-8'))
-        request = json.loads((ROOT / 'docs/examples/text-frontend-v02-request.json').read_text(encoding='utf-8'))
+        entries = json.loads((ROOT / 'ddl_text/tests/fixtures/text-frontend-v02-drafts.json').read_text(encoding='utf-8'))
+        request = json.loads((ROOT / 'contracts/source-to-text/text-frontend-v02-request.json').read_text(encoding='utf-8'))
         request['records'] = request['records'][:1]
         self.reply['choices'][0]['message']['content'] = json.dumps(entries[0]['response'])
         result = process_request(request, ExtractionAdapter(self.client), self.settings)
