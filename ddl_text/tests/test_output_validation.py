@@ -6,8 +6,8 @@ from copy import deepcopy
 from ddl_text.contracts import ContractError, normalize_record, validate_tasks
 from ddl_text.pipeline import process_request
 from ddl_text.render import render_text
-from tests.fake_adapters import ControlledAdapter
-from tests.test_pipeline import example
+from ddl_text.tests.fake_adapters import ControlledAdapter
+from ddl_text.tests.test_pipeline import example
 
 
 class OutputValidationTests(unittest.TestCase):

@@ -1,12 +1,12 @@
 # 文本识别与前端对接（v0.2）
 
-最新状态（2026-09-25）：前端 PR #15/#16、文本 API PR #14、七牛接入 PR #17 已合并。七牛真实联调和网页候选确认已通过，详见[阶段 E 验收](text-stage-e-review.md)；有限样例成功不代表长期延迟已验收。前端目录为 `frontend/`。
+最新状态（2026-09-25）：前端 PR #15/#16、文本 API PR #14、七牛接入 PR #17 已合并。七牛真实联调和网页候选确认已通过，详见[阶段 E 验收](2026-09-26-text-stage-e-review.md)；有限样例成功不代表长期延迟已验收。前端目录为 `frontend/`。
 
 对接历史：2026-09-24 最初基于前端 [PR #15](https://github.com/Craneplayz/niuma-manager/pull/15) 的 `3251c8eabf1224df9090b0752b94d1c9e3abc0b8` 增加 v0.2 输出与 HTTP 服务；当前团队主线已同时包含两端代码，无需手动叠加旧分支。
 
 ## 数据如何流动
 
-前端“待确认”页提交原文 → 账户后端 `/api/recognition/batches` → `TEXT_HARNESS_URL` → 已配置的模型识别 → 裸 v0.2 JSON → 前端显示候选 → 用户确认 → 账户后端保存任务。当前可使用七牛 API 直连，或原 DeepSeek + Codex 方式；见 [API 配置说明](text-api-setup.md)。更换供应商不改变前端 JSON 契约。
+前端“待确认”页提交原文 → 账户后端 `/api/recognition/batches` → `TEXT_HARNESS_URL` → 已配置的模型识别 → 裸 v0.2 JSON → 前端显示候选 → 用户确认 → 账户后端保存任务。当前可使用七牛 API 直连，或原 DeepSeek + Codex 方式；见 [API 配置说明](2026-09-26-text-api-setup.md)。更换供应商不改变前端 JSON 契约。
 
 识别服务不管理账号、数据库或最终任务。账户、候选持久化、重复确认和取消操作由前端 PR 自带的后端负责。
 
@@ -37,7 +37,7 @@ Python 3.9+；Windows 需要可用的 IANA 时区数据库，若 `python -c "fro
 
 ## JSON 的关键差异
 
-- 请求必须显式 `contract_version: "0.2"`，输入元数据未知时填写 `null`。完整字段见[输入样例](examples/text-frontend-v02-request.json)。
+- 请求必须显式 `contract_version: "0.2"`，输入元数据未知时填写 `null`。完整字段见[输入样例](../../../docs/examples/text-frontend-v02-request.json)。
 - 每条证据新增 `supports`，由当前草稿的行动、时间、对象、课程引用生成，不给历史 v0.1 结果事后补证据。
 - 完整原文确实没有时间要求：`deadline.status="not_provided"`、`value=null`，可以保留无 DDL 任务；正文残缺或时间无法确定：`unknown`，要求核实。
 - 活动参考时间仍为 `reference/inferred`，不能自动当作截止时间。参考时间不能换算时用 `unknown`，解释保留在 `basis`。
@@ -48,14 +48,14 @@ CLI 现在默认输出 JSON；需要人工阅读时显式加 `--format text`。v
 
 ## 看样例、跑测试
 
-直接查看：[输入](examples/text-frontend-v02-request.json)、[人工草稿](examples/text-frontend-v02-drafts.json)、[离线处理输出](examples/text-frontend-v02-output.json)、[真实模型联调结果](validation/frontend-v02-live-2026-09-24.json)。两个输入合计三个候选：加群（参考时间）、学习计划（未提供日期）、实验报告（明确 DDL）。这些全部是合成数据。
+直接查看：[输入](../../../docs/examples/text-frontend-v02-request.json)、[人工草稿](../../../docs/examples/text-frontend-v02-drafts.json)、[离线处理输出](../../../docs/examples/text-frontend-v02-output.json)、[真实模型联调结果](frontend-v02-live-2026-09-24.json)。两个输入合计三个候选：加群（参考时间）、学习计划（未提供日期）、实验报告（明确 DDL）。这些全部是合成数据。
 
 ```powershell
 # 不调用 API，输出可直接解析的 JSON
 python -m ddl_text --input docs/examples/text-frontend-v02-request.json --drafts docs/examples/text-frontend-v02-drafts.json
 
 # 本模块测试；默认不调用付费 API
-python -m unittest discover -s tests -q
+python -m unittest discover -s ddl_text/tests -t . -q
 python scripts/check_text_contract_examples.py
 
 # 完整 HTTP 联调：临时数据库和测试账号，退出清理，不修改正式账号/数据
@@ -82,7 +82,7 @@ python scripts/check_frontend_integration.py --frontend-dir . --live --output lo
 | --- | --- |
 | `ddl_text/contract_v02.py` | 与前端一致的 v0.2 请求、候选、结果校验 |
 | `ddl_text/http_server.py` | 本地 JSON HTTP 服务、令牌校验、大小限制和忙碌处理 |
-| `tests/test_frontend_contract.py` | 无 DDL、证据用途、冲突、兼容性与 HTTP 异常回归 |
+| `ddl_text/tests/test_frontend_contract.py` | 无 DDL、证据用途、冲突、兼容性与 HTTP 异常回归 |
 | `scripts/check_frontend_integration.py` | 启动真实前端后端和识别服务，检查确认/存储完整链路 |
 
-原有文件说明见[阶段 C 说明](text-stage-c-extraction.md)，密钥配置见[API 配置说明](text-api-setup.md)。
+原有文件说明见[阶段 C 说明](2026-09-26-text-stage-c-extraction.md)，密钥配置见[API 配置说明](2026-09-26-text-api-setup.md)。

@@ -41,19 +41,19 @@
 
 完整记录（只含合成输入对应的结果，失败不覆盖）：
 
-- [首轮十条结果](validation/stage-d-live-2026-09-24.json)
-- [多任务诊断](validation/stage-d-live-diagnostic-2026-09-24.json)
-- [其余四条诊断](validation/stage-d-live-diagnostic-2-2026-09-24.json)
-- [修复后十条结果、草稿与文本呈现](validation/stage-d-live-fixed-2026-09-24.json)
+- [首轮十条结果](stage-d-live-2026-09-24.json)
+- [多任务诊断](stage-d-live-diagnostic-2026-09-24.json)
+- [其余四条诊断](stage-d-live-diagnostic-2-2026-09-24.json)
+- [修复后十条结果、草稿与文本呈现](stage-d-live-fixed-2026-09-24.json)
 
 记录含执行时模型配置、CLI/Python 版本、规则 SHA-256、耗时与检查结果。模型别名不是不可变模型快照；后续服务更新仍需回归。
 
 ## 复现
 
-日常配置与命令见 [API 操作说明](text-api-setup.md)。普通离线回归和合成契约检查：
+日常配置与命令见 [API 操作说明](2026-09-26-text-api-setup.md)。普通离线回归和合成契约检查：
 
 ```text
-python -m unittest discover -s tests -q
+python -m unittest discover -s ddl_text/tests -t . -q
 python scripts/check_text_contract_examples.py
 ```
 

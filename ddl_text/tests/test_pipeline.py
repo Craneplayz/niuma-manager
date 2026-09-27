@@ -12,10 +12,10 @@ from pathlib import Path
 from ddl_text.adapters import ReplayAdapter
 from ddl_text.config import Settings
 from ddl_text.pipeline import process_request
-from tests.fake_adapters import ControlledAdapter, NetworkForbiddenReplay, TimeoutFirstAdapter
+from ddl_text.tests.fake_adapters import ControlledAdapter, NetworkForbiddenReplay, TimeoutFirstAdapter
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CASES = json.loads((ROOT / "docs/examples/text-contract-v0.1.json").read_text(encoding="utf-8"))["cases"]
 
 

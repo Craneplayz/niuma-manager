@@ -4,11 +4,11 @@
 
 用户反馈“9月30日”因缺年份一直不能识别。此次同时修改 skill 和程序：原样提取月日，在可信发布时间的相邻年份中选最近有效日期；没有可信发布时间时可用该消息的采集时间低置信度估年。明确年份不覆盖，刚过期日期不机械滚到下一年，推断标为 `inferred` 并保留核实依据。支持中文月日及 M/D、M-D、M.D；兼容“截至…／…截止／…前”引文，原话不改写。输入输出协议不变。
 
-公开参考及取舍见 [时间规则来源](../skills/text-task-extraction/references/time-sources.md)。没有引入第三方运行依赖。
+公开参考及取舍见 [时间规则来源](../../skills/text-task-extraction/references/time-sources.md)。没有引入第三方运行依赖。
 
 - 自动检查：93 项，92 通过、1 项可选 Codex 联调跳过；17 个契约样例通过；实际业务后端离线集成的 5 项检查通过；skill 校验通过。
-- [真实模型首轮记录](validation/qiniu-year-inference-2026-09-25.json)：4/5 通过，发现模型将“截止”收入时间引文，导致日期转换失败，保留原失败记录。
-- 修复后使用相同的 [5 条合成输入](examples/text-year-inference-request.json) 再测：[最终真实输出](validation/qiniu-year-inference-final-2026-09-25.json) **5/5 通过**，串行合计 21.73 秒。分别覆盖同年、跨年、采集时间估年、显式远期年份和刚过期任务。原文证据由程序验证，人工核对任务含义；报告包含原始输入、完整 JSON 输出和规则摘要。该固定回归不是独立准确率评测，也不代表 HTTP 批量能在 20 秒预算内完成。
+- [真实模型首轮记录](qiniu-year-inference-2026-09-25.json)：4/5 通过，发现模型将“截止”收入时间引文，导致日期转换失败，保留原失败记录。
+- 修复后使用相同的 [5 条合成输入](../../../docs/examples/text-year-inference-request.json) 再测：[最终真实输出](qiniu-year-inference-final-2026-09-25.json) **5/5 通过**，串行合计 21.73 秒。分别覆盖同年、跨年、采集时间估年、显式远期年份和刚过期任务。原文证据由程序验证，人工核对任务含义；报告包含原始输入、完整 JSON 输出和规则摘要。该固定回归不是独立准确率评测，也不代表 HTTP 批量能在 20 秒预算内完成。
 
 复现真实调用（会调用已配置 API，可能计费）：
 
@@ -28,13 +28,13 @@ python -m ddl_text --mode real --input docs/examples/text-year-inference-request
 
 | 验收内容 | 结果与证据 |
 | --- | --- |
-| 预处理文本进入模型，得到规范 JSON | 七牛直连 DeepSeek V4.1 Flash；[真实 v0.2 输入输出](validation/qiniu-frontend-live-2026-09-25.json)通过前端后端的实际校验器 |
+| 预处理文本进入模型，得到规范 JSON | 七牛直连 DeepSeek V4.1 Flash；[真实 v0.2 输入输出](qiniu-frontend-live-2026-09-25.json)通过前端后端的实际校验器 |
 | 广义待办、多任务、无日期不丢失 | 固定真实案例与网页合成通知均保留加群任务；v0.2 完整无日期正文标为 `not_provided` |
 | 不确定日期、参考时间、上下文变更 | 缺日期基准、冲突、延期、取消案例通过；加群参考时间在 v0.2 联调中保持 `reference/inferred` |
 | 来源与证据 | 从输入复制来源，逐字核对证据；教学网/微信由固定案例覆盖，邮箱由 v0.2 联调覆盖。这里验证文本入口，不代表平台抓取已接通 |
 | 失败不伪装为无任务 | 单元测试覆盖超时、认证失败、截断、非法草稿、部分成功与空批次；原网页超时记录单独保留 |
 | 前端确认与最终任务 | 网页真实识别后确认两项合成任务：报告截止时间保留，加群保持无 DDL；实际业务后端联调另外检查重复确认、请求重放和账户隔离 |
-| 队友复现与维护 | [交付使用说明](text-handoff.md)、[API 配置说明](text-api-setup.md)、[协作协议](backend-harness-alignment.md) |
+| 队友复现与维护 | [交付使用说明](2026-09-26-text-handoff.md)、[API 配置说明](2026-09-26-text-api-setup.md)、[协作协议](../../../docs/backend-harness-alignment.md) |
 
 ## 2. 确定性检查
 
@@ -42,7 +42,7 @@ python -m ddl_text --mode real --input docs/examples/text-year-inference-request
 
 | 检查 | 本轮结果 |
 | --- | --- |
-| `python -m unittest discover -s tests -q` | 88 项：87 通过、1 项可选 Codex 本机联调跳过 |
+| `python -m unittest discover -s ddl_text/tests -t . -q` | 88 项：87 通过、1 项可选 Codex 本机联调跳过 |
 | `python scripts/check_text_contract_examples.py` | 17 个合成契约样例通过 |
 | `npm test`（在 `frontend/`） | 前端 11 项、账户后端 27 项通过 |
 | `npm run build`（在 `frontend/`） | 通过。首次运行受执行沙箱目录权限限制，使用正常本机权限重跑同一命令成功；未改动构建代码 |
@@ -68,7 +68,7 @@ python -m ddl_text --mode real --input docs/examples/text-year-inference-request
 
 九个新增场景合计 30.34 秒；包含同日明确日期记录合计 34.93 秒。每次为单条 CLI 调用，120 秒超时、0 次重试；不能用此耗时保证 HTTP 多条批量都能在 20 秒内完成。
 
-原始记录：[九场景结果](validation/qiniu-stage-e-regression-2026-09-25.json)、[同日明确日期结果](validation/qiniu-absolute-live-2026-09-25.json)。后者保留历史文字标签“DeepSeek 经 Codex”，报告的 `provider=qiniu`、`codex_version=null` 与实际调用一致；该显示标签已在 PR #17 修正，没有为文案重复请求 API。
+原始记录：[九场景结果](qiniu-stage-e-regression-2026-09-25.json)、[同日明确日期结果](qiniu-absolute-live-2026-09-25.json)。后者保留历史文字标签“DeepSeek 经 Codex”，报告的 `provider=qiniu`、`codex_version=null` 与实际调用一致；该显示标签已在 PR #17 修正，没有为文案重复请求 API。
 
 规则版本 `0.2.0`，规则文件及引用资料拼接后的 SHA-256：`0ee32ea0cf843409857c3e33d0e67cdbb8a27423e9db2184f770f90dabe83168`。脚本记录模型、规则摘要、Python 版本、样例数、失败结果及耗时；不记录密钥或私人通知。
 

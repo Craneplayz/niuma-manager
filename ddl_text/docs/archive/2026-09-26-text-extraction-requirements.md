@@ -1,6 +1,6 @@
 # 文本任务识别模块：需求基线
 
-状态（2026-09-25）：前端/HTTP 以[协作协议 v0.2](backend-harness-alignment.md)为基线；[v0.1](text-contract-v0.1.md)保留 CLI 兼容。七牛真实模型连接和本地网页联调已验证，生产部署另行安排。当前交付证据见[阶段 E 验收](text-stage-e-review.md)。
+状态（2026-09-25）：前端/HTTP 以[协作协议 v0.2](../../../docs/backend-harness-alignment.md)为基线；[v0.1](2026-09-26-text-contract-v0.1.md)保留 CLI 兼容。七牛真实模型连接和本地网页联调已验证，生产部署另行安排。当前交付证据见[阶段 E 验收](2026-09-26-text-stage-e-review.md)。
 
 ## 目标与边界
 
@@ -25,7 +25,7 @@
 - 负责人可以手动提供评测数据；不将私有原文或访问凭据提交到仓库、Issue 或 Project。
 - 第一轮冲刺为 2026-09-21 至 2026-09-28，2026-09-24 与 2026-09-26 开会检查进度。
 - 本模块的 GitHub Issue 创建在队长仓库 `Craneplayz/niuma-manager`；本地 clone 的 origin 为个人 fork `dhjx1234/niuma-manager`。
-- 团队 Project 为 [NiuMa Manager](https://github.com/users/Craneplayz/projects/2)，已建立 Issue #3–#10；迭代字段由负责人维护。开发过程见[执行计划](text-development-plan.md)。
+- 团队 Project 为 [NiuMa Manager](https://github.com/users/Craneplayz/projects/2)，已建立 Issue #3–#10；迭代字段由负责人维护。开发过程见[执行计划](2026-09-26-text-development-plan.md)。
 - 负责人已确认上游可以提供原始正文，并区分原文发布时间与采集/生成时间。三份 HTML 仅作组员进度样例，不据此扩展活动收录范围或固定正式协议；继续按原有任务规则识别。
 
 ## 可调整的实现边界

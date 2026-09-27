@@ -1,6 +1,6 @@
 # 阶段 C：识别 skill、日期与证据处理
 
-当前状态（2026-09-25）：阶段 C 及后续真实接入已合并，七牛模式直接调用模型并加载同一份规则。最新运行步骤见[交付使用说明](text-handoff.md)，验收见[阶段 E 记录](text-stage-e-review.md)。现行规则 0.3.0 已支持缺年份月日推断。以下保留阶段 C 当时的实现和复核历史，其中待接入状态及“不补年份”限制不代表当前状态。
+当前状态（2026-09-25）：阶段 C 及后续真实接入已合并，七牛模式直接调用模型并加载同一份规则。最新运行步骤见[交付使用说明](2026-09-26-text-handoff.md)，验收见[阶段 E 记录](2026-09-26-text-stage-e-review.md)。现行规则 0.3.0 已支持缺年份月日推断。以下保留阶段 C 当时的实现和复核历史，其中待接入状态及“不补年份”限制不代表当前状态。
 
 关联 #5、#6，依赖已合并的阶段 B（PR #12）。本阶段交付共享识别规则及“Agent 任务草稿 → 规范候选”的程序；真实 DeepSeek/Codex 调用和 Codex 自动发现 skill 的验证仍属于 #9。未进行真实自然语言识别或准确率验收，不因此关闭 #5、#6。
 
@@ -16,16 +16,16 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| [SKILL.md](../skills/text-task-extraction/SKILL.md) | 原创识别规则、触发范围与失败处理；规则版本 0.1.0。 |
-| [draft-schema.md](../skills/text-task-extraction/references/draft-schema.md) | 模型应返回的中间草稿格式；对外仍是原来的 v0.1 格式。 |
-| [examples.md](../skills/text-task-extraction/references/examples.md) | 加群、多任务、无日期、延期、取消和注入内容等正反例。 |
-| [extraction.py](../ddl_text/extraction.py) | 加载共享规则、调用可替换客户端、校验证据并生成候选。 |
-| [dates.py](../ddl_text/dates.py) | 根据原文和发布时间确定日期，保留不确定性与冲突。 |
-| [test_extraction.py](../tests/test_extraction.py) | 日期、来源、上下文、草稿校验和命令行回归测试。 |
-| [text-stage-c-request.json](examples/text-stage-c-request.json) | 合成通知输入。 |
-| [text-stage-c-drafts.json](examples/text-stage-c-drafts.json) | 与该输入严格匹配的人工 Agent 草稿，供离线测试。 |
+| [SKILL.md](../../skills/text-task-extraction/SKILL.md) | 原创识别规则、触发范围与失败处理；规则版本 0.1.0。 |
+| [draft-schema.md](../../skills/text-task-extraction/references/draft-schema.md) | 模型应返回的中间草稿格式；对外仍是原来的 v0.1 格式。 |
+| [examples.md](../../skills/text-task-extraction/references/examples.md) | 加群、多任务、无日期、延期、取消和注入内容等正反例。 |
+| [extraction.py](../../extraction.py) | 加载共享规则、调用可替换客户端、校验证据并生成候选。 |
+| [dates.py](../../dates.py) | 根据原文和发布时间确定日期，保留不确定性与冲突。 |
+| [test_extraction.py](../../tests/test_extraction.py) | 日期、来源、上下文、草稿校验和命令行回归测试。 |
+| [text-stage-c-request.json](../../../docs/examples/text-stage-c-request.json) | 合成通知输入。 |
+| [text-stage-c-drafts.json](../../../docs/examples/text-stage-c-drafts.json) | 与该输入严格匹配的人工 Agent 草稿，供离线测试。 |
 
-原有入口、批量处理、超时、配置等文件见[阶段 B 文件速查](text-stage-b-runner.md#文件用途速查)。
+原有入口、批量处理、超时、配置等文件见[阶段 B 文件速查](2026-09-26-text-stage-b-runner.md#文件用途速查)。
 
 ## 如何运行与检查
 
@@ -34,7 +34,7 @@
 ```text
 python -m ddl_text --input docs/examples/text-stage-c-request.json --drafts docs/examples/text-stage-c-drafts.json
 python -m ddl_text --input docs/examples/text-stage-c-request.json --drafts docs/examples/text-stage-c-drafts.json --format json
-python -m unittest discover -s tests -v
+python -m unittest discover -s ddl_text/tests -t . -v
 python scripts/check_text_contract_examples.py
 git diff --check
 ```

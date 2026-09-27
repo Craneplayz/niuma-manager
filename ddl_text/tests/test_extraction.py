@@ -15,7 +15,7 @@ from ddl_text.extraction import ExtractionAdapter, OfflineDraftClient, compile_d
 from ddl_text.pipeline import process_request
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def message(text="请明天18点交报告。", input_id="m", **kwargs):
