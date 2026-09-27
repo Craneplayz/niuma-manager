@@ -267,7 +267,7 @@ unknown 显示“截止日期待核实”，not_provided 显示“原文未提�
 
 ## 7. 验收与迁移
 
-配套 [人工请求/期望输出样例](examples/text-contract-v0.2.json) 包含有 DDL、无 DDL、输入缺失和部分失败，不是模型实测结果。
+配套 [人工请求/期望输出样例](../contracts/text-to-app/text-contract-v0.2.json) 包含有 DDL、无 DDL、输入缺失和部分失败，不是模型实测结果。
 还必须覆盖：取消/延期、reference、相对日期缺基准、来源摘要、伪造引文、重复 ID、错误版本、空批次、同消息多个独立义务、跨用户输入拒绝。
 
 本版不自动适配 v0.1。迁移时不得从一条泛化 evidence 凭空补 supports；不能把 unknown 自动升级为 not_provided。需要原始 records 或重识别/人工核实。版本不支持时明确失败。

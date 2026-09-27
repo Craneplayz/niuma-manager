@@ -29,7 +29,7 @@ frontend/
     └── archive/               保存带日期的历史文档。
 ```
 
-本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`，根目录的 `src/` 属于其他模块。
+本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`。
 
 ## 启动
 
@@ -59,7 +59,7 @@ npm run dev:api
 真正的服务由后端配置，前端不接触密钥：
 
 ```bash
-TEXT_HARNESS_URL=http://127.0.0.1:8001/recognition HARNESS_URL=http://127.0.0.1:8000/planning npm run dev:api
+TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize HARNESS_URL=http://127.0.0.1:1334/planning npm run dev:api
 ```
 
 ## 检查

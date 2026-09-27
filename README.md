@@ -2,7 +2,7 @@
 
 “牛马管理器”是 DDL压鼠人小组开发的、面向学生的 AI 任务管理与学习规划助手。项目希望从课程通知、邮件或聊天文本中识别任务和截止时间（DDL），经用户确认后生成任务，并逐步提供排程、提醒和进度管理能力。
 
-> 当前阶段：文本识别已完成固定回归、七牛真实接入及网页审核入库验证；爬虫已合并但尚未接入识别链路；仓库结构整理中。
+> 当前阶段：文本识别已完成固定回归、七牛真实接入及网页审核入库验证；爬虫已合并但尚未接入识别链路；微信数据来源模块建立中（#42）。
 
 ## 模块
 
@@ -10,13 +10,15 @@
 
 | 模块 | 目录 | 负责内容 | 入口文档 |
 | --- | --- | --- | --- |
-| 爬虫 | 根目录 `src/`（整理后移至 `crawler/`） | 学院讲座、教学网作业采集 | [爬虫说明](docs/crawler.md) |
-| 文本识别 | `ddl_text/` | 从文本中识别任务与 DDL，输出候选 | [文本模块交付使用说明](docs/text-handoff.md) |
+| 爬虫 | `crawler/` | 学院讲座、教学网作业采集 | [爬虫说明](crawler/README.md) |
+| 微信 | `wechat/`（建立中，#42） | 微信群 / 聊天数据采集 | — |
+| 文本识别 | `ddl_text/` | 从文本中识别任务与 DDL，输出候选 | [文本识别说明](ddl_text/README.md) |
+| 数据契约 | `contracts/` | 模块之间的数据格式与样例 | [契约说明](contracts/README.md) |
 | 前端 | `frontend/` | 页面、候选确认、任务与规划界面 | [前端说明与启动指南](frontend/README.md) |
-| 后端 | `server/` | 账号、SQLite 存储、候选确认与规划 API | [前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md) |
+| 后端 | `server/` | 账号、SQLite 存储、候选确认与规划 API | [后端说明](server/README.md) |
 
-- 前端命令在 `frontend/` 中使用 npm；爬虫命令目前在仓库根目录使用 pnpm。
-- 模块之间的数据格式以协作协议和 `docs/examples/` 中的样例为准（整理后移至 `contracts/`）。
+- 前端命令在 `frontend/` 中使用 npm；爬虫命令在 `crawler/` 中使用 pnpm。
+- 模块之间的数据格式以 `contracts/` 为准，接口说明见[前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md)。
 
 ## 项目文档
 
