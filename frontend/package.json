@@ -9,12 +9,12 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "node ../scripts/run-python.mjs ../server/app.py",
-    "dev:planning": "node ../scripts/run-python.mjs ../planning_harness.py",
+    "dev:planning": "cd .. && node scripts/run-python.mjs -m server.planning_harness",
     "dev:recognition": "cd .. && node scripts/run-python.mjs -m ddl_text.http_server --real",
     "db:seed": "node ../scripts/run-python.mjs ../server/app.py --seed",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.js && node ../scripts/run-python.mjs -m unittest discover -s ../server -p test_*.py && cd .. && node scripts/run-python.mjs -m unittest test_planning_harness"
+    "test": "node --test tests/*.test.js && cd .. && node scripts/run-python.mjs -m unittest discover -s server -p test_*.py"
   },
   "devDependencies": {
     "vite": "^6.0.0"
