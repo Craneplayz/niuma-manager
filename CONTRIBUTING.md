@@ -1,6 +1,6 @@
 # 参与开发
 
-本文档只说明成员从领取 Issue 到合并 Pull Request 的实际操作。Scrum 角色、活动、任务状态和完成条件以[项目协作规范](docs/scrum-workflow.md)为准。
+本文档说明成员从领取 Issue 到合并 Pull Request 的实际操作。小组暂不采用 Scrum（2026-09-28 会议决定，见 #48；旧版规范移至 [archive](docs/archive/2026-09-28-scrum-workflow.md)）：任何人都可以开 Issue，任务主要由 ken0857900 发布。
 
 ## 0. 目录归属、对接、审查与整合
 
@@ -13,7 +13,8 @@
 | `crawler/` | 学院讲座、课程网爬虫 | Craneplayz |
 | `wechat/` | 微信群 / 聊天数据采集 | Xiao-Han666 |
 | `ddl_text/` | 文本任务识别 | dhjx1234 |
-| `frontend/` | 前端页面及与其他模块的对接代码 | Dranix123、Yongzhen23 |
+| `task_planning/` | 任务优先级判断规则（附理由）、skill 与排程 | Yongzhen23 |
+| `frontend/` | 前端页面（对话框 + 日历）及与其他模块的对接代码 | Dranix123 |
 | `server/` | 本地业务后端 | Dranix123 |
 | `contracts/` | 模块之间的数据格式（Schema 与样例） | ken0857900 + 上下游负责人 |
 | 根目录文件、`docs/`、`.github/` | 项目总说明与共享文档 | ken0857900（整合负责人） |
@@ -36,10 +37,11 @@
 ### 0.3 分支
 
 1. 所有成员直接在主仓库创建分支，不使用 fork。
-2. 发起 PR 前先将最新的 `master` 合并到自己的分支，冲突由 PR 作者解决。
-3. 暂不合并的内容以 Draft PR 提交。
-4. 分支在 PR 合并后删除；未合并的分支不得删除。不维护长期个人分支。
-5. 分支名须以自己的 GitHub 帐号（小写）开头，格式见第 2 节。
+2. **开发分支为 `ken0857900/refactor/repo-restructure`**：所有分支从它开出，所有 PR 的 base 都选它；发起 PR 前先将它的最新版本合并到自己的分支，冲突由 PR 作者解决。
+3. **`master` 只由整合负责人（ken0857900）合并**：开发分支经整合测试后，由整合负责人合并到 `master`；其他成员不得向 `master` 发 PR 或合并。
+4. 暂不合并的内容以 Draft PR 提交。
+5. 分支在 PR 合并后删除；未合并的分支不得删除。不维护长期个人分支。
+6. 分支名须以自己的 GitHub 帐号（小写）开头，格式见第 2 节。
 
 ### 0.4 审查与合并
 
@@ -68,14 +70,12 @@
 
 ## 1. 开始处理 Issue
 
-1. 在 GitHub Project 中选择已经进入当前 Sprint 的 Issue。
-2. 确认 Issue 已关联 Product Backlog ID，并包含验收标准、优先级、工作量估算和负责人。
-3. 检查依赖事项是否已经解决；存在阻塞时先在 Issue 中记录。
-4. 开始工作时将 Issue 状态改为 `In Progress`。
+1. 领取指派给自己的 Issue，确认包含范围、验收标准和负责人。
+2. 检查依赖事项是否已经解决；存在阻塞时先在 Issue 中记录。
 
 ## 2. 创建分支
 
-不得直接向主分支提交。每个 Issue 使用独立分支，分支名以自己的 GitHub 帐号（小写）开头：
+不得直接向开发分支或 `master` 提交。每个 Issue 使用独立分支，分支名以自己的 GitHub 帐号（小写）开头：
 
 ```text
 <github-id>/feature/<issue-number>-<short-name>
@@ -87,9 +87,8 @@
 例如：
 
 ```bash
-git switch master
-git pull --ff-only
-git switch -c dhjx1234/feature/12-ddl-extraction
+git fetch
+git switch -c dhjx1234/feature/12-ddl-extraction origin/ken0857900/refactor/repo-restructure
 ```
 
 一个分支只处理一个 Issue 或一个可以独立审查的目标，不得混入无关修改。
@@ -115,8 +114,7 @@ refactor: simplify task status transitions
 3. 使用 `Closes #<issue-number>` 关联 Issue。
 4. 按模板填写变更内容、验证方式、风险和影响。
 5. 界面修改提供截图或录屏；功能修改提供必要的测试结果。
-6. 将 GitHub Project 中的状态更新为 `In Review`。
-7. 邀请至少一名非作者成员进行 Review。
+6. 邀请至少一名非作者成员进行 Review。
 
 ## 5. Review 与修改
 
@@ -134,7 +132,7 @@ PR 作者须处理全部阻塞性意见。修改后继续提交到原分支，�
 ## 6. 合并与收尾
 
 1. 确认 PR 已通过至少一名非作者成员审查。
-2. 按[项目协作规范中的完成条件](docs/scrum-workflow.md#10-完成条件)检查成果。
+2. 检查完成条件：验收标准全部通过；代码、测试和必要文档已完成；没有已知的阻塞性缺陷。
 3. 合并 PR 并删除对应分支。
-4. 确认 Issue 已关闭，并将 GitHub Project 状态更新为 `Done`。
+4. 确认 Issue 已关闭。
 5. 如果产生新的问题或未完成事项，另外建立 Issue，不在已完成的 Issue 中继续追加范围。
