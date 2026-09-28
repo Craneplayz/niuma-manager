@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
 import recognition
+import source_sync
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -41,6 +42,7 @@ def initialize():
         CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
         ''')
         recognition.initialize(db)
+        source_sync.initialize(db)
 
 def seed():
     initialize()
@@ -123,6 +125,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),'niuma_session='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age=86400')
             user,token=self.user(db)
             uid=user['id']
+            if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
