@@ -37,7 +37,7 @@
 ### 0.3 分支
 
 1. 所有成员直接在主仓库创建分支，不使用 fork。
-2. **开发分支为 `ken0857900/refactor/35-repo-restructure`**：所有分支从它开出，所有 PR 的 base 都选它；发起 PR 前先将它的最新版本合并到自己的分支，冲突由 PR 作者解决。
+2. **开发分支为 `ken0857900/refactor/repo-restructure`**：所有分支从它开出，所有 PR 的 base 都选它；发起 PR 前先将它的最新版本合并到自己的分支，冲突由 PR 作者解决。
 3. **`master` 只由整合负责人（ken0857900）合并**：开发分支经整合测试后，由整合负责人合并到 `master`；其他成员不得向 `master` 发 PR 或合并。
 4. 暂不合并的内容以 Draft PR 提交。
 5. 分支在 PR 合并后删除；未合并的分支不得删除。不维护长期个人分支。
@@ -88,7 +88,7 @@
 
 ```bash
 git fetch
-git switch -c dhjx1234/feature/12-ddl-extraction origin/ken0857900/refactor/35-repo-restructure
+git switch -c dhjx1234/feature/12-ddl-extraction origin/ken0857900/refactor/repo-restructure
 ```
 
 一个分支只处理一个 Issue 或一个可以独立审查的目标，不得混入无关修改。

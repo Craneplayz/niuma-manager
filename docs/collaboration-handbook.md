@@ -31,12 +31,12 @@ niuma-manager/
 
    ```bash
    git fetch
-   git switch -c 你的GitHub帐号/feature/25-简短描述 origin/ken0857900/refactor/35-repo-restructure
+   git switch -c 你的GitHub帐号/feature/25-简短描述 origin/ken0857900/refactor/repo-restructure
    ```
 
 3. **写代码、commit**：只动自己的文件夹
-4. **发 PR 之前先同步开发分支**：`git pull origin ken0857900/refactor/35-repo-restructure`，冲突由作者自己解决
-5. **发 PR**：base 选 `ken0857900/refactor/35-repo-restructure`（**不要选 master**），描述里写 `Refs #25`，GitHub 会自动通知对应文件夹的负责人
+4. **发 PR 之前先同步开发分支**：`git pull origin ken0857900/refactor/repo-restructure`，冲突由作者自己解决
+5. **发 PR**：base 选 `ken0857900/refactor/repo-restructure`（**不要选 master**），描述里写 `Refs #25`，GitHub 会自动通知对应文件夹的负责人
 6. **有人批准后自己按 Merge**，然后删分支
 
 > **`master` 只由 Ken 合并**：开发分支整合测试通过后，由 Ken 合到 `master`，其他人不要往 `master` 发 PR。
