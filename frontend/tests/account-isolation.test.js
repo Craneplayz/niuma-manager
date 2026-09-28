@@ -95,6 +95,25 @@ test('late recognition response is discarded after logout and a new account can 
  assert.equal(request.body.records[0].text,'B 的通知');
 });
 
+test('shared recognition request survives the old 30-second limit but stops at 100 seconds',async(t)=>{
+ await login('A');
+ const pending=defer('/api/recognition/batches');
+ t.mock.timers.enable({apis:['setTimeout']});
+ const operation=recognition.submitRecognitionText('合成通知：请提交报告');
+ await pending.ready;
+ const signal=requests.at(-1).signal;
+ try{
+  t.mock.timers.tick(30001);
+  assert.equal(signal.aborted,false);
+  t.mock.timers.tick(70000);
+  assert.equal(signal.aborted,true);
+ }finally{
+  pending.release([]);
+  await operation;
+  t.mock.timers.reset();
+ }
+});
+
 test('planning exclusion is in the saved payload before a planning request is sent',async()=>{
  await login('B');
  planner.plannerChange({target:{dataset:{planExclude:'b2'},checked:true}});

@@ -37,6 +37,31 @@
 .recognition-batch>.draft-card{margin:12px 0}
 .recognition-batch blockquote{margin:8px 0;padding:8px;border-left:3px solid #b6c7e4}
 .recognition-batch blockquote small{display:block;color:#77818d}
+.agent-source-import{margin:18px 0;padding:14px;border:1px solid var(--border);border-radius:10px;min-width:0}
+.agent-source-sync{margin:18px 0;padding:14px;border:1px solid var(--border);border-radius:10px}
+.agent-source-sync h2{font-size:15px;margin:0 0 8px}
+.agent-source-sync p,.agent-source-sync small{display:block;font-size:11px;line-height:1.6;color:var(--muted)}
+.source-sync-options{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;font-size:12px}
+.source-sync-credentials{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.source-sync-credentials label{min-width:0;font-size:11px}
+.source-sync-credentials input{display:block;width:100%;box-sizing:border-box;margin-top:6px}
+.agent-source-sync .source-import-consent{display:flex;align-items:flex-start;gap:8px;margin:12px 0;font-size:11px;line-height:1.6}
+.agent-source-sync>button{margin-bottom:10px}
+.agent-source-import summary{cursor:pointer;font-size:12px;font-weight:600}
+.agent-source-import p{font-size:11px;line-height:1.6;color:var(--muted)}
+.agent-source-import>label{display:block;margin:12px 0;font-size:11px}
+.agent-source-import input[type=file]{display:block;width:100%;margin-top:7px;font-size:11px}
+.source-import-list{max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px}
+.source-import-row,.source-import-message{display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid var(--border);font-size:11px;min-width:0}
+.source-import-row:last-child,.source-import-message:last-child{border-bottom:0}
+.source-import-row span,.source-import-message span{min-width:0;overflow-wrap:anywhere}
+.source-import-row button{margin-left:auto;flex-shrink:0}
+.source-import-message{cursor:pointer;align-items:flex-start}
+.source-import-message input{margin:2px 0 0;flex-shrink:0}
+.source-import-message small{display:block;color:var(--muted);margin-bottom:3px}
+.agent-source-import .source-import-consent{display:flex;align-items:flex-start;gap:8px;line-height:1.6}
+.source-import-consent input{margin:3px 0 0;flex-shrink:0}
+.agent-source-import>[data-agent-action="import-wechat"]{margin-top:12px}
 .feedback-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:8px 0}
 .feedback-row input{max-width:150px}
 [data-theme=dark] .calendar-time-grid,[data-theme=dark] .calendar-time-axis b,[data-theme=dark] .calendar-time-day header{background:#1b1b22;color:#dce3ef;border-color:#393d49}
@@ -47,5 +72,5 @@
 [data-theme=dark] .calendar-timed-event.ddl,[data-theme=dark] .calendar-month-ddl{background:#4a2d1c;color:#ffd4a9;border-color:#b7723d}
 [data-theme=dark] .calendar-month-grid,[data-theme=dark] .calendar-month-day,[data-theme=dark] .weekday-options label,[data-theme=dark] .recognition-batch{border-color:#393d49}
 [data-theme=dark] .agent-chat-header b,[data-theme=dark] .agent-welcome h2{color:#f5f5f7}
-@media(max-width:680px){.calendar-time-grid{grid-template-columns:54px repeat(7,145px)}.calendar-month-grid{grid-template-columns:repeat(7,130px)}.plan-block{display:block}.feedback-row{display:block}}
+@media(max-width:680px){.calendar-time-grid{grid-template-columns:54px repeat(7,145px)}.calendar-month-grid{grid-template-columns:repeat(7,130px)}.plan-block{display:block}.feedback-row{display:block}.source-import-row{align-items:flex-start;flex-wrap:wrap}.source-import-row button{margin-left:0}.source-sync-credentials{grid-template-columns:1fr}}
 .btn[data-agent-action="refresh-review"][hidden]{display:none}
