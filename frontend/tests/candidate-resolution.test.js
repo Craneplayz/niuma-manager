@@ -1,9 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 globalThis.window=new EventTarget();
-const {buildResolution}=await import('../src/team-recognition-ui.js');
+const {buildResolution,deadlineLabel,suggestedDue,candidateCard}=await import('../src/team-recognition-ui.js');
 const item={version:3};
 const values={action:'create',title:'需求报告',description:'提交报告',course:'工程课',date:'2026-09-30',time:'',reviewed:'on'};
+
+test('deadline display is concise and inferred dates remain reviewable',()=>{
+ const d={value:'2026-09-29T09:00:00+08:00',precision:'datetime',timezone:'Asia/Shanghai',kind:'deadline',status:'inferred',basis:'按采集时间 2026-09-28 补全年份。',raw:'9月29日9点'};
+ assert.equal(deadlineLabel(d),'截止时间（待确认）：2026/09/29 09:00');
+ assert.deepEqual(suggestedDue(d),{date:'2026-09-29',time:'09:00'});
+ assert.deepEqual(suggestedDue({...d,kind:'reference'}),{date:'',time:''});
+ assert.match(deadlineLabel({...d,kind:'reference'}),/参考时间，不是 DDL/);
+ assert.equal(deadlineLabel({...d,status:'explicit',precision:'date',value:'2026-09-29'}),'明确截止日期（时刻待补充）：2026/09/29');
+ const html=candidateCard({id:'sample',state:'pending',candidate:{title:'交报告',description:'报告',notice_type:'create',deadline:d,review_reasons:[d.basis,'正文不完整'],prerequisites:[],evidence:[],sources:[]}});
+ assert.equal(html.split(d.basis).length-1,1);
+ assert.ok(html.indexOf(d.basis)>html.indexOf('<summary>证据与来源</summary>'));
+ assert.match(html,/<p class="draft-warning">正文不完整<\/p>/);
+});
 
 test('a date-only candidate can become a task without fabricating a deadline time',()=>{
  const body=buildResolution(item,values,[],7);

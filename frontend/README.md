@@ -64,6 +64,9 @@ TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize HARNESS_URL=http://127.0.0.1:13
 
 ## 检查
 
+文本识别最多等待 100 秒；模型服务整批预算 90 秒，业务后端等待 95 秒。停止等待后先刷新候选再决定重试。补年依据保留在证据详情，日期以 `年/月/日 时:分` 显示，推断值仍需确认。
+合成界面回归截图：[明确日期与补年日期](docs/archive/2026-09-28-deadline-review.png)。
+
 ```bash
 npm test
 npm run build

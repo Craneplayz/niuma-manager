@@ -13,3 +13,4 @@ server/
 
 在 `frontend/` 运行 `npm run dev:api` 启动业务 API，运行 `npm run dev:planning` 启动规划服务。
 在 `frontend/` 运行 `npm test` 执行前端、业务 API 与规划服务测试。
+文本识别请求等待 95 秒，配合识别服务 90 秒预算及前端 100 秒等待；本设置不改变规划接口的超时。
