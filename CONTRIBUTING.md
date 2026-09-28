@@ -111,7 +111,7 @@ refactor: simplify task status transitions
 
 1. 推送分支并创建 Pull Request。
 2. PR 标题使用与 Commit 相同的格式。
-3. 使用 `Closes #<issue-number>` 关联 Issue。
+3. 使用 `Refs #<issue-number>` 关联 Issue（不要写 Closes）；PR 合入开发分支后由 ken0857900 手动关闭 Issue。
 4. 按模板填写变更内容、验证方式、风险和影响。
 5. 界面修改提供截图或录屏；功能修改提供必要的测试结果。
 6. 邀请至少一名非作者成员进行 Review。

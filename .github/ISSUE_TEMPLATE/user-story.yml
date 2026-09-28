@@ -7,13 +7,17 @@ body:
   - type: markdown
     attributes:
       value: |
-        请先确认该需求没有重复。进入 Sprint 前必须补全验收标准、优先级和估算。
-  - type: input
-    id: backlog-id
+        请先确认该需求没有重复，并写清验收标准。
+  - type: dropdown
+    id: feature
     attributes:
-      label: 关联 Product Backlog
-      description: 填写该用户故事由哪个整体需求拆分而来，例如 PB-002。
-      placeholder: PB-___
+      label: 关联功能
+      description: 见 docs/product-backlog.md
+      options:
+        - F1 识别任务与优先级
+        - F2 按任务安排内容
+        - F3 外部来源处理
+        - 其他（基础建设、文档等）
     validations:
       required: true
   - type: textarea
@@ -53,18 +57,6 @@ body:
         - P0 - MVP 必须完成
         - P1 - 核心增强
         - P2 - 探索性功能
-    validations:
-      required: true
-  - type: dropdown
-    id: estimate
-    attributes:
-      label: 工作量估算
-      options:
-        - 1
-        - 2
-        - 3
-        - 5
-        - 8 - 进入 Sprint 前需要继续拆分
     validations:
       required: true
   - type: textarea
