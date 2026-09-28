@@ -183,6 +183,35 @@ class DateTests(unittest.TestCase):
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_explicit_numeric_deadline_survives_urgency(self):
+        for separator in ('.', '/', '-'):
+            phrase = separator.join(('2026', '9', '29')) + ' 9:00'
+            record = message('请于' + phrase + '前交课程内容回顾，请大家尽快完成。')
+            task = compile_tasks(record, draft(record, times=[
+                ref(record, phrase, kind='deadline'), ref(record, '尽快', kind='deadline')]))[0]
+            self.assertEqual(task['deadline']['value'], '2026-09-29T09:00:00+08:00')
+            self.assertEqual(task['deadline']['status'], 'explicit')
+            self.assertFalse(task['needs_review'])
+            self.assertIn('尽快', [e['quote'] for e in task['evidence']])
+
+    def test_urgency_alone_and_real_conflicts_remain_uncertain(self):
+        record = message()
+        urgency = resolve_time('尽快', record, 'deadline')
+        self.assertIsNone(combine_times([urgency])['value'])
+        dates = [resolve_time(p, record, 'deadline') for p in ('2026.9.29 9:00', '2026.9.30 9:00')]
+        self.assertEqual(combine_times(dates + [urgency])['status'], 'conflict')
+        self.assertIsNone(combine_times(dates[:1] + [resolve_time('月底', record, 'deadline')])['value'])
+        self.assertIsNone(resolve_time('2026.2.30 9:00', record, 'deadline')['value'])
+
+    def test_exam_interval_is_only_a_reference(self):
+        raw = '2026-9-29 9:00~12:00'
+        result = resolve_time(raw, message(), 'reference')
+        self.assertEqual((result['value'], result['kind'], result['raw']),
+                         ('2026-09-29T09:00:00+08:00', 'reference', raw))
+        self.assertEqual(result['status'], 'inferred')
+        self.assertIsNone(resolve_time(raw, message(), 'deadline')['value'])
+        self.assertIsNone(resolve_time('2026-9-29 12:00~9:00', message(), 'reference')['value'])
+
     def test_missing_year_context_uses_its_own_anchor_and_keeps_evidence(self):
         old = message("请9月30日18点前交报告。", input_id="old",
                       published_at={"value": "2024-09-25", "precision": "date", "basis": "source"})

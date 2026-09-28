@@ -13,6 +13,14 @@ window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(location.hash==='#agent')host.render();};
 const pending=()=>batches.flatMap(b=>b.items).filter(i=>i.state==='pending').length;
+function displayTime(d){
+ if(!d.value)return '';
+ if(d.precision==='date')return d.value.replaceAll('-','/');
+ if(!Number.isFinite(Date.parse(d.value)))return '';
+ const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:d.timezone||'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(d.value));
+ const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
+ return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}`;
+}
 async function loadCredentials(){
  const epoch=accountVersion();
  try{const status=await api('/api/sources/credentials');if(epoch===accountVersion()){credentialStatus=status;refresh();}}
@@ -28,15 +36,15 @@ function sourceImportPanel(){
   sourceImport?.kind==='wechat'?`<p>${esc(sourceName)} · ${esc(sourceImport.chatName)} · 仅展示最近 ${sourceImport.messages.length} 条文本消息；只发送勾选内容，不发送账号、群成员 ID 或附件。</p><div class="source-import-list">${sourceImport.messages.map((message,index)=>`<label class="source-import-message"><input type="checkbox" data-agent-wechat-index="${index}" ${selectedMessages.has(index)?'checked':''} ${busy?'disabled':''}><span><small>${esc(message.time||'时间待核实')}</small>${esc(message.content.slice(0,180))}${message.content.length>180?'…':''}</span></label>`).join('')}</div><button type="button" class="btn" data-agent-action="import-wechat" ${busy?'disabled':''}>识别选中的微信消息</button>`:'';
  return `<details class="agent-source-import" ${sourceImport?'open':''}><summary>导入来源文件（课程网 / 微信）</summary><p>可选择课程网导出的 v0.2 JSONL，或微信模块导出的单个会话 JSON；文件先在本机预览，不会自动上传。</p><label>选择 JSON 或 JSONL 文件<input id="agent-source-file" type="file" accept=".json,.jsonl,application/json" ${busy||!session.user?'disabled':''}></label>${imported}${sourceImport?`<label class="source-import-consent"><input id="agent-import-consent" type="checkbox" ${sourceConsent?'checked':''} ${busy?'disabled':''}> 我确认：仅所选记录会保存至当前账号，并发送给已配置的文本识别模型。</label>`:''}</details>`;
 }
-function deadlineLabel(d){
+export function deadlineLabel(d){
  if(d.status==='not_provided')return '原文未提供 DDL';
  if(d.status==='conflict')return '截止时间冲突，请核对原文';
- if(d.kind==='reference')return '参考时间，不是 DDL：'+(d.value||d.raw||'待核实');
+ if(d.kind==='reference')return '参考时间，不是 DDL：'+(displayTime(d)||d.raw||'待核实');
  if(d.status==='unknown')return '截止日期待核实';
- return (d.status==='inferred'?'推断时间，待核实：':d.precision==='date'?'明确截止日期（时刻待补充）：':'明确截止时间：')+(d.value||'待核实');
+ return (d.status==='inferred'?'截止时间（待确认）：':d.precision==='date'?'明确截止日期（时刻待补充）：':'明确截止时间：')+(displayTime(d)||'待核实');
 }
-function suggestedDue(d){
- if(d.kind!=='deadline'||d.status!=='explicit'||!d.value)return {date:'',time:''};
+export function suggestedDue(d){
+ if(d.kind!=='deadline'||!['explicit','inferred'].includes(d.status)||!d.value)return {date:'',time:''};
  if(d.precision==='date')return {date:d.value,time:''};
  if(d.precision!=='datetime'||!Number.isFinite(Date.parse(d.value)))return {date:'',time:''};
  const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(d.value));
@@ -74,14 +82,14 @@ function batchCard(batch){
  <details><summary>查看原文与批次</summary><small>${esc(batch.request.request_id)}</small>${batch.request.records.map(r=>`<p>${esc(r.text)}</p>`).join('')}</details>
  ${batch.items.map(candidateCard).join('')}</section>`;
 }
-function candidateCard(item){
+export function candidateCard(item){
  const c=item.candidate;
  return `<article class="draft-card"><div class="draft-top"><span>${esc(labels[c.notice_type])} · ${item.state==='pending'?'待核对':item.state==='applied'?'已应用':'已忽略'}</span></div>
  <h3>${esc(c.title)}</h3><p>${esc(c.description)}</p><p>${esc(deadlineLabel(c.deadline))}</p>
  ${c.deadline.raw?`<small>时间原话：${esc(c.deadline.raw)}</small>`:''}
- ${c.review_reasons.map(r=>`<p class="draft-warning">${esc(r)}</p>`).join('')}
+ ${c.review_reasons.filter(r=>!(c.deadline.status==='inferred'&&r===c.deadline.basis)).map(r=>`<p class="draft-warning">${esc(r)}</p>`).join('')}
  ${c.prerequisites.length?`<details><summary>原文要求</summary><ul>${c.prerequisites.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></details>`:''}
- <details><summary>证据与来源</summary>${c.evidence.map(e=>`<blockquote>${esc(e.quote)}<small>${esc(e.input_id)} · ${esc(e.field)} · 支持 ${esc(e.supports.join('、'))}</small></blockquote>`).join('')}
+ <details><summary>证据与来源</summary><p>${esc(c.deadline.basis)}</p>${c.evidence.map(e=>`<blockquote>${esc(e.quote)}<small>${esc(e.input_id)} · ${esc(e.field)} · 支持 ${esc(e.supports.join('、'))}</small></blockquote>`).join('')}
  ${c.sources.map(s=>{let link='';try{const u=new URL(s.url);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)link=` · <a href="${esc(u.href)}" target="_blank" rel="noreferrer">打开来源</a>`;}catch{}return `<p>${esc(s.label||s.input_id)} · ${esc(s.platform)}${link}</p>`}).join('')}</details>
  ${item.state==='pending'?`<div class="button-row"><button class="btn primary" data-agent-review="${esc(item.id)}" ${busy?'disabled':''}>核对并确认</button><button class="btn" data-agent-ignore="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;
 }
@@ -141,7 +149,7 @@ async function resolve(form){
 async function submitRecognitionRequest(body,onSuccess){
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
- busy=true;error='';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),30000);refresh();
+ busy=true;error='';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),100000);refresh();
  try{const next=await api('/api/recognition/batches',body,'POST',{signal:controller.signal});if(!current())return false;batches=next;loaded=true;notice='识别结果已保存为候选，尚未变更任务';onSuccess?.();return true;}
  catch(e){if(current())error=controller.signal.aborted?'等待已停止；远端可能仍在处理。请刷新候选，必要时再重试。':e.message;}
  finally{clearTimeout(timeout);if(current()){activeController=null;busy=false;refresh();}}

@@ -161,6 +161,7 @@ class ApiTests(unittest.TestCase):
         fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
         captured=[]
         def harness(request,timeout):
+            self.assertEqual(timeout,95)
             captured.append(json.loads(request.data))
             return io.BytesIO(json.dumps(fixture['expected']).encode())
         with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',harness):

@@ -182,6 +182,14 @@ class HttpTests(unittest.TestCase):
         finally:
             self.server.active.release()
 
+    def test_http_uses_shared_budget_and_budget_is_bounded(self):
+        with patch('ddl_text.http_server.process_request', return_value={}) as process:
+            self.assertEqual(self.call(request(record()))[0], 200)
+            self.assertEqual(process.call_args.kwargs['budget_seconds'], 90)
+        for budget in (0, 91, float('inf'), float('nan')):
+            with self.assertRaises(ValueError):
+                RecognitionServer(('127.0.0.1', 0), UnavailableAdapter(), Settings(), budget_seconds=budget)
+
 
 if __name__ == "__main__":
     unittest.main()

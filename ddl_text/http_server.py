@@ -35,11 +35,11 @@ class RecognitionServer(ThreadingHTTPServer):
     # A server exit waits for the bounded active extraction to clean up Codex.
     daemon_threads = False
 
-    def __init__(self, address, adapter, settings, token="", budget_seconds=20):
+    def __init__(self, address, adapter, settings, token="", budget_seconds=90):
         if address[0] != "127.0.0.1":
             raise ValueError("Only loopback binding is supported")
-        if not 0 < budget_seconds <= 20:
-            raise ValueError("Budget must be within (0, 20] seconds")
+        if not 0 < budget_seconds <= 90:
+            raise ValueError("Budget must be within (0, 90] seconds")
         self.adapter, self.settings = adapter, settings
         self.token, self.budget_seconds = token, budget_seconds
         self.active = threading.Lock()
@@ -138,7 +138,7 @@ def main(argv=None):
                 raise ValueError("missing credential")
             adapter = ExtractionAdapter(make_client(options))
             settings = Settings(mode="real", model=options["model"], endpoint=options["endpoint"],
-                                timeout_seconds=20, max_retries=0)
+                                timeout_seconds=90, max_retries=0)
         else:
             entries = json.loads(Path(args.drafts).read_text(encoding="utf-8-sig"))
             if not isinstance(entries, list):

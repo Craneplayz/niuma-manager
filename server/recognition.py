@@ -60,7 +60,7 @@ def route(handler,db,uid,path,body,ApiError):
                 headers={'Content-Type':'application/json'}
                 if os.environ.get('TEXT_HARNESS_TOKEN'): headers['Authorization']='Bearer '+os.environ['TEXT_HARNESS_TOKEN']
                 try:
-                    with urlopen(Request(endpoint,json.dumps(request).encode(),headers),timeout=25) as response: result=json.loads(response.read(2000000))
+                    with urlopen(Request(endpoint,json.dumps(request).encode(),headers),timeout=95) as response: result=json.loads(response.read(2000000))
                 except Exception: raise ApiError(502,'文本识别服务不可用或超时，请稍后重试')
         try: result=validate_result(request,result)
         except (ValueError,TypeError,KeyError): raise ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')

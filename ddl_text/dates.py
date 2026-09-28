@@ -82,7 +82,7 @@ def resolve_time(raw, message, kind):
         period = ""
         rest = ""
         hours = re.fullmatch(r"([1-9]\d{0,3})小时后", phrase)
-        absolute = re.fullmatch(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})日?(.*)", phrase)
+        absolute = re.fullmatch(r"(\d{4})[-年/.](\d{1,2})[-月/.](\d{1,2})日?(.*)", phrase)
         month_day = re.fullmatch(r"(今年|明年|去年)?(\d{1,2})月(\d{1,2})[日号]?(.*)", phrase)
         numeric_month_day = re.fullmatch(r"(\d{1,2})[-/\.](\d{1,2})(.*)", phrase)
         relative = re.fullmatch(r"(今天|今日|明天|明日|明晚|后天)(.*)", phrase)
@@ -98,10 +98,10 @@ def resolve_time(raw, message, kind):
             qualifier = month_day[1] if month_day else None
             month, day_number, rest = (month_day[2], month_day[3], month_day[4]) if month_day else numeric_month_day.groups()
             anchor = base
-            anchor_label = "该条原消息的可信发布时间"
+            anchor_label = "发布时间"
             if anchor is None and not qualifier and zone is not None and message.get("collected_at"):
                 anchor = datetime.fromisoformat(message["collected_at"].replace("Z", "+00:00")).astimezone(zone)
-                anchor_label = "采集时间（缺可信发布时间，仅作为年份估计基准，并非发布时间）"
+                anchor_label = "采集时间"
             if anchor is None:
                 return unresolved("缺年份日期需要该消息的可信发布时间，或带时区的采集时间作为推断基准。")
             anchor_day = anchor.date() if isinstance(anchor, datetime) else anchor
@@ -109,8 +109,7 @@ def resolve_time(raw, message, kind):
                 day = date(anchor_day.year + {"今年": 0, "明年": 1, "去年": -1}[qualifier], int(month), int(day_number))
             else:
                 day = _nearest_year(int(month), int(day_number), anchor_day)
-                year_basis = (f"原文未写年份，以{anchor_label} {anchor_day.isoformat()} 为基准，"
-                              f"在相邻年份中选最近有效日期，推断为 {day.year} 年；等距时优先未来。请核实年份。")
+                year_basis = f"按{anchor_label} {anchor_day.isoformat()} 补全年份。"
         elif relative or weekday:
             if base is None:
                 return unresolved("相对日期缺少可信的原消息发布时间或明确时区；采集时间不能代替。")
@@ -127,6 +126,14 @@ def resolve_time(raw, message, kind):
         else:
             return result
         if day is not None and rest:
+            interval = re.fullmatch(r"(\d{1,2}[:：]\d{2})[~～至到–—-](\d{1,2}[:：]\d{2})", rest)
+            if interval and kind == "reference":
+                start = resolve_time(day.isoformat() + "T" + interval[1], message, kind)
+                end = resolve_time(day.isoformat() + "T" + interval[2], message, kind)
+                if not start["value"] or not end["value"] or start["value"] >= end["value"]:
+                    return unresolved("活动时间区间无效，请核对原文。")
+                start.update(raw=raw, basis=(year_basis or "") + "取活动开始时间作为参考，并非提交截止。")
+                return start
             clock = re.fullmatch(r"(?:T)?(上午|下午|晚上|晚间|中午)?(\d{1,2})(?:[:：](\d{2})|[点时](?:(\d{1,2})分?)?)(?:整)?", rest)
             if not clock or zone is None:
                 return unresolved("时刻格式不明确或时区不可用，保留原话待核实。")
@@ -158,6 +165,13 @@ def resolve_time(raw, message, kind):
 def combine_times(items, default_zone=None):
     if not items:
         return unknown(None, "原文未给出可确定的完成日期。", zone_name=default_zone)
+    # Bare urgency cues do not override concrete deadlines; other unresolved
+    # expressions and genuinely conflicting dates still require review.
+    if any(item["value"] is not None and item["kind"] == "deadline" for item in items):
+        items = [item for item in items if not (
+            item["value"] is None and item["kind"] == "deadline" and
+            re.sub(r"\s+", "", item["raw"] or "") in
+            {"尽快", "尽早", "抓紧", "尽快完成", "尽早完成"})]
     kinds = {item["kind"] for item in items}
     zones = {item["timezone"] for item in items}
     kind = items[0]["kind"] if len(kinds) == 1 else "unknown"
