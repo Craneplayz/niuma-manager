@@ -9,7 +9,8 @@ niuma-manager/
 ├── crawler/     爬虫                → Craneplayz（许智翔）
 ├── wechat/      微信数据             → 肖涵
 ├── ddl_text/    文本识别             → 杨沐之
-├── frontend/    前端（含对接代码）     → Dranix、潘勇圳
+├── task_planning/ 优先级与排程        → 潘勇圳
+├── frontend/    前端（含对接代码）     → Dranix
 ├── server/      后端                → Dranix
 ├── contracts/   模块间的数据格式       → Ken + 上下游
 └── 根目录、docs/ 公共文件             → Ken
