@@ -17,7 +17,8 @@ function resetAccount(){
 }
 function report(sync,error=''){session.sync=sync;session.error=error;window.dispatchEvent(new CustomEvent('niuma:sync'));}
 export async function api(path,body,method='POST',options={}){
- const epoch=accountEpoch,controller=new AbortController(),timer=setTimeout(()=>controller.abort(),60000);
+ const {timeoutMs=60000,...fetchOptions}=options;
+ const epoch=accountEpoch,controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
  const abort=()=>controller.abort();
  requests.add(controller);
  if(options.signal?.aborted)controller.abort();
@@ -25,7 +26,7 @@ export async function api(path,body,method='POST',options={}){
  try{
   const response=await fetch(path,{method:body===undefined?'GET':method,credentials:'same-origin',
    headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),
-   ...options,signal:controller.signal});
+    ...fetchOptions,signal:controller.signal});
   const data=await response.json();
   if(epoch!==accountEpoch)throw new Error('账号已切换，请重新操作');
   if(!response.ok){const error=new Error(data.error||'请求失败');error.status=response.status;throw error;}

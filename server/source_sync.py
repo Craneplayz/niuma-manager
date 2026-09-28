@@ -4,6 +4,7 @@ import hashlib
 import os
 import subprocess
 import tempfile
+import secrets
 from pathlib import Path
 
 from text_contract import validate_request
@@ -13,6 +14,44 @@ CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
 
 def initialize(db):
     db.execute('CREATE TABLE IF NOT EXISTS source_credentials(user_id TEXT PRIMARY KEY, username TEXT NOT NULL, secret BLOB NOT NULL)')
+    db.execute('''CREATE TABLE IF NOT EXISTS source_versions(
+        user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
+        digest TEXT NOT NULL, request TEXT NOT NULL,
+        PRIMARY KEY(user_id,account,input_id))''')
+
+
+def incremental_requests(db, uid, username, requests):
+    """Keep the first observation of each content version, including its time anchor."""
+    account = hashlib.sha256(username.encode()).hexdigest()
+    pending, seen = [], set()
+    total = skipped = 0
+    if not db.in_transaction:
+        db.execute('BEGIN IMMEDIATE')
+    for batch in requests:
+        for record in batch['records']:
+            # Crawler input_id is stable per course/item; collection time is not content.
+            content = {k: v for k, v in record.items() if k != 'collected_at'}
+            digest = hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            identity = (record['input_id'], digest)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            total += 1
+            row = db.execute('SELECT digest,request FROM source_versions WHERE user_id=? AND account=? AND input_id=?',
+                             (uid, account, record['input_id'])).fetchone()
+            if row and row['digest'] == digest:
+                request = json.loads(row['request'])
+            else:
+                request = dict(contract_version='0.2', request_id='teaching_web:sync:' + secrets.token_hex(16), records=[record])
+                db.execute('INSERT INTO source_versions VALUES(?,?,?,?,?) ON CONFLICT(user_id,account,input_id) DO UPDATE SET digest=excluded.digest,request=excluded.request',
+                           (uid, account, record['input_id'], digest, json.dumps(request)))
+            stored = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',
+                                (uid, request['request_id'])).fetchone()
+            if stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks'):
+                skipped += 1
+            else:
+                pending.append(request)
+    return dict(requests=pending, summary=dict(total=total, skipped=skipped, pending=len(pending)))
 
 
 def cipher(key_path, ApiError, create=False):
@@ -89,10 +128,8 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         if len(requests) > 20 or any(len(json.dumps(item, ensure_ascii=False).encode()) > 1900000 for item in requests):
             raise ValueError()
         for item in requests:
-            digest = hashlib.sha256(json.dumps(item['records'], sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:24]
-            item['request_id'] = 'teaching_web:sync:' + digest
             validate_request(item)
     except (ValueError, TypeError, KeyError):
         raise ApiError(502, '教学网采集结果不符合 v0.2 协议或批次数量限制')
-    handler.reply(200, {'requests': requests})
+    handler.reply(200, incremental_requests(db, uid, row['username'], requests))
     return True
