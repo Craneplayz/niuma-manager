@@ -73,12 +73,12 @@ def route(handler, db, uid, path, body, ApiError, key_path):
     try:
         with tempfile.TemporaryDirectory(prefix='niuma-course-sync-') as folder:
             secret = Path(folder) / 'secret'
-            with os.fdopen(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as file:
+            with os.fdopen(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
                 file.write(row['username'] + '\n' + password)
             result = subprocess.run(
                 ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=recognition'],
                 cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret)},
-                capture_output=True, text=True, timeout=55, check=False,
+                capture_output=True, text=True, encoding='utf-8', timeout=55, check=False,
             )
     except (OSError, subprocess.TimeoutExpired):
         raise ApiError(503, '教学网采集无法启动或超时；请检查 Node、浏览器及校园网连接')
