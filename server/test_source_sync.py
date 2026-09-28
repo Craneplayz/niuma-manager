@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import app
 import source_sync
+import recognition
 
 
 class SourceSyncTests(unittest.TestCase):
@@ -19,6 +20,7 @@ class SourceSyncTests(unittest.TestCase):
         self.db = sqlite3.connect(':memory:')
         self.db.row_factory = sqlite3.Row
         source_sync.initialize(self.db)
+        recognition.initialize(self.db)
         self.responses = []
         self.handler = SimpleNamespace(command='POST', reply=lambda status, data: self.responses.append((status, data)))
 
@@ -74,7 +76,8 @@ class SourceSyncTests(unittest.TestCase):
             self.call('/api/sources/sync', {'sources': ['teaching_web']})
             self.call('/api/sources/sync', {'sources': ['teaching_web']})
         self.assertFalse(any(secret.exists() for secret in secrets))
-        self.assertEqual(self.responses[-2][1]['requests'][0]['records'], request['records'])
+        self.assertEqual([r['records'][0] for r in self.responses[-2][1]['requests']], request['records'])
+        self.assertTrue(all(len(r['records']) == 1 for r in self.responses[-2][1]['requests']))
         self.assertEqual(self.responses[-2][1]['requests'][0]['request_id'], self.responses[-1][1]['requests'][0]['request_id'])
 
     def test_temporary_secret_removed_on_timeout(self):

@@ -78,7 +78,8 @@ export function assistantPage(){
 function batchCard(batch){
  return `<section class="recognition-batch"><h3>${batchLabels[batch.result.status]||'识别结果'}${batch.demo?' · 人工演示':''}</h3><small>${batch.request.records.length} 条原文 · ${batch.items.filter(i=>i.state==='pending').length} 项待确认</small>
  ${batch.result.record_results.flatMap(r=>r.warnings.map(w=>`<p class="draft-warning">${esc(w)}</p>`)).join('')}
- ${batch.result.errors.map(e=>`<p class="error">${esc(e.message)}</p>`).join('')}
+ ${batch.result.errors.map(e=>`<p class="error">${esc(e.input_id||'批次')}：${esc(e.message)}</p>`).join('')}
+ ${!batch.demo&&['failed','partial_success'].includes(batch.result.status)?`<button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`:''}
  <details><summary>查看原文与批次</summary><small>${esc(batch.request.request_id)}</small>${batch.request.records.map(r=>`<p>${esc(r.text)}</p>`).join('')}</details>
  ${batch.items.map(candidateCard).join('')}</section>`;
 }
@@ -146,11 +147,20 @@ async function resolve(form){
  }catch(e){if(current()){errorNode.textContent=e.message;form.querySelector('[data-agent-action="refresh-review"]').hidden=e.status!==409;}}
  finally{if(current()){busy=false;fields.forEach(field=>field.disabled=false);submit.disabled=false;submit.textContent=label;refresh();}}
 }
-async function submitRecognitionRequest(body,onSuccess){
+async function submitRecognitionRequest(body,onSuccess,retry=false){
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  busy=true;error='';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),100000);refresh();
- try{const next=await api('/api/recognition/batches',body,'POST',{signal:controller.signal});if(!current())return false;batches=next;loaded=true;notice='识别结果已保存为候选，尚未变更任务';onSuccess?.();return true;}
+ try{
+  const next=await api(retry?'/api/recognition/retry':'/api/recognition/batches',body,'POST',{signal:controller.signal,timeoutMs:100000});
+  if(!current())return;
+  batches=next;loaded=true;
+  const result=next.find(batch=>batch.request.request_id===body.request_id)?.result;
+  const complete=result&&['success','no_tasks'].includes(result.status);
+  notice=complete?'识别完成，候选待核对；尚未变更任务':'部分或全部记录未完成，可重试失败记录';
+  if(complete)onSuccess?.();
+  return Boolean(complete);
+ }
  catch(e){if(current())error=controller.signal.aborted?'等待已停止；远端可能仍在处理。请刷新候选，必要时再重试。':e.message;}
  finally{clearTimeout(timeout);if(current()){activeController=null;busy=false;refresh();}}
 }
@@ -170,6 +180,14 @@ export async function handleAssistantClick(button){
  if(button.dataset.agentReview){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentReview);if(item)review(item);return;}
  if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);if(item)api('/api/recognition/candidates/'+item.id+'/resolve',{action:'ignore',version:item.version}).then(r=>{if(current()){batches=r.batches;refresh();}}).catch(e=>{if(current()){error=e.message;refresh();}});return;}
  if(button.dataset.agentAction==='refresh'){await load(true);return;}
+ if(button.dataset.agentRetry){
+  const batch=batches.find(b=>b.request.request_id===button.dataset.agentRetry);
+  if(batch&&!batch.demo)await submitRecognitionRequest(batch.request,()=>{
+   const index=sourceImport?.requests?.findIndex(r=>r.request_id===batch.request.request_id);
+   if(index>=0)sourceImport.sent.add(index);
+  },true);
+  return;
+ }
  if(button.dataset.agentAction==='edit-credentials'){editCredentials=!editCredentials;refresh();return;}
  if(button.dataset.agentAction==='remove-credentials'){
   try{const status=await api('/api/sources/credentials/remove',{});if(current()){credentialStatus=status;editCredentials=false;notice='教学网凭据已删除';refresh();}}
@@ -184,15 +202,21 @@ export async function handleAssistantClick(button){
    const result=await api('/api/sources/sync',{sources:[...syncSources]},'POST',{signal:controller.signal});
    if(!current())return;
    if(!Array.isArray(result.requests))throw new Error('同步结果格式不正确');
-   if(!result.requests.length){notice='同步完成，没有新的来源记录';return;}
-   sourceImport=parseSourceFile(JSON.stringify(result.requests));sourceName='教学网同步结果';sourceConsent=true;
+   if(!result.requests.length){sourceImport=null;notice=`同步完成：跳过 ${result.summary?.skipped||0} 条已成功识别且未变化的通知，没有待识别内容`;return;}
+   sourceImport={kind:'requests',requests:result.requests,sent:new Set()};sourceName='教学网增量同步（每条独立识别）';sourceConsent=true;
    busy=false;activeController=null;
-   for(let index=0;index<sourceImport.requests.length;index++){
+   const total=sourceImport.requests.length,skipped=result.summary?.skipped||0;let failed=0,attempted=0;
+   for(let index=0;index<total;index++){
     if(!current())return;
     const batch=sourceImport.requests[index];
-    if(!await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index)))break;
+    notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条未变化通知`;refresh();
+    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true);
+    if(!current())return;
+    attempted++;
+    if(!complete)failed++;
+    if(complete===undefined)break;
    }
-   if(current()&&sourceImport.sent.size===sourceImport.requests.length){syncConsent=false;notice='同步识别完成，请在右侧逐项核对候选';}
+   if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。失败记录可重试，候选需核对确认。`;}
   }catch(e){if(current())error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}
   finally{if(current()){busy=false;activeController=null;refresh();}}
   return;
@@ -201,7 +225,7 @@ export async function handleAssistantClick(button){
   const index=Number(button.dataset.agentImportIndex),batch=sourceImport?.kind==='requests'&&sourceImport.requests[index];
   if(!batch||sourceImport.sent.has(index))return;
   if(!sourceConsent){error='请先确认所选来源将发送给模型';refresh();return;}
-  await submitRecognitionRequest(batch,()=>{sourceImport.sent.add(index);sourceConsent=false;});return;
+  await submitRecognitionRequest(batch,()=>{sourceImport.sent.add(index);sourceConsent=false;},true);return;
  }
  if(button.dataset.agentAction==='import-wechat'){
   if(sourceImport?.kind!=='wechat')return;
