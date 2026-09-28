@@ -4,12 +4,16 @@ title: "[Research] "
 labels:
   - research
 body:
-  - type: input
-    id: backlog-id
+  - type: dropdown
+    id: feature
     attributes:
-      label: 关联 Product Backlog
-      description: 填写该调研支持的整体需求编号；跨需求事项须列出全部编号。
-      placeholder: PB-___
+      label: 关联功能
+      description: 见 docs/product-backlog.md
+      options:
+        - F1 识别任务与优先级
+        - F2 按任务安排内容
+        - F3 外部来源处理
+        - 其他（基础建设、文档等）
     validations:
       required: true
   - type: textarea
