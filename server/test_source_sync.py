@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import subprocess
 import tempfile
@@ -28,8 +29,8 @@ class SourceSyncTests(unittest.TestCase):
     def call(self, path, body, user='owner'):
         return source_sync.route(self.handler, self.db, user, path, body, app.ApiError, self.key)
 
-    def save(self):
-        self.call('/api/sources/credentials', {'username': 'course-user', 'password': 'course-password'})
+    def save(self, username='course-user', password='course-password'):
+        self.call('/api/sources/credentials', {'username': username, 'password': password})
 
     def test_credentials_are_account_scoped_encrypted_and_removable(self):
         with self.assertRaises(app.ApiError) as invalid:
@@ -38,7 +39,8 @@ class SourceSyncTests(unittest.TestCase):
         self.save()
         row = self.db.execute('SELECT * FROM source_credentials').fetchone()
         self.assertNotIn(b'course-password', row['secret'])
-        self.assertEqual(self.key.stat().st_mode & 0o777, 0o600)
+        if os.name == 'posix':
+            self.assertEqual(self.key.stat().st_mode & 0o777, 0o600)
         self.handler.command = 'GET'
         self.call('/api/sources/credentials', {})
         self.call('/api/sources/credentials', {}, user='other')
@@ -49,8 +51,8 @@ class SourceSyncTests(unittest.TestCase):
         self.assertIsNone(self.db.execute('SELECT * FROM source_credentials').fetchone())
 
     def test_sync_uses_temporary_secret_and_stable_request_id(self):
-        request = json.loads((Path(__file__).resolve().parent.parent / 'contracts' / 'source-to-text' / 'text-frontend-v02-request.json').read_text())
-        self.save()
+        request = json.loads((Path(__file__).resolve().parent.parent / 'contracts' / 'source-to-text' / 'text-frontend-v02-request.json').read_text(encoding='utf-8'))
+        self.save('中文账号', '密码€')
         with self.assertRaises(app.ApiError) as unsupported:
             self.call('/api/sources/sync', {'sources': ['wechat']})
         self.assertEqual(unsupported.exception.status, 400)
@@ -63,9 +65,11 @@ class SourceSyncTests(unittest.TestCase):
         def run(_command, **kwargs):
             secret = Path(kwargs['env']['PKU_SECRET_PATH'])
             secrets.append(secret)
-            self.assertEqual(secret.read_text(), 'course-user\ncourse-password')
-            self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
-            return SimpleNamespace(returncode=0, stdout=json.dumps(request) + '\n')
+            self.assertEqual(secret.read_text(encoding='utf-8'), '中文账号\n密码€')
+            if os.name == 'posix':
+                self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(kwargs['encoding'], 'utf-8')
+            return SimpleNamespace(returncode=0, stdout=json.dumps(request, ensure_ascii=False) + '\n')
         with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', side_effect=run):
             self.call('/api/sources/sync', {'sources': ['teaching_web']})
             self.call('/api/sources/sync', {'sources': ['teaching_web']})
