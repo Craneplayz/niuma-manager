@@ -37,10 +37,11 @@
 ### 0.3 分支
 
 1. 所有成员直接在主仓库创建分支，不使用 fork。
-2. 发起 PR 前先将最新的 `master` 合并到自己的分支，冲突由 PR 作者解决。
-3. 暂不合并的内容以 Draft PR 提交。
-4. 分支在 PR 合并后删除；未合并的分支不得删除。不维护长期个人分支。
-5. 分支名须以自己的 GitHub 帐号（小写）开头，格式见第 2 节。
+2. **开发分支为 `ken0857900/refactor/35-repo-restructure`**：所有分支从它开出，所有 PR 的 base 都选它；发起 PR 前先将它的最新版本合并到自己的分支，冲突由 PR 作者解决。
+3. **`master` 只由整合负责人（ken0857900）合并**：开发分支经整合测试后，由整合负责人合并到 `master`；其他成员不得向 `master` 发 PR 或合并。
+4. 暂不合并的内容以 Draft PR 提交。
+5. 分支在 PR 合并后删除；未合并的分支不得删除。不维护长期个人分支。
+6. 分支名须以自己的 GitHub 帐号（小写）开头，格式见第 2 节。
 
 ### 0.4 审查与合并
 
@@ -74,7 +75,7 @@
 
 ## 2. 创建分支
 
-不得直接向主分支提交。每个 Issue 使用独立分支，分支名以自己的 GitHub 帐号（小写）开头：
+不得直接向开发分支或 `master` 提交。每个 Issue 使用独立分支，分支名以自己的 GitHub 帐号（小写）开头：
 
 ```text
 <github-id>/feature/<issue-number>-<short-name>
@@ -86,9 +87,8 @@
 例如：
 
 ```bash
-git switch master
-git pull --ff-only
-git switch -c dhjx1234/feature/12-ddl-extraction
+git fetch
+git switch -c dhjx1234/feature/12-ddl-extraction origin/ken0857900/refactor/35-repo-restructure
 ```
 
 一个分支只处理一个 Issue 或一个可以独立审查的目标，不得混入无关修改。
