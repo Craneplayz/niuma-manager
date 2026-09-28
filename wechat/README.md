@@ -6,10 +6,12 @@ wechat/
 ├── .gitignore                        # 忽略微信导出数据、缓存和 Python 字节码
 ├── script/
 │   ├── __init__.py                   # 标记脚本包并支持模块化测试导入
-│   └── extract_data.py               # 从当前登录的 Windows 微信读取并导出聊天记录
+│   ├── extract_data.py               # 从当前登录的 Windows 微信读取并导出聊天记录
+│   └── to_recognition.py             # 把导出的会话 JSON 转成 source-to-text v0.2 JSONL
 ├── tests/
 │   ├── __init__.py                   # 标记测试包并支持 unittest 发现
-│   └── test_extract_data.py          # 在无微信和无外部服务时校验导出脚本的纯函数
+│   ├── test_extract_data.py          # 在无微信和无外部服务时校验导出脚本的纯函数
+│   └── test_to_recognition.py        # 用合成对话校验转换结果符合 v0.2 契约
 ├── data/                             # 保存运行生成的会话 JSON 和本地附件
 └── docs/
     └── archive/
@@ -49,6 +51,10 @@ conda run -n wechat-export python wechat/script/extract_data.py --skip-media
 - JSON 顶层字段固定为 `schema_version`、`chat_name`、`chat_username`、`chat_type`、`account`、`range`、`exported_at`、`message_count` 和 `messages`。
 - `messages` 按时间升序保存发送者、类型、正文、资源列表、消息标识和可选媒体警告。
 - 已恢复的图片、语音、视频和文件保存到 `data/assets/<会话名>/`，无法恢复的资源保留缓存路径或 URL。
+
+## 交给文本识别
+
+`python wechat/script/to_recognition.py wechat/data/<会话名>.json > wechat/data/requests.jsonl` 只转换文字消息，每行一个 v0.2 请求（最多 100 条），格式见 `contracts/source-to-text/`；结果可在前端「导入来源文件」上传，或直接交给 `ddl_text`。
 
 ## 验收
 
