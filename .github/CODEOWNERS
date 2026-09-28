@@ -2,10 +2,10 @@
 # 后面的规则优先。未列出的路径（根目录文件、docs/）默认由整合负责人审查。
 *               @ken0857900
 /crawler/       @Craneplayz
+/wechat/        @Xiao-Han666
 /ddl_text/      @dhjx1234
-/skills/        @dhjx1234
-/tests/         @dhjx1234
+/task_planning/ @Yongzhen23
 /frontend/      @Dranix123
 /server/        @Dranix123
-/contracts/     @ken0857900 @dhjx1234 @Dranix123 @Craneplayz
+/contracts/     @ken0857900 @dhjx1234 @Dranix123 @Craneplayz @Xiao-Han666
 /.github/       @ken0857900

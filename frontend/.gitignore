@@ -1,0 +1,21 @@
+# Dependencies and generated assets
+node_modules/
+dist/
+.vite/
+coverage/
+test-results/
+playwright-report/
+# Local configuration and runtime data
+.env
+.env.*
+!.env.example
+.data/
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+*.tsbuildinfo
+.DS_Store
+# Existing local review policy
+docs/frontend-review.md

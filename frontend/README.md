@@ -1,6 +1,36 @@
 # 牛马管理器前端
 
-本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`。主页、侧边栏、任务、课程、主题、快捷搜索、专注和移动端布局保留其 HTML/CSS/JavaScript 实现；接入本项目的 SQLite 账号数据库、文本识别 v0.2 和模型规划 2.0。具体合并边界见 [贡献说明](CONTRIBUTIONS.md)。
+## 目录结构
+
+```text
+frontend/
+├── README.md                  提供目录、启动、功能和验证入口。
+├── CONTRIBUTIONS.md           记录当前界面来源及维护范围。
+├── .gitignore                 排除依赖、构建结果和本地运行数据。
+├── .nvmrc                     固定推荐的 Node.js 主版本。
+├── index.html                 加载应用脚本与样式。
+├── favicon.svg                提供浏览器页签图标。
+├── package.json               定义开发、构建和测试命令。
+├── package-lock.json          锁定前端依赖版本。
+├── vite.config.ts             配置开发端口与 API 代理。
+├── src/
+│   ├── app.js                 组织页面、路由与主要交互。
+│   ├── store.js               导出统一的状态访问接口。
+│   ├── team-store.js          对接账号数据库和业务 API。
+│   ├── team-recognition-ui.js 展示识别、证据与人工确认流程。
+│   ├── source-import.js        解析课程网 v0.2 文件与用户选择的微信文本。
+│   ├── team-planner-ui.js     展示规划输入、预览与确认流程。
+│   ├── team-calendar-ui.js    渲染日、周、月日历与 DDL。
+│   ├── team-personalization-ui.js 记录实际用时反馈。
+│   ├── styles.css / polish.css / team-integration.css 维护界面样式。
+│   └── 其他工具模块           提供示例、搜索、计时、语音、主题和图标。
+├── tests/                     覆盖前端行为与团队接口适配。
+└── docs/
+    ├── maintenance.md         说明模块边界和验证要求。
+    └── archive/               保存带日期的历史文档。
+```
+
+本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`。
 
 ## 启动
 
@@ -8,6 +38,7 @@
 
 ```bash
 npm ci
+node ../scripts/run-python.mjs -m pip install -r ../server/requirements.txt
 npm run db:seed
 npm run dev:api
 ```
@@ -23,17 +54,24 @@ npm run dev:api
 - 任务、子任务、课程、资料、计划和专注状态通过账号数据库保存；浏览器只保留 HttpOnly 会话 Cookie。深浅主题只在当前页面会话生效。
 - DDL 支持无截止日期或精确到分钟。日历有日、周、月视图，日/周默认滚动到 10:00，可向上滚回 00:00；缺少具体时刻的旧 DDL 会提示补全。设置新 DDL 时必须填写时刻。
 - 快速收集与语音输入进入“识别审核”，由文本 Harness 输出 v0.2 候选；用户核对证据和目标任务后才应用。原文只有截止日期时可先加入任务，日历提示“时刻待补充”，不虚构 23:59；后续可在任务详情补全时间。没有服务时明确显示未接入，可加载标记为人工演示的候选。
+- 识别审核页可在本机预览课程网 v0.2 JSON/JSONL 或微信导出的会话 JSON；只有用户勾选同意并选择批次或消息后，选中内容才发送到识别服务，微信账号与群成员 ID 不上传。
+- 识别审核页可首次保存教学网账号密码，之后勾选“教学网”并点击“同步并识别”：后端调用现有 crawler，返回增量 v0.2 请求后逐条识别，结果只进入待确认；密码按登录账号加密保存在服务端，不进入浏览器存储或模型请求。微信目前仅支持手动选择会话导出文件，不提供直接同步。
 - “开始规划”只处理尚未完成、没有计划且未标记为“无需规划”的任务。可用时间、已有计划、真实 DDL 和个性化用时交给模型 Harness；先预览再确认。没有模型服务时不会用本地规则伪造安排。
 - 设置页可随机选择最多三项已完成任务填写实际分钟数。参考版的课程资料、键盘搜索、专注计时、撤销、示例体验、JSON 与 ICS 导出继续可用。
 - 文本识别和规划的接口以 [团队对齐文档](../docs/backend-harness-alignment.md) 为准。前端独有的视图结构由 `src/team-store.js` 映射到服务端工作区，保留来源证据、取消历史和已有计划。
 
-真正的服务由后端配置，前端不接触密钥：
+模型服务由后端配置，前端不接触模型密钥：
 
 ```bash
-TEXT_HARNESS_URL=http://127.0.0.1:8001/recognition HARNESS_URL=http://127.0.0.1:8000/planning npm run dev:api
+TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize HARNESS_URL=http://127.0.0.1:1334/planning npm run dev:api
 ```
 
+教学网同步需安装 `server/requirements.txt` 的 Python 依赖，在 `crawler/` 执行 `pnpm install`，并准备可用的 Playwright 浏览器；教学网账号密码由用户在“识别审核 → 同步信息”保存一次，之后可在同处更换或删除，无需创建 `crawler/secret`。
+
 ## 检查
+
+文本识别最多等待 100 秒；模型服务整批预算 90 秒，业务后端等待 95 秒。停止等待后先刷新候选再决定重试。补年依据保留在证据详情，日期以 `年/月/日 时:分` 显示，推断值仍需确认。
+合成界面回归截图：[明确日期与补年日期](docs/archive/2026-09-28-deadline-review.png)。
 
 ```bash
 npm test
@@ -41,3 +79,6 @@ npm run build
 ```
 
 开发 API 仅用于本地联调。部署前需生产服务、HTTPS/Secure Cookie、限流、备份和迁移。客户端 JSON 导出是手动备份，不提供恢复导入或外部日历双向同步。
+
+教学网同步跳过已成功识别且内容未变化的通知，逐条显示进度；部分失败显示成功、失败、未处理与跳过数量，可点“重试失败记录”保留成功结果后补跑，未处理记录可再次同步恢复。
+识别请求的公共 API 与页面等待均为 100 秒；其他 API 默认仍为 60 秒。停止等待或关闭页面后不会在浏览器后台继续队列，下次同步恢复未成功记录。

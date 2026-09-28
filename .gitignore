@@ -73,11 +73,3 @@ output/playwright/
 
 # Shared text extraction local data
 local-data/
-
-# Crawler output and local campus credentials
-data/raw/
-data/extracted/
-data/normalized/
-data/review/
-logs/
-secret

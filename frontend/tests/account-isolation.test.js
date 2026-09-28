@@ -95,6 +95,27 @@ test('late recognition response is discarded after logout and a new account can 
  assert.equal(request.body.records[0].text,'B 的通知');
 });
 
+test('shared recognition request survives the old 30-second limit but stops at 100 seconds',async(t)=>{
+ await login('A');
+ const pending=defer('/api/recognition/batches');
+ t.mock.timers.enable({apis:['setTimeout']});
+ const operation=recognition.submitRecognitionText('合成通知：请提交报告');
+ await pending.ready;
+ const signal=requests.at(-1).signal;
+ try{
+  t.mock.timers.tick(30001);
+  assert.equal(signal.aborted,false);
+  t.mock.timers.tick(30000);
+  assert.equal(signal.aborted,false); // The shared API must not abort at 60 seconds.
+  t.mock.timers.tick(40000);
+  assert.equal(signal.aborted,true);
+ }finally{
+  pending.release([]);
+  await operation;
+  t.mock.timers.reset();
+ }
+});
+
 test('planning exclusion is in the saved payload before a planning request is sent',async()=>{
  await login('B');
  planner.plannerChange({target:{dataset:{planExclude:'b2'},checked:true}});
@@ -118,4 +139,55 @@ test('logout drains pending saves and refuses new writes during account transiti
  assert.equal(active,null);
  await login('B');
  assert.deepEqual(store.workspaceValue('feedback',[]),[]);
+});
+
+
+test('sync processes more than twenty single records, continues past failure and retries only the failed batch',async()=>{
+ await login('A');
+ const originalFetch=globalThis.fetch,seen=[],saved=[];
+ const syncRequests=Array.from({length:25},(_,i)=>({contract_version:'0.2',request_id:'sync:'+i,records:[{input_id:'r:'+i,text:'合成通知 '+i,platform:'teaching_web'}]}));
+ let fail=true;
+ globalThis.fetch=async(path,options={})=>{
+  if(path==='/api/sources/sync')return response({requests:syncRequests,summary:{total:65,skipped:40,pending:25}});
+  if(path==='/api/recognition/retry'){
+   const request=JSON.parse(options.body);seen.push(request);
+   assert.equal(request.records.length,1);
+   const failed=fail&&request.request_id==='sync:0';
+   const result={status:failed?'failed':'no_tasks',record_results:[{input_id:request.records[0].input_id,status:failed?'failed':'no_tasks',warnings:[]}],errors:failed?[{input_id:request.records[0].input_id,message:'Agent 调用超时。'}]:[]};
+   const item={request,result,items:[],demo:false},index=saved.findIndex(b=>b.request.request_id===request.request_id);
+   if(index<0)saved.push(item);else saved[index]=item;
+   return response(saved);
+  }
+  return originalFetch(path,options);
+ };
+ try{
+  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+  assert.equal(seen.length,25);
+  const page=recognition.assistantPage();
+  assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
+  assert.match(page,/data-agent-retry="sync:0"/);
+  assert.doesNotMatch(page,/data-agent-retry="sync:1"/);
+  fail=false;
+  await recognition.handleAssistantClick({dataset:{agentRetry:'sync:0'}});
+  assert.equal(seen.length,26);
+  assert.equal(seen.at(-1).request_id,'sync:0');
+  assert.doesNotMatch(recognition.assistantPage(),/data-agent-retry=/);
+ }finally{globalThis.fetch=originalFetch;}
+});
+
+test('a late sync response cannot send any records after account switch',async()=>{
+ await login('A');
+ recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+ recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+ const pending=defer('/api/sources/sync');
+ const operation=recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+ await pending.ready;
+ state=await store.logout();await login('B');
+ const before=requests.length;
+ pending.release({requests:[{request_id:'private-sync',records:[{text:'private'}]}]});
+ await operation;
+ assert.equal(requests.length,before);
+ assert.doesNotMatch(recognition.assistantPage(),/private-sync|private/);
 });

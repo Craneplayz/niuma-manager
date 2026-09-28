@@ -37,10 +37,12 @@ def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
     if path=='/api/recognition/batches' and handler.command=='GET':
         handler.reply(200,batches(db,uid));return True
-    if path in ['/api/recognition/batches','/api/recognition/demo'] and handler.command=='POST':
+    if path in ['/api/recognition/batches','/api/recognition/retry','/api/recognition/demo'] and handler.command=='POST':
         demo=path.endswith('/demo')
+        retry=path.endswith('/retry')
+        previous=None
         if demo:
-            fixture=json.loads((Path(__file__).parent.parent/'docs/examples/text-contract-v0.2.json').read_text(encoding='utf-8'))
+            fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
             request=fixture['request'];request['request_id']='demo:text-contract:0.2'
             result=fixture['expected'];result['request_id']=request['request_id']
         else: request=body
@@ -50,7 +52,13 @@ def route(handler,db,uid,path,body,ApiError):
         row=db.execute('SELECT * FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
         if row:
             if row['fingerprint']!=fingerprint: raise ApiError(409,'同一 request_id 不能用于不同输入')
-            handler.reply(200,batches(db,uid));return True
+            previous=json.loads(row['result'])
+            if not retry or row['demo'] or previous['status'] in ('success','no_tasks'):
+                handler.reply(200,batches(db,uid));return True
+        extraction_request=request
+        if previous:
+            completed={r['input_id'] for r in previous['record_results'] if r['status']!='failed'}
+            extraction_request=dict(request,records=[r for r in request['records'] if r['input_id'] not in completed])
         if not demo:
             if not request['records']:
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
@@ -60,14 +68,32 @@ def route(handler,db,uid,path,body,ApiError):
                 headers={'Content-Type':'application/json'}
                 if os.environ.get('TEXT_HARNESS_TOKEN'): headers['Authorization']='Bearer '+os.environ['TEXT_HARNESS_TOKEN']
                 try:
-                    with urlopen(Request(endpoint,json.dumps(request).encode(),headers),timeout=25) as response: result=json.loads(response.read(2000000))
+                    with urlopen(Request(endpoint,json.dumps(extraction_request).encode(),headers),timeout=95) as response: result=json.loads(response.read(2000000))
                 except Exception: raise ApiError(502,'文本识别服务不可用或超时，请稍后重试')
-        try: result=validate_result(request,result)
+        try:
+            result=validate_result(extraction_request,result)
+            new_tasks=list(result['tasks'])
+            if previous:
+                # Keep successful candidates and their confirmation state; only replace failures.
+                retried={r['input_id'] for r in extraction_request['records']}
+                if not result['record_results']:
+                    raise ValueError('retry envelope failed')
+                outcomes={r['input_id']:r for r in previous['record_results'] if r['input_id'] not in retried}
+                outcomes.update({r['input_id']:r for r in result['record_results']})
+                result['record_results']=[outcomes[r['input_id']] for r in request['records']]
+                result['tasks']=previous['tasks']+new_tasks
+                failures=sum(r['status']=='failed' for r in result['record_results'])
+                result['status']=('failed' if failures==len(request['records']) else 'partial_success') if failures else ('success' if result['tasks'] else 'no_tasks')
+                result=validate_result(request,result)
         except (ValueError,TypeError,KeyError): raise ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')
         db.execute('BEGIN IMMEDIATE')
-        row=db.execute('SELECT fingerprint FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
+        row=db.execute('SELECT fingerprint,result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
         if row:
             if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')
+            # Another request may have finished during the model call. Never overwrite it.
+            if previous is not None and json.loads(row['result'])==previous:
+                db.execute('UPDATE recognition_batches SET result=? WHERE user_id=? AND request_id=?',(json.dumps(result),uid,request['request_id']))
+                for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
         else:
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
