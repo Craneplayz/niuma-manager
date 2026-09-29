@@ -12,9 +12,6 @@
 .workspace-planner .page-heading{margin-top:18px}
 .workspace-planner .planner-grid{grid-template-columns:1fr}
 .workspace-planner .planning-insights{display:block}
-.calendar-undated{margin:12px 0;padding:10px;border:1px solid var(--border);border-radius:10px}
-.calendar-undated summary{cursor:pointer;font-weight:600}
-.calendar-undated button{display:block;width:100%;padding:8px;border:0;background:transparent;text-align:left;cursor:pointer}
 @media(max-width:700px){.workspace-conversation .agent-layout{display:block}}
 @media(max-width:600px){.compact-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.compact-stats>div{padding:12px 8px}.compact-stats strong{font-size:20px}}
 .calendar-view-tabs{display:flex;gap:8px;margin:14px 0}
