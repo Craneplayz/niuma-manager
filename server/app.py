@@ -225,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
         except ApiError as e: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError): self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
-            print(type(e).__name__,str(e))
+            print(type(e).__name__,str(e),flush=True)
             self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
         finally:
             if getattr(self,'db',None) is not None: self.db.close()
