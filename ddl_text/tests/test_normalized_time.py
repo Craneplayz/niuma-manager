@@ -83,7 +83,7 @@ class NormalizedTimeTests(unittest.TestCase):
                 r = record(published_at={"value": publication, "precision": "date", "basis": "source"})
                 item = proposal("任意月日书写方式", value, derivation="missing_year", anchor="published_at")
                 result = validate_time(item, r)
-                self.assertEqual((result["value"], result["status"]), (value, "inferred"))
+                self.assertEqual((result["value"], result["status"]), (value, "explicit"))
                 self.assertIn(publication, result["basis"])
         item = proposal("一月五日", "2026-01-05", derivation="missing_year", anchor="published_at")
         self.assertIsNone(validate_time(item, record())["value"])
@@ -93,7 +93,7 @@ class NormalizedTimeTests(unittest.TestCase):
         r = record(collected_at="2026-09-25T12:00:00+08:00")
         self.assertIsNone(validate_time(item, r)["value"])
         r["published_at"] = {"value": None, "precision": "unknown", "basis": "unknown"}
-        self.assertEqual(validate_time(item, r)["status"], "inferred")
+        self.assertEqual(validate_time(item, r)["status"], "explicit")
         r["collected_at"] = None
         self.assertIsNone(validate_time(item, r)["value"])
 

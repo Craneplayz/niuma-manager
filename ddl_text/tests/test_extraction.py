@@ -99,13 +99,13 @@ class ExtractionTests(unittest.TestCase):
         self.assertFalse(task['needs_review'])
         self.assertIn('麻烦大家抓点紧呀', [e['quote'] for e in task['evidence']])
 
-    def test_duplicate_value_does_not_hide_inferred_status(self):
+    def test_same_date_does_not_promote_reference_to_deadline(self):
         record = message()
         explicit = validate_time(time_ref(record, '完整日期', '2026-09-30'), record)
-        inferred = validate_time(time_ref(record, '缺年日期', '2026-09-30',
+        inferred = validate_time(time_ref(record, '缺年活动日期', '2026-09-30', kind='reference',
                                          derivation='missing_year', anchor='published_at'), record)
         for items in ([explicit, inferred], [inferred, explicit]):
-            self.assertEqual(combine_times(items)['status'], 'inferred')
+            self.assertEqual(combine_times(items)['status'], 'unknown')
         self.assertEqual(explicit['status'], 'explicit')
 
     def test_context_missing_anchor_cannot_borrow_current_publication(self):
@@ -144,10 +144,11 @@ class ExtractionTests(unittest.TestCase):
         task = compile_tasks(record, draft(record, notice_type="update", target=ref(old, "报告"),
                              times=[time_ref(old, "9月30日18点", "2024-09-30T18:00:00+08:00", derivation="missing_year", anchor="published_at")]))[0]
         self.assertEqual(task["deadline"]["value"], "2024-09-30T18:00:00+08:00")
-        self.assertEqual(task["deadline"]["status"], "inferred")
-        self.assertTrue(task["needs_review"])
+        self.assertEqual(task["deadline"]["status"], "explicit")
+        self.assertFalse(task["needs_review"])
         self.assertEqual(task["deadline"]["raw"], "9月30日18点")
-        self.assertIn(task["deadline"]["basis"], task["review_reasons"])
+        self.assertIn("2024-09-25", task["deadline"]["basis"])
+        self.assertEqual(task["review_reasons"], [])
 
     def test_unresolved_reference_and_no_date_keep_zone(self):
         record = message("月底开课，请提前加群。")
@@ -279,13 +280,17 @@ class ExtractionTests(unittest.TestCase):
 
     def test_recorded_live_time_drafts_compile_without_provider_calls(self):
         from ddl_text.tests.run_time_smoke import signature
+        from ddl_text.tests.time_cases import CASES
+        expectations = {case['name']: case['expected'] for case in CASES}
         report = json.loads((ROOT / 'ddl_text/docs/archive/2026-09-29-issue79-time-live.json').read_text(encoding='utf-8'))
         self.assertEqual(len(report['cases']), 20)
         for case in report['cases']:
             with self.subTest(case=case['name']):
                 tasks = compile_drafts(case['model_draft'], case['request']['records'][0])
                 self.assertEqual(sorted([signature(t) for t in tasks], key=repr),
-                                 sorted(case['expected'], key=repr))
+                                 # Historical reports keep their original expectations;
+                                 # replay uses the currently approved year policy.
+                                 sorted(expectations[case['name']], key=repr))
 
 
 if __name__ == "__main__":

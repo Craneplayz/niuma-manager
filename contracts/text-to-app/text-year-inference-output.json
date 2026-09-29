@@ -1,0 +1,305 @@
+{
+  "contract_version": "0.2",
+  "request_id": "synthetic:year-inference-v03",
+  "status": "success",
+  "tasks": [
+    {
+      "candidate_id": "synthetic:year:same-year:candidate:1",
+      "input_id": "synthetic:year:same-year",
+      "title": "提交实验报告",
+      "description": "请9月30日18点前提交实验报告。",
+      "prerequisites": [],
+      "course_or_project": "示例课程",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2026-09-30T18:00:00+08:00",
+        "precision": "datetime",
+        "timezone": "Asia/Shanghai",
+        "kind": "deadline",
+        "status": "explicit",
+        "raw": "9月30日18点",
+        "basis": "按发布时间 2026-09-25 补全年份。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "synthetic:year:same-year",
+          "platform": "teaching_web",
+          "url": null,
+          "label": "合成年份推断回归",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:year:same-year",
+          "field": "text",
+          "quote": "请9月30日18点前提交实验报告。",
+          "supports": [
+            "title",
+            "description"
+          ]
+        },
+        {
+          "input_id": "synthetic:year:same-year",
+          "field": "text",
+          "quote": "9月30日18点",
+          "supports": [
+            "deadline"
+          ]
+        }
+      ]
+    },
+    {
+      "candidate_id": "synthetic:year:cross-year:candidate:1",
+      "input_id": "synthetic:year:cross-year",
+      "title": "提交报名表",
+      "description": "请1月5日前提交报名表。",
+      "prerequisites": [],
+      "course_or_project": "示例课程",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2027-01-05",
+        "precision": "date",
+        "timezone": "Asia/Shanghai",
+        "kind": "deadline",
+        "status": "explicit",
+        "raw": "1月5日",
+        "basis": "按发布时间 2026-12-31 补全年份。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "synthetic:year:cross-year",
+          "platform": "teaching_web",
+          "url": null,
+          "label": "合成年份推断回归",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:year:cross-year",
+          "field": "text",
+          "quote": "请1月5日前提交报名表。",
+          "supports": [
+            "title",
+            "description"
+          ]
+        },
+        {
+          "input_id": "synthetic:year:cross-year",
+          "field": "text",
+          "quote": "1月5日",
+          "supports": [
+            "deadline"
+          ]
+        }
+      ]
+    },
+    {
+      "candidate_id": "synthetic:year:collection-fallback:candidate:1",
+      "input_id": "synthetic:year:collection-fallback",
+      "title": "提交课程报告",
+      "description": "请9/30前提交课程报告。",
+      "prerequisites": [],
+      "course_or_project": "示例课程",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2026-09-30",
+        "precision": "date",
+        "timezone": "Asia/Shanghai",
+        "kind": "deadline",
+        "status": "explicit",
+        "raw": "9/30",
+        "basis": "按采集时间 2026-09-25 补全年份。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "synthetic:year:collection-fallback",
+          "platform": "teaching_web",
+          "url": null,
+          "label": "合成年份推断回归",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:year:collection-fallback",
+          "field": "text",
+          "quote": "请9/30前提交课程报告。",
+          "supports": [
+            "title",
+            "description"
+          ]
+        },
+        {
+          "input_id": "synthetic:year:collection-fallback",
+          "field": "text",
+          "quote": "9/30",
+          "supports": [
+            "deadline"
+          ]
+        }
+      ]
+    },
+    {
+      "candidate_id": "synthetic:year:explicit-year:candidate:1",
+      "input_id": "synthetic:year:explicit-year",
+      "title": "提交毕业报告",
+      "description": "请2028年9月30日前提交毕业报告。",
+      "prerequisites": [],
+      "course_or_project": "示例课程",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2028-09-30",
+        "precision": "date",
+        "timezone": "Asia/Shanghai",
+        "kind": "deadline",
+        "status": "explicit",
+        "raw": "2028年9月30日",
+        "basis": "按原文明确时间归一化。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "synthetic:year:explicit-year",
+          "platform": "teaching_web",
+          "url": null,
+          "label": "合成年份推断回归",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:year:explicit-year",
+          "field": "text",
+          "quote": "请2028年9月30日前提交毕业报告。",
+          "supports": [
+            "title",
+            "description"
+          ]
+        },
+        {
+          "input_id": "synthetic:year:explicit-year",
+          "field": "text",
+          "quote": "2028年9月30日",
+          "supports": [
+            "deadline"
+          ]
+        }
+      ]
+    },
+    {
+      "candidate_id": "synthetic:year:recent-overdue:candidate:1",
+      "input_id": "synthetic:year:recent-overdue",
+      "title": "补交实验报告",
+      "description": "9月20日截止的实验报告还未提交，请补交，原截止日期保持不变。",
+      "prerequisites": [],
+      "course_or_project": "示例课程",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2026-09-20",
+        "precision": "date",
+        "timezone": "Asia/Shanghai",
+        "kind": "deadline",
+        "status": "explicit",
+        "raw": "9月20日",
+        "basis": "按发布时间 2026-09-25 补全年份。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "synthetic:year:recent-overdue",
+          "platform": "teaching_web",
+          "url": null,
+          "label": "合成年份推断回归",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "synthetic:year:recent-overdue",
+          "field": "text",
+          "quote": "9月20日截止的实验报告还未提交，请补交，原截止日期保持不变。",
+          "supports": [
+            "title",
+            "description"
+          ]
+        },
+        {
+          "input_id": "synthetic:year:recent-overdue",
+          "field": "text",
+          "quote": "9月20日",
+          "supports": [
+            "deadline"
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "record_results": [
+    {
+      "input_id": "synthetic:year:same-year",
+      "status": "success",
+      "task_ids": [
+        "synthetic:year:same-year:candidate:1"
+      ],
+      "warnings": []
+    },
+    {
+      "input_id": "synthetic:year:cross-year",
+      "status": "success",
+      "task_ids": [
+        "synthetic:year:cross-year:candidate:1"
+      ],
+      "warnings": []
+    },
+    {
+      "input_id": "synthetic:year:collection-fallback",
+      "status": "success",
+      "task_ids": [
+        "synthetic:year:collection-fallback:candidate:1"
+      ],
+      "warnings": []
+    },
+    {
+      "input_id": "synthetic:year:explicit-year",
+      "status": "success",
+      "task_ids": [
+        "synthetic:year:explicit-year:candidate:1"
+      ],
+      "warnings": []
+    },
+    {
+      "input_id": "synthetic:year:recent-overdue",
+      "status": "success",
+      "task_ids": [
+        "synthetic:year:recent-overdue:candidate:1"
+      ],
+      "warnings": []
+    }
+  ]
+}

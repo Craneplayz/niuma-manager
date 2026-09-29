@@ -52,4 +52,6 @@
 
 unresolved 和 urgency 的 value=null、precision=unknown、anchor=null。日期无法确定也要保留其引文。程序从合法提案生成 status 和 timezone；不让模型自行填写这两个对外字段。来源时区之外的原文时区须换算到来源时区，不能只改偏移符号。
 
+missing_year 仍如实填写补年类别与基准，不伪装成 absolute。正常补年不写核实原因：校验通过的 deadline 按 explicit 输出；reference 仍需核实。缺基准、冲突和其他疑点照常保留。
+
 日期与时刻分隔、中文数字、其他语言或标点形式不限制归一化；模型根据语义判断，程序只验证标准值、日历、基准、时区和逐字引文。结构通过不等于语义一定正确。

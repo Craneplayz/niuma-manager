@@ -133,6 +133,8 @@ def validate_time(ref, message):
         if ref["kind"] == "reference":
             basis += " 取活动时间作为参考，并非明确截止。"
         return dict(result, value=value, precision=n["precision"], basis=basis,
-                    status="inferred" if ref["kind"] == "reference" or derivation == "missing_year" else "explicit")
+                    # A validated nearest-year completion is accepted by policy;
+                    # raw and basis still record that the year was omitted.
+                    status="inferred" if ref["kind"] == "reference" else "explicit")
     except (ValueError, OverflowError, TypeError):
         return unresolved("标准时间不合法，请核对日期、时刻和时区。")
