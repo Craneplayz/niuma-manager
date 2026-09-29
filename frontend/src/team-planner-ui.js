@@ -15,7 +15,7 @@ document.addEventListener('toggle',event=>{
 },true);
 export function plannerPage(){
  const tasks=active(),selected=tasks.filter(t=>!t.planningExcluded),a=currentAvailability();
- return `<div class="page-heading"><div><div class="eyebrow">NIUMA INTELLIGENT PLANNER</div><h1>让任务找到合适的时间。</h1><p>点击开始规划后，模型结合真实 DDL、已有安排和你的用时反馈评估并排程。</p></div></div>
+ return `<div class="page-heading"><h1>智能规划</h1></div>
  <div class="planner-grid"><section class="panel priority-lab"><div class="section-title"><h2>可用时间</h2><span>北京时间</span></div>
  <div class="form-grid"><label>每日开始<input type="time" data-plan-field="startTime" value="${a.startTime}"></label><label>每日结束<input type="time" data-plan-field="endTime" value="${a.endTime}"></label></div>
  <div class="weekday-options">${[1,2,3,4,5,6,0].map(d=>`<label><input type="checkbox" data-plan-day="${d}" ${a.weekdays.includes(d)?'checked':''}>${['周日','周一','周二','周三','周四','周五','周六'][d]}</label>`).join('')}</div>
