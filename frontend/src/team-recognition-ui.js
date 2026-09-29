@@ -12,8 +12,9 @@ export function resetAssistant(){cancelVoice();activeController?.abort();activeC
 window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#sources'].includes(location.hash))host.render();};
-const pending=()=>batches.flatMap(b=>b.items).filter(i=>i.state==='pending').length;
-export const canAutoApplyCandidate=c=>c.notice_type==='create'&&((c.deadline.kind==='deadline'&&c.deadline.status==='explicit'&&['date','datetime'].includes(c.deadline.precision))||c.deadline.status==='not_provided');
+export const canAutoApplyCandidate=c=>c.notice_type==='create'&&c.deadline.kind==='deadline'&&['explicit','inferred'].includes(c.deadline.status)&&['date','datetime'].includes(c.deadline.precision)&&Boolean(c.deadline.value);
+const needsDate=item=>item.state==='pending'&&item.candidate.notice_type==='create'&&item.candidate.deadline.status==='not_provided';
+const pending=()=>batches.flatMap(b=>b.items).filter(needsDate).length;
 function displayTime(d){
  if(!d.value)return '';
  if(d.precision==='date')return d.value.replaceAll('-','/');
@@ -59,30 +60,44 @@ export function suggestedDue(d){
 }
 async function load(refreshWorkspace=false){
  if(!session.user)return;
- const epoch=accountVersion();
- try{if(refreshWorkspace)await host.refresh();if(epoch!==accountVersion())return;const next=await api('/api/recognition/batches');if(epoch!==accountVersion())return;batches=next;loaded=true;error='';refresh();}
+ const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';await autoApplyCandidates(null,current);if(!current())return;loaded=true;refresh();}
  catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
+}
+async function autoApplyCandidates(requestId,current){
+ let applied=0;
+ const items=batches.filter(batch=>!batch.demo&&(!requestId||batch.request.request_id===requestId)).flatMap(batch=>batch.items).filter(item=>item.state==='pending'&&canAutoApplyCandidate(item.candidate));
+ for(const item of items){
+  if(!current())return applied;
+  try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;}
+  catch(e){if(current())error='自动加入日程失败：'+e.message;}
+ }
+ if(applied){try{await host.refresh();}catch(e){if(current())error='任务已加入日程，但页面刷新失败：'+e.message;}}
+ return applied;
 }
 export function assistantPage(){
  if(!loaded&&session.user){loaded=true;queueMicrotask(load);}
  if(session.user&&location.hash==='#agent'&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
  const support=voiceSupport();
- return `<div class="page-heading"><div><div class="eyebrow">NIUMA ASSISTANT · v0.2</div><h1>快速识别</h1><p>输入文字后先核对候选；来源同步识别出的新任务直接进入日历。</p></div><span class="agent-mode">${icon('spark')}文本识别</span></div>
+ const undated=batches.map(batch=>({...batch,items:batch.items.filter(needsDate)})).filter(batch=>batch.items.length);
+ const failedBatches=batches.filter(batch=>!batch.demo&&['failed','partial_success'].includes(batch.result.status));
+ return `<div class="page-heading"><div><div class="eyebrow">NIUMA ASSISTANT · v0.2</div><h1>快速识别</h1><p>识别出明确日期的任务直接进入日历；原文明确没有日期的任务留在右侧补充。</p></div><span class="agent-mode">${icon('spark')}文本识别</span></div>
  <div class="agent-layout"><section class="panel agent-chat"><div class="agent-chat-header"><span class="agent-avatar">${icon('spark')}</span><div><b>小牛 · 快速识别</b><small>原文 → 识别 → 日程</small></div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
  ${syncActionPanel()}
  <form id="agent-message-form" class="agent-composer"><label for="agent-input">粘贴或说出原文</label><textarea id="agent-input" rows="4" required maxlength="4000" placeholder="粘贴课程通知正文或描述任务…">${esc(text)}</textarea>
  <div class="form-grid"><label>文本完整度<select id="agent-quality"><option value="complete" ${quality==='complete'?'selected':''}>完整正文</option><option value="partial" ${quality==='partial'?'selected':''}>部分正文</option><option value="summary" ${quality==='summary'?'selected':''}>摘要或标题</option></select></label><label>原文发布日期（可选）<input id="agent-published" type="date" value="${published}"></label></div>
- <div class="composer-bar"><button class="voice-button" type="button" data-agent-action="voice" ${busy?'disabled':''}>${icon('mic')}${voiceState==='listening'?'说完了，开始整理':'点击说话'}</button><button class="btn primary" ${busy||!session.user?'disabled':''}>${busy?'识别中…':'识别并预览'}</button></div>
+ <div class="composer-bar"><button class="voice-button" type="button" data-agent-action="voice" ${busy?'disabled':''}>${icon('mic')}${voiceState==='listening'?'说完了，开始整理':'点击说话'}</button><button class="btn primary" ${busy||!session.user?'disabled':''}>${busy?'识别中…':'识别并加入日程'}</button></div>
  <div class="button-row"><button class="btn" type="button" data-agent-action="new-batch" ${busy||!text.trim()?'disabled':''}>重新识别（新批次）</button>${busy?'<button class="btn" type="button" data-agent-action="stop">停止等待</button>':''}</div>
  <p class="voice-notice">${support.browser?'语音由浏览器识别，可能使用浏览器语音服务。':'当前浏览器可直接输入文字。'} 原文发布日期仅作为待核实信息，不以今天推断“明天”。</p></form>
- ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}</section>
- <aside class="agent-result"><div class="result-heading"><div><span class="eyebrow">RECOGNITION RESULTS</span><h2>待确认 <span>${pending()}</span></h2></div>${icon('calendar')}</div>
- ${batches.length?batches.map(batchCard).join(''):'<div class="result-empty"><h3>识别结果会显示在这里</h3><p>手动输入的结果会在这里等待确认。</p></div>'}</aside></div>`;
+ ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
+ ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section>
+ <aside class="agent-result"><div class="result-heading"><div><span class="eyebrow">RECOGNITION RESULTS</span><h2>待补日期 <span>${pending()}</span></h2></div>${icon('calendar')}</div>
+ ${undated.length?undated.map(batchCard).join(''):'<div class="result-empty"><h3>暂无待补日期的任务</h3><p>有明确日期的任务会直接进入学习日程。</p></div>'}</aside></div>`;
 }
 function batchCard(batch){
  const incomplete=batch.result.record_results.filter(r=>r.warnings.includes('incomplete_text')).length;
  const failed=batch.result.record_results.filter(r=>r.status==='failed').length;
- return `<section class="recognition-batch"><h3>${batchLabels[batch.result.status]||'识别结果'}${batch.demo?' · 人工演示':''}</h3><small>${batch.request.records.length} 条原文 · ${batch.items.filter(i=>i.state==='pending').length} 项待确认</small>
+ return `<section class="recognition-batch"><h3>${batchLabels[batch.result.status]||'识别结果'}${batch.demo?' · 人工演示':''}</h3><small>${batch.request.records.length} 条原文 · ${batch.items.filter(needsDate).length} 项待补日期</small>
  ${incomplete?`<p class="draft-warning">${incomplete} 条来源只有摘要或正文不完整；请核对原文后再确认任务。</p>`:''}
  ${batch.result.record_results.flatMap(r=>r.warnings.filter(w=>w!=='incomplete_text').map(w=>`<p class="draft-warning">${esc(w)}</p>`)).join('')}
  ${failed?`<p class="error">${failed} 条识别失败，尚未生成候选。</p>`:''}
@@ -93,14 +108,14 @@ function batchCard(batch){
 }
 export function candidateCard(item){
  const c=item.candidate;
- return `<article class="draft-card"><div class="draft-top"><span>${esc(labels[c.notice_type])} · ${item.state==='pending'?'待核对':item.state==='applied'?'已应用':'已忽略'}</span></div>
+ return `<article class="draft-card"><div class="draft-top"><span>${esc(labels[c.notice_type])} · ${item.state==='pending'?'待补日期':item.state==='applied'?'已应用':'已忽略'}</span></div>
  <h3>${esc(c.title)}</h3><p>${esc(c.description)}</p><p>${esc(deadlineLabel(c.deadline))}</p>
  ${c.deadline.raw?`<small>时间原话：${esc(c.deadline.raw)}</small>`:''}
  ${c.review_reasons.filter(r=>!(c.deadline.status==='inferred'&&r===c.deadline.basis)).map(r=>`<p class="draft-warning">${esc(r)}</p>`).join('')}
  ${c.prerequisites.length?`<details><summary>原文要求</summary><ul>${c.prerequisites.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></details>`:''}
  <details><summary>证据与来源</summary><p>${esc(c.deadline.basis)}</p>${c.evidence.map(e=>`<blockquote>${esc(e.quote)}<small>${esc(e.input_id)} · ${esc(e.field)} · 支持 ${esc(e.supports.join('、'))}</small></blockquote>`).join('')}
  ${c.sources.map(s=>{let link='';try{const u=new URL(s.url);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)link=` · <a href="${esc(u.href)}" target="_blank" rel="noreferrer">打开来源</a>`;}catch{}return `<p>${esc(s.label||s.input_id)} · ${esc(s.platform)}${link}</p>`}).join('')}</details>
- ${item.state==='pending'?`<div class="button-row"><button class="btn primary" data-agent-review="${esc(item.id)}" ${busy?'disabled':''}>核对并确认</button><button class="btn" data-agent-ignore="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;
+ ${item.state==='pending'?`<div class="button-row"><button class="btn primary" data-agent-review="${esc(item.id)}" ${busy?'disabled':''}>补日期并加入</button><button class="btn" data-agent-ignore="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;
 }
 function review(item,selectedAction=''){
  const c=item.candidate,d=suggestedDue(c.deadline),tasks=host.getState().tasks;
@@ -165,16 +180,10 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   batches=next;loaded=true;
   const batch=next.find(batch=>batch.request.request_id===body.request_id),result=batch?.result;
   const complete=result&&['success','no_tasks'].includes(result.status);
-  let applied=0;
-  for(const item of batch?.items||[]){
-   if(!current())return;
-   if(!autoApply||item.state!=='pending'||!canAutoApplyCandidate(item.candidate))continue;
-   try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return;batches=updated.batches;applied++;}
-   catch(e){if(current())error='自动加入日程失败：'+e.message;}
-  }
-  if(applied){try{await host.refresh();}catch(e){if(current())error='任务已加入日程，但页面刷新失败：'+e.message;}if(!current())return;}
-  const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(i=>i.state==='pending').length||0;
-  notice=`${applied?`已自动加入 ${applied} 项日程；`:''}${remaining?`${remaining} 项${autoApply?'暂未加入':'待确认'}；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
+  const applied=autoApply?await autoApplyCandidates(body.request_id,current):0;
+  if(!current())return;
+  const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(needsDate).length||0;
+  notice=`${applied?`已自动加入 ${applied} 项日程；`:''}${remaining?`${remaining} 项待补日期；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
   if(complete)onSuccess?.();
   return Boolean(complete);
  }
@@ -189,7 +198,7 @@ export async function submitRecognitionText(value){
   text_quality:quality,platform:'unknown',published_at:{value:published||null,precision:published?'date':'unknown',basis:published?'upstream_unverified':'unknown'},
   collected_at:request.collectedAt,timezone:'Asia/Shanghai',timezone_basis:'caller_default',source_url:null,source_label:'用户粘贴文本',
   source_item_id:null,course_or_project:null,context:[],upstream_hints:null}]};
- await submitRecognitionRequest(body);
+ await submitRecognitionRequest(body,undefined,false,true);
 }
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
@@ -202,7 +211,7 @@ export async function handleAssistantClick(button){
   if(batch&&!batch.demo)await submitRecognitionRequest(batch.request,()=>{
    const index=sourceImport?.requests?.findIndex(r=>r.request_id===batch.request.request_id);
    if(index>=0)sourceImport.sent.add(index);
-  },true,batch.request.records.every(r=>r.platform!=='unknown'));
+  },true,true);
   return;
  }
  if(button.dataset.agentAction==='edit-credentials'){editCredentials=!editCredentials;refresh();return;}
