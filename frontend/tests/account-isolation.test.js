@@ -167,6 +167,7 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,25);
   const page=recognition.assistantPage();
   assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
+  assert.doesNotMatch(page,/新任务已加入日历/);
   assert.match(page,/data-agent-retry="sync:0"/);
   assert.doesNotMatch(page,/data-agent-retry="sync:1"/);
   fail=false;
