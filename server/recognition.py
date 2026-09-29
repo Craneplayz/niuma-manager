@@ -113,9 +113,11 @@ def route(handler,db,uid,path,body,ApiError):
         auto=body.get('auto_apply') is True
         if auto:
             d=c['deadline']
-            demo=db.execute('SELECT demo FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
-            if (demo['demo'] or action!='create' or c['notice_type']!='create' or c['needs_review']
-                    or d['kind']!='deadline' or d['status']!='explicit' or d['precision'] not in ('date','datetime')):
+            batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+            sources={r['input_id'] for r in json.loads(batch['request'])['records'] if r['platform'] in ('teaching_web','wechat')}
+            valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime')) or d['status']=='not_provided'
+            if (batch['demo'] or action!='create' or c['notice_type']!='create' or not valid_due
+                    or not c['sources'] or any(s['input_id'] not in sources for s in c['sources'])):
                 raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':
             if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
@@ -130,7 +132,8 @@ def route(handler,db,uid,path,body,ApiError):
             draft=body.get('draft',{})
             if auto:
                 value=d['value']
-                if d['precision']=='datetime':
+                if d['status']=='not_provided': automatic_due=None
+                elif d['precision']=='datetime':
                     local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))
                     automatic_due=dict(date=local.date().isoformat(),precision='datetime',time=local.strftime('%H:%M'))
                 else: automatic_due=dict(date=value,precision='date')
@@ -144,7 +147,9 @@ def route(handler,db,uid,path,body,ApiError):
                 except (ValueError,KeyError,TypeError): raise ApiError(400,'截止日期格式不正确')
                 if action=='postpone' and confirmed_due is None: raise ApiError(400,'延期必须明确新的截止日期')
                 if action=='create':
-                    target=dict(id=secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=c['sources'][0]['label'] or '文本识别',subtasks=[],plans=[],createdAt=datetime.now(timezone.utc).isoformat())
+                    platform=c['sources'][0]['platform']
+                    source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
+                    target=dict(id=secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=datetime.now(timezone.utc).isoformat())
                     tasks.append(target)
                     target['course']=course
                     target['category']='课程作业' if course else '个人事务'

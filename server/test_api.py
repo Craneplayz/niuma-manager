@@ -181,6 +181,12 @@ class ApiTests(unittest.TestCase):
     def test_explicit_new_task_can_auto_apply_without_claiming_review(self):
         client=self.client();self.register(client,'auto-apply@test.local')
         fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
+        manual=copy.deepcopy(fixture)
+        manual['request']['request_id']='manual-auto-reject'
+        manual['expected']['request_id']='manual-auto-reject'
+        for record in fixture['request']['records']: record['platform']='teaching_web'
+        for candidate in fixture['expected']['tasks']:
+            for source in candidate['sources']: source['platform']='teaching_web'
         with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
             status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
         self.assertEqual(status,200)
@@ -188,13 +194,21 @@ class ApiTests(unittest.TestCase):
         unclear=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c2')
         body=dict(action='create',auto_apply=True,version=clear['version'])
         path='/recognition/candidates/'+clear['id']+'/resolve'
+        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(manual['expected']).encode())):
+            manual_status,manual_batches=self.call(client,'/recognition/batches','POST',manual['request'])
+        self.assertEqual(manual_status,200)
+        manual_candidate=next(item for item in manual_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+        self.assertEqual(self.call(client,'/recognition/candidates/'+manual_candidate['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=manual_candidate['version']))[0],400)
         self.assertEqual(self.call(client,path,'POST',body)[0],200)
         self.assertEqual(self.call(client,path,'POST',body)[0],200)
         tasks=self.call(client,'/workspace')[1]['tasks']['value']
         self.assertEqual(len(tasks),1)
         self.assertEqual(tasks[0]['due'],dict(date='2026-09-30',precision='date'))
-        self.assertEqual(self.call(client,'/recognition/candidates/'+unclear['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=unclear['version']))[0],400)
-        self.assertEqual(len(self.call(client,'/workspace')[1]['tasks']['value']),1)
+        self.assertEqual(tasks[0]['source'],'教学网')
+        self.assertEqual(self.call(client,'/recognition/candidates/'+unclear['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=unclear['version']))[0],200)
+        tasks=self.call(client,'/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),2)
+        self.assertIsNone(tasks[1]['due'])
 
     def test_source_selection_is_saved_per_account(self):
         a,b=self.client(),self.client()

@@ -13,7 +13,7 @@ window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#sources'].includes(location.hash))host.render();};
 const pending=()=>batches.flatMap(b=>b.items).filter(i=>i.state==='pending').length;
-export const canAutoApplyCandidate=c=>c.notice_type==='create'&&!c.needs_review&&c.deadline.kind==='deadline'&&c.deadline.status==='explicit'&&['date','datetime'].includes(c.deadline.precision);
+export const canAutoApplyCandidate=c=>c.notice_type==='create'&&((c.deadline.kind==='deadline'&&c.deadline.status==='explicit'&&['date','datetime'].includes(c.deadline.precision))||c.deadline.status==='not_provided');
 function displayTime(d){
  if(!d.value)return '';
  if(d.precision==='date')return d.value.replaceAll('-','/');
@@ -30,12 +30,12 @@ async function loadCredentials(){
 function sourceSyncPanel(){
  const configured=credentialStatus?.configured;
  const credentialForm=!credentialStatus?.loading&&(!configured||editCredentials)?`<form id="source-credential-form" class="source-sync-credentials"><label>教学网账号<input name="username" type="text" required maxlength="200" autocomplete="off" placeholder="校园卡账号" value="${esc(credentialStatus?.username||'')}"></label><label>教学网密码<input name="password" type="password" required maxlength="200" autocomplete="new-password" placeholder="保存到当前账号"></label><button class="btn" ${credentialBusy?'disabled':''}>${credentialBusy?'保存中…':'保存教学网凭据'}</button></form>`:'';
- return `<section class="agent-source-sync"><h2>选择同步来源</h2><p>已勾选的来源会在“快速识别”中同步；明确的新任务将自动加入日程。</p><div class="source-sync-options"><label><input type="checkbox" data-agent-sync-source="teaching_web" ${syncSources.has('teaching_web')?'checked':''} ${busy||sourceBusy||!session.user?'disabled':''}> 教学网</label><label><input type="checkbox" disabled> 微信（当前仅支持下方会话文件导入）</label></div>${session.user?`<p>${configured?'教学网账号已保存：'+esc(credentialStatus.username):credentialStatus?.loading?'正在读取教学网凭据…':'先保存教学网账号和密码，之后无需重复输入。'}</p>${configured?`<div class="button-row"><button type="button" class="btn" data-agent-action="edit-credentials">${editCredentials?'取消修改':'更换凭据'}</button><button type="button" class="btn" data-agent-action="remove-credentials">删除凭据</button></div>`:''}${credentialForm}${credentialStatus?.error?`<p class="error">${esc(credentialStatus.error)}</p>`:''}`:''}<small>密码加密保存在当前账号的服务器上；微信暂不支持直接同步。</small></section>`;
+ return `<section class="agent-source-sync"><h2>选择同步来源</h2><p>已勾选的来源可在工作台同步；来源识别出的新任务直接进入日历。</p><div class="source-sync-options"><label><input type="checkbox" data-agent-sync-source="teaching_web" ${syncSources.has('teaching_web')?'checked':''} ${busy||sourceBusy||!session.user?'disabled':''}> 教学网</label><label><input type="checkbox" disabled> 微信（当前仅支持下方会话文件导入）</label></div>${session.user?`<p>${configured?'教学网账号已保存：'+esc(credentialStatus.username):credentialStatus?.loading?'正在读取教学网凭据…':'先保存教学网账号和密码，之后无需重复输入。'}</p>${configured?`<div class="button-row"><button type="button" class="btn" data-agent-action="edit-credentials">${editCredentials?'取消修改':'更换凭据'}</button><button type="button" class="btn" data-agent-action="remove-credentials">删除凭据</button></div>`:''}${credentialForm}${credentialStatus?.error?`<p class="error">${esc(credentialStatus.error)}</p>`:''}`:''}<small>密码加密保存在当前账号的服务器上；微信暂不支持直接同步。</small></section>`;
 }
-function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#sources">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源原文发送给文本识别服务。</label><button type="button" class="btn primary" data-agent-action="sync-sources" ${busy||!session.user?'disabled':''}>${busy?'同步或识别中…':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>`;}
+function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#sources">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源原文发送给文本识别服务。</label><button type="button" class="btn primary" data-agent-action="sync-sources" ${busy||!session.user?'disabled':''}>${busy?'正在同步或识别…':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>`;}
 export function sourceManagementPage(){
  if(session.user&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
- return `<div class="page-heading"><div><div class="eyebrow">SOURCES</div><h1>来源管理</h1><p>保存账号并选择来源，再到快速识别同步。</p></div><a class="btn primary" href="#agent">前往快速识别</a></div>${sourceSyncPanel()}${sourceImportPanel()}`;
+ return `<div class="page-heading"><div><div class="eyebrow">SOURCES</div><h1>来源管理</h1><p>保存账号并选择来源，再回工作台同步。</p></div><a class="btn primary" href="#agent">返回工作台</a></div>${sourceSyncPanel()}${sourceImportPanel()}`;
 }
 function sourceImportPanel(){
  const imported=sourceImport?.kind==='requests'?`<p>${esc(sourceName)} · ${sourceImport.requests.length} 批 v0.2 来源记录</p><div class="source-import-list">${sourceImport.requests.map((batch,index)=>`<div class="source-import-row"><span>第 ${index+1} 批 · ${batch.records.length} 条 · ${esc([...new Set(batch.records.map(r=>r.platform||'unknown'))].join('、'))}</span><button type="button" class="btn" data-agent-import-index="${index}" ${busy||sourceImport.sent.has(index)?'disabled':''}>${sourceImport.sent.has(index)?'已提交':'识别此批'}</button></div>`).join('')}</div>`:
@@ -67,17 +67,17 @@ export function assistantPage(){
  if(!loaded&&session.user){loaded=true;queueMicrotask(load);}
  if(session.user&&location.hash==='#agent'&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
  const support=voiceSupport();
- return `<div class="page-heading"><div><div class="eyebrow">NIUMA ASSISTANT · v0.2</div><h1>快速识别</h1><p>明确的新任务会自动加入学习日程；无法确定的内容不会猜测。</p></div><span class="agent-mode">${icon('spark')}文本识别</span></div>
+ return `<div class="page-heading"><div><div class="eyebrow">NIUMA ASSISTANT · v0.2</div><h1>快速识别</h1><p>输入文字后先核对候选；来源同步识别出的新任务直接进入日历。</p></div><span class="agent-mode">${icon('spark')}文本识别</span></div>
  <div class="agent-layout"><section class="panel agent-chat"><div class="agent-chat-header"><span class="agent-avatar">${icon('spark')}</span><div><b>小牛 · 快速识别</b><small>原文 → 识别 → 日程</small></div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
  ${syncActionPanel()}
  <form id="agent-message-form" class="agent-composer"><label for="agent-input">粘贴或说出原文</label><textarea id="agent-input" rows="4" required maxlength="4000" placeholder="粘贴课程通知正文或描述任务…">${esc(text)}</textarea>
  <div class="form-grid"><label>文本完整度<select id="agent-quality"><option value="complete" ${quality==='complete'?'selected':''}>完整正文</option><option value="partial" ${quality==='partial'?'selected':''}>部分正文</option><option value="summary" ${quality==='summary'?'selected':''}>摘要或标题</option></select></label><label>原文发布日期（可选）<input id="agent-published" type="date" value="${published}"></label></div>
- <div class="composer-bar"><button class="voice-button" type="button" data-agent-action="voice" ${busy?'disabled':''}>${icon('mic')}${voiceState==='listening'?'说完了，开始整理':'点击说话'}</button><button class="btn primary" ${busy||!session.user?'disabled':''}>${busy?'识别中…':'识别并加入日程'}</button></div>
+ <div class="composer-bar"><button class="voice-button" type="button" data-agent-action="voice" ${busy?'disabled':''}>${icon('mic')}${voiceState==='listening'?'说完了，开始整理':'点击说话'}</button><button class="btn primary" ${busy||!session.user?'disabled':''}>${busy?'识别中…':'识别并预览'}</button></div>
  <div class="button-row"><button class="btn" type="button" data-agent-action="new-batch" ${busy||!text.trim()?'disabled':''}>重新识别（新批次）</button>${busy?'<button class="btn" type="button" data-agent-action="stop">停止等待</button>':''}</div>
  <p class="voice-notice">${support.browser?'语音由浏览器识别，可能使用浏览器语音服务。':'当前浏览器可直接输入文字。'} 原文发布日期仅作为待核实信息，不以今天推断“明天”。</p></form>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}</section>
- <aside class="agent-result"><div class="result-heading"><div><span class="eyebrow">RECOGNITION RESULTS</span><h2>暂未加入 <span>${pending()}</span></h2></div>${icon('calendar')}</div>
- ${batches.length?batches.map(batchCard).join(''):'<div class="result-empty"><h3>识别结果会显示在这里</h3><p>明确的新任务会自动进入学习日程。</p></div>'}</aside></div>`;
+ <aside class="agent-result"><div class="result-heading"><div><span class="eyebrow">RECOGNITION RESULTS</span><h2>待确认 <span>${pending()}</span></h2></div>${icon('calendar')}</div>
+ ${batches.length?batches.map(batchCard).join(''):'<div class="result-empty"><h3>识别结果会显示在这里</h3><p>手动输入的结果会在这里等待确认。</p></div>'}</aside></div>`;
 }
 function batchCard(batch){
  const incomplete=batch.result.record_results.filter(r=>r.warnings.includes('incomplete_text')).length;
@@ -155,7 +155,7 @@ async function resolve(form){
  }catch(e){if(current()){errorNode.textContent=e.message;form.querySelector('[data-agent-action="refresh-review"]').hidden=e.status!==409;}}
  finally{if(current()){busy=false;fields.forEach(field=>field.disabled=false);submit.disabled=false;submit.textContent=label;refresh();}}
 }
-async function submitRecognitionRequest(body,onSuccess,retry=false){
+async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false){
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  busy=true;error='';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),100000);refresh();
@@ -168,13 +168,13 @@ async function submitRecognitionRequest(body,onSuccess,retry=false){
   let applied=0;
   for(const item of batch?.items||[]){
    if(!current())return;
-   if(item.state!=='pending'||!canAutoApplyCandidate(item.candidate))continue;
+   if(!autoApply||item.state!=='pending'||!canAutoApplyCandidate(item.candidate))continue;
    try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return;batches=updated.batches;applied++;}
    catch(e){if(current())error='自动加入日程失败：'+e.message;}
   }
   if(applied){try{await host.refresh();}catch(e){if(current())error='任务已加入日程，但页面刷新失败：'+e.message;}if(!current())return;}
   const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(i=>i.state==='pending').length||0;
-  notice=`${applied?`已自动加入 ${applied} 项日程；`:''}${remaining?`${remaining} 项信息不明确，暂未加入；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
+  notice=`${applied?`已自动加入 ${applied} 项日程；`:''}${remaining?`${remaining} 项${autoApply?'暂未加入':'待确认'}；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
   if(complete)onSuccess?.();
   return Boolean(complete);
  }
@@ -202,7 +202,7 @@ export async function handleAssistantClick(button){
   if(batch&&!batch.demo)await submitRecognitionRequest(batch.request,()=>{
    const index=sourceImport?.requests?.findIndex(r=>r.request_id===batch.request.request_id);
    if(index>=0)sourceImport.sent.add(index);
-  },true);
+  },true,batch.request.records.every(r=>r.platform!=='unknown'));
   return;
  }
  if(button.dataset.agentAction==='edit-credentials'){editCredentials=!editCredentials;refresh();return;}
@@ -227,13 +227,13 @@ export async function handleAssistantClick(button){
     if(!current())return;
     const batch=sourceImport.requests[index];
     notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条未变化通知`;refresh();
-    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true);
+    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true);
     if(!current())return;
     attempted++;
     if(!complete)failed++;
     if(complete===undefined)break;
    }
-   if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。明确的新任务已自动加入日程；失败记录可重试。`;}
+   if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。来源识别出的新任务已加入日历；失败记录可重试。`;}
   }catch(e){if(current())error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}
   finally{if(current()){busy=false;activeController=null;refresh();}}
   return;
@@ -242,12 +242,12 @@ export async function handleAssistantClick(button){
   const index=Number(button.dataset.agentImportIndex),batch=sourceImport?.kind==='requests'&&sourceImport.requests[index];
   if(!batch||sourceImport.sent.has(index))return;
   if(!sourceConsent){error='请先确认所选来源将发送给模型';refresh();return;}
-  await submitRecognitionRequest(batch,()=>{sourceImport.sent.add(index);sourceConsent=false;},true);return;
+  await submitRecognitionRequest(batch,()=>{sourceImport.sent.add(index);sourceConsent=false;},true,true);return;
  }
  if(button.dataset.agentAction==='import-wechat'){
   if(sourceImport?.kind!=='wechat')return;
   if(!sourceConsent){error='请先确认所选微信消息将发送给模型';refresh();return;}
-  try{const batch=wechatRequest(sourceImport.messages,selectedMessages);if(new TextEncoder().encode(JSON.stringify(batch)).length>1_900_000)throw new Error('所选消息过大，请减少数量');await submitRecognitionRequest(batch,()=>{sourceImport=null;selectedMessages=new Set();sourceConsent=false;});}
+  try{const batch=wechatRequest(sourceImport.messages,selectedMessages);if(new TextEncoder().encode(JSON.stringify(batch)).length>1_900_000)throw new Error('所选消息过大，请减少数量');await submitRecognitionRequest(batch,()=>{sourceImport=null;selectedMessages=new Set();sourceConsent=false;},false,true);}
   catch(e){error=e.message;refresh();}return;
  }
  if(button.dataset.agentAction==='refresh-review'){
