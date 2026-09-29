@@ -4,8 +4,10 @@ import {readFile} from 'node:fs/promises';
 
 globalThis.window=new EventTarget();
 globalThis.location={hash:'#calendar'};
+globalThis.requestAnimationFrame=()=>{};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
+const {calendarPage}=await import('../src/team-calendar-ui.js');
 
 test('dated create tasks are eligible, including inferred dates, but undated tasks wait',async()=>{
  session.user={id:'test'};
@@ -54,4 +56,21 @@ test('external source recognition leaves undated tasks for manual completion',as
  assert.equal(refreshed,0);
  assert.match(recognition.assistantPage(),/待补日期 <span>1/);
  assert.doesNotMatch(recognition.assistantPage(),/unknown-date|未发现任务/);
+});
+
+test('existing undated tasks appear on the workbench and open the same task for editing',async()=>{
+ recognition.resetAssistant();
+ session.user=null;
+ const task={id:'existing-task',title:'查看讨论课分班情况',source:'教学网',due:'',status:'not_started',recognitionHistory:[{storageId:'candidate-old',action:'create'}]};
+ let edited='';
+ recognition.configureAssistant({getState:()=>({tasks:[task]}),editTask:id=>{edited=id;},render(){}});
+ const page=recognition.assistantPage();
+ assert.match(page,/待补日期 <span>1/);
+ assert.match(page,/data-agent-edit-task="existing-task"/);
+ assert.doesNotMatch(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况|待补日期/);
+ await recognition.handleAssistantClick({dataset:{agentEditTask:'existing-task'}});
+ assert.equal(edited,task.id);
+ task.due='2026-10-01';
+ assert.match(recognition.assistantPage(),/待补日期 <span>0/);
+ assert.match(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况/);
 });
