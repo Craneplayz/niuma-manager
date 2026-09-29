@@ -125,8 +125,10 @@
         "basis": "按采集时间 2026-09-25 补全年份。",
         "alternatives": []
       },
-      "needs_review": false,
-      "review_reasons": [],
+      "needs_review": true,
+      "review_reasons": [
+        "原通知发布时间缺失，无法判断是否为历史内容；请核对来源。"
+      ],
       "sources": [
         {
           "input_id": "synthetic:year:collection-fallback",
@@ -227,8 +229,10 @@
         "basis": "按发布时间 2026-09-25 补全年份。",
         "alternatives": []
       },
-      "needs_review": false,
-      "review_reasons": [],
+      "needs_review": true,
+      "review_reasons": [
+        "截止已过，是否仍需执行请核对原通知。"
+      ],
       "sources": [
         {
           "input_id": "synthetic:year:recent-overdue",

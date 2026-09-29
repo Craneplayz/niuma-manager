@@ -25,5 +25,9 @@ def draft_schema(record):
                                                         "kind": {"type": "string", "enum": ["deadline", "reference", "urgency"]},
                                                         "normalized": normalized_time_schema()})},
         "review_reasons": strings,
+        "relevance": _object({
+            "state": {"type": "string", "enum": ["current", "ongoing", "historical", "uncertain"]},
+            "reason": text, "evidence": {"type": "array", "items": reference},
+        }),
     })
     return _object({"tasks": {"type": "array", "items": task}})

@@ -54,7 +54,7 @@ class FrontendContractTests(unittest.TestCase):
                     time_ref(r, candidate['deadline']['raw'], candidate['deadline']['value'],
                              derivation='absolute' if is_absolute else 'missing_year', anchor=field)]))
                 self.assertEqual(actual, candidate)
-                self.assertFalse(actual['needs_review'])
+                self.assertEqual(actual['needs_review'], r['input_id'].endswith(('collection-fallback', 'recent-overdue')))
 
     def test_missing_year_does_not_hide_independent_review_reasons(self):
         for quality, reasons, kind in [('complete', ['适用对象不明确。'], 'deadline'),
