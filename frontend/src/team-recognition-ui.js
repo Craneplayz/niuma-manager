@@ -5,6 +5,7 @@ import {parseSourceFile,wechatRequest} from './source-import.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
+const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',unknown:'其他'};
 const batchLabels={success:'识别完成',no_tasks:'未发现任务',partial_success:'部分识别完成',failed:'识别失败'};
 let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false;
 export function configureAssistant(callbacks){host=callbacks;}
@@ -31,17 +32,17 @@ async function loadCredentials(){
 function sourceSyncPanel(){
  const configured=credentialStatus?.configured;
  const credentialForm=!credentialStatus?.loading&&(!configured||editCredentials)?`<form id="source-credential-form" class="source-sync-credentials"><label>教学网账号<input name="username" type="text" required maxlength="200" autocomplete="off" placeholder="校园卡账号" value="${esc(credentialStatus?.username||'')}"></label><label>教学网密码<input name="password" type="password" required maxlength="200" autocomplete="new-password" placeholder="保存到当前账号"></label><button class="btn" ${credentialBusy?'disabled':''}>${credentialBusy?'保存中…':'保存教学网凭据'}</button></form>`:'';
- return `<section class="agent-source-sync"><h2>选择同步来源</h2><p>已勾选的来源可在工作台同步；来源识别出的新任务直接进入日历。</p><div class="source-sync-options"><label><input type="checkbox" data-agent-sync-source="teaching_web" ${syncSources.has('teaching_web')?'checked':''} ${busy||sourceBusy||!session.user?'disabled':''}> 教学网</label><label><input type="checkbox" disabled> 微信（当前仅支持下方会话文件导入）</label></div>${session.user?`<p>${configured?'教学网账号已保存：'+esc(credentialStatus.username):credentialStatus?.loading?'正在读取教学网凭据…':'先保存教学网账号和密码，之后无需重复输入。'}</p>${configured?`<div class="button-row"><button type="button" class="btn" data-agent-action="edit-credentials">${editCredentials?'取消修改':'更换凭据'}</button><button type="button" class="btn" data-agent-action="remove-credentials">删除凭据</button></div>`:''}${credentialForm}${credentialStatus?.error?`<p class="error">${esc(credentialStatus.error)}</p>`:''}`:''}<small>密码加密保存在当前账号的服务器上；微信暂不支持直接同步。</small></section>`;
+ return `<section class="agent-source-sync"><h2>选择同步来源</h2><div class="source-sync-options"><label><input type="checkbox" data-agent-sync-source="teaching_web" ${syncSources.has('teaching_web')?'checked':''} ${busy||sourceBusy||!session.user?'disabled':''}> 教学网</label><label><input type="checkbox" disabled> 微信（仅支持文件导入）</label></div>${session.user?`<p>${configured?'教学网账号已保存：'+esc(credentialStatus.username):credentialStatus?.loading?'正在读取教学网凭据…':'请先保存教学网账号和密码。'}</p>${configured?`<div class="button-row"><button type="button" class="btn" data-agent-action="edit-credentials">${editCredentials?'取消修改':'更换凭据'}</button><button type="button" class="btn" data-agent-action="remove-credentials">删除凭据</button></div>`:''}${credentialForm}${credentialStatus?.error?`<p class="error">${esc(credentialStatus.error)}</p>`:''}`:''}</section>`;
 }
 function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#sources">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源原文发送给文本识别服务。</label><button type="button" class="btn primary" data-agent-action="sync-sources" ${busy||!session.user?'disabled':''}>${busy?'正在同步或识别…':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>`;}
 export function sourceManagementPage(){
  if(session.user&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
- return `<div class="page-heading"><div><div class="eyebrow">SOURCES</div><h1>来源管理</h1><p>保存账号并选择来源，再回工作台同步。</p></div><a class="btn primary" href="#agent">返回工作台</a></div>${sourceSyncPanel()}${sourceImportPanel()}`;
+ return `<div class="page-heading"><h1>来源管理</h1></div>${sourceSyncPanel()}${sourceImportPanel()}`;
 }
 function sourceImportPanel(){
- const imported=sourceImport?.kind==='requests'?`<p>${esc(sourceName)} · ${sourceImport.requests.length} 批 v0.2 来源记录</p><div class="source-import-list">${sourceImport.requests.map((batch,index)=>`<div class="source-import-row"><span>第 ${index+1} 批 · ${batch.records.length} 条 · ${esc([...new Set(batch.records.map(r=>r.platform||'unknown'))].join('、'))}</span><button type="button" class="btn" data-agent-import-index="${index}" ${busy||sourceImport.sent.has(index)?'disabled':''}>${sourceImport.sent.has(index)?'已提交':'识别此批'}</button></div>`).join('')}</div>`:
+ const imported=sourceImport?.kind==='requests'?`<p>${esc(sourceName)} · ${sourceImport.requests.length} 批记录</p><div class="source-import-list">${sourceImport.requests.map((batch,index)=>`<div class="source-import-row"><span>第 ${index+1} 批 · ${batch.records.length} 条 · ${esc([...new Set(batch.records.map(r=>platformLabels[r.platform]||'其他'))].join('、'))}</span><button type="button" class="btn" data-agent-import-index="${index}" ${busy||sourceImport.sent.has(index)?'disabled':''}>${sourceImport.sent.has(index)?'已提交':'识别此批'}</button></div>`).join('')}</div>`:
   sourceImport?.kind==='wechat'?`<p>${esc(sourceName)} · ${esc(sourceImport.chatName)} · 仅展示最近 ${sourceImport.messages.length} 条文本消息；只发送勾选内容，不发送账号、群成员 ID 或附件。</p><div class="source-import-list">${sourceImport.messages.map((message,index)=>`<label class="source-import-message"><input type="checkbox" data-agent-wechat-index="${index}" ${selectedMessages.has(index)?'checked':''} ${busy?'disabled':''}><span><small>${esc(message.time||'时间待核实')}</small>${esc(message.content.slice(0,180))}${message.content.length>180?'…':''}</span></label>`).join('')}</div><button type="button" class="btn" data-agent-action="import-wechat" ${busy?'disabled':''}>识别选中的微信消息</button>`:'';
- return `<details class="agent-source-import" ${sourceImport?'open':''}><summary>导入来源文件（课程网 / 微信）</summary><p>可选择课程网导出的 v0.2 JSONL，或微信模块导出的单个会话 JSON；文件先在本机预览，不会自动上传。</p><label>选择 JSON 或 JSONL 文件<input id="agent-source-file" type="file" accept=".json,.jsonl,application/json" ${busy||!session.user?'disabled':''}></label>${imported}${sourceImport?`<label class="source-import-consent"><input id="agent-import-consent" type="checkbox" ${sourceConsent?'checked':''} ${busy?'disabled':''}> 我确认：仅所选记录会保存至当前账号，并发送给已配置的文本识别模型。</label>`:''}</details>`;
+ return `<details class="agent-source-import" ${sourceImport?'open':''}><summary>导入来源文件（课程网 / 微信）</summary><p>文件先在本机预览，不会自动上传。</p><label>选择文件<input id="agent-source-file" type="file" accept=".json,.jsonl,application/json" ${busy||!session.user?'disabled':''}></label>${imported}${sourceImport?`<label class="source-import-consent"><input id="agent-import-consent" type="checkbox" ${sourceConsent?'checked':''} ${busy?'disabled':''}> 我同意将所选记录发送给文本识别服务。</label>`:''}</details>`;
 }
 export function deadlineLabel(d){
  if(d.status==='not_provided')return '原文未提供 DDL';
@@ -81,18 +82,18 @@ export function assistantPage(){
  const support=voiceSupport();
  const undated=batches.map(batch=>({...batch,items:batch.items.filter(needsDate)})).filter(batch=>batch.items.length);
  const failedBatches=batches.filter(batch=>!batch.demo&&['failed','partial_success'].includes(batch.result.status));
- return `<div class="page-heading"><div><div class="eyebrow">NIUMA ASSISTANT · v0.2</div><h1>快速识别</h1><p>识别出明确日期的任务直接进入日历；原文明确没有日期的任务留在右侧补充。</p></div><span class="agent-mode">${icon('spark')}文本识别</span></div>
- <div class="agent-layout"><section class="panel agent-chat"><div class="agent-chat-header"><span class="agent-avatar">${icon('spark')}</span><div><b>小牛 · 快速识别</b><small>原文 → 识别 → 日程</small></div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
+ return `<div class="page-heading"><h1>快速识别</h1></div>
+ <div class="agent-layout"><section class="panel agent-chat"><div class="agent-chat-header"><span class="agent-avatar">${icon('spark')}</span><b>输入通知</b><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
  ${syncActionPanel()}
  <form id="agent-message-form" class="agent-composer"><label for="agent-input">粘贴或说出原文</label><textarea id="agent-input" rows="4" required maxlength="4000" placeholder="粘贴课程通知正文或描述任务…">${esc(text)}</textarea>
  <div class="form-grid"><label>文本完整度<select id="agent-quality"><option value="complete" ${quality==='complete'?'selected':''}>完整正文</option><option value="partial" ${quality==='partial'?'selected':''}>部分正文</option><option value="summary" ${quality==='summary'?'selected':''}>摘要或标题</option></select></label><label>原文发布日期（可选）<input id="agent-published" type="date" value="${published}"></label></div>
  <div class="composer-bar"><button class="voice-button" type="button" data-agent-action="voice" ${busy?'disabled':''}>${icon('mic')}${voiceState==='listening'?'说完了，开始整理':'点击说话'}</button><button class="btn primary" ${busy||!session.user?'disabled':''}>${busy?'识别中…':'识别并加入日程'}</button></div>
- <div class="button-row"><button class="btn" type="button" data-agent-action="new-batch" ${busy||!text.trim()?'disabled':''}>重新识别（新批次）</button>${busy?'<button class="btn" type="button" data-agent-action="stop">停止等待</button>':''}</div>
- <p class="voice-notice">${support.browser?'语音由浏览器识别，可能使用浏览器语音服务。':'当前浏览器可直接输入文字。'} 原文发布日期仅作为待核实信息，不以今天推断“明天”。</p></form>
+ <div class="button-row">${text.trim()?`<button class="btn" type="button" data-agent-action="new-batch" ${busy?'disabled':''}>重新识别</button>`:''}${busy?'<button class="btn" type="button" data-agent-action="stop">停止等待</button>':''}</div>
+ ${support.browser?'<p class="voice-notice">语音输入可能使用浏览器语音服务。</p>':''}</form>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section>
- <aside class="agent-result"><div class="result-heading"><div><span class="eyebrow">RECOGNITION RESULTS</span><h2>待补日期 <span>${pending()}</span></h2></div>${icon('calendar')}</div>
- ${undated.length?undated.map(batchCard).join(''):'<div class="result-empty"><h3>暂无待补日期的任务</h3><p>有明确日期的任务会直接进入学习日程。</p></div>'}</aside></div>`;
+ <aside class="agent-result"><div class="result-heading"><h2>待补日期 <span>${pending()}</span></h2>${icon('calendar')}</div>
+ ${undated.length?undated.map(batchCard).join(''):'<div class="result-empty"><h3>暂无待补日期的任务</h3></div>'}</aside></div>`;
 }
 function batchCard(batch){
  const incomplete=batch.result.record_results.filter(r=>r.warnings.includes('incomplete_text')).length;
@@ -103,7 +104,7 @@ function batchCard(batch){
  ${failed?`<p class="error">${failed} 条识别失败，尚未生成候选。</p>`:''}
  ${batch.result.errors.length?`<details><summary>查看识别问题</summary>${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return `<p>${esc(source?.course_or_project||source?.source_label||'批次')}：${esc(e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.code==='agent_timeout'?'识别超时；请稍后重试':e.message)}</p>`}).join('')}</details>`:''}
  ${!batch.demo&&['failed','partial_success'].includes(batch.result.status)?`<button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`:''}
- <details><summary>查看原文与批次</summary><small>${esc(batch.request.request_id)}</small>${batch.request.records.map(r=>`<p>${esc(r.text)}</p>`).join('')}</details>
+ <details><summary>查看原文</summary>${batch.request.records.map(r=>`<p>${esc(r.text)}</p>`).join('')}</details>
  ${batch.items.map(candidateCard).join('')}</section>`;
 }
 export function candidateCard(item){
@@ -113,8 +114,8 @@ export function candidateCard(item){
  ${c.deadline.raw?`<small>时间原话：${esc(c.deadline.raw)}</small>`:''}
  ${c.review_reasons.filter(r=>!(c.deadline.status==='inferred'&&r===c.deadline.basis)).map(r=>`<p class="draft-warning">${esc(r)}</p>`).join('')}
  ${c.prerequisites.length?`<details><summary>原文要求</summary><ul>${c.prerequisites.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></details>`:''}
- <details><summary>证据与来源</summary><p>${esc(c.deadline.basis)}</p>${c.evidence.map(e=>`<blockquote>${esc(e.quote)}<small>${esc(e.input_id)} · ${esc(e.field)} · 支持 ${esc(e.supports.join('、'))}</small></blockquote>`).join('')}
- ${c.sources.map(s=>{let link='';try{const u=new URL(s.url);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)link=` · <a href="${esc(u.href)}" target="_blank" rel="noreferrer">打开来源</a>`;}catch{}return `<p>${esc(s.label||s.input_id)} · ${esc(s.platform)}${link}</p>`}).join('')}</details>
+ <details><summary>证据与来源</summary><p>${esc(c.deadline.basis)}</p>${c.evidence.map(e=>`<blockquote>${esc(e.quote)}</blockquote>`).join('')}
+ ${c.sources.map(s=>{let link='';try{const u=new URL(s.url);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)link=` · <a href="${esc(u.href)}" target="_blank" rel="noreferrer">打开来源</a>`;}catch{}return `<p>${esc(s.label||platformLabels[s.platform]||'来源')}${link}</p>`}).join('')}</details>
  ${item.state==='pending'?`<div class="button-row"><button class="btn primary" data-agent-review="${esc(item.id)}" ${busy?'disabled':''}>补日期并加入</button><button class="btn" data-agent-ignore="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;
 }
 function review(item,selectedAction=''){
