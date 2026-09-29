@@ -136,9 +136,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
             if path.startswith('/api/data/') and self.command=='PUT':
                 name=path.rsplit('/',1)[1]
-                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials']: raise ApiError(404,'未知数据类型')
+                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
                 value=body.get('value')
                 if not isinstance(value,dict if name in ['availability','focus'] else list): raise ApiError(400,'数据格式不正确')
+                if name=='sources' and (len(value)>1 or any(source!='teaching_web' for source in value)): raise ApiError(400,'来源选择不正确')
                 if name=='courses':
                     from urllib.parse import urlsplit
                     ids,names=set(),set()

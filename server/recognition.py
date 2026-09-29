@@ -4,7 +4,7 @@ import json
 import os
 import secrets
 import re
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, timedelta, date
 from pathlib import Path
 from urllib.request import Request, urlopen
 from text_contract import validate_request, validate_result
@@ -110,17 +110,31 @@ def route(handler,db,uid,path,body,ApiError):
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
         action=body.get('action');c=json.loads(row['candidate'])
         if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
+        auto=body.get('auto_apply') is True
+        if auto:
+            d=c['deadline']
+            demo=db.execute('SELECT demo FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+            if (demo['demo'] or action!='create' or c['notice_type']!='create' or c['needs_review']
+                    or d['kind']!='deadline' or d['status']!='explicit' or d['precision'] not in ('date','datetime')):
+                raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':
-            if body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
+            if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
             if c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
             taskrow=db.execute('SELECT * FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
             version=taskrow['version'] if taskrow else 0
-            if body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
+            if not auto and body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
             tasks=json.loads(taskrow['value']) if taskrow else []
             target=next((t for t in tasks if t['id']==body.get('target_id')),None)
             if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
             if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
             draft=body.get('draft',{})
+            if auto:
+                value=d['value']
+                if d['precision']=='datetime':
+                    local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))
+                    automatic_due=dict(date=local.date().isoformat(),precision='datetime',time=local.strftime('%H:%M'))
+                else: automatic_due=dict(date=value,precision='date')
+                draft=dict(title=c['title'],description=c['description'],course=c['course_or_project'],due=automatic_due)
             if action!='cancel':
                 if not isinstance(draft.get('title'),str) or not draft['title'].strip() or not isinstance(draft.get('description'),str): raise ApiError(400,'请填写有效任务内容')
                 course=draft.get('course',c['course_or_project'])

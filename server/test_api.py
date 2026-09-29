@@ -178,6 +178,32 @@ class ApiTests(unittest.TestCase):
         with patch.dict(app.os.environ,{},clear=True):
             self.assertEqual(self.call(a,'/recognition/batches','POST',fresh)[0],503)
 
+    def test_explicit_new_task_can_auto_apply_without_claiming_review(self):
+        client=self.client();self.register(client,'auto-apply@test.local')
+        fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
+        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
+            status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
+        self.assertEqual(status,200)
+        clear=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+        unclear=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c2')
+        body=dict(action='create',auto_apply=True,version=clear['version'])
+        path='/recognition/candidates/'+clear['id']+'/resolve'
+        self.assertEqual(self.call(client,path,'POST',body)[0],200)
+        self.assertEqual(self.call(client,path,'POST',body)[0],200)
+        tasks=self.call(client,'/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),1)
+        self.assertEqual(tasks[0]['due'],dict(date='2026-09-30',precision='date'))
+        self.assertEqual(self.call(client,'/recognition/candidates/'+unclear['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=unclear['version']))[0],400)
+        self.assertEqual(len(self.call(client,'/workspace')[1]['tasks']['value']),1)
+
+    def test_source_selection_is_saved_per_account(self):
+        a,b=self.client(),self.client()
+        self.register(a,'sources-a@test.local');self.register(b,'sources-b@test.local')
+        self.assertEqual(self.call(a,'/data/sources','PUT',dict(value=['teaching_web'],version=0))[0],200)
+        self.assertEqual(self.call(a,'/workspace')[1]['sources']['value'],['teaching_web'])
+        self.assertNotIn('sources',self.call(b,'/workspace')[1])
+        self.assertEqual(self.call(a,'/data/sources','PUT',dict(value=['wechat'],version=1))[0],400)
+
     def test_recognition_change_matching_and_preservation(self):
         a=self.client();self.register(a,'text-change@test.local')
         self.call(a,'/recognition/demo','POST',{})
