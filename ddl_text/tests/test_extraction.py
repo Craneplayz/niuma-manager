@@ -52,6 +52,40 @@ class CheckingClient:
 
 
 class DateTests(unittest.TestCase):
+    def test_parenthesized_clock_and_seconds_preserve_exact_evidence(self):
+        for phrase in ('2026.10.11（23:59:00）', '2026.10.11(23:59:00)',
+                       '2026.10.11 （23：59：00）前', '2026/10/11(23:59)',
+                       '2026-10-11T23:59:00', '2026年10月11日（23:59:00）'):
+            with self.subTest(phrase=phrase):
+                result = resolve_time(phrase, message(), 'deadline')
+                self.assertEqual((result['value'], result['status'], result['precision'], result['kind']),
+                                 ('2026-10-11T23:59:00+08:00', 'explicit', 'datetime', 'deadline'))
+                self.assertEqual(result['raw'], phrase)
+        # Seconds, when given, must not be silently truncated or rounded.
+        self.assertEqual(resolve_time('2026.10.11(23:59:30)', message(), 'deadline')['value'],
+                         '2026-10-11T23:59:30+08:00')
+
+    def test_parenthesized_time_does_not_promote_reference_or_inferred_year(self):
+        reference = resolve_time('2026.10.11（23:59:00）', message(), 'reference')
+        self.assertEqual((reference['value'], reference['kind'], reference['status']),
+                         ('2026-10-11T23:59:00+08:00', 'reference', 'inferred'))
+        inferred = resolve_time('10月11日（23:59:00）', message(), 'deadline')
+        self.assertEqual(inferred['status'], 'inferred')
+
+    def test_invalid_parentheses_seconds_and_unknown_zone_remain_unknown(self):
+        for phrase in ('2026.10.11（23:59:00)', '2026.10.11(23:59:00）',
+                       '2026.10.11（23:59:00', '2026.10.11(23:59:00)备注',
+                       '2026.10.11（说明23:59:00）', '2026.10.11(24:00:00)',
+                       '2026.10.11(23:60:00)', '2026.10.11(23:59:60)',
+                       '2026.02.30(23:59:00)'):
+            with self.subTest(phrase=phrase):
+                self.assertIsNone(resolve_time(phrase, message(), 'deadline')['value'])
+        for zone in (None, 'Unknown/Zone'):
+            result = resolve_time('2026.10.11（23:59:00）',
+                                  message(timezone=zone, timezone_basis='unknown' if zone is None else 'source'), 'deadline')
+            self.assertEqual(result['status'], 'unknown')
+            self.assertIsNone(result['value'])
+
     def test_unresolved_time_preserves_kind_and_source_zone(self):
         record = message(published_at={"value": None, "precision": "unknown", "basis": "unknown"})
         for kind in ("deadline", "reference"):
@@ -183,6 +217,31 @@ class DateTests(unittest.TestCase):
 
 
 class ExtractionTests(unittest.TestCase):
+    def test_parenthesized_deadline_pipeline_passes_both_v02_validators(self):
+        from ddl_text.contract_v02 import validate_result as validate_text_result
+        from server.text_contract import validate_result as validate_app_result
+        fixture = json.loads((ROOT / 'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
+        for phrase, kind in [('2026.10.11（23:59:00）', 'deadline'),
+                             ('2026.10.11(23:59:00)', 'deadline'),
+                             ('2026.10.11（23:59:00）', 'reference')]:
+            with self.subTest(phrase=phrase, kind=kind):
+                record = deepcopy(fixture['request']['records'][0])
+                record['text'] = ('请于' + phrase + '前提交作业。' if kind == 'deadline' else
+                                  phrase + '进行测验，请提前复习。')
+                record['timezone'] = 'Asia/Shanghai'
+                candidate = draft(record, times=[ref(record, phrase, kind=kind)])
+                request = dict(contract_version='0.2', request_id='synthetic:issue76', records=[record])
+                result = process_request(request, ExtractionAdapter(OfflineDraftClient([
+                    dict(record=record, response=dict(tasks=[candidate]))])))
+                self.assertEqual(result['status'], 'success')
+                deadline = result['tasks'][0]['deadline']
+                self.assertEqual(deadline['value'], '2026-10-11T23:59:00+08:00')
+                self.assertEqual(deadline['raw'], phrase)
+                self.assertEqual((deadline['kind'], deadline['status']),
+                                 (kind, 'explicit' if kind == 'deadline' else 'inferred'))
+                self.assertEqual(validate_text_result(request, result), result)
+                self.assertEqual(validate_app_result(request, result), result)
+
     def test_explicit_numeric_deadline_survives_urgency(self):
         for separator in ('.', '/', '-'):
             phrase = separator.join(('2026', '9', '29')) + ' 9:00'

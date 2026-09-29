@@ -126,6 +126,9 @@ def resolve_time(raw, message, kind):
         else:
             return result
         if day is not None and rest:
+            # Only unwrap a matched pair around the time; raw remains evidence.
+            if (rest[0], rest[-1]) in {("(", ")"), ("（", "）")}:
+                rest = rest[1:-1]
             interval = re.fullmatch(r"(\d{1,2}[:：]\d{2})[~～至到–—-](\d{1,2}[:：]\d{2})", rest)
             if interval and kind == "reference":
                 start = resolve_time(day.isoformat() + "T" + interval[1], message, kind)
@@ -134,18 +137,18 @@ def resolve_time(raw, message, kind):
                     return unresolved("活动时间区间无效，请核对原文。")
                 start.update(raw=raw, basis=(year_basis or "") + "取活动开始时间作为参考，并非提交截止。")
                 return start
-            clock = re.fullmatch(r"(?:T)?(上午|下午|晚上|晚间|中午)?(\d{1,2})(?:[:：](\d{2})|[点时](?:(\d{1,2})分?)?)(?:整)?", rest)
+            clock = re.fullmatch(r"(?:T)?(上午|下午|晚上|晚间|中午)?(\d{1,2})(?:[:：](\d{2})(?:[:：](\d{2}))?|[点时](?:(\d{1,2})分?)?)(?:整)?", rest)
             if not clock or zone is None:
                 return unresolved("时刻格式不明确或时区不可用，保留原话待核实。")
             if period and clock[1] and clock[1] not in {"晚上", "晚间"}:
                 return unresolved("日期短语与时段相互矛盾，请核实。")
             period = clock[1] or period
-            hour, minute = int(clock[2]), int(clock[3] or clock[4] or 0)
+            hour, minute, second = int(clock[2]), int(clock[3] or clock[5] or 0), int(clock[4] or 0)
             if period:
                 if not 1 <= hour < 12 or period == "中午":
                     return unresolved("时段与时刻含义不能唯一确定。")
                 hour = hour % 12 + (12 if period in {"下午", "晚上", "晚间"} else 0)
-            stamp = _localize(day, time(hour, minute), zone)
+            stamp = _localize(day, time(hour, minute, second), zone)
         elif period and stamp is None:
             return unresolved("只给出晚间等时段，缺少具体时刻。")
         if zone_name == "Asia/Shanghai" and (stamp.date() if stamp else day) < date(1992, 1, 1):

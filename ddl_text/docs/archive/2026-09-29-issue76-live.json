@@ -1,0 +1,387 @@
+{
+  "synthetic_only": true,
+  "provider": "qiniu",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "cases": [
+    {
+      "name": "cn",
+      "passed": true,
+      "elapsed_seconds": 6.45,
+      "input": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:76:cn",
+        "records": [
+          {
+            "input_id": "synthetic:76:cn",
+            "text": "请于2026.10.11（23:59:00）前提交作业。",
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": null,
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": null,
+            "source_label": "人工合成样例",
+            "source_item_id": null,
+            "course_or_project": null,
+            "context": [],
+            "upstream_hints": null
+          }
+        ]
+      },
+      "model_draft": {
+        "tasks": [
+          {
+            "title": "提交作业",
+            "description": "按要求提交作业。",
+            "prerequisites": [],
+            "notice_type": "create",
+            "target": null,
+            "course": null,
+            "evidence": [
+              {
+                "input_id": "synthetic:76:cn",
+                "quote": "请于2026.10.11（23:59:00）前提交作业。"
+              }
+            ],
+            "times": [
+              {
+                "input_id": "synthetic:76:cn",
+                "quote": "2026.10.11（23:59:00）",
+                "kind": "deadline"
+              }
+            ],
+            "review_reasons": []
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:76:cn",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:76:cn",
+            "status": "success",
+            "task_ids": [
+              "synthetic:76:cn:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "synthetic:76:cn:candidate:1",
+            "input_id": "synthetic:76:cn",
+            "title": "提交作业",
+            "description": "按要求提交作业。",
+            "prerequisites": [],
+            "course_or_project": null,
+            "course_basis": "unknown",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-11T23:59:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026.10.11（23:59:00）",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:76:cn",
+                "platform": "unknown",
+                "url": null,
+                "label": "人工合成样例",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:76:cn",
+                "field": "text",
+                "quote": "请于2026.10.11（23:59:00）前提交作业。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:76:cn",
+                "field": "text",
+                "quote": "2026.10.11（23:59:00）",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "en",
+      "passed": true,
+      "elapsed_seconds": 2.94,
+      "input": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:76:en",
+        "records": [
+          {
+            "input_id": "synthetic:76:en",
+            "text": "请于2026.10.11(23:59:00)前提交作业。",
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": null,
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": null,
+            "source_label": "人工合成样例",
+            "source_item_id": null,
+            "course_or_project": null,
+            "context": [],
+            "upstream_hints": null
+          }
+        ]
+      },
+      "model_draft": {
+        "tasks": [
+          {
+            "title": "提交作业",
+            "description": "按要求在截止时间前提交作业。",
+            "prerequisites": [],
+            "notice_type": "create",
+            "target": null,
+            "course": null,
+            "evidence": [
+              {
+                "input_id": "synthetic:76:en",
+                "quote": "请于2026.10.11(23:59:00)前提交作业。"
+              }
+            ],
+            "times": [
+              {
+                "input_id": "synthetic:76:en",
+                "quote": "2026.10.11(23:59:00)",
+                "kind": "deadline"
+              }
+            ],
+            "review_reasons": []
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:76:en",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:76:en",
+            "status": "success",
+            "task_ids": [
+              "synthetic:76:en:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "synthetic:76:en:candidate:1",
+            "input_id": "synthetic:76:en",
+            "title": "提交作业",
+            "description": "按要求在截止时间前提交作业。",
+            "prerequisites": [],
+            "course_or_project": null,
+            "course_basis": "unknown",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-11T23:59:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026.10.11(23:59:00)",
+              "basis": "按原文日期及该条消息可信的发布时间换算；保留原始精度。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:76:en",
+                "platform": "unknown",
+                "url": null,
+                "label": "人工合成样例",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:76:en",
+                "field": "text",
+                "quote": "请于2026.10.11(23:59:00)前提交作业。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:76:en",
+                "field": "text",
+                "quote": "2026.10.11(23:59:00)",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "reference",
+      "passed": true,
+      "elapsed_seconds": 4.47,
+      "input": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:76:reference",
+        "records": [
+          {
+            "input_id": "synthetic:76:reference",
+            "text": "2026.10.11（23:59:00）举行小测，请提前复习。",
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": null,
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": null,
+            "source_label": "人工合成样例",
+            "source_item_id": null,
+            "course_or_project": null,
+            "context": [],
+            "upstream_hints": null
+          }
+        ]
+      },
+      "model_draft": {
+        "tasks": [
+          {
+            "title": "复习准备小测",
+            "description": "为2026.10.11举行的小测提前复习。",
+            "prerequisites": [],
+            "notice_type": "create",
+            "target": null,
+            "course": null,
+            "evidence": [
+              {
+                "input_id": "synthetic:76:reference",
+                "quote": "2026.10.11（23:59:00）举行小测，请提前复习。"
+              }
+            ],
+            "times": [
+              {
+                "input_id": "synthetic:76:reference",
+                "quote": "2026.10.11（23:59:00）",
+                "kind": "reference"
+              }
+            ],
+            "review_reasons": []
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:76:reference",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:76:reference",
+            "status": "success",
+            "task_ids": [
+              "synthetic:76:reference:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "synthetic:76:reference:candidate:1",
+            "input_id": "synthetic:76:reference",
+            "title": "复习准备小测",
+            "description": "为2026.10.11举行的小测提前复习。",
+            "prerequisites": [],
+            "course_or_project": null,
+            "course_basis": "unknown",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-11T23:59:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "reference",
+              "status": "inferred",
+              "raw": "2026.10.11（23:59:00）",
+              "basis": "引用活动时间作为参考完成时间，需核实。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "引用活动时间作为参考完成时间，需核实。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:76:reference",
+                "platform": "unknown",
+                "url": null,
+                "label": "人工合成样例",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:76:reference",
+                "field": "text",
+                "quote": "2026.10.11（23:59:00）举行小测，请提前复习。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:76:reference",
+                "field": "text",
+                "quote": "2026.10.11（23:59:00）",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    }
+  ]
+}

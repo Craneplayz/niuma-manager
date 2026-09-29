@@ -55,6 +55,8 @@ ddl_text/
 - [输入样例](../contracts/source-to-text/text-frontend-v02-request.json)、[离线草稿](tests/fixtures/text-frontend-v02-drafts.json)、[输出样例](../contracts/text-to-app/text-frontend-v02-output.json)；交接方向与文件说明见 [contracts](../contracts/README.md)。
 - [识别规则](skills/text-task-extraction/SKILL.md)：行动要求、来源和日期判断；未知、推断、冲突的时间保留不确定性，参考时间不直接当作明确截止时间。
 
+明确时刻支持中英文括号及 `HH:mm:ss`（例如 `2026.10.11（23:59:00）`）；秒数和原文证据保留，无效日期、未知时区仍待核实，参考时间不升级为截止时间。
+
 ## 运行与测试
 
 以下命令均在**仓库根目录**执行。需要 Python 3.9+，模块使用标准库；Windows 缺少时区数据库时安装 `tzdata`。
