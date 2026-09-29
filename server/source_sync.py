@@ -117,7 +117,7 @@ def route(handler, db, uid, path, body, ApiError, key_path):
             result = subprocess.run(
                 ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=recognition'],
                 cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret)},
-                capture_output=True, text=True, encoding='utf-8', timeout=55, check=False,
+                capture_output=True, text=True, encoding='utf-8', timeout=300, check=False,
             )
     except (OSError, subprocess.TimeoutExpired):
         raise ApiError(503, '教学网采集无法启动或超时；请检查 Node、浏览器及校园网连接')
