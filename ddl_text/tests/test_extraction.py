@@ -90,6 +90,33 @@ class ExtractionTests(unittest.TestCase):
                          ('2026-09-29T09:00:00+08:00', 'reference', raw))
         self.assertEqual(result['status'], 'inferred')
 
+    def test_urgency_filter_uses_role_and_keeps_literal_evidence(self):
+        record = message('2026年10月11日前提交报告；麻烦大家抓点紧呀。')
+        task = compile_tasks(record, draft(record, times=[
+            time_ref(record, '2026年10月11日', '2026-10-11'),
+            time_ref(record, '麻烦大家抓点紧呀', kind='urgency', derivation='unresolved')]))[0]
+        self.assertEqual(task['deadline']['value'], '2026-10-11')
+        self.assertFalse(task['needs_review'])
+        self.assertIn('麻烦大家抓点紧呀', [e['quote'] for e in task['evidence']])
+
+    def test_duplicate_value_does_not_hide_inferred_status(self):
+        record = message()
+        explicit = validate_time(time_ref(record, '完整日期', '2026-09-30'), record)
+        inferred = validate_time(time_ref(record, '缺年日期', '2026-09-30',
+                                         derivation='missing_year', anchor='published_at'), record)
+        for items in ([explicit, inferred], [inferred, explicit]):
+            self.assertEqual(combine_times(items)['status'], 'inferred')
+        self.assertEqual(explicit['status'], 'explicit')
+
+    def test_context_missing_anchor_cannot_borrow_current_publication(self):
+        old = message('明天交报告。', input_id='old',
+                      published_at={'value': None, 'precision': 'unknown', 'basis': 'unknown'})
+        record = message('报告按原时间提交。', context=[old])
+        task = compile_tasks(record, draft(record, times=[time_ref(old, '明天', '2027-01-01',
+                            derivation='relative', anchor='published_at')]))[0]
+        self.assertIsNone(task['deadline']['value'])
+        self.assertTrue(task['needs_review'])
+
     def test_normalized_value_cannot_bypass_evidence_membership(self):
         record = message('请于二〇二六年十月十一日提交作业。')
         item = time_ref(record, '二〇二六年十月十一日', '2026-10-11')
@@ -249,6 +276,16 @@ class ExtractionTests(unittest.TestCase):
         self.assertIn("非真实模型调用", result.stdout)
         result = subprocess.run(command + ["--mode", "real"], cwd=ROOT, capture_output=True, encoding="utf-8")
         self.assertEqual(result.returncode, 2)
+
+    def test_recorded_live_time_drafts_compile_without_provider_calls(self):
+        from ddl_text.tests.run_time_smoke import signature
+        report = json.loads((ROOT / 'ddl_text/docs/archive/2026-09-29-issue79-time-live.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(report['cases']), 20)
+        for case in report['cases']:
+            with self.subTest(case=case['name']):
+                tasks = compile_drafts(case['model_draft'], case['request']['records'][0])
+                self.assertEqual(sorted([signature(t) for t in tasks], key=repr),
+                                 sorted(case['expected'], key=repr))
 
 
 if __name__ == "__main__":

@@ -58,9 +58,9 @@ def _nearest_year(day, anchor):
 def validate_time(ref, message):
     """Keep the action reviewable when a well-shaped date proposal is invalid.
 
-Missing fields/types remain protocol errors. No raw phrase is parsed here;
-derivation and role are semantic judgments supplied by the model.
-"""
+    Missing fields/types remain protocol errors. No raw phrase is parsed here;
+    derivation and role are semantic judgments supplied by the model.
+    """
     require(ref["kind"] in {"deadline", "reference", "urgency"})
     n = ref["normalized"]
     require(isinstance(n, dict) and set(n) == NORMALIZED_FIELDS)

@@ -36,6 +36,8 @@ ddl_text/
 │   │   └── text-frontend-v02-drafts.json # 与共享 v0.2 输入配套的离线模型草稿
 │   ├── __init__.py       # 测试包入口
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
+│   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
+│   ├── run_time_smoke.py # 显式启用的真实模型时间验证入口
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
 │   ├── test_extraction.py      # 草稿编译、时间合并和原文证据测试
@@ -75,12 +77,14 @@ python scripts/check_frontend_integration.py --frontend-dir .
 
 回放样例应包含加群（参考时间）、学习计划（无日期）和实验报告（明确截止）三个候选。测试包含本机模拟 HTTP；可选 Codex 检查未启用时跳过。
 
-真实调用前按 [API 配置](docs/api-setup.md) 配置根目录 `.env`。以下第二、三条会调用供应商，可能计费：
+真实调用前按 [API 配置](docs/api-setup.md) 配置根目录 `.env`。真实识别、服务收到识别请求及 `--live` 回归会调用供应商，可能计费：
 
 ```powershell
 python -m ddl_text --check-connection
 python -m ddl_text --mode real --input contracts/source-to-text/text-frontend-v02-request.json
 python -m ddl_text.http_server --real
+# 时间语义回归：20条固定合成通知，保留模型草稿和输出；输出文件须不存在
+python -m ddl_text.tests.run_time_smoke --live --output local-data/time-smoke-new.json
 ```
 
 识别服务默认 `127.0.0.1:1333`，健康检查为 `/health`。账户后端设置 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize`；网页与账户服务的启动方式由其模块说明维护。更改环境配置后重启识别服务。配置检查及健康检查不证明模型权限或额度可用。
