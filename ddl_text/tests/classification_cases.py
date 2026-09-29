@@ -6,14 +6,14 @@ from ddl_text.contracts import normalize_record
 UNKNOWN_PUBLICATION = {"value": None, "precision": "unknown", "basis": "unknown"}
 
 
-def case(name, text, expected, route="tasks", **metadata):
+def case(name, text, expected, route="tasks", expected_alternatives=(), **metadata):
     record = normalize_record(dict({
         "input_id": "synthetic:f3:" + name, "text": text, "platform": "teaching_web",
         "published_at": {"value": "2026-09-30T10:00:00+08:00", "precision": "datetime", "basis": "source"},
         "collected_at": "2026-09-30T10:05:00+08:00", "timezone": "Asia/Shanghai",
         "timezone_basis": "source", "course_or_project": "合成分类课程"}, **metadata), "0.2")
     return {"name": name, "request": {"contract_version": "0.2", "request_id": "f3:" + name, "records": [record]},
-            "expected": expected, "route": route}
+            "expected": expected, "expected_alternatives": list(expected_alternatives), "route": route}
 
 
 def task(value=None, notice="create", review=False, status=None):
@@ -37,7 +37,10 @@ CASES = [
     case("old-but-future", "请于2027年1月1日前提交项目报告。", [task("2027-01-01")],
          published_at={"value": "2024-09-30", "precision": "date", "basis": "source"}),
     case("ongoing", "2024年10月1日是课程报告原截止。至今未交的同学仍须补交，新的补交期限尚未确定。",
-         [task(review=True, status="unknown")]),
+         [task(review=True, status="unknown")],
+         # Without a user's task list this may be either a new make-up action or
+         # an update to the original report. Both must stay reviewable and undated.
+         expected_alternatives=[[task(notice="update", review=True, status="unknown")]]),
     case("recent-overdue", "请于2026年9月29日前提交课程报告。", [task("2026-09-29", review=True)]),
     case("mixed", "上学期已结束，归档旧要求：加入上学期课程群。新学期请于2026年10月5日前填写选课问卷。",
          [task("2026-10-05")], "mixed"),
@@ -51,7 +54,9 @@ def signature(candidate):
 
 
 def matches(case, result):
-    if result["errors"] or sorted(map(signature, result["tasks"]), key=repr) != sorted(case["expected"], key=repr):
+    actual = sorted(map(signature, result["tasks"]), key=repr)
+    choices = [case["expected"]] + case.get("expected_alternatives", [])
+    if result["errors"] or not any(actual == sorted(expected, key=repr) for expected in choices):
         return False
     warnings = result["record_results"][0]["warnings"]
     historical = any(w.startswith("history_filtered:") for w in warnings)

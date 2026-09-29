@@ -86,6 +86,10 @@ ddl_text/
 
 自动入库必须由消费者同时检查真实外部来源、notice_type、needs_review/review_reasons 和期限状态；手动输入、demo、reference/inferred/unknown/conflict 不可自动入库。文本侧不会绕过这些标志主动保存。
 
+规则只作用于新识别请求，不回溯删除已保存任务或缓存候选；旧批次需由后端重新识别或由用户处理，不能假定其已经过历史过滤。当前仅记录级采集时点参与判断，不代替日历中的实时逾期状态。
+
+示例效果见 [F3 共享输入/输出](../contracts/text-to-app/text-classification-v02.json) 和 [真实模型合成测试输出](docs/archive/2026-09-30-issue68-classification-final.json)；后者保留原始草稿、标准 JSON、人工期望与耗时，不代表独立召回率评测。补交通知缺少用户任务上下文时，新增补交行动或更新原任务均可保留待核实，但不能沿用已失效的旧截止作为新期限。
+
 ## 运行与测试
 
 以下命令均在**仓库根目录**执行。需要 Python 3.9+，模块使用标准库；Windows 缺少时区数据库时安装 `tzdata`。

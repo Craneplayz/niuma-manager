@@ -1,9 +1,13 @@
 """Classification policy, evidence, process transport and contract regressions."""
 
 import json
+import io
+import sqlite3
+import sys
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from ddl_text.adapters import AgentError
 from ddl_text.contract_v02 import validate_result
@@ -29,6 +33,60 @@ def compile(r, *items):
 
 
 class ClassificationTests(unittest.TestCase):
+    def test_recorded_live_classifications_replay_without_model_calls(self):
+        root = Path(__file__).resolve().parents[2]
+        report = json.loads((root / "ddl_text/docs/archive/2026-09-30-issue68-classification-final.json").read_text(encoding="utf-8"))
+        cases = {c["name"]: c for c in CASES}
+        self.assertEqual({r["name"] for r in report["cases"]}, set(cases))
+        for row in report["cases"]:
+            with self.subTest(name=row["name"]):
+                c = cases[row["name"]]
+                tasks = compile_drafts(row["model_draft"], c["request"]["records"][0])
+                result = deepcopy(row["result"])
+                result["tasks"] = tasks
+                result["record_results"][0]["warnings"] = tasks.warnings
+                self.assertEqual(result, row["result"])
+                self.assertEqual(validate_result(c["request"], result), result)
+                self.assertTrue(matches(c, result))
+
+    def test_make_up_action_may_update_or_create_but_never_reuse_obsolete_due(self):
+        c = next(c for c in CASES if c["name"] == "ongoing")
+        r = c["request"]["records"][0]
+        for notice in ("create", "update"):
+            p = proposal(r, None, "ongoing", notice_type=notice,
+                         target=ref(r, "课程报告") if notice == "update" else None)
+            p["times"] = [time_ref(r, "新的补交期限尚未确定", derivation="unresolved")]
+            tasks = compile(r, p)
+            result = {"tasks": tasks, "errors": [], "record_results": [{"warnings": []}]}
+            self.assertTrue(matches(c, result))
+            tasks[0]["deadline"].update(value="2024-10-01", status="explicit", precision="date")
+            self.assertFalse(matches(c, result))
+
+    def test_backend_persists_only_kept_candidates_and_retains_audit(self):
+        from server import text_contract
+        with patch.dict(sys.modules, {"text_contract": text_contract}):
+            from server import recognition
+        root = Path(__file__).resolve().parents[2]
+        fixture = json.loads((root / "contracts/text-to-app/text-classification-v02.json").read_text(encoding="utf-8"))
+        handler = Mock(command="POST")
+        db = sqlite3.connect(":memory:")
+        db.row_factory = sqlite3.Row
+        try:
+            recognition.initialize(db)
+            body = io.BytesIO(json.dumps(fixture["expected"]).encode())
+            with patch.dict("os.environ", {"TEXT_HARNESS_URL": "http://synthetic.invalid/recognize"}), \
+                    patch.object(recognition, "urlopen", return_value=body):
+                recognition.route(handler, db, "synthetic-user", "/api/recognition/batches", fixture["request"], ValueError)
+            handler.reply.assert_called_once()
+            status, batches = handler.reply.call_args.args
+            self.assertEqual(status, 200)
+            self.assertEqual(batches[0]["result"], fixture["expected"])
+            self.assertEqual([i["candidate"] for i in batches[0]["items"]], fixture["expected"]["tasks"])
+            filtered = {r["input_id"] for r in fixture["expected"]["record_results"] if r["status"] == "no_tasks"}
+            self.assertFalse(filtered.intersection(i["candidate"]["input_id"] for i in batches[0]["items"]))
+        finally:
+            db.close()
+
     def test_shared_examples_compile_and_validate_in_both_consumers(self):
         from server.text_contract import validate_result as server_validate
         root = Path(__file__).resolve().parents[2]
