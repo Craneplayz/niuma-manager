@@ -15,13 +15,13 @@ export function calendarPage(state,week){
  const unknown=ddl.filter(t=>!t.dueTime&&dates.includes(t.due));
  const title=view==='month'?selectedDay.slice(0,7).replace('-',' 年 ')+' 月':view==='day'?selectedDay:start.replaceAll('-','.')+' — '+dates.at(-1).slice(5).replace('-','.');
  if(view!=='month')requestAnimationFrame(()=>{const grid=document.querySelector('.calendar-time-grid');if(grid)grid.scrollTop=10*52;});
- return `<div class="page-heading"><div><div class="eyebrow">YOUR STUDY SCHEDULE</div><h1>学习日程</h1><p>真实 DDL 与执行安排分开显示，按具体时刻定位。</p></div><div class="button-row"><button class="btn" data-action="new">新建任务</button><button class="btn primary" data-action="plan">${icon('spark')}开始规划</button></div></div>
+ return `<div class="page-heading"><h1>学习日程</h1><div class="button-row"><button class="btn" data-action="new">新建任务</button><button class="btn primary" data-action="plan">${icon('spark')}开始规划</button></div></div>
  <section class="panel"><div class="section-title"><h2>${title}</h2><div class="button-row"><button class="btn" data-action="prev">上一${view==='day'?'日':view==='month'?'月':'周'}</button><button class="btn" data-action="thisweek">今天</button><button class="btn" data-action="next">下一${view==='day'?'日':view==='month'?'月':'周'}</button></div></div>
  <div class="calendar-view-tabs">${[['day','日'],['week','周'],['month','月']].map(([value,label])=>`<button class="btn ${view===value?'primary':''}" data-calendar-view="${value}">${label}</button>`).join('')}</div>
  ${undated.length?`<details class="calendar-undated"><summary>待补日期 · ${undated.length} 项</summary>${undated.map(t=>`<button data-edit="${esc(t.id)}">${esc(t.title)} · ${esc(t.source||'手动创建')}</button>`).join('')}</details>`:''}
  ${unknown.length?`<div class="calendar-unknown"><b>待补充截止时刻</b>${unknown.map(t=>`<button data-edit="${esc(t.id)}">${esc(t.title)} · ${esc(t.due)} · ${esc(t.source||'手动创建')}</button>`).join('')}</div>`:''}
  ${view==='month'?monthGrid(dates,state):timeGrid(dates,state)}
- <p class="panel-note">橙色为真实截止时刻，蓝色为执行安排。点击卡片可编辑任务与 DDL。</p></section>`;
+ </section>`;
 }
 function monthGrid(dates,state){
  return `<div class="calendar-month-grid">${weekdays.split('').map(d=>`<b>周${d}</b>`).join('')}
