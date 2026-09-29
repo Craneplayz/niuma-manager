@@ -233,7 +233,7 @@ export async function handleAssistantClick(button){
     if(!complete)failed++;
     if(complete===undefined)break;
    }
-   if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。来源识别出的新任务已加入日历；失败记录可重试。`;}
+   if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。符合条件的任务会自动加入日历；${failed?'失败记录可重试。':'可在日历查看结果。'}`;}
   }catch(e){if(current())error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}
   finally{if(current()){busy=false;activeController=null;refresh();}}
   return;
