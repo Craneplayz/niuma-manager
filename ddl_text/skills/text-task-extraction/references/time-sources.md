@@ -8,4 +8,4 @@
 
 项目规则：明确年份优先；否则以被引用消息的可信发布时间为基准，只有月日缺年时可退回该消息的采集时间，并标记推断和依据。最近日期可能刚过期，不强制滚到未来；不存在的日期不矫正成其他月日。只有日期不补时刻，事件时间不直接升级为截止时间。来源原话保持不变。
 
-这些规则维护在 SKILL.md，程序在 `ddl_text/dates.py` 执行，回归位于 `ddl_text/tests/test_extraction.py`。本参考页不随私人文本发送给模型；实际模型调用加载 SKILL.md、草稿协议和正反例。
+当前实现由模型按 SKILL.md 理解原文并归一化，`ddl_text/time_validation.py` 校验标准值与基准，`ddl_text/dates.py` 合并冲突；不再采用上述资料中的原文格式解析方式。回归位于 `ddl_text/tests/test_normalized_time.py` 和 `ddl_text/tests/test_extraction.py`。本参考页不随私人文本发送给模型；实际模型调用加载 SKILL.md、草稿协议和正反例。

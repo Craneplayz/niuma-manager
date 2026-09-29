@@ -15,6 +15,7 @@ from ddl_text.contract_v02 import validate_request, validate_result
 from ddl_text.extraction import ExtractionAdapter, OfflineDraftClient, compile_drafts
 from ddl_text.http_server import RecognitionServer
 from ddl_text.pipeline import process_request
+from ddl_text.tests.test_extraction import time_ref
 
 
 def record(text="请提交报告。", **kwargs):
@@ -52,13 +53,13 @@ class FrontendContractTests(unittest.TestCase):
             self.assertEqual(t["deadline"]["status"], "unknown")
             self.assertTrue(t["needs_review"])
         r = record("请尽快交报告。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote="尽快", kind="deadline")]))
+        t = compile_task(r, draft(r, times=[time_ref(r, "尽快", kind="urgency", derivation="unresolved")]))
         self.assertEqual(t["deadline"]["status"], "unknown")
         self.assertEqual(t["deadline"]["raw"], "尽快")
 
     def test_conflict_keeps_verbatim_raw_and_all_evidence(self):
         r = record("截止日期有两个说法：2026-09-25或者2026-09-28，请交报告。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote=x, kind="deadline")
+        t = compile_task(r, draft(r, times=[time_ref(r, x, x)
                                           for x in ("2026-09-25", "2026-09-28")]))
         self.assertEqual(t["deadline"]["status"], "conflict")
         self.assertIn(t["deadline"]["raw"], r["text"])
@@ -68,10 +69,10 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_reference_known_and_unresolved(self):
         r = record("2026-09-25开会，请提前加群。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote="2026-09-25", kind="reference")]))
+        t = compile_task(r, draft(r, times=[time_ref(r, "2026-09-25", "2026-09-25", kind="reference")]))
         self.assertEqual((t["deadline"]["kind"], t["deadline"]["status"]), ("reference", "inferred"))
         r = record("明天开会，请提前加群。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote="明天", kind="reference")]))
+        t = compile_task(r, draft(r, times=[time_ref(r, "明天", kind="reference", derivation="unresolved", basis="缺少原消息发布时间。")]))
         self.assertEqual((t["deadline"]["kind"], t["deadline"]["status"]), ("unknown", "unknown"))
         self.assertIn("参考", t["deadline"]["basis"])
 
@@ -80,7 +81,7 @@ class FrontendContractTests(unittest.TestCase):
         t = compile_task(r, draft(r, notice_type="postpone", prerequisites=["查收邮件"],
             target=dict(input_id="notice", quote="课程报告"),
             course=dict(input_id="notice", quote="计算导论", value="计算导论"),
-            times=[dict(input_id="notice", quote="2026-09-30", kind="deadline")]))
+            times=[time_ref(r, "2026-09-30", "2026-09-30")]))
         evidence = {e["quote"]: e["supports"] for e in t["evidence"]}
         self.assertEqual(evidence["课程报告"], ["target_reference"])
         self.assertEqual(evidence["计算导论"], ["course_or_project"])

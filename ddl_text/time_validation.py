@@ -20,7 +20,7 @@ def normalized_time_schema():
         "value": {"type": ["string", "null"]},
         "precision": {"type": "string", "enum": ["date", "datetime", "unknown"]},
         "derivation": {"type": "string", "enum": list(DERIVATIONS)},
-        "anchor": {"enum": [None, "published_at", "collected_at"]},
+        "anchor": {"type": ["string", "null"], "enum": [None, "published_at", "collected_at"]},
         "basis": {"type": "string"},
     }
     return {"type": "object", "properties": properties,

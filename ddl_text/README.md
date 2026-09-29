@@ -11,7 +11,7 @@ ddl_text/
 ├── config.py             # 超时、重试和运行参数校验
 ├── contract_v02.py       # 前后端 v0.2 契约转换和校验
 ├── contracts.py          # 输入及候选任务的基础校验
-├── dates.py              # 日期解析、推断和不确定性处理
+├── dates.py              # 合并时间提案、催促语和冲突处理
 ├── draft_schema.py       # 模型草稿的 JSON Schema
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
@@ -38,7 +38,7 @@ ddl_text/
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
-│   ├── test_extraction.py      # 规则、日期和原文证据测试
+│   ├── test_extraction.py      # 草稿编译、时间合并和原文证据测试
 │   ├── test_normalized_time.py # 标准时间草稿及基准的独立校验测试
 │   ├── test_frontend_contract.py # v0.2 契约及本机 HTTP 测试
 │   ├── test_output_validation.py # 非法模型输出测试
@@ -56,6 +56,8 @@ ddl_text/
 - [共享接口协议](../docs/backend-harness-alignment.md)：v0.2 输入输出及确认流程。
 - [输入样例](../contracts/source-to-text/text-frontend-v02-request.json)、[离线草稿](tests/fixtures/text-frontend-v02-drafts.json)、[输出样例](../contracts/text-to-app/text-frontend-v02-output.json)；交接方向与文件说明见 [contracts](../contracts/README.md)。
 - [识别规则](skills/text-task-extraction/SKILL.md)：行动要求、来源和日期判断；未知、推断、冲突的时间保留不确定性，参考时间不直接当作明确截止时间。
+
+模型按语义直接生成标准时间及原文证据，程序校验 ISO 值、日历、时区与基准，不再按原话格式白名单决定是否接受。内部草稿新增 `times[].normalized`，旧草稿需迁移；对外 v0.2 不变。结构校验不能证明语义一定正确；农历、校历和节假日等缺少依据时仍需核实。
 
 ## 运行与测试
 
