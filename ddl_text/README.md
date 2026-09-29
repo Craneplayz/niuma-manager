@@ -19,6 +19,7 @@ ddl_text/
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
+├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
 │   └── text-task-extraction/
 │       ├── SKILL.md      # 任务、来源、日期及更新意图的识别规则
@@ -38,6 +39,7 @@ ddl_text/
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
 │   ├── test_extraction.py      # 规则、日期和原文证据测试
+│   ├── test_normalized_time.py # 标准时间草稿及基准的独立校验测试
 │   ├── test_frontend_contract.py # v0.2 契约及本机 HTTP 测试
 │   ├── test_output_validation.py # 非法模型输出测试
 │   ├── test_pipeline.py        # 批量处理、超时和重试测试
