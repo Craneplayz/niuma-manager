@@ -15,7 +15,9 @@ export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#sources'].includes(location.hash))host.render();};
 export const canAutoApplyCandidate=c=>c.notice_type==='create'&&c.deadline.kind==='deadline'&&['explicit','inferred'].includes(c.deadline.status)&&['date','datetime'].includes(c.deadline.precision)&&Boolean(c.deadline.value);
 const needsDate=item=>item.state==='pending'&&item.candidate.notice_type==='create'&&item.candidate.deadline.status==='not_provided';
-const pending=()=>batches.flatMap(b=>b.items).filter(needsDate).length;
+const undatedTasks=()=>host.getState?.().tasks.filter(t=>t.status!=='done'&&!t.due)||[];
+const unresolvedDate=item=>needsDate(item)&&!undatedTasks().some(t=>t.recognitionHistory?.some(h=>h.storageId===item.id));
+const pending=()=>batches.flatMap(b=>b.items).filter(unresolvedDate).length+undatedTasks().length;
 function displayTime(d){
  if(!d.value)return '';
  if(d.precision==='date')return d.value.replaceAll('-','/');
@@ -80,7 +82,8 @@ export function assistantPage(){
  if(!loaded&&session.user){loaded=true;queueMicrotask(load);}
  if(session.user&&location.hash==='#agent'&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
  const support=voiceSupport();
- const undated=batches.map(batch=>({...batch,items:batch.items.filter(needsDate)})).filter(batch=>batch.items.length);
+ const undated=batches.map(batch=>({...batch,items:batch.items.filter(unresolvedDate)})).filter(batch=>batch.items.length);
+ const tasks=undatedTasks();
  const failedBatches=batches.filter(batch=>!batch.demo&&['failed','partial_success'].includes(batch.result.status));
  return `<div class="page-heading"><h1>快速识别</h1></div>
  <div class="agent-layout"><section class="panel agent-chat"><div class="agent-chat-header"><span class="agent-avatar">${icon('spark')}</span><b>输入通知</b><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
@@ -93,19 +96,19 @@ export function assistantPage(){
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section>
  <aside class="agent-result"><div class="result-heading"><h2>待补日期 <span>${pending()}</span></h2>${icon('calendar')}</div>
- ${undated.length?undated.map(batchCard).join(''):'<div class="result-empty"><h3>暂无待补日期的任务</h3></div>'}</aside></div>`;
+ ${tasks.map(t=>`<article class="draft-card"><h3>${esc(t.title)}</h3><p>${esc(t.course||t.source||'任务')} · 未设置截止日期</p><button class="btn primary" data-agent-edit-task="${esc(t.id)}">补日期</button></article>`).join('')}${undated.length?undated.map(batchCard).join(''):tasks.length?'':'<div class="result-empty"><h3>暂无待补日期的任务</h3></div>'}</aside></div>`;
 }
 function batchCard(batch){
  const incomplete=batch.result.record_results.filter(r=>r.warnings.includes('incomplete_text')).length;
  const failed=batch.result.record_results.filter(r=>r.status==='failed').length;
- return `<section class="recognition-batch"><h3>${batchLabels[batch.result.status]||'识别结果'}${batch.demo?' · 人工演示':''}</h3><small>${batch.request.records.length} 条原文 · ${batch.items.filter(needsDate).length} 项待补日期</small>
+ return `<section class="recognition-batch"><h3>${batchLabels[batch.result.status]||'识别结果'}${batch.demo?' · 人工演示':''}</h3><small>${batch.request.records.length} 条原文 · ${batch.items.filter(unresolvedDate).length} 项待补日期</small>
  ${incomplete?`<p class="draft-warning">${incomplete} 条来源只有摘要或正文不完整；请核对原文后再确认任务。</p>`:''}
  ${batch.result.record_results.flatMap(r=>r.warnings.filter(w=>w!=='incomplete_text').map(w=>`<p class="draft-warning">${esc(w)}</p>`)).join('')}
  ${failed?`<p class="error">${failed} 条识别失败，尚未生成候选。</p>`:''}
  ${batch.result.errors.length?`<details><summary>查看识别问题</summary>${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return `<p>${esc(source?.course_or_project||source?.source_label||'批次')}：${esc(e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.code==='agent_timeout'?'识别超时；请稍后重试':e.message)}</p>`}).join('')}</details>`:''}
  ${!batch.demo&&['failed','partial_success'].includes(batch.result.status)?`<button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`:''}
  <details><summary>查看原文</summary>${batch.request.records.map(r=>`<p>${esc(r.text)}</p>`).join('')}</details>
- ${batch.items.map(candidateCard).join('')}</section>`;
+ ${batch.items.filter(unresolvedDate).map(candidateCard).join('')}</section>`;
 }
 export function candidateCard(item){
  const c=item.candidate;
@@ -204,6 +207,7 @@ export async function submitRecognitionText(value){
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  if(busy&&!['stop','voice'].includes(button.dataset.agentAction))return;
+ if(button.dataset.agentEditTask){host.editTask?.(button.dataset.agentEditTask);return;}
  if(button.dataset.agentReview){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentReview);if(item)review(item);return;}
  if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);if(item)api('/api/recognition/candidates/'+item.id+'/resolve',{action:'ignore',version:item.version}).then(r=>{if(current()){batches=r.batches;refresh();}}).catch(e=>{if(current()){error=e.message;refresh();}});return;}
  if(button.dataset.agentAction==='refresh'){await load(true);return;}
