@@ -13,18 +13,29 @@ export function resetAssistant(){cancelVoice();activeController?.abort();activeC
 window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#sources'].includes(location.hash))host.render();};
-export const canAutoApplyCandidate=c=>c.notice_type==='create'&&c.deadline.kind==='deadline'&&['explicit','inferred'].includes(c.deadline.status)&&['date','datetime'].includes(c.deadline.precision)&&Boolean(c.deadline.value);
-const needsDate=item=>item.state==='pending'&&item.candidate.notice_type==='create'&&item.candidate.deadline.status==='not_provided';
+export const canAutoApplyCandidate=(c,batch)=>{
+ const source=batch?.request?.records?.find(r=>r.input_id===c.input_id);
+ const external=source&&['teaching_web','wechat','email','web'].includes(source.platform);
+ const d=c.deadline;
+ const exactMinute=d.precision!=='datetime'||Number.isFinite(Date.parse(d.value))&&new Date(d.value).getUTCSeconds()===0&&new Date(d.value).getUTCMilliseconds()===0;
+ return Boolean(!batch?.demo&&external&&c.notice_type==='create'&&c.needs_review===false&&c.review_reasons?.length===0&&(
+  d.kind==='deadline'&&d.status==='explicit'&&['date','datetime'].includes(d.precision)&&Boolean(d.value)&&exactMinute||
+  d.status==='not_provided'&&d.value===null));
+};
+const needsDate=item=>item.state==='pending'&&item.candidate.notice_type==='create'&&item.candidate.deadline.status==='not_provided'&&!item.candidate.needs_review;
 const undatedTasks=()=>host.getState?.().tasks.filter(t=>t.status!=='done'&&!t.due)||[];
-const unresolvedDate=item=>needsDate(item)&&!undatedTasks().some(t=>t.recognitionHistory?.some(h=>h.storageId===item.id));
+const unresolved=item=>item.state==='pending'&&!undatedTasks().some(t=>t.recognitionHistory?.some(h=>h.storageId===item.id));
+const unresolvedDate=item=>needsDate(item)&&unresolved(item);
+const needsReview=item=>unresolved(item)&&!needsDate(item);
 const pending=()=>batches.flatMap(b=>b.items).filter(unresolvedDate).length+undatedTasks().length;
 function displayTime(d){
  if(!d.value)return '';
  if(d.precision==='date')return d.value.replaceAll('-','/');
  if(!Number.isFinite(Date.parse(d.value)))return '';
- const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:d.timezone||'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(d.value));
+ const stamp=new Date(d.value),withSeconds=stamp.getUTCSeconds()!==0||stamp.getUTCMilliseconds()!==0;
+ const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:d.timezone||'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',...(withSeconds?{second:'2-digit'}:{}),hourCycle:'h23'}).formatToParts(stamp);
  const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
- return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}`;
+ return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}${withSeconds?':'+p.second:''}`;
 }
 async function loadCredentials(){
  const epoch=accountVersion();
@@ -57,23 +68,24 @@ export function suggestedDue(d){
  if(d.kind!=='deadline'||!['explicit','inferred'].includes(d.status)||!d.value)return {date:'',time:''};
  if(d.precision==='date')return {date:d.value,time:''};
  if(d.precision!=='datetime'||!Number.isFinite(Date.parse(d.value)))return {date:'',time:''};
- const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(d.value));
+ const stamp=new Date(d.value);
+ const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(stamp);
  const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
- return {date:p.year+'-'+p.month+'-'+p.day,time:p.hour+':'+p.minute};
+ return {date:p.year+'-'+p.month+'-'+p.day,time:stamp.getUTCSeconds()||stamp.getUTCMilliseconds()?'':p.hour+':'+p.minute};
 }
 async function load(refreshWorkspace=false){
  if(!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
- try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';await autoApplyCandidates(null,current);if(!current())return;loaded=true;refresh();}
+ try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';loaded=true;refresh();}
  catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
 }
 async function autoApplyCandidates(requestId,current){
  let applied=0;
- const items=batches.filter(batch=>!batch.demo&&(!requestId||batch.request.request_id===requestId)).flatMap(batch=>batch.items).filter(item=>item.state==='pending'&&canAutoApplyCandidate(item.candidate));
+ const items=batches.filter(batch=>!batch.demo&&batch.request.request_id===requestId).flatMap(batch=>batch.items.filter(item=>item.state==='pending'&&canAutoApplyCandidate(item.candidate,batch)));
  for(const item of items){
   if(!current())return applied;
   try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;}
-  catch(e){if(current())error='自动加入日程失败：'+e.message;}
+  catch(e){if(current())error='自动加入任务失败：'+e.message;}
  }
  if(applied){try{await host.refresh();}catch(e){if(current())error='任务已加入日程，但页面刷新失败：'+e.message;}}
  return applied;
@@ -83,6 +95,7 @@ export function assistantPage(){
  if(session.user&&location.hash==='#agent'&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
  const support=voiceSupport();
  const undated=batches.map(batch=>({...batch,items:batch.items.filter(unresolvedDate)})).filter(batch=>batch.items.length);
+ const review=batches.map(batch=>({...batch,items:batch.items.filter(needsReview)})).filter(batch=>batch.items.length);
  const tasks=undatedTasks();
  const failedBatches=batches.filter(batch=>!batch.demo&&['failed','partial_success'].includes(batch.result.status));
  return `<div class="page-heading"><h1>快速识别</h1></div>
@@ -90,36 +103,36 @@ export function assistantPage(){
  ${syncActionPanel()}
  <form id="agent-message-form" class="agent-composer"><label for="agent-input">粘贴或说出原文</label><textarea id="agent-input" rows="4" required maxlength="4000" placeholder="粘贴课程通知正文或描述任务…">${esc(text)}</textarea>
  <div class="form-grid"><label>文本完整度<select id="agent-quality"><option value="complete" ${quality==='complete'?'selected':''}>完整正文</option><option value="partial" ${quality==='partial'?'selected':''}>部分正文</option><option value="summary" ${quality==='summary'?'selected':''}>摘要或标题</option></select></label><label>原文发布日期（可选）<input id="agent-published" type="date" value="${published}"></label></div>
- <div class="composer-bar"><button class="voice-button" type="button" data-agent-action="voice" ${busy?'disabled':''}>${icon('mic')}${voiceState==='listening'?'说完了，开始整理':'点击说话'}</button><button class="btn primary" ${busy||!session.user?'disabled':''}>${busy?'识别中…':'识别并加入日程'}</button></div>
+ <div class="composer-bar"><button class="voice-button" type="button" data-agent-action="voice" ${busy?'disabled':''}>${icon('mic')}${voiceState==='listening'?'说完了，开始整理':'点击说话'}</button><button class="btn primary" ${busy||!session.user?'disabled':''}>${busy?'识别中…':'识别通知'}</button></div>
  <div class="button-row">${text.trim()?`<button class="btn" type="button" data-agent-action="new-batch" ${busy?'disabled':''}>重新识别</button>`:''}${busy?'<button class="btn" type="button" data-agent-action="stop">停止等待</button>':''}</div>
  ${support.browser?'<p class="voice-notice">语音输入可能使用浏览器语音服务。</p>':''}</form>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section>
  <aside class="agent-result"><div class="result-heading"><h2>待补日期 <span>${pending()}</span></h2>${icon('calendar')}</div>
- ${tasks.map(t=>`<article class="draft-card"><h3>${esc(t.title)}</h3><p>${esc(t.course||t.source||'任务')} · 未设置截止日期</p><button class="btn primary" data-agent-edit-task="${esc(t.id)}">补日期</button></article>`).join('')}${undated.length?undated.map(batchCard).join(''):tasks.length?'':'<div class="result-empty"><h3>暂无待补日期的任务</h3></div>'}</aside></div>`;
+ ${tasks.map(t=>`<article class="draft-card"><h3>${esc(t.title)}</h3><p>${esc(t.course||t.source||'任务')} · 未设置截止日期</p><button class="btn primary" data-agent-edit-task="${esc(t.id)}">补日期</button></article>`).join('')}${undated.map(batch=>batchCard(batch,'待补日期')).join('')}${review.length?`<div class="result-heading"><h2>待核对 <span>${review.reduce((n,b)=>n+b.items.length,0)}</span></h2></div>${review.map(batch=>batchCard(batch,'待核对')).join('')}`:''}${!tasks.length&&!undated.length&&!review.length?'<div class="result-empty"><h3>暂无待处理的任务</h3></div>':''}</aside></div>`;
 }
-function batchCard(batch){
+function batchCard(batch,label){
  const incomplete=batch.result.record_results.filter(r=>r.warnings.includes('incomplete_text')).length;
  const failed=batch.result.record_results.filter(r=>r.status==='failed').length;
- return `<section class="recognition-batch"><h3>${batchLabels[batch.result.status]||'识别结果'}${batch.demo?' · 人工演示':''}</h3><small>${batch.request.records.length} 条原文 · ${batch.items.filter(unresolvedDate).length} 项待补日期</small>
+ return `<section class="recognition-batch"><h3>${batchLabels[batch.result.status]||'识别结果'}${batch.demo?' · 人工演示':''}</h3><small>${batch.request.records.length} 条原文 · ${batch.items.length} 项${label}</small>
  ${incomplete?`<p class="draft-warning">${incomplete} 条来源只有摘要或正文不完整；请核对原文后再确认任务。</p>`:''}
  ${batch.result.record_results.flatMap(r=>r.warnings.filter(w=>w!=='incomplete_text').map(w=>`<p class="draft-warning">${esc(w)}</p>`)).join('')}
  ${failed?`<p class="error">${failed} 条识别失败，尚未生成候选。</p>`:''}
  ${batch.result.errors.length?`<details><summary>查看识别问题</summary>${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return `<p>${esc(source?.course_or_project||source?.source_label||'批次')}：${esc(e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.code==='agent_timeout'?'识别超时；请稍后重试':e.message)}</p>`}).join('')}</details>`:''}
  ${!batch.demo&&['failed','partial_success'].includes(batch.result.status)?`<button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`:''}
  <details><summary>查看原文</summary>${batch.request.records.map(r=>`<p>${esc(r.text)}</p>`).join('')}</details>
- ${batch.items.filter(unresolvedDate).map(candidateCard).join('')}</section>`;
+ ${batch.items.map(candidateCard).join('')}</section>`;
 }
 export function candidateCard(item){
  const c=item.candidate;
- return `<article class="draft-card"><div class="draft-top"><span>${esc(labels[c.notice_type])} · ${item.state==='pending'?'待补日期':item.state==='applied'?'已应用':'已忽略'}</span></div>
+ return `<article class="draft-card"><div class="draft-top"><span>${esc(labels[c.notice_type])} · ${needsDate(item)?'待补日期':'待核对'}</span></div>
  <h3>${esc(c.title)}</h3><p>${esc(c.description)}</p><p>${esc(deadlineLabel(c.deadline))}</p>
  ${c.deadline.raw?`<small>时间原话：${esc(c.deadline.raw)}</small>`:''}
  ${c.review_reasons.filter(r=>!(c.deadline.status==='inferred'&&r===c.deadline.basis)).map(r=>`<p class="draft-warning">${esc(r)}</p>`).join('')}
  ${c.prerequisites.length?`<details><summary>原文要求</summary><ul>${c.prerequisites.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></details>`:''}
  <details><summary>证据与来源</summary><p>${esc(c.deadline.basis)}</p>${c.evidence.map(e=>`<blockquote>${esc(e.quote)}</blockquote>`).join('')}
  ${c.sources.map(s=>{let link='';try{const u=new URL(s.url);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)link=` · <a href="${esc(u.href)}" target="_blank" rel="noreferrer">打开来源</a>`;}catch{}return `<p>${esc(s.label||platformLabels[s.platform]||'来源')}${link}</p>`}).join('')}</details>
- ${item.state==='pending'?`<div class="button-row"><button class="btn primary" data-agent-review="${esc(item.id)}" ${busy?'disabled':''}>补日期并加入</button><button class="btn" data-agent-ignore="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;
+ ${item.state==='pending'?`<div class="button-row"><button class="btn primary" data-agent-review="${esc(item.id)}" ${busy?'disabled':''}>${needsDate(item)?'补日期并加入':'核对并确认'}</button><button class="btn" data-agent-ignore="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;
 }
 function review(item,selectedAction=''){
  const c=item.candidate,d=suggestedDue(c.deadline),tasks=host.getState().tasks;
@@ -131,7 +144,7 @@ function review(item,selectedAction=''){
  <label>任务名称<input name="title" required value="${esc(c.title)}" maxlength="100" ${action==='postpone'?'readonly':''}></label>
  <label>任务说明<textarea name="description" rows="3" ${action==='postpone'?'readonly':''}>${esc(c.description)}</textarea></label>
  <label>课程 / 项目<input name="course" value="${esc(c.course_or_project||'')}" ${action==='postpone'?'readonly':''}></label>
- <p>${esc(deadlineLabel(c.deadline))}</p><p class="panel-note">原文只有日期时，可以先保存为“时刻待补充”；不会自动补成 23:59。没有 DDL 可以留空。</p>
+ <p>${esc(deadlineLabel(c.deadline))}</p><p class="panel-note">${c.deadline.precision==='datetime'&&c.deadline.value&&(new Date(c.deadline.value).getUTCSeconds()||new Date(c.deadline.value).getUTCMilliseconds())?'原文时间精确到秒，当前日程只支持分钟；请核对后手动填写时刻。':'原文只有日期时，可以先保存为“时刻待补充”；不会自动补成 23:59。没有 DDL 可以留空。'}</p>
  <div class="form-grid"><label>真实 DDL 日期<input type="date" name="date" value="${d.date}" ${action==='postpone'?'required':''}></label><label>具体时刻（可稍后补充）<input type="time" name="time" value="${d.time}"></label></div>`:''}
  <label><input type="checkbox" name="reviewed" required> 我已核对原文证据、目标任务和变更</label>
  <p id="candidate-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" class="btn" data-agent-action="refresh-review" data-candidate="${esc(item.id)}" hidden>刷新后重新核对</button><button type="submit" class="btn primary">${action==='cancel'?'确认取消任务':action==='create'?'确认加入任务':'确认保存变更'}</button></div></form>`);
@@ -186,8 +199,9 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   const complete=result&&['success','no_tasks'].includes(result.status);
   const applied=autoApply?await autoApplyCandidates(body.request_id,current):0;
   if(!current())return;
-  const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(needsDate).length||0;
-  notice=`${applied?`已自动加入 ${applied} 项日程；`:''}${remaining?`${remaining} 项待补日期；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
+  const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(item=>item.state==='pending').length||0;
+  const filtered=result?.record_results?.filter(r=>r.warnings.some(w=>w.startsWith('history_filtered:')||w.startsWith('no_action:'))).length||0;
+  notice=`${applied?`已自动加入 ${applied} 项任务；`:''}${remaining?`${remaining} 项待处理；`:''}${filtered?`${filtered} 条资讯或历史通知未生成任务；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
   if(complete)onSuccess?.();
   return Boolean(complete);
  }
@@ -247,7 +261,7 @@ export async function handleAssistantClick(button){
     if(!complete)failed++;
     if(complete===undefined)break;
    }
-   if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。符合条件的任务会自动加入日历；${failed?'失败记录可重试。':'可在日历查看结果。'}`;}
+   if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。有日期任务进入日历，无日期任务留在工作台；${failed?'失败记录可重试。':'可在日历查看结果。'}`;}
   }catch(e){if(current()){notice='';error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}}
   finally{if(current()){busy=false;activeController=null;refresh();}}
   return;

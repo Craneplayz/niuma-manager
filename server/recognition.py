@@ -18,27 +18,9 @@ def initialize(db):
 def batches(db,uid):
     result=[]
     for row in db.execute('SELECT * FROM recognition_batches WHERE user_id=? ORDER BY rowid DESC',(uid,)):
-        items=[dict(id=c['id'],candidate=recognized_candidate(json.loads(c['candidate'])),state=c['state'],version=c['version']) for c in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,row['request_id']))]
+        items=[dict(id=c['id'],candidate=json.loads(c['candidate']),state=c['state'],version=c['version']) for c in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,row['request_id']))]
         result.append(dict(request=json.loads(row['request']),result=json.loads(row['result']),demo=bool(row['demo']),items=items))
     return result
-
-def recognized_candidate(candidate):
-    deadline=candidate['deadline']
-    if deadline['kind']!='deadline' or deadline['status']!='unknown' or deadline.get('timezone')!='Asia/Shanghai': return candidate
-    raw=deadline.get('raw') or ''
-    match=re.fullmatch(r'\s*(\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:\s*[（(]?\s*(\d{1,2}):(\d{2})(?::(00))?\s*[）)]?)?\s*',raw)
-    if not match: return candidate
-    year,month,day,hour,minute,seconds=match.groups()
-    try:
-        parsed=date(int(year),int(month),int(day))
-        if hour is not None: datetime.strptime(f'{int(hour):02d}:{minute}','%H:%M')
-    except ValueError: return candidate
-    value=parsed.isoformat()
-    if hour is not None: value+=f'T{int(hour):02d}:{minute}:00+08:00'
-    candidate=dict(candidate)
-    candidate['deadline']=dict(deadline,value=value,precision='datetime' if hour is not None else 'date',status='explicit',basis='按原文完整日期时间解析')
-    candidate['review_reasons']=[reason for reason in candidate['review_reasons'] if reason!=deadline['basis']]
-    return candidate
 
 def due(value):
     if value is None: return None
@@ -126,16 +108,21 @@ def route(handler,db,uid,path,body,ApiError):
             if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
             handler.reply(200,dict(batches=batches(db,uid)));return True
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
-        action=body.get('action');c=recognized_candidate(json.loads(row['candidate']))
+        action=body.get('action');c=json.loads(row['candidate'])
         if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
         auto=body.get('auto_apply') is True
         if auto:
             d=c['deadline']
             batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
-            sources={r['input_id'] for r in json.loads(batch['request'])['records'] if r['platform'] in ('teaching_web','wechat','unknown')}
-            valid_due=d['kind']=='deadline' and d['status'] in ('explicit','inferred') and d['precision'] in ('date','datetime') and bool(d['value'])
-            if (batch['demo'] or action!='create' or c['notice_type']!='create' or not valid_due
-                    or not c['sources'] or any(s['input_id'] not in sources for s in c['sources'])):
+            records={r['input_id']:r for r in json.loads(batch['request'])['records']}
+            source=records.get(c['input_id'])
+            external=source and source['platform'] in ('teaching_web','wechat','email','web')
+            valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
+            if valid_due and d['precision']=='datetime':
+                stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
+                valid_due=stamp.second==0 and stamp.microsecond==0
+            if (batch['demo'] or action!='create' or c['notice_type']!='create' or c['needs_review']
+                    or c['review_reasons'] or not valid_due or not external):
                 raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':
             if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
@@ -149,11 +136,13 @@ def route(handler,db,uid,path,body,ApiError):
             if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
             draft=body.get('draft',{})
             if auto:
-                value=d['value']
-                if d['precision']=='datetime':
-                    local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))
-                    automatic_due=dict(date=local.date().isoformat(),precision='datetime',time=local.strftime('%H:%M'))
-                else: automatic_due=dict(date=value,precision='date')
+                automatic_due=None
+                if d['status']=='explicit':
+                    value=d['value']
+                    if d['precision']=='datetime':
+                        local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))
+                        automatic_due=dict(date=local.date().isoformat(),precision='datetime',time=local.strftime('%H:%M'))
+                    else: automatic_due=dict(date=value,precision='date')
                 draft=dict(title=c['title'],description=c['description'],course=c['course_or_project'],due=automatic_due)
             if action!='cancel':
                 if not isinstance(draft.get('title'),str) or not draft['title'].strip() or not isinstance(draft.get('description'),str): raise ApiError(400,'请填写有效任务内容')

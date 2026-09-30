@@ -220,7 +220,7 @@ evidence={input_id,field,quote,supports}：
 - partial/summary 文本和任何影响行动理解的推断需 needs_review=true，并说明限制；普通非课程任务无归属不自动待核实。
 - 不强求上游字段推断成正文证据：课程 provided 可直接追溯输入 course_or_project；相对日期换算同时核对 published_at 和 timezone 的可信度。
 
-所有候选，即便 needs_review=false，也要经用户确认才能进入正式任务。这一布尔值不是自动执行授权。
+needs_review=false 不是单独的自动执行授权：手动输入、演示、变更和来源新旧不明仍须用户确认；仅真实外部来源的无疑点新增行动可按第 6 节的 auto_apply 条件自动入库。
 
 ## 5. 时间语义
 
@@ -243,7 +243,7 @@ deadline 固定字段：{value,precision,timezone,kind,status,raw,basis,alternat
 2. not_provided：已提供的完整正文没有针对该行动的时间要求，value=null、precision=unknown、kind=unknown、raw=null、alternatives=[]；无需仅因缺期限设置 needs_review。部分正文遗漏时间则用 unknown。
 3. explicit 表示明确的截止语义和可确定时间；inferred 需核实。reference 一律 inferred，绝不自动进入真实 DDL。
 4. “明天 18 点前交”只有在可信发布时间和明确时区下才可无假设换算；采集日不充当基准。“24 小时后”不能只凭发布日期。
-5. 仅有“周五”“尽快”且缺少唯一解释时用 unknown；同一任务的纯催促语不覆盖明确截止，真正矛盾的日期仍保留冲突。“本周五”在可信基准下可解析。缺年份的“9 月 30 日”按原消息可信发布时间选择最近的相邻年份；缺发布时间时可用该消息采集时间补年。只有省略年份、且月日及截止语义明确并通过最近有效日期规则校验时，按已确定截止输出 explicit，不单独触发 needs_review；raw 与 basis 保留原话和补年依据，explicit 不表示原文逐字包含年份。无可用基准、年份冲突、非法日期或其他独立疑点仍需核实，reference 仍为 inferred。采集时间不能代替发布时间换算“明天”。此项只取消补年的核实标记，不自动保存任务；例见 contracts/text-to-app/text-year-inference-output.json。
+5. 仅有“周五”“尽快”且缺少唯一解释时用 unknown；同一任务的纯催促语不覆盖明确截止，真正矛盾的日期仍保留冲突。“本周五”在可信基准下可解析。缺年份的“9 月 30 日”按原消息可信发布时间选择最近的相邻年份；缺发布时间时可用该消息采集时间补年。只有省略年份、且月日及截止语义明确并通过最近有效日期规则校验时，按已确定截止输出 explicit，不单独触发 needs_review；raw 与 basis 保留原话和补年依据，explicit 不表示原文逐字包含年份。无可用基准、年份冲突、非法日期或其他独立疑点仍需核实，reference 仍为 inferred。采集时间不能代替发布时间换算“明天”。模型不自行保存任务，是否自动入库由消费者按来源及候选状态判断；例见 contracts/text-to-app/text-year-inference-output.json。
 6. “明晚开会，请提前加群”的会议时间可以作为 reference，不能当作明确加群 DDL。只有活动时间、没有行动要求的输入可 no_tasks。
 7. 原文有本地时刻但无时区，不能输出伪造偏移的 datetime；保留 raw，提示核实。date 精度不补 23:59，过期不等于已完成。
 8. 同一行动相互冲突的日期使用 conflict；不同义务各自的日期不是冲突，应分开输出事项。
@@ -335,12 +335,14 @@ action=create/update/postpone/cancel/ignore。
 - create 必须不带 target_id；update/postpone/cancel 必须选择属于当前账号的目标任务。禁止按标题自动匹配。
 - action 必须与 notice_type 一致；uncertain 需用户明确选择操作。ignore 只改变候选状态，不写任务，不要求目标或 tasks_version。
 - 除 ignore 外 reviewed 必须 true，前端默认不勾选。检查的是整个 tasks 集合版本，任何任务变化都要求刷新后重新核对，宁可保守冲突也不覆盖。
+- 仅非演示外部来源（teaching_web/wechat/email/web）的 create 且 needs_review=false、review_reasons=[] 时可提交 auto_apply=true；截止时间只能是 explicit+deadline 或 not_provided，后者存 due=null 并留在工作台补日期；手动 unknown、inferred、reference、冲突和变更不得自动入库。
+- auto_apply=true 由后端重复校验来源与字段，不要求 reviewed/tasks_version；只处理本次新识别结果，不在刷新旧批次时追溯自动入库。
 - create 保存确认后的 title/description/due，draft.course 可明确修改课程归属或设为 null；省略时使用候选归属。sourceRequirements 来自原文 prerequisites，subtasks/plans 初始化为空；不默认估时。
 - update 只更新用户确认的 title/description/due 以及显式提交的 draft.course；有新的非空 prerequisites 时更新 sourceRequirements，否则保留原要求。显示旧值和新值，由用户明确核对。
 - postpone 仅修改 DDL，必须有明确新日期；不改标题、说明、原文要求和计划。日期变化不自动重排已有计划。
 - cancel 设置 status=cancelled，不物理删除任务/历史计划；日历和今日安排不显示，规划时不占用可用时间。可在任务“已取消”筛选查看。
 - 参考时间、模糊时间或无期限均不自动填 DDL。更新已有任务时默认保留其已确认 DDL，用户可明确清空或修改。
-- 仅 explicit+deadline 可以预填，但仍需确认。datetime 按真实瞬时转换到北京时间，date-only 原样保留；源时间含非零秒/毫秒时不预填，避免静默丢失精度，用户核对到分钟后填写。
+- 人工确认时仅 explicit+deadline 可以预填日期和时刻；自动入库的 datetime 仅接受整分钟并按真实瞬时转换到北京时间，非零秒数留待核对；date-only 原样保留，不补造 23:59。
 - 同一个确认请求完全相同地重试返回 200，不再写任务；候选已处理后换操作/目标/内容返回 409。识别候选原文、完整结果和确认请求留在数据库。
 - 前端不会把模型 candidate_id 当数据库任务 ID；确认成功才刷新任务清单，随后由用户单独开始规划。
 

@@ -9,53 +9,80 @@ const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
 const {calendarPage}=await import('../src/team-calendar-ui.js');
 
-test('dated create tasks are eligible, including inferred dates, but undated tasks wait',async()=>{
- session.user={id:'test'};
- const clear={notice_type:'create',needs_review:false,deadline:{kind:'deadline',status:'explicit',precision:'date',value:'2026-09-30'}};
- const uncertain={notice_type:'uncertain',needs_review:true,deadline:{kind:'unknown',status:'unknown',precision:'unknown'}};
- assert.equal(recognition.canAutoApplyCandidate(clear),true);
- assert.equal(recognition.canAutoApplyCandidate({...clear,deadline:{...clear.deadline,status:'inferred'}}),true);
- assert.equal(recognition.canAutoApplyCandidate({...clear,deadline:{status:'not_provided'}}),false);
- assert.equal(recognition.canAutoApplyCandidate(uncertain),false);
- let resolved=0,refreshed=0;
- recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;}});
- globalThis.fetch=async(path,options)=>{
-  const request=JSON.parse(options.body);
-  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[{
-   request,result:{status:'success'},demo:false,items:[{id:'candidate-1',version:1,state:'pending',candidate:clear}],
-  }]};
-  if(path==='/api/recognition/candidates/candidate-1/resolve'){
-   resolved++;
-   assert.deepEqual(request,{action:'create',auto_apply:true,version:1});
-   return {ok:true,json:async()=>({batches:[{request:{request_id:request.request_id},items:[]}]})};
-  }
-  throw new Error('unexpected request '+path);
- };
- await recognition.submitRecognitionText('9月30日提交报告');
- assert.equal(resolved,1);
- assert.equal(refreshed,1);
+test('F3 auto-apply accepts clear external actions and rejects uncertain or manual input',async()=>{
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const batch={request:fixture.request,demo:false};
+ const byInput=id=>fixture.expected.tasks.find(task=>task.input_id==='synthetic:f3:'+id);
+ assert.equal(recognition.canAutoApplyCandidate(byInput('dated'),batch),true);
+ assert.equal(recognition.canAutoApplyCandidate(byInput('undated'),batch),true);
+ assert.equal(recognition.canAutoApplyCandidate(byInput('yearless-current'),batch),true);
+ for(const id of ['unknown-age','recent-overdue','postpone','cancel','optional'])assert.equal(recognition.canAutoApplyCandidate(byInput(id),batch),false);
+ assert.equal(recognition.canAutoApplyCandidate({...byInput('dated'),deadline:{...byInput('dated').deadline,status:'inferred'}},batch),false);
+ assert.equal(recognition.canAutoApplyCandidate({...byInput('dated'),deadline:{...byInput('dated').deadline,value:'2026-10-01T18:00:30+08:00'}},batch),false);
+ assert.equal(recognition.canAutoApplyCandidate({...byInput('dated'),review_reasons:['需要核对']},batch),false);
+ assert.equal(recognition.canAutoApplyCandidate(byInput('dated'),{...batch,demo:true}),false);
+ assert.equal(recognition.canAutoApplyCandidate(byInput('dated'),{request:{records:[{input_id:byInput('dated').input_id,platform:'unknown'}]}}),false);
 });
 
-test('external source recognition leaves undated tasks for manual completion',async()=>{
- const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-contract-v0.2.json',import.meta.url)));
- const request=fixture.request;
- request.request_id='external-auto-test';
- request.records.forEach(record=>record.platform='teaching_web');
- let resolved=0,refreshed=0;
+test('manual text stays pending even when it has an explicit deadline',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const candidate={...fixture.expected.tasks[0],input_id:'manual:one'};
+ let resolved=0;
+ recognition.configureAssistant({render(){}});
+ globalThis.fetch=async(path)=>{
+  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[{request:{request_id:'manual',records:[]},result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'manual-candidate',version:1,state:'pending',candidate}]}]};
+  if(path.includes('/resolve'))resolved++;
+  throw new Error('unexpected request '+path);
+ };
+ await recognition.submitRecognitionText('10月1日提交报告');
+ assert.equal(resolved,0);
+ assert.match(recognition.assistantPage(),/待核对 <span>1/);
+ assert.match(recognition.assistantPage(),/data-agent-review="manual-candidate"/);
+});
+
+test('external F3 output auto-adds dated and undated actions but leaves review candidates pending',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const batch={request:fixture.request,result:fixture.expected,demo:false,items:fixture.expected.tasks.map(task=>({id:task.candidate_id,version:1,state:'pending',candidate:task}))};
+ const applied=[];let refreshed=0;
  recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;}});
- recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'source.jsonl',size:100,text:async()=>JSON.stringify(request)}]}});
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'source.json',size:100,text:async()=>JSON.stringify(fixture.request)}]}});
  await new Promise(resolve=>setTimeout(resolve,0));
  recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
  globalThis.fetch=async(path,options)=>{
-  if(path==='/api/recognition/retry')return {ok:true,json:async()=>[{request,result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'candidate-2',version:1,state:'pending',candidate:fixture.expected.tasks.find(task=>task.candidate_id==='c2')},{id:'unknown-date',version:1,state:'pending',candidate:{...fixture.expected.tasks[0],deadline:{kind:'deadline',status:'unknown',precision:'unknown',value:null}}}]},{request:{request_id:'empty',records:[]},result:{status:'no_tasks',record_results:[],errors:[]},demo:false,items:[]}]};
-  if(path==='/api/recognition/candidates/candidate-2/resolve'){resolved++;throw new Error('undated candidate must not auto-apply');}
+  if(path==='/api/recognition/retry')return {ok:true,json:async()=>[batch]};
+  if(path.includes('/resolve')){
+   const body=JSON.parse(options.body),item=batch.items.find(item=>path.includes(item.id));
+   assert.deepEqual(body,{action:'create',auto_apply:true,version:1});
+   applied.push(item.candidate.input_id);
+   item.state='applied';
+   return {ok:true,json:async()=>({batches:[batch]})};
+  }
   throw new Error('unexpected request '+path);
  };
  await recognition.handleAssistantClick({dataset:{agentImportIndex:'0'}});
+ assert.deepEqual(applied.sort(),['dated','mixed','old-but-future','undated','yearless-current'].map(id=>'synthetic:f3:'+id).sort());
+ assert.equal(refreshed,1);
+ assert.match(recognition.assistantPage(),/待核对 <span>6/);
+ assert.doesNotMatch(recognition.assistantPage(),/data-agent-review="synthetic:f3:old-yearless/);
+});
+
+test('refresh does not auto-apply old unfiltered batches',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const batch={request:fixture.request,result:fixture.expected,demo:false,items:[{id:'old-candidate',version:1,state:'pending',candidate:fixture.expected.tasks[0]}]};
+ let resolved=0;
+ recognition.configureAssistant({render(){}});
+ globalThis.fetch=async(path)=>{
+  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
+  if(path.includes('/resolve'))resolved++;
+  throw new Error('unexpected request '+path);
+ };
+ recognition.assistantPage();
+ await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(resolved,0);
- assert.equal(refreshed,0);
- assert.match(recognition.assistantPage(),/待补日期 <span>1/);
- assert.doesNotMatch(recognition.assistantPage(),/unknown-date|未发现任务/);
+ assert.match(recognition.assistantPage(),/待核对 <span>1/);
 });
 
 test('existing undated tasks appear on the workbench and open the same task for editing',async()=>{
