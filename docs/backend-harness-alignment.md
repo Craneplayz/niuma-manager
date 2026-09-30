@@ -139,7 +139,7 @@ Record 字段：
 | input_id | 非空字符串，主 records 内唯一；本地 ID 带命名空间，不冒充平台 ID |
 | text | 字符串，保留实际段落和日期原文 |
 | text_quality | complete / partial / summary / missing，不由模型提升完整度 |
-| platform | teaching_web / wechat / email / web / unknown，由调用方提供 |
+| platform | teaching_web / wechat / email / web / manual，由调用方提供；**manual = 用户在对话框手动输入**，识别结果必须经用户确认，不得自动入库。`unknown` 已停用：新代码不得再送；校验器暂时仍接受以兼容旧数据，一律按 manual 处理（须用户确认） |
 | published_at | {value,precision,basis}，见下 |
 | collected_at | 带偏移日期时间或 null，只用于追踪，不能代替发布时间 |
 | timezone | 时区名称或 null |
