@@ -256,6 +256,8 @@ def validate_proposal(request,result):
 
 if __name__=='__main__':
     import sys
+    import logging
+    logging.basicConfig(level=logging.INFO)
     initialize()
     if '--seed' in sys.argv: seed()
     else:

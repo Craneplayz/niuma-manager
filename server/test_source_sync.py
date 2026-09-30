@@ -54,6 +54,9 @@ class SourceSyncTests(unittest.TestCase):
 
     def test_sync_uses_temporary_secret_and_stable_request_id(self):
         request = json.loads((Path(__file__).resolve().parent.parent / 'contracts' / 'source-to-text' / 'text-frontend-v02-request.json').read_text(encoding='utf-8'))
+        for record in request['records']:
+            if record['platform'] == 'teaching_web':
+                record['upstream_hints'] = dict(record['upstream_hints'] or {}, section='课程通知')
         self.save('中文账号', '密码€')
         with self.assertRaises(app.ApiError) as unsupported:
             self.call('/api/sources/sync', {'sources': ['wechat']})

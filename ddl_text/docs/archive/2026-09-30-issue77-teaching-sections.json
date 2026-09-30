@@ -1,0 +1,882 @@
+{
+  "synthetic_only": true,
+  "started_at": "2026-09-30T06:46:47.153638+00:00",
+  "provider": "qiniu",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "timeout_seconds": 90,
+  "max_retries": 0,
+  "git_commit": "1872e94c792700171217f352a692aae39523f27b",
+  "instructions_sha256": "b19c95ce815f3450519b735322229fd2f35f991b4a983ecb1ba08046b1faef1f",
+  "scope": "Fixed smoke cases, not an independent accuracy benchmark",
+  "suite": "teaching-sections",
+  "cases": [
+    {
+      "name": "section-assignment",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:section-assignment",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:section-assignment",
+            "text": "请于2026年10月5日18点前提交第一次作业。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-05T18:00:00+08:00",
+          "needs_review": false,
+          "status": "explicit"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交第一次作业\",\"description\":\"按要求于2026年10月5日18点前提交第一次作业。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:f3:section-assignment\",\"quote\":\"请于2026年10月5日18点前提交第一次作业。\"}],\"times\":[{\"input_id\":\"synthetic:f3:section-assignment\",\"quote\":\"2026年10月5日18点\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-05T18:00:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文明确给出完整日期与时刻，按来源时区Asia/Shanghai归一化。\"}}],\"review_reasons\":[],\"relevance\":{\"state\":\"current\",\"reason\":\"当前通知中的正常作业提交要求，未见过期或长期补交等特殊语义。\",\"evidence\":[]}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:section-assignment",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:section-assignment:candidate:1",
+            "input_id": "synthetic:f3:section-assignment",
+            "title": "提交第一次作业",
+            "description": "按要求于2026年10月5日18点前提交第一次作业。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-05T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月5日18点",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:section-assignment",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:section-assignment",
+                "field": "text",
+                "quote": "请于2026年10月5日18点前提交第一次作业。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:section-assignment",
+                "field": "text",
+                "quote": "2026年10月5日18点",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:section-assignment",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:section-assignment:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-05T18:00:00+08:00",
+          "status": "explicit",
+          "needs_review": false
+        }
+      ],
+      "elapsed_seconds": 3.73
+    },
+    {
+      "name": "section-notice",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:section-notice",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程通知",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:section-notice",
+            "text": "请于2026年10月6日前提交课程内容回顾，请大家尽快完成。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-06",
+          "needs_review": false,
+          "status": "explicit"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"提交课程内容回顾\", \"description\": \"按通知要求提交课程内容回顾。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:f3:section-notice\", \"quote\": \"请于2026年10月6日前提交课程内容回顾，请大家尽快完成。\"}], \"times\": [{\"input_id\": \"synthetic:f3:section-notice\", \"quote\": \"请于2026年10月6日前提交课程内容回顾\", \"kind\": \"deadline\", \"normalized\": {\"value\": \"2026-10-06\", \"precision\": \"date\", \"derivation\": \"absolute\", \"anchor\": null, \"basis\": \"原文明确写出2026年10月6日为提交截止日，仅到日期未给时刻。\"}}], \"review_reasons\": [], \"relevance\": {\"state\": \"current\", \"reason\": \"当前通知中的提交要求，未见已完成或已结束语义。\", \"evidence\": []}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:section-notice",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:section-notice:candidate:1",
+            "input_id": "synthetic:f3:section-notice",
+            "title": "提交课程内容回顾",
+            "description": "按通知要求提交课程内容回顾。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-06",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "请于2026年10月6日前提交课程内容回顾",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:section-notice",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:section-notice",
+                "field": "text",
+                "quote": "请于2026年10月6日前提交课程内容回顾，请大家尽快完成。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:section-notice",
+                "field": "text",
+                "quote": "请于2026年10月6日前提交课程内容回顾",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:section-notice",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:section-notice:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-06",
+          "status": "explicit",
+          "needs_review": false
+        }
+      ],
+      "elapsed_seconds": 4.47
+    },
+    {
+      "name": "content-hidden-deadline",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-hidden-deadline",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "教学内容",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:content-hidden-deadline",
+            "text": "第二讲教学材料已上传。本讲附加练习请于2026年10月7日9点前提交。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-07T09:00:00+08:00",
+          "needs_review": false,
+          "status": "explicit"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"提交第二讲附加练习\", \"description\": \"提交本讲（第二讲）附加练习。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:f3:content-hidden-deadline\", \"quote\": \"第二讲教学材料已上传。\"}, {\"input_id\": \"synthetic:f3:content-hidden-deadline\", \"quote\": \"本讲附加练习请于2026年10月7日9点前提交。\"}], \"times\": [{\"input_id\": \"synthetic:f3:content-hidden-deadline\", \"quote\": \"2026年10月7日9点\", \"kind\": \"deadline\", \"normalized\": {\"value\": \"2026-10-07T09:00:00+08:00\", \"precision\": \"datetime\", \"derivation\": \"absolute\", \"anchor\": null, \"basis\": \"原文给出完整年月日与时刻，无需基准换算。\"}}], \"review_reasons\": [], \"relevance\": {\"state\": \"current\", \"reason\": \"正文为当前提交要求，未见已结束或延期等特殊语义。\", \"evidence\": []}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-hidden-deadline",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:content-hidden-deadline:candidate:1",
+            "input_id": "synthetic:f3:content-hidden-deadline",
+            "title": "提交第二讲附加练习",
+            "description": "提交本讲（第二讲）附加练习。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-07T09:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月7日9点",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:content-hidden-deadline",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:content-hidden-deadline",
+                "field": "text",
+                "quote": "第二讲教学材料已上传。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:content-hidden-deadline",
+                "field": "text",
+                "quote": "本讲附加练习请于2026年10月7日9点前提交。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:content-hidden-deadline",
+                "field": "text",
+                "quote": "2026年10月7日9点",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:content-hidden-deadline",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:content-hidden-deadline:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-07T09:00:00+08:00",
+          "status": "explicit",
+          "needs_review": false
+        }
+      ],
+      "elapsed_seconds": 6.06
+    },
+    {
+      "name": "content-undated",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-undated",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "教学内容",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:content-undated",
+            "text": "请完成本章课后练习并提交答案。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "needs_review": false,
+          "status": "not_provided"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成并提交本章课后练习\",\"description\":\"完成本章课后练习并提交答案。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:f3:content-undated\",\"quote\":\"请完成本章课后练习并提交答案。\"}],\"times\":[],\"review_reasons\":[],\"relevance\":{\"state\":\"current\",\"reason\":\"当前正文明确提出完成并提交课后练习的行动，未见已结束、归档或仍需补交等特殊语义。\",\"evidence\":[]}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-undated",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:content-undated:candidate:1",
+            "input_id": "synthetic:f3:content-undated",
+            "title": "完成并提交本章课后练习",
+            "description": "完成本章课后练习并提交答案。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "not_provided",
+              "raw": null,
+              "basis": "完整正文未提供该行动的时间要求。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:content-undated",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:content-undated",
+                "field": "text",
+                "quote": "请完成本章课后练习并提交答案。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:content-undated",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:content-undated:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "status": "not_provided",
+          "needs_review": false
+        }
+      ],
+      "elapsed_seconds": 4.16
+    },
+    {
+      "name": "content-information",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-information",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "教学内容",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:content-information",
+            "text": "第三讲课件已上传，内容为虚拟内存的概念和示例。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [],
+      "expected_alternatives": [],
+      "route": "information",
+      "passed": true,
+      "model_draft": "{\"tasks\": []}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-information",
+        "status": "no_tasks",
+        "tasks": [],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:content-information",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": [
+              "no_action: 未识别到需要执行的行动或变更。"
+            ]
+          }
+        ]
+      },
+      "actual": [],
+      "elapsed_seconds": 4.62
+    },
+    {
+      "name": "notice-postpone",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:notice-postpone",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程通知",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:notice-postpone",
+            "text": "第一次作业原定2026年10月5日提交，现延期到2026年10月8日。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "postpone",
+          "value": "2026-10-08",
+          "needs_review": true,
+          "status": "explicit"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"第一次作业延期提交\", \"description\": \"第一次作业原定2026年10月5日提交，现延期至2026年10月8日提交。\", \"prerequisites\": [], \"notice_type\": \"postpone\", \"target\": {\"input_id\": \"synthetic:f3:notice-postpone\", \"quote\": \"第一次作业\"}, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:f3:notice-postpone\", \"quote\": \"第一次作业原定2026年10月5日提交，现延期到2026年10月8日。\"}], \"times\": [{\"input_id\": \"synthetic:f3:notice-postpone\", \"quote\": \"延期到2026年10月8日\", \"kind\": \"deadline\", \"normalized\": {\"value\": \"2026-10-08\", \"precision\": \"date\", \"derivation\": \"absolute\", \"anchor\": null, \"basis\": \"原文明确写出延期后的新截止日期2026年10月8日。\"}}], \"review_reasons\": [], \"relevance\": {\"state\": \"current\", \"reason\": \"当前有效的延期通知，需与现有任务核对。\", \"evidence\": []}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:notice-postpone",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:notice-postpone:candidate:1",
+            "input_id": "synthetic:f3:notice-postpone",
+            "title": "第一次作业延期提交",
+            "description": "第一次作业原定2026年10月5日提交，现延期至2026年10月8日提交。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "postpone",
+            "target_reference": "第一次作业",
+            "deadline": {
+              "value": "2026-10-08",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "延期到2026年10月8日",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "变更通知需核对现有任务后处理。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:notice-postpone",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:notice-postpone",
+                "field": "text",
+                "quote": "第一次作业原定2026年10月5日提交，现延期到2026年10月8日。",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:notice-postpone",
+                "field": "text",
+                "quote": "第一次作业",
+                "supports": [
+                  "target_reference"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:notice-postpone",
+                "field": "text",
+                "quote": "延期到2026年10月8日",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:notice-postpone",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:notice-postpone:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "postpone",
+          "value": "2026-10-08",
+          "status": "explicit",
+          "needs_review": true
+        }
+      ],
+      "elapsed_seconds": 7.7
+    },
+    {
+      "name": "notice-cancel",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:notice-cancel",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程通知",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:notice-cancel",
+            "text": "取消本次课程报告提交，大家不需要再交本次课程报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "cancel",
+          "value": null,
+          "needs_review": true,
+          "status": "not_provided"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"取消本次课程报告提交\", \"description\": \"通知取消本次课程报告提交，无需再交本次课程报告。\", \"prerequisites\": [], \"notice_type\": \"cancel\", \"target\": {\"input_id\": \"synthetic:f3:notice-cancel\", \"quote\": \"本次课程报告\"}, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:f3:notice-cancel\", \"quote\": \"取消本次课程报告提交，大家不需要再交本次课程报告。\"}], \"times\": [], \"review_reasons\": [], \"relevance\": {\"state\": \"current\", \"reason\": \"取消提交的通知，需保留供用户核对现有任务。\", \"evidence\": []}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:notice-cancel",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:notice-cancel:candidate:1",
+            "input_id": "synthetic:f3:notice-cancel",
+            "title": "取消本次课程报告提交",
+            "description": "通知取消本次课程报告提交，无需再交本次课程报告。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "cancel",
+            "target_reference": "本次课程报告",
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "not_provided",
+              "raw": null,
+              "basis": "完整正文未提供该行动的时间要求。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "变更通知需核对现有任务后处理。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:notice-cancel",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:notice-cancel",
+                "field": "text",
+                "quote": "取消本次课程报告提交，大家不需要再交本次课程报告。",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:notice-cancel",
+                "field": "text",
+                "quote": "本次课程报告",
+                "supports": [
+                  "target_reference"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:notice-cancel",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:notice-cancel:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "cancel",
+          "value": null,
+          "status": "not_provided",
+          "needs_review": true
+        }
+      ],
+      "elapsed_seconds": 6.59
+    },
+    {
+      "name": "content-history",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-history",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2024-09-30",
+              "precision": "date",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "教学内容",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:content-history",
+            "text": "请于2024年10月1日前提交本章练习。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [],
+      "expected_alternatives": [],
+      "route": "filtered_history",
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"提交本章练习\", \"description\": \"按通知要求提交本章练习。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:f3:content-history\", \"quote\": \"请于2024年10月1日前提交本章练习。\"}], \"times\": [{\"input_id\": \"synthetic:f3:content-history\", \"quote\": \"2024年10月1日前\", \"kind\": \"deadline\", \"normalized\": {\"value\": \"2024-10-01\", \"precision\": \"date\", \"derivation\": \"absolute\", \"anchor\": null, \"basis\": \"原文给出完整年份的提交截止日期。\"}}], \"review_reasons\": [], \"relevance\": {\"state\": \"current\", \"reason\": \"正文为明确的提交要求，未见已完成或已结束的证据。\", \"evidence\": []}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:content-history",
+        "status": "no_tasks",
+        "tasks": [],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:content-history",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": [
+              "history_filtered: synthetic:f3:content-history:candidate:1；截止 2024-10-01 距采集时点已超过 30 天，未见继续执行要求。；证据 synthetic:f3:content-history：请于2024年10月1日前提交本章练习。"
+            ]
+          }
+        ]
+      },
+      "actual": [],
+      "elapsed_seconds": 8.52
+    }
+  ],
+  "working_tree_dirty": true
+}

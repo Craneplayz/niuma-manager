@@ -39,6 +39,7 @@ class IncrementalRecognitionTests(unittest.TestCase):
         self.request['records'] = self.request['records'][:2]
         for r in self.request['records']:
             r['platform'] = 'teaching_web'
+            r['upstream_hints'] = dict(r['upstream_hints'] or {}, section='课程作业')
         self.output = None
 
     def connect(self):

@@ -40,6 +40,7 @@ ddl_text/
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
+│   ├── teaching_section_cases.py # 教学网三类栏目的作业、资讯及变更合成样例
 │   ├── run_classification_smoke.py # 显式启用的真实模型分类验证入口
 │   ├── test_classification.py # 分类、历史过滤、证据及跨进程透传测试
 │   ├── run_time_smoke.py # 显式启用的真实模型时间验证入口
@@ -116,7 +117,11 @@ python -m ddl_text.http_server --real
 python -m ddl_text.tests.run_time_smoke --live --output local-data/time-smoke-new.json
 # F3 分类回归：14 条固定合成通知，保留模型草稿及过滤说明
 python -m ddl_text.tests.run_classification_smoke --live --output local-data/classification-smoke-new.json
+# 教学网栏目语义回归：8 条合成通知，覆盖教学内容中的作业及纯材料介绍
+python -m ddl_text.tests.run_classification_smoke --live --suite teaching-sections --output local-data/teaching-sections-new.json
 ```
+
+教学网栏目合成实测的草稿和 JSON 输出见 [验证样例](docs/archive/2026-09-30-issue77-teaching-sections.json)；`test_classification.py` 会离线回放这些结果，核对行动、课程及日期。
 
 识别服务默认 `127.0.0.1:1333`，健康检查为 `/health`。账户后端设置 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize`；网页与账户服务的启动方式由其模块说明维护。更改环境配置后重启识别服务。配置检查及健康检查不证明模型权限或额度可用。
 

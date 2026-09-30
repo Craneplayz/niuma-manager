@@ -1,15 +1,26 @@
 """Run the teaching-web crawler with one request's credentials and return v0.2 requests."""
 import json
 import hashlib
+import logging
 import os
 import subprocess
 import tempfile
 import secrets
+import time
 from pathlib import Path
 
 from text_contract import validate_request
 
 CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
+LOGGER = logging.getLogger(__name__)
+TEACHING_SECTION_ORDER = {'课程作业': 0, '课程通知': 1, '教学内容': 2}
+
+
+def teaching_section(record):
+    """Read routing metadata only; never infer a section from the title or body."""
+    hints = record.get('upstream_hints')
+    section = hints.get('section') if isinstance(hints, dict) else None
+    return section.strip() if isinstance(section, str) else section
 
 
 def initialize(db):
@@ -21,10 +32,14 @@ def initialize(db):
 
 
 def incremental_requests(db, uid, username, requests):
-    """Keep the first observation of each content version, including its time anchor."""
+    """Select sections, preserve content versions, then order the pending records."""
+    started = time.monotonic()
     account = hashlib.sha256(username.encode()).hexdigest()
     pending, seen = [], set()
     total = skipped = 0
+    counts = {section: dict(pending=0, unchanged=0) for section in TEACHING_SECTION_ORDER}
+    filtered = dict(unsupported_section=0, missing_section=0, invalid_section=0)
+    collected = other_sources = 0
     if not db.in_transaction:
         db.execute('BEGIN IMMEDIATE')
     for batch in requests:
@@ -36,6 +51,21 @@ def incremental_requests(db, uid, username, requests):
             if identity in seen:
                 continue
             seen.add(identity)
+            collected += 1
+            section = None
+            if record.get('platform') == 'teaching_web':
+                section = teaching_section(record)
+                if section is None or section == '':
+                    filtered['missing_section'] += 1
+                    continue
+                if not isinstance(section, str):
+                    filtered['invalid_section'] += 1
+                    continue
+                if section not in TEACHING_SECTION_ORDER:
+                    filtered['unsupported_section'] += 1
+                    continue
+            else:
+                other_sources += 1
             total += 1
             row = db.execute('SELECT digest,request FROM source_versions WHERE user_id=? AND account=? AND input_id=?',
                              (uid, account, record['input_id'])).fetchone()
@@ -49,8 +79,21 @@ def incremental_requests(db, uid, username, requests):
                                 (uid, request['request_id'])).fetchone()
             if stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks'):
                 skipped += 1
+                if section is not None:
+                    counts[section]['unchanged'] += 1
             else:
                 pending.append(request)
+                if section is not None:
+                    counts[section]['pending'] += 1
+    # Reorder only teaching-web slots; other sources retain their relative positions.
+    teaching = iter(sorted((r for r in pending if r['records'][0]['platform'] == 'teaching_web'),
+                           key=lambda r: TEACHING_SECTION_ORDER[teaching_section(r['records'][0])]))
+    pending = [next(teaching) if r['records'][0]['platform'] == 'teaching_web' else r for r in pending]
+    # No message text, input IDs, user IDs, campus accounts or arbitrary section labels.
+    LOGGER.info('source_sync_selection %s', json.dumps(dict(
+        collected=collected, eligible=total, sections=counts, filtered=filtered,
+        other_sources=other_sources, pending=len(pending), unchanged=skipped,
+        selection_ms=round((time.monotonic() - started) * 1000)), ensure_ascii=False))
     return dict(requests=pending, summary=dict(total=total, skipped=skipped, pending=len(pending)))
 
 

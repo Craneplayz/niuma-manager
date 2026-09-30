@@ -15,6 +15,7 @@ from ddl_text.contracts import normalize_record
 from ddl_text.extraction import ExtractionAdapter, OfflineDraftClient, compile_drafts
 from ddl_text.pipeline import process_request
 from ddl_text.tests.classification_cases import CASES, case, matches
+from ddl_text.tests.teaching_section_cases import CASES as SECTION_CASES
 from ddl_text.tests.test_extraction import draft, ref, time_ref
 
 
@@ -33,6 +34,29 @@ def compile(r, *items):
 
 
 class ClassificationTests(unittest.TestCase):
+    def test_recorded_teaching_sections_preserve_actions_course_and_classification(self):
+        from server.text_contract import validate_result as server_validate
+        root = Path(__file__).resolve().parents[2]
+        report = json.loads((root / "ddl_text/docs/archive/2026-09-30-issue77-teaching-sections.json").read_text(encoding="utf-8"))
+        cases = {c['name']: c for c in SECTION_CASES}
+        self.assertEqual({r['name'] for r in report['cases']}, set(cases))
+        for row in report['cases']:
+            with self.subTest(name=row['name']):
+                c = cases[row['name']]
+                self.assertEqual(row['request'], c['request'])
+                record = c['request']['records'][0]
+                tasks = compile_drafts(row['model_draft'], record)
+                result = deepcopy(row['result'])
+                result['tasks'] = tasks
+                result['record_results'][0]['warnings'] = tasks.warnings
+                self.assertEqual(result, row['result'])
+                self.assertEqual(validate_result(c['request'], result), result)
+                self.assertEqual(server_validate(c['request'], result), result)
+                self.assertTrue(matches(c, result))
+                for candidate in tasks:
+                    self.assertTrue(candidate['title'].strip())
+                    self.assertEqual(candidate['course_or_project'], record['course_or_project'])
+
     def test_recorded_live_classifications_replay_without_model_calls(self):
         root = Path(__file__).resolve().parents[2]
         report = json.loads((root / "ddl_text/docs/archive/2026-09-30-issue68-classification-final.json").read_text(encoding="utf-8"))
