@@ -157,7 +157,7 @@ basis=source/upstream_unverified/unknown，未知值的 basis=unknown。人为�
 只有 source 级别发布时间才能无假设换算相对日期；上游未经核实的基准至多用于 inferred，并标待核实。
 可信日期可支持“明天”；“24 小时后”必须有可信精确时刻。
 
-Context={input_id,text,published_at,timezone,platform,source_url,source_label}。platform 未知显式 unknown。
+Context={input_id,text,published_at,timezone,platform,source_url,source_label}。手动输入的 platform 为 manual；旧 unknown 仅为兼容读取。
 context.input_id 不能与任意主记录 ID 冲突。同一上下文被多条记录复用时 ID 和内容须一致；同 ID 不同内容使请求 failed。
 context 内 ID 也不得重复。候选证据仅可引用触发记录自身及其 context，不能任意引用别的用户或别的记录内容。
 
@@ -335,7 +335,7 @@ action=create/update/postpone/cancel/ignore。
 - create 必须不带 target_id；update/postpone/cancel 必须选择属于当前账号的目标任务。禁止按标题自动匹配。
 - action 必须与 notice_type 一致；uncertain 需用户明确选择操作。ignore 只改变候选状态，不写任务，不要求目标或 tasks_version。
 - 除 ignore 外 reviewed 必须 true，前端默认不勾选。检查的是整个 tasks 集合版本，任何任务变化都要求刷新后重新核对，宁可保守冲突也不覆盖。
-- 仅非演示且已接入的教学网、微信来源（teaching_web/wechat）的 create 且 needs_review=false、review_reasons=[] 时可提交 auto_apply=true；截止时间只能是 explicit+deadline 或 not_provided，后者存 due=null 并留在工作台补日期；手动 unknown、inferred、reference、冲突和变更不得自动入库，email/web 暂未接入自动入库。
+- 仅非演示且已接入的教学网、微信来源（teaching_web/wechat）的 create 且 needs_review=false、review_reasons=[] 时可提交 auto_apply=true；截止时间只能是 explicit+deadline 或 not_provided，后者存 due=null 并留在工作台补日期；手动 manual 与旧 unknown、inferred、reference、冲突和变更不得自动入库，email/web 暂未接入自动入库。
 - auto_apply=true 由后端重复校验来源与字段，不要求 reviewed/tasks_version；只处理本次新识别结果，不在刷新旧批次时追溯自动入库。
 - create 保存确认后的 title/description/due，draft.course 可明确修改课程归属或设为 null；省略时使用候选归属。sourceRequirements 来自原文 prerequisites，subtasks/plans 初始化为空；不默认估时。
 - update 只更新用户确认的 title/description/due 以及显式提交的 draft.course；有新的非空 prerequisites 时更新 sourceRequirements，否则保留原要求。显示旧值和新值，由用户明确核对。

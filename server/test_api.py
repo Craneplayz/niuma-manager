@@ -184,6 +184,9 @@ class ApiTests(unittest.TestCase):
         manual=copy.deepcopy(fixture)
         manual['request']['request_id']='manual-auto-reject'
         manual['expected']['request_id']='manual-auto-reject'
+        for record in manual['request']['records']: record['platform']='manual'
+        for candidate in manual['expected']['tasks']:
+            for source in candidate['sources']: source['platform']='manual'
         for record in fixture['request']['records']: record['platform']='teaching_web'
         for candidate in fixture['expected']['tasks']:
             for source in candidate['sources']: source['platform']='teaching_web'

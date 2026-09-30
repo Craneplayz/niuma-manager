@@ -31,8 +31,11 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  const candidate={...fixture.expected.tasks[0],input_id:'manual:one'};
  let resolved=0;
  recognition.configureAssistant({render(){}});
- globalThis.fetch=async(path)=>{
-  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[{request:{request_id:'manual',records:[]},result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'manual-candidate',version:1,state:'pending',candidate}]}]};
+ globalThis.fetch=async(path,options)=>{
+  if(path==='/api/recognition/batches'){
+   assert.equal(JSON.parse(options.body).records[0].platform,'manual');
+   return {ok:true,json:async()=>[{request:{request_id:'manual',records:[]},result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'manual-candidate',version:1,state:'pending',candidate}]}]};
+  }
   if(path.includes('/resolve'))resolved++;
   throw new Error('unexpected request '+path);
  };

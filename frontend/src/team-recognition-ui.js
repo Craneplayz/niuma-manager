@@ -5,7 +5,7 @@ import {parseSourceFile,wechatRequest} from './source-import.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
-const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',unknown:'其他'};
+const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',manual:'手动输入',unknown:'其他'};
 const batchLabels={success:'识别完成',no_tasks:'未发现任务',partial_success:'部分识别完成',failed:'识别失败'};
 let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false;
 export function configureAssistant(callbacks){host=callbacks;}
@@ -213,7 +213,7 @@ export async function submitRecognitionText(value){
  const signature=JSON.stringify([text,published,quality]);
  if(request?.signature!==signature)request={signature,id:crypto.randomUUID(),collectedAt:new Date().toISOString()};
  const body={contract_version:'0.2',request_id:request.id,records:[{input_id:'manual:'+request.id,text,
-  text_quality:quality,platform:'unknown',published_at:{value:published||null,precision:published?'date':'unknown',basis:published?'upstream_unverified':'unknown'},
+  text_quality:quality,platform:'manual',published_at:{value:published||null,precision:published?'date':'unknown',basis:published?'upstream_unverified':'unknown'},
   collected_at:request.collectedAt,timezone:'Asia/Shanghai',timezone_basis:'caller_default',source_url:null,source_label:'用户粘贴文本',
   source_item_id:null,course_or_project:null,context:[],upstream_hints:null}]};
  await submitRecognitionRequest(body,undefined,false,true);
