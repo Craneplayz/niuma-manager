@@ -243,7 +243,7 @@ deadline 固定字段：{value,precision,timezone,kind,status,raw,basis,alternat
 2. not_provided：已提供的完整正文没有针对该行动的时间要求，value=null、precision=unknown、kind=unknown、raw=null、alternatives=[]；无需仅因缺期限设置 needs_review。部分正文遗漏时间则用 unknown。
 3. explicit 表示明确的截止语义和可确定时间；inferred 需核实。reference 一律 inferred，绝不自动进入真实 DDL。
 4. “明天 18 点前交”只有在可信发布时间和明确时区下才可无假设换算；采集日不充当基准。“24 小时后”不能只凭发布日期。
-5. 仅有“周五”“尽快”且缺少唯一解释时用 unknown；同一任务的纯催促语不覆盖明确截止，真正矛盾的日期仍保留冲突。“本周五”在可信基准下可解析。缺年份的“9 月 30 日”按原消息可信发布时间选择最近的相邻年份；缺发布时间时可用该消息采集时间低置信度估年，输出 inferred、具体值与简短依据；界面将依据收进证据详情，确认流程不变。采集时间不能代替发布时间换算“明天”。
+5. 仅有“周五”“尽快”且缺少唯一解释时用 unknown；同一任务的纯催促语不覆盖明确截止，真正矛盾的日期仍保留冲突。“本周五”在可信基准下可解析。缺年份的“9 月 30 日”按原消息可信发布时间选择最近的相邻年份；缺发布时间时可用该消息采集时间补年。只有省略年份、且月日及截止语义明确并通过最近有效日期规则校验时，按已确定截止输出 explicit，不单独触发 needs_review；raw 与 basis 保留原话和补年依据，explicit 不表示原文逐字包含年份。无可用基准、年份冲突、非法日期或其他独立疑点仍需核实，reference 仍为 inferred。采集时间不能代替发布时间换算“明天”。此项只取消补年的核实标记，不自动保存任务；例见 contracts/text-to-app/text-year-inference-output.json。
 6. “明晚开会，请提前加群”的会议时间可以作为 reference，不能当作明确加群 DDL。只有活动时间、没有行动要求的输入可 no_tasks。
 7. 原文有本地时刻但无时区，不能输出伪造偏移的 datetime；保留 raw，提示核实。date 精度不补 23:59，过期不等于已完成。
 8. 同一行动相互冲突的日期使用 conflict；不同义务各自的日期不是冲突，应分开输出事项。

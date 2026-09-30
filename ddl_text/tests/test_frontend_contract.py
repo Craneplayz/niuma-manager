@@ -15,6 +15,7 @@ from ddl_text.contract_v02 import validate_request, validate_result
 from ddl_text.extraction import ExtractionAdapter, OfflineDraftClient, compile_drafts
 from ddl_text.http_server import RecognitionServer
 from ddl_text.pipeline import process_request
+from ddl_text.tests.test_extraction import time_ref
 
 
 def record(text="请提交报告。", **kwargs):
@@ -37,6 +38,44 @@ def compile_task(r, d):
 
 
 class FrontendContractTests(unittest.TestCase):
+    def test_shared_year_policy_examples_and_server_compatibility(self):
+        from pathlib import Path
+        from server.text_contract import validate_result as server_validate
+        root = Path(__file__).resolve().parents[2]
+        req = json.loads((root / 'contracts/source-to-text/text-year-inference-request.json').read_text(encoding='utf-8'))
+        expected = json.loads((root / 'contracts/text-to-app/text-year-inference-output.json').read_text(encoding='utf-8'))
+        self.assertEqual(validate_result(req, expected), expected)
+        self.assertEqual(server_validate(req, expected), expected)
+        for r, candidate in zip(req['records'], expected['tasks']):
+            with self.subTest(input_id=r['input_id']):
+                is_absolute = r['input_id'].endswith('explicit-year')
+                field = None if is_absolute else 'published_at' if r['published_at']['basis'] == 'source' else 'collected_at'
+                actual = compile_task(r, draft(r, title=candidate['title'], description=r['text'], times=[
+                    time_ref(r, candidate['deadline']['raw'], candidate['deadline']['value'],
+                             derivation='absolute' if is_absolute else 'missing_year', anchor=field)]))
+                self.assertEqual(actual, candidate)
+                self.assertEqual(actual['needs_review'], r['input_id'].endswith(('collection-fallback', 'recent-overdue')))
+
+    def test_missing_year_does_not_hide_independent_review_reasons(self):
+        for quality, reasons, kind in [('complete', ['适用对象不明确。'], 'deadline'),
+                                       ('partial', [], 'deadline'), ('complete', [], 'reference')]:
+            with self.subTest(quality=quality, reasons=reasons, kind=kind):
+                r = record('请在9月30日活动开始前加群。', text_quality=quality,
+                           published_at={'value':'2026-09-25', 'precision':'date', 'basis':'source'},
+                           timezone='Asia/Shanghai', timezone_basis='source')
+                t = compile_task(r, draft(r, review_reasons=reasons, times=[
+                    time_ref(r, '9月30日', '2026-09-30', kind=kind, derivation='missing_year', anchor='published_at')]))
+                self.assertTrue(t['needs_review'])
+                self.assertEqual(t['deadline']['status'], 'inferred' if kind == 'reference' else 'explicit')
+                self.assertTrue(all(reason in t['review_reasons'] for reason in reasons))
+
+    def test_missing_year_without_anchor_stays_unknown(self):
+        r = record('请9月30日前提交报告。', timezone='Asia/Shanghai', timezone_basis='source')
+        t = compile_task(r, draft(r, times=[time_ref(r, '9月30日', '2026-09-30',
+                         derivation='missing_year', anchor='collected_at')]))
+        self.assertEqual(t['deadline']['status'], 'unknown')
+        self.assertTrue(t['needs_review'])
+
     def test_complete_no_deadline_is_not_provided(self):
         r = record()
         t = compile_task(r, draft(r))
@@ -52,13 +91,13 @@ class FrontendContractTests(unittest.TestCase):
             self.assertEqual(t["deadline"]["status"], "unknown")
             self.assertTrue(t["needs_review"])
         r = record("请尽快交报告。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote="尽快", kind="deadline")]))
+        t = compile_task(r, draft(r, times=[time_ref(r, "尽快", kind="urgency", derivation="unresolved")]))
         self.assertEqual(t["deadline"]["status"], "unknown")
         self.assertEqual(t["deadline"]["raw"], "尽快")
 
     def test_conflict_keeps_verbatim_raw_and_all_evidence(self):
         r = record("截止日期有两个说法：2026-09-25或者2026-09-28，请交报告。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote=x, kind="deadline")
+        t = compile_task(r, draft(r, times=[time_ref(r, x, x)
                                           for x in ("2026-09-25", "2026-09-28")]))
         self.assertEqual(t["deadline"]["status"], "conflict")
         self.assertIn(t["deadline"]["raw"], r["text"])
@@ -68,10 +107,10 @@ class FrontendContractTests(unittest.TestCase):
 
     def test_reference_known_and_unresolved(self):
         r = record("2026-09-25开会，请提前加群。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote="2026-09-25", kind="reference")]))
+        t = compile_task(r, draft(r, times=[time_ref(r, "2026-09-25", "2026-09-25", kind="reference")]))
         self.assertEqual((t["deadline"]["kind"], t["deadline"]["status"]), ("reference", "inferred"))
         r = record("明天开会，请提前加群。")
-        t = compile_task(r, draft(r, times=[dict(input_id="notice", quote="明天", kind="reference")]))
+        t = compile_task(r, draft(r, times=[time_ref(r, "明天", kind="reference", derivation="unresolved", basis="缺少原消息发布时间。")]))
         self.assertEqual((t["deadline"]["kind"], t["deadline"]["status"]), ("unknown", "unknown"))
         self.assertIn("参考", t["deadline"]["basis"])
 
@@ -80,7 +119,7 @@ class FrontendContractTests(unittest.TestCase):
         t = compile_task(r, draft(r, notice_type="postpone", prerequisites=["查收邮件"],
             target=dict(input_id="notice", quote="课程报告"),
             course=dict(input_id="notice", quote="计算导论", value="计算导论"),
-            times=[dict(input_id="notice", quote="2026-09-30", kind="deadline")]))
+            times=[time_ref(r, "2026-09-30", "2026-09-30")]))
         evidence = {e["quote"]: e["supports"] for e in t["evidence"]}
         self.assertEqual(evidence["课程报告"], ["target_reference"])
         self.assertEqual(evidence["计算导论"], ["course_or_project"])

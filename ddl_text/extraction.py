@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import Protocol
 
 from .adapters import AgentError
+from .classification import CandidateTasks, classify, filter_audit
 from .contracts import ContractError, nonempty, normalize_record, require, validate_tasks
-from .dates import combine_times, resolve_time
+from .dates import combine_times
+from .time_validation import validate_time
 
 
 SKILL_DIR = Path(__file__).resolve().parent / "skills/text-task-extraction"
@@ -50,7 +52,7 @@ def _reference(ref, available, extra=()):
 
 
 def compile_drafts(response, record):
-    """Never accept model-authored URLs, timestamps, or silent dropped tasks."""
+    """Validate semantic proposals and evidence; copy source metadata ourselves."""
     try:
         require(isinstance(response, str) and len(response.encode("utf-8")) <= MAX_DRAFT_BYTES)
         envelope = json.loads(response, object_pairs_hook=_object,
@@ -60,9 +62,11 @@ def compile_drafts(response, record):
         require(isinstance(drafts, list) and len(drafts) <= 100)
         available = {item["input_id"]: item for item in [record] + record["context"]}
         v02 = record.get("contract_version") == "0.2"
-        tasks = []
+        tasks = CandidateTasks()
+        if not drafts and v02:
+            tasks.warnings.append("no_action: 未识别到需要执行的行动或变更。")
         for index, draft in enumerate(drafts, 1):
-            require(isinstance(draft, dict) and set(draft) == {"title", "description", "prerequisites",
+            require(isinstance(draft, dict) and set(draft) - {"relevance"} == {"title", "description", "prerequisites",
                     "notice_type", "target", "course", "evidence", "times", "review_reasons"})
             require(nonempty(draft["title"]) and isinstance(draft["description"], str))
             require(draft["notice_type"] in {"create", "update", "postpone", "cancel", "uncertain"})
@@ -70,6 +74,14 @@ def compile_drafts(response, record):
                 require(isinstance(draft[key], list) and all(nonempty(s) for s in draft[key]))
             require(isinstance(draft["evidence"], list) and 0 < len(draft["evidence"]) <= 100)
             evidence = [_reference(ref, available) for ref in draft["evidence"]]
+            if "relevance" in draft:
+                relevance = draft["relevance"]
+                require(isinstance(relevance, dict) and set(relevance) == {"state", "reason", "evidence"})
+                require(relevance["state"] in {"current", "ongoing", "historical", "uncertain"})
+                require(nonempty(relevance["reason"]))
+                require(isinstance(relevance["evidence"], list) and len(relevance["evidence"]) <= 20)
+                require(relevance["state"] == "current" or bool(relevance["evidence"]))
+                evidence.extend(_reference(ref, available) for ref in relevance["evidence"])
             if v02:
                 for ref in evidence:
                     ref["supports"] = ["title", "description"]
@@ -111,12 +123,11 @@ def compile_drafts(response, record):
             require(isinstance(draft["times"], list) and len(draft["times"]) <= 20)
             times = []
             for ref in draft["times"]:
-                time_evidence = _reference(ref, available, ("kind",))
+                time_evidence = _reference(ref, available, ("kind", "normalized"))
                 if v02:
                     time_evidence["supports"] = ["deadline"]
                 evidence.append(time_evidence)
-                require(ref["kind"] in {"deadline", "reference"})
-                times.append(resolve_time(ref["quote"], available[ref["input_id"]], ref["kind"]))
+                times.append(validate_time(ref, available[ref["input_id"]]))
             deadline = combine_times(times, record.get("timezone"))
             if v02:
                 if not times and record["text_quality"] == "complete":
@@ -145,14 +156,24 @@ def compile_drafts(response, record):
                     existing["supports"] = list(dict.fromkeys(existing["supports"] + ref["supports"]))
                 elif ref not in unique_evidence:
                     unique_evidence.append(ref)
-            tasks.append({"candidate_id": "%s:candidate:%d" % (record["input_id"], index),
+            task = {"candidate_id": "%s:candidate:%d" % (record["input_id"], index),
                           "input_id": record["input_id"], "title": draft["title"],
                           "description": draft["description"], "prerequisites": list(draft["prerequisites"]),
                           "course_or_project": course, "course_basis": course_basis,
                           "notice_type": draft["notice_type"], "target_reference": target["quote"] if target else None,
                           "deadline": deadline, "needs_review": bool(reasons),
                           "review_reasons": list(dict.fromkeys(reasons)), "sources": sources,
-                          "evidence": unique_evidence})
+                          "evidence": unique_evidence}
+            # Validate even a discarded task, so an invented time/source cannot
+            # silently turn an invalid response into successful filtering.
+            validate_tasks([task], record)
+            keep, extra_reasons, filtered = classify(task, draft, record)
+            if not keep:
+                tasks.warnings.append(filter_audit(task, draft, filtered))
+                continue
+            task["review_reasons"] = list(dict.fromkeys(task["review_reasons"] + extra_reasons))
+            task["needs_review"] = bool(task["review_reasons"])
+            tasks.append(task)
         return validate_tasks(tasks, record)
     except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError):
         raise AgentError("invalid_agent_output", True) from None

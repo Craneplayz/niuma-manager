@@ -228,9 +228,9 @@ export async function handleAssistantClick(button){
   const showSyncError=message=>{const node=document.querySelector('#agent-sync-error');if(node){node.textContent=message;node.hidden=false;}};
   if(!syncSources.size){showSyncError('请先选择要同步的来源');return;}
   if(!syncConsent){showSyncError('请先确认同意发送所选来源的原文');return;}
-  const controller=new AbortController();activeController=controller;busy=true;error='';notice='正在获取教学网信息…';refresh();
+  const controller=new AbortController();activeController=controller;busy=true;error='';notice='正在获取教学网信息，通常约 2 分钟，最多等待 5 分钟…';refresh();
   try{
-   const result=await api('/api/sources/sync',{sources:[...syncSources]},'POST',{signal:controller.signal});
+   const result=await api('/api/sources/sync',{sources:[...syncSources]},'POST',{signal:controller.signal,timeoutMs:310000});
    if(!current())return;
    if(!Array.isArray(result.requests))throw new Error('同步结果格式不正确');
    if(!result.requests.length){sourceImport=null;notice=`同步完成：跳过 ${result.summary?.skipped||0} 条已成功识别且未变化的通知，没有待识别内容`;return;}
