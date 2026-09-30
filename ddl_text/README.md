@@ -7,6 +7,7 @@ ddl_text/
 ├── __main__.py           # CLI 参数、输入文件和输出
 ├── adapters.py           # 调用协议及离线回放适配器
 ├── chat_client.py        # 七牛兼容 API 请求和错误处理
+├── classification.py    # F3 历史有效性过滤、待核实判断和过滤说明
 ├── codex_client.py       # 环境配置读取及可选 Codex 适配器
 ├── config.py             # 超时、重试和运行参数校验
 ├── contract_v02.py       # 前后端 v0.2 契约转换和校验
@@ -33,10 +34,14 @@ ddl_text/
 │   │   ├── text-runner-config.json # CLI 运行参数样例
 │   │   ├── text-stage-c-request.json # 阶段 C 合成输入
 │   │   ├── text-stage-c-drafts.json # 阶段 C 离线模型草稿
-│   │   └── text-frontend-v02-drafts.json # 与共享 v0.2 输入配套的离线模型草稿
+│   │   ├── text-frontend-v02-drafts.json # 与共享 v0.2 输入配套的离线模型草稿
+│   │   └── text-classification-drafts.json # 与共享 F3 分类样例配套的人工草稿
 │   ├── __init__.py       # 测试包入口
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
+│   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
+│   ├── run_classification_smoke.py # 显式启用的真实模型分类验证入口
+│   ├── test_classification.py # 分类、历史过滤、证据及跨进程透传测试
 │   ├── run_time_smoke.py # 显式启用的真实模型时间验证入口
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
@@ -51,7 +56,7 @@ ddl_text/
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
 ```
 
-接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。候选需核对后由账户后端保存，文本模块不负责采集、定时同步或自动修改正式任务。
+接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
 
 ## 输入输出与规则
 
@@ -62,6 +67,28 @@ ddl_text/
 模型按语义直接生成标准时间及原文证据，程序校验 ISO 值、日历、时区与基准，不再按原话格式白名单决定是否接受。内部草稿新增 `times[].normalized`，旧草稿需迁移；对外 v0.2 不变。结构校验不能证明语义一定正确；农历、校历和节假日等缺少依据时仍需核实。
 
 单纯省略年份的明确截止按最近有效年份补全，通过校验后输出 explicit，不单独触发待核实；原话和补年依据仍保留。缺基准、冲突、活动参考时间或其他独立疑点仍需核实。共享样例见 [补年输出](../contracts/text-to-app/text-year-inference-output.json)。
+
+### F3 分类对接
+
+| 识别结果 | 已有 v0.2 表达 | 消费方处理要求 |
+| --- | --- | --- |
+| 明确新增行动 | create、needs_review=false、截止 explicit 或 not_provided | 可自动新增；无日期保存 due=null，不能补造期限。 |
+| 适用对象不明、时间冲突、近期逾期、来源新旧不明 | needs_review=true，保留具体 review_reasons | 人工核对，不能只凭日期存在就自动入库。 |
+| 修改、延期、取消 | update/postpone/cancel、needs_review=true | 核对原任务，不能自动修改或删除。 |
+| 普通资讯 | tasks=[]，warnings 中 no_action 说明 | 不生成待办。 |
+| 明确历史行动 | 不输出该候选，warnings 中 history_filtered 说明及原文引用 | 不进入待办或待核实区；原记录及过滤依据仍可查。 |
+
+历史过滤仅用于 v0.2 的 teaching_web/wechat/email/web 输入；unknown 来源及 v0.1 保持旧流程。模型在内部草稿的 relevance 中提供 current/ongoing/historical/uncertain 判断和逐字证据，程序验证后执行；对外不增加字段。支持读取缺少 relevance 的旧草稿回放。单条输入中历史行动与新行动分别处理，调用失败仍返回错误，不能冒充普通资讯。
+
+以输入 collected_at 为本次判断时点，明确截止超过 30 天且没有继续执行要求才按过期历史排除（集中常量 `HISTORY_GRACE_DAYS`）；近期逾期保留待核实。日期精确到天时当天不过期。旧通知有未来截止、补交/仍需完成要求或变更通知时保留。只有旧发布时间而没有确定期限时不自动删除；已结束的行动可凭语义证据排除。缺少采集时点时不调用系统时钟判过期。
+
+外部通知缺原始发布时间、仅按采集时间补年时标注来源新旧待核实；可信发布时间支持的正常补年不需要确认。结构和引文校验不能证明语义必然正确，没有可靠历史证据时保留行动。
+
+自动入库必须由消费者同时检查真实外部来源、notice_type、needs_review/review_reasons 和期限状态；手动输入、demo、reference/inferred/unknown/conflict 不可自动入库。文本侧不会绕过这些标志主动保存。
+
+规则只作用于新识别请求，不回溯删除已保存任务或缓存候选；旧批次需由后端重新识别或由用户处理，不能假定其已经过历史过滤。当前仅记录级采集时点参与判断，不代替日历中的实时逾期状态。
+
+示例效果见 [F3 共享输入/输出](../contracts/text-to-app/text-classification-v02.json) 和 [真实模型合成测试输出](docs/archive/2026-09-30-issue68-classification-final.json)；后者保留原始草稿、标准 JSON、人工期望与耗时，不代表独立召回率评测。补交通知缺少用户任务上下文时，新增补交行动或更新原任务均可保留待核实，但不能沿用已失效的旧截止作为新期限。
 
 ## 运行与测试
 
@@ -87,6 +114,8 @@ python -m ddl_text --mode real --input contracts/source-to-text/text-frontend-v0
 python -m ddl_text.http_server --real
 # 时间语义回归：20条固定合成通知，保留模型草稿和输出；输出文件须不存在
 python -m ddl_text.tests.run_time_smoke --live --output local-data/time-smoke-new.json
+# F3 分类回归：14 条固定合成通知，保留模型草稿及过滤说明
+python -m ddl_text.tests.run_classification_smoke --live --output local-data/classification-smoke-new.json
 ```
 
 识别服务默认 `127.0.0.1:1333`，健康检查为 `/health`。账户后端设置 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize`；网页与账户服务的启动方式由其模块说明维护。更改环境配置后重启识别服务。配置检查及健康检查不证明模型权限或额度可用。

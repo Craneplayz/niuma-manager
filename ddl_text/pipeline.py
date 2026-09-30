@@ -52,6 +52,9 @@ def process_request(request, adapter=None, settings=None, budget_seconds=None):
                             raise AgentError("agent_timeout", True)
                         attempt_settings = replace(settings, timeout_seconds=min(settings.timeout_seconds, remaining))
                     tasks = validate_tasks(run_attempt(adapter, record, attempt_settings, attempt), record)
+                    warnings = getattr(tasks, "warnings", [])
+                    if not isinstance(warnings, list) or not all(nonempty(w) for w in warnings):
+                        raise ContractError("invalid_agent_output")
                     if any(t["candidate_id"] in used_ids for t in tasks):
                         raise ContractError("invalid_agent_output")
                     break
@@ -63,6 +66,7 @@ def process_request(request, adapter=None, settings=None, budget_seconds=None):
                         raise
             used_ids.update(task["candidate_id"] for task in tasks)
             result["tasks"].extend(tasks)
+            outcome["warnings"].extend(warnings)
             outcome["task_ids"] = [task["candidate_id"] for task in tasks]
             outcome["status"] = "success" if tasks else "no_tasks"
         except ContractError as error:

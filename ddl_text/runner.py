@@ -7,6 +7,7 @@ import os
 import time
 
 from .adapters import AgentError
+from .classification import CandidateTasks
 
 
 MESSAGES = {
@@ -26,7 +27,8 @@ def _worker(connection, adapter, record, settings, attempt):
     with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
         try:
             try:
-                payload = {"ok": True, "tasks": adapter.extract(record, settings, attempt)}
+                tasks = adapter.extract(record, settings, attempt)
+                payload = {"ok": True, "tasks": tasks, "warnings": getattr(tasks, "warnings", [])}
                 try:
                     encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
                 except (TypeError, ValueError, UnicodeError):
@@ -71,7 +73,10 @@ def run_attempt(adapter, record, settings, attempt):
         response = json.loads(receiver.recv_bytes(MAX_RESPONSE_BYTES).decode("utf-8"))
         if not response["ok"]:
             raise AgentError(response["code"], response["retryable"])
-        return response["tasks"]
+        # Do not coerce a malformed adapter output (e.g. a dict) into a list.
+        if not isinstance(response["tasks"], list) or not isinstance(response.get("warnings", []), list):
+            raise AgentError("invalid_agent_output", True)
+        return CandidateTasks(response["tasks"], response.get("warnings", []))
     except AgentError:
         raise
     except Exception:
