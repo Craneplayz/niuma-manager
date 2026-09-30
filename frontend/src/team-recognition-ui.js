@@ -15,7 +15,7 @@ export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#sources'].includes(location.hash))host.render();};
 export const canAutoApplyCandidate=(c,batch)=>{
  const source=batch?.request?.records?.find(r=>r.input_id===c.input_id);
- const external=source&&['teaching_web','wechat','email','web'].includes(source.platform);
+ const external=source&&['teaching_web','wechat'].includes(source.platform);
  const d=c.deadline;
  const exactMinute=d.precision!=='datetime'||Number.isFinite(Date.parse(d.value))&&new Date(d.value).getUTCSeconds()===0&&new Date(d.value).getUTCMilliseconds()===0;
  return Boolean(!batch?.demo&&external&&c.notice_type==='create'&&c.needs_review===false&&c.review_reasons?.length===0&&(
@@ -247,7 +247,7 @@ export async function handleAssistantClick(button){
    const result=await api('/api/sources/sync',{sources:[...syncSources]},'POST',{signal:controller.signal,timeoutMs:310000});
    if(!current())return;
    if(!Array.isArray(result.requests))throw new Error('同步结果格式不正确');
-   if(!result.requests.length){sourceImport=null;notice=`同步完成：跳过 ${result.summary?.skipped||0} 条已成功识别且未变化的通知，没有待识别内容`;return;}
+   if(!result.requests.length){sourceImport=null;const skipped=result.summary?.skipped||0;notice=`同步完成，暂无待识别内容${skipped?`；${skipped} 条已识别通知没有变化`:''}`;return;}
    sourceImport={kind:'requests',requests:result.requests,sent:new Set()};sourceName='教学网增量同步（每条独立识别）';sourceConsent=true;
    busy=false;activeController=null;
    const total=sourceImport.requests.length,skipped=result.summary?.skipped||0;let failed=0,attempted=0;

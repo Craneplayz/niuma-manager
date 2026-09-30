@@ -199,6 +199,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(manual_status,200)
         manual_candidate=next(item for item in manual_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
         self.assertEqual(self.call(client,'/recognition/candidates/'+manual_candidate['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=manual_candidate['version']))[0],400)
+        for platform in ('email','web'):
+            unsupported=copy.deepcopy(manual)
+            unsupported['request']['request_id']=unsupported['expected']['request_id']=platform+'-auto-reject'
+            for record in unsupported['request']['records']: record['platform']=platform
+            for candidate in unsupported['expected']['tasks']:
+                for source in candidate['sources']: source['platform']=platform
+            with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(unsupported['expected']).encode())):
+                status,other_batches=self.call(client,'/recognition/batches','POST',unsupported['request'])
+            self.assertEqual(status,200)
+            other=next(item for item in other_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+            self.assertEqual(self.call(client,'/recognition/candidates/'+other['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=other['version']))[0],400)
         self.assertEqual(self.call(client,path,'POST',body)[0],200)
         self.assertEqual(self.call(client,path,'POST',body)[0],200)
         self.assertEqual(self.call(client,'/recognition/candidates/'+unclear['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=unclear['version']))[0],200)

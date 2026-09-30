@@ -178,6 +178,22 @@ test('sync processes more than twenty single records, continues past failure and
  }finally{globalThis.fetch=originalFetch;}
 });
 
+test('empty source sync does not report zero unchanged records as filtered content',async()=>{
+ await login('A');
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
+  ? response({requests:[],summary:{total:0,skipped:0,pending:0}})
+  : originalFetch(path,options);
+ try{
+  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+  const page=recognition.assistantPage();
+  assert.match(page,/同步完成，暂无待识别内容/);
+  assert.doesNotMatch(page,/跳过 0 条/);
+ }finally{globalThis.fetch=originalFetch;}
+});
+
 test('a late sync response cannot send any records after account switch',async()=>{
  await login('A');
  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});

@@ -335,7 +335,7 @@ action=create/update/postpone/cancel/ignore。
 - create 必须不带 target_id；update/postpone/cancel 必须选择属于当前账号的目标任务。禁止按标题自动匹配。
 - action 必须与 notice_type 一致；uncertain 需用户明确选择操作。ignore 只改变候选状态，不写任务，不要求目标或 tasks_version。
 - 除 ignore 外 reviewed 必须 true，前端默认不勾选。检查的是整个 tasks 集合版本，任何任务变化都要求刷新后重新核对，宁可保守冲突也不覆盖。
-- 仅非演示外部来源（teaching_web/wechat/email/web）的 create 且 needs_review=false、review_reasons=[] 时可提交 auto_apply=true；截止时间只能是 explicit+deadline 或 not_provided，后者存 due=null 并留在工作台补日期；手动 unknown、inferred、reference、冲突和变更不得自动入库。
+- 仅非演示且已接入的教学网、微信来源（teaching_web/wechat）的 create 且 needs_review=false、review_reasons=[] 时可提交 auto_apply=true；截止时间只能是 explicit+deadline 或 not_provided，后者存 due=null 并留在工作台补日期；手动 unknown、inferred、reference、冲突和变更不得自动入库，email/web 暂未接入自动入库。
 - auto_apply=true 由后端重复校验来源与字段，不要求 reviewed/tasks_version；只处理本次新识别结果，不在刷新旧批次时追溯自动入库。
 - create 保存确认后的 title/description/due，draft.course 可明确修改课程归属或设为 null；省略时使用候选归属。sourceRequirements 来自原文 prerequisites，subtasks/plans 初始化为空；不默认估时。
 - update 只更新用户确认的 title/description/due 以及显式提交的 draft.course；有新的非空 prerequisites 时更新 sourceRequirements，否则保留原要求。显示旧值和新值，由用户明确核对。

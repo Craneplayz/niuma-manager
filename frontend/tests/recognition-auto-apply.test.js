@@ -22,6 +22,7 @@ test('F3 auto-apply accepts clear external actions and rejects uncertain or manu
  assert.equal(recognition.canAutoApplyCandidate({...byInput('dated'),review_reasons:['需要核对']},batch),false);
  assert.equal(recognition.canAutoApplyCandidate(byInput('dated'),{...batch,demo:true}),false);
  assert.equal(recognition.canAutoApplyCandidate(byInput('dated'),{request:{records:[{input_id:byInput('dated').input_id,platform:'unknown'}]}}),false);
+ for(const platform of ['manual','email','web'])assert.equal(recognition.canAutoApplyCandidate(byInput('dated'),{request:{records:[{input_id:byInput('dated').input_id,platform}]}}),false);
 });
 
 test('manual text stays pending even when it has an explicit deadline',async()=>{

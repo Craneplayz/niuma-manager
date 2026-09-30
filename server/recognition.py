@@ -116,7 +116,7 @@ def route(handler,db,uid,path,body,ApiError):
             batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
             records={r['input_id']:r for r in json.loads(batch['request'])['records']}
             source=records.get(c['input_id'])
-            external=source and source['platform'] in ('teaching_web','wechat','email','web')
+            external=source and source['platform'] in ('teaching_web','wechat')
             valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
             if valid_due and d['precision']=='datetime':
                 stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
