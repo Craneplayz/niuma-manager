@@ -21,7 +21,8 @@ export interface CourseSourceRecord {
   published_at: PublicationTime;
   publication_raw: string | null;
   collected_at: string;
-  references: { label: string; url: string; content_read: false }[];
+  references: { label: string; url: string; content_read: boolean }[];
+  assignment?: { state: "active" | "submitted" | "unknown"; due_raw: string | null };
   warnings: string[];
 }
 export interface SourceContext { course: string; section: string; sourceUrl: string; collectedAt: string; }
