@@ -55,6 +55,7 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  await new Promise(resolve=>setTimeout(resolve,0));
  recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
  globalThis.fetch=async(path,options)=>{
+  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[]};
   if(path==='/api/recognition/retry')return {ok:true,json:async()=>[batch]};
   if(path.includes('/resolve')){
    const body=JSON.parse(options.body),item=batch.items.find(item=>path.includes(item.id));
@@ -87,6 +88,70 @@ test('refresh does not auto-apply old unfiltered batches',async()=>{
  await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(resolved,0);
  assert.match(recognition.assistantPage(),/待核对 <span>1/);
+});
+
+test('retry auto-applies only candidates created by that retry',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const old={id:'old-candidate',version:1,state:'pending',candidate:fixture.expected.tasks[0]};
+ const fresh={id:'fresh-candidate',version:1,state:'pending',candidate:{...fixture.expected.tasks[0],candidate_id:'fresh',input_id:'synthetic:f3:undated',deadline:{...fixture.expected.tasks[0].deadline,status:'not_provided',kind:'unknown',precision:'unknown',value:null}}};
+ const batch={request:fixture.request,result:{status:'partial_success',record_results:[],errors:[{input_id:fresh.candidate.input_id,code:'agent_unavailable',message:'暂时失败'}]},demo:false,items:[old]};
+ recognition.configureAssistant({render(){},refresh:async()=>{}});
+ globalThis.fetch=async path=>{
+  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
+  if(path==='/api/recognition/retry'){batch.items=[old,fresh];batch.result={status:'success',record_results:[],errors:[]};return {ok:true,json:async()=>[batch]};}
+  if(path.includes('/resolve')){assert.match(path,/fresh-candidate/);fresh.state='applied';return {ok:true,json:async()=>({batches:[batch]})};}
+  throw new Error('unexpected request '+path);
+ };
+ recognition.assistantPage();await new Promise(resolve=>setTimeout(resolve,0));
+ await recognition.handleAssistantClick({dataset:{agentRetry:fixture.request.request_id}});
+ assert.equal(old.state,'pending');
+ assert.equal(fresh.state,'applied');
+});
+
+test('source import does not auto-apply a replayed batch before history is loaded',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const old={id:'old-candidate',version:1,state:'pending',candidate:fixture.expected.tasks[0]};
+ const batch={request:fixture.request,result:{status:'success',record_results:[],errors:[]},demo:false,items:[old]};
+ let resolved=0;
+ recognition.configureAssistant({render(){}});
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'source.json',size:100,text:async()=>JSON.stringify(fixture.request)}]}});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
+ globalThis.fetch=async path=>{
+  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
+  if(path==='/api/recognition/retry')return {ok:true,json:async()=>[batch]};
+  if(path.includes('/resolve'))resolved++;
+  throw new Error('unexpected request '+path);
+ };
+ await recognition.handleAssistantClick({dataset:{agentImportIndex:'0'}});
+ assert.equal(resolved,0);
+ assert.equal(old.state,'pending');
+});
+
+test('source management shows import, consent, credential, and selection errors',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ recognition.configureAssistant({render(){}});
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'bad.json',size:8,text:async()=>'{broken'}]}});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(recognition.sourceManagementPage(),/role="alert"/);
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'valid.json',size:200,text:async()=>JSON.stringify(fixture.request)}]}});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(recognition.sourceManagementPage(),/role="status"/);
+ await recognition.handleAssistantClick({dataset:{agentImportIndex:'0'}});
+ assert.match(recognition.sourceManagementPage(),/请先确认所选来源/);
+ globalThis.fetch=async()=>({ok:false,status:500,json:async()=>({error:'保存失败'})});
+ const originalFormData=globalThis.FormData;
+ globalThis.FormData=class {*[Symbol.iterator](){yield ['username','test'];yield ['password','secret'];}};
+ recognition.handleAssistantSubmit({id:'source-credential-form'});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ globalThis.FormData=originalFormData;
+ assert.match(recognition.sourceManagementPage(),/role="alert"/);
+ recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(recognition.sourceManagementPage(),/来源选择保存失败/);
 });
 
 test('existing undated tasks appear on the workbench and open the same task for editing',async()=>{

@@ -50,7 +50,7 @@ function sourceSyncPanel(){
 function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#sources">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源原文发送给文本识别服务。</label><button type="button" class="btn primary" data-agent-action="sync-sources" ${busy||!session.user?'disabled':''}>${busy?'正在同步或识别…':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>`;}
 export function sourceManagementPage(){
  if(session.user&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
- return `<div class="page-heading"><h1>来源管理</h1></div>${sourceSyncPanel()}${sourceImportPanel()}`;
+ return `<div class="page-heading"><h1>来源管理</h1></div>${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${sourceImportPanel()}`;
 }
 function sourceImportPanel(){
  const imported=sourceImport?.kind==='requests'?`<p>${esc(sourceName)} · ${sourceImport.requests.length} 批记录</p><div class="source-import-list">${sourceImport.requests.map((batch,index)=>`<div class="source-import-row"><span>第 ${index+1} 批 · ${batch.records.length} 条 · ${esc([...new Set(batch.records.map(r=>platformLabels[r.platform]||'其他'))].join('、'))}</span><button type="button" class="btn" data-agent-import-index="${index}" ${busy||sourceImport.sent.has(index)?'disabled':''}>${sourceImport.sent.has(index)?'已提交':'识别此批'}</button></div>`).join('')}</div>`:
@@ -79,9 +79,9 @@ async function load(refreshWorkspace=false){
  try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';loaded=true;refresh();}
  catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
 }
-async function autoApplyCandidates(requestId,current){
+async function autoApplyCandidates(requestId,current,previousIds){
  let applied=0;
- const items=batches.filter(batch=>!batch.demo&&batch.request.request_id===requestId).flatMap(batch=>batch.items.filter(item=>item.state==='pending'&&canAutoApplyCandidate(item.candidate,batch)));
+ const items=batches.filter(batch=>!batch.demo&&batch.request.request_id===requestId).flatMap(batch=>batch.items.filter(item=>!previousIds.has(item.id)&&item.state==='pending'&&canAutoApplyCandidate(item.candidate,batch)));
  for(const item of items){
   if(!current())return applied;
   try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;}
@@ -190,14 +190,18 @@ async function resolve(form){
 async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false){
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ const external=autoApply&&body.records.some(record=>['teaching_web','wechat'].includes(record.platform));
  busy=true;error='';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),100000);refresh();
  try{
+  const existing=external?await api('/api/recognition/batches',undefined,'GET',{signal:controller.signal,timeoutMs:100000}):batches;
+  if(!current())return;
+  const previousIds=new Set(existing.find(batch=>batch.request.request_id===body.request_id)?.items.map(item=>item.id)||[]);
   const next=await api(retry?'/api/recognition/retry':'/api/recognition/batches',body,'POST',{signal:controller.signal,timeoutMs:100000});
   if(!current())return;
   batches=next;loaded=true;
   const batch=next.find(batch=>batch.request.request_id===body.request_id),result=batch?.result;
   const complete=result&&['success','no_tasks'].includes(result.status);
-  const applied=autoApply?await autoApplyCandidates(body.request_id,current):0;
+  const applied=autoApply?await autoApplyCandidates(body.request_id,current,previousIds):0;
   if(!current())return;
   const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(item=>item.state==='pending').length||0;
   const filtered=result?.record_results?.filter(r=>r.warnings.some(w=>w.startsWith('history_filtered:')||w.startsWith('no_action:'))).length||0;
