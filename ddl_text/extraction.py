@@ -10,7 +10,8 @@ from typing import Protocol
 
 from .adapters import AgentError
 from .contracts import ContractError, nonempty, normalize_record, require, validate_tasks
-from .dates import combine_times, resolve_time
+from .dates import combine_times
+from .time_validation import validate_time
 
 
 SKILL_DIR = Path(__file__).resolve().parent / "skills/text-task-extraction"
@@ -50,7 +51,7 @@ def _reference(ref, available, extra=()):
 
 
 def compile_drafts(response, record):
-    """Never accept model-authored URLs, timestamps, or silent dropped tasks."""
+    """Validate semantic proposals and evidence; copy source metadata ourselves."""
     try:
         require(isinstance(response, str) and len(response.encode("utf-8")) <= MAX_DRAFT_BYTES)
         envelope = json.loads(response, object_pairs_hook=_object,
@@ -111,12 +112,11 @@ def compile_drafts(response, record):
             require(isinstance(draft["times"], list) and len(draft["times"]) <= 20)
             times = []
             for ref in draft["times"]:
-                time_evidence = _reference(ref, available, ("kind",))
+                time_evidence = _reference(ref, available, ("kind", "normalized"))
                 if v02:
                     time_evidence["supports"] = ["deadline"]
                 evidence.append(time_evidence)
-                require(ref["kind"] in {"deadline", "reference"})
-                times.append(resolve_time(ref["quote"], available[ref["input_id"]], ref["kind"]))
+                times.append(validate_time(ref, available[ref["input_id"]]))
             deadline = combine_times(times, record.get("timezone"))
             if v02:
                 if not times and record["text_quality"] == "complete":

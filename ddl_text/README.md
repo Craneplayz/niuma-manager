@@ -11,7 +11,7 @@ ddl_text/
 ├── config.py             # 超时、重试和运行参数校验
 ├── contract_v02.py       # 前后端 v0.2 契约转换和校验
 ├── contracts.py          # 输入及候选任务的基础校验
-├── dates.py              # 日期解析、推断和不确定性处理
+├── dates.py              # 合并时间提案、催促语和冲突处理
 ├── draft_schema.py       # 模型草稿的 JSON Schema
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
@@ -19,6 +19,7 @@ ddl_text/
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
+├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
 │   └── text-task-extraction/
 │       ├── SKILL.md      # 任务、来源、日期及更新意图的识别规则
@@ -35,9 +36,12 @@ ddl_text/
 │   │   └── text-frontend-v02-drafts.json # 与共享 v0.2 输入配套的离线模型草稿
 │   ├── __init__.py       # 测试包入口
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
+│   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
+│   ├── run_time_smoke.py # 显式启用的真实模型时间验证入口
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
-│   ├── test_extraction.py      # 规则、日期和原文证据测试
+│   ├── test_extraction.py      # 草稿编译、时间合并和原文证据测试
+│   ├── test_normalized_time.py # 标准时间草稿及基准的独立校验测试
 │   ├── test_frontend_contract.py # v0.2 契约及本机 HTTP 测试
 │   ├── test_output_validation.py # 非法模型输出测试
 │   ├── test_pipeline.py        # 批量处理、超时和重试测试
@@ -55,6 +59,10 @@ ddl_text/
 - [输入样例](../contracts/source-to-text/text-frontend-v02-request.json)、[离线草稿](tests/fixtures/text-frontend-v02-drafts.json)、[输出样例](../contracts/text-to-app/text-frontend-v02-output.json)；交接方向与文件说明见 [contracts](../contracts/README.md)。
 - [识别规则](skills/text-task-extraction/SKILL.md)：行动要求、来源和日期判断；未知、推断、冲突的时间保留不确定性，参考时间不直接当作明确截止时间。
 
+模型按语义直接生成标准时间及原文证据，程序校验 ISO 值、日历、时区与基准，不再按原话格式白名单决定是否接受。内部草稿新增 `times[].normalized`，旧草稿需迁移；对外 v0.2 不变。结构校验不能证明语义一定正确；农历、校历和节假日等缺少依据时仍需核实。
+
+单纯省略年份的明确截止按最近有效年份补全，通过校验后输出 explicit，不单独触发待核实；原话和补年依据仍保留。缺基准、冲突、活动参考时间或其他独立疑点仍需核实。共享样例见 [补年输出](../contracts/text-to-app/text-year-inference-output.json)。
+
 ## 运行与测试
 
 以下命令均在**仓库根目录**执行。需要 Python 3.9+，模块使用标准库；Windows 缺少时区数据库时安装 `tzdata`。
@@ -71,12 +79,14 @@ python scripts/check_frontend_integration.py --frontend-dir .
 
 回放样例应包含加群（参考时间）、学习计划（无日期）和实验报告（明确截止）三个候选。测试包含本机模拟 HTTP；可选 Codex 检查未启用时跳过。
 
-真实调用前按 [API 配置](docs/api-setup.md) 配置根目录 `.env`。以下第二、三条会调用供应商，可能计费：
+真实调用前按 [API 配置](docs/api-setup.md) 配置根目录 `.env`。真实识别、服务收到识别请求及 `--live` 回归会调用供应商，可能计费：
 
 ```powershell
 python -m ddl_text --check-connection
 python -m ddl_text --mode real --input contracts/source-to-text/text-frontend-v02-request.json
 python -m ddl_text.http_server --real
+# 时间语义回归：20条固定合成通知，保留模型草稿和输出；输出文件须不存在
+python -m ddl_text.tests.run_time_smoke --live --output local-data/time-smoke-new.json
 ```
 
 识别服务默认 `127.0.0.1:1333`，健康检查为 `/health`。账户后端设置 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize`；网页与账户服务的启动方式由其模块说明维护。更改环境配置后重启识别服务。配置检查及健康检查不证明模型权限或额度可用。
