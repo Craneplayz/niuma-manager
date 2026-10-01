@@ -12,6 +12,8 @@ test('deadline display is concise and inferred dates remain reviewable',()=>{
  assert.deepEqual(suggestedDue({...d,kind:'reference'}),{date:'',time:''});
  assert.match(deadlineLabel({...d,kind:'reference'}),/参考时间，不是 DDL/);
  assert.equal(deadlineLabel({...d,status:'explicit',precision:'date',value:'2026-09-29'}),'明确截止日期（时刻待补充）：2026/09/29');
+ assert.equal(deadlineLabel({...d,status:'explicit',value:'2026-09-29T09:00:30+08:00'}),'明确截止时间：2026/09/29 09:00:30');
+ assert.deepEqual(suggestedDue({...d,value:'2026-09-29T09:00:30+08:00'}),{date:'2026-09-29',time:''});
  const html=candidateCard({id:'sample',state:'pending',candidate:{title:'交报告',description:'报告',notice_type:'create',deadline:d,review_reasons:[d.basis,'正文不完整'],prerequisites:[],evidence:[],sources:[]}});
  assert.equal(html.split(d.basis).length-1,1);
  assert.ok(html.indexOf(d.basis)>html.indexOf('<summary>证据与来源</summary>'));

@@ -79,6 +79,19 @@ test('late planning response cannot repopulate another account or leave it busy'
  assert.equal(requests.at(-1).account,'B');
 });
 
+test('automatic proposal stays a preview until confirmed or cancelled',async()=>{
+ await login('A');
+ requests=[];
+ await planner.proposeForTasks(['a2']);
+ const call=requests.find(item=>item.path==='/api/planning/proposals');
+ assert.deepEqual(call.body,{taskIds:['a2']});
+ assert.match(planner.plannerPage(),/排程提案|取消提案/);
+ assert.equal(state.schedule.length,0);
+ assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
+ await planner.plannerClick({dataset:{planAction:'discard'}});
+ assert.doesNotMatch(planner.plannerPage(),/取消提案/);
+});
+
 test('late recognition response is discarded after logout and a new account can recognize',async()=>{
  await login('A');
  const pending=defer('/api/recognition/batches');
@@ -167,6 +180,7 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,25);
   const page=recognition.assistantPage();
   assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
+  assert.doesNotMatch(page,/新任务已加入日历/);
   assert.match(page,/data-agent-retry="sync:0"/);
   assert.doesNotMatch(page,/data-agent-retry="sync:1"/);
   fail=false;
@@ -174,6 +188,22 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,26);
   assert.equal(seen.at(-1).request_id,'sync:0');
   assert.doesNotMatch(recognition.assistantPage(),/data-agent-retry=/);
+ }finally{globalThis.fetch=originalFetch;}
+});
+
+test('empty source sync does not report zero unchanged records as filtered content',async()=>{
+ await login('A');
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
+  ? response({requests:[],summary:{total:0,skipped:0,pending:0}})
+  : originalFetch(path,options);
+ try{
+  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+  const page=recognition.assistantPage();
+  assert.match(page,/同步完成，暂无待识别内容/);
+  assert.doesNotMatch(page,/跳过 0 条/);
  }finally{globalThis.fetch=originalFetch;}
 });
 
@@ -190,4 +220,21 @@ test('a late sync response cannot send any records after account switch',async()
  await operation;
  assert.equal(requests.length,before);
  assert.doesNotMatch(recognition.assistantPage(),/private-sync|private/);
+});
+
+test('failed source sync clears stale loading notice and remains retryable',async()=>{
+ await login('A');
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
+  ? {ok:false,status:502,json:async()=>({error:'服务处理失败，请稍后重试；数据未变更'})}
+  : originalFetch(path,options);
+ try{
+  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+  const page=recognition.assistantPage();
+  assert.match(page,/服务处理失败，请稍后重试/);
+  assert.doesNotMatch(page,/正在获取教学网信息/);
+  assert.match(page,/data-agent-action="sync-sources"/);
+ }finally{globalThis.fetch=originalFetch;}
 });

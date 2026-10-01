@@ -136,9 +136,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
             if path.startswith('/api/data/') and self.command=='PUT':
                 name=path.rsplit('/',1)[1]
-                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials']: raise ApiError(404,'未知数据类型')
+                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
                 value=body.get('value')
                 if not isinstance(value,dict if name in ['availability','focus'] else list): raise ApiError(400,'数据格式不正确')
+                if name=='sources' and (len(value)>1 or any(source!='teaching_web' for source in value)): raise ApiError(400,'来源选择不正确')
                 if name=='courses':
                     from urllib.parse import urlsplit
                     ids,names=set(),set()
@@ -182,6 +183,10 @@ class Handler(BaseHTTPRequestHandler):
                 rows={r['name']:r for r in db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,))}
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []
                 pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and not t.get('planningExcluded') and not t['plans']]
+                task_ids=body.get('taskIds')
+                if task_ids is not None:
+                    if not isinstance(task_ids,list) or not task_ids or any(not isinstance(item,str) for item in task_ids) or len(set(task_ids))!=len(task_ids): raise ApiError(400,'规划任务范围不正确')
+                    pending=[t for t in pending if t['id'] in task_ids and t.get('due')]
                 if not pending: raise ApiError(400,'没有需要规划的任务')
                 payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=datetime.now(TZ).isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']],availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
@@ -220,7 +225,7 @@ class Handler(BaseHTTPRequestHandler):
         except ApiError as e: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError): self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
-            print(type(e).__name__,str(e))
+            print(type(e).__name__,str(e),flush=True)
             self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
         finally:
             if getattr(self,'db',None) is not None: self.db.close()

@@ -12,6 +12,12 @@ class TextContractTests(unittest.TestCase):
         before=copy.deepcopy(self.result)
         self.assertEqual(validate_result(self.request,self.result),before)
         self.assertEqual(self.result,before)
+    def test_manual_platform_is_valid_and_preserves_candidate_sources(self):
+        for record in self.request['records']: record['platform']='manual'
+        for candidate in self.result['tasks']:
+            for source in candidate['sources']: source['platform']='manual'
+        validate_request(self.request)
+        self.assertEqual(validate_result(self.request,self.result)['tasks'][0]['sources'][0]['platform'],'manual')
     def test_bad_evidence_fails_whole_record_not_other_records(self):
         self.result['tasks'][0]['evidence'][0]['quote']='这段原文从未出现'
         out=validate_result(self.request,self.result)

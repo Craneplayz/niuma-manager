@@ -1,21 +1,21 @@
 import {api,flushStore,saveData,workspaceValue,session,accountVersion,planDateTime} from './store.js';
 import {icon} from './icons.js';
 
-let host={},result=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false;
+let host={},result=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,autoTaskIds=null;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
 const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&!host.getState().schedule.some(p=>p.taskId===t.id));
 function currentAvailability(){return availability||workspaceValue('availability',defaults);}
 export function configurePlanner(callbacks){host=callbacks;}
 window.addEventListener('niuma:account-reset',()=>{
- activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;
+ activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;autoTaskIds=null;
 });
 document.addEventListener('toggle',event=>{
  if(event.target.isConnected&&event.target.classList?.contains('planning-exclusions'))exclusionsOpen=event.target.open;
 },true);
 export function plannerPage(){
  const tasks=active(),selected=tasks.filter(t=>!t.planningExcluded),a=currentAvailability();
- return `<div class="page-heading"><div><div class="eyebrow">NIUMA INTELLIGENT PLANNER</div><h1>让任务找到合适的时间。</h1><p>点击开始规划后，模型结合真实 DDL、已有安排和你的用时反馈评估并排程。</p></div></div>
+ return `<div class="page-heading"><h1>智能规划</h1></div>
  <div class="planner-grid"><section class="panel priority-lab"><div class="section-title"><h2>可用时间</h2><span>北京时间</span></div>
  <div class="form-grid"><label>每日开始<input type="time" data-plan-field="startTime" value="${a.startTime}"></label><label>每日结束<input type="time" data-plan-field="endTime" value="${a.endTime}"></label></div>
  <div class="weekday-options">${[1,2,3,4,5,6,0].map(d=>`<label><input type="checkbox" data-plan-day="${d}" ${a.weekdays.includes(d)?'checked':''}>${['周日','周一','周二','周三','周四','周五','周六'][d]}</label>`).join('')}</div>
@@ -26,16 +26,32 @@ export function plannerPage(){
  ${tasks.map(t=>`<label><input type="checkbox" data-plan-exclude="${esc(t.id)}" ${t.planningExcluded?'checked':''}><span>${esc(t.title)}</span><small>${t.due?`${t.due} ${t.dueTime||'待补充时刻'}`:'无 DDL'}</small></label>`).join('')||'<p>当前没有需要安排的任务。</p>'}</details>
  <div class="planner-actions"><button class="btn primary" data-plan-action="start" ${busy||!selected.length?'disabled':''}>${icon('spark')}${busy?'正在处理…':'开始规划'}</button>${busy?'<button class="btn" data-plan-action="cancel">取消等待</button>':''}</div></section></div>
  ${error?`<p class="save-error" role="alert">${esc(error)}</p>`:''}
- ${result?`<section class="panel planning-insights"><div class="section-title"><h2>模型规划预览</h2><span>确认后才写入日历</span></div>
+ ${result?`<section class="panel planning-insights"><div class="section-title"><h2>排程提案</h2><span>确认后才写入日历</span></div>
  <div class="proposal-list">${Object.entries(result.estimates).map(([id,minutes])=>`<p><b>${esc(host.getState().tasks.find(t=>t.id===id)?.title||id)}</b> · 评估 ${minutes} 分钟</p>`).join('')}
  ${result.warnings.map(w=>`<p class="draft-warning">${esc(w)}</p>`).join('')}
  ${result.blocks.map(b=>{const start=planDateTime(b.startAt),end=planDateTime(b.endAt);return `<article class="plan-block"><b>${esc(b.title)}</b><span>${start.date} ${start.time}–${start.date===end.date?'':end.date+' '}${end.time}</span></article>`;}).join('')||'<p>模型未找到可安排的时段，请查看警告。</p>'}</div>
- <button class="btn primary" data-plan-action="apply" ${busy||!result.blocks.length?'disabled':''}>确认应用计划</button></section>`:''}`;
+ <div class="planner-actions"><button class="btn primary" data-plan-action="apply" ${busy||!result.blocks.length?'disabled':''}>确认写入日历</button><button class="btn" data-plan-action="modify" ${busy?'disabled':''}>修改可用时间</button><button class="btn" data-plan-action="discard" ${busy?'disabled':''}>取消提案</button></div></section>`:''}`;
+}
+export async function proposeForTasks(taskIds){
+ if(!session.user||busy||!taskIds.length)return false;
+ const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ autoTaskIds=taskIds;result=null;error='';busy=true;host.openPreview?.();host.render();
+ try{
+  await flushStore();if(!current())return false;
+  await saveData('availability',currentAvailability());if(!current())return false;
+  const next=await api('/api/planning/proposals',{taskIds},'POST');
+  if(!current())return false;
+  result=next;
+  host.openPreview?.();return true;
+ }catch(e){if(current())error='任务已加入日历，但排程提案未生成：'+e.message;return false;}
+ finally{if(current()){busy=false;host.render();}}
 }
 export async function plannerClick(button){
  const action=button.dataset.planAction;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  if(action==='cancel'){activeController?.abort();return true;}
+ if(action==='discard'){result=null;autoTaskIds=null;error='';host.render();return true;}
+ if(action==='modify'){result=null;host.render();return true;}
  if(!session.user||session.changing){error='请先登录账号';host.render();return true;}
  if(action==='start'){
   if(busy)return true;
@@ -47,7 +63,7 @@ export async function plannerClick(button){
    await flushStore();if(!current())return true;
    await saveData('availability',a);if(!current())return true;
    if(controller.signal.aborted)throw new Error('已取消等待');
-   const next=await api('/api/planning/proposals',{},'POST',{signal:controller.signal});
+   const next=await api('/api/planning/proposals',autoTaskIds?{taskIds:autoTaskIds}:{},'POST',{signal:controller.signal});
    if(current())result=next;
   }
   catch(e){if(current())error=controller.signal.aborted?'已取消或请求超时；任务尚未变更':e.message;}
@@ -60,7 +76,7 @@ export async function plannerClick(button){
   try{
    await flushStore();if(!current())return true;
    await api('/api/planning/apply',{requestId:result.requestId});if(!current())return true;
-   result=null;await host.refresh();if(current())host.toast('规划已写入日历');
+   result=null;autoTaskIds=null;await host.refresh();if(current())host.toast('规划已写入日历');
   }
   catch(e){if(current())error=e.message;}finally{if(current()){busy=false;host.render();}}
   return true;
