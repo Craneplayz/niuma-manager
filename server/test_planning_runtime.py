@@ -88,7 +88,7 @@ class PlanningRuntimeTests(unittest.TestCase):
             status, result = self.propose()
         self.assertEqual(status, 200, result)
         instructions, payload, settings = model.call_args.args
-        self.assertIn('task scheduling', instructions)
+        self.assertEqual(instructions, planning.planning_harness.INSTRUCTIONS)
         self.assertEqual(json.loads(payload)['tasks'], [self.task])
         self.assertEqual((settings.model, settings.timeout_seconds, settings.max_retries), ('synthetic-model', 20, 0))
         self.assertEqual(self.call(self.client, '/workspace')[1]['tasks']['value'], [self.task])
