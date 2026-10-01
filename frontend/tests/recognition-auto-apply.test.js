@@ -49,8 +49,8 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  recognition.resetAssistant();session.user={id:'test'};
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const batch={request:fixture.request,result:fixture.expected,demo:false,items:fixture.expected.tasks.map(task=>({id:task.candidate_id,version:1,state:'pending',candidate:task}))};
- const applied=[];let refreshed=0;
- recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;}});
+ const applied=[],proposals=[];let refreshed=0;
+ recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;},getState:()=>({tasks:applied.map(id=>({id,recognitionHistory:[{storageId:batch.items.find(item=>item.candidate.input_id===id).id}],due:id.endsWith(':undated')?'':'2026-10-10',status:'todo',plans:[]}))}),proposeForTasks:async ids=>{proposals.push(ids);}});
  recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'source.json',size:100,text:async()=>JSON.stringify(fixture.request)}]}});
  await new Promise(resolve=>setTimeout(resolve,0));
  recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
@@ -69,6 +69,8 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  await recognition.handleAssistantClick({dataset:{agentImportIndex:'0'}});
  assert.deepEqual(applied.sort(),['dated','mixed','old-but-future','undated','yearless-current'].map(id=>'synthetic:f3:'+id).sort());
  assert.equal(refreshed,1);
+ assert.equal(proposals.length,1);
+ assert.deepEqual(proposals[0].sort(),applied.filter(id=>!id.endsWith(':undated')).sort());
  assert.match(recognition.assistantPage(),/待核对 <span>6/);
  assert.doesNotMatch(recognition.assistantPage(),/data-agent-review="synthetic:f3:old-yearless/);
 });

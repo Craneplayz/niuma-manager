@@ -79,6 +79,19 @@ test('late planning response cannot repopulate another account or leave it busy'
  assert.equal(requests.at(-1).account,'B');
 });
 
+test('automatic proposal stays a preview until confirmed or cancelled',async()=>{
+ await login('A');
+ requests=[];
+ await planner.proposeForTasks(['a2']);
+ const call=requests.find(item=>item.path==='/api/planning/proposals');
+ assert.deepEqual(call.body,{taskIds:['a2']});
+ assert.match(planner.plannerPage(),/排程提案|取消提案/);
+ assert.equal(state.schedule.length,0);
+ assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
+ await planner.plannerClick({dataset:{planAction:'discard'}});
+ assert.doesNotMatch(planner.plannerPage(),/取消提案/);
+});
+
 test('late recognition response is discarded after logout and a new account can recognize',async()=>{
  await login('A');
  const pending=defer('/api/recognition/batches');

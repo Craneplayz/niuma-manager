@@ -141,6 +141,26 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(applied['value'][0]['due'],base['due'])
         self.assertEqual(self.call(a,'/planning/apply','POST',dict(requestId=result['requestId']))[0],409)
 
+    def test_auto_proposal_only_targets_new_dated_tasks_and_never_applies_itself(self):
+        a=self.client();self.register(a,'auto-plan@test.local')
+        day=(app.datetime.now(app.TZ)+app.timedelta(days=2)).date().isoformat()
+        base=dict(title='作业',description='测试',status='not_started',plans=[],subtasks=[])
+        tasks=[dict(base,id='dated',due=dict(date=day,precision='date')),
+               dict(base,id='undated',due=None),dict(base,id='other',due=dict(date=day,precision='date'))]
+        self.assertEqual(self.call(a,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
+        for ids in [[],['dated','dated'],'dated',['missing'],['undated']]:
+            self.assertEqual(self.call(a,'/planning/proposals','POST',dict(taskIds=ids))[0],400)
+        captured=[]
+        def plan(payload,ApiError):
+            captured.append(payload)
+            return dict(estimates={'dated':60},blocks=[],warnings=[])
+        with patch.object(app.planning,'plan',plan):
+            status,result=self.call(a,'/planning/proposals','POST',dict(taskIds=['dated','undated']))
+        self.assertEqual(status,200)
+        self.assertEqual([t['id'] for t in captured[0]['tasks']],['dated'])
+        self.assertEqual(result['blocks'],[])
+        self.assertTrue(all(not t['plans'] for t in self.call(a,'/workspace')[1]['tasks']['value']))
+
     def test_recognition_demo_and_atomic_idempotent_confirmation(self):
         a,b=self.client(),self.client();self.register(a,'text-a@test.local');self.register(b,'text-b@test.local')
         status,batches=self.call(a,'/recognition/demo','POST',{})

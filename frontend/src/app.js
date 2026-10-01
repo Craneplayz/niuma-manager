@@ -4,7 +4,7 @@ import {assistantPage,sourceManagementPage,configureAssistant,handleAssistantCli
 import {icon} from './icons.js';
 import {selectTasks} from './productivity.js';
 import {configureExperience,experienceClick,experienceInput,experienceKey,focusPill,switchFocusAccount} from './experience.js';
-import {plannerPage,configurePlanner,plannerClick,plannerChange,plannerSubmit,plannerApplyHours} from './team-planner-ui.js';
+import {plannerPage,configurePlanner,plannerClick,plannerChange,plannerSubmit,plannerApplyHours,proposeForTasks} from './team-planner-ui.js';
 import {initTheme,themeButton,handleThemeClick,themeSetting,handleThemeChange} from './theme.js';
 import {configurePersonalization,personalizationSection,personalizationClick,personalizationSubmit} from './team-personalization-ui.js';
 import {calendarPage,calendarClick,calendarStep,calendarToday} from './team-calendar-ui.js';
@@ -119,9 +119,9 @@ function exportCalendar(){
  }
  lines.push('END:VCALENDAR');const url=URL.createObjectURL(new Blob([lines.map(line=>{let out='',count=0;for(const char of line){const size=new TextEncoder().encode(char).length;if(count+size>75){out+='\r\n ';count=1;}out+=char;count+=size;}return out;}).join('\r\n')+'\r\n'],{type:'text/calendar;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='niuma-deadlines.ics';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已导出日历文件，可手动导入其他日历');
 }
-configureAssistant({getState:()=>state,editTask:taskDialog,render,persist,toast,openDialog,closeDialog,dialogHeader,refresh:async()=>{state=await refreshStore();render();}});
+configureAssistant({getState:()=>state,editTask:taskDialog,render,persist,toast,openDialog,closeDialog,dialogHeader,proposeForTasks,refresh:async()=>{state=await refreshStore();render();}});
 configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
-configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,refresh:async()=>{state=await refreshStore();render();}});
+configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:()=>{plannerOpen=true;render();},refresh:async()=>{state=await refreshStore();render();}});
 configurePersonalization({getState:()=>state,render});
 document.addEventListener('keydown',experienceKey);
 document.addEventListener('change',event=>{if(event.target.id==='agent-source-file')handleAssistantInput(event);experienceInput(event);if(plannerChange(event))return;if(event.target.id==='task-sort'){sort=event.target.value;document.querySelector('#task-results').innerHTML=taskResults();}if(event.target.dataset.subtaskTask){const rect=event.target.getBoundingClientRect(),task=state.tasks.find(t=>t.id===event.target.dataset.subtaskTask),sub=task?.subtasks[Number(event.target.dataset.subtaskIndex)];if(sub){sub.done=event.target.checked;expandedTasks.add(task.id);persist();const completed=task.subtasks.filter(item=>item.done).length,total=task.subtasks.length;render();if(sub.done)celebrate(rect,completed===total?'所有小步骤完成！可以完成整项任务了。':`完成一步 · ${completed}/${total}`,completed===total);else toast(`已重新打开 · ${completed}/${total}`);}}});

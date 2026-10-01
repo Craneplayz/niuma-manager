@@ -7,9 +7,9 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
 const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',manual:'手动输入',unknown:'其他'};
 const batchLabels={success:'识别完成',no_tasks:'未发现任务',partial_success:'部分识别完成',failed:'识别失败'};
-let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false;
+let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,newPlanningTaskIds=new Set();
 export function configureAssistant(callbacks){host=callbacks;}
-export function resetAssistant(){cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;}
+export function resetAssistant(){cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;newPlanningTaskIds=new Set();}
 window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#sources'].includes(location.hash))host.render();};
@@ -81,14 +81,21 @@ async function load(refreshWorkspace=false){
 }
 async function autoApplyCandidates(requestId,current,previousIds){
  let applied=0;
+ const appliedIds=[];
  const items=batches.filter(batch=>!batch.demo&&batch.request.request_id===requestId).flatMap(batch=>batch.items.filter(item=>!previousIds.has(item.id)&&item.state==='pending'&&canAutoApplyCandidate(item.candidate,batch)));
  for(const item of items){
   if(!current())return applied;
-  try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;}
+  try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;appliedIds.push(item.id);}
   catch(e){if(current())error='自动加入任务失败：'+e.message;}
  }
- if(applied){try{await host.refresh();}catch(e){if(current())error='任务已加入日程，但页面刷新失败：'+e.message;}}
+ if(applied){try{await host.refresh();if(current())for(const task of host.getState?.().tasks||[])if(task.due&&appliedIds.some(id=>task.recognitionHistory?.some(history=>history.storageId===id)))newPlanningTaskIds.add(task.id);}catch(e){if(current())error='任务已加入日程，但页面刷新失败：'+e.message;}}
  return applied;
+}
+async function planNewTasks(current){
+ if(!current())return;
+ const ids=[...newPlanningTaskIds].filter(id=>{const task=host.getState?.()?.tasks?.find(item=>item.id===id);return task?.due&&task.status!=='done'&&!task.planningExcluded&&!task.plans?.length;});
+ newPlanningTaskIds.clear();
+ if(ids.length)await host.proposeForTasks?.(ids);
 }
 export function assistantPage(){
  if(!loaded&&session.user){loaded=true;queueMicrotask(load);}
@@ -187,7 +194,7 @@ async function resolve(form){
  }catch(e){if(current()){errorNode.textContent=e.message;form.querySelector('[data-agent-action="refresh-review"]').hidden=e.status!==409;}}
  finally{if(current()){busy=false;fields.forEach(field=>field.disabled=false);submit.disabled=false;submit.textContent=label;refresh();}}
 }
-async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false){
+async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false,planAfter=true){
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const external=autoApply&&body.records.some(record=>['teaching_web','wechat'].includes(record.platform));
@@ -203,6 +210,7 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   const complete=result&&['success','no_tasks'].includes(result.status);
   const applied=autoApply?await autoApplyCandidates(body.request_id,current,previousIds):0;
   if(!current())return;
+  if(planAfter)await planNewTasks(current);
   const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(item=>item.state==='pending').length||0;
   const filtered=result?.record_results?.filter(r=>r.warnings.some(w=>w.startsWith('history_filtered:')||w.startsWith('no_action:'))).length||0;
   notice=`${applied?`已自动加入 ${applied} 项任务；`:''}${remaining?`${remaining} 项待处理；`:''}${filtered?`${filtered} 条资讯或历史通知未生成任务；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
@@ -259,13 +267,14 @@ export async function handleAssistantClick(button){
     if(!current())return;
     const batch=sourceImport.requests[index];
     notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条未变化通知`;refresh();
-    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true);
+    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true,false);
     if(!current())return;
     attempted++;
     if(!complete)failed++;
     if(complete===undefined)break;
    }
    if(current()){syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。有日期任务进入日历，无日期任务留在工作台；${failed?'失败记录可重试。':'可在日历查看结果。'}`;}
+   await planNewTasks(current);
   }catch(e){if(current()){notice='';error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}}
   finally{if(current()){busy=false;activeController=null;refresh();}}
   return;
