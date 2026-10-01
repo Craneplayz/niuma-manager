@@ -4,7 +4,7 @@
 
 ## 0. 目录归属、对接、审查与整合
 
-本节规定目录负责人、模块对接方式以及 PR 的审查与合并。Issue、分支、Commit、PR 的具体操作仍按第 1–6 节执行。日常操作说明见[协作手册](docs/collaboration-handbook.md)。
+本节规定目录负责人、模块对接方式以及 PR 的审查与合并。Issue、分支、Commit、PR 的具体操作仍按第 1–6 节执行。
 
 ### 0.1 目录负责人
 
@@ -13,7 +13,7 @@
 | `crawler/` | 学院讲座、课程网爬虫 | Craneplayz |
 | `wechat/` | 微信群 / 聊天数据采集 | Xiao-Han666 |
 | `ddl_text/` | 文本任务识别 | dhjx1234 |
-| `task_planning/` | 任务优先级判断规则（附理由）、skill 与排程 | Yongzhen23 |
+| `task_planning/` | 任务拆解、作业排程规则（附理由）与排程提案 | Yongzhen23 |
 | `frontend/` | 前端页面（对话框 + 日历）及与其他模块的对接代码 | Dranix123 |
 | `server/` | 本地业务后端 | Dranix123 |
 | `contracts/` | 模块之间的数据格式（Schema 与样例） | ken0857900 + 上下游负责人 |
