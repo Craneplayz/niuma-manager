@@ -5,6 +5,7 @@ task_planning/
 ├── README.md                     # 模块结构、职责边界和检查入口
 ├── __init__.py                   # 对外导出任务拆解入口
 ├── decomposition.py             # 请求校验、Skill 加载、模型调用和草稿校验
+├── planning_harness.py           # 调用模型生成规划 2.0 提案的本地服务
 ├── skills/                       # 程序直接加载的规划规则，无须个人安装
 │   └── contextual-task-decomposition/
 │       ├── SKILL.md              # 动态追问、拆解判断和排程原则
@@ -13,7 +14,8 @@ task_planning/
 │           └── examples.md       # 同一任务在不同上下文中的正反例
 └── tests/
     ├── __init__.py               # 测试包入口
-    └── test_decomposition.py     # 请求、状态机、草稿及模型调用测试
+    ├── test_decomposition.py     # 请求、状态机、草稿及模型调用测试
+    └── test_planning_harness.py  # 规划 2.0 HTTP Harness 契约与失败边界测试
 ```
 
 接收一个候选任务、已提取的文档正文、对话补充信息、当前时间和可用时段，判断信息是否足以规划。可用时间由消费方预先展开为带时区的 `availability.windows[]`，已有安排放入 `availability.existing_blocks[]`，两者均使用 `{start, end}`。信息不足时每轮只提出一至三个会实际改变计划的问题；信息足够时输出可检查的小任务、依赖、预计用时和建议时间。简单且原子化的行动保留为一个任务，不为了形式完整强行拆解。
