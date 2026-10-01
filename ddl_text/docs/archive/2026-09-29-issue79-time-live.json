@@ -1,0 +1,2450 @@
+{
+  "synthetic_only": true,
+  "started_at": "2026-09-29T13:57:12.125633+00:00",
+  "provider": "qiniu",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "timeout_seconds": 90,
+  "max_retries": 0,
+  "git_commit": "611672978d5c5c330bc98d2e3d9abe2758696bbe",
+  "instructions_sha256": "102ad73ff1b9f9f43b038122857e9ca8061085dfd74eeb19c936df69db16ba77",
+  "scope": "Fixed smoke cases, not an independent accuracy benchmark",
+  "cases": [
+    {
+      "name": "parentheses",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:parentheses",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:parentheses",
+            "text": "请于2026.10.11（23:59:00）前提交作业。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-10-11T23:59:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交作业\",\"description\":\"在2026年10月11日23:59:00前提交作业。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:parentheses\",\"quote\":\"请于2026.10.11（23:59:00）前提交作业。\"}],\"times\":[{\"input_id\":\"synthetic:time:parentheses\",\"quote\":\"2026.10.11（23:59:00）\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-11T23:59:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文含完整年月日与时刻，直接按来源时区取值。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:parentheses",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:parentheses:candidate:1",
+            "input_id": "synthetic:time:parentheses",
+            "title": "提交作业",
+            "description": "在2026年10月11日23:59:00前提交作业。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-11T23:59:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026.10.11（23:59:00）",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:parentheses",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:parentheses",
+                "field": "text",
+                "quote": "请于2026.10.11（23:59:00）前提交作业。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:parentheses",
+                "field": "text",
+                "quote": "2026.10.11（23:59:00）",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:parentheses",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:parentheses:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-10-11T23:59:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 3.31
+    },
+    {
+      "name": "chinese-numerals",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:chinese-numerals",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:chinese-numerals",
+            "text": "课程回顾须在二〇二六年十月十三日晚上九点一刻之前交齐。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-10-13T21:15:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"提交课程回顾\", \"description\": \"在二〇二六年十月十三日晚上九点一刻之前交齐课程回顾。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:time:chinese-numerals\", \"quote\": \"课程回顾须在二〇二六年十月十三日晚上九点一刻之前交齐。\"}], \"times\": [{\"input_id\": \"synthetic:time:chinese-numerals\", \"quote\": \"二〇二六年十月十三日晚上九点一刻之前\", \"kind\": \"deadline\", \"normalized\": {\"value\": \"2026-10-13T21:15:00+08:00\", \"precision\": \"datetime\", \"derivation\": \"absolute\", \"anchor\": null, \"basis\": \"原文明确写出年份、月日与晚上九点一刻。\"}}], \"review_reasons\": []}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:chinese-numerals",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:chinese-numerals:candidate:1",
+            "input_id": "synthetic:time:chinese-numerals",
+            "title": "提交课程回顾",
+            "description": "在二〇二六年十月十三日晚上九点一刻之前交齐课程回顾。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-13T21:15:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "二〇二六年十月十三日晚上九点一刻之前",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:chinese-numerals",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:chinese-numerals",
+                "field": "text",
+                "quote": "课程回顾须在二〇二六年十月十三日晚上九点一刻之前交齐。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:chinese-numerals",
+                "field": "text",
+                "quote": "二〇二六年十月十三日晚上九点一刻之前",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:chinese-numerals",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:chinese-numerals:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-10-13T21:15:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 3.25
+    },
+    {
+      "name": "english",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:english",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:english",
+            "text": "Please submit the report by 30 September 2026, 6:15 pm.",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-09-30T18:15:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交报告\",\"description\":\"提交报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:english\",\"quote\":\"Please submit the report by 30 September 2026, 6:15 pm.\"}],\"times\":[{\"input_id\":\"synthetic:time:english\",\"quote\":\"30 September 2026, 6:15 pm\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-09-30T18:15:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文明确给出完整日期与时刻。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:english",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:english:candidate:1",
+            "input_id": "synthetic:time:english",
+            "title": "提交报告",
+            "description": "提交报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-09-30T18:15:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "30 September 2026, 6:15 pm",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:english",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:english",
+                "field": "text",
+                "quote": "Please submit the report by 30 September 2026, 6:15 pm.",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:english",
+                "field": "text",
+                "quote": "30 September 2026, 6:15 pm",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:english",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:english:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-09-30T18:15:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.55
+    },
+    {
+      "name": "dispersed",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:dispersed",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:dispersed",
+            "text": "课程报告的提交日期是2026年10月12日。当日最晚下午三点半上传。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-10-12T15:30:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"上传课程报告\",\"description\":\"在课程报告提交日期当天最晚下午三点半前上传课程报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:dispersed\",\"quote\":\"课程报告的提交日期是2026年10月12日。当日最晚下午三点半上传。\"}],\"times\":[{\"input_id\":\"synthetic:time:dispersed\",\"quote\":\"课程报告的提交日期是2026年10月12日。当日最晚下午三点半上传。\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-12T15:30:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文给出完整日期2026年10月12日，并说明当日最晚下午三点半上传。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:dispersed",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:dispersed:candidate:1",
+            "input_id": "synthetic:time:dispersed",
+            "title": "上传课程报告",
+            "description": "在课程报告提交日期当天最晚下午三点半前上传课程报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-12T15:30:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "课程报告的提交日期是2026年10月12日。当日最晚下午三点半上传。",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:dispersed",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:dispersed",
+                "field": "text",
+                "quote": "课程报告的提交日期是2026年10月12日。当日最晚下午三点半上传。",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:dispersed",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:dispersed:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-10-12T15:30:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 5.61
+    },
+    {
+      "name": "urgency",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:urgency",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:urgency",
+            "text": "请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-09-29T09:00:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交课程内容回顾\",\"description\":\"按要求提交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），会按比例计入总评。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:urgency\",\"quote\":\"请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。\"}],\"times\":[{\"input_id\":\"synthetic:time:urgency\",\"quote\":\"2026.9.29 9:00\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-09-29T09:00:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文明确给出完整日期与时刻。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:urgency",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:urgency:candidate:1",
+            "input_id": "synthetic:time:urgency",
+            "title": "提交课程内容回顾",
+            "description": "按要求提交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），会按比例计入总评。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-09-29T09:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026.9.29 9:00",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:urgency",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:urgency",
+                "field": "text",
+                "quote": "请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:urgency",
+                "field": "text",
+                "quote": "2026.9.29 9:00",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:urgency",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:urgency:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-09-29T09:00:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 3.94
+    },
+    {
+      "name": "seconds",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:seconds",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:seconds",
+            "text": "请在2026/10/11 (23：59：37)之前提交报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-10-11T23:59:37+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交报告\",\"description\":\"在2026/10/11 23:59:37之前提交报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:seconds\",\"quote\":\"请在2026/10/11 (23：59：37)之前提交报告。\"}],\"times\":[{\"input_id\":\"synthetic:time:seconds\",\"quote\":\"2026/10/11 (23：59：37)\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-11T23:59:37+08:00\",\"precision\":\"datetime\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文给出完整年月日及时分秒，直接采用。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:seconds",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:seconds:candidate:1",
+            "input_id": "synthetic:time:seconds",
+            "title": "提交报告",
+            "description": "在2026/10/11 23:59:37之前提交报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-11T23:59:37+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026/10/11 (23：59：37)",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:seconds",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:seconds",
+                "field": "text",
+                "quote": "请在2026/10/11 (23：59：37)之前提交报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:seconds",
+                "field": "text",
+                "quote": "2026/10/11 (23：59：37)",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:seconds",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:seconds:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-10-11T23:59:37+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.41
+    },
+    {
+      "name": "missing-year",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:missing-year",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:missing-year",
+            "text": "请于十月一日中午十二点前填好问卷。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-10-01T12:00:00+08:00",
+          "status": "inferred",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"填写问卷\",\"description\":\"填写问卷。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:missing-year\",\"quote\":\"请于十月一日中午十二点前填好问卷。\"}],\"times\":[{\"input_id\":\"synthetic:time:missing-year\",\"quote\":\"十月一日中午十二点前\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-01T12:00:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"missing_year\",\"anchor\":\"published_at\",\"basis\":\"原文只有月日十月一日与时刻中午十二点，按该消息可信发布时间所在年份补年为2026-10-01。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:missing-year",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:missing-year:candidate:1",
+            "input_id": "synthetic:time:missing-year",
+            "title": "填写问卷",
+            "description": "填写问卷。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-01T12:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "inferred",
+              "raw": "十月一日中午十二点前",
+              "basis": "按发布时间 2026-09-29 补全年份。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "按发布时间 2026-09-29 补全年份。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:time:missing-year",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:missing-year",
+                "field": "text",
+                "quote": "请于十月一日中午十二点前填好问卷。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:missing-year",
+                "field": "text",
+                "quote": "十月一日中午十二点前",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:missing-year",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:missing-year:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-10-01T12:00:00+08:00",
+          "status": "inferred",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 3.36
+    },
+    {
+      "name": "collection-year",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:collection-year",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:collection-year",
+            "text": "请于9/30前上传报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-09-30",
+          "status": "inferred",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "date",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"上传报告\",\"description\":\"请于9/30前上传报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:collection-year\",\"quote\":\"请于9/30前上传报告。\"}],\"times\":[{\"input_id\":\"synthetic:time:collection-year\",\"quote\":\"9/30\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-09-30\",\"precision\":\"date\",\"derivation\":\"missing_year\",\"anchor\":\"collected_at\",\"basis\":\"原文只有月日，可信发布时间缺失，按采集时间所在年补为2026-09-30。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:collection-year",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:collection-year:candidate:1",
+            "input_id": "synthetic:time:collection-year",
+            "title": "上传报告",
+            "description": "请于9/30前上传报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-09-30",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "inferred",
+              "raw": "9/30",
+              "basis": "按采集时间 2026-09-29 补全年份。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "按采集时间 2026-09-29 补全年份。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:time:collection-year",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:collection-year",
+                "field": "text",
+                "quote": "请于9/30前上传报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:collection-year",
+                "field": "text",
+                "quote": "9/30",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:collection-year",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:collection-year:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-09-30",
+          "status": "inferred",
+          "kind": "deadline",
+          "precision": "date",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 3.56
+    },
+    {
+      "name": "cross-year",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:cross-year",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-12-31T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:cross-year",
+            "text": "请下个月三号中午十二点前提交课程回顾。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2027-01-03T12:00:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交课程回顾\",\"description\":\"提交课程回顾。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:cross-year\",\"quote\":\"请下个月三号中午十二点前提交课程回顾。\"}],\"times\":[{\"input_id\":\"synthetic:time:cross-year\",\"quote\":\"下个月三号中午十二点\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2027-01-03T12:00:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"relative\",\"anchor\":\"published_at\",\"basis\":\"按该消息可信发布时间2026年12月31日所在月理解下个月为2027年1月。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:cross-year",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:cross-year:candidate:1",
+            "input_id": "synthetic:time:cross-year",
+            "title": "提交课程回顾",
+            "description": "提交课程回顾。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2027-01-03T12:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "下个月三号中午十二点",
+              "basis": "按该消息发布时间 2026-12-31T10:00:00+08:00 换算。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:cross-year",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:cross-year",
+                "field": "text",
+                "quote": "请下个月三号中午十二点前提交课程回顾。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:cross-year",
+                "field": "text",
+                "quote": "下个月三号中午十二点",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:cross-year",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:cross-year:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2027-01-03T12:00:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.72
+    },
+    {
+      "name": "hour-offset",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:hour-offset",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:hour-offset",
+            "text": "请在本通知发布后的三十六小时内提交报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-09-30T22:00:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交报告\",\"description\":\"在本通知发布后三十六小时内提交报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:hour-offset\",\"quote\":\"请在本通知发布后的三十六小时内提交报告。\"}],\"times\":[{\"input_id\":\"synthetic:time:hour-offset\",\"quote\":\"本通知发布后的三十六小时内\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-09-30T22:00:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"offset\",\"anchor\":\"published_at\",\"basis\":\"自该通知可信发布时间2026-09-29T10:00:00+08:00起算三十六小时。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:hour-offset",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:hour-offset:candidate:1",
+            "input_id": "synthetic:time:hour-offset",
+            "title": "提交报告",
+            "description": "在本通知发布后三十六小时内提交报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-09-30T22:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "本通知发布后的三十六小时内",
+              "basis": "按该消息发布时间 2026-09-29T10:00:00+08:00 换算。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:hour-offset",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:hour-offset",
+                "field": "text",
+                "quote": "请在本通知发布后的三十六小时内提交报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:hour-offset",
+                "field": "text",
+                "quote": "本通知发布后的三十六小时内",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:hour-offset",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:hour-offset:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-09-30T22:00:00+08:00",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.81
+    },
+    {
+      "name": "month-end",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:month-end",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:month-end",
+            "text": "本月底之前提交课程报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-09-30",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "date",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交课程报告\",\"description\":\"在本月底之前提交课程报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:month-end\",\"quote\":\"本月底之前提交课程报告。\"}],\"times\":[{\"input_id\":\"synthetic:time:month-end\",\"quote\":\"本月底之前\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-09-30\",\"precision\":\"date\",\"derivation\":\"relative\",\"anchor\":\"published_at\",\"basis\":\"按该消息发布时间2026-09-29所在月份的月末理解为本月底。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:month-end",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:month-end:candidate:1",
+            "input_id": "synthetic:time:month-end",
+            "title": "提交课程报告",
+            "description": "在本月底之前提交课程报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-09-30",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "本月底之前",
+              "basis": "按该消息发布时间 2026-09-29T10:00:00+08:00 换算。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:month-end",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:month-end",
+                "field": "text",
+                "quote": "本月底之前提交课程报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:month-end",
+                "field": "text",
+                "quote": "本月底之前",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:month-end",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:month-end:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-09-30",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "date",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.11
+    },
+    {
+      "name": "no-anchor",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:no-anchor",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:no-anchor",
+            "text": "请明天18点前交报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": null,
+          "status": "unknown",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "unknown",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"提交报告\", \"description\": \"按要求提交报告。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:time:no-anchor\", \"quote\": \"请明天18点前交报告。\"}], \"times\": [{\"input_id\": \"synthetic:time:no-anchor\", \"quote\": \"明天18点\", \"kind\": \"deadline\", \"normalized\": {\"value\": null, \"precision\": \"unknown\", \"derivation\": \"unresolved\", \"anchor\": null, \"basis\": \"“明天”需按被引用消息的可信发布时间换算，本条消息发布时间未知，无法确定具体日期。\"}}], \"review_reasons\": [\"消息发布时间缺失，无法解析“明天18点”对应的具体日期，需核实。\"]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:no-anchor",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:no-anchor:candidate:1",
+            "input_id": "synthetic:time:no-anchor",
+            "title": "提交报告",
+            "description": "按要求提交报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "unknown",
+              "raw": "明天18点",
+              "basis": "“明天”需按被引用消息的可信发布时间换算，本条消息发布时间未知，无法确定具体日期。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "消息发布时间缺失，无法解析“明天18点”对应的具体日期，需核实。",
+              "“明天”需按被引用消息的可信发布时间换算，本条消息发布时间未知，无法确定具体日期。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:time:no-anchor",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:no-anchor",
+                "field": "text",
+                "quote": "请明天18点前交报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:no-anchor",
+                "field": "text",
+                "quote": "明天18点",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:no-anchor",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:no-anchor:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": null,
+          "status": "unknown",
+          "kind": "deadline",
+          "precision": "unknown",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 3.72
+    },
+    {
+      "name": "reference",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:reference",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:reference",
+            "text": "2026-9-29 9:00~12:00有一场随堂小测，请提前认真复习。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-09-29T09:00:00+08:00",
+          "status": "inferred",
+          "kind": "reference",
+          "notice_type": "create",
+          "precision": "datetime",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"复习随堂小测\",\"description\":\"提前认真复习2026年9月29日9:00~12:00的随堂小测。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:reference\",\"quote\":\"2026-9-29 9:00~12:00有一场随堂小测，请提前认真复习。\"}],\"times\":[{\"input_id\":\"synthetic:time:reference\",\"quote\":\"2026-9-29 9:00~12:00有一场随堂小测\",\"kind\":\"reference\",\"normalized\":{\"value\":\"2026-09-29T09:00:00+08:00\",\"precision\":\"datetime\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"小测时间为2026年9月29日9:00~12:00，取活动开始时刻作为参考时间。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:reference",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:reference:candidate:1",
+            "input_id": "synthetic:time:reference",
+            "title": "复习随堂小测",
+            "description": "提前认真复习2026年9月29日9:00~12:00的随堂小测。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-09-29T09:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "reference",
+              "status": "inferred",
+              "raw": "2026-9-29 9:00~12:00有一场随堂小测",
+              "basis": "按原文明确时间归一化。 取活动时间作为参考，并非明确截止。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "按原文明确时间归一化。 取活动时间作为参考，并非明确截止。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:time:reference",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:reference",
+                "field": "text",
+                "quote": "2026-9-29 9:00~12:00有一场随堂小测，请提前认真复习。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:reference",
+                "field": "text",
+                "quote": "2026-9-29 9:00~12:00有一场随堂小测",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:reference",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:reference:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-09-29T09:00:00+08:00",
+          "status": "inferred",
+          "kind": "reference",
+          "precision": "datetime",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.97
+    },
+    {
+      "name": "conflict",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:conflict",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:conflict",
+            "text": "报告的截止日期尚未确认，一处写2026年10月11日，另一处写2026年10月13日；请准备提交。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": null,
+          "status": "conflict",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "unknown",
+          "alternatives": [
+            "2026-10-11",
+            "2026-10-13"
+          ]
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"准备提交报告\",\"description\":\"报告的截止日期尚未确认，一处写2026年10月11日，另一处写2026年10月13日；请准备提交报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:conflict\",\"quote\":\"报告的截止日期尚未确认，一处写2026年10月11日，另一处写2026年10月13日；请准备提交。\"}],\"times\":[{\"input_id\":\"synthetic:time:conflict\",\"quote\":\"2026年10月11日\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-11\",\"precision\":\"date\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文给出含完整年份的日期。\"}},{\"input_id\":\"synthetic:time:conflict\",\"quote\":\"2026年10月13日\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-13\",\"precision\":\"date\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文给出含完整年份的日期。\"}}],\"review_reasons\":[\"原文称截止日期尚未确认，同时给出两个不同日期，需核实以哪个为准。\"]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:conflict",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:conflict:candidate:1",
+            "input_id": "synthetic:time:conflict",
+            "title": "准备提交报告",
+            "description": "报告的截止日期尚未确认，一处写2026年10月11日，另一处写2026年10月13日；请准备提交报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "conflict",
+              "raw": "2026年10月11日",
+              "basis": "同一任务存在多个未消解的时间，请核实。 多条时间原话见 evidence 中的 deadline 证据。",
+              "alternatives": [
+                "2026-10-11",
+                "2026-10-13"
+              ]
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "原文称截止日期尚未确认，同时给出两个不同日期，需核实以哪个为准。",
+              "同一任务存在多个未消解的时间，请核实。 多条时间原话见 evidence 中的 deadline 证据。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:time:conflict",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:conflict",
+                "field": "text",
+                "quote": "报告的截止日期尚未确认，一处写2026年10月11日，另一处写2026年10月13日；请准备提交。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:conflict",
+                "field": "text",
+                "quote": "2026年10月11日",
+                "supports": [
+                  "deadline"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:conflict",
+                "field": "text",
+                "quote": "2026年10月13日",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:conflict",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:conflict:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": null,
+          "status": "conflict",
+          "kind": "deadline",
+          "precision": "unknown",
+          "notice_type": "create",
+          "alternatives": [
+            "2026-10-11",
+            "2026-10-13"
+          ]
+        }
+      ],
+      "elapsed_seconds": 5.05
+    },
+    {
+      "name": "postpone",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:postpone",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:postpone",
+            "text": "报告原定2026年10月11日提交，现延期至2026年10月13日。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2026-10-13",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "postpone",
+          "precision": "date",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交报告\",\"description\":\"报告原定2026年10月11日提交，现延期至2026年10月13日。\",\"prerequisites\":[],\"notice_type\":\"postpone\",\"target\":{\"input_id\":\"synthetic:time:postpone\",\"quote\":\"报告\"},\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:postpone\",\"quote\":\"报告原定2026年10月11日提交，现延期至2026年10月13日。\"}],\"times\":[{\"input_id\":\"synthetic:time:postpone\",\"quote\":\"现延期至2026年10月13日\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-13\",\"precision\":\"date\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文明确新截止日期为2026年10月13日。\"}}],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:postpone",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:postpone:candidate:1",
+            "input_id": "synthetic:time:postpone",
+            "title": "提交报告",
+            "description": "报告原定2026年10月11日提交，现延期至2026年10月13日。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "postpone",
+            "target_reference": "报告",
+            "deadline": {
+              "value": "2026-10-13",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "现延期至2026年10月13日",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:postpone",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:postpone",
+                "field": "text",
+                "quote": "报告原定2026年10月11日提交，现延期至2026年10月13日。",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:postpone",
+                "field": "text",
+                "quote": "报告",
+                "supports": [
+                  "target_reference"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:postpone",
+                "field": "text",
+                "quote": "现延期至2026年10月13日",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:postpone",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:postpone:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2026-10-13",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "date",
+          "notice_type": "postpone",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 4.25
+    },
+    {
+      "name": "invalid-date",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:invalid-date",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:invalid-date",
+            "text": "请于2026年2月30日交报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": null,
+          "status": "unknown",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "unknown",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"提交报告\", \"description\": \"提交报告。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:time:invalid-date\", \"quote\": \"请于2026年2月30日交报告。\"}], \"times\": [{\"input_id\": \"synthetic:time:invalid-date\", \"quote\": \"2026年2月30日\", \"kind\": \"deadline\", \"normalized\": {\"value\": null, \"precision\": \"unknown\", \"derivation\": \"unresolved\", \"anchor\": null, \"basis\": \"原文所写的2026年2月30日不是有效日历日期，无法确定实际截止日。\"}}], \"review_reasons\": [\"原文给出的截止日期“2026年2月30日”在日历中不存在，需发布方确认正确日期。\"]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:invalid-date",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:invalid-date:candidate:1",
+            "input_id": "synthetic:time:invalid-date",
+            "title": "提交报告",
+            "description": "提交报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "unknown",
+              "raw": "2026年2月30日",
+              "basis": "原文所写的2026年2月30日不是有效日历日期，无法确定实际截止日。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "原文给出的截止日期“2026年2月30日”在日历中不存在，需发布方确认正确日期。",
+              "原文所写的2026年2月30日不是有效日历日期，无法确定实际截止日。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:time:invalid-date",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:invalid-date",
+                "field": "text",
+                "quote": "请于2026年2月30日交报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:invalid-date",
+                "field": "text",
+                "quote": "2026年2月30日",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:invalid-date",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:invalid-date:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": null,
+          "status": "unknown",
+          "kind": "deadline",
+          "precision": "unknown",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.91
+    },
+    {
+      "name": "no-date",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:no-date",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:no-date",
+            "text": "请提交课程报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": null,
+          "status": "not_provided",
+          "kind": "unknown",
+          "notice_type": "create",
+          "precision": "unknown",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交课程报告\",\"description\":\"提交课程报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:no-date\",\"quote\":\"请提交课程报告。\"}],\"times\":[],\"review_reasons\":[]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:no-date",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:no-date:candidate:1",
+            "input_id": "synthetic:time:no-date",
+            "title": "提交课程报告",
+            "description": "提交课程报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "not_provided",
+              "raw": null,
+              "basis": "完整正文未提供该行动的时间要求。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:no-date",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:no-date",
+                "field": "text",
+                "quote": "请提交课程报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:no-date",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:no-date:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": null,
+          "status": "not_provided",
+          "kind": "unknown",
+          "precision": "unknown",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 2.22
+    },
+    {
+      "name": "no-task",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:no-task",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:no-task",
+            "text": "谢谢大家，昨天所有报告都已经提交完毕。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [],
+      "passed": true,
+      "model_draft": "{\"tasks\": []}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:no-task",
+        "status": "no_tasks",
+        "tasks": [],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:no-task",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [],
+      "elapsed_seconds": 1.84
+    },
+    {
+      "name": "missing-calendar",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:missing-calendar",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:missing-calendar",
+            "text": "请于学校秋假后的第一个工作日提交报告。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": null,
+          "status": "unknown",
+          "kind": "deadline",
+          "notice_type": "create",
+          "precision": "unknown",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交报告\",\"description\":\"按通知要求，于学校秋假后的第一个工作日提交报告。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:time:missing-calendar\",\"quote\":\"请于学校秋假后的第一个工作日提交报告。\"}],\"times\":[{\"input_id\":\"synthetic:time:missing-calendar\",\"quote\":\"学校秋假后的第一个工作日\",\"kind\":\"deadline\",\"normalized\":{\"value\":null,\"precision\":\"unknown\",\"derivation\":\"unresolved\",\"anchor\":null,\"basis\":\"缺少学校校历及秋假具体日期，无法确定秋假后的第一个工作日。\"}}],\"review_reasons\":[\"缺少学校校历或秋假安排，无法确定“秋假后的第一个工作日”的具体日期。\"]}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:missing-calendar",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:missing-calendar:candidate:1",
+            "input_id": "synthetic:time:missing-calendar",
+            "title": "提交报告",
+            "description": "按通知要求，于学校秋假后的第一个工作日提交报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "unknown",
+              "raw": "学校秋假后的第一个工作日",
+              "basis": "缺少学校校历及秋假具体日期，无法确定秋假后的第一个工作日。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "缺少学校校历或秋假安排，无法确定“秋假后的第一个工作日”的具体日期。",
+              "缺少学校校历及秋假具体日期，无法确定秋假后的第一个工作日。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:time:missing-calendar",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:missing-calendar",
+                "field": "text",
+                "quote": "请于学校秋假后的第一个工作日提交报告。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:missing-calendar",
+                "field": "text",
+                "quote": "学校秋假后的第一个工作日",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:missing-calendar",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:missing-calendar:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": null,
+          "status": "unknown",
+          "kind": "deadline",
+          "precision": "unknown",
+          "notice_type": "create",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 3.17
+    },
+    {
+      "name": "context-anchor",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "smoke:context-anchor",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "unknown",
+            "published_at": {
+              "value": "2026-09-29T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-29T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成测试课程",
+            "context": [
+              {
+                "input_id": "synthetic:old",
+                "text": "请后天交实验报告。",
+                "published_at": {
+                  "value": "2024-09-29",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "timezone": "Asia/Shanghai",
+                "platform": "unknown",
+                "source_url": null,
+                "source_label": "合成原通知"
+              }
+            ],
+            "upstream_hints": null,
+            "input_id": "synthetic:time:context-anchor",
+            "text": "补充要求：实验报告需附代码，截止日期仍按原通知。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "value": "2024-10-01",
+          "status": "explicit",
+          "kind": "deadline",
+          "notice_type": "update",
+          "precision": "date",
+          "alternatives": []
+        }
+      ],
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"提交需附代码的实验报告\", \"description\": \"补充要求：实验报告需附代码，截止日期仍按原通知执行。\", \"prerequisites\": [], \"notice_type\": \"update\", \"target\": {\"input_id\": \"synthetic:time:context-anchor\", \"quote\": \"实验报告\"}, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:time:context-anchor\", \"quote\": \"补充要求：实验报告需附代码，截止日期仍按原通知。\"}, {\"input_id\": \"synthetic:old\", \"quote\": \"请后天交实验报告。\"}], \"times\": [{\"input_id\": \"synthetic:old\", \"quote\": \"后天\", \"kind\": \"deadline\", \"normalized\": {\"value\": \"2024-10-01\", \"precision\": \"date\", \"derivation\": \"relative\", \"anchor\": \"published_at\", \"basis\": \"按原通知自身发布时间2024-09-29计算后天。\"}}], \"review_reasons\": []}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "smoke:context-anchor",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:time:context-anchor:candidate:1",
+            "input_id": "synthetic:time:context-anchor",
+            "title": "提交需附代码的实验报告",
+            "description": "补充要求：实验报告需附代码，截止日期仍按原通知执行。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "update",
+            "target_reference": "实验报告",
+            "deadline": {
+              "value": "2024-10-01",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "后天",
+              "basis": "按该消息发布时间 2024-09-29 换算。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:time:context-anchor",
+                "platform": "unknown",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              },
+              {
+                "input_id": "synthetic:old",
+                "platform": "unknown",
+                "url": null,
+                "label": "合成原通知",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:time:context-anchor",
+                "field": "text",
+                "quote": "补充要求：实验报告需附代码，截止日期仍按原通知。",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:old",
+                "field": "text",
+                "quote": "请后天交实验报告。",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:time:context-anchor",
+                "field": "text",
+                "quote": "实验报告",
+                "supports": [
+                  "target_reference"
+                ]
+              },
+              {
+                "input_id": "synthetic:old",
+                "field": "text",
+                "quote": "后天",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:time:context-anchor",
+            "status": "success",
+            "task_ids": [
+              "synthetic:time:context-anchor:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "value": "2024-10-01",
+          "status": "explicit",
+          "kind": "deadline",
+          "precision": "date",
+          "notice_type": "update",
+          "alternatives": []
+        }
+      ],
+      "elapsed_seconds": 23.19
+    }
+  ]
+}

@@ -71,6 +71,7 @@ class SourceSyncTests(unittest.TestCase):
             if os.name == 'posix':
                 self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
             self.assertEqual(kwargs['encoding'], 'utf-8')
+            self.assertEqual(kwargs['timeout'], 300)
             return SimpleNamespace(returncode=0, stdout=json.dumps(request, ensure_ascii=False) + '\n')
         with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', side_effect=run):
             self.call('/api/sources/sync', {'sources': ['teaching_web']})
@@ -87,7 +88,8 @@ class SourceSyncTests(unittest.TestCase):
         paths = []
         def timeout(_command, **kwargs):
             paths.append(Path(kwargs['env']['PKU_SECRET_PATH']))
-            raise subprocess.TimeoutExpired('crawler', 55)
+            self.assertEqual(kwargs['timeout'], 300)
+            raise subprocess.TimeoutExpired('crawler', 300)
         with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', side_effect=timeout):
             with self.assertRaises(app.ApiError) as failed:
                 self.call('/api/sources/sync', {'sources': ['teaching_web']})

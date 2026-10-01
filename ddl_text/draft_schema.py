@@ -1,5 +1,6 @@
 """Generation shape only; exact evidence and business rules remain in compiler."""
 
+from .time_validation import normalized_time_schema
 
 def _object(properties):
     return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
@@ -21,7 +22,12 @@ def draft_schema(record):
         "target": nullable_reference, "course": course,
         "evidence": {"type": "array", "items": reference},
         "times": {"type": "array", "items": _object({"input_id": text, "quote": text,
-                                                        "kind": {"type": "string", "enum": ["deadline", "reference"]}})},
+                                                        "kind": {"type": "string", "enum": ["deadline", "reference", "urgency"]},
+                                                        "normalized": normalized_time_schema()})},
         "review_reasons": strings,
+        "relevance": _object({
+            "state": {"type": "string", "enum": ["current", "ongoing", "historical", "uncertain"]},
+            "reason": text, "evidence": {"type": "array", "items": reference},
+        }),
     })
     return _object({"tasks": {"type": "array", "items": task}})

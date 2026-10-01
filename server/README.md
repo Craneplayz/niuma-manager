@@ -19,6 +19,7 @@ server/
 在 `frontend/` 运行 `npm run dev:api` 启动业务 API，运行 `npm run dev:planning` 启动规划服务。
 在 `frontend/` 运行 `npm test` 执行前端、业务 API 与规划服务测试。
 文本识别请求等待 95 秒，配合识别服务 90 秒预算及前端 100 秒等待；本设置不改变规划接口的超时。
+教学网同步最多等待 300 秒，真实账号采集实测约 2 分钟。
 教学网同步需安装 `server/requirements.txt` 与 `crawler/` 依赖；用户在识别审核页保存一次教学网凭据，密码按账号加密入库，密钥位于数据库同目录的 `credential.key` 且不会提交；采集时使用权限为 0600 的临时文件并在结束后删除。
 备份数据库时需同时安全备份 `credential.key`，密钥丢失后须重新保存教学网凭据。
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。

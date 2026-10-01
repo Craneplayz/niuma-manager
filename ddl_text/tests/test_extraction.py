@@ -10,7 +10,9 @@ from pathlib import Path
 
 from ddl_text.adapters import AgentError
 from ddl_text.contracts import normalize_record
-from ddl_text.dates import combine_times, resolve_time
+from ddl_text.dates import combine_times
+from ddl_text.time_validation import validate_time
+from ddl_text.tests.test_normalized_time import proposal
 from ddl_text.extraction import ExtractionAdapter, OfflineDraftClient, compile_drafts
 from ddl_text.pipeline import process_request
 
@@ -35,6 +37,12 @@ def ref(record, quote, **extra):
     return dict({"input_id": record["input_id"], "quote": quote}, **extra)
 
 
+def time_ref(record, quote, value=None, **kwargs):
+    item = proposal(quote, value, **kwargs)
+    item["input_id"] = record["input_id"]
+    return item
+
+
 def compile_tasks(record, *drafts):
     return compile_drafts(json.dumps({"tasks": drafts}, ensure_ascii=False), record)
 
@@ -51,144 +59,13 @@ class CheckingClient:
         return json.dumps({"tasks": [draft(record)]})
 
 
-class DateTests(unittest.TestCase):
-    def test_unresolved_time_preserves_kind_and_source_zone(self):
-        record = message(published_at={"value": None, "precision": "unknown", "basis": "unknown"})
-        for kind in ("deadline", "reference"):
-            for phrase in ("明天18点", "月底", "24小时后", "2026-02-30"):
-                with self.subTest(kind=kind, phrase=phrase):
-                    result = combine_times([resolve_time(phrase, record, kind)])
-                    self.assertEqual((result["value"], result["kind"], result["timezone"]),
-                                     (None, kind, "Asia/Shanghai"))
-
-    def test_ambiguous_twelve_and_contradictory_period_are_reviewable(self):
-        for phrase in ("明晚12点", "明天晚上12点", "明天上午12点", "明晚上午6点"):
-            with self.subTest(phrase=phrase):
-                self.assertIsNone(resolve_time(phrase, message(), "deadline")["value"])
-        self.assertEqual(resolve_time("明天12点", message(), "deadline")["value"],
-                         "2027-01-01T12:00:00+08:00")
-
-    def test_conflict_preserves_common_zone_but_not_mixed_zones(self):
-        values = [resolve_time(p, message(), "reference") for p in ("2026-09-25", "2026-09-28")]
-        result = combine_times(values)
-        self.assertEqual((result["kind"], result["timezone"], result["status"]),
-                         ("reference", "Asia/Shanghai", "conflict"))
-        values[1] = resolve_time("2026-09-28", message(timezone="UTC"), "reference")
-        self.assertIsNone(combine_times(values)["timezone"])
-
-    def test_relative_cross_year_and_week(self):
-        for phrase, value in [("明天18点", "2027-01-01T18:00:00+08:00"),
-                              ("后天", "2027-01-02"), ("本周一", "2026-12-28"),
-                              ("下周五", "2027-01-08"), ("24小时后", "2027-01-01T10:00:00+08:00")]:
-            with self.subTest(phrase=phrase):
-                self.assertEqual(resolve_time(phrase, message(), "deadline")["value"], value)
-
-    def test_reference_event_is_inferred(self):
-        result = resolve_time("明晚6:40", message(), "reference")
-        self.assertEqual((result["value"], result["status"], result["kind"]),
-                         ("2027-01-01T18:40:00+08:00", "inferred", "reference"))
-
-    def test_date_precision_no_end_of_day(self):
-        result = resolve_time("2026年9月30日", message(), "deadline")
-        self.assertEqual((result["value"], result["precision"]), ("2026-09-30", "date"))
-        self.assertEqual(resolve_time("2028-02-29下午6点30分", message(), "deadline")["value"],
-                         "2028-02-29T18:30:00+08:00")
-
-    def test_unknown_phrases_and_invalid_dates(self):
-        for phrase in ["周五", "尽快", "月底", "明晚", "2026-02-30", "明天25点",
-                       "明天18:99", "2026年9月30日至2026年10月1日", "明天中午1点"]:
-            with self.subTest(phrase=phrase):
-                self.assertIsNone(resolve_time(phrase, message(), "deadline")["value"])
-
-    def test_missing_year_nearest_date_and_precision(self):
-        cases = [("2026-09-25", "9月30日18点", "2026-09-30T18:00:00+08:00"),
-                 ("2026-12-31", "1月5日", "2027-01-05"),
-                 ("2027-01-02", "12月30号", "2026-12-30"),
-                 ("2026-09-25", "9月20日", "2026-09-20"),
-                 ("2026-09-25", "9月20日截止", "2026-09-20"),
-                 ("2026-09-25", "截至9月30日18点", "2026-09-30T18:00:00+08:00"),
-                 ("2026-09-25", "9月30日18点前", "2026-09-30T18:00:00+08:00"),
-                 ("2027-12-31", "2月29日", "2028-02-29"),
-                 ("2026-09-25", "9/30", "2026-09-30"),
-                 ("2026-09-25", "9-30", "2026-09-30"),
-                 ("2026-09-25", "9.30", "2026-09-30")]
-        for published, phrase, expected in cases:
-            with self.subTest(phrase=phrase, published=published):
-                record = message(published_at={"value": published, "precision": "date", "basis": "source"})
-                result = resolve_time(phrase, record, "deadline")
-                self.assertEqual(result["value"], expected)
-                self.assertEqual(result["status"], "inferred")
-                self.assertEqual(result["raw"], phrase)
-                self.assertIn(published, result["basis"])
-
-    def test_missing_year_anchor_priority_and_fallback(self):
-        record = message(published_at={"value": "2020-09-25", "precision": "date", "basis": "source"},
-                         collected_at="2026-09-25T12:00:00+08:00")
-        self.assertEqual(resolve_time("9月30日", record, "deadline")["value"], "2020-09-30")
-        record["published_at"] = {"value": "2024-01-01", "precision": "date", "basis": "upstream_unverified"}
-        result = resolve_time("9月30日", record, "deadline")
-        self.assertEqual(result["value"], "2026-09-30")
-        self.assertIn("采集时间", result["basis"])
-        self.assertIsNone(resolve_time("明天", record, "deadline")["value"])
-        record["collected_at"] = None
-        self.assertIsNone(resolve_time("9月30日", record, "deadline")["value"])
-
-    def test_explicit_year_and_year_qualifiers_take_precedence(self):
-        for phrase, expected in [("2028年9月30日", "2028-09-30"), ("今年1月5日", "2026-01-05"),
-                                 ("明年9月30日", "2027-09-30"), ("去年9月30日", "2025-09-30")]:
-            with self.subTest(phrase=phrase):
-                result = resolve_time(phrase, message(), "deadline")
-                self.assertEqual(result["value"], expected)
-                self.assertEqual(result["status"], "explicit")
-        for phrase in ("2月30日", "2月29日", "13月1日", "9月30日25点"):
-            self.assertIsNone(resolve_time(phrase, message(), "deadline")["value"])
-
-    def test_missing_year_uses_local_day_and_preserves_reference(self):
-        record = message(published_at={"value": "2026-12-31T20:00:00Z", "precision": "datetime", "basis": "source"})
-        result = resolve_time("1月2日18点", record, "reference")
-        self.assertEqual(result["value"], "2027-01-02T18:00:00+08:00")
-        self.assertEqual((result["kind"], result["status"]), ("reference", "inferred"))
-        self.assertIn("2027-01-01", result["basis"])
-
-    def test_collection_and_unverified_publication_cannot_anchor(self):
-        for publication in [{"value": None, "precision": "unknown", "basis": "unknown"},
-                            {"value": "2026-09-15", "precision": "date", "basis": "upstream_unverified"}]:
-            record = message(published_at=publication, collected_at="2026-09-15T20:00:00+08:00")
-            self.assertIsNone(resolve_time("明天18点", record, "deadline")["value"])
-
-    def test_date_only_base_cannot_anchor_hour_offset(self):
-        record = message(published_at={"value": "2026-12-31", "precision": "date", "basis": "source"})
-        self.assertEqual(resolve_time("明天", record, "deadline")["value"], "2027-01-01")
-        self.assertIsNone(resolve_time("24小时后", record, "deadline")["value"])
-
-    def test_missing_or_unsupported_zone_does_not_use_server(self):
-        for name, basis in [(None, "unknown"), ("Unknown/Zone", "source")]:
-            record = message(timezone=name, timezone_basis=basis)
-            self.assertIsNone(resolve_time("明天", record, "deadline")["value"])
-            self.assertIsNone(resolve_time("2026-09-30T18:00", record, "deadline")["value"])
-            self.assertEqual(resolve_time("2026-09-30", record, "deadline")["value"], "2026-09-30")
-
-    def test_publication_uses_source_local_day(self):
-        record = message(published_at={"value": "2026-12-31T20:00:00+00:00", "precision": "datetime", "basis": "source"})
-        self.assertEqual(resolve_time("明天", record, "deadline")["value"], "2027-01-02")
-
-    def test_conflict_and_unsupported_second_time(self):
-        values = [resolve_time(p, message(), "deadline") for p in ["2026-09-25", "2026-09-28"]]
-        result = combine_times(values)
-        self.assertEqual(result["alternatives"], ["2026-09-25", "2026-09-28"])
-        self.assertEqual(result["status"], "conflict")
-        self.assertIsNone(result["value"])
-        self.assertEqual(combine_times(values[:1] * 2)["value"], "2026-09-25")
-        self.assertIsNone(combine_times(values + [resolve_time("月底", message(), "deadline")])["value"])
-
-
 class ExtractionTests(unittest.TestCase):
     def test_explicit_numeric_deadline_survives_urgency(self):
         for separator in ('.', '/', '-'):
             phrase = separator.join(('2026', '9', '29')) + ' 9:00'
             record = message('请于' + phrase + '前交课程内容回顾，请大家尽快完成。')
             task = compile_tasks(record, draft(record, times=[
-                ref(record, phrase, kind='deadline'), ref(record, '尽快', kind='deadline')]))[0]
+                time_ref(record, phrase, '2026-09-29T09:00:00+08:00'), time_ref(record, '尽快', kind='urgency', derivation='unresolved')]))[0]
             self.assertEqual(task['deadline']['value'], '2026-09-29T09:00:00+08:00')
             self.assertEqual(task['deadline']['status'], 'explicit')
             self.assertFalse(task['needs_review'])
@@ -196,37 +73,86 @@ class ExtractionTests(unittest.TestCase):
 
     def test_urgency_alone_and_real_conflicts_remain_uncertain(self):
         record = message()
-        urgency = resolve_time('尽快', record, 'deadline')
+        urgency = validate_time(time_ref(record, '尽快', kind='urgency', derivation='unresolved'), record)
         self.assertIsNone(combine_times([urgency])['value'])
-        dates = [resolve_time(p, record, 'deadline') for p in ('2026.9.29 9:00', '2026.9.30 9:00')]
+        dates = [validate_time(time_ref(record, p, p), record) for p in ('2026-09-29', '2026-09-30')]
         self.assertEqual(combine_times(dates + [urgency])['status'], 'conflict')
-        self.assertIsNone(combine_times(dates[:1] + [resolve_time('月底', record, 'deadline')])['value'])
-        self.assertIsNone(resolve_time('2026.2.30 9:00', record, 'deadline')['value'])
+        uncertain = validate_time(time_ref(record, '另一个尚未确定的日期', derivation='unresolved'), record)
+        self.assertIsNone(combine_times(dates[:1] + [uncertain])['value'])
+        self.assertEqual(combine_times(dates[:1] * 2)['value'], '2026-09-29')
 
     def test_exam_interval_is_only_a_reference(self):
         raw = '2026-9-29 9:00~12:00'
-        result = resolve_time(raw, message(), 'reference')
+        record = message(raw + '有小测，请复习。')
+        result = compile_tasks(record, draft(record, title='复习', times=[time_ref(
+            record, raw, '2026-09-29T09:00:00+08:00', kind='reference')]))[0]['deadline']
         self.assertEqual((result['value'], result['kind'], result['raw']),
                          ('2026-09-29T09:00:00+08:00', 'reference', raw))
         self.assertEqual(result['status'], 'inferred')
-        self.assertIsNone(resolve_time(raw, message(), 'deadline')['value'])
-        self.assertIsNone(resolve_time('2026-9-29 12:00~9:00', message(), 'reference')['value'])
+
+    def test_urgency_filter_uses_role_and_keeps_literal_evidence(self):
+        record = message('2026年10月11日前提交报告；麻烦大家抓点紧呀。')
+        task = compile_tasks(record, draft(record, times=[
+            time_ref(record, '2026年10月11日', '2026-10-11'),
+            time_ref(record, '麻烦大家抓点紧呀', kind='urgency', derivation='unresolved')]))[0]
+        self.assertEqual(task['deadline']['value'], '2026-10-11')
+        self.assertFalse(task['needs_review'])
+        self.assertIn('麻烦大家抓点紧呀', [e['quote'] for e in task['evidence']])
+
+    def test_same_date_does_not_promote_reference_to_deadline(self):
+        record = message()
+        explicit = validate_time(time_ref(record, '完整日期', '2026-09-30'), record)
+        inferred = validate_time(time_ref(record, '缺年活动日期', '2026-09-30', kind='reference',
+                                         derivation='missing_year', anchor='published_at'), record)
+        for items in ([explicit, inferred], [inferred, explicit]):
+            self.assertEqual(combine_times(items)['status'], 'unknown')
+        self.assertEqual(explicit['status'], 'explicit')
+
+    def test_context_missing_anchor_cannot_borrow_current_publication(self):
+        old = message('明天交报告。', input_id='old',
+                      published_at={'value': None, 'precision': 'unknown', 'basis': 'unknown'})
+        record = message('报告按原时间提交。', context=[old])
+        task = compile_tasks(record, draft(record, times=[time_ref(old, '明天', '2027-01-01',
+                            derivation='relative', anchor='published_at')]))[0]
+        self.assertIsNone(task['deadline']['value'])
+        self.assertTrue(task['needs_review'])
+
+    def test_normalized_value_cannot_bypass_evidence_membership(self):
+        record = message('请于二〇二六年十月十一日提交作业。')
+        item = time_ref(record, '二〇二六年十月十一日', '2026-10-11')
+        self.assertEqual(compile_tasks(record, draft(record, times=[item]))[0]['deadline']['value'], '2026-10-11')
+        item['quote'] = '2026-10-11'
+        with self.assertRaises(AgentError):
+            compile_tasks(record, draft(record, times=[item]))
+
+    def test_bad_normalized_time_preserves_task_for_review(self):
+        record = message('请于2月30日交报告。')
+        item = time_ref(record, '2月30日', '2026-02-30')
+        task = compile_tasks(record, draft(record, times=[item]))[0]
+        self.assertEqual(task['deadline']['status'], 'unknown')
+        self.assertTrue(task['needs_review'])
+
+    def test_legacy_time_draft_is_protocol_error_not_silent_fallback(self):
+        record = message()
+        with self.assertRaises(AgentError):
+            compile_tasks(record, draft(record, times=[ref(record, '明天18点', kind='deadline')]))
 
     def test_missing_year_context_uses_its_own_anchor_and_keeps_evidence(self):
         old = message("请9月30日18点前交报告。", input_id="old",
                       published_at={"value": "2024-09-25", "precision": "date", "basis": "source"})
         record = message("报告按之前的时间提交。", context=[old])
         task = compile_tasks(record, draft(record, notice_type="update", target=ref(old, "报告"),
-                             times=[ref(old, "9月30日18点", kind="deadline")]))[0]
+                             times=[time_ref(old, "9月30日18点", "2024-09-30T18:00:00+08:00", derivation="missing_year", anchor="published_at")]))[0]
         self.assertEqual(task["deadline"]["value"], "2024-09-30T18:00:00+08:00")
-        self.assertEqual(task["deadline"]["status"], "inferred")
-        self.assertTrue(task["needs_review"])
+        self.assertEqual(task["deadline"]["status"], "explicit")
+        self.assertFalse(task["needs_review"])
         self.assertEqual(task["deadline"]["raw"], "9月30日18点")
-        self.assertIn(task["deadline"]["basis"], task["review_reasons"])
+        self.assertIn("2024-09-25", task["deadline"]["basis"])
+        self.assertEqual(task["review_reasons"], [])
 
     def test_unresolved_reference_and_no_date_keep_zone(self):
         record = message("月底开课，请提前加群。")
-        task = compile_tasks(record, draft(record, times=[ref(record, "月底", kind="reference")]))[0]
+        task = compile_tasks(record, draft(record, times=[time_ref(record, "月底", kind="reference", derivation="unresolved", basis="活动时刻尚不明确。")]))[0]
         self.assertEqual((task["deadline"]["status"], task["deadline"]["kind"]), ("unknown", "reference"))
         self.assertTrue(task["needs_review"])
         no_date = compile_tasks(record, draft(record))[0]["deadline"]
@@ -252,15 +178,15 @@ class ExtractionTests(unittest.TestCase):
 
     def test_multiple_tasks_keep_own_times(self):
         record = message("请明天交报告，后天填问卷。")
-        tasks = compile_tasks(record, draft(record, times=[ref(record, "明天", kind="deadline")]),
-                              draft(record, title="填问卷", times=[ref(record, "后天", kind="deadline")]))
+        tasks = compile_tasks(record, draft(record, times=[time_ref(record, "明天", "2027-01-01", derivation="relative", anchor="published_at")]),
+                              draft(record, title="填问卷", times=[time_ref(record, "后天", "2027-01-02", derivation="relative", anchor="published_at")]))
         self.assertEqual([t["deadline"]["value"] for t in tasks], ["2027-01-01", "2027-01-02"])
         self.assertNotEqual(tasks[0]["candidate_id"], tasks[1]["candidate_id"])
 
     def test_group_prerequisites_and_missing_wechat_link(self):
         record = message("明晚6:40开课，请查邮箱获取班号，提前加群。", platform="wechat", source_label="合成课程群")
         task = compile_tasks(record, draft(record, title="加群", prerequisites=["查邮箱获取班号"],
-                            times=[ref(record, "明晚6:40", kind="reference")]))[0]
+                            times=[time_ref(record, "明晚6:40", "2027-01-01T18:40:00+08:00", kind="reference", derivation="relative", anchor="published_at")]))[0]
         self.assertEqual(task["deadline"]["kind"], "reference")
         self.assertTrue(task["needs_review"])
         self.assertIsNone(task["sources"][0]["url"])
@@ -270,14 +196,14 @@ class ExtractionTests(unittest.TestCase):
         old = message("请明天交实验报告。", input_id="old", published_at={"value": "2026-09-20", "precision": "date", "basis": "source"})
         record = message("补充：实验报告需附源代码。", context=[old])
         task = compile_tasks(record, draft(record, notice_type="update", target=ref(old, "实验报告"),
-                            times=[ref(old, "明天", kind="deadline")]))[0]
+                            times=[time_ref(old, "明天", "2026-09-21", derivation="relative", anchor="published_at")]))[0]
         self.assertEqual(task["deadline"]["value"], "2026-09-21")
         self.assertEqual([s["input_id"] for s in task["sources"]], ["m", "old"])
 
     def test_postpone_uses_new_time_and_cancel_unknown_target(self):
         record = message("报告原定2026-09-25提交，延期到2026-09-28。")
         task = compile_tasks(record, draft(record, notice_type="postpone", target=ref(record, "报告"),
-                            times=[ref(record, "2026-09-28", kind="deadline")]))[0]
+                            times=[time_ref(record, "2026-09-28", "2026-09-28")]))[0]
         self.assertEqual(task["deadline"]["value"], "2026-09-28")
         self.assertEqual(task["target_reference"], "报告")
         task = compile_tasks(message("那个作业取消了。"), draft(message("那个作业取消了。"), notice_type="cancel"))[0]
@@ -298,7 +224,7 @@ class ExtractionTests(unittest.TestCase):
         for change in [{"evidence": [ref(record, "不存在的文字")]},
                        {"evidence": [{"input_id": "someone-else", "quote": record["text"]}]},
                        {"source_url": "https://fabricated.invalid"},
-                       {"times": [ref(record, "2026-01-01", kind="deadline")]}]:
+                       {"times": [time_ref(record, "2026-01-01", "2026-01-01")]}]:
             with self.subTest(change=change), self.assertRaises(AgentError):
                 compile_tasks(record, draft(record, **change))
 
@@ -318,7 +244,7 @@ class ExtractionTests(unittest.TestCase):
     def test_partial_text_flags_task_and_does_not_mutate_inputs(self):
         record = message(text_quality="summary")
         original = deepcopy(record)
-        task = compile_tasks(record, draft(record, times=[ref(record, "明天18点", kind="deadline")]))[0]
+        task = compile_tasks(record, draft(record, times=[time_ref(record, "明天18点", "2027-01-01T18:00:00+08:00", derivation="relative", anchor="published_at")]))[0]
         self.assertEqual(record, original)
         self.assertTrue(task["needs_review"])
 
@@ -351,6 +277,20 @@ class ExtractionTests(unittest.TestCase):
         self.assertIn("非真实模型调用", result.stdout)
         result = subprocess.run(command + ["--mode", "real"], cwd=ROOT, capture_output=True, encoding="utf-8")
         self.assertEqual(result.returncode, 2)
+
+    def test_recorded_live_time_drafts_compile_without_provider_calls(self):
+        from ddl_text.tests.run_time_smoke import signature
+        from ddl_text.tests.time_cases import CASES
+        expectations = {case['name']: case['expected'] for case in CASES}
+        report = json.loads((ROOT / 'ddl_text/docs/archive/2026-09-29-issue79-time-live.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(report['cases']), 20)
+        for case in report['cases']:
+            with self.subTest(case=case['name']):
+                tasks = compile_drafts(case['model_draft'], case['request']['records'][0])
+                self.assertEqual(sorted([signature(t) for t in tasks], key=repr),
+                                 # Historical reports keep their original expectations;
+                                 # replay uses the currently approved year policy.
+                                 sorted(expectations[case['name']], key=repr))
 
 
 if __name__ == "__main__":

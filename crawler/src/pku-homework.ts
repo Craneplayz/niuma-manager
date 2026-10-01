@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { DateTime } from "luxon";
 import { chromium, type Browser, type Page } from "playwright";
 import { DEFAULT_TIMEZONE, parseEventTime } from "./core/time.js";
+import { enrichAssignmentSources } from "./pku-assignment.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const PKU_LOGIN_URL = `${PKU_ORIGIN}/webapps/bb-sso-BBLEARN/login.html`;
@@ -131,7 +132,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       }
     }
 
-    const sourceRecords = deduplicateCourseSources(sources);
+    const sourceRecords = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
     return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), { asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords });
   } finally {
     await closeBrowser(browser);
@@ -152,7 +153,7 @@ export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: { 
     undated_records: deduplicated.filter((record) => record.status === "no_deadline").length,
     source_records: context.sourceRecords ?? [],
     source_records_found: context.sourceRecords?.length ?? 0,
-    coverage_warnings: ["Only course landing pages and their linked content lists were inspected; nested folders, additional detail pages and attachment contents were not read."],
+    coverage_warnings: ["Course landing pages, linked content lists and native assignment details were inspected when available; nested folders, other detail pages and attachment contents were not read."],
     records: deduplicated,
     upcoming: filterUpcomingHomeworks(deduplicated, context.asOf),
   };

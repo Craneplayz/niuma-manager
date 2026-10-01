@@ -25,7 +25,8 @@ export interface RecognitionRecord {
     section: string;
     references: CourseSourceRecord["references"];
     warnings: string[];
-    raw: { title: string; body: string; publication_time: string | null };
+    assignment?: CourseSourceRecord["assignment"];
+    raw: { title: string; body: string; publication_time: string | null; assignment_due_date?: string | null };
   };
 }
 export interface RecognitionRequest {
@@ -52,7 +53,11 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
       upstream_hints: {
         source_kind: source.kind, section: source.section,
         references: source.references.map((reference) => ({ ...reference })), warnings: [...source.warnings],
-        raw: { title: source.title, body: source.body, publication_time: source.publication_raw },
+        ...(source.assignment ? { assignment: { ...source.assignment } } : {}),
+        raw: {
+          title: source.title, body: source.body, publication_time: source.publication_raw,
+          ...(source.assignment ? { assignment_due_date: source.assignment.due_raw } : {}),
+        },
       },
     };
   });
