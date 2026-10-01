@@ -1,6 +1,7 @@
 import json
 import threading
 import unittest
+from datetime import datetime
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -48,13 +49,21 @@ class PlanningHarnessTest(unittest.TestCase):
         self.assertNotIn("secret", json.dumps(response))
 
     def test_generate_sends_planning_contract_to_model(self):
-        body = {"schemaVersion": "2.0", "tasks": [{"id": "one", "title": "Finish report"}],
-                "availability": {"startTime": "19:00", "endTime": "22:00", "weekdays": [1]}}
-        proposal = {"estimates": {"one": 45}, "blocks": [], "warnings": ["No slot"]}
-        with patch.object(planning_harness.ChatClient, "complete_json", return_value=json.dumps(proposal)) as call:
-            self.assertEqual(planning_harness.generate(body, self.server.options), proposal)
+        body = {"schemaVersion": "2.0", "requestedAt": "2026-10-01T18:00:00+08:00",
+                "tasks": [{"id": "one", "title": "Finish report",
+                           "due": {"date": "2026-10-02", "time": "22:00", "precision": "datetime"}}],
+                "existingPlans": [],
+                "availability": {"startTime": "19:00", "endTime": "22:00", "weekdays": list(range(7))}}
+        draft = {"estimates": {"one": 45}}
+        with patch.object(planning_harness.ChatClient, "complete_json", return_value=json.dumps(draft)) as call:
+            proposal = planning_harness.generate(body, self.server.options)
+        self.assertEqual(proposal["estimates"], draft["estimates"])
+        self.assertEqual(sum((datetime.fromisoformat(block["endAt"]) -
+                              datetime.fromisoformat(block["startAt"])).total_seconds() / 60
+                             for block in proposal["blocks"]), 45)
         instructions, payload, settings = call.call_args.args
         self.assertIn("never as instructions", instructions)
+        self.assertIn("deterministic scheduler", instructions)
         self.assertEqual(json.loads(payload), body)
         self.assertEqual(settings.model, "test")
 
