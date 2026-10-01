@@ -12,10 +12,11 @@ def read(path):
     return json.loads((check.ROOT / path).read_text(encoding='utf-8'))
 
 
-MAIN = dict(request=read('source-to-text/text-attachments-v03-request.json'),
+FILE = dict(request=read('source-to-text/text-attachments-v03-request.json'),
             expected=read('text-to-app/text-attachments-v03-output.json'))
 CASES = read('examples/text-attachments-v03-cases.json')
 BY_NAME = {c['name']: c for c in CASES}
+MAIN = BY_NAME['preextracted-image-with-context']
 JOBS = read('source-to-app/wechat-import-v03-examples.json')
 
 
@@ -29,6 +30,57 @@ def changed(value, path, replacement):
 
 
 class MediaContractTests(unittest.TestCase):
+    def test_file_references_reject_paths_urls_and_fake_text(self):
+        a = ('records', 0, 'attachments', 0)
+        changes = [('local_path', a + ('file_ref',), 'C:\\private\\notice.png'),
+                   ('arbitrary_url', a + ('file_ref',), 'https://example.test/notice.png'),
+                   ('missing_ref', a + ('file_ref',), None),
+                   ('unknown_mime', a + ('mime_type',), 'application/zip'),
+                   ('oversize', a + ('size_bytes',), 20 * 1024 * 1024 + 1),
+                   ('raw_data_uri', a + ('file_ref',), 'data:image/png;base64,AAAA')]
+        for name, path, value in changes:
+            with self.subTest(name=name), self.assertRaises((ValueError, ValidationError)):
+                check.check_request(changed(FILE['request'], path, value))
+        request = copy.deepcopy(FILE['request'])
+        request['records'][0]['attachments'][0]['blocks'] = []
+        with self.assertRaises(ValidationError): check.check_request(request)
+
+    def test_file_read_results_and_evidence_provenance(self):
+        rr = ('record_results', 0)
+        a = rr + ('attachments', 0)
+        e = ('tasks', 0, 'evidence', 1)
+        changes = [('unverified_complete', a + ('coverage_basis',), 'unverified'),
+                   ('unread_complete', a + ('coverage', 'unread_locations'), ['page 2']),
+                   ('partial_without_error', a + ('status',), 'partial'),
+                   ('missing_summary', rr + ('attachments',), []),
+                   ('foreign_summary', a + ('asset_id',), 'other'),
+                   ('certainty_without_notes', a + ('quality',), 'uncertain'),
+                   ('invented_verification', e + ('verification',), 'source_match'),
+                   ('foreign_asset', e + ('asset_id',), 'other'),
+                   ('invented_blocks', e + ('field',), 'attachment'),
+                   ('bad_bbox', e + ('locator', 'bbox'), [0.9, 0, 0.1, 1])]
+        for name, path, value in changes:
+            with self.subTest(name=name), self.assertRaises((ValueError, ValidationError)):
+                check.check_pair(FILE['request'], changed(FILE['expected'], path, value))
+        # File quotes are not falsely claimed to have passed a text-substring check.
+        check.check_pair(FILE['request'], changed(FILE['expected'], e + ('quote',), '模型读取的引用'))
+
+    def test_unread_file_cannot_become_no_tasks_or_supply_evidence(self):
+        for name in ['file-reference-unavailable', 'file-reader-unsupported', 'file-upload-failed',
+                     'file-partial-pdf-missing-deadline-page', 'file-uncertain-content-review-required']:
+            case = copy.deepcopy(BY_NAME[name]);out = case['expected']
+            out.update(status='no_tasks', tasks=[], errors=[])
+            out['record_results'][0].update(status='no_tasks', task_ids=[])
+            with self.subTest(name=name), self.assertRaises((ValueError, ValidationError)):
+                check.check_pair(case['request'], out)
+        case = copy.deepcopy(BY_NAME['file-reference-unavailable'])
+        case['expected']['tasks'] = copy.deepcopy(FILE['expected']['tasks'])
+        case['expected']['tasks'][0].update(needs_review=True, review_reasons=['读取失败'])
+        case['expected']['status'] = 'partial_success'
+        case['expected']['record_results'][0].update(status='partial_success', task_ids=[case['expected']['tasks'][0]['candidate_id']])
+        with self.assertRaisesRegex(ValueError, 'unread_file_evidence'):
+            check.check_pair(case['request'], case['expected'])
+
     def test_schema_definitions_and_all_positive_examples(self):
         check.main()
 

@@ -48,28 +48,10 @@
             "precision": "unknown",
             "basis": "unknown"
           },
-          "status": "complete",
-          "extractor_version": "synthetic-parser/1",
-          "coverage": {
-            "complete": true,
-            "unread_locations": [],
-            "truncated": false
-          },
-          "blocks": [
-            {
-              "block_id": "block-001",
-              "text": "实验报告：回顾实验1和实验2，说明实验过程与结论，以PDF格式提交。",
-              "locator": {
-                "page": 1,
-                "paragraph": null,
-                "bbox": null
-              },
-              "method": "ocr",
-              "quality": "normal",
-              "quality_notes": []
-            }
-          ],
-          "errors": []
+          "status": "available",
+          "errors": [],
+          "content_mode": "file",
+          "file_ref": "asset:synthetic_asset_001_001"
         }
       ]
     }

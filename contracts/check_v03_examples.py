@@ -34,18 +34,40 @@ def schema(kind, value, definition=None):
     Draft202012Validator(target, registry=REGISTRY, format_checker=FORMATS).validate(value)
 
 
-def coverage(record):
+def coverage(record, summaries):
     complete = record['text_quality'] in ('complete', 'missing') and all(
-        a['status'] == 'complete' for a in record['attachments'])
+        a['status'] == 'complete' for a in summaries)
     uncertain = record['text_quality'] in ('partial', 'summary') or any(
-        b['quality'] == 'uncertain' for a in record['attachments'] for b in a['blocks'])
+        b['quality'] == 'uncertain' for a in record['attachments'] for b in a.get('blocks', [])) or any(
+        a.get('quality') == 'uncertain' for a in summaries)
     return dict(complete=complete, uncertain=uncertain)
 
 
-def attachment_summaries(record):
-    return [dict(asset_id=a['asset_id'], status=a['status'], block_count=len(a['blocks']),
-                 uncertain_block_ids=[b['block_id'] for b in a['blocks'] if b['quality'] == 'uncertain'])
-            for a in record['attachments']]
+def check_attachment_summaries(record, summaries, errors):
+    require([a['asset_id'] for a in summaries] == [a['asset_id'] for a in record['attachments']],
+            'false_attachment_summary')
+    for asset, summary in zip(record['attachments'], summaries):
+        if asset.get('content_mode') != 'file':
+            expected = dict(asset_id=asset['asset_id'], status=asset['status'], block_count=len(asset['blocks']),
+                            uncertain_block_ids=[b['block_id'] for b in asset['blocks'] if b['quality'] == 'uncertain'])
+            require(summary == expected, 'false_attachment_summary')
+            continue
+        require(summary.get('content_mode') == 'file', 'false_attachment_summary')
+        if asset['status'] != 'available':
+            require(summary['status'] == asset['status'], 'unavailable_file_read')
+        cov = summary['coverage']
+        read_errors = [e for e in errors if e['asset_id'] == asset['asset_id']
+                       and e['stage'] in ('collect', 'upload', 'read')]
+        require(bool(read_errors) == (summary['status'] != 'complete'), 'file_read_error_mismatch')
+        if not cov['complete']:
+            require(cov['unread_locations'] or cov['truncated'], 'unexplained_coverage_gap')
+
+
+def check_locator(loc, allow_unknown=False):
+    require(allow_unknown or loc['page'] is not None or loc['paragraph'] is not None, 'missing_locator')
+    if loc['bbox'] is not None:
+        left, top, right, bottom = loc['bbox']
+        require(loc['page'] is not None and left < right and top < bottom, 'invalid_bbox')
 
 
 def check_request(request):
@@ -73,28 +95,36 @@ def check_request(request):
         length = len(r['text']) + sum(len(c['text']) for c in r['context'])
         for asset in assets.values():
             require('/' not in asset['file_name'] and '\\' not in asset['file_name'], 'private_file_path')
+            if asset.get('content_mode') == 'file':
+                # Ownership, byte hashes and MIME must be checked by the backend,
+                # not inferred from a syntactically valid opaque reference.
+                continue
             blocks = {b['block_id']: b for b in asset['blocks']}
             require(len(blocks) == len(asset['blocks']), 'duplicate_block_id')
             length += sum(len(b['text']) for b in blocks.values())
             if asset['status'] != 'complete':
                 require(asset['coverage']['unread_locations'] or asset['coverage']['truncated'], 'unexplained_coverage_gap')
             for block in blocks.values():
-                loc = block['locator']
-                require(loc['page'] is not None or loc['paragraph'] is not None, 'missing_locator')
-                if loc['bbox'] is not None:
-                    left, top, right, bottom = loc['bbox']
-                    require(loc['page'] is not None and left < right and top < bottom, 'invalid_bbox')
+                check_locator(block['locator'])
         require(length <= 100000, 'record_text_too_large')
 
 
 def evidence_text(record, evidence):
     sources = {s['input_id']: s for s in [record] + record['context']}
     require(evidence['input_id'] in sources, 'foreign_evidence')
-    if evidence['field'] == 'attachment':
+    if evidence['field'] in ('attachment', 'attachment_file'):
         require(evidence['input_id'] == record['input_id'], 'foreign_attachment')
         assets = {a['asset_id']: a for a in record['attachments']}
         require(evidence['asset_id'] in assets, 'unknown_asset')
-        blocks = {b['block_id']: b for b in assets[evidence['asset_id']]['blocks']}
+        asset = assets[evidence['asset_id']]
+        if evidence['field'] == 'attachment_file':
+            require(asset.get('content_mode') == 'file' and asset['status'] == 'available', 'invalid_file_evidence')
+            check_locator(evidence['locator'], allow_unknown=True)
+            # Only internal consistency and provenance can be checked here. This
+            # quote is MODEL-REPORTED, not a verified substring of known text.
+            return evidence['quote']
+        require(asset.get('content_mode') != 'file', 'file_without_text_blocks')
+        blocks = {b['block_id']: b for b in asset['blocks']}
         require(evidence['block_id'] in blocks, 'unknown_block')
         value = blocks[evidence['block_id']]['text']
     else:
@@ -107,7 +137,7 @@ def evidence_text(record, evidence):
     return value
 
 
-def check_candidate(record, task, cov):
+def check_candidate(record, task, cov, summaries):
     sources = {s['input_id']: s for s in [record] + record['context']}
     source_ids = [s['input_id'] for s in task['sources']]
     require(len(source_ids) == len(set(source_ids)), 'duplicate_source')
@@ -121,6 +151,9 @@ def check_candidate(record, task, cov):
     deadline_quotes = []
     for evidence in task['evidence']:
         evidence_text(record, evidence)
+        if evidence['field'] == 'attachment_file':
+            require(any(a['asset_id'] == evidence['asset_id'] and a['status'] in ('complete', 'partial')
+                        for a in summaries), 'unread_file_evidence')
         require(evidence['input_id'] in source_ids, 'evidence_source_missing')
         supported.update(evidence['supports'])
         if 'deadline' in evidence['supports']:
@@ -167,7 +200,7 @@ def check_pair(request, result):
         if aid is not None:
             assets = {a['asset_id']: a for a in records[rid]['attachments']}
             require(aid in assets, 'unknown_error_asset')
-            require(bid is None or bid in {b['block_id'] for b in assets[aid]['blocks']}, 'unknown_error_block')
+            require(bid is None or bid in {b['block_id'] for b in assets[aid].get('blocks', [])}, 'unknown_error_block')
         else:
             require(bid is None, 'error_block_without_asset')
     if any(e['input_id'] is None for e in result['errors']):
@@ -183,11 +216,11 @@ def check_pair(request, result):
         tasks = [t for t in result['tasks'] if t['input_id'] == rid]
         errors = [e for e in result['errors'] if e['input_id'] == rid]
         require(outcome['task_ids'] == [t['candidate_id'] for t in tasks], 'task_ids_mismatch')
-        expected_coverage = coverage(r)
+        check_attachment_summaries(r, outcome['attachments'], errors)
+        expected_coverage = coverage(r, outcome['attachments'])
         if any(e['stage'] == 'recognize' for e in errors):
             expected_coverage['complete'] = False
         require(outcome['coverage'] == expected_coverage, 'false_coverage')
-        require(outcome['attachments'] == attachment_summaries(r), 'false_attachment_summary')
         require(bool(errors) == (outcome['status'] in ('failed', 'partial_success')), 'missing_record_error')
         if outcome['status'] == 'success': require(outcome['coverage']['complete'], 'incomplete_success')
         if outcome['status'] == 'partial_success': require(not outcome['coverage']['complete'], 'false_partial_success')
@@ -196,7 +229,7 @@ def check_pair(request, result):
                 require(any(e['asset_id'] == asset['asset_id'] and e['code'] == error['code']
                             and e['stage'] == error['stage'] for e in errors), 'lost_extraction_error')
         for task in tasks:
-            check_candidate(r, task, outcome['coverage'])
+            check_candidate(r, task, outcome['coverage'], outcome['attachments'])
     failures = sum(r['status'] == 'failed' for r in outcomes.values())
     partial = any(r['status'] == 'partial_success' for r in outcomes.values())
     expected = ('failed' if failures == len(records) else 'partial_success') if failures else (
@@ -231,6 +264,7 @@ def main():
     check_pair(request, result)
     for job in json.loads((ROOT / 'source-to-app/wechat-import-v03-examples.json').read_text(encoding='utf-8')):
         check_job(request, job)
+    schema('wechat-import', json.loads((ROOT / 'source-to-app/wechat-asset-v03-example.json').read_text(encoding='utf-8')), 'asset_ack')
     print('PASS: %d schemas, %d synthetic pairs and import job states; no model calls.' % (len(SCHEMAS), len(cases) + 1))
 
 

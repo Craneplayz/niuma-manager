@@ -52,9 +52,17 @@
           "attachments": [
             {
               "asset_id": "asset-001",
+              "content_mode": "file",
               "status": "complete",
-              "block_count": 1,
-              "uncertain_block_ids": []
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "coverage_basis": "adapter_confirmed",
+              "quality": "normal",
+              "quality_notes": []
             }
           ]
         }
@@ -110,13 +118,18 @@
             },
             {
               "input_id": "wechat:message:002",
-              "field": "attachment",
+              "field": "attachment_file",
               "asset_id": "asset-001",
-              "block_id": "block-001",
               "quote": "实验报告：回顾实验1和实验2，说明实验过程与结论，以PDF格式提交。",
               "supports": [
                 "description"
-              ]
+              ],
+              "locator": {
+                "page": 1,
+                "paragraph": null,
+                "bbox": null
+              },
+              "verification": "model_reported"
             }
           ]
         }

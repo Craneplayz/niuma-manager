@@ -331,6 +331,16 @@
       }
     },
     "attachment": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/file_attachment"
+        },
+        {
+          "$ref": "#/$defs/text_attachment"
+        }
+      ]
+    },
+    "text_attachment": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -996,6 +1006,50 @@
               "$ref": "#/$defs/supports"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_id",
+            "field",
+            "asset_id",
+            "quote",
+            "locator",
+            "verification",
+            "supports"
+          ],
+          "properties": {
+            "input_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "field": {
+              "const": "attachment_file"
+            },
+            "asset_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "\\S"
+            },
+            "quote": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "locator": {
+              "$ref": "#/$defs/locator"
+            },
+            "verification": {
+              "const": "model_reported"
+            },
+            "supports": {
+              "$ref": "#/$defs/supports"
+            }
+          }
         }
       ]
     },
@@ -1567,6 +1621,16 @@
       }
     },
     "attachment_summary": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/file_attachment_summary"
+        },
+        {
+          "$ref": "#/$defs/text_attachment_summary"
+        }
+      ]
+    },
+    "text_attachment_summary": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1799,7 +1863,9 @@
             "request",
             "collect",
             "extract",
-            "recognize"
+            "recognize",
+            "upload",
+            "read"
           ]
         },
         "code": {
@@ -1817,7 +1883,12 @@
             "low_ocr_quality",
             "agent_timeout",
             "agent_unavailable",
-            "invalid_agent_output"
+            "invalid_agent_output",
+            "upload_failed",
+            "file_ref_unavailable",
+            "reader_unsupported",
+            "file_read_failed",
+            "low_content_quality"
           ]
         },
         "message": {
@@ -1829,6 +1900,446 @@
           "type": "boolean"
         }
       }
+    },
+    "file_ref": {
+      "type": "string",
+      "pattern": "^asset:[A-Za-z0-9_-]{16,128}$",
+      "description": "Opaque account-scoped asset handle. Never a local path, URL, API key or signed download URL."
+    },
+    "file_input_error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "code",
+        "message",
+        "retryable"
+      ],
+      "properties": {
+        "stage": {
+          "enum": [
+            "collect",
+            "upload"
+          ]
+        },
+        "code": {
+          "enum": [
+            "asset_missing",
+            "decrypt_failed",
+            "unsupported_type",
+            "limit_exceeded",
+            "upload_failed"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "file_attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "file_name",
+        "mime_type",
+        "size_bytes",
+        "sha256",
+        "origin",
+        "original_published_at",
+        "content_mode",
+        "file_ref",
+        "status",
+        "errors"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "file_name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "maxLength": 255
+        },
+        "mime_type": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "origin": {
+          "enum": [
+            "original",
+            "forwarded",
+            "unknown"
+          ]
+        },
+        "original_published_at": {
+          "$ref": "#/$defs/publication"
+        },
+        "content_mode": {
+          "const": "file"
+        },
+        "file_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/file_ref"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "available",
+            "failed",
+            "unsupported"
+          ]
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file_input_error"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "available"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "file_ref": {
+                "$ref": "#/$defs/file_ref"
+              },
+              "mime_type": {
+                "enum": [
+                  "image/jpeg",
+                  "image/png",
+                  "application/pdf",
+                  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                ]
+              },
+              "size_bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 20971520
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "errors": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "file_ref": {
+                "type": "null"
+              },
+              "errors": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "file_ref": {
+                "type": "null"
+              },
+              "errors": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "file_attachment_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "content_mode",
+        "status",
+        "reader_version",
+        "coverage",
+        "coverage_basis",
+        "quality",
+        "quality_notes"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "content_mode": {
+          "const": "file"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "failed",
+            "unsupported"
+          ]
+        },
+        "reader_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "coverage": {
+          "$ref": "#/$defs/coverage"
+        },
+        "coverage_basis": {
+          "enum": [
+            "adapter_confirmed",
+            "unverified"
+          ]
+        },
+        "quality": {
+          "enum": [
+            "normal",
+            "uncertain"
+          ]
+        },
+        "quality_notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
+        }
+      },
+      "description": "Filled by the trusted file reader/adapter, not accepted from a model as proof of reading the whole file.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reader_version": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "coverage_basis": {
+                "const": "adapter_confirmed"
+              },
+              "coverage": {
+                "properties": {
+                  "complete": {
+                    "const": true
+                  },
+                  "unread_locations": {
+                    "maxItems": 0
+                  },
+                  "truncated": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coverage": {
+                "properties": {
+                  "complete": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coverage": {
+                "properties": {
+                  "complete": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coverage": {
+                "properties": {
+                  "complete": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reader_version": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "quality": {
+                "const": "normal"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "quality_notes": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "quality_notes": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }
