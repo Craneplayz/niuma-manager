@@ -30,7 +30,7 @@ describe("campus source export CLI", () => {
     expect(result.records).toHaveLength(1);
     expect(result.records[0].source_label).toBe("教材");
     expect(result.request_id).toBe("test:cli");
-    expect(scrape).toHaveBeenCalledWith({ term: "26-27学年第1学期" });
+    expect(scrape).toHaveBeenCalledWith({ term: "26-27学年第1学期", allSections: false });
     expect(error).not.toHaveBeenCalled();
   });
   it("retains raw JSON as the default", async () => {
@@ -38,12 +38,19 @@ describe("campus source export CLI", () => {
     scrape.mockResolvedValue(result);
     const { log } = await run(["--all-terms"]);
     expect(JSON.parse(log.mock.calls[0][0])).toEqual(result);
-    expect(scrape).toHaveBeenCalledWith({ term: null });
+    expect(scrape).toHaveBeenCalledWith({ term: null, allSections: false });
+  });
+  it("passes the full-section compatibility flag to the crawler", async () => {
+    const result = { source_records: sources, records: [], upcoming: [] };
+    scrape.mockResolvedValue(result);
+    await run(["--all-sections"]);
+    expect(scrape).toHaveBeenCalledWith({ term: undefined, allSections: true });
   });
   it("shows help without logging in", async () => {
     const { log } = await run(["--help"]);
     expect(scrape).not.toHaveBeenCalled();
     expect(log.mock.calls[0][0]).toContain("JSONL");
+    expect(log.mock.calls[0][0]).toContain("--all-sections");
   });
   it.each([["--format=bad"], ["--term="], ["--all-terms", "--term=term"]])("rejects invalid arguments before logging in: %j", async (...args) => {
     const { error } = await run(args);
