@@ -5,7 +5,7 @@ task_planning/
 ├── README.md                     # 模块结构、职责边界和检查入口
 ├── __init__.py                   # 对外导出任务拆解入口
 ├── decomposition.py             # 请求校验、Skill 加载、模型调用和草稿校验
-├── planning_harness.py           # 调用模型生成规划 2.0 提案的本地服务
+├── planning_harness.py           # 规划 2.0 generate 入口及可选独立 HTTP 服务
 ├── skills/                       # 程序直接加载的规划规则，无须个人安装
 │   └── contextual-task-decomposition/
 │       ├── SKILL.md              # 动态追问、拆解判断和排程原则
@@ -38,4 +38,6 @@ task_planning/
 python -m unittest discover -s task_planning/tests -t . -q
 ```
 
-离线测试不会调用模型。真实调用由未来的服务接入层提供凭据和模型配置。
+离线测试不会调用模型。规划 2.0 由业务后端默认直接调用 `planning_harness.generate(request, options)`，读取根目录 `.env` 中的七牛配置；显式设置 `HARNESS_URL` 时仍可用 `npm run dev:planning` 提供独立 HTTP 服务，详见 [后端启动说明](../server/README.md)。两种通道共用本模块的生成逻辑，不改变模型指令、20 秒网络超时和零自动重试；模型结果由业务后端统一校验，确认后才写日历。
+
+上述接入仅针对既有规划 2.0；`decomposition.py` 的内部草稿接入仍需另行确认共享契约，不因服务整合而自动开放。

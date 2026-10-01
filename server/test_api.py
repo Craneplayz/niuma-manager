@@ -78,8 +78,9 @@ class ApiTests(unittest.TestCase):
     def test_feedback_and_no_model(self):
         a=self.client();self.register(a,'feedback@test.local')
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='foreign',actualMinutes=10)],version=0))[0],400)
-        with patch.dict(app.os.environ,{},clear=True):
-            self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],503)
+        with patch.object(app.planning,'plan') as model:
+            self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],400)
+            model.assert_not_called()
         self.assertEqual(self.call(a,'/data/availability','PUT',dict(value=dict(startTime='22:00',endTime='19:00',weekdays=[]),version=0))[0],400)
 
     def test_deadline_time_edit_preserves_plans(self):
@@ -127,7 +128,7 @@ class ApiTests(unittest.TestCase):
         def harness(request,timeout):
             captured.append(json.loads(request.data))
             return io.BytesIO(json.dumps(dict(estimates={'plan':60},blocks=[dict(taskId='plan',title='写报告',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])).encode())
-        with patch.dict(app.os.environ,{'HARNESS_URL':'http://test-harness/planning'}),patch.object(app,'urlopen',harness):
+        with patch.dict(app.os.environ,{'HARNESS_URL':'http://test-harness/planning'}),patch.object(app.planning,'urlopen',harness):
             status,result=self.call(a,'/planning/proposals','POST',{})
         self.assertEqual(status,200)
         self.assertEqual([t['id'] for t in captured[0]['tasks']],['plan'])
