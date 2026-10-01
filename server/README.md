@@ -5,6 +5,7 @@ server/
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── recognition.py            文本识别批次与候选确认接口。
 ├── planning.py               规划直调/HTTP 切换、配置读取及并发保护。
+├── wechat_media.py           微信附件上传、账号凭证、异步导入与结果查询。
 ├── source_sync.py            调用教学网采集并返回 v0.2 识别请求。
 ├── requirements.txt          定义账号凭据加密所需的 Python 依赖。
 ├── text_contract.py          文本识别结果的服务端契约校验。
@@ -13,6 +14,7 @@ server/
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。
 ├── test_recognition_runtime.py  直调识别、Windows 子进程、HTTP 回退与并发限制测试。
 ├── test_planning_runtime.py   规划直调/HTTP、配置、并发、异常与确认入库测试。
+├── test_wechat_media.py       微信附件鉴权、导入幂等、失败及候选入库测试。
 ├── test_text_contract.py     文本识别契约测试。
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
@@ -34,6 +36,9 @@ server/
 教学网同步需安装 `server/requirements.txt` 与 `crawler/` 依赖；用户在来源管理页保存一次教学网凭据，密码按账号加密入库，密钥位于数据库同目录的 `credential.key` 且不会提交；采集时使用权限为 0600 的临时文件并在结束后删除。
 备份数据库时需同时安全备份 `credential.key`，密钥丢失后须重新保存教学网凭据。
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。
+
+微信附件由本机采集器使用来源管理页签发的一次显示凭证调用 `/api/sources/wechat/assets` 上传原件，再调用 `/api/sources/wechat/imports` 提交 v0.3 JSON；页面可查询进度并仅重试模型失败。
+原件保存在数据库同目录的 `wechat-assets/`，不公开文件 URL；目前 #94 的真实附件读取适配器尚未合入，未接入时 job 明确失败，不产生“无任务”假结果。
 
 教学网采集后按应用账号、教学网账号及通知 ID 保存内容版本；只向模型发送新增、修改、未处理或识别失败的记录，忽略采集时间变化，首次启用增量索引仍处理历史通知。
 每条通知生成独立 v0.2 请求并保留首次采集时间作为重试的时间基准；成功（含无任务）跳过，修改后生成新候选，不自动改动已确认任务。

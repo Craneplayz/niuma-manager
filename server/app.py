@@ -15,6 +15,7 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import wechat_media
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -43,6 +44,8 @@ def initialize():
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        wechat_media.initialize(db)
+    wechat_media.resume(DB)
 
 def seed():
     initialize()
@@ -84,7 +87,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def body(self):
         size=int(self.headers.get('Content-Length','0'))
-        if size>2000000: raise ApiError(413,'数据过大')
+        if size>2000000:
+            if self.path.startswith('/api/sources/wechat/'):
+                raise wechat_media.MediaError(413,'limit_exceeded','数据超过 2 MB')
+            raise ApiError(413,'数据过大')
         value=json.loads(self.rfile.read(size) or b'{}')
         if not isinstance(value,dict): raise ApiError(400,'无效请求')
         return value
@@ -102,9 +108,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='GET' and origin and origin not in ['http://localhost:1331','http://127.0.0.1:1331']:
             raise ApiError(403,'不允许的请求来源')
         path=self.path.split('?')[0]
-        body=self.body() if self.command in ['POST','PUT'] else {}
+        body=self.body() if self.command in ['POST','PUT'] and not (path=='/api/sources/wechat/assets' and self.headers.get('Content-Type','').startswith('multipart/form-data;')) else {}
         with connection() as db:
             self.db=db
+            self.media_db_path=DB
             if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
@@ -123,8 +130,13 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
                 return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),'niuma_session='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age=86400')
-            user,token=self.user(db)
-            uid=user['id']
+            bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
+            if bearer:
+                uid,token,user=bearer,None,None
+            else:
+                user,token=self.user(db)
+                uid=user['id']
+            if wechat_media.route(self,db,uid,path,body,DB.parent): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
@@ -222,6 +234,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self): self.handle_request()
     def handle_request(self):
         try: self.route()
+        except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
         except ApiError as e: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError): self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:

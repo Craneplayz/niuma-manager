@@ -73,6 +73,17 @@
 .source-import-message{cursor:pointer;align-items:flex-start}
 .source-import-message input{margin:2px 0 0;flex-shrink:0}
 .source-import-message small{display:block;color:var(--muted);margin-bottom:3px}
+.wechat-media-panel{margin-top:18px}
+.wechat-media-panel>p{line-height:1.6;color:var(--muted);font-size:12px}
+.wechat-media-token{margin:14px 0;padding:14px;border:1px solid var(--border);border-radius:10px;overflow-wrap:anywhere}
+.wechat-media-token code{display:block;margin:10px 0;padding:10px;background:var(--surface,#f5f6f8);border-radius:7px;user-select:all}
+.wechat-media-jobs{display:grid;gap:12px;margin-top:16px}
+.wechat-media-jobs>article{min-width:0}
+.wechat-media-jobs h3{margin:0 0 7px;font-size:15px}
+.wechat-media-result .draft-card{margin:10px 0}
+.wechat-media-result details{margin-top:10px}
+.wechat-media-result li{overflow-wrap:anywhere;margin:8px 0}
+.wechat-media-result blockquote{margin:4px 0;padding:7px 10px;border-left:3px solid #b6c7e4}
 .agent-source-import .source-import-consent{display:flex;align-items:flex-start;gap:8px;line-height:1.6}
 .source-import-consent input{margin:3px 0 0;flex-shrink:0}
 .agent-source-import>[data-agent-action="import-wechat"]{margin-top:12px}
