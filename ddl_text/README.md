@@ -118,7 +118,8 @@ python -m ddl_text.tests.run_time_smoke --live --output local-data/time-smoke-ne
 python -m ddl_text.tests.run_classification_smoke --live --output local-data/classification-smoke-new.json
 ```
 
-识别服务默认 `127.0.0.1:1333`，健康检查为 `/health`。账户后端设置 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize`；网页与账户服务的启动方式由其模块说明维护。更改环境配置后重启识别服务。配置检查及健康检查不证明模型权限或额度可用。
+账户后端默认直接调用 `process_request`，读取根目录 `.env`，无需单独启动识别服务；网页与后端启动方式见 [frontend/README.md](../frontend/README.md)。Windows 后端直调的真实合成结果见 [验证 JSON](docs/archive/2026-10-01-issue69-backend-direct.json)。
+独立识别服务仍可选用：默认 `127.0.0.1:1333`，健康检查为 `/health`；在账户后端终端导出 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize` 即可切换。更改环境变量后重启相应后端或服务；配置检查及健康检查不证明模型权限或额度可用。
 
 ## 维护与历史记录
 

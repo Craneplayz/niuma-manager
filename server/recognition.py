@@ -4,10 +4,66 @@ import json
 import os
 import secrets
 import re
+import sys
+import threading
 from datetime import datetime, timezone, date
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from text_contract import validate_request, validate_result
+
+# dev:api launches server/app.py from frontend/, not from the repository root.
+# The same absolute import path is inherited by Windows spawn workers.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from ddl_text.codex_client import live_options
+from ddl_text.config import Settings
+from ddl_text.extraction import ExtractionAdapter
+from ddl_text.pipeline import process_request
+from ddl_text.provider import make_client
+
+_ACTIVE = threading.Lock()
+
+
+def recognize(request, ApiError):
+    """Share one bounded recognition slot across accounts and transports."""
+    if not _ACTIVE.acquire(blocking=False):
+        raise ApiError(503, '文本识别正在处理其他请求，请稍后重试')
+    try:
+        endpoint = os.environ.get('TEXT_HARNESS_URL')
+        if endpoint:
+            headers = {'Content-Type': 'application/json'}
+            if os.environ.get('TEXT_HARNESS_TOKEN'):
+                headers['Authorization'] = 'Bearer ' + os.environ['TEXT_HARNESS_TOKEN']
+            try:
+                with urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=95) as response:
+                    return json.loads(response.read(2000000))
+            except HTTPError as error:
+                busy = error.code == 503
+                error.close()
+                if busy:
+                    raise ApiError(503, '文本识别正在处理其他请求，请稍后重试') from None
+                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+            except Exception:
+                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+        try:
+            options = live_options(ROOT / '.env')
+            if not options['key'].strip():
+                raise ValueError('missing credential')
+            adapter = ExtractionAdapter(make_client(options))
+            settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
+                                timeout_seconds=90, max_retries=0)
+        except (OSError, ValueError, TypeError, KeyError):
+            raise ApiError(503, '文本识别配置不可用，请检查仓库根目录 .env 中的模型配置与密钥') from None
+        try:
+            return process_request(request, adapter, settings, budget_seconds=90)
+        except Exception:
+            raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+    finally:
+        _ACTIVE.release()
+
 
 def initialize(db):
     db.executescript('''
@@ -63,13 +119,7 @@ def route(handler,db,uid,path,body,ApiError):
             if not request['records']:
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
             else:
-                endpoint=os.environ.get('TEXT_HARNESS_URL')
-                if not endpoint: raise ApiError(503,'文本识别服务尚未接入；可查看协议演示，或手动创建任务')
-                headers={'Content-Type':'application/json'}
-                if os.environ.get('TEXT_HARNESS_TOKEN'): headers['Authorization']='Bearer '+os.environ['TEXT_HARNESS_TOKEN']
-                try:
-                    with urlopen(Request(endpoint,json.dumps(extraction_request).encode(),headers),timeout=95) as response: result=json.loads(response.read(2000000))
-                except Exception: raise ApiError(502,'文本识别服务不可用或超时，请稍后重试')
+                result=recognize(extraction_request,ApiError)
         try:
             result=validate_result(extraction_request,result)
             new_tasks=list(result['tasks'])

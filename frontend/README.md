@@ -47,30 +47,37 @@ npm run dev:api
 
 上述 npm 命令共用跨平台 Python 启动器，Windows 会依次尝试 python、python3、py；macOS/Linux 尝试 python3、python。也可通过 PYTHON 环境变量指定解释器路径。
 
+文本识别和规划均只需上述两个服务：将仓库根目录 `.env.example` 复制为 `.env` 并填写七牛模型配置与密钥，后端直接调用 `ddl_text` 和 `task_planning`，无需再运行 `npm run dev:recognition` 或 `npm run dev:planning`。已有 `.env` 直接沿用，密钥不进入前端，模型环境变量优先于 `.env`；重启后端使配置生效。
+
 开发测试账号：`demo@niuma.test` / `Niuma-Test-2026!`。账号和模拟数据由 seed 在协作者各自本地的 SQLite 中生成；不默认登录，不提交数据库文件。seed 幂等，已有账号内容不会被覆盖。数据库默认在 `../server/data/niuma.sqlite3`，可用 `NIUMA_DB` 指定路径。
 
 ## 功能与数据
 
 - 任务、子任务、课程、资料、计划和专注状态通过账号数据库保存；浏览器只保留 HttpOnly 会话 Cookie。深浅主题只在当前页面会话生效。
 - DDL 支持无截止日期或精确到分钟。日历有日、周、月视图，日/周默认滚动到 10:00，可向上滚回 00:00；缺少具体时刻的旧 DDL 会提示补全。设置新 DDL 时必须填写时刻。
-- 快速收集与语音输入进入“识别审核”，由文本 Harness 输出 v0.2 候选；用户核对证据和目标任务后才应用。原文只有截止日期时可先加入任务，日历提示“时刻待补充”，不虚构 23:59；后续可在任务详情补全时间。没有服务时明确显示未接入，可加载标记为人工演示的候选。
+- 快速收集与语音输入进入“识别审核”，由文本识别模块输出 v0.2 候选；用户核对证据和目标任务后才应用。原文只有截止日期时可先加入任务，日历提示“时刻待补充”，不虚构 23:59；后续可在任务详情补全时间。缺少模型配置时提示检查 `.env`，也可加载标记为人工演示的候选。
 - 识别审核页可在本机预览课程网 v0.2 JSON/JSONL 或微信导出的会话 JSON；只有用户勾选同意并选择批次或消息后，选中内容才发送到识别服务，微信账号与群成员 ID 不上传。
 - 识别审核页可首次保存教学网账号密码，之后勾选“教学网”并点击“同步并识别”：后端调用现有 crawler，返回增量 v0.2 请求后逐条识别，结果只进入待确认；密码按登录账号加密保存在服务端，不进入浏览器存储或模型请求。微信目前仅支持手动选择会话导出文件，不提供直接同步。
 - “开始规划”只处理尚未完成、没有计划且未标记为“无需规划”的任务。可用时间、已有计划、真实 DDL 和个性化用时交给模型 Harness；先预览再确认。没有模型服务时不会用本地规则伪造安排。
 - 设置页可随机选择最多三项已完成任务填写实际分钟数。参考版的课程资料、键盘搜索、专注计时、撤销、示例体验、JSON 与 ICS 导出继续可用。
 - 文本识别和规划的接口以 [团队对齐文档](../docs/backend-harness-alignment.md) 为准。前端独有的视图结构由 `src/team-store.js` 映射到服务端工作区，保留来源证据、取消历史和已有计划。
 
-模型服务由后端配置，前端不接触模型密钥：
+默认识别和规划均由后端直调。只有需要保留独立规划服务时，另开终端运行 `npm run dev:planning`，再在启动后端的终端设置：
 
-```bash
-TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize HARNESS_URL=http://127.0.0.1:1334/planning npm run dev:api
+```powershell
+$env:HARNESS_URL = "http://127.0.0.1:1334/planning"
+npm run dev:api
 ```
+
+需要恢复独立识别服务时，另开终端运行 `npm run dev:recognition`，并在启动后端前设置 `$env:TEXT_HARNESS_URL = "http://127.0.0.1:1333/recognize"`；使用令牌时两边导出相同的 `TEXT_HARNESS_TOKEN`（规划对应 `HARNESS_TOKEN`）。恢复两个服务的默认模式可运行 `Remove-Item Env:TEXT_HARNESS_URL, Env:HARNESS_URL -ErrorAction SilentlyContinue` 后重启后端。
+macOS/Linux 对应使用 `export HARNESS_URL=http://127.0.0.1:1334/planning`（独立识别同理设置 `TEXT_HARNESS_URL`），恢复直调使用 `unset TEXT_HARNESS_URL HARNESS_URL`；这些路由变量须在终端导出，写入 `.env` 不会切换服务。
 
 教学网同步需安装 `server/requirements.txt` 的 Python 依赖，在 `crawler/` 执行 `pnpm install`，并准备可用的 Playwright 浏览器；教学网账号密码由用户在“识别审核 → 同步信息”保存一次，之后可在同处更换或删除，无需创建 `crawler/secret`。
 
 ## 检查
 
-文本识别最多等待 100 秒；模型服务整批预算 90 秒，业务后端等待 95 秒。停止等待后先刷新候选再决定重试。补年依据保留在证据详情，日期以 `年/月/日 时:分` 显示，推断值仍需确认。
+文本识别最多等待 100 秒；直调与独立服务均保留 90 秒整批预算，HTTP 模式后端等待 95 秒。同一后端同时只处理一个识别请求，忙碌返回 503；停止等待后先刷新候选再决定重试。补年依据保留在证据详情，日期以 `年/月/日 时:分` 显示，推断值仍需确认。
+规划同样在忙碌时返回 503，模型网络超时为 20 秒、HTTP 通道等待 25 秒；生成预览不改任务，确认后才写入日历。配置缺失或模型失败会给出提示，不自动切换通道或重复调用。
 合成界面回归截图：[明确日期与补年日期](docs/archive/2026-09-28-deadline-review.png)。
 
 ```bash
