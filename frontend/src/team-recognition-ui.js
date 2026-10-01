@@ -210,7 +210,7 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   const complete=result&&['success','no_tasks'].includes(result.status);
   const applied=autoApply?await autoApplyCandidates(body.request_id,current,previousIds):0;
   if(!current())return;
-  if(planAfter)await planNewTasks(current);
+  if(planAfter&&external)await planNewTasks(current);
   const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(item=>item.state==='pending').length||0;
   const filtered=result?.record_results?.filter(r=>r.warnings.some(w=>w.startsWith('history_filtered:')||w.startsWith('no_action:'))).length||0;
   notice=`${applied?`已自动加入 ${applied} 项任务；`:''}${remaining?`${remaining} 项待处理；`:''}${filtered?`${filtered} 条资讯或历史通知未生成任务；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
