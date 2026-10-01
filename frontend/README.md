@@ -47,8 +47,7 @@ npm run dev:api
 
 上述 npm 命令共用跨平台 Python 启动器，Windows 会依次尝试 python、python3、py；macOS/Linux 尝试 python3、python。也可通过 PYTHON 环境变量指定解释器路径。
 
-文本识别只需上述两个服务：将仓库根目录 `.env.example` 复制为 `.env` 并填写模型密钥，后端直接调用 `ddl_text`，无需再运行 `npm run dev:recognition`；已有 `.env` 直接沿用，密钥不进入前端。模型环境变量优先于 `.env`。
-规划整合尚待 #65，使用规划时仍需第三个终端运行 `npm run dev:planning`，并在启动业务 API 前导出 `HARNESS_URL=http://127.0.0.1:1334/planning`。
+文本识别和规划均只需上述两个服务：将仓库根目录 `.env.example` 复制为 `.env` 并填写七牛模型配置与密钥，后端直接调用 `ddl_text` 和 `task_planning`，无需再运行 `npm run dev:recognition` 或 `npm run dev:planning`。已有 `.env` 直接沿用，密钥不进入前端，模型环境变量优先于 `.env`；重启后端使配置生效。
 
 开发测试账号：`demo@niuma.test` / `Niuma-Test-2026!`。账号和模拟数据由 seed 在协作者各自本地的 SQLite 中生成；不默认登录，不提交数据库文件。seed 幂等，已有账号内容不会被覆盖。数据库默认在 `../server/data/niuma.sqlite3`，可用 `NIUMA_DB` 指定路径。
 
@@ -63,21 +62,22 @@ npm run dev:api
 - 设置页可随机选择最多三项已完成任务填写实际分钟数。参考版的课程资料、键盘搜索、专注计时、撤销、示例体验、JSON 与 ICS 导出继续可用。
 - 文本识别和规划的接口以 [团队对齐文档](../docs/backend-harness-alignment.md) 为准。前端独有的视图结构由 `src/team-store.js` 映射到服务端工作区，保留来源证据、取消历史和已有计划。
 
-默认识别由后端直调，前端不接触模型密钥；仅需规划时，在启动后端的终端设置：
+默认识别和规划均由后端直调。只有需要保留独立规划服务时，另开终端运行 `npm run dev:planning`，再在启动后端的终端设置：
 
 ```powershell
 $env:HARNESS_URL = "http://127.0.0.1:1334/planning"
 npm run dev:api
 ```
 
-需要恢复独立识别服务时，另开终端运行 `npm run dev:recognition`，并在启动后端前设置 `$env:TEXT_HARNESS_URL = "http://127.0.0.1:1333/recognize"`；使用令牌时两边导出相同的 `TEXT_HARNESS_TOKEN`。恢复直调可运行 `Remove-Item Env:TEXT_HARNESS_URL -ErrorAction SilentlyContinue` 后重启后端。
-macOS/Linux 对应使用 `export HARNESS_URL=http://127.0.0.1:1334/planning`（独立识别同理设置 `TEXT_HARNESS_URL`），恢复直调使用 `unset TEXT_HARNESS_URL`；这些路由变量须在终端导出，写入 `.env` 不会切换服务。
+需要恢复独立识别服务时，另开终端运行 `npm run dev:recognition`，并在启动后端前设置 `$env:TEXT_HARNESS_URL = "http://127.0.0.1:1333/recognize"`；使用令牌时两边导出相同的 `TEXT_HARNESS_TOKEN`（规划对应 `HARNESS_TOKEN`）。恢复两个服务的默认模式可运行 `Remove-Item Env:TEXT_HARNESS_URL, Env:HARNESS_URL -ErrorAction SilentlyContinue` 后重启后端。
+macOS/Linux 对应使用 `export HARNESS_URL=http://127.0.0.1:1334/planning`（独立识别同理设置 `TEXT_HARNESS_URL`），恢复直调使用 `unset TEXT_HARNESS_URL HARNESS_URL`；这些路由变量须在终端导出，写入 `.env` 不会切换服务。
 
 教学网同步需安装 `server/requirements.txt` 的 Python 依赖，在 `crawler/` 执行 `pnpm install`，并准备可用的 Playwright 浏览器；教学网账号密码由用户在“识别审核 → 同步信息”保存一次，之后可在同处更换或删除，无需创建 `crawler/secret`。
 
 ## 检查
 
 文本识别最多等待 100 秒；直调与独立服务均保留 90 秒整批预算，HTTP 模式后端等待 95 秒。同一后端同时只处理一个识别请求，忙碌返回 503；停止等待后先刷新候选再决定重试。补年依据保留在证据详情，日期以 `年/月/日 时:分` 显示，推断值仍需确认。
+规划同样在忙碌时返回 503，模型网络超时为 20 秒、HTTP 通道等待 25 秒；生成预览不改任务，确认后才写入日历。配置缺失或模型失败会给出提示，不自动切换通道或重复调用。
 合成界面回归截图：[明确日期与补年日期](docs/archive/2026-09-28-deadline-review.png)。
 
 ```bash
