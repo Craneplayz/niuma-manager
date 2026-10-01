@@ -175,7 +175,7 @@ class ApiTests(unittest.TestCase):
         status,batches=self.call(a,'/recognition/batches','POST',empty)
         self.assertEqual(status,200);self.assertEqual(batches[0]['result']['status'],'no_tasks')
         fresh=copy.deepcopy(fixture['request']);fresh['request_id']='missing-service'
-        with patch.dict(app.os.environ,{},clear=True):
+        with patch.dict(app.os.environ,{},clear=True), patch.object(app.recognition,'live_options',side_effect=ValueError('missing credential')):
             self.assertEqual(self.call(a,'/recognition/batches','POST',fresh)[0],503)
 
     def test_recognition_change_matching_and_preservation(self):
