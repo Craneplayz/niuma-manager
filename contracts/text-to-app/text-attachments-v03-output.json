@@ -1,0 +1,90 @@
+{
+  "contract_version": "0.3",
+  "request_id": "wechat-attachment-example-001",
+  "status": "success",
+  "record_results": [
+    {
+      "input_id": "wechat:message:002",
+      "status": "success",
+      "task_ids": [
+        "wechat:message:002:task-1"
+      ],
+      "warnings": [],
+      "coverage": {
+        "complete": true,
+        "uncertain": false
+      },
+      "attachments": [
+        {
+          "asset_id": "asset-001",
+          "status": "complete",
+          "block_count": 1,
+          "uncertain_block_ids": []
+        }
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "candidate_id": "wechat:message:002:task-1",
+      "input_id": "wechat:message:002",
+      "title": "提交实验报告",
+      "description": "实验报告：回顾实验1和实验2，说明实验过程与结论，以PDF格式提交。",
+      "prerequisites": [],
+      "course_or_project": "计算机系统导论",
+      "course_basis": "provided",
+      "notice_type": "create",
+      "target_reference": null,
+      "deadline": {
+        "value": "2026-10-05T09:00:00+08:00",
+        "precision": "datetime",
+        "timezone": "Asia/Shanghai",
+        "kind": "deadline",
+        "status": "explicit",
+        "raw": "10月5日09:00前",
+        "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+        "alternatives": []
+      },
+      "needs_review": false,
+      "review_reasons": [],
+      "sources": [
+        {
+          "input_id": "wechat:message:002",
+          "platform": "wechat",
+          "url": null,
+          "label": "合成课程群",
+          "source_item_id": "message-002"
+        },
+        {
+          "input_id": "wechat:message:001",
+          "platform": "wechat",
+          "url": null,
+          "label": "合成课程群",
+          "source_item_id": null
+        }
+      ],
+      "evidence": [
+        {
+          "input_id": "wechat:message:001",
+          "field": "text",
+          "quote": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+          "supports": [
+            "title",
+            "deadline"
+          ]
+        },
+        {
+          "input_id": "wechat:message:002",
+          "field": "attachment",
+          "asset_id": "asset-001",
+          "block_id": "block-001",
+          "quote": "实验报告：回顾实验1和实验2，说明实验过程与结论，以PDF格式提交。",
+          "supports": [
+            "description"
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": []
+}
