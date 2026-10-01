@@ -14,7 +14,7 @@
 | 微信 | `wechat/` | 微信群 / 聊天数据采集，转成 v0.2 交给识别 | [微信说明](wechat/README.md) |
 | 文本识别 | `ddl_text/` | 从文本中识别任务与 DDL，输出候选 | [文本识别说明](ddl_text/README.md) |
 | 数据契约 | `contracts/` | 模块之间的数据格式与样例 | [契约说明](contracts/README.md) |
-| 任务规划 | `task_planning/`（建立中，#65） | 任务拆解、优先级判断规则与排程 | [任务规划说明](task_planning/README.md) |
+| 任务规划 | `task_planning/`（建立中，#65） | 任务拆解、作业排程规则与排程提案 | [任务规划说明](task_planning/README.md) |
 | 前端 | `frontend/` | 对话框 + 日历界面 | [前端说明与启动指南](frontend/README.md) |
 | 后端 | `server/` | 账号、SQLite 存储、候选确认与规划 API | [后端说明](server/README.md) |
 
@@ -85,7 +85,7 @@
 ### 任务规划 `task_planning/`（Python，建立中）
 
 - **已完成**：任务拆解。根据任务内容、当前进度和可用时间判断信息够不够，不够先问用户 1–3 个问题；简单的事不拆，复杂任务才拆成带完成标准、预计用时、先后依赖的小任务。程序会拒绝不合法的结果（排在过去、超过截止、时段重叠、循环依赖）。尚未接入界面。
-- **待完成**：优先级判断规则（#65）、排程加入优先级（#66）。目前新任务一律是「中优先级」。
+- **待完成**：作业排程规则（#65）、作业进来后自动产生排程提案（#66，例：10 号交的报告建议 6 号写；用户确认后才进日历）。
 
 ### 后端 `server/`（Python 标准库 + SQLite）
 
@@ -104,10 +104,8 @@
 
 ## 项目文档
 
-- [产品定义与需求说明](docs/product-requirements.md)：项目背景、目标用户、产品边界和全局质量要求。
 - [Product Backlog](docs/product-backlog.md)：F1–F3 三项功能及对应 Issue。
 - [参与开发](CONTRIBUTING.md)：目录归属、分支、Commit、PR 与 Review 的规则和操作步骤。
-- [协作手册](docs/collaboration-handbook.md)：目录归属、前后端对接与 PR 审查的白话说明。
 
 ## 当前工作方式
 
