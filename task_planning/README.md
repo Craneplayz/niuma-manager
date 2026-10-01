@@ -5,6 +5,8 @@ task_planning/
 ├── README.md                     # 模块结构、职责边界和检查入口
 ├── __init__.py                   # 对外导出任务拆解入口
 ├── decomposition.py             # 请求校验、Skill 加载、模型调用和草稿校验
+├── planning_harness.py           # 规划 2.0 generate 入口及可选独立 HTTP 服务
+├── scheduling.py                 # 按 DDL 前剩余容量排序并分配可用时段
 ├── skills/                       # 程序直接加载的规划规则，无须个人安装
 │   └── contextual-task-decomposition/
 │       ├── SKILL.md              # 动态追问、拆解判断和排程原则
@@ -13,12 +15,16 @@ task_planning/
 │           └── examples.md       # 同一任务在不同上下文中的正反例
 └── tests/
     ├── __init__.py               # 测试包入口
-    └── test_decomposition.py     # 请求、状态机、草稿及模型调用测试
+    ├── test_decomposition.py     # 请求、状态机、草稿及模型调用测试
+    ├── test_planning_harness.py  # 规划 2.0 HTTP Harness 契约与失败边界测试
+    └── test_scheduling.py        # 优先级、撞期、无 DDL 与排不下的回归测试
 ```
 
 接收一个候选任务、已提取的文档正文、对话补充信息、当前时间和可用时段，判断信息是否足以规划。可用时间由消费方预先展开为带时区的 `availability.windows[]`，已有安排放入 `availability.existing_blocks[]`，两者均使用 `{start, end}`。信息不足时每轮只提出一至三个会实际改变计划的问题；信息足够时输出可检查的小任务、依赖、预计用时和建议时间。简单且原子化的行动保留为一个任务，不为了形式完整强行拆解。
 
 当前接口是模块内部草稿，不是跨模块协议。文件上传、PDF/DOCX/PPTX/OCR 解析由输入方完成，本模块只读取带来源编号的纯文本；前端或服务端接入前须由相关负责人先在 `contracts/` 确认共享格式。
+
+规划 Harness 只让模型估算每个任务的剩余分钟数，具体时段由 `scheduling.py` 确定性产生。排序依据为「DDL 前可用分钟 − 预计所需分钟」，容量越小越先排；同级依次比较 DDL、用户明确优先级和输入顺序。不与已有安排重叠，不超过 DDL；无 DDL 任务仅估时不自动排，排不下时返回等级与缺少分钟数。
 
 ## 行为边界
 
@@ -36,4 +42,6 @@ task_planning/
 python -m unittest discover -s task_planning/tests -t . -q
 ```
 
-离线测试不会调用模型。真实调用由未来的服务接入层提供凭据和模型配置。
+离线测试不会调用模型。规划 2.0 由业务后端默认直接调用 `planning_harness.generate(request, options)`，读取根目录 `.env` 中的七牛配置；显式设置 `HARNESS_URL` 时仍可用 `npm run dev:planning` 提供独立 HTTP 服务，详见 [后端启动说明](../server/README.md)。两种通道共用本模块的生成逻辑，不改变模型指令、20 秒网络超时和零自动重试；模型结果由业务后端统一校验，确认后才写日历。
+
+上述接入仅针对既有规划 2.0；`decomposition.py` 的内部草稿接入仍需另行确认共享契约，不因服务整合而自动开放。

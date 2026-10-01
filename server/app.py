@@ -12,8 +12,8 @@ from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.request import Request, urlopen
 import recognition
+import planning
 import source_sync
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
@@ -180,8 +180,6 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 return self.reply(200,dict(version=version+1))
             if path=='/api/planning/proposals' and self.command=='POST':
-                endpoint=os.environ.get('HARNESS_URL')
-                if not endpoint: raise ApiError(503,'尚未接入模型服务；请配置 HARNESS_URL，由模型评估工时并生成规划。任务不会被修改。')
                 rows={r['name']:r for r in db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,))}
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []
                 pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and not t.get('planningExcluded') and not t['plans']]
@@ -190,12 +188,10 @@ class Handler(BaseHTTPRequestHandler):
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)
-                # Only the server knows the harness credential. The harness must return the documented JSON schema.
-                headers={'Content-Type':'application/json'}
-                if os.environ.get('HARNESS_TOKEN'): headers['Authorization']='Bearer '+os.environ['HARNESS_TOKEN']
-                with urlopen(Request(endpoint,json.dumps(payload).encode(),headers),timeout=25) as response:
-                    result=json.loads(response.read(2000000))
-                validate_proposal(payload,result)
+                result=planning.plan(payload,ApiError)
+                try: validate_proposal(payload,result)
+                except (ValueError,KeyError,TypeError,AttributeError):
+                    raise ApiError(502,'模型返回的规划格式不正确；任务未修改') from None
                 result['requestId']=payload['requestId']
                 db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(result)))
                 return self.reply(200,result)

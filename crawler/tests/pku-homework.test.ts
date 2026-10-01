@@ -1,9 +1,44 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
-import { buildHomeworkScrapeResult, currentAcademicTerm, extractHomeworkRecords, filterUpcomingHomeworks, parseHomeworkDeadline, type HomeworkRecord } from "../src/pku-homework.js";
+import { buildHomeworkScrapeResult, currentAcademicTerm, extractHomeworkRecords, filterUpcomingHomeworks, parseHomeworkDeadline, planCourseCollection, type HomeworkRecord } from "../src/pku-homework.js";
 
 const asOf = DateTime.fromISO("2026-09-22T13:46:00+08:00");
 const context = { course: "Synthetic course", section: "课程作业", sourceUrl: "https://example.test/course", asOf };
+const section = (text: string, id: string) => ({ text, href: `https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?content_id=${id}` });
+
+describe("course section collection scope", () => {
+  const anchors = [
+    section("课程作业", "course-homework"),
+    section("作业", "homework"),
+    section("Assignments", "assignments"),
+    section("Homework", "english-homework"),
+    section("教学内容", "materials"),
+    section("教学大纲", "syllabus"),
+  ];
+
+  it("opens only Chinese and English assignment sections by default", () => {
+    const plan = planCourseCollection("Synthetic course", anchors);
+    expect(plan.collectAnnouncements).toBe(false);
+    expect(plan.sections.map((item) => item.text)).toEqual(["课程作业", "作业", "Assignments", "Homework"]);
+    expect(plan.warnings).toEqual([]);
+  });
+
+  it("restores announcements and every content section with all-sections", () => {
+    const plan = planCourseCollection("Synthetic course", anchors, true);
+    expect(plan.collectAnnouncements).toBe(true);
+    expect(plan.sections).toEqual(anchors);
+  });
+
+  it("warns with the course name when no assignment section exists", () => {
+    const plan = planCourseCollection("Synthetic course without homework", anchors.slice(-2));
+    expect(plan.sections).toEqual([]);
+    expect(plan.warnings).toEqual(['No assignment section was found for course "Synthetic course without homework".']);
+    const result = buildHomeworkScrapeResult([], {
+      asOf, term: null, coursesChecked: 1, sectionsChecked: 0, coverageWarnings: plan.warnings,
+    });
+    expect(result.coverage_warnings).toContain(plan.warnings[0]);
+  });
+});
 
 describe("homework record boundaries", () => {
   it("keeps adjacent assignments and their deadlines separate", () => {

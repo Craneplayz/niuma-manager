@@ -21,6 +21,7 @@ crawler/
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
 │   ├── pku-homework.ts               登录并采集课程内容
+│   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
 │   ├── pku-recognition.ts            转换课程记录为识别请求
 │   ├── pku-source.ts                 解析课程页面和来源记录
 │   ├── adapters/                     各公开来源的发现与解析规则
@@ -49,6 +50,7 @@ crawler/
 │   ├── pku-homework-cli.test.ts       测试课程采集命令行
 │   ├── pku-homework-html.test.ts      测试课程页面解析
 │   ├── pku-homework.test.ts           测试课程采集规则
+│   ├── pku-assignment.test.ts         测试作业详情页的安全只读解析
 │   ├── pku-navigation.test.ts         测试课程页面导航
 │   ├── pku-recognition.test.ts        测试识别请求转换
 │   ├── pku-source.test.ts             测试课程来源记录
@@ -63,6 +65,7 @@ crawler/
 │       ├── gse/                       教育学院测试页面
 │       │   ├── detail.html            教育学院详情页样例
 │       │   └── list.html              教育学院列表页样例
+│       ├── pku-assignment/            脱敏的作业详情与提交历史页面
 │       └── malformed.html             异常结构测试页面
 └── docs/                              爬虫模块文档
     └── archive/                       已归档的运行记录
@@ -104,7 +107,10 @@ pnpm crawler review <run-id>
 pnpm pku:homework
 pnpm pku:homework -- --term=26-27学年第1学期
 pnpm pku:homework -- --all-terms
+pnpm pku:homework -- --all-sections
 pnpm pku:homework -- --format=recognition
 ```
 
-默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
+默认只采集名称含“作业”、`Assignment` 或 `Homework` 的栏目，不读取课程首页公告；找不到作业栏目的课程会在 `coverage_warnings` 中记录课程名。`--all-sections` 恢复课程公告和全部内容栏目的采集。默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
+
+课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。若页面已变为“复查提交历史记录”，仅记录已提交状态，不读取提交文件、作答、成绩或尝试时间；采集过程不会点击、填写或提交页面控件。附件内容仍不读取。

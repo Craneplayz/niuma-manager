@@ -4,21 +4,31 @@ server/
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── recognition.py            文本识别批次与候选确认接口。
+├── planning.py               规划直调/HTTP 切换、配置读取及并发保护。
 ├── source_sync.py            调用教学网采集并返回 v0.2 识别请求。
 ├── requirements.txt          定义账号凭据加密所需的 Python 依赖。
 ├── text_contract.py          文本识别结果的服务端契约校验。
-├── planning_harness.py       调用模型生成规划 2.0 提案的本地服务。
 ├── test_api.py               账号与业务 API 测试。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。
+├── test_recognition_runtime.py  直调识别、Windows 子进程、HTTP 回退与并发限制测试。
+├── test_planning_runtime.py   规划直调/HTTP、配置、并发、异常与确认入库测试。
 ├── test_text_contract.py     文本识别契约测试。
-├── test_planning_harness.py  规划模型服务测试。
+├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
 
-在 `frontend/` 运行 `npm run dev:api` 启动业务 API，运行 `npm run dev:planning` 启动规划服务。
-在 `frontend/` 运行 `npm test` 执行前端、业务 API 与规划服务测试。
-文本识别请求等待 95 秒，配合识别服务 90 秒预算及前端 100 秒等待；本设置不改变规划接口的超时。
+在 `frontend/` 运行 `npm run dev:api` 启动业务 API，另开终端运行 `npm run dev`；识别和规划默认都由业务 API 直接调用，不必启动 1333/1334。
+文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取仓库根目录 `.env` 的模型配置，无需启动 1333；已有环境变量优先于 `.env`。
+在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
+后端同一进程只允许一个识别请求执行，跨账号和两种调用方式共用锁，忙碌返回 503；模型配置缺失返回 503，不影响登录、工作区和协议演示。
+该锁适用于当前单进程本地 API，多进程部署需另外共享并发控制。
+规划默认调用 `task_planning.planning_harness.generate`，同样读取根目录 `.env`，沿用独立规划服务的七牛配置要求；未配置密钥返回 503，不用本地假排程代替模型。
+显式导出 `HARNESS_URL` 时走原 HTTP 通道，仍支持 `HARNESS_TOKEN`；HTTP 失败不会转而再调用本地模型。恢复直调需清除此环境变量并重启，`.env` 中的路由变量不生效。
+规划有独立的进程内锁，同一时间只执行一个规划请求，忙碌返回 503，异常后释放；识别和规划各自限流，不互相占锁。模型网络超时保持 20 秒、HTTP 等待保持 25 秒，无自动重试。
+两种规划通道仍使用规划 2.0 和同一结果校验，预览只保存提案，用户确认后按账号与任务版本写日历；DDL、任务状态和已有计划不因生成预览而改变。
+在 `frontend/` 运行 `npm test` 执行前端与业务 API 测试；规划模块另在仓库根运行 `python -m unittest discover -s task_planning/tests -t . -q`。
+直调识别与独立识别服务均保留 90 秒整批预算，HTTP 调用等待 95 秒，前端等待 100 秒；本设置不改变规划接口的超时。
 教学网同步最多等待 300 秒，真实账号采集实测约 2 分钟。
 教学网同步需安装 `server/requirements.txt` 与 `crawler/` 依赖；用户在来源管理页保存一次教学网凭据，密码按账号加密入库，密钥位于数据库同目录的 `credential.key` 且不会提交；采集时使用权限为 0600 的临时文件并在结束后删除。
 备份数据库时需同时安全备份 `credential.key`，密钥丢失后须重新保存教学网凭据。

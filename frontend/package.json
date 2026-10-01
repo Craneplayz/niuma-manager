@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "dev:api": "node ../scripts/run-python.mjs ../server/app.py",
-    "dev:planning": "cd .. && node scripts/run-python.mjs -m server.planning_harness",
+    "dev:planning": "cd .. && node scripts/run-python.mjs -m task_planning.planning_harness",
     "dev:recognition": "cd .. && node scripts/run-python.mjs -m ddl_text.http_server --real",
     "db:seed": "node ../scripts/run-python.mjs ../server/app.py --seed",
     "build": "vite build",
