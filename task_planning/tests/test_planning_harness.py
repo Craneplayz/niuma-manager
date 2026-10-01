@@ -6,7 +6,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from server import planning_harness
+from task_planning import planning_harness
 
 
 class PlanningHarnessTest(unittest.TestCase):
