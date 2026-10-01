@@ -11,14 +11,20 @@ server/
 ├── test_api.py               账号与业务 API 测试。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。
+├── test_recognition_runtime.py  直调识别、Windows 子进程、HTTP 回退与并发限制测试。
 ├── test_text_contract.py     文本识别契约测试。
 ├── test_planning_harness.py  规划模型服务测试。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
 
 在 `frontend/` 运行 `npm run dev:api` 启动业务 API，运行 `npm run dev:planning` 启动规划服务。
+文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取仓库根目录 `.env` 的模型配置，无需启动 1333；已有环境变量优先于 `.env`。
+在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
+后端同一进程只允许一个识别请求执行，跨账号和两种调用方式共用锁，忙碌返回 503；模型配置缺失返回 503，不影响登录、工作区和协议演示。
+该锁适用于当前单进程本地 API，多进程部署需另外共享并发控制。
+规划整合等待 #65，当前仍需 `dev:planning` 并向业务 API 导出 `HARNESS_URL=http://127.0.0.1:1334/planning`。
 在 `frontend/` 运行 `npm test` 执行前端、业务 API 与规划服务测试。
-文本识别请求等待 95 秒，配合识别服务 90 秒预算及前端 100 秒等待；本设置不改变规划接口的超时。
+直调识别与独立识别服务均保留 90 秒整批预算，HTTP 调用等待 95 秒，前端等待 100 秒；本设置不改变规划接口的超时。
 教学网同步最多等待 300 秒，真实账号采集实测约 2 分钟。
 教学网同步需安装 `server/requirements.txt` 与 `crawler/` 依赖；用户在识别审核页保存一次教学网凭据，密码按账号加密入库，密钥位于数据库同目录的 `credential.key` 且不会提交；采集时使用权限为 0600 的临时文件并在结束后删除。
 备份数据库时需同时安全备份 `credential.key`，密钥丢失后须重新保存教学网凭据。
