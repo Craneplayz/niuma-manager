@@ -116,6 +116,20 @@ class WechatMediaTests(unittest.TestCase):
         self.assertEqual(len(self.call(a, '/workspace')[1]['tasks']['value']), 1)
         self.assertEqual(len(self.call(a, '/sources/wechat/imports')[1]['jobs']), 1)
 
+    def test_synthetic_file_rejects_spoofed_metadata_and_missing_reference(self):
+        client = self.client('wechat-invalid@test.local')
+        self.assertEqual(self.call(client, '/sources/wechat/assets', 'POST', b'not-a-png', multipart=True)[0], 400)
+        _, ack = self.call(client, '/sources/wechat/assets', 'POST', b'\x89PNG\r\n\x1a\nsynthetic', multipart=True)
+        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v03-request.json').read_text(encoding='utf-8'))
+        asset = request['records'][0]['attachments'][0]
+        asset.update({key: ack[key] for key in ('file_ref', 'file_name', 'mime_type', 'size_bytes', 'sha256')})
+        altered = copy.deepcopy(request)
+        altered['records'][0]['attachments'][0]['sha256'] = '0' * 64
+        self.assertEqual(self.call(client, '/sources/wechat/imports', 'POST', altered)[0], 400)
+        missing = copy.deepcopy(request)
+        missing['records'][0]['attachments'][0]['file_ref'] = 'asset:' + 'A' * 32
+        self.assertEqual(self.call(client, '/sources/wechat/imports', 'POST', missing)[0], 404)
+
     def test_restart_recovers_a_running_job_without_losing_it(self):
         a = self.client('wechat-recover@test.local')
         request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v03-request.json').read_text(encoding='utf-8'))
