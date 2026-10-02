@@ -7,8 +7,29 @@ const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
 const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&!host.getState().schedule.some(p=>p.taskId===t.id));
 function currentAvailability(){return availability||workspaceValue('availability',defaults);}
 export function configurePlanner(callbacks){host=callbacks;}
-export function priorityOrderHtml(order,tasks){
- return order?.length?`<details class="planning-exclusions"><summary>为什么这样排序</summary><ol>${order.map(item=>`<li><b>${item.rank}. ${esc(tasks.find(t=>t.id===item.taskId)?.title||item.taskId)}</b><span> ${esc(item.reason)}</span></li>`).join('')}</ol></details>`:'';
+const minutes=value=>`${Math.ceil(value)} 分钟`;
+export function proposalSummaryHtml(proposal,tasks,now=Date.now()){
+ const order=new Map((proposal.priorityOrder||[]).map(item=>[item.taskId,item]));
+ const scheduledIds=new Set(proposal.blocks.map(block=>block.taskId));
+ const displayOrder=new Map((proposal.priorityOrder||[]).filter(item=>scheduledIds.has(item.taskId)).map((item,index)=>[item.taskId,index+1]));
+ const cards=Object.entries(proposal.estimates).map(([id,estimate])=>{
+  const task=tasks.find(item=>item.id===id),rank=order.get(id);
+  const scheduled=proposal.blocks.filter(block=>block.taskId===id).reduce((sum,block)=>sum+(Date.parse(block.endAt)-Date.parse(block.startAt))/60000,0);
+  const remaining=Math.max(0,estimate-scheduled),due=task?.due||'',dueTime=task?.dueTime||'';
+  const expired=due&&Date.parse(`${due}T${dueTime||'23:59:59'}+08:00`)<now;
+  const status=!due?'date':expired?'expired':remaining>0.01?'short':'ready';
+  const label={date:'待补日期',expired:'已过截止时间',short:'时间不足',ready:'已安排'}[status];
+  const guidance={date:'补充截止日期后重新规划。',expired:'请核对日期；已完成的任务可标记完成。',short:`还差 ${minutes(remaining)}；可增加可用时间。`,ready:'确认后写入日历。'}[status];
+  const reason=rank?(status==='expired'?'截止时间已过，无法安排。':`截止前可用 ${minutes(rank.availableMinutes)}，${rank.level<=1?'时间紧张，优先处理。':rank.level===2?'余量较少，优先安排。':'时间较充足。'}`):'';
+  return {status,rank:rank?.rank??Infinity,html:`<article class="proposal-task ${status}"><div class="proposal-task-top"><span class="proposal-state">${label}</span>${displayOrder.has(id)?`<span class="proposal-rank">本次顺序 ${displayOrder.get(id)}</span>`:''}</div><h3>${esc(task?.title||id)}</h3><p class="proposal-task-meta">${due?`截止 ${esc(due)}${dueTime?' '+esc(dueTime):''}`:'尚无截止日期'} · 预计 ${minutes(estimate)}</p><p class="proposal-task-guidance">${guidance}</p>${reason?`<p class="proposal-task-reason">${esc(reason)}</p>`:''}</article>`};
+ });
+ const attention=cards.filter(card=>card.status!=='ready').sort((a,b)=>a.rank-b.rank),ready=cards.filter(card=>card.status==='ready').sort((a,b)=>a.rank-b.rank);
+ const known=tasks.map(task=>task.title+'：');
+ const otherWarnings=[...new Set(proposal.warnings.filter(warning=>!known.some(prefix=>warning.startsWith(prefix)&&/^(没有 DDL|P\d+，DDL 前尚缺|未全部安排)/.test(warning.slice(prefix.length)))))];
+ return `<div class="proposal-intro"><strong>${ready.length} 项可安排${attention.length?` · ${attention.length} 项需要处理`:''}</strong><p>先安排截止前余量少的任务；同等风险按截止时间和任务优先级排序。</p></div>
+ ${attention.length?`<section class="proposal-group"><h3>需要你处理</h3><div class="proposal-task-grid">${attention.map(card=>card.html).join('')}</div></section>`:''}
+ ${ready.length?`<section class="proposal-group"><h3>本次建议安排</h3><div class="proposal-task-grid">${ready.map(card=>card.html).join('')}</div></section>`:''}
+ ${otherWarnings.length?`<div class="proposal-extra" role="status">${otherWarnings.map(warning=>`<p>${esc(warning)}</p>`).join('')}</div>`:''}`;
 }
 window.addEventListener('niuma:account-reset',()=>{
  activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;autoTaskIds=null;
@@ -30,10 +51,8 @@ export function plannerPage(){
  <div class="planner-actions"><button class="btn primary" data-plan-action="start" ${busy||!selected.length?'disabled':''}>${icon('spark')}${busy?'正在处理…':'开始规划'}</button>${busy?'<button class="btn" data-plan-action="cancel">取消等待</button>':''}</div></section></div>
  ${error?`<p class="save-error" role="alert">${esc(error)}</p>`:''}
  ${result?`<section class="panel planning-insights"><div class="section-title"><h2>排程提案</h2><span>确认后才写入日历</span></div>
- <div class="proposal-list">${Object.entries(result.estimates).map(([id,minutes])=>`<p><b>${esc(host.getState().tasks.find(t=>t.id===id)?.title||id)}</b> · 评估 ${minutes} 分钟</p>`).join('')}
- ${priorityOrderHtml(result.priorityOrder,host.getState().tasks)}
- ${result.warnings.map(w=>`<p class="draft-warning">${esc(w)}</p>`).join('')}
- ${result.blocks.map(b=>{const start=planDateTime(b.startAt),end=planDateTime(b.endAt);return `<article class="plan-block"><b>${esc(b.title)}</b><span>${start.date} ${start.time}–${start.date===end.date?'':end.date+' '}${end.time}</span></article>`;}).join('')||'<p>模型未找到可安排的时段，请查看警告。</p>'}</div>
+ ${proposalSummaryHtml(result,host.getState().tasks)}
+ ${result.blocks.length?`<section class="proposal-group"><h3>建议时间</h3><div class="proposal-list">${result.blocks.map(b=>{const start=planDateTime(b.startAt),end=planDateTime(b.endAt);return `<article class="plan-block"><b>${esc(b.title)}</b><span>${start.date} ${start.time}–${start.date===end.date?'':end.date+' '}${end.time}</span></article>`;}).join('')}</div></section>`:''}
  <div class="planner-actions"><button class="btn primary" data-plan-action="apply" ${busy||!result.blocks.length?'disabled':''}>确认写入日历</button><button class="btn" data-plan-action="modify" ${busy?'disabled':''}>修改可用时间</button><button class="btn" data-plan-action="discard" ${busy?'disabled':''}>取消提案</button></div></section>`:''}`;
 }
 export async function proposeForTasks(taskIds){

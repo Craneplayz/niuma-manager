@@ -254,7 +254,9 @@ def validate_proposal(request,result):
         occupied.append((start,end)); totals[task['id']]+=(end-start).total_seconds()/60
         if totals[task['id']]>estimates[task['id']]: raise ApiError(502,'计划超过模型评估工时')
     for tid in tasks:
-        if totals[tid]<estimates[tid]: result['warnings'].append(tasks[tid]['title']+'：未全部安排，请检查约束或截止时间')
+        title=tasks[tid]['title']
+        if totals[tid]<estimates[tid] and tasks[tid].get('due') and not any(w.startswith(title+'：') for w in result['warnings']):
+            result['warnings'].append(title+'：未全部安排，请检查可用时间或截止时间')
 
 if __name__=='__main__':
     import sys
