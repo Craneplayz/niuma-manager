@@ -70,8 +70,8 @@ def check_locator(loc, allow_unknown=False):
         require(loc['page'] is not None and left < right and top < bottom, 'invalid_bbox')
 
 
-def check_request(request):
-    schema('request', request)
+def check_request(request, *, validate_schema=schema):
+    validate_schema('request', request)
     require(len(json.dumps(request, ensure_ascii=False).encode('utf-8')) <= 2_000_000, 'request_too_large')
     records = {r['input_id']: r for r in request['records']}
     require(len(records) == len(request['records']), 'duplicate_input_id')
@@ -185,9 +185,9 @@ def check_candidate(record, task, cov, summaries):
             require(value.utcoffset() == value.astimezone(zone).utcoffset(), 'timezone_offset_mismatch')
 
 
-def check_pair(request, result):
-    check_request(request)
-    schema('result', result)
+def check_pair(request, result, *, validate_schema=schema):
+    check_request(request, validate_schema=validate_schema)
+    validate_schema('result', result)
     require(result['request_id'] == request['request_id'], 'request_id_mismatch')
     records = {r['input_id']: r for r in request['records']}
     for error in result['errors']:
@@ -237,16 +237,16 @@ def check_pair(request, result):
     require(result['status'] == expected, 'status_mismatch')
 
 
-def check_job(request, job):
-    check_request(request)
-    schema('wechat-import', job, 'job')
+def check_job(request, job, *, validate_schema=schema):
+    check_request(request, validate_schema=validate_schema)
+    validate_schema('wechat-import', job, 'job')
     require(job['request_id'] == request['request_id'], 'job_request_mismatch')
     p = job['progress']
     require(p['total_records'] == len(request['records']), 'job_total_mismatch')
     require(p['failed_records'] <= p['finished_records'] <= p['total_records'], 'job_progress_mismatch')
     if job['result'] is not None:
         result = job['result']
-        check_pair(request, result)
+        check_pair(request, result, validate_schema=validate_schema)
         mapped = {'success': 'succeeded', 'no_tasks': 'succeeded', 'partial_success': 'partial_failed', 'failed': 'failed'}
         require(job['status'] == mapped[result['status']], 'job_status_mismatch')
         failed = sum(r['status'] in ('failed', 'partial_success') for r in result['record_results'])
