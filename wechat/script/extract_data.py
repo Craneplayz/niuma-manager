@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Export messages from the currently logged-in WeChat account.
+"""Export WeChat messages through the selected platform adapter.
 
-The script uses ``wechatauto-replica`` (import name: ``wechatauto``) to read
-WeChat 4.x local databases.  By default it exports the last seven days of
-messages, one human-readable JSON file per active contact/group, and restores
-locally available media into ``data/assets``.
+Windows uses ``wechatauto-replica`` (import name: ``wechatauto``) to read
+WeChat 4.x local databases.  macOS consumes normalized JSON snapshots.  By
+default the script exports the last seven days of messages, one human-readable
+JSON file per active contact/group, and restores locally available Windows
+media into ``data/assets``.
 
 Run from the project root with the requested conda environment::
 
@@ -25,10 +26,16 @@ import re
 import shutil
 import sys
 import tempfile
-import types
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Optional
+
+try:  # Supports both ``python -m wechat.script...`` and direct script execution.
+    from .adapters import BackendUnavailable, build_backend
+    from .adapters.macos import MacOSSnapshotBackend
+except ImportError:  # pragma: no cover - exercised by the documented CLI path.
+    from adapters import BackendUnavailable, build_backend  # type: ignore
+    from adapters.macos import MacOSSnapshotBackend  # type: ignore
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -38,8 +45,8 @@ DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "data"
 # regenerated automatically when the cache is absent and can be large.
 DEFAULT_WORK_DIR = Path(tempfile.gettempdir()) / "wechatauto_export"
 
-WINDOWS_INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-WINDOWS_RESERVED_NAMES = {
+INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+RESERVED_FILENAME_NAMES = {
     "CON",
     "PRN",
     "AUX",
@@ -47,6 +54,9 @@ WINDOWS_RESERVED_NAMES = {
     *(f"COM{i}" for i in range(1, 10)),
     *(f"LPT{i}" for i in range(1, 10)),
 }
+# Kept as aliases for callers that imported the old names.
+WINDOWS_INVALID_CHARS = INVALID_FILENAME_CHARS
+WINDOWS_RESERVED_NAMES = RESERVED_FILENAME_NAMES
 URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 GROUP_PREFIX_RE = re.compile(
     r"^(?P<username>(?:wxid_[0-9A-Za-z_-]+)|(?:[^:\r\n]{1,160}@chatroom))"
@@ -68,55 +78,35 @@ def configure_console() -> None:
 
 
 def prepare_comtypes_cache() -> None:
-    """Put comtypes generated modules in a project-writable directory.
+    """Compatibility wrapper for callers of the pre-adapter helper."""
 
-    ``wechatauto`` imports its optional UI modules at package import time.
-    ``comtypes`` otherwise tries to create a cache below site-packages or
-    APPDATA, which can be read-only in managed/sandboxed environments.  The
-    database export itself remains UI-free; this only makes the import robust.
-    """
+    try:
+        from .adapters.windows import prepare_comtypes_cache as prepare
+    except ImportError:  # pragma: no cover - direct script compatibility.
+        from adapters.windows import prepare_comtypes_cache as prepare  # type: ignore
 
-    cache_dir = PROJECT_ROOT / ".cache" / "comtypes" / "gen"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    import comtypes  # type: ignore
-
-    current = sys.modules.get("comtypes.gen")
-    if current is None:
-        generated = types.ModuleType("comtypes.gen")
-        generated.__package__ = "comtypes"
-        generated.__path__ = [str(cache_dir)]  # type: ignore[attr-defined]
-        sys.modules["comtypes.gen"] = generated
-        setattr(comtypes, "gen", generated)
-        return
-
-    paths = list(getattr(current, "__path__", []))
-    if str(cache_dir) not in paths:
-        paths.insert(0, str(cache_dir))
-        current.__path__ = paths  # type: ignore[attr-defined]
+    prepare(PROJECT_ROOT)
 
 
 def import_wechat_packages():
-    prepare_comtypes_cache()
+    """Compatibility wrapper for callers of the pre-adapter helper."""
+
     try:
-        import wechatauto  # type: ignore
-        from wechatauto import MediaDownloader, WeChatDB  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError(
-            "未找到 wechatauto。请使用 wechat-export 环境运行：\n"
-            "  conda run -n wechat-export python wechat/script/extract_data.py"
-        ) from exc
-    return wechatauto, WeChatDB, MediaDownloader
+        from .adapters.windows import import_wechat_packages as import_packages
+    except ImportError:  # pragma: no cover - direct script compatibility.
+        from adapters.windows import import_wechat_packages as import_packages  # type: ignore
+
+    return import_packages(PROJECT_ROOT)
 
 
 def safe_name(value: str, fallback: str = "未命名会话", max_length: int = 120) -> str:
-    """Return a readable Windows-safe filename component."""
+    """Return a readable filename component valid on Windows and macOS."""
 
-    value = WINDOWS_INVALID_CHARS.sub("_", (value or "").strip())
+    value = INVALID_FILENAME_CHARS.sub("_", (value or "").strip())
     value = re.sub(r"\s+", " ", value).rstrip(" .")
     if not value:
         value = fallback
-    if value.upper() in WINDOWS_RESERVED_NAMES:
+    if value.upper() in RESERVED_FILENAME_NAMES:
         value = f"_{value}"
     return value[:max_length].rstrip(" .") or fallback
 
@@ -788,9 +778,50 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def export_snapshot_chats(
+    backend: MacOSSnapshotBackend,
+    *,
+    output_dir: Path,
+    start: datetime,
+    now: datetime,
+    days: float,
+    session_limit: int,
+) -> int:
+    """Write macOS snapshot chats using the same JSON contract as Windows."""
+
+    chats = backend.recent_chats(
+        int(start.timestamp()), int(now.timestamp()), session_limit
+    )
+    print(f"快照时间窗内候选活跃会话：{len(chats)}")
+    used_stems: set[str] = set()
+    exported_messages = 0
+    for index, chat in enumerate(chats, start=1):
+        chat_name = str(chat.get("chat_name") or chat.get("chat_username"))
+        chat_user = str(chat.get("chat_username") or chat_name)
+        stem = unique_chat_stem(chat_name, chat_user, used_stems)
+        payload = backend.with_range(chat, start=start, end=now, days=days)
+        json_path = output_dir / f"{stem}.json"
+        write_json_atomic(json_path, payload)
+        message_count = len(payload.get("messages", []))
+        exported_messages += message_count
+        print(f"[{index}/{len(chats)}] 快照已保存 {message_count} 条消息 -> {json_path}")
+
+    print(
+        f"导出完成：{len(chats)} 个会话，{exported_messages} 条消息，"
+        f"输出目录：{output_dir}"
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="导出当前登录微信最近一周的活跃会话，每个会话保存为一个 JSON。"
+        description="导出微信最近一周的活跃会话，每个会话保存为一个 JSON。"
+    )
+    parser.add_argument(
+        "--platform",
+        choices=("auto", "windows", "macos"),
+        default="auto",
+        help="数据来源平台；默认按当前系统选择。",
     )
     parser.add_argument(
         "--days",
@@ -821,6 +852,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="微信数据根目录；默认由 wechatauto 自动检测。",
     )
     parser.add_argument(
+        "--snapshot",
+        type=Path,
+        default=None,
+        help="macOS 规范化快照文件或目录；与 --platform macos 一起使用。",
+    )
+    parser.add_argument(
         "--session-limit",
         type=int,
         default=10000,
@@ -847,21 +884,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     workdir.mkdir(parents=True, exist_ok=True)
 
-    wechatauto, WeChatDB, MediaDownloader = import_wechat_packages()
-    print(f"使用 wechatauto-replica {getattr(wechatauto, '__version__', 'unknown')}")
-    print("正在初始化当前登录微信的本地数据库读取器……")
-    db = WeChatDB(
-        db_dir=args.db_dir,
-        account=args.account,
-        workdir=str(workdir),
-    )
-    self_info = db.get_self_info()
-    print(
-        "当前账号："
-        f"{self_info.get('nick_name') or self_info.get('username') or db.wxid} "
-        f"({self_info.get('username') or db.wxid})"
-    )
-
     now = datetime.now().astimezone()
     start = now - timedelta(days=args.days)
     cutoff_timestamp = int(start.timestamp())
@@ -869,6 +891,41 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(
         f"导出时间窗：{start.isoformat(timespec='seconds')} 至 "
         f"{now.isoformat(timespec='seconds')}"
+    )
+
+    if args.snapshot is not None and args.platform == "windows":
+        raise SystemExit("--snapshot 不能与 --platform windows 一起使用")
+    selected_platform = args.platform
+    if args.snapshot is not None and selected_platform == "auto":
+        selected_platform = "macos"
+    if selected_platform == "macos":
+        backend = build_backend("macos", snapshot=args.snapshot)
+        print(f"读取 macOS 规范化快照：{args.snapshot}")
+        return export_snapshot_chats(
+            backend,
+            output_dir=output_dir,
+            start=start,
+            now=now,
+            days=args.days,
+            session_limit=args.session_limit,
+        )
+
+    backend = build_backend(
+        selected_platform,
+        db_dir=args.db_dir,
+        account=args.account,
+        workdir=workdir,
+        output_dir=output_dir,
+    )
+    wechatauto = backend.wechatauto
+    db = backend.db
+    print(f"使用 wechatauto-replica {getattr(wechatauto, '__version__', 'unknown')}")
+    print("正在初始化当前登录微信的本地数据库读取器……")
+    self_info = db.get_self_info()
+    print(
+        "当前账号："
+        f"{self_info.get('nick_name') or self_info.get('username') or db.wxid} "
+        f"({self_info.get('username') or db.wxid})"
     )
 
     sessions = recent_sessions(db, cutoff_timestamp, args.session_limit)
@@ -879,7 +936,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     nickname_index = db._nickname_index()
     sender_index = db._sender_id_index()
-    media = MediaDownloader(db, save_dir=str(output_dir / "assets"))
+    media = backend.media
     used_stems: set[str] = set()
     exported_chats = 0
     exported_messages = 0
@@ -966,11 +1023,13 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("\n已取消。", file=sys.stderr)
         raise SystemExit(130)
+    except BackendUnavailable as exc:
+        print(f"导出失败：{exc}", file=sys.stderr)
+        raise SystemExit(2)
     except Exception as exc:
         print(
             f"导出失败：{type(exc).__name__}: {exc}\n"
-            "请确认微信 4.x 客户端已登录并正在运行，且脚本使用 "
-            "wechat-export conda 环境。",
+            "请确认平台参数、输入快照和 wechat-export 环境配置正确。",
             file=sys.stderr,
         )
         raise

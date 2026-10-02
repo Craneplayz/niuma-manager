@@ -1,4 +1,9 @@
 data/
+snapshots/
 .cache/
+.pycache/
 __pycache__/
 *.py[cod]
+*.jsonl
+*.tmp
+.DS_Store

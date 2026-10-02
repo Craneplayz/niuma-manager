@@ -57,6 +57,7 @@ class ExtractDataHelpersTest(unittest.TestCase):
 
     def test_parser_defaults_match_documented_entrypoint(self):
         args = build_parser().parse_args([])
+        self.assertEqual(args.platform, "auto")
         self.assertEqual(args.days, 7.0)
         self.assertEqual(args.session_limit, 10000)
         self.assertFalse(args.skip_media)
