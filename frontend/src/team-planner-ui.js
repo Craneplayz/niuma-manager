@@ -19,8 +19,8 @@ export function proposalSummaryHtml(proposal,tasks,now=Date.now()){
   const expired=due&&Date.parse(`${due}T${dueTime||'23:59:59'}+08:00`)<now;
   const status=!due?'date':expired?'expired':remaining>0.01?'short':'ready';
   const label={date:'待补日期',expired:'已过截止时间',short:'时间不足',ready:'已安排'}[status];
-  const guidance={date:'补充截止日期后重新规划。',expired:'请核对日期；已完成的任务可标记完成。',short:`还差 ${minutes(remaining)}；可增加可用时间。`,ready:'确认后写入日历。'}[status];
-  const reason=rank?(status==='expired'?'截止时间已过，无法安排。':`截止前可用 ${minutes(rank.availableMinutes)}，${rank.level<=1?'时间紧张，优先处理。':rank.level===2?'余量较少，优先安排。':'时间较充足。'}`):'';
+  const guidance={date:'补充截止日期后重新规划。',expired:'截止时间已过，无法安排；请核对日期或标记完成。',short:`还差 ${minutes(remaining)}；可增加可用时间。`,ready:'确认后写入日历。'}[status];
+  const reason=rank&&status!=='expired'?`截止前可用 ${minutes(rank.availableMinutes)}，${rank.level<=1?'时间紧张，优先处理。':rank.level===2?'余量较少，优先安排。':'时间较充足。'}`:'';
   return {status,rank:rank?.rank??Infinity,html:`<article class="proposal-task ${status}"><div class="proposal-task-top"><span class="proposal-state">${label}</span>${displayOrder.has(id)?`<span class="proposal-rank">本次顺序 ${displayOrder.get(id)}</span>`:''}</div><h3>${esc(task?.title||id)}</h3><p class="proposal-task-meta">${due?`截止 ${esc(due)}${dueTime?' '+esc(dueTime):''}`:'尚无截止日期'} · 预计 ${minutes(estimate)}</p><p class="proposal-task-guidance">${guidance}</p>${reason?`<p class="proposal-task-reason">${esc(reason)}</p>`:''}</article>`};
  });
  const attention=cards.filter(card=>card.status!=='ready').sort((a,b)=>a.rank-b.rank),ready=cards.filter(card=>card.status==='ready').sort((a,b)=>a.rank-b.rank);
