@@ -49,6 +49,8 @@ npm run dev:api
 
 文本识别和规划均只需上述两个服务：将仓库根目录 `.env.example` 复制为 `.env` 并填写七牛模型配置与密钥，后端直接调用 `ddl_text` 和 `task_planning`，无需再运行 `npm run dev:recognition` 或 `npm run dev:planning`。已有 `.env` 直接沿用，密钥不进入前端，模型环境变量优先于 `.env`；重启后端使配置生效。
 
+排程提案的“为什么这样排序”展示现有排程器的风险顺序、截止前可用分钟数与预计用时；无 DDL 任务仍只显示未排程警告。
+
 开发测试账号：`demo@niuma.test` / `Niuma-Test-2026!`。账号和模拟数据由 seed 在协作者各自本地的 SQLite 中生成；不默认登录，不提交数据库文件。seed 幂等，已有账号内容不会被覆盖。数据库默认在 `../server/data/niuma.sqlite3`，可用 `NIUMA_DB` 指定路径。
 
 ## 功能与数据

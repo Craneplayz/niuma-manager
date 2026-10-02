@@ -7,6 +7,9 @@ const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
 const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&!host.getState().schedule.some(p=>p.taskId===t.id));
 function currentAvailability(){return availability||workspaceValue('availability',defaults);}
 export function configurePlanner(callbacks){host=callbacks;}
+export function priorityOrderHtml(order,tasks){
+ return order?.length?`<details class="planning-exclusions"><summary>为什么这样排序</summary><ol>${order.map(item=>`<li><b>${item.rank}. ${esc(tasks.find(t=>t.id===item.taskId)?.title||item.taskId)}</b><span> ${esc(item.reason)}</span></li>`).join('')}</ol></details>`:'';
+}
 window.addEventListener('niuma:account-reset',()=>{
  activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;autoTaskIds=null;
 });
@@ -28,6 +31,7 @@ export function plannerPage(){
  ${error?`<p class="save-error" role="alert">${esc(error)}</p>`:''}
  ${result?`<section class="panel planning-insights"><div class="section-title"><h2>排程提案</h2><span>确认后才写入日历</span></div>
  <div class="proposal-list">${Object.entries(result.estimates).map(([id,minutes])=>`<p><b>${esc(host.getState().tasks.find(t=>t.id===id)?.title||id)}</b> · 评估 ${minutes} 分钟</p>`).join('')}
+ ${priorityOrderHtml(result.priorityOrder,host.getState().tasks)}
  ${result.warnings.map(w=>`<p class="draft-warning">${esc(w)}</p>`).join('')}
  ${result.blocks.map(b=>{const start=planDateTime(b.startAt),end=planDateTime(b.endAt);return `<article class="plan-block"><b>${esc(b.title)}</b><span>${start.date} ${start.time}–${start.date===end.date?'':end.date+' '}${end.time}</span></article>`;}).join('')||'<p>模型未找到可安排的时段，请查看警告。</p>'}</div>
  <div class="planner-actions"><button class="btn primary" data-plan-action="apply" ${busy||!result.blocks.length?'disabled':''}>确认写入日历</button><button class="btn" data-plan-action="modify" ${busy?'disabled':''}>修改可用时间</button><button class="btn" data-plan-action="discard" ${busy?'disabled':''}>取消提案</button></div></section>`:''}`;
