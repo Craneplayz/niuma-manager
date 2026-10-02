@@ -1,5 +1,6 @@
 import {api,flushStore,saveData,workspaceValue,session,accountVersion,planDateTime} from './store.js';
 import {icon} from './icons.js';
+import {priorityLabels} from './data.js';
 
 let host={},result=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,autoTaskIds=null;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -14,6 +15,7 @@ export function proposalSummaryHtml(proposal,tasks,now=Date.now()){
  const displayOrder=new Map((proposal.priorityOrder||[]).filter(item=>scheduledIds.has(item.taskId)).map((item,index)=>[item.taskId,index+1]));
  const cards=Object.entries(proposal.estimates).map(([id,estimate])=>{
   const task=tasks.find(item=>item.id===id),rank=order.get(id);
+  const priority=['high','medium','low'].includes(task?.priority)?task.priority:'unset';
   const scheduled=proposal.blocks.filter(block=>block.taskId===id).reduce((sum,block)=>sum+(Date.parse(block.endAt)-Date.parse(block.startAt))/60000,0);
   const remaining=Math.max(0,estimate-scheduled),due=task?.due||'',dueTime=task?.dueTime||'';
   const expired=due&&Date.parse(`${due}T${dueTime||'23:59:59'}+08:00`)<now;
@@ -21,12 +23,12 @@ export function proposalSummaryHtml(proposal,tasks,now=Date.now()){
   const label={date:'待补日期',expired:'已过截止时间',short:'时间不足',ready:'已安排'}[status];
   const guidance={date:'补充截止日期后重新规划。',expired:'截止时间已过，无法安排；请核对日期或标记完成。',short:`还差 ${minutes(remaining)}；可增加可用时间。`,ready:'确认后写入日历。'}[status];
   const reason=rank&&status!=='expired'?`截止前可用 ${minutes(rank.availableMinutes)}，${rank.level<=1?'时间紧张，优先处理。':rank.level===2?'余量较少，优先安排。':'时间较充足。'}`:'';
-  return {status,rank:rank?.rank??Infinity,html:`<article class="proposal-task ${status}"><div class="proposal-task-top"><span class="proposal-state">${label}</span>${displayOrder.has(id)?`<span class="proposal-rank">本次顺序 ${displayOrder.get(id)}</span>`:''}</div><h3>${esc(task?.title||id)}</h3><p class="proposal-task-meta">${due?`截止 ${esc(due)}${dueTime?' '+esc(dueTime):''}`:'尚无截止日期'} · 预计 ${minutes(estimate)}</p><p class="proposal-task-guidance">${guidance}</p>${reason?`<p class="proposal-task-reason">${esc(reason)}</p>`:''}</article>`};
+  return {status,rank:rank?.rank??Infinity,html:`<article class="proposal-task ${status}"><div class="proposal-task-top"><span class="proposal-state">${label}</span>${displayOrder.has(id)?`<span class="proposal-rank">排程优先第 ${displayOrder.get(id)} 位</span>`:''}</div><h3>${esc(task?.title||id)}</h3><p class="proposal-task-meta"><span class="proposal-priority ${priority}">${esc(priorityLabels[priority]||'优先级未设置')}</span><span>${due?`截止 ${esc(due)}${dueTime?' '+esc(dueTime):''}`:'尚无截止日期'} · 预计 ${minutes(estimate)}</span></p><p class="proposal-task-guidance">${guidance}</p>${reason?`<p class="proposal-task-reason">${esc(reason)}</p>`:''}</article>`};
  });
  const attention=cards.filter(card=>card.status!=='ready').sort((a,b)=>a.rank-b.rank),ready=cards.filter(card=>card.status==='ready').sort((a,b)=>a.rank-b.rank);
  const known=tasks.map(task=>task.title+'：');
  const otherWarnings=[...new Set(proposal.warnings.filter(warning=>!known.some(prefix=>warning.startsWith(prefix)&&/^(没有 DDL|P\d+，DDL 前尚缺|未全部安排)/.test(warning.slice(prefix.length)))))];
- return `<div class="proposal-intro"><strong>${ready.length} 项可安排${attention.length?` · ${attention.length} 项需要处理`:''}</strong><p>先安排截止前余量少的任务；同等风险按截止时间和任务优先级排序。</p></div>
+ return `<div class="proposal-intro"><strong>${ready.length} 项可安排${attention.length?` · ${attention.length} 项需要处理`:''}</strong><p>任务优先级由你设置；排程先看截止前余量，同等风险再比较截止时间和任务优先级。</p></div>
  ${attention.length?`<section class="proposal-group"><h3>需要你处理</h3><div class="proposal-task-grid">${attention.map(card=>card.html).join('')}</div></section>`:''}
  ${ready.length?`<section class="proposal-group"><h3>本次建议安排</h3><div class="proposal-task-grid">${ready.map(card=>card.html).join('')}</div></section>`:''}
  ${otherWarnings.length?`<div class="proposal-extra" role="status">${otherWarnings.map(warning=>`<p>${esc(warning)}</p>`).join('')}</div>`:''}`;
