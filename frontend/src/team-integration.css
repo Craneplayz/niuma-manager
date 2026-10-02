@@ -64,6 +64,10 @@
 .proposal-task h3{margin:0;font-size:16px;line-height:1.4;overflow-wrap:anywhere}
 .proposal-task-meta,.proposal-task-guidance,.proposal-task-reason{font-size:13px;line-height:1.55;margin:9px 0 0}
 .proposal-task-meta,.proposal-task-reason{color:#758095}
+.proposal-task-meta{display:flex;align-items:center;flex-wrap:wrap;gap:5px 9px}
+.proposal-priority{flex:none;padding:2px 7px;border-radius:6px;background:#edf2f8;color:#536c88;font-size:11px;font-weight:650}
+.proposal-priority.high{background:#ffebe5;color:#aa5436}
+.proposal-priority.low{background:#e9f2ec;color:#4c8062}
 .proposal-task-guidance{color:var(--ink,#30343c)}
 .proposal-task-reason{padding-top:10px;border-top:1px solid #e6e9ed}
 .proposal-extra{margin-top:18px;padding:12px 16px;border-radius:12px;background:#f7f8fa;color:#626d7b;font-size:12px}
@@ -123,6 +127,9 @@
 [data-theme=dark] .proposal-task.ready{background:#203127;border-color:#42664c}
 [data-theme=dark] .proposal-task.expired,[data-theme=dark] .proposal-task.short{background:#342b24;border-color:#694d34}
 [data-theme=dark] .proposal-task h3,[data-theme=dark] .proposal-task-guidance,[data-theme=dark] .proposal-group>h3{color:#f1f3f7}
+[data-theme=dark] .proposal-priority{background:#35445a;color:#d3e3f8}
+[data-theme=dark] .proposal-priority.high{background:#643d36;color:#ffe0d2}
+[data-theme=dark] .proposal-priority.low{background:#31513d;color:#d7f0dc}
 [data-theme=dark] .proposal-task-reason{border-color:#48505f}
 [data-theme=dark] .proposal-extra{background:#292d37;color:#c1c9d7}
 [data-theme=dark] .calendar-timed-event.ddl,[data-theme=dark] .calendar-month-ddl{background:#4a2d1c;color:#ffd4a9;border-color:#b7723d}
