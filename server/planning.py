@@ -13,9 +13,22 @@ if str(ROOT) not in sys.path:
 
 from ddl_text.codex_client import live_options
 from task_planning import planning_harness
+from task_planning.scheduling import rank_tasks
 
 _ACTIVE = threading.Lock()
 MAX_BYTES = 2_000_000
+
+
+def priority_explanations(request, estimates):
+    """Expose the existing scheduler's ranking factors without changing its decisions."""
+    ranked, _ = rank_tasks(request, estimates)
+    labels = ('截止前可用时间不足', '截止前余量极小', '截止前余量偏紧', '截止前余量较充足')
+    return [dict(taskId=item['task']['id'], rank=index, level=item['level'],
+                 availableMinutes=round(item['capacity']), estimatedMinutes=round(item['estimate']),
+                 slackMinutes=round(item['slack']),
+                 reason=(f"{labels[item['level']]}：截止前剩余可用约 {round(item['capacity'])} 分钟，"
+                         f"预计还需 {round(item['estimate'])} 分钟；同等风险时先看截止时间，再看任务优先级。"))
+            for index, item in enumerate(ranked, 1)]
 
 
 def plan(request, ApiError):

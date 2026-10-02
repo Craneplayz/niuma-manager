@@ -36,6 +36,13 @@ globalThis.fetch=async(path,options={})=>{
 };
 const host={getState:()=>state,render(){},persist(){store.saveStore(state);},refresh:async()=>{state=await store.refreshStore();},toast(){}};
 planner.configurePlanner(host);feedback.configurePersonalization(host);recognition.configureAssistant(host);
+test('planning priority reasons are visible and escaped without inventing a reason for undated tasks',()=>{
+ const html=planner.priorityOrderHtml([{taskId:'a',rank:1,reason:'DDL 前不足 <60> 分钟'}],[{id:'a',title:'报告 <草稿>'}]);
+ assert.match(html,/为什么这样排序/);
+ assert.match(html,/报告 &lt;草稿&gt;/);
+ assert.match(html,/不足 &lt;60&gt; 分钟/);
+ assert.equal(planner.priorityOrderHtml([],[]),'');
+});
 function defer(path){
  let release,started;
  const promise=new Promise(resolve=>{release=resolve;});

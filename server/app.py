@@ -208,6 +208,7 @@ class Handler(BaseHTTPRequestHandler):
                 try: validate_proposal(payload,result)
                 except (ValueError,KeyError,TypeError,AttributeError):
                     raise ApiError(502,'模型返回的规划格式不正确；任务未修改') from None
+                result['priorityOrder']=planning.priority_explanations(payload,result['estimates'])
                 result['requestId']=payload['requestId']
                 db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(result)))
                 return self.reply(200,result)
