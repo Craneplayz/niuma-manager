@@ -68,6 +68,11 @@
 .proposal-priority{flex:none;padding:2px 7px;border-radius:6px;background:#edf2f8;color:#536c88;font-size:11px;font-weight:650}
 .proposal-priority.high{background:#ffebe5;color:#aa5436}
 .proposal-priority.low{background:#e9f2ec;color:#4c8062}
+.proposal-risk{flex:none;padding:2px 7px;border-radius:6px;background:#edf2f8;color:#4f6888;font-size:11px;font-weight:650}
+.proposal-risk.p0{background:#ffe6df;color:#a0442b}
+.proposal-risk.p1{background:#fff0da;color:#946117}
+.proposal-risk.p2{background:#eef1ff;color:#5d65a6}
+.proposal-risk.p3{background:#e5f3eb;color:#397352}
 .proposal-task-guidance{color:var(--ink,#30343c)}
 .proposal-task-reason{padding-top:10px;border-top:1px solid #e6e9ed}
 .proposal-extra{margin-top:18px;padding:12px 16px;border-radius:12px;background:#f7f8fa;color:#626d7b;font-size:12px}
@@ -119,6 +124,10 @@
 [data-theme=dark] .proposal-priority{background:#35445a;color:#d3e3f8}
 [data-theme=dark] .proposal-priority.high{background:#643d36;color:#ffe0d2}
 [data-theme=dark] .proposal-priority.low{background:#31513d;color:#d7f0dc}
+[data-theme=dark] .proposal-risk.p0{background:#66382e;color:#ffd8cc}
+[data-theme=dark] .proposal-risk.p1{background:#59432b;color:#ffe1aa}
+[data-theme=dark] .proposal-risk.p2{background:#3c4264;color:#dce0ff}
+[data-theme=dark] .proposal-risk.p3{background:#2d523b;color:#d1efd9}
 [data-theme=dark] .proposal-task-reason{border-color:#48505f}
 [data-theme=dark] .proposal-extra{background:#292d37;color:#c1c9d7}
 [data-theme=dark] .calendar-timed-event.ddl,[data-theme=dark] .calendar-month-ddl{background:#4a2d1c;color:#ffd4a9;border-color:#b7723d}
