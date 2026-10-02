@@ -37,16 +37,25 @@ globalThis.fetch=async(path,options={})=>{
 const host={getState:()=>state,render(){},persist(){store.saveStore(state);},refresh:async()=>{state=await store.refreshStore();},toast(){}};
 planner.configurePlanner(host);feedback.configurePersonalization(host);recognition.configureAssistant(host);
 test('planning cards show concise reasons beside each task and collapse duplicate warnings',()=>{
- const html=planner.proposalSummaryHtml({estimates:{a:90,b:60},blocks:[{taskId:'b',startAt:'2026-10-06T19:00:00+08:00',endAt:'2026-10-06T20:00:00+08:00'}],priorityOrder:[{taskId:'a',rank:1,availableMinutes:0,estimatedMinutes:90},{taskId:'b',rank:2,availableMinutes:180,estimatedMinutes:60}],warnings:['报告 <草稿>：P0，DDL 前尚缺 90 分钟','报告 <草稿>：未全部安排，请检查约束或截止时间']},[{id:'a',title:'报告 <草稿>',priority:'high',due:'2026-10-05',dueTime:'23:00'},{id:'b',title:'练习',priority:'medium',due:'2026-10-07',dueTime:'18:00'}],Date.parse('2026-10-06T10:00:00+08:00'));
+ const html=planner.proposalSummaryHtml({estimates:{a:90,b:60,c:20},blocks:[{taskId:'b',startAt:'2026-10-06T19:00:00+08:00',endAt:'2026-10-06T20:00:00+08:00'}],priorityOrder:[{taskId:'a',rank:1,level:0,availableMinutes:0,estimatedMinutes:90,slackMinutes:-90},{taskId:'b',rank:2,level:2,availableMinutes:180,estimatedMinutes:60,slackMinutes:120}],warnings:['报告 <草稿>：P0，DDL 前尚缺 90 分钟','报告 <草稿>：未全部安排，请检查约束或截止时间']},[{id:'a',title:'报告 <草稿>',priority:'high',due:'2026-10-05',dueTime:'23:00'},{id:'b',title:'练习',priority:'medium',due:'2026-10-07',dueTime:'18:00'},{id:'c',title:'无日期',priority:'low',due:''}],Date.parse('2026-10-06T10:00:00+08:00'));
  assert.match(html,/报告 &lt;草稿&gt;/);
  assert.match(html,/已过截止时间/);
  assert.match(html,/截止时间已过，无法安排/);
- assert.match(html,/截止前可用 180 分钟，时间较充足/);
+ assert.match(html,/风险 P0 · 时间不足/);
+ assert.match(html,/风险 P2 · 余量偏紧/);
+ assert.match(html,/截止前可用 180 分钟，余量 120 分钟/);
  assert.match(html,/高优先级|中优先级/);
  assert.match(html,/排程优先第 1 位/);
  assert.doesNotMatch(html,/排程优先第 2 位/);
- assert.match(html,/1 项可安排 · 1 项需要处理/);
- assert.doesNotMatch(html,/P0|未全部安排|为什么这样排序/);
+ assert.match(html,/1 项可安排 · 2 项需要处理/);
+ assert.equal((html.match(/class="proposal-risk/g)||[]).length,2);
+ assert.doesNotMatch(html,/P0，DDL|未全部安排|为什么这样排序/);
+});
+test('every computed risk level has its own label without replacing manual priority',()=>{
+ const tasks=[0,1,2,3].map(level=>({id:String(level),title:'任务'+level,priority:'high',due:'2026-10-10'}));
+ const html=planner.proposalSummaryHtml({estimates:Object.fromEntries(tasks.map(task=>[task.id,60])),blocks:[],warnings:[],priorityOrder:tasks.map((task,level)=>({taskId:task.id,rank:level+1,level,availableMinutes:level*60,estimatedMinutes:60,slackMinutes:(level-1)*60}))},tasks,Date.parse('2026-10-02T10:00:00+08:00'));
+ for(let level=0;level<4;level++)assert.match(html,new RegExp('风险 P'+level));
+ assert.equal((html.match(/高优先级/g)||[]).length,4);
 });
 function defer(path){
  let release,started;
