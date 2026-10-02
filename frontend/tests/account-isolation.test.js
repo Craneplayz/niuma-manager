@@ -36,12 +36,16 @@ globalThis.fetch=async(path,options={})=>{
 };
 const host={getState:()=>state,render(){},persist(){store.saveStore(state);},refresh:async()=>{state=await store.refreshStore();},toast(){}};
 planner.configurePlanner(host);feedback.configurePersonalization(host);recognition.configureAssistant(host);
-test('planning priority reasons are visible and escaped without inventing a reason for undated tasks',()=>{
- const html=planner.priorityOrderHtml([{taskId:'a',rank:1,reason:'DDL 前不足 <60> 分钟'}],[{id:'a',title:'报告 <草稿>'}]);
- assert.match(html,/为什么这样排序/);
+test('planning cards show concise reasons beside each task and collapse duplicate warnings',()=>{
+ const html=planner.proposalSummaryHtml({estimates:{a:90,b:60},blocks:[{taskId:'b',startAt:'2026-10-06T19:00:00+08:00',endAt:'2026-10-06T20:00:00+08:00'}],priorityOrder:[{taskId:'a',rank:1,availableMinutes:0,estimatedMinutes:90},{taskId:'b',rank:2,availableMinutes:180,estimatedMinutes:60}],warnings:['报告 <草稿>：P0，DDL 前尚缺 90 分钟','报告 <草稿>：未全部安排，请检查约束或截止时间']},[{id:'a',title:'报告 <草稿>',due:'2026-10-05',dueTime:'23:00'},{id:'b',title:'练习',due:'2026-10-07',dueTime:'18:00'}],Date.parse('2026-10-06T10:00:00+08:00'));
  assert.match(html,/报告 &lt;草稿&gt;/);
- assert.match(html,/不足 &lt;60&gt; 分钟/);
- assert.equal(planner.priorityOrderHtml([],[]),'');
+ assert.match(html,/已过截止时间/);
+ assert.match(html,/截止时间已过，无法安排/);
+ assert.match(html,/截止前可用 180 分钟，时间较充足/);
+ assert.match(html,/本次顺序 1/);
+ assert.doesNotMatch(html,/本次顺序 2/);
+ assert.match(html,/1 项可安排 · 1 项需要处理/);
+ assert.doesNotMatch(html,/P0|未全部安排|为什么这样排序/);
 });
 function defer(path){
  let release,started;

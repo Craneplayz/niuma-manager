@@ -340,5 +340,15 @@ class ProposalTests(unittest.TestCase):
         with self.assertRaises(app.ApiError): app.validate_proposal(self.request,self.result)
     def test_unscheduled_warning(self):
         self.result['estimates']['a']=120;app.validate_proposal(self.request,self.result);self.assertTrue(self.result['warnings'])
+    def test_unscheduled_warning_does_not_repeat_specific_reason(self):
+        self.result['estimates']['a']=120
+        self.result['warnings']=['报告：P0，DDL 前尚缺 60 分钟']
+        app.validate_proposal(self.request,self.result)
+        self.assertEqual(self.result['warnings'],['报告：P0，DDL 前尚缺 60 分钟'])
+    def test_undated_task_has_no_generic_unscheduled_warning(self):
+        self.request['tasks'][0]['due']=None
+        self.result['blocks']=[]
+        app.validate_proposal(self.request,self.result)
+        self.assertEqual(self.result['warnings'],[])
 
 if __name__=='__main__': unittest.main()
