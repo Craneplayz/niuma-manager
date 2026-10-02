@@ -41,6 +41,7 @@ test('planning cards show concise reasons beside each task and collapse duplicat
  assert.match(html,/报告 &lt;草稿&gt;/);
  assert.match(html,/已过截止时间/);
  assert.match(html,/截止时间已过，无法安排/);
+ assert.equal((html.match(/截止时间已过/g)||[]).length,1);
  assert.match(html,/风险 P0 · 时间不足/);
  assert.match(html,/风险 P2 · 余量偏紧/);
  assert.match(html,/截止前可用 180 分钟，余量 120 分钟/);
