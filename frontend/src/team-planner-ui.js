@@ -2,7 +2,7 @@ import {api,flushStore,saveData,workspaceValue,session,accountVersion,planDateTi
 import {icon} from './icons.js';
 import {priorityLabels} from './data.js';
 
-let host={},result=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,autoTaskIds=null;
+let host={},result=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
 const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&!host.getState().schedule.some(p=>p.taskId===t.id));
@@ -36,7 +36,7 @@ export function proposalSummaryHtml(proposal,tasks,now=Date.now()){
  ${otherWarnings.length?`<div class="proposal-extra" role="status">${otherWarnings.map(warning=>`<p>${esc(warning)}</p>`).join('')}</div>`:''}`;
 }
 window.addEventListener('niuma:account-reset',()=>{
- activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;autoTaskIds=null;
+ activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;
 });
 document.addEventListener('toggle',event=>{
  if(event.target.isConnected&&event.target.classList?.contains('planning-exclusions'))exclusionsOpen=event.target.open;
@@ -61,40 +61,39 @@ export function plannerPage(){
 }
 export async function proposeForTasks(taskIds){
  if(!session.user||busy||!taskIds.length)return false;
- const epoch=accountVersion(),current=()=>epoch===accountVersion();
- autoTaskIds=taskIds;result=null;error='';busy=true;host.openPreview?.();host.render();
+ return requestProposal({taskIds});
+}
+async function requestProposal(payload={}){
+ const epoch=accountVersion(),controller=new AbortController();
+ const current=()=>epoch===accountVersion()&&activeController===controller&&!controller.signal.aborted;
+ activeController=controller;result=null;error='';busy=true;
+ controller.signal.addEventListener('abort',()=>{
+  if(epoch!==accountVersion()||activeController!==controller)return;
+  activeController=null;busy=false;error='已取消或请求超时；尚未写入排程，已导入的任务保留。';host.render();
+ },{once:true});
+ const timer=setTimeout(()=>controller.abort(),30000);
+ host.openPreview?.();host.render();
  try{
   await flushStore();if(!current())return false;
   await saveData('availability',currentAvailability());if(!current())return false;
-  const next=await api('/api/planning/proposals',{taskIds},'POST');
+  const next=await api('/api/planning/proposals',payload,'POST',{signal:controller.signal});
   if(!current())return false;
-  result=next;
-  host.openPreview?.();return true;
- }catch(e){if(current())error='任务已加入日历，但排程提案未生成：'+e.message;return false;}
- finally{if(current()){busy=false;host.render();}}
+  result=next;return true;
+ }catch(e){if(current())error=(payload.taskIds?'任务已加入日历，但排程提案未生成：':'')+e.message;return false;}
+ finally{clearTimeout(timer);if(current()){activeController=null;busy=false;host.render();}}
 }
 export async function plannerClick(button){
  const action=button.dataset.planAction;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  if(action==='cancel'){activeController?.abort();return true;}
- if(action==='discard'){result=null;autoTaskIds=null;error='';host.render();return true;}
+ if(action==='discard'){result=null;error='';host.render();return true;}
  if(action==='modify'){result=null;host.render();return true;}
  if(!session.user||session.changing){error='请先登录账号';host.render();return true;}
  if(action==='start'){
   if(busy)return true;
   const a=currentAvailability();
   if(!a.weekdays.length||!a.startTime||a.endTime<=a.startTime){error='请选择有效可用时间和星期';host.render();return true;}
-  busy=true;error='';result=null;host.render();
-  const controller=new AbortController();activeController=controller;const timer=setTimeout(()=>controller.abort(),30000);
-  try{
-   await flushStore();if(!current())return true;
-   await saveData('availability',a);if(!current())return true;
-   if(controller.signal.aborted)throw new Error('已取消等待');
-   const next=await api('/api/planning/proposals',autoTaskIds?{taskIds:autoTaskIds}:{},'POST',{signal:controller.signal});
-   if(current())result=next;
-  }
-  catch(e){if(current())error=controller.signal.aborted?'已取消或请求超时；任务尚未变更':e.message;}
-  finally{clearTimeout(timer);if(current()){activeController=null;busy=false;host.render();}}
+  await requestProposal();
   return true;
  }
  if(action==='apply'){
@@ -103,7 +102,7 @@ export async function plannerClick(button){
   try{
    await flushStore();if(!current())return true;
    await api('/api/planning/apply',{requestId:result.requestId});if(!current())return true;
-   result=null;autoTaskIds=null;await host.refresh();if(current())host.toast('规划已写入日历');
+   result=null;await host.refresh();if(current())host.toast('规划已写入日历');
   }
   catch(e){if(current())error=e.message;}finally{if(current()){busy=false;host.render();}}
   return true;

@@ -121,7 +121,7 @@ function exportCalendar(){
 }
 configureAssistant({getState:()=>state,editTask:taskDialog,render,persist,toast,openDialog,closeDialog,dialogHeader,proposeForTasks,refresh:async()=>{state=await refreshStore();render();}});
 configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
-configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:()=>{plannerOpen=true;render();},refresh:async()=>{state=await refreshStore();render();}});
+configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:planDialog,refresh:async()=>{state=await refreshStore();render();}});
 configurePersonalization({getState:()=>state,render});
 document.addEventListener('keydown',experienceKey);
 document.addEventListener('change',event=>{if(event.target.id==='agent-source-file')handleAssistantInput(event);experienceInput(event);if(plannerChange(event))return;if(event.target.id==='task-sort'){sort=event.target.value;document.querySelector('#task-results').innerHTML=taskResults();}if(event.target.dataset.subtaskTask){const rect=event.target.getBoundingClientRect(),task=state.tasks.find(t=>t.id===event.target.dataset.subtaskTask),sub=task?.subtasks[Number(event.target.dataset.subtaskIndex)];if(sub){sub.done=event.target.checked;expandedTasks.add(task.id);persist();const completed=task.subtasks.filter(item=>item.done).length,total=task.subtasks.length;render();if(sub.done)celebrate(rect,completed===total?'所有小步骤完成！可以完成整项任务了。':`完成一步 · ${completed}/${total}`,completed===total);else toast(`已重新打开 · ${completed}/${total}`);}}});
