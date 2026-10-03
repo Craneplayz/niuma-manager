@@ -122,7 +122,7 @@ function exportCalendar(){
 }
 configureAssistant({getState:()=>state,editTask:taskDialog,render,persist,toast,openDialog,closeDialog,dialogHeader,proposeForTasks,refresh:async()=>{state=await refreshStore();render();}});
 configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
-configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:()=>{plannerOpen=true;render();},refresh:async()=>{state=await refreshStore();render();}});
+configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:planDialog,refresh:async()=>{state=await refreshStore();render();}});
 configureWechatMedia({render,getState:()=>state,proposeForTasks,refresh:async()=>{state=await refreshStore();render();}});
 document.addEventListener('click',event=>{const button=event.target.closest?.('[data-media-action]');if(button)wechatMediaClick(button);});
 configurePersonalization({getState:()=>state,render});

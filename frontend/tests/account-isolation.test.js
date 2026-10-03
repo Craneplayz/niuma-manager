@@ -59,11 +59,11 @@ test('every computed risk level has its own label without replacing manual prior
  assert.equal((html.match(/高优先级/g)||[]).length,4);
 });
 function defer(path){
- let release,started;
- const promise=new Promise(resolve=>{release=resolve;});
+ let release,reject,started;
+ const promise=new Promise((resolve,fail)=>{release=resolve;reject=fail;});
  const ready=new Promise(resolve=>{started=resolve;});
  delay={path,promise,started};
- return {ready,release:value=>release(response(value))};
+ return {ready,release:value=>release(response(value)),reject};
 }
 async function login(id){state=await store.authenticate('login',{email:id,password:'test'});}
 
@@ -112,6 +112,63 @@ test('automatic proposal stays a preview until confirmed or cancelled',async()=>
  assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
  await planner.plannerClick({dataset:{planAction:'discard'}});
  assert.doesNotMatch(planner.plannerPage(),/取消提案/);
+});
+
+test('manual planning includes all pending tasks after an automatic proposal fails',async()=>{
+ await login('A');
+ const pending=defer('/api/planning/proposals');
+ const operation=planner.proposeForTasks(['a2']);
+ await pending.ready;
+ pending.reject(new Error('模型暂不可用'));
+ await operation;
+ assert.match(planner.plannerPage(),/模型暂不可用/);
+ await planner.plannerClick({dataset:{planAction:'start'}});
+ assert.deepEqual(requests.filter(item=>item.path==='/api/planning/proposals').at(-1).body,{});
+});
+
+test('cancel automatic planning immediately and ignore its late response after retry',async()=>{
+ await login('A');
+ const pending=defer('/api/planning/proposals');
+ const operation=planner.proposeForTasks(['a2']);
+ await pending.ready;
+ const signal=requests.at(-1).signal;
+ await planner.plannerClick({dataset:{planAction:'cancel'}});
+ assert.equal(signal.aborted,true);
+ assert.doesNotMatch(planner.plannerPage(),/正在处理/);
+ assert.match(planner.plannerPage(),/已导入的任务保留/);
+ await planner.plannerClick({dataset:{planAction:'start'}});
+ pending.release({requestId:'cancelled',estimates:{a2:30},blocks:[],warnings:['不应显示的旧结果']});
+ await operation;
+ assert.doesNotMatch(planner.plannerPage(),/不应显示的旧结果/);
+ assert.match(planner.plannerPage(),/取消提案/);
+});
+
+test('automatic planning opens preview before waiting for the source-page result',async()=>{
+ await login('A');
+ let opened=0;
+ planner.configurePlanner({...host,openPreview(){opened++;}});
+ const pending=defer('/api/planning/proposals');
+ try{
+  const operation=planner.proposeForTasks(['a2']);
+  await pending.ready;
+  assert.equal(opened,1);
+  pending.release({requestId:'source-plan',estimates:{},blocks:[],warnings:[]});
+  await operation;
+  assert.equal(opened,1);
+ }finally{planner.configurePlanner(host);}
+});
+
+test('cancelling while availability saves prevents a subsequent model request',async()=>{
+ await login('A');
+ const pending=defer('/api/data/availability');
+ requests=[];
+ const operation=planner.proposeForTasks(['a2']);
+ await pending.ready;
+ await planner.plannerClick({dataset:{planAction:'cancel'}});
+ pending.release({version:2});
+ await operation;
+ assert.equal(requests.some(item=>item.path==='/api/planning/proposals'),false);
+ assert.doesNotMatch(planner.plannerPage(),/正在处理|取消提案/);
 });
 
 test('late recognition response is discarded after logout and a new account can recognize',async()=>{
@@ -202,6 +259,8 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,25);
   const page=recognition.assistantPage();
   assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
+  assert.match(page,/仅无疑点的任务自动入库/);
+  assert.doesNotMatch(page,/有日期任务进入日历/);
   assert.doesNotMatch(page,/新任务已加入日历/);
   assert.match(page,/data-agent-retry="sync:0"/);
   assert.doesNotMatch(page,/data-agent-retry="sync:1"/);
