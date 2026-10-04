@@ -2,11 +2,16 @@ import {api,flushStore,saveData,workspaceValue,session,accountVersion,planDateTi
 import {icon} from './icons.js';
 import {priorityLabels} from './data.js';
 
-let host={},result=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false;
+let host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
 const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&!host.getState().schedule.some(p=>p.taskId===t.id));
 function currentAvailability(){return availability||workspaceValue('availability',defaults);}
+const planningContext=()=>JSON.stringify([host.getState().tasks,host.getState().schedule,currentAvailability()]);
+const changedMessage='任务或可用时间已更新，请重新规划。';
+function invalidateChangedProposal(){
+ if(result&&resultContext!==planningContext()){result=null;error=changedMessage;}
+}
 export function configurePlanner(callbacks){host=callbacks;}
 const minutes=value=>`${Math.ceil(value)} 分钟`;
 const riskLabels=['时间不足','余量极小','余量偏紧','余量充足'];
@@ -42,6 +47,7 @@ document.addEventListener('toggle',event=>{
  if(event.target.isConnected&&event.target.classList?.contains('planning-exclusions'))exclusionsOpen=event.target.open;
 },true);
 export function plannerPage(){
+ invalidateChangedProposal();
  const tasks=active(),selected=tasks.filter(t=>!t.planningExcluded),a=currentAvailability();
  return `<div class="page-heading"><h1>智能规划</h1></div>
  <div class="planner-grid"><section class="panel priority-lab"><div class="section-title"><h2>可用时间</h2><span>北京时间</span></div>
@@ -65,6 +71,7 @@ export async function proposeForTasks(taskIds){
 }
 async function requestProposal(payload={}){
  const epoch=accountVersion(),controller=new AbortController();
+ const context=planningContext();
  const current=()=>epoch===accountVersion()&&activeController===controller&&!controller.signal.aborted;
  activeController=controller;result=null;error='';busy=true;
  controller.signal.addEventListener('abort',()=>{
@@ -76,9 +83,11 @@ async function requestProposal(payload={}){
  try{
   await flushStore();if(!current())return false;
   await saveData('availability',currentAvailability());if(!current())return false;
+  if(context!==planningContext())throw new Error(changedMessage);
   const next=await api('/api/planning/proposals',payload,'POST',{signal:controller.signal});
   if(!current())return false;
-  result=next;return true;
+  if(context!==planningContext())throw new Error(changedMessage);
+  resultContext=context;result=next;return true;
  }catch(e){if(current())error=(payload.taskIds?'任务已加入日历，但排程提案未生成：':'')+e.message;return false;}
  finally{clearTimeout(timer);if(current()){activeController=null;busy=false;host.render();}}
 }
@@ -97,11 +106,15 @@ export async function plannerClick(button){
   return true;
  }
  if(action==='apply'){
-  if(busy||!result)return true;
+  invalidateChangedProposal();
+  if(!result){host.render();return true;}
+  if(busy)return true;
+  const proposal=result,context=resultContext;
   busy=true;error='';host.render();
   try{
    await flushStore();if(!current())return true;
-   await api('/api/planning/apply',{requestId:result.requestId});if(!current())return true;
+   if(context!==planningContext()){result=null;throw new Error(changedMessage);}
+   await api('/api/planning/apply',{requestId:proposal.requestId});if(!current())return true;
    result=null;await host.refresh();if(current())host.toast('规划已写入日历');
   }
   catch(e){if(current())error=e.message;}finally{if(current()){busy=false;host.render();}}

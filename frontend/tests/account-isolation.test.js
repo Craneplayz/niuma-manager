@@ -114,6 +114,41 @@ test('automatic proposal stays a preview until confirmed or cancelled',async()=>
  assert.doesNotMatch(planner.plannerPage(),/取消提案/);
 });
 
+test('newly confirmed tasks invalidate an earlier proposal before display or apply',async()=>{
+ await login('A');
+ await planner.proposeForTasks(['a2']);
+ state.tasks.push({...state.tasks[0],id:'reviewed-task',title:'刚核对的任务'});
+ assert.match(planner.plannerPage(),/任务或可用时间已更新/);
+ assert.doesNotMatch(planner.plannerPage(),/取消提案/);
+ requests=[];
+ await planner.plannerClick({dataset:{planAction:'apply'}});
+ assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
+});
+
+test('apply rechecks changed task data even before a render',async()=>{
+ await login('A');
+ await planner.proposeForTasks(['a2']);
+ state.tasks.find(task=>task.id==='a2').due='2026-10-10';
+ requests=[];
+ await planner.plannerClick({dataset:{planAction:'apply'}});
+ assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
+ assert.match(planner.plannerPage(),/任务或可用时间已更新/);
+});
+
+test('late proposal is rejected when tasks or availability change while waiting',async()=>{
+ for(const change of [()=>{state.tasks.push({...state.tasks[0],id:'new-task'});},()=>planner.plannerChange({target:{dataset:{planField:'endTime'},value:'23:00'}})]){
+  await login('A');
+  const pending=defer('/api/planning/proposals');
+  const operation=planner.proposeForTasks(['a2']);
+  await pending.ready;
+  change();
+  pending.release({requestId:'outdated',estimates:{},blocks:[],warnings:[]});
+  assert.equal(await operation,false);
+  assert.match(planner.plannerPage(),/任务或可用时间已更新/);
+  assert.doesNotMatch(planner.plannerPage(),/取消提案|正在处理/);
+ }
+});
+
 test('manual planning includes all pending tasks after an automatic proposal fails',async()=>{
  await login('A');
  const pending=defer('/api/planning/proposals');
