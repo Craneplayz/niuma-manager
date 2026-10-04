@@ -28,7 +28,8 @@ frontend/
 └── docs/
     ├── maintenance.md         说明模块边界和验证要求。
     └── archive/               保存带日期的历史文档与验收截图。
-        └── 2026-10-03-pr75/   保存真实日期预填、日历、规划预览和移动端截图。
+        ├── 2026-10-03-pr75/   保存真实日期预填、日历、规划预览和移动端截图。
+        └── 2026-10-04-pr75/   保存人工核对后真实排程落库及增量同步截图。
 ```
 
 本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`。
@@ -51,6 +52,7 @@ npm run dev:api
 文本识别和规划均只需上述两个服务：将仓库根目录 `.env.example` 复制为 `.env` 并填写七牛模型配置与密钥，后端直接调用 `ddl_text` 和 `task_planning`，无需再运行 `npm run dev:recognition` 或 `npm run dev:planning`。已有 `.env` 直接沿用，密钥不进入前端，模型环境变量优先于 `.env`；重启后端使配置生效。
 
 排程提案在每项任务旁显示用户优先级、自动风险 P0–P3 和简短原因；无 DDL 任务提示补充日期。
+任务或可用时间变更后，旧提案失效并提示重新规划；等待期间返回的旧结果不会重新显示。
 
 开发测试账号：`demo@niuma.test` / `Niuma-Test-2026!`。账号和模拟数据由 seed 在协作者各自本地的 SQLite 中生成；不默认登录，不提交数据库文件。seed 幂等，已有账号内容不会被覆盖。数据库默认在 `../server/data/niuma.sqlite3`，可用 `NIUMA_DB` 指定路径。
 
