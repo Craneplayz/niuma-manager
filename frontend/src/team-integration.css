@@ -108,6 +108,10 @@
 .source-import-consent input{margin:3px 0 0;flex-shrink:0}
 .agent-source-import>[data-agent-action="import-wechat"]{margin-top:12px}
 .personalization-setting{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px 0 4px}
+.account-management{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:22px 0 4px}
+.account-management h2{margin:0 0 7px}
+.account-management p{margin:0}
+.account-management .button-row{margin:0;flex-shrink:0}
 .personalization-setting h2{margin:0 0 7px}
 .personalization-setting p{margin:0;max-width:520px}
 .personalization-setting .error{margin-top:7px}
@@ -215,7 +219,7 @@
 [data-theme=dark] .candidate-evidence blockquote{background:#2c3039;border-color:#5b7562}
 [data-theme=dark] .import-ignored-section>summary span{background:#343943;color:#c2c9c4}
 [data-theme=dark] .setting-switch span{background:#434650}
-@media(max-width:600px){.notification-import{gap:15px}.import-entry-header{align-items:flex-start;flex-wrap:wrap}.import-source-tabs{width:100%}.import-source-tab{flex:1;padding:8px 6px}.import-entry-header>.btn{margin-left:0}.import-mode-panel{padding:14px 12px 0}.import-review-card{padding:52px 42px 16px 16px}.import-review-card.ignored{padding:52px 16px 16px}.candidate-create-button{left:16px;top:14px;transform:none;width:30px;height:30px}.candidate-dismiss-button{right:9px;top:12px}.candidate-restore-button{left:14px;right:auto;top:12px}.candidate-type{padding-left:40px;min-height:30px;display:flex;align-items:center}.import-review-card.ignored .candidate-type{padding-left:0}.candidate-meta{display:grid;gap:7px}.import-progress{padding:15px 16px}.personalization-setting{align-items:flex-start;flex-direction:column}.setting-switch{width:100%;justify-content:space-between}.setting-switch span{order:2}.setting-switch b{order:1}}
+@media(max-width:600px){.notification-import{gap:15px}.import-entry-header{align-items:flex-start;flex-wrap:wrap}.import-source-tabs{width:100%}.import-source-tab{flex:1;padding:8px 6px}.import-entry-header>.btn{margin-left:0}.import-mode-panel{padding:14px 12px 0}.import-review-card{padding:52px 42px 16px 16px}.import-review-card.ignored{padding:52px 16px 16px}.candidate-create-button{left:16px;top:14px;transform:none;width:30px;height:30px}.candidate-dismiss-button{right:9px;top:12px}.candidate-restore-button{left:14px;right:auto;top:12px}.candidate-type{padding-left:40px;min-height:30px;display:flex;align-items:center}.import-review-card.ignored .candidate-type{padding-left:0}.candidate-meta{display:grid;gap:7px}.import-progress{padding:15px 16px}.account-management,.personalization-setting{align-items:flex-start;flex-direction:column}.account-management .button-row{width:100%}.setting-switch{width:100%;justify-content:space-between}.setting-switch span{order:2}.setting-switch b{order:1}}
 .sidebar-bottom .profile{padding:18px 10px 8px;border-radius:0 0 9px 9px}
 .sidebar-bottom .profile:hover,.sidebar-bottom .profile.selected{background:#f6f8f5}
 .sidebar-bottom .profile.selected{color:var(--green)}

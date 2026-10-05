@@ -75,6 +75,22 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='Test-password-2026'))[0],200)
         self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),1)
 
+    def test_account_profile_and_password_management(self):
+        a,b=self.client(),self.client();email='account@test.local'
+        self.register(a,email)
+        self.assertEqual(self.call(b,'/auth/login','POST',dict(email=email,password='Test-password-2026'))[0],200)
+        for name in ['', 'x'*41]: self.assertEqual(self.call(a,'/auth/profile','POST',dict(name=name))[0],400)
+        status,result=self.call(a,'/auth/profile','POST',dict(name='新的昵称'))
+        self.assertEqual(status,200);self.assertEqual(result['user']['name'],'新的昵称')
+        self.assertEqual(self.call(b,'/auth/me')[1]['user']['name'],'新的昵称')
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='wrong-password',newPassword='New-password-2026'))[0],400)
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='Test-password-2026',newPassword='short'))[0],400)
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='Test-password-2026',newPassword='New-password-2026'))[0],200)
+        self.assertEqual(self.call(a,'/auth/me')[0],200)
+        self.assertEqual(self.call(b,'/auth/me')[0],401)
+        old=self.client();self.assertEqual(self.call(old,'/auth/login','POST',dict(email=email,password='Test-password-2026'))[0],401)
+        fresh=self.client();self.assertEqual(self.call(fresh,'/auth/login','POST',dict(email=email,password='New-password-2026'))[0],200)
+
     def test_feedback_and_no_model(self):
         a=self.client();self.register(a,'feedback@test.local')
         self.assertEqual(self.call(a,'/data/preferences','PUT',dict(value=dict(askCompletionMinutes=True),version=0))[0],200)

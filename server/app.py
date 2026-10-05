@@ -131,6 +131,21 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
                 return self.reply(200,{},'niuma_session=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0')
+            if path=='/api/auth/profile' and self.command=='POST':
+                name=str(body.get('name','')).strip()
+                if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
+                db.execute('UPDATE users SET name=? WHERE id=?',(name,uid))
+                return self.reply(200,dict(user=dict(user,name=name)))
+            if path=='/api/auth/password' and self.command=='POST':
+                current=str(body.get('currentPassword',''))
+                new=str(body.get('newPassword',''))
+                if not 8<=len(new)<=128: raise ApiError(400,'新密码需要 8–128 个字符')
+                row=db.execute('SELECT salt,hash FROM users WHERE id=?',(uid,)).fetchone()
+                if not hmac.compare_digest(row['hash'],password_hash(current,row['salt'])): raise ApiError(400,'当前密码不正确')
+                salt=secrets.token_hex(16)
+                db.execute('UPDATE users SET salt=?,hash=? WHERE id=?',(salt,password_hash(new,salt),uid))
+                db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
+                return self.reply(200,{})
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
