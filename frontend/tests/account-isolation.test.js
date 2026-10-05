@@ -36,12 +36,34 @@ globalThis.fetch=async(path,options={})=>{
 };
 const host={getState:()=>state,render(){},persist(){store.saveStore(state);},refresh:async()=>{state=await store.refreshStore();},toast(){}};
 planner.configurePlanner(host);feedback.configurePersonalization(host);recognition.configureAssistant(host);
+test('planning cards show concise reasons beside each task and collapse duplicate warnings',()=>{
+ const html=planner.proposalSummaryHtml({estimates:{a:90,b:60,c:20},blocks:[{taskId:'b',startAt:'2026-10-06T19:00:00+08:00',endAt:'2026-10-06T20:00:00+08:00'}],priorityOrder:[{taskId:'a',rank:1,level:0,availableMinutes:0,estimatedMinutes:90,slackMinutes:-90},{taskId:'b',rank:2,level:2,availableMinutes:180,estimatedMinutes:60,slackMinutes:120}],warnings:['报告 <草稿>：P0，DDL 前尚缺 90 分钟','报告 <草稿>：未全部安排，请检查约束或截止时间']},[{id:'a',title:'报告 <草稿>',priority:'high',due:'2026-10-05',dueTime:'23:00'},{id:'b',title:'练习',priority:'medium',due:'2026-10-07',dueTime:'18:00'},{id:'c',title:'无日期',priority:'low',due:''}],Date.parse('2026-10-06T10:00:00+08:00'));
+ assert.match(html,/报告 &lt;草稿&gt;/);
+ assert.match(html,/已过截止时间/);
+ assert.match(html,/截止时间已过，无法安排/);
+ assert.equal((html.match(/截止时间已过/g)||[]).length,1);
+ assert.match(html,/风险 P0 · 时间不足/);
+ assert.match(html,/风险 P2 · 余量偏紧/);
+ assert.match(html,/截止前可用 180 分钟，余量 120 分钟/);
+ assert.match(html,/高优先级|中优先级/);
+ assert.match(html,/排程优先第 1 位/);
+ assert.doesNotMatch(html,/排程优先第 2 位/);
+ assert.match(html,/1 项可安排 · 2 项需要处理/);
+ assert.equal((html.match(/class="proposal-risk/g)||[]).length,2);
+ assert.doesNotMatch(html,/P0，DDL|未全部安排|为什么这样排序/);
+});
+test('every computed risk level has its own label without replacing manual priority',()=>{
+ const tasks=[0,1,2,3].map(level=>({id:String(level),title:'任务'+level,priority:'high',due:'2026-10-10'}));
+ const html=planner.proposalSummaryHtml({estimates:Object.fromEntries(tasks.map(task=>[task.id,60])),blocks:[],warnings:[],priorityOrder:tasks.map((task,level)=>({taskId:task.id,rank:level+1,level,availableMinutes:level*60,estimatedMinutes:60,slackMinutes:(level-1)*60}))},tasks,Date.parse('2026-10-02T10:00:00+08:00'));
+ for(let level=0;level<4;level++)assert.match(html,new RegExp('风险 P'+level));
+ assert.equal((html.match(/高优先级/g)||[]).length,4);
+});
 function defer(path){
- let release,started;
- const promise=new Promise(resolve=>{release=resolve;});
+ let release,reject,started;
+ const promise=new Promise((resolve,fail)=>{release=resolve;reject=fail;});
  const ready=new Promise(resolve=>{started=resolve;});
  delay={path,promise,started};
- return {ready,release:value=>release(response(value))};
+ return {ready,release:value=>release(response(value)),reject};
 }
 async function login(id){state=await store.authenticate('login',{email:id,password:'test'});}
 
@@ -77,6 +99,111 @@ test('late planning response cannot repopulate another account or leave it busy'
  assert.doesNotMatch(planner.plannerPage(),/A 私有计划|正在处理|账号已切换/);
  await planner.plannerClick({dataset:{planAction:'start'}});
  assert.equal(requests.at(-1).account,'B');
+});
+
+test('automatic proposal stays a preview until confirmed or cancelled',async()=>{
+ await login('A');
+ requests=[];
+ await planner.proposeForTasks(['a2']);
+ const call=requests.find(item=>item.path==='/api/planning/proposals');
+ assert.deepEqual(call.body,{taskIds:['a2']});
+ assert.match(planner.plannerPage(),/排程提案|取消提案/);
+ assert.equal(state.schedule.length,0);
+ assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
+ await planner.plannerClick({dataset:{planAction:'discard'}});
+ assert.doesNotMatch(planner.plannerPage(),/取消提案/);
+});
+
+test('newly confirmed tasks invalidate an earlier proposal before display or apply',async()=>{
+ await login('A');
+ await planner.proposeForTasks(['a2']);
+ state.tasks.push({...state.tasks[0],id:'reviewed-task',title:'刚核对的任务'});
+ assert.match(planner.plannerPage(),/任务或可用时间已更新/);
+ assert.doesNotMatch(planner.plannerPage(),/取消提案/);
+ requests=[];
+ await planner.plannerClick({dataset:{planAction:'apply'}});
+ assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
+});
+
+test('apply rechecks changed task data even before a render',async()=>{
+ await login('A');
+ await planner.proposeForTasks(['a2']);
+ state.tasks.find(task=>task.id==='a2').due='2026-10-10';
+ requests=[];
+ await planner.plannerClick({dataset:{planAction:'apply'}});
+ assert.equal(requests.some(item=>item.path==='/api/planning/apply'),false);
+ assert.match(planner.plannerPage(),/任务或可用时间已更新/);
+});
+
+test('late proposal is rejected when tasks or availability change while waiting',async()=>{
+ for(const change of [()=>{state.tasks.push({...state.tasks[0],id:'new-task'});},()=>planner.plannerChange({target:{dataset:{planField:'endTime'},value:'23:00'}})]){
+  await login('A');
+  const pending=defer('/api/planning/proposals');
+  const operation=planner.proposeForTasks(['a2']);
+  await pending.ready;
+  change();
+  pending.release({requestId:'outdated',estimates:{},blocks:[],warnings:[]});
+  assert.equal(await operation,false);
+  assert.match(planner.plannerPage(),/任务或可用时间已更新/);
+  assert.doesNotMatch(planner.plannerPage(),/取消提案|正在处理/);
+ }
+});
+
+test('manual planning includes all pending tasks after an automatic proposal fails',async()=>{
+ await login('A');
+ const pending=defer('/api/planning/proposals');
+ const operation=planner.proposeForTasks(['a2']);
+ await pending.ready;
+ pending.reject(new Error('模型暂不可用'));
+ await operation;
+ assert.match(planner.plannerPage(),/模型暂不可用/);
+ await planner.plannerClick({dataset:{planAction:'start'}});
+ assert.deepEqual(requests.filter(item=>item.path==='/api/planning/proposals').at(-1).body,{});
+});
+
+test('cancel automatic planning immediately and ignore its late response after retry',async()=>{
+ await login('A');
+ const pending=defer('/api/planning/proposals');
+ const operation=planner.proposeForTasks(['a2']);
+ await pending.ready;
+ const signal=requests.at(-1).signal;
+ await planner.plannerClick({dataset:{planAction:'cancel'}});
+ assert.equal(signal.aborted,true);
+ assert.doesNotMatch(planner.plannerPage(),/正在处理/);
+ assert.match(planner.plannerPage(),/已导入的任务保留/);
+ await planner.plannerClick({dataset:{planAction:'start'}});
+ pending.release({requestId:'cancelled',estimates:{a2:30},blocks:[],warnings:['不应显示的旧结果']});
+ await operation;
+ assert.doesNotMatch(planner.plannerPage(),/不应显示的旧结果/);
+ assert.match(planner.plannerPage(),/取消提案/);
+});
+
+test('automatic planning opens preview before waiting for the source-page result',async()=>{
+ await login('A');
+ let opened=0;
+ planner.configurePlanner({...host,openPreview(){opened++;}});
+ const pending=defer('/api/planning/proposals');
+ try{
+  const operation=planner.proposeForTasks(['a2']);
+  await pending.ready;
+  assert.equal(opened,1);
+  pending.release({requestId:'source-plan',estimates:{},blocks:[],warnings:[]});
+  await operation;
+  assert.equal(opened,1);
+ }finally{planner.configurePlanner(host);}
+});
+
+test('cancelling while availability saves prevents a subsequent model request',async()=>{
+ await login('A');
+ const pending=defer('/api/data/availability');
+ requests=[];
+ const operation=planner.proposeForTasks(['a2']);
+ await pending.ready;
+ await planner.plannerClick({dataset:{planAction:'cancel'}});
+ pending.release({version:2});
+ await operation;
+ assert.equal(requests.some(item=>item.path==='/api/planning/proposals'),false);
+ assert.doesNotMatch(planner.plannerPage(),/正在处理|取消提案/);
 });
 
 test('late recognition response is discarded after logout and a new account can recognize',async()=>{
@@ -167,6 +294,9 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,25);
   const page=recognition.assistantPage();
   assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
+  assert.match(page,/仅无疑点的任务自动入库/);
+  assert.doesNotMatch(page,/有日期任务进入日历/);
+  assert.doesNotMatch(page,/新任务已加入日历/);
   assert.match(page,/data-agent-retry="sync:0"/);
   assert.doesNotMatch(page,/data-agent-retry="sync:1"/);
   fail=false;
@@ -174,6 +304,22 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,26);
   assert.equal(seen.at(-1).request_id,'sync:0');
   assert.doesNotMatch(recognition.assistantPage(),/data-agent-retry=/);
+ }finally{globalThis.fetch=originalFetch;}
+});
+
+test('empty source sync does not report zero unchanged records as filtered content',async()=>{
+ await login('A');
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
+  ? response({requests:[],summary:{total:0,skipped:0,pending:0}})
+  : originalFetch(path,options);
+ try{
+  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+  const page=recognition.assistantPage();
+  assert.match(page,/同步完成，暂无待识别内容/);
+  assert.doesNotMatch(page,/跳过 0 条/);
  }finally{globalThis.fetch=originalFetch;}
 });
 
@@ -190,4 +336,21 @@ test('a late sync response cannot send any records after account switch',async()
  await operation;
  assert.equal(requests.length,before);
  assert.doesNotMatch(recognition.assistantPage(),/private-sync|private/);
+});
+
+test('failed source sync clears stale loading notice and remains retryable',async()=>{
+ await login('A');
+ const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
+  ? {ok:false,status:502,json:async()=>({error:'服务处理失败，请稍后重试；数据未变更'})}
+  : originalFetch(path,options);
+ try{
+  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+  const page=recognition.assistantPage();
+  assert.match(page,/服务处理失败，请稍后重试/);
+  assert.doesNotMatch(page,/正在获取教学网信息/);
+  assert.match(page,/data-agent-action="sync-sources"/);
+ }finally{globalThis.fetch=originalFetch;}
 });
