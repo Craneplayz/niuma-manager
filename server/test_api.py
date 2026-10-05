@@ -77,6 +77,10 @@ class ApiTests(unittest.TestCase):
 
     def test_feedback_and_no_model(self):
         a=self.client();self.register(a,'feedback@test.local')
+        self.assertEqual(self.call(a,'/data/preferences','PUT',dict(value=dict(askCompletionMinutes=True),version=0))[0],200)
+        self.assertTrue(self.call(a,'/workspace')[1]['preferences']['value']['askCompletionMinutes'])
+        for value in [{},dict(askCompletionMinutes='yes'),dict(askCompletionMinutes=True,extra=True)]:
+            self.assertEqual(self.call(a,'/data/preferences','PUT',dict(value=value,version=1))[0],400)
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='foreign',actualMinutes=10)],version=0))[0],400)
         with patch.object(app.planning,'plan') as model:
             self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],400)

@@ -12,9 +12,9 @@ const recognition=await import('../src/team-recognition-ui.js');
 let state,active='A',delay=null,requests=[];
 const task=(id,title,status)=>({id,title,status,due:null,plans:[],subtasks:[]});
 const accounts={
- A:{tasks:{version:1,value:[task('a','A 的私有任务','completed'),task('a2','A 待规划','not_started')]}},
+ A:{tasks:{version:1,value:[task('a','A 的私有任务','completed'),task('a2','A 待规划','not_started')]},preferences:{version:1,value:{askCompletionMinutes:false}}},
  B:{tasks:{version:1,value:[task('b','B 的任务','completed'),task('b2','B 待规划','not_started')]},
-    availability:{version:1,value:{startTime:'08:00',endTime:'10:00',weekdays:[0]}}}
+    availability:{version:1,value:{startTime:'08:00',endTime:'10:00',weekdays:[0]}},preferences:{version:1,value:{askCompletionMinutes:true}}}
 };
 const response=value=>({ok:true,json:async()=>structuredClone(value)});
 globalThis.fetch=async(path,options={})=>{
@@ -67,25 +67,24 @@ function defer(path){
 }
 async function login(id){state=await store.authenticate('login',{email:id,password:'test'});}
 
-test('account switch clears feedback samples, planning drafts and recognition metadata',async()=>{
+test('account switch loads its own completion feedback preference, planning drafts and recognition metadata',async()=>{
  state=await store.initSession();
- feedback.personalizationClick({dataset:{feedbackAction:'sample'}});
- assert.match(feedback.personalizationSection(state.tasks),/A 的私有任务/);
+ assert.equal(feedback.asksForCompletionMinutes(),false);
+ assert.doesNotMatch(feedback.personalizationSettings(),/data-feedback-setting="completion-minutes" checked/);
  planner.plannerChange({target:{dataset:{planField:'startTime'},value:'13:00'}});
  recognition.handleAssistantInput({target:{id:'agent-published',value:'2026-09-01'}});
  recognition.handleAssistantInput({target:{id:'agent-quality',value:'partial'}});
  state=await store.logout();
- assert.doesNotMatch(feedback.personalizationSection(state.tasks),/A 的私有任务/);
+ assert.equal(feedback.asksForCompletionMinutes(),true);
  await login('B');
- assert.doesNotMatch(feedback.personalizationSection(state.tasks),/A 的私有任务/);
+ assert.equal(feedback.asksForCompletionMinutes(),true);
  assert.match(planner.plannerPage(),/value="08:00"/);
  assert.doesNotMatch(planner.plannerPage(),/value="13:00"/);
  assert.doesNotMatch(recognition.assistantPage(),/2026-09-01/);
  assert.match(recognition.assistantPage(),/data-agent-source-mode="manual"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="manual"/);
  await recognition.handleAssistantClick({dataset:{agentSourceMode:'manual'}});
  assert.match(recognition.assistantPage(),/value="complete" selected/);
- feedback.personalizationClick({dataset:{feedbackAction:'sample'}});
- assert.match(feedback.personalizationSection(state.tasks),/B 的任务/);
+ assert.match(feedback.personalizationSettings(),/data-feedback-setting="completion-minutes" checked/);
 });
 
 test('late planning response cannot repopulate another account or leave it busy',async()=>{
