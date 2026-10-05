@@ -46,18 +46,26 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  assert.match(recognition.assistantPage(),/data-agent-confirm="manual-candidate"/);
 });
 
-test('a new import replaces the visible review scope and dismissed items stay collapsed',async()=>{
+test('review sections appear only after import and dismissed items can be restored',async()=>{
  recognition.resetAssistant();session.user={id:'test'};
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
- const batches=[];
+ const batches=[],resolutions=[];
  recognition.configureAssistant({render(){}});
+ const initial=recognition.assistantPage();
+ assert.doesNotMatch(initial,/import-review-section|import-ignored-section/);
+ assert.match(initial,/data-agent-source-mode="manual"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="manual"/);
+ assert.ok(initial.indexOf('data-agent-source-mode="manual"')<initial.indexOf('data-agent-source-mode="teaching_web"'));
  globalThis.fetch=async(path,options)=>{
   if(path==='/api/recognition/batches'){
    const body=JSON.parse(options.body),index=batches.length+1,item={id:'candidate-'+index,version:1,state:'pending',candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id,title:'本次任务 '+index}};
    batches.push({request:{request_id:body.request_id,records:body.records},result:{status:'success',record_results:[],errors:[]},demo:false,items:[item]});
    return {ok:true,json:async()=>batches};
   }
-  if(path.includes('/resolve')){const item=batches.flatMap(batch=>batch.items).find(candidate=>path.includes(candidate.id));item.state='ignored';return {ok:true,json:async()=>({batches})};}
+  if(path.includes('/resolve')){
+   const item=batches.flatMap(batch=>batch.items).find(candidate=>path.includes(candidate.id)),body=JSON.parse(options.body);resolutions.push(body);
+   item.state=body.action==='reopen'?'pending':'ignored';item.version++;
+   return {ok:true,json:async()=>({batches})};
+  }
   throw new Error('unexpected request '+path);
  };
  await recognition.submitRecognitionText('第一条通知');
@@ -70,6 +78,13 @@ test('a new import replaces the visible review scope and dismissed items stay co
  const ignored=recognition.assistantPage();
  assert.match(ignored,/<details class="import-ignored-section"><summary>不加入任务 <span>1<\/span>/);
  assert.match(ignored,/import-review-card ignored/);
+ assert.match(ignored,/data-agent-restore="candidate-2"[^>]*>撤回<\/button>/);
+ await recognition.handleAssistantClick({dataset:{agentRestore:'candidate-2'}});
+ assert.deepEqual(resolutions.at(-1),{action:'reopen',version:2});
+ const restored=recognition.assistantPage();
+ assert.match(restored,/待核对 <span>1/);
+ assert.match(restored,/data-agent-confirm="candidate-2"/);
+ assert.match(restored,/不加入任务 <span>0/);
 });
 
 test('quick confirmation sends a reviewed create without triggering planning',async()=>{
@@ -139,8 +154,7 @@ test('refresh does not auto-apply old unfiltered batches',async()=>{
  recognition.assistantPage();
  await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(resolved,0);
- assert.match(recognition.assistantPage(),/待核对 <span>0/);
- assert.doesNotMatch(recognition.assistantPage(),/old-candidate/);
+ assert.doesNotMatch(recognition.assistantPage(),/import-review-section|import-ignored-section|old-candidate/);
 });
 
 test('reviewed candidates save and refresh without generating a planning proposal',async()=>{
@@ -243,7 +257,7 @@ test('existing undated tasks stay in the task center instead of the current impo
  const task={id:'existing-task',title:'查看讨论课分班情况',source:'教学网',due:'',status:'not_started',recognitionHistory:[{storageId:'candidate-old',action:'create'}]};
  recognition.configureAssistant({getState:()=>({tasks:[task]}),render(){}});
  const page=recognition.assistantPage();
- assert.match(page,/待核对 <span>0/);
+ assert.doesNotMatch(page,/import-review-section|import-ignored-section/);
  assert.doesNotMatch(page,/existing-task|查看讨论课分班情况/);
  assert.doesNotMatch(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况|待补日期/);
  task.due=dayKey();

@@ -6,9 +6,9 @@ import {parseSourceFile,wechatRequest} from './source-import.js';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
 const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',manual:'手动输入',unknown:'其他'};
-let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='teaching_web',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};
+let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='manual',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};
 export function configureAssistant(callbacks){host=callbacks;}
-export function resetAssistant(){cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='teaching_web';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};}
+export function resetAssistant(){cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#settings','#sources'].includes(location.hash))host.render();};
@@ -104,22 +104,24 @@ export function assistantPage(){
  if(session.user&&location.hash==='#agent'&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
  const support=voiceSupport();
  const review=currentItems('pending'),ignored=currentItems('ignored');
+ const importStarted=importProgress.active||activeRequestIds.size>0;
  const failedBatches=currentBatches().filter(batch=>!batch.demo&&['failed','partial_success'].includes(batch.result.status));
  const progressTotal=Math.max(importProgress.total,1),progress=Math.min(100,Math.round(importProgress.processed/progressTotal*100));
  return `<div class="page-heading"><h1>通知导入</h1></div>
- <div class="notification-import"><section class="panel agent-chat import-entry-card"><div class="agent-chat-header import-entry-header"><div class="import-source-tabs" role="tablist" aria-label="导入方式">${[['teaching_web','教学网'],['wechat','微信'],['manual','粘贴通知']].map(([value,label])=>`<button type="button" role="tab" aria-selected="${importMode===value}" class="import-source-tab ${importMode===value?'active':''}" data-agent-source-mode="${value}" ${busy&&importMode!==value?'disabled':''}>${label}</button>`).join('')}</div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
+ <div class="notification-import"><section class="panel agent-chat import-entry-card"><div class="agent-chat-header import-entry-header"><div class="import-source-tabs" role="tablist" aria-label="导入方式">${[['manual','粘贴通知'],['teaching_web','教学网'],['wechat','微信']].map(([value,label])=>`<button type="button" role="tab" aria-selected="${importMode===value}" class="import-source-tab ${importMode===value?'active':''}" data-agent-source-mode="${value}" ${busy&&importMode!==value?'disabled':''}>${label}</button>`).join('')}</div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
  <div class="import-mode-panel">${importModePanel(support)}</div>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section>
- ${activeRequestIds.size||importProgress.active?`<section class="import-progress ${importProgress.active?'active':''}" aria-label="导入进度"><div><strong>${esc(importProgress.source||'本次导入')}</strong><span>${importProgress.active?`${importProgress.processed} / ${importProgress.total||'…'}`:'导入完成'}</span></div><div class="import-progress-track"><i style="width:${importProgress.active&&importProgress.total?progress:100}%"></i></div><small>已创建 ${importProgress.created} 项${importProgress.failed?` · 失败 ${importProgress.failed} 项`:''}${importProgress.skipped?` · 跳过 ${importProgress.skipped} 项`:''}</small></section>`:''}
+ ${importStarted?`<section class="import-progress ${importProgress.active?'active':''}" aria-label="导入进度"><div><strong>${esc(importProgress.source||'本次导入')}</strong><span>${importProgress.active?`${importProgress.processed} / ${importProgress.total||'…'}`:'导入完成'}</span></div><div class="import-progress-track"><i style="width:${importProgress.active&&importProgress.total?progress:100}%"></i></div><small>已创建 ${importProgress.created} 项${importProgress.failed?` · 失败 ${importProgress.failed} 项`:''}${importProgress.skipped?` · 跳过 ${importProgress.skipped} 项`:''}</small></section>
  <section class="import-review-section"><div class="result-heading"><h2>待核对 <span>${review.length}</span></h2></div>${review.map(candidateCard).join('')}${!review.length?'<div class="result-empty compact"><h3>暂无待核对内容</h3></div>':''}</section>
- <details class="import-ignored-section"><summary>不加入任务 <span>${ignored.length}</span></summary><div>${ignored.map(candidateCard).join('')}${!ignored.length?'<div class="result-empty compact"><h3>暂无内容</h3></div>':''}</div></details></div>`;
+ <details class="import-ignored-section"><summary>不加入任务 <span>${ignored.length}</span></summary><div>${ignored.map(candidateCard).join('')}${!ignored.length?'<div class="result-empty compact"><h3>暂无内容</h3></div>':''}</div></details>`:''}</div>`;
 }
 export function candidateCard(item){
  const c=item.candidate,source=sourceFor(item),working=candidateBusy.has(item.id);
  const sourceLabel=c.sources?.[0]?.label||source?.course_or_project||source?.source_label||platformLabels[source?.platform]||'通知来源';
  return `<article class="import-review-card ${item.state==='ignored'?'ignored':''}" data-candidate-card="${esc(item.id)}">
  ${item.state==='pending'?`<button class="candidate-dismiss-button" data-agent-ignore="${esc(item.id)}" aria-label="不加入任务" ${working?'disabled':''}>${icon('close')}</button><button class="candidate-create-button" data-agent-confirm="${esc(item.id)}" aria-label="创建任务" ${working?'disabled':''}>${working?'…':icon('check')}</button>`:''}
+ ${item.state==='ignored'?`<button class="candidate-restore-button" data-agent-restore="${esc(item.id)}" ${working?'disabled':''}>${working?'撤回中…':'撤回'}</button>`:''}
  <div class="candidate-content"><div class="candidate-type">${esc(labels[c.notice_type])}</div><h3>${esc(c.title)}</h3><div class="candidate-meta"><span>${icon('clock')}${esc(deadlineLabel(c.deadline))}</span>${c.course_or_project?`<span>${icon('book')}${esc(c.course_or_project)}</span>`:''}</div><p class="candidate-source">来源：${esc(sourceLabel)}</p>
  <details class="candidate-evidence"><summary>查看证据</summary>${c.description?`<p>${esc(c.description)}</p>`:''}${c.deadline.basis?`<p>${esc(c.deadline.basis)}</p>`:''}${(c.review_reasons||[]).filter(reason=>reason!==c.deadline.basis).map(reason=>`<p class="draft-warning">${esc(reason)}</p>`).join('')}${(c.evidence||[]).map(e=>`<blockquote>${esc(e.quote)}</blockquote>`).join('')}${(c.sources||[]).map(s=>{let link='';try{const u=new URL(s.url);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)link=`<a href="${esc(u.href)}" target="_blank" rel="noreferrer">打开来源</a>`;}catch{}return `<p>${esc(s.label||platformLabels[s.platform]||'来源')} ${link}</p>`}).join('')}</details></div></article>`;
 }
@@ -241,15 +243,23 @@ async function ignoreCandidate(item,current){
  catch(e){if(current())error=e.message;}
  finally{candidateBusy.delete(item.id);if(current())refresh();}
 }
+async function restoreCandidate(item,current){
+ if(!item||item.state!=='ignored'||candidateBusy.has(item.id))return;
+ candidateBusy.add(item.id);refresh();
+ try{const response=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'reopen',version:item.version});if(current())batches=response.batches;}
+ catch(e){if(current())error=e.message;}
+ finally{candidateBusy.delete(item.id);if(current())refresh();}
+}
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  if(button.dataset.agentSourceMode){if(!busy&&['teaching_web','wechat','manual'].includes(button.dataset.agentSourceMode)){importMode=button.dataset.agentSourceMode;error='';notice='';refresh();}return;}
- const candidateAction=button.dataset.agentConfirm||button.dataset.agentReview||button.dataset.agentIgnore;
+ const candidateAction=button.dataset.agentConfirm||button.dataset.agentReview||button.dataset.agentIgnore||button.dataset.agentRestore;
  if(busy&&!candidateAction&&!['stop','voice'].includes(button.dataset.agentAction))return;
  if(button.dataset.agentEditTask){host.editTask?.(button.dataset.agentEditTask);return;}
  if(button.dataset.agentConfirm){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentConfirm);if(item?.candidate.notice_type==='create')await quickCreate(item,current);else if(item)review(item);return;}
  if(button.dataset.agentReview){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentReview);if(item)review(item);return;}
  if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);await ignoreCandidate(item,current);return;}
+ if(button.dataset.agentRestore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentRestore);await restoreCandidate(item,current);return;}
  if(button.dataset.agentAction==='refresh'){await load(true);return;}
  if(button.dataset.agentRetry){
   const batch=batches.find(b=>b.request.request_id===button.dataset.agentRetry);

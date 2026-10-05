@@ -81,7 +81,7 @@ test('account switch clears feedback samples, planning drafts and recognition me
  assert.match(planner.plannerPage(),/value="08:00"/);
  assert.doesNotMatch(planner.plannerPage(),/value="13:00"/);
  assert.doesNotMatch(recognition.assistantPage(),/2026-09-01/);
- assert.match(recognition.assistantPage(),/data-agent-source-mode="teaching_web"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="teaching_web"/);
+ assert.match(recognition.assistantPage(),/data-agent-source-mode="manual"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="manual"/);
  await recognition.handleAssistantClick({dataset:{agentSourceMode:'manual'}});
  assert.match(recognition.assistantPage(),/value="complete" selected/);
  feedback.personalizationClick({dataset:{feedbackAction:'sample'}});
@@ -314,8 +314,9 @@ test('empty source sync does not report zero unchanged records as filtered conte
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
   ? response({requests:[],summary:{total:0,skipped:0,pending:0}})
-  : originalFetch(path,options);
+ : originalFetch(path,options);
  try{
+  await recognition.handleAssistantClick({dataset:{agentSourceMode:'teaching_web'}});
   recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
   recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
   await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
@@ -342,6 +343,7 @@ test('a late sync response cannot send any records after account switch',async()
 
 test('failed source sync clears stale loading notice and remains retryable',async()=>{
  await login('A');
+ await recognition.handleAssistantClick({dataset:{agentSourceMode:'teaching_web'}});
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
   ? {ok:false,status:502,json:async()=>({error:'服务处理失败，请稍后重试；数据未变更'})}

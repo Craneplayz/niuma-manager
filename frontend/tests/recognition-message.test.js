@@ -18,6 +18,6 @@ test('historical failed batches do not leak into a new import session',async()=>
  recognition.assistantPage();
  await new Promise(resolve=>setImmediate(resolve));
  const html=recognition.assistantPage();
- assert.match(html,/待核对 <span>0/);
+ assert.doesNotMatch(html,/import-review-section|import-ignored-section/);
  assert.doesNotMatch(html,/正文不完整|数据库课|重试失败记录|incomplete_text|private-id|原始错误/);
 });
