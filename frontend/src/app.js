@@ -8,6 +8,7 @@ import {plannerPage,configurePlanner,plannerClick,plannerChange,plannerSubmit,pl
 import {initTheme,themeButton,handleThemeClick,themeSetting,handleThemeChange} from './theme.js';
 import {configurePersonalization,personalizationSettings,personalizationChange,promptForCompletionMinutes,personalizationSubmit} from './team-personalization-ui.js';
 import {calendarPage,calendarClick,calendarStep,calendarToday} from './team-calendar-ui.js';
+import {configureDecomposition,decompositionPage,decompositionClick,decompositionSubmit} from './team-decomposition-ui.js';
 let state=readStore(), page=location.hash.slice(1)||'agent', filter='all', query='', sort='due', week=0;
 initTheme();
 const expandedTasks=new Set();
@@ -17,7 +18,7 @@ for(const type of ['click','submit','input','change','keydown'])document.addEven
  if(session.changing){event.preventDefault();event.stopImmediatePropagation();}
 },true);
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const nav=[['agent','通知导入'],['tasks','任务中心'],['plan','智能规划'],['calendar','学习日程']];
+const nav=[['agent','通知导入'],['tasks','任务中心'],['decompose','AI 拆解'],['plan','智能规划'],['calendar','学习日程']];
 const routeLabels={overview:'今日概览',plan:'智能规划',tasks:'任务中心',book:'我的课程',settings:'账号与数据'};
 const button=(label,action,cls='',ico='')=>`<button class="btn ${cls}" data-action="${action}">${ico?icon(ico):''}${label}</button>`;
 const today=()=>dayKey();
@@ -55,7 +56,7 @@ function courses(){return `${header('我的课程','课程资料、学习任务�
 function accountManagement(){return `<hr><div class="account-management"><div><h2>账号管理</h2><p>管理昵称和登录密码。登录邮箱暂不支持修改。</p></div><div class="button-row">${button('修改昵称','account-profile')}${button('修改密码','account-password')}</div></div>`;}
 function settings(){return `${header('账号与数据','','')}<section class="panel settings-panel"><div class="account-summary"><span class="avatar">${esc(session.user?.display_name?.slice(0,1)||'我')}</span><div><h2>${esc(session.user?.display_name||'还没有登录')}</h2><p>${session.user?'邮箱：'+esc(session.user.email):'注册或登录后开始使用。'}</p></div>${session.user?button('退出登录','logout'):button('登录 / 注册','login','primary')}</div>${session.user?accountManagement()+personalizationSettings():''}<hr><h2>数据备份</h2>${button('导出 JSON 备份','export','','download')}${sourceManagementPage(true)}</section>`;}
 
-function render(){if(page==='sources'){page='settings';history.replaceState(null,'','#settings');}if(!['agent','tasks','plan','calendar','settings'].includes(page)){page='agent';history.replaceState(null,'','#agent');}app.innerHTML=`<aside class="sidebar"><a href="#agent" class="brand"><span>${icon('cow')}</span><div>牛马管理器</div></a><nav>${nav.map(([key,label])=>`<a href="#${key}" class="${page===key?'selected':''}">${icon(key)}${label}</a>`).join('')}</nav><div class="sidebar-bottom"><a href="#settings" class="profile ${page==='settings'?'selected':''}" aria-label="打开账号与数据"><div class="avatar">${esc(session.user?.display_name?.slice(0,1)||'我')}</div><div>${esc(session.user?.display_name||'未登录')}<small>${session.user?'账号已登录':'未登录'}</small></div><span class="online-dot"></span></a></div></aside><main><header class="topbar"><span><b>${nav.find(n=>n[0]===page)?.[1]||routeLabels[page]||'通知导入'}</b></span><div><span class="local-status" id="save-status">${saveLabel()}</span><button class="icon-btn notification" data-action="notifications" aria-label="查看到期提醒">${icon('bell')}<i></i></button>${session.user?`<a href="#settings" class="avatar small" aria-label="账号与数据">${esc(session.user.display_name.slice(0,1))}</a>`:button('登录 / 注册','login','top-login')}</div></header><div class="content"><div id="save-alert">${saveAlert()}</div>${({agent:assistantPage,tasks,plan:plannerPage,calendar,settings})[page]()}</div></main>`;}
+function render(){if(page==='sources'){page='settings';history.replaceState(null,'','#settings');}if(!['agent','tasks','decompose','plan','calendar','settings'].includes(page)){page='agent';history.replaceState(null,'','#agent');}app.innerHTML=`<aside class="sidebar"><a href="#agent" class="brand"><span>${icon('cow')}</span><div>牛马管理器</div></a><nav>${nav.map(([key,label])=>`<a href="#${key}" class="${page===key?'selected':''}">${icon(key)}${label}</a>`).join('')}</nav><div class="sidebar-bottom"><a href="#settings" class="profile ${page==='settings'?'selected':''}" aria-label="打开账号与数据"><div class="avatar">${esc(session.user?.display_name?.slice(0,1)||'我')}</div><div>${esc(session.user?.display_name||'未登录')}<small>${session.user?'账号已登录':'未登录'}</small></div><span class="online-dot"></span></a></div></aside><main><header class="topbar"><span><b>${nav.find(n=>n[0]===page)?.[1]||routeLabels[page]||'通知导入'}</b></span><div><span class="local-status" id="save-status">${saveLabel()}</span><button class="icon-btn notification" data-action="notifications" aria-label="查看到期提醒">${icon('bell')}<i></i></button>${session.user?`<a href="#settings" class="avatar small" aria-label="账号与数据">${esc(session.user.display_name.slice(0,1))}</a>`:button('登录 / 注册','login','top-login')}</div></header><div class="content"><div id="save-alert">${saveAlert()}</div>${({agent:assistantPage,tasks,decompose:decompositionPage,plan:plannerPage,calendar,settings})[page]()}</div></main>`;}
 
 function enhanceThemeUI(){
   const topbarActions=document.querySelector('.topbar>div');
@@ -66,6 +67,8 @@ function enhanceThemeUI(){
 new MutationObserver(enhanceThemeUI).observe(app,{childList:true,subtree:true});
 document.addEventListener('click',event=>{const button=event.target.closest('[data-theme-toggle]');if(button){handleThemeClick(button);event.stopImmediatePropagation();}},true);
 document.addEventListener('change',event=>{if(handleThemeChange(event)){render();event.stopImmediatePropagation();}},true);
+document.addEventListener('click',event=>{const button=event.target.closest('button');if(button&&decompositionClick(button)){event.preventDefault();event.stopImmediatePropagation();}},true);
+document.addEventListener('submit',event=>{if(decompositionSubmit(event.target)){event.preventDefault();event.stopImmediatePropagation();}},true);
 function openDialog(html){clearTimeout(dialog.closeTimer);dialog.classList.remove('closing');dialog.innerHTML=html;if(!dialog.open)dialog.showModal();}
 function closeDialog(){if(!dialog.open)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){dialog.close();return;}dialog.classList.add('closing');dialog.closeTimer=setTimeout(()=>{dialog.close();dialog.classList.remove('closing');},140);}
 const dialogHeader=title=>`<div class="dialog-title"><h2>${title}</h2><button type="button" class="icon-btn" data-action="close" aria-label="关闭">${icon('close')}</button></div>`;
@@ -126,6 +129,7 @@ configureAssistant({getState:()=>state,editTask:taskDialog,render,persist,toast,
 configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
 configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:planDialog,refresh:async()=>{state=await refreshStore();render();}});
 configurePersonalization({getState:()=>state,render,toast,openDialog,closeDialog,dialogHeader});
+configureDecomposition({getState:()=>state,render,toast,requireLogin:()=>authDialog('login'),refresh:async()=>{state=await refreshStore();render();}});
 document.addEventListener('keydown',experienceKey);
 document.addEventListener('change',event=>{if(event.target.id==='agent-source-file')handleAssistantInput(event);experienceInput(event);if(personalizationChange(event))return;if(plannerChange(event))return;if(event.target.id==='task-sort'){sort=event.target.value;document.querySelector('#task-results').innerHTML=taskResults();}if(event.target.dataset.subtaskTask){const rect=event.target.getBoundingClientRect(),task=state.tasks.find(t=>t.id===event.target.dataset.subtaskTask),sub=task?.subtasks[Number(event.target.dataset.subtaskIndex)];if(sub){sub.done=event.target.checked;expandedTasks.add(task.id);persist();const completed=task.subtasks.filter(item=>item.done).length,total=task.subtasks.length;render();if(sub.done)celebrate(rect,completed===total?'所有小步骤完成！可以完成整项任务了。':`完成一步 · ${completed}/${total}`,completed===total);else toast(`已重新打开 · ${completed}/${total}`);}}});
 document.addEventListener('toggle',event=>{if(event.target.isConnected&&event.target.dataset.taskDetail){if(event.target.open)expandedTasks.add(event.target.dataset.taskDetail);else expandedTasks.delete(event.target.dataset.taskDetail);}},true);

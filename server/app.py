@@ -15,6 +15,7 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import task_decomposition
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -43,6 +44,7 @@ def initialize():
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        task_decomposition.initialize(db)
 
 def seed():
     initialize()
@@ -127,6 +129,7 @@ class Handler(BaseHTTPRequestHandler):
             uid=user['id']
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if recognition.route(self,db,uid,path,body,ApiError): return
+            if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))

@@ -5,6 +5,7 @@ server/
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── recognition.py            文本识别批次与候选确认接口。
 ├── planning.py               规划直调/HTTP 切换、配置读取及并发保护。
+├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
 ├── source_sync.py            调用教学网采集并返回 v0.2 识别请求。
 ├── requirements.txt          定义账号凭据加密所需的 Python 依赖。
 ├── text_contract.py          文本识别结果的服务端契约校验。
@@ -26,6 +27,7 @@ server/
 规划默认调用 `task_planning.planning_harness.generate`，同样读取根目录 `.env`，沿用独立规划服务的七牛配置要求；未配置密钥返回 503，不用本地假排程代替模型。
 显式导出 `HARNESS_URL` 时走原 HTTP 通道，仍支持 `HARNESS_TOKEN`；HTTP 失败不会转而再调用本地模型。恢复直调需清除此环境变量并重启，`.env` 中的路由变量不生效。
 规划有独立的进程内锁，同一时间只执行一个规划请求，忙碌返回 503，异常后释放；识别和规划各自限流，不互相占锁。模型网络超时保持 20 秒、HTTP 等待保持 25 秒，无自动重试。
+任务拆解同样读取根目录 `.env` 的模型配置，并使用自己的进程内锁。`POST /api/decomposition/proposals` 只生成追问或预览，复杂任务的方案须通过 `POST /api/decomposition/apply` 确认后才替换任务步骤；任务版本变化时旧方案拒绝写入。
 两种规划通道仍使用规划 2.0 和同一结果校验，预览只保存提案，用户确认后按账号与任务版本写日历；DDL、任务状态和已有计划不因生成预览而改变。
 `POST /api/planning/proposals` 可带 `taskIds` 限定本账号有 DDL、未完成且未安排的新增任务；无匹配任务返回 400，提案仍须通过 `/api/planning/apply` 确认。
 在 `frontend/` 运行 `npm test` 执行前端与业务 API 测试；规划模块另在仓库根运行 `python -m unittest discover -s task_planning/tests -t . -q`。

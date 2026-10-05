@@ -226,3 +226,60 @@
 .settings-source-management{margin-top:28px}
 .settings-source-management>hr{margin-bottom:28px}
 [data-theme=dark] .sidebar-bottom .profile:hover,[data-theme=dark] .sidebar-bottom .profile.selected{background:#292d37}
+
+.decomposition-layout{display:grid;grid-template-columns:minmax(260px,.72fr) minmax(420px,1.45fr);gap:20px;align-items:start}
+.decomposition-list,.decomposition-work{min-height:560px}
+.decomposition-list{padding:18px}
+.decomposition-list .section-title{padding:3px 5px 13px;margin:0;border-bottom:1px solid var(--border)}
+.decomposition-list .section-title>span{font-size:10px;color:var(--muted)}
+.decomposition-task{width:100%;display:flex;align-items:center;gap:10px;padding:16px 10px;border:0;border-bottom:1px solid var(--border);background:transparent;text-align:left;border-radius:10px}
+.decomposition-task:hover{background:#f6f8fb}
+.decomposition-task.selected{background:#edf4ff;color:#075fae}
+.decomposition-task>span{display:flex;flex:1;min-width:0;flex-direction:column;gap:6px}
+.decomposition-task b{font-size:12px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.decomposition-task small{font-size:9px;color:var(--muted)}
+.decomposition-task em{font-style:normal;font-size:9px;color:var(--muted);white-space:nowrap}
+.decomposition-task>.icon{width:14px}
+.decomposition-empty{padding:45px 14px;text-align:center;color:var(--muted);font-size:11px}
+.decomposition-work{padding:34px;display:flex;flex-direction:column;justify-content:center}
+.decomposition-placeholder{text-align:center;max-width:460px;margin:auto;color:var(--muted)}
+.decomposition-placeholder>.icon{width:38px;height:38px;color:#668cd4;margin-bottom:15px}
+.decomposition-placeholder h2,.decomposition-intro h2,.decomposition-questions h2,.decomposition-plan h2,.decomposition-direct h2{margin:7px 0 12px;font-size:21px;color:var(--ink)}
+.decomposition-placeholder p,.decomposition-intro>p,.decomposition-questions>p,.decomposition-plan-head p,.decomposition-direct>p{font-size:11px;line-height:1.85;color:var(--muted)}
+.decomposition-placeholder .decomposition-actions{justify-content:center}
+.decomposition-placeholder.busy>.icon{animation:decomposition-pulse 1.2s ease-in-out infinite}
+.decomposition-placeholder.error-state h2{color:#9b5145}
+.decomposition-placeholder.applied>.icon{color:#4f9562}
+@keyframes decomposition-pulse{50%{transform:scale(1.14);opacity:.55}}
+.decomposition-intro,.decomposition-questions,.decomposition-plan,.decomposition-direct{width:100%;max-width:720px;margin:auto}
+.decomposition-kicker{font-size:9px;letter-spacing:1.3px;color:#557fc8;font-weight:650}
+.decomposition-facts{display:flex;gap:9px;flex-wrap:wrap;margin:21px 0}
+.decomposition-facts span{padding:8px 11px;border-radius:99px;background:#f1f4f9;color:#5e6878;font-size:10px}
+.decomposition-warning,.decomposition-warnings{padding:12px 14px;border-radius:10px;background:#fff7e8;color:#8e682d!important}
+.decomposition-intro>.btn{margin-top:12px}
+.decomposition-questions label{display:block;margin:22px 0;color:var(--ink);font-size:12px;font-weight:600}
+.decomposition-questions label small{display:block;margin:7px 0 9px;color:var(--muted);font-size:9px;font-weight:400;line-height:1.6}
+.decomposition-questions input{width:100%;font-size:12px}
+.decomposition-actions{display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:24px}
+.decomposition-plan-head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:20px;border-bottom:1px solid var(--border)}
+.decomposition-plan-head>div{min-width:0}
+.decomposition-plan-head>strong{padding:9px 12px;border-radius:9px;background:#edf4ff;color:#386ca8;font-size:10px;white-space:nowrap}
+.decomposition-plan ol{list-style:none;padding:0;margin:14px 0;counter-reset:decomposition}
+.decomposition-plan li{position:relative;padding:17px 76px 17px 42px;border-bottom:1px solid var(--border);counter-increment:decomposition}
+.decomposition-plan li::before{content:counter(decomposition);position:absolute;left:2px;top:15px;width:25px;height:25px;display:grid;place-items:center;border-radius:50%;background:#edf4ff;color:#3475b8;font-size:10px;font-weight:700}
+.decomposition-plan li>span{font-size:12px;font-weight:650;line-height:1.6}
+.decomposition-plan li>em{position:absolute;right:0;top:18px;font-style:normal;color:#5377a3;font-size:9px}
+.decomposition-plan li p{margin:7px 0 0;color:var(--muted);font-size:10px;line-height:1.7}
+.decomposition-plan li small{display:block;margin-top:6px;color:#77879b;font-size:9px;line-height:1.5}
+.decomposition-plan li small.assumption{color:#a56e37}
+.decomposition-warnings{margin-top:18px}
+.decomposition-warnings p{margin:3px 0;font-size:10px;line-height:1.6}
+.decomposition-direct>.icon{width:32px;height:32px;padding:7px;border-radius:50%;background:#eaf6ed;color:#4b8e5b;margin-bottom:14px}
+.decomposition-single{display:flex;flex-direction:column;gap:7px;margin:22px 0;padding:17px;border:1px solid var(--border);border-radius:12px;background:#fafbfc}
+.decomposition-single b{font-size:12px}.decomposition-single span{font-size:10px;color:var(--muted)}
+[data-theme=dark] .decomposition-task:hover,[data-theme=dark] .decomposition-single{background:#292d37}
+[data-theme=dark] .decomposition-task.selected{background:#213654;color:#bdd8ff}
+[data-theme=dark] .decomposition-facts span,[data-theme=dark] .decomposition-plan-head>strong{background:#26364d;color:#bdd8ff}
+[data-theme=dark] .decomposition-warning,[data-theme=dark] .decomposition-warnings{background:#382f20;color:#f0c77d!important}
+@media(max-width:900px){.decomposition-layout{grid-template-columns:1fr}.decomposition-list,.decomposition-work{min-height:0}.decomposition-list{max-height:310px;overflow:auto}.decomposition-work{min-height:480px}}
+@media(max-width:600px){.decomposition-work{padding:23px 18px;min-height:430px}.decomposition-plan-head{display:block}.decomposition-plan-head>strong{display:inline-block;margin-top:10px}.decomposition-plan li{padding-right:0}.decomposition-plan li>em{position:static;display:block;margin-top:6px}.decomposition-actions{flex-wrap:wrap}.decomposition-actions>*{flex:1}}
