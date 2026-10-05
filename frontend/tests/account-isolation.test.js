@@ -81,6 +81,8 @@ test('account switch clears feedback samples, planning drafts and recognition me
  assert.match(planner.plannerPage(),/value="08:00"/);
  assert.doesNotMatch(planner.plannerPage(),/value="13:00"/);
  assert.doesNotMatch(recognition.assistantPage(),/2026-09-01/);
+ assert.match(recognition.assistantPage(),/data-agent-source-mode="teaching_web"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="teaching_web"/);
+ await recognition.handleAssistantClick({dataset:{agentSourceMode:'manual'}});
  assert.match(recognition.assistantPage(),/value="complete" selected/);
  feedback.personalizationClick({dataset:{feedbackAction:'sample'}});
  assert.match(feedback.personalizationSection(state.tasks),/B 的任务/);
@@ -294,7 +296,7 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,25);
   const page=recognition.assistantPage();
   assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
-  assert.match(page,/仅无疑点的任务自动入库/);
+  assert.match(page,/已创建 0 项 · 失败 1 项 · 跳过 40 项/);
   assert.doesNotMatch(page,/有日期任务进入日历/);
   assert.doesNotMatch(page,/新任务已加入日历/);
   assert.match(page,/data-agent-retry="sync:0"/);

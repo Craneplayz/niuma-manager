@@ -6,7 +6,7 @@ globalThis.location={hash:'#agent'};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
 
-test('partial source and failed model records show readable review messages',async()=>{
+test('historical failed batches do not leak into a new import session',async()=>{
  session.user={id:'test'};
  const record={input_id:'private-id',text:'通知标题',course_or_project:'数据库课'};
  globalThis.fetch=async path=>({ok:true,json:async()=>path==='/api/recognition/batches'?[{
@@ -18,8 +18,6 @@ test('partial source and failed model records show readable review messages',asy
  recognition.assistantPage();
  await new Promise(resolve=>setImmediate(resolve));
  const html=recognition.assistantPage();
- assert.match(html,/正文不完整/);
- assert.match(html,/数据库课：识别超时/);
- assert.match(html,/重试失败记录/);
- assert.doesNotMatch(html,/incomplete_text|private-id|原始错误/);
+ assert.match(html,/待核对 <span>0/);
+ assert.doesNotMatch(html,/正文不完整|数据库课|重试失败记录|incomplete_text|private-id|原始错误/);
 });
