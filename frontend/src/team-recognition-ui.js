@@ -189,7 +189,17 @@ async function resolve(form){
   const response=await api('/api/recognition/candidates/'+item.id+'/resolve',body);
   if(!current())return;
   batches=response.batches;host.closeDialog();notice=body.action==='create'?'已加入“我的任务”':body.action==='cancel'?'任务已取消':'任务已更新';
-  try{await host.refresh();if(current())host.toast(notice);}
+  try{
+   await host.refresh();
+   if(!current())return;
+   host.toast(notice);
+   const batch=batches.find(batch=>batch.items.some(candidate=>candidate.id===item.id));
+   const external=!batch?.demo&&batch?.request.records.some(record=>record.input_id===item.candidate.input_id&&['teaching_web','wechat'].includes(record.platform));
+   if(body.action==='create'&&external){
+    for(const task of host.getState().tasks)if(task.recognitionHistory?.some(history=>history.storageId===item.id))newPlanningTaskIds.add(task.id);
+    await planNewTasks(current);
+   }
+  }
   catch(e){if(current())error='任务已保存，但页面刷新失败：'+e.message+'。请点击“刷新候选”重新读取。';}
  }catch(e){if(current()){errorNode.textContent=e.message;form.querySelector('[data-agent-action="refresh-review"]').hidden=e.status!==409;}}
  finally{if(current()){busy=false;fields.forEach(field=>field.disabled=false);submit.disabled=false;submit.textContent=label;refresh();}}

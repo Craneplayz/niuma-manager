@@ -8,6 +8,7 @@ globalThis.requestAnimationFrame=()=>{};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
 const {calendarPage}=await import('../src/team-calendar-ui.js');
+const {dayKey}=await import('../src/data.js');
 
 test('F3 auto-apply accepts clear external actions and rejects uncertain or manual input',async()=>{
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
@@ -92,6 +93,36 @@ test('refresh does not auto-apply old unfiltered batches',async()=>{
  assert.match(recognition.assistantPage(),/待核对 <span>1/);
 });
 
+test('reviewed external new tasks generate a proposal only after saving and refreshing',async()=>{
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const originalFormData=globalThis.FormData;
+ try{
+  for(const [platform,due,action,expected] of [['teaching_web','2026-10-11','create',1],['wechat','2026-10-11','create',1],['manual','2026-10-11','create',0],['teaching_web','','create',0],['teaching_web','2026-10-11','update',0]]){
+   recognition.resetAssistant();session.user={id:'test'};
+   const candidate={...fixture.expected.tasks[0],input_id:'reviewed',needs_review:true,review_reasons:['核对正文']};
+   const item={id:'reviewed-candidate',version:1,state:'pending',candidate};
+   const batch={request:{request_id:'reviewed-batch',records:[{input_id:'reviewed',platform}]},result:{status:'success',record_results:[],errors:[]},demo:false,items:[item]};
+   const tasks=[{id:'saved-task',due,status:'todo',plans:[],recognitionHistory:[{storageId:item.id}]}];
+   const calls=[];
+   recognition.configureAssistant({render(){},getState:()=>({tasks}),closeDialog(){},toast(){},refresh:async()=>{calls.push('refresh');},proposeForTasks:async ids=>{calls.push(ids);}});
+   globalThis.fetch=async path=>{
+    if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
+    if(path.includes('/resolve')){calls.push('save');item.state='applied';return {ok:true,json:async()=>({batches:[batch]})};}
+    throw new Error('unexpected request '+path);
+   };
+   recognition.assistantPage();await new Promise(resolve=>setTimeout(resolve,0));
+   globalThis.FormData=class {*[Symbol.iterator](){yield ['action',action];yield ['reviewed','on'];yield ['title','Reviewed task'];yield ['date',due];if(action==='update')yield ['target_id','saved-task'];}};
+   const error={textContent:''},submit={textContent:'保存'},retry={hidden:true};
+   const form={id:'candidate-form',dataset:{candidate:item.id},querySelector:selector=>selector==='#candidate-error'?error:selector==='[type="submit"]'?submit:retry,querySelectorAll:()=>[]};
+   recognition.handleAssistantSubmit(form);
+   await new Promise(resolve=>setTimeout(resolve,0));
+   assert.equal(error.textContent,'');
+   assert.deepEqual(calls.slice(0,2),['save','refresh']);
+   assert.deepEqual(calls.slice(2),expected?[['saved-task']]:[]);
+  }
+ }finally{globalThis.FormData=originalFormData;}
+});
+
 test('retry auto-applies only candidates created by that retry',async()=>{
  recognition.resetAssistant();session.user={id:'test'};
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
@@ -168,7 +199,7 @@ test('existing undated tasks appear on the workbench and open the same task for 
  assert.doesNotMatch(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况|待补日期/);
  await recognition.handleAssistantClick({dataset:{agentEditTask:'existing-task'}});
  assert.equal(edited,task.id);
- task.due='2026-10-01';
+ task.due=dayKey();
  assert.match(recognition.assistantPage(),/待补日期 <span>0/);
  assert.match(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况/);
 });
