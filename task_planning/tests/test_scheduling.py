@@ -21,6 +21,33 @@ def task(task_id, title, date=None, clock=None, priority="medium", subtasks=None
 
 
 class SchedulingTest(unittest.TestCase):
+    def test_segments_are_numbered_chronologically_after_fallback(self):
+        body = request([task("one", "Assignment", "2026-10-11", "23:59")],
+                       requested="2026-10-04T10:00:00+08:00", weekdays=[1, 2, 3, 4, 5])
+        proposal = build_proposal(body, {"one": 240})
+        blocks = proposal["blocks"]
+        self.assertEqual([block["title"] for block in blocks],
+                         [f"Assignment（第 {part} 段）" for part in range(1, 4)])
+        self.assertEqual([block["startAt"] for block in blocks],
+                         ["2026-10-08T19:00:00+08:00", "2026-10-09T19:00:00+08:00",
+                          "2026-10-09T20:30:00+08:00"])
+        self.assertEqual(self.minutes(proposal, "one"), 240)
+        for earlier, later in zip(blocks, blocks[1:]):
+            self.assertLessEqual(datetime.fromisoformat(earlier["endAt"]),
+                                 datetime.fromisoformat(later["startAt"]))
+        self.assertLessEqual(datetime.fromisoformat(blocks[-1]["endAt"]),
+                             datetime.fromisoformat("2026-10-11T23:59:00+08:00"))
+
+    def test_segment_numbers_are_independent_for_each_task(self):
+        body = request([task("one", "First", "2026-10-11", "23:59"),
+                        task("two", "Second", "2026-10-12", "23:59")])
+        proposal = build_proposal(body, {"one": 240, "two": 180})
+        for task_id, title in [("one", "First"), ("two", "Second")]:
+            blocks = [block for block in proposal["blocks"] if block["taskId"] == task_id]
+            self.assertEqual([block["title"] for block in blocks],
+                             [f"{title}（第 {part} 段）" for part in range(1, len(blocks) + 1)])
+            self.assertEqual(self.minutes(proposal, task_id), 240 if task_id == "one" else 180)
+
     def test_ranks_smaller_deadline_capacity_first(self):
         body = request([task("later", "Later report", "2026-10-04"),
                         task("soon", "Soon quiz", "2026-10-02", "21:00")])
