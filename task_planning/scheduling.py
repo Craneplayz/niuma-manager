@@ -145,7 +145,6 @@ def build_proposal(request, estimates):
         eligible = [i for i, (start, _) in enumerate(free) if preferred <= start < item["due"]]
         fallback = [i for i, (start, _) in enumerate(free) if start < preferred and start < item["due"]]
         order = eligible + list(reversed(fallback))
-        part = 1
         while remaining > 0 and order:
             index = order.pop(0)
             if index >= len(free):
@@ -165,12 +164,9 @@ def build_proposal(request, estimates):
             # Removing or shortening a free interval changes later indexes.
             order = [i - 1 if block_end == end and i > index else i for i in order if i != index]
             title = item["task"].get("title") or item["task"]["id"]
-            if item["estimate"] > MAX_BLOCK_MINUTES:
-                title = f"{title}（第 {part} 段）"
             blocks.append({"taskId": item["task"]["id"], "title": title,
                            "startAt": block_start.isoformat(), "endAt": block_end.isoformat()})
             remaining -= duration
-            part += 1
             # Rebuild indexes because free was mutated and new space may remain at the same index.
             eligible = [i for i, (left, _) in enumerate(free)
                         if preferred <= left < item["due"]]
@@ -181,4 +177,10 @@ def build_proposal(request, estimates):
             warnings.append(f"{item['task'].get('title', item['task']['id'])}：P{item['level']}，DDL 前尚缺 {math.ceil(remaining)} 分钟")
 
     blocks.sort(key=lambda block: block["startAt"])
+    parts = {}
+    for block in blocks:
+        task_id = block["taskId"]
+        if estimates[task_id] > MAX_BLOCK_MINUTES:
+            parts[task_id] = parts.get(task_id, 0) + 1
+            block["title"] = f"{block['title']}（第 {parts[task_id]} 段）"
     return {"estimates": dict(estimates), "blocks": blocks, "warnings": warnings}
