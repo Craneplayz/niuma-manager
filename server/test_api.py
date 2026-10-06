@@ -75,8 +75,28 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='Test-password-2026'))[0],200)
         self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),1)
 
+    def test_account_profile_and_password_management(self):
+        a,b=self.client(),self.client();email='account@test.local'
+        self.register(a,email)
+        self.assertEqual(self.call(b,'/auth/login','POST',dict(email=email,password='Test-password-2026'))[0],200)
+        for name in ['', 'x'*41]: self.assertEqual(self.call(a,'/auth/profile','POST',dict(name=name))[0],400)
+        status,result=self.call(a,'/auth/profile','POST',dict(name='新的昵称'))
+        self.assertEqual(status,200);self.assertEqual(result['user']['name'],'新的昵称')
+        self.assertEqual(self.call(b,'/auth/me')[1]['user']['name'],'新的昵称')
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='wrong-password',newPassword='New-password-2026'))[0],400)
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='Test-password-2026',newPassword='short'))[0],400)
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='Test-password-2026',newPassword='New-password-2026'))[0],200)
+        self.assertEqual(self.call(a,'/auth/me')[0],200)
+        self.assertEqual(self.call(b,'/auth/me')[0],401)
+        old=self.client();self.assertEqual(self.call(old,'/auth/login','POST',dict(email=email,password='Test-password-2026'))[0],401)
+        fresh=self.client();self.assertEqual(self.call(fresh,'/auth/login','POST',dict(email=email,password='New-password-2026'))[0],200)
+
     def test_feedback_and_no_model(self):
         a=self.client();self.register(a,'feedback@test.local')
+        self.assertEqual(self.call(a,'/data/preferences','PUT',dict(value=dict(askCompletionMinutes=True),version=0))[0],200)
+        self.assertTrue(self.call(a,'/workspace')[1]['preferences']['value']['askCompletionMinutes'])
+        for value in [{},dict(askCompletionMinutes='yes'),dict(askCompletionMinutes=True,extra=True)]:
+            self.assertEqual(self.call(a,'/data/preferences','PUT',dict(value=value,version=1))[0],400)
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='foreign',actualMinutes=10)],version=0))[0],400)
         with patch.object(app.planning,'plan') as model:
             self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],400)
@@ -166,12 +186,23 @@ class ApiTests(unittest.TestCase):
         status,batches=self.call(a,'/recognition/demo','POST',{})
         self.assertEqual(status,200);self.assertEqual(batches[0]['result']['status'],'partial_success')
         self.assertEqual(self.call(b,'/recognition/batches')[1],[])
+        ignored=batches[0]['items'][0]
+        status,result=self.call(a,'/recognition/candidates/'+ignored['id']+'/resolve','POST',dict(action='ignore',version=ignored['version']))
+        self.assertEqual(status,200)
+        ignored=next(candidate for candidate in result['batches'][0]['items'] if candidate['id']==ignored['id'])
+        self.assertEqual((ignored['state'],ignored['version']),('ignored',2))
+        self.assertEqual(self.call(a,'/recognition/candidates/'+ignored['id']+'/resolve','POST',dict(action='reopen',version=1))[0],409)
+        status,result=self.call(a,'/recognition/candidates/'+ignored['id']+'/resolve','POST',dict(action='reopen',version=ignored['version']))
+        self.assertEqual(status,200)
+        restored=next(candidate for candidate in result['batches'][0]['items'] if candidate['id']==ignored['id'])
+        self.assertEqual((restored['state'],restored['version']),('pending',3))
         item=batches[0]['items'][1]
         body=dict(action='create',version=item['version'],tasks_version=0,reviewed=True,target_id=None,draft=dict(title='阅读材料',description='确认无期限任务',due=None))
         self.assertEqual(self.call(b,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],404)
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(body,tasks_version=99))[0],409)
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],200)
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],200)
+        self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='reopen',version=item['version']+1))[0],409)
         tasks=self.call(a,'/workspace')[1]['tasks']['value']
         self.assertEqual(len(tasks),1);self.assertIsNone(tasks[0]['due']);self.assertEqual(tasks[0]['subtasks'],[])
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(body,action='cancel'))[0],409)

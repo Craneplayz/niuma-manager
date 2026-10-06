@@ -34,8 +34,8 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  recognition.configureAssistant({render(){}});
  globalThis.fetch=async(path,options)=>{
   if(path==='/api/recognition/batches'){
-   assert.equal(JSON.parse(options.body).records[0].platform,'manual');
-   return {ok:true,json:async()=>[{request:{request_id:'manual',records:[]},result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'manual-candidate',version:1,state:'pending',candidate}]}]};
+   const body=JSON.parse(options.body);assert.equal(body.records[0].platform,'manual');
+   return {ok:true,json:async()=>[{request:{request_id:body.request_id,records:body.records},result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'manual-candidate',version:1,state:'pending',candidate}]}]};
   }
   if(path.includes('/resolve'))resolved++;
   throw new Error('unexpected request '+path);
@@ -43,15 +43,81 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  await recognition.submitRecognitionText('10月1日提交报告');
  assert.equal(resolved,0);
  assert.match(recognition.assistantPage(),/待核对 <span>1/);
- assert.match(recognition.assistantPage(),/data-agent-review="manual-candidate"/);
+ assert.match(recognition.assistantPage(),/data-agent-confirm="manual-candidate"/);
+});
+
+test('review sections appear only after import and dismissed items can be restored',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const batches=[],resolutions=[];
+ recognition.configureAssistant({render(){}});
+ const initial=recognition.assistantPage();
+ assert.doesNotMatch(initial,/import-review-section|import-ignored-section/);
+ assert.match(initial,/data-agent-source-mode="manual"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="manual"/);
+ assert.doesNotMatch(initial,/data-agent-source-mode="teaching_web"/);
+ assert.ok(initial.indexOf('data-agent-source-mode="manual"')<initial.indexOf('data-agent-source-mode="wechat"'));
+ globalThis.fetch=async(path,options)=>{
+  if(path==='/api/recognition/batches'){
+   const body=JSON.parse(options.body),index=batches.length+1,item={id:'candidate-'+index,version:1,state:'pending',candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id,title:'本次任务 '+index}};
+   batches.push({request:{request_id:body.request_id,records:body.records},result:{status:'success',record_results:[],errors:[]},demo:false,items:[item]});
+   return {ok:true,json:async()=>batches};
+  }
+  if(path.includes('/resolve')){
+   const item=batches.flatMap(batch=>batch.items).find(candidate=>path.includes(candidate.id)),body=JSON.parse(options.body);resolutions.push(body);
+   item.state=body.action==='reopen'?'pending':'ignored';item.version++;
+   return {ok:true,json:async()=>({batches})};
+  }
+  throw new Error('unexpected request '+path);
+ };
+ await recognition.submitRecognitionText('第一条通知');
+ assert.match(recognition.assistantPage(),/本次任务 1/);
+ await recognition.submitRecognitionText('第二条通知');
+ const current=recognition.assistantPage();
+ assert.doesNotMatch(current,/本次任务 1/);
+ assert.match(current,/本次任务 2/);
+ await recognition.handleAssistantClick({dataset:{agentIgnore:'candidate-2'}});
+ const ignored=recognition.assistantPage();
+ assert.match(ignored,/<details class="import-ignored-section"><summary>不加入任务 <span>1<\/span>/);
+ assert.match(ignored,/import-review-card ignored/);
+ assert.match(ignored,/data-agent-restore="candidate-2"[^>]*>撤回<\/button>/);
+ await recognition.handleAssistantClick({dataset:{agentRestore:'candidate-2'}});
+ assert.deepEqual(resolutions.at(-1),{action:'reopen',version:2});
+ const restored=recognition.assistantPage();
+ assert.match(restored,/待核对 <span>1/);
+ assert.match(restored,/data-agent-confirm="candidate-2"/);
+ assert.match(restored,/不加入任务 <span>0/);
+});
+
+test('quick confirmation sends a reviewed create without triggering planning',async()=>{
+ recognition.resetAssistant();session.user={id:'test'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ let batch,planned=0,resolution;
+ recognition.configureAssistant({render(){},refresh:async()=>{},toast(){},proposeForTasks:async()=>{planned++;}});
+ globalThis.fetch=async(path,options)=>{
+  if(path==='/api/recognition/batches'){
+   const body=JSON.parse(options.body),item={id:'quick-candidate',version:2,state:'pending',candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id,title:'快速创建任务'}};
+   batch={request:{request_id:body.request_id,records:body.records},result:{status:'success',record_results:[],errors:[]},demo:false,items:[item]};
+   return {ok:true,json:async()=>[batch]};
+  }
+  if(path.includes('/resolve')){resolution=JSON.parse(options.body);batch.items[0].state='applied';return {ok:true,json:async()=>({batches:[batch]})};}
+  throw new Error('unexpected request '+path);
+ };
+ await recognition.submitRecognitionText('需要核对的通知');
+ await recognition.handleAssistantClick({dataset:{agentConfirm:'quick-candidate'}});
+ assert.equal(resolution.action,'create');
+ assert.equal(resolution.reviewed,true);
+ assert.equal(resolution.target_id,null);
+ assert.equal(resolution.draft.title,'快速创建任务');
+ assert.equal(planned,0);
+ assert.match(recognition.assistantPage(),/待核对 <span>0/);
 });
 
 test('external F3 output auto-adds dated and undated actions but leaves review candidates pending',async()=>{
  recognition.resetAssistant();session.user={id:'test'};
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const batch={request:fixture.request,result:fixture.expected,demo:false,items:fixture.expected.tasks.map(task=>({id:task.candidate_id,version:1,state:'pending',candidate:task}))};
- const applied=[],proposals=[];let refreshed=0;
- recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;},getState:()=>({tasks:applied.map(id=>({id,recognitionHistory:[{storageId:batch.items.find(item=>item.candidate.input_id===id).id}],due:id.endsWith(':undated')?'':'2026-10-10',status:'todo',plans:[]}))}),proposeForTasks:async ids=>{proposals.push(ids);}});
+ const applied=[];let refreshed=0,planned=0;
+ recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;},getState:()=>({tasks:[]}),proposeForTasks:async()=>{planned++;}});
  recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'source.json',size:100,text:async()=>JSON.stringify(fixture.request)}]}});
  await new Promise(resolve=>setTimeout(resolve,0));
  recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
@@ -70,10 +136,9 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  await recognition.handleAssistantClick({dataset:{agentImportIndex:'0'}});
  assert.deepEqual(applied.sort(),['dated','mixed','old-but-future','undated','yearless-current'].map(id=>'synthetic:f3:'+id).sort());
  assert.equal(refreshed,1);
- assert.equal(proposals.length,1);
- assert.deepEqual(proposals[0].sort(),applied.filter(id=>!id.endsWith(':undated')).sort());
+ assert.equal(planned,0);
  assert.match(recognition.assistantPage(),/待核对 <span>6/);
- assert.doesNotMatch(recognition.assistantPage(),/data-agent-review="synthetic:f3:old-yearless/);
+ assert.match(recognition.assistantPage(),/data-agent-confirm=/);
 });
 
 test('refresh does not auto-apply old unfiltered batches',async()=>{
@@ -90,14 +155,14 @@ test('refresh does not auto-apply old unfiltered batches',async()=>{
  recognition.assistantPage();
  await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(resolved,0);
- assert.match(recognition.assistantPage(),/待核对 <span>1/);
+ assert.doesNotMatch(recognition.assistantPage(),/import-review-section|import-ignored-section|old-candidate/);
 });
 
-test('reviewed external new tasks generate a proposal only after saving and refreshing',async()=>{
+test('reviewed candidates save and refresh without generating a planning proposal',async()=>{
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const originalFormData=globalThis.FormData;
  try{
-  for(const [platform,due,action,expected] of [['teaching_web','2026-10-11','create',1],['wechat','2026-10-11','create',1],['manual','2026-10-11','create',0],['teaching_web','','create',0],['teaching_web','2026-10-11','update',0]]){
+  for(const [platform,due,action] of [['teaching_web','2026-10-11','create'],['wechat','2026-10-11','create'],['manual','2026-10-11','create'],['teaching_web','','create'],['teaching_web','2026-10-11','update']]){
    recognition.resetAssistant();session.user={id:'test'};
    const candidate={...fixture.expected.tasks[0],input_id:'reviewed',needs_review:true,review_reasons:['核对正文']};
    const item={id:'reviewed-candidate',version:1,state:'pending',candidate};
@@ -118,7 +183,7 @@ test('reviewed external new tasks generate a proposal only after saving and refr
    await new Promise(resolve=>setTimeout(resolve,0));
    assert.equal(error.textContent,'');
    assert.deepEqual(calls.slice(0,2),['save','refresh']);
-   assert.deepEqual(calls.slice(2),expected?[['saved-task']]:[]);
+   assert.deepEqual(calls.slice(2),[]);
   }
  }finally{globalThis.FormData=originalFormData;}
 });
@@ -187,19 +252,15 @@ test('source management shows import, consent, credential, and selection errors'
  assert.match(recognition.sourceManagementPage(),/来源选择保存失败/);
 });
 
-test('existing undated tasks appear on the workbench and open the same task for editing',async()=>{
+test('existing undated tasks stay in the task center instead of the current import review',async()=>{
  recognition.resetAssistant();
  session.user=null;
  const task={id:'existing-task',title:'查看讨论课分班情况',source:'教学网',due:'',status:'not_started',recognitionHistory:[{storageId:'candidate-old',action:'create'}]};
- let edited='';
- recognition.configureAssistant({getState:()=>({tasks:[task]}),editTask:id=>{edited=id;},render(){}});
+ recognition.configureAssistant({getState:()=>({tasks:[task]}),render(){}});
  const page=recognition.assistantPage();
- assert.match(page,/待补日期 <span>1/);
- assert.match(page,/data-agent-edit-task="existing-task"/);
+ assert.doesNotMatch(page,/import-review-section|import-ignored-section/);
+ assert.doesNotMatch(page,/existing-task|查看讨论课分班情况/);
  assert.doesNotMatch(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况|待补日期/);
- await recognition.handleAssistantClick({dataset:{agentEditTask:'existing-task'}});
- assert.equal(edited,task.id);
  task.due=dayKey();
- assert.match(recognition.assistantPage(),/待补日期 <span>0/);
  assert.match(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况/);
 });

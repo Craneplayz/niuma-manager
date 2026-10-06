@@ -154,11 +154,17 @@ def route(handler,db,uid,path,body,ApiError):
         row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
         if not row: raise ApiError(404,'候选不存在')
         canonical=json.dumps(body,sort_keys=True)
+        action=body.get('action')
+        if action=='reopen':
+            if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
+            if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
+            db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
+            handler.reply(200,dict(batches=batches(db,uid)));return True
         if row['state']!='pending':
             if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
             handler.reply(200,dict(batches=batches(db,uid)));return True
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
-        action=body.get('action');c=json.loads(row['candidate'])
+        c=json.loads(row['candidate'])
         if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
         auto=body.get('auto_apply') is True
         if auto:
