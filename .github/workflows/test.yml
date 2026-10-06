@@ -6,6 +6,20 @@ on:
     branches: [master]
 
 jobs:
+  contracts:
+    name: 附件交接契约 v0.3.1 + v0.3 回归
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r contracts/requirements-dev.txt
+      - run: python contracts/build_v031_bundle.py --check
+      - run: python contracts/check_v031_examples.py
+      - run: python contracts/check_v03_examples.py
+      - run: python -m unittest discover -s contracts/tests -p 'test_*.py' -v
+
   text:
     name: 文本识别 ddl_text
     runs-on: ubuntu-latest

@@ -12,8 +12,8 @@ from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.request import Request, urlopen
 import recognition
+import planning
 import source_sync
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
@@ -136,9 +136,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
             if path.startswith('/api/data/') and self.command=='PUT':
                 name=path.rsplit('/',1)[1]
-                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials']: raise ApiError(404,'未知数据类型')
+                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
                 value=body.get('value')
                 if not isinstance(value,dict if name in ['availability','focus'] else list): raise ApiError(400,'数据格式不正确')
+                if name=='sources' and (len(value)>1 or any(source!='teaching_web' for source in value)): raise ApiError(400,'来源选择不正确')
                 if name=='courses':
                     from urllib.parse import urlsplit
                     ids,names=set(),set()
@@ -179,22 +180,23 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 return self.reply(200,dict(version=version+1))
             if path=='/api/planning/proposals' and self.command=='POST':
-                endpoint=os.environ.get('HARNESS_URL')
-                if not endpoint: raise ApiError(503,'尚未接入模型服务；请配置 HARNESS_URL，由模型评估工时并生成规划。任务不会被修改。')
                 rows={r['name']:r for r in db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,))}
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []
                 pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and not t.get('planningExcluded') and not t['plans']]
+                task_ids=body.get('taskIds')
+                if task_ids is not None:
+                    if not isinstance(task_ids,list) or not task_ids or any(not isinstance(item,str) for item in task_ids) or len(set(task_ids))!=len(task_ids): raise ApiError(400,'规划任务范围不正确')
+                    pending=[t for t in pending if t['id'] in task_ids and t.get('due')]
                 if not pending: raise ApiError(400,'没有需要规划的任务')
                 payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=datetime.now(TZ).isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']],availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)
-                # Only the server knows the harness credential. The harness must return the documented JSON schema.
-                headers={'Content-Type':'application/json'}
-                if os.environ.get('HARNESS_TOKEN'): headers['Authorization']='Bearer '+os.environ['HARNESS_TOKEN']
-                with urlopen(Request(endpoint,json.dumps(payload).encode(),headers),timeout=25) as response:
-                    result=json.loads(response.read(2000000))
-                validate_proposal(payload,result)
+                result=planning.plan(payload,ApiError)
+                try: validate_proposal(payload,result)
+                except (ValueError,KeyError,TypeError,AttributeError):
+                    raise ApiError(502,'模型返回的规划格式不正确；任务未修改') from None
+                result['priorityOrder']=planning.priority_explanations(payload,result['estimates'])
                 result['requestId']=payload['requestId']
                 db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(result)))
                 return self.reply(200,result)
@@ -224,7 +226,7 @@ class Handler(BaseHTTPRequestHandler):
         except ApiError as e: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError): self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
-            print(type(e).__name__,str(e))
+            print(type(e).__name__,str(e),flush=True)
             self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
         finally:
             if getattr(self,'db',None) is not None: self.db.close()
@@ -252,7 +254,9 @@ def validate_proposal(request,result):
         occupied.append((start,end)); totals[task['id']]+=(end-start).total_seconds()/60
         if totals[task['id']]>estimates[task['id']]: raise ApiError(502,'计划超过模型评估工时')
     for tid in tasks:
-        if totals[tid]<estimates[tid]: result['warnings'].append(tasks[tid]['title']+'：未全部安排，请检查约束或截止时间')
+        title=tasks[tid]['title']
+        if totals[tid]<estimates[tid] and tasks[tid].get('due') and not any(w.startswith(title+'：') for w in result['warnings']):
+            result['warnings'].append(title+'：未全部安排，请检查可用时间或截止时间')
 
 if __name__=='__main__':
     import sys

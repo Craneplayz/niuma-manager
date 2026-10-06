@@ -4,7 +4,7 @@ import re
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
-PLATFORMS={'teaching_web','wechat','email','web','unknown'}
+PLATFORMS={'teaching_web','wechat','email','web','manual','unknown'}
 SUPPORTS={'title','description','prerequisites','course_or_project','notice_type','target_reference','deadline'}
 
 def require(condition):

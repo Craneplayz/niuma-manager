@@ -4,10 +4,66 @@ import json
 import os
 import secrets
 import re
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, timedelta, date
+import sys
+import threading
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from text_contract import validate_request, validate_result
+
+# dev:api launches server/app.py from frontend/, not from the repository root.
+# The same absolute import path is inherited by Windows spawn workers.
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from ddl_text.codex_client import live_options
+from ddl_text.config import Settings
+from ddl_text.extraction import ExtractionAdapter
+from ddl_text.pipeline import process_request
+from ddl_text.provider import make_client
+
+_ACTIVE = threading.Lock()
+
+
+def recognize(request, ApiError):
+    """Share one bounded recognition slot across accounts and transports."""
+    if not _ACTIVE.acquire(blocking=False):
+        raise ApiError(503, '文本识别正在处理其他请求，请稍后重试')
+    try:
+        endpoint = os.environ.get('TEXT_HARNESS_URL')
+        if endpoint:
+            headers = {'Content-Type': 'application/json'}
+            if os.environ.get('TEXT_HARNESS_TOKEN'):
+                headers['Authorization'] = 'Bearer ' + os.environ['TEXT_HARNESS_TOKEN']
+            try:
+                with urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=95) as response:
+                    return json.loads(response.read(2000000))
+            except HTTPError as error:
+                busy = error.code == 503
+                error.close()
+                if busy:
+                    raise ApiError(503, '文本识别正在处理其他请求，请稍后重试') from None
+                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+            except Exception:
+                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+        try:
+            options = live_options(ROOT / '.env')
+            if not options['key'].strip():
+                raise ValueError('missing credential')
+            adapter = ExtractionAdapter(make_client(options))
+            settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
+                                timeout_seconds=90, max_retries=0)
+        except (OSError, ValueError, TypeError, KeyError):
+            raise ApiError(503, '文本识别配置不可用，请检查仓库根目录 .env 中的模型配置与密钥') from None
+        try:
+            return process_request(request, adapter, settings, budget_seconds=90)
+        except Exception:
+            raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+    finally:
+        _ACTIVE.release()
+
 
 def initialize(db):
     db.executescript('''
@@ -63,13 +119,7 @@ def route(handler,db,uid,path,body,ApiError):
             if not request['records']:
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
             else:
-                endpoint=os.environ.get('TEXT_HARNESS_URL')
-                if not endpoint: raise ApiError(503,'文本识别服务尚未接入；可查看协议演示，或手动创建任务')
-                headers={'Content-Type':'application/json'}
-                if os.environ.get('TEXT_HARNESS_TOKEN'): headers['Authorization']='Bearer '+os.environ['TEXT_HARNESS_TOKEN']
-                try:
-                    with urlopen(Request(endpoint,json.dumps(extraction_request).encode(),headers),timeout=95) as response: result=json.loads(response.read(2000000))
-                except Exception: raise ApiError(502,'文本识别服务不可用或超时，请稍后重试')
+                result=recognize(extraction_request,ApiError)
         try:
             result=validate_result(extraction_request,result)
             new_tasks=list(result['tasks'])
@@ -110,17 +160,40 @@ def route(handler,db,uid,path,body,ApiError):
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
         action=body.get('action');c=json.loads(row['candidate'])
         if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
+        auto=body.get('auto_apply') is True
+        if auto:
+            d=c['deadline']
+            batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+            records={r['input_id']:r for r in json.loads(batch['request'])['records']}
+            source=records.get(c['input_id'])
+            external=source and source['platform'] in ('teaching_web','wechat')
+            valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
+            if valid_due and d['precision']=='datetime':
+                stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
+                valid_due=stamp.second==0 and stamp.microsecond==0
+            if (batch['demo'] or action!='create' or c['notice_type']!='create' or c['needs_review']
+                    or c['review_reasons'] or not valid_due or not external):
+                raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':
-            if body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
+            if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
             if c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
             taskrow=db.execute('SELECT * FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
             version=taskrow['version'] if taskrow else 0
-            if body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
+            if not auto and body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
             tasks=json.loads(taskrow['value']) if taskrow else []
             target=next((t for t in tasks if t['id']==body.get('target_id')),None)
             if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
             if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
             draft=body.get('draft',{})
+            if auto:
+                automatic_due=None
+                if d['status']=='explicit':
+                    value=d['value']
+                    if d['precision']=='datetime':
+                        local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))
+                        automatic_due=dict(date=local.date().isoformat(),precision='datetime',time=local.strftime('%H:%M'))
+                    else: automatic_due=dict(date=value,precision='date')
+                draft=dict(title=c['title'],description=c['description'],course=c['course_or_project'],due=automatic_due)
             if action!='cancel':
                 if not isinstance(draft.get('title'),str) or not draft['title'].strip() or not isinstance(draft.get('description'),str): raise ApiError(400,'请填写有效任务内容')
                 course=draft.get('course',c['course_or_project'])
@@ -130,7 +203,9 @@ def route(handler,db,uid,path,body,ApiError):
                 except (ValueError,KeyError,TypeError): raise ApiError(400,'截止日期格式不正确')
                 if action=='postpone' and confirmed_due is None: raise ApiError(400,'延期必须明确新的截止日期')
                 if action=='create':
-                    target=dict(id=secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=c['sources'][0]['label'] or '文本识别',subtasks=[],plans=[],createdAt=datetime.now(timezone.utc).isoformat())
+                    platform=c['sources'][0]['platform']
+                    source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
+                    target=dict(id=secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=datetime.now(timezone.utc).isoformat())
                     tasks.append(target)
                     target['course']=course
                     target['category']='课程作业' if course else '个人事务'

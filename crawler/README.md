@@ -107,9 +107,10 @@ pnpm crawler review <run-id>
 pnpm pku:homework
 pnpm pku:homework -- --term=26-27学年第1学期
 pnpm pku:homework -- --all-terms
+pnpm pku:homework -- --all-sections
 pnpm pku:homework -- --format=recognition
 ```
 
-默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
+默认只采集名称含“作业”、`Assignment` 或 `Homework` 的栏目，不读取课程首页公告；找不到作业栏目的课程会在 `coverage_warnings` 中记录课程名。`--all-sections` 恢复课程公告和全部内容栏目的采集。默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
 
 课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。若页面已变为“复查提交历史记录”，仅记录已提交状态，不读取提交文件、作答、成绩或尝试时间；采集过程不会点击、填写或提交页面控件。附件内容仍不读取。

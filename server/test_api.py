@@ -78,8 +78,9 @@ class ApiTests(unittest.TestCase):
     def test_feedback_and_no_model(self):
         a=self.client();self.register(a,'feedback@test.local')
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='foreign',actualMinutes=10)],version=0))[0],400)
-        with patch.dict(app.os.environ,{},clear=True):
-            self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],503)
+        with patch.object(app.planning,'plan') as model:
+            self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],400)
+            model.assert_not_called()
         self.assertEqual(self.call(a,'/data/availability','PUT',dict(value=dict(startTime='22:00',endTime='19:00',weekdays=[]),version=0))[0],400)
 
     def test_deadline_time_edit_preserves_plans(self):
@@ -127,7 +128,7 @@ class ApiTests(unittest.TestCase):
         def harness(request,timeout):
             captured.append(json.loads(request.data))
             return io.BytesIO(json.dumps(dict(estimates={'plan':60},blocks=[dict(taskId='plan',title='写报告',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])).encode())
-        with patch.dict(app.os.environ,{'HARNESS_URL':'http://test-harness/planning'}),patch.object(app,'urlopen',harness):
+        with patch.dict(app.os.environ,{'HARNESS_URL':'http://test-harness/planning'}),patch.object(app.planning,'urlopen',harness):
             status,result=self.call(a,'/planning/proposals','POST',{})
         self.assertEqual(status,200)
         self.assertEqual([t['id'] for t in captured[0]['tasks']],['plan'])
@@ -139,6 +140,26 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status,200);self.assertEqual(len(applied['value'][0]['plans']),1)
         self.assertEqual(applied['value'][0]['due'],base['due'])
         self.assertEqual(self.call(a,'/planning/apply','POST',dict(requestId=result['requestId']))[0],409)
+
+    def test_auto_proposal_only_targets_new_dated_tasks_and_never_applies_itself(self):
+        a=self.client();self.register(a,'auto-plan@test.local')
+        day=(app.datetime.now(app.TZ)+app.timedelta(days=2)).date().isoformat()
+        base=dict(title='作业',description='测试',status='not_started',plans=[],subtasks=[])
+        tasks=[dict(base,id='dated',due=dict(date=day,precision='date')),
+               dict(base,id='undated',due=None),dict(base,id='other',due=dict(date=day,precision='date'))]
+        self.assertEqual(self.call(a,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
+        for ids in [[],['dated','dated'],'dated',['missing'],['undated']]:
+            self.assertEqual(self.call(a,'/planning/proposals','POST',dict(taskIds=ids))[0],400)
+        captured=[]
+        def plan(payload,ApiError):
+            captured.append(payload)
+            return dict(estimates={'dated':60},blocks=[],warnings=[])
+        with patch.object(app.planning,'plan',plan):
+            status,result=self.call(a,'/planning/proposals','POST',dict(taskIds=['dated','undated']))
+        self.assertEqual(status,200)
+        self.assertEqual([t['id'] for t in captured[0]['tasks']],['dated'])
+        self.assertEqual(result['blocks'],[])
+        self.assertTrue(all(not t['plans'] for t in self.call(a,'/workspace')[1]['tasks']['value']))
 
     def test_recognition_demo_and_atomic_idempotent_confirmation(self):
         a,b=self.client(),self.client();self.register(a,'text-a@test.local');self.register(b,'text-b@test.local')
@@ -175,8 +196,108 @@ class ApiTests(unittest.TestCase):
         status,batches=self.call(a,'/recognition/batches','POST',empty)
         self.assertEqual(status,200);self.assertEqual(batches[0]['result']['status'],'no_tasks')
         fresh=copy.deepcopy(fixture['request']);fresh['request_id']='missing-service'
-        with patch.dict(app.os.environ,{},clear=True):
+        with patch.dict(app.os.environ,{},clear=True), patch.object(app.recognition,'live_options',side_effect=ValueError('missing credential')):
             self.assertEqual(self.call(a,'/recognition/batches','POST',fresh)[0],503)
+
+    def test_explicit_new_task_can_auto_apply_without_claiming_review(self):
+        client=self.client();self.register(client,'auto-apply@test.local')
+        fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
+        manual=copy.deepcopy(fixture)
+        manual['request']['request_id']='manual-auto-reject'
+        manual['expected']['request_id']='manual-auto-reject'
+        for record in manual['request']['records']: record['platform']='manual'
+        for candidate in manual['expected']['tasks']:
+            for source in candidate['sources']: source['platform']='manual'
+        for record in fixture['request']['records']: record['platform']='teaching_web'
+        for candidate in fixture['expected']['tasks']:
+            for source in candidate['sources']: source['platform']='teaching_web'
+        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
+            status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
+        self.assertEqual(status,200)
+        clear=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+        unclear=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c2')
+        body=dict(action='create',auto_apply=True,version=clear['version'])
+        path='/recognition/candidates/'+clear['id']+'/resolve'
+        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(manual['expected']).encode())):
+            manual_status,manual_batches=self.call(client,'/recognition/batches','POST',manual['request'])
+        self.assertEqual(manual_status,200)
+        manual_candidate=next(item for item in manual_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+        self.assertEqual(self.call(client,'/recognition/candidates/'+manual_candidate['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=manual_candidate['version']))[0],400)
+        for platform in ('email','web'):
+            unsupported=copy.deepcopy(manual)
+            unsupported['request']['request_id']=unsupported['expected']['request_id']=platform+'-auto-reject'
+            for record in unsupported['request']['records']: record['platform']=platform
+            for candidate in unsupported['expected']['tasks']:
+                for source in candidate['sources']: source['platform']=platform
+            with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(unsupported['expected']).encode())):
+                status,other_batches=self.call(client,'/recognition/batches','POST',unsupported['request'])
+            self.assertEqual(status,200)
+            other=next(item for item in other_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+            self.assertEqual(self.call(client,'/recognition/candidates/'+other['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=other['version']))[0],400)
+        self.assertEqual(self.call(client,path,'POST',body)[0],200)
+        self.assertEqual(self.call(client,path,'POST',body)[0],200)
+        self.assertEqual(self.call(client,'/recognition/candidates/'+unclear['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=unclear['version']))[0],200)
+        tasks=self.call(client,'/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),2)
+        self.assertEqual(tasks[0]['due'],dict(date='2026-09-30',precision='date'))
+        self.assertEqual(tasks[0]['source'],'教学网')
+        self.assertIsNone(tasks[1]['due'])
+        tasks=self.call(client,'/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),2)
+
+    def test_unknown_model_deadline_is_not_promoted_from_raw_text(self):
+        client=self.client();self.register(client,'raw-date@test.local')
+        fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
+        fixture['request']['request_id']=fixture['expected']['request_id']='raw-date'
+        fixture['request']['records'][0]['platform']='teaching_web'
+        fixture['expected']['tasks'][0]['sources'][0]['platform']='teaching_web'
+        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
+            status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
+        self.assertEqual(status,200)
+        candidate=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+        stored=copy.deepcopy(candidate['candidate'])
+        stored['deadline'].update(value=None,precision='unknown',status='unknown',raw='2026.10.11（23:59:00）',basis='时刻格式不明确或时区不可用，保留原话待核实。')
+        stored['review_reasons'].append(stored['deadline']['basis'])
+        with app.connection() as db: db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(stored),candidate['id']))
+        batches=self.call(client,'/recognition/batches')[1]
+        candidate=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c1')
+        self.assertIsNone(candidate['candidate']['deadline']['value'])
+        self.assertEqual(self.call(client,'/recognition/candidates/'+candidate['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=candidate['version']))[0],400)
+        self.assertNotIn('tasks',self.call(client,'/workspace')[1])
+
+    def test_f3_classification_auto_apply_respects_review_and_no_date(self):
+        client=self.client();self.register(client,'f3-auto@test.local')
+        fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-classification-v02.json').read_text(encoding='utf-8'))
+        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
+            status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
+        self.assertEqual(status,200)
+        batch=batches[0]
+        self.assertTrue(any('history_filtered:' in warning for result in batch['result']['record_results'] for warning in result['warnings']))
+        self.assertFalse(any(item['candidate']['input_id']=='synthetic:f3:old-yearless' for item in batch['items']))
+        items={item['candidate']['input_id']:item for item in batch['items']}
+        for input_id in ('synthetic:f3:dated','synthetic:f3:undated'):
+            item=items[input_id]
+            self.assertEqual(self.call(client,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=item['version']))[0],200)
+        for input_id in ('synthetic:f3:unknown-age','synthetic:f3:recent-overdue','synthetic:f3:postpone'):
+            item=items[input_id]
+            self.assertEqual(self.call(client,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=item['version']))[0],400)
+        precise=items['synthetic:f3:old-but-future']
+        candidate=copy.deepcopy(precise['candidate'])
+        candidate['deadline'].update(value='2027-01-01T12:00:30+08:00',precision='datetime')
+        with app.connection() as db: db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(candidate),precise['id']))
+        self.assertEqual(self.call(client,'/recognition/candidates/'+precise['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=precise['version']))[0],400)
+        tasks=self.call(client,'/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),2)
+        self.assertEqual(tasks[0]['due'],dict(date='2026-10-01',precision='datetime',time='18:00'))
+        self.assertIsNone(tasks[1]['due'])
+
+    def test_source_selection_is_saved_per_account(self):
+        a,b=self.client(),self.client()
+        self.register(a,'sources-a@test.local');self.register(b,'sources-b@test.local')
+        self.assertEqual(self.call(a,'/data/sources','PUT',dict(value=['teaching_web'],version=0))[0],200)
+        self.assertEqual(self.call(a,'/workspace')[1]['sources']['value'],['teaching_web'])
+        self.assertNotIn('sources',self.call(b,'/workspace')[1])
+        self.assertEqual(self.call(a,'/data/sources','PUT',dict(value=['wechat'],version=1))[0],400)
 
     def test_recognition_change_matching_and_preservation(self):
         a=self.client();self.register(a,'text-change@test.local')
@@ -219,5 +340,15 @@ class ProposalTests(unittest.TestCase):
         with self.assertRaises(app.ApiError): app.validate_proposal(self.request,self.result)
     def test_unscheduled_warning(self):
         self.result['estimates']['a']=120;app.validate_proposal(self.request,self.result);self.assertTrue(self.result['warnings'])
+    def test_unscheduled_warning_does_not_repeat_specific_reason(self):
+        self.result['estimates']['a']=120
+        self.result['warnings']=['报告：P0，DDL 前尚缺 60 分钟']
+        app.validate_proposal(self.request,self.result)
+        self.assertEqual(self.result['warnings'],['报告：P0，DDL 前尚缺 60 分钟'])
+    def test_undated_task_has_no_generic_unscheduled_warning(self):
+        self.request['tasks'][0]['due']=None
+        self.result['blocks']=[]
+        app.validate_proposal(self.request,self.result)
+        self.assertEqual(self.result['warnings'],[])
 
 if __name__=='__main__': unittest.main()

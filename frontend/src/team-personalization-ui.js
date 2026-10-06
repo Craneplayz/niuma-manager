@@ -4,9 +4,8 @@ let host={},sample=[],message='',busy=false;
 export function configurePersonalization(callbacks){host=callbacks;}
 window.addEventListener('niuma:account-reset',()=>{sample=[];message='';busy=false;});
 export function personalizationSection(tasks){
- const completed=tasks.filter(t=>t.status==='done'),feedback=workspaceValue('feedback',[]);
- return `<section class="panel settings-panel"><div class="section-title"><div><h2>个性化</h2><p>根据真实完成用时改进后续规划。</p></div><button class="btn" data-feedback-action="sample" ${busy||!completed.length?'disabled':''}>反馈任务用时</button></div>
- <p class="panel-note">每次随机选取最多三项已完成任务，输入实际分钟数。已记录 ${feedback.length} 项。</p>
+ const completed=tasks.filter(t=>t.status==='done');
+ return `<section class="panel settings-panel"><div class="section-title"><h2>个性化</h2><button class="btn" data-feedback-action="sample" ${busy||!completed.length?'disabled':''}>反馈任务用时</button></div>
  ${sample.length?`<form id="feedback-form">${sample.map(t=>`<label class="feedback-row">${esc(t.title)}<input name="${esc(t.id)}" type="number" min="1" max="100000" required placeholder="实际分钟"></label>`).join('')}
  <div class="dialog-actions"><button class="btn primary" ${busy?'disabled':''}>保存反馈</button></div></form>`:''}
  ${message?`<p role="status">${esc(message)}</p>`:''}</section>`;
