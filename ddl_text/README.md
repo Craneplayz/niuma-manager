@@ -16,12 +16,19 @@ ddl_text/
 ├── draft_schema.py       # 模型草稿的 JSON Schema
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
+├── image_reader.py       # JPG/PNG 字节核对、解码与元数据清理
+├── media_pipeline.py     # 供后端显式调用的 v0.3.1 图片与文字块识别入口
+├── media_schema.py       # 从共享契约派生模型草稿并校验
+├── media_worker.py       # 图片解码与模型调用的限时子进程
+├── media_requirements.txt # 可选图片识别及契约校验依赖
 ├── pipeline.py           # 批量输入处理和结果汇总
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
+│   ├── image-task-extraction/
+│   │   └── SKILL.md      # 图片行动、日期、证据和质量判断规则
 │   └── text-task-extraction/
 │       ├── SKILL.md      # 任务、来源、日期及更新意图的识别规则
 │       └── references/
@@ -38,6 +45,10 @@ ddl_text/
 │   │   └── text-classification-drafts.json # 与共享 F3 分类样例配套的人工草稿
 │   ├── __init__.py       # 测试包入口
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
+│   ├── media_cases.py    # 共享附件样例、合成图片与模型替身
+│   ├── test_media_pipeline.py # 文件/证据/质量/超时与兼容验证
+│   ├── test_media_transport.py # 本机模拟服务验证图片传输和重定向隔离
+│   ├── run_media_smoke.py # 显式启用的非私人图片真实模型验证
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
 │   ├── run_classification_smoke.py # 显式启用的真实模型分类验证入口
@@ -53,10 +64,14 @@ ddl_text/
 │   └── test_render.py          # 文字输出测试
 └── docs/                 # 当前配置说明与历史归档
     ├── api-setup.md      # 供应商配置及故障定位
+    ├── image-input.md    # v0.3.1 图片入口、受限读取回调和预算说明
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
+        └── 2026-10-06-issue94-images.json # 五组生成图片的真实模型输入、草稿与输出
 ```
 
 接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
+
+新增可选 [v0.3.1 图片识别入口](docs/image-input.md)：支持静态 JPG/PNG 和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，PDF/DOCX 尚未开放，图片证据依正式契约保留待审核。
 
 ## 输入输出与规则
 
@@ -93,6 +108,8 @@ ddl_text/
 ## 运行与测试
 
 以下命令均在**仓库根目录**执行。需要 Python 3.9+，模块使用标准库；Windows 缺少时区数据库时安装 `tzdata`。
+
+图片入口和新增图片测试另需 Python 3.10+，先运行 `python -m pip install -r ddl_text/media_requirements.txt`；旧 v0.2 运行入口不会自动加载这些依赖。
 
 ```powershell
 # 人工草稿回放：不访问模型，不代表真实模型识别成功
