@@ -50,8 +50,12 @@ python -m unittest discover -s ddl_text/tests -t . -q
 python contracts/check_v031_examples.py
 # 显式付费测试：只生成非私人图片，输出路径必须不存在
 python -m ddl_text.tests.run_media_smoke --live --output local-data/media-smoke.json
+# 中文测试需本机可用的中文字体；不会上传或提交字体文件
+python -m ddl_text.tests.run_chinese_media_smoke --live --font C:/Windows/Fonts/msyh.ttc --images-dir local-data/chinese-media --output local-data/chinese-media-smoke.json
 ```
 
 可查看 [最初五组真实模型合成测试](archive/2026-10-06-issue94-images.json) 与 [补年审核修复后的同图实测](archive/2026-10-06-issue118-year-review.json)。最初的通过条件未检查多余审核理由；当前 `yearless-date` 同时检查日期、时间状态及仅保留图片审核理由，旧结果在新条件下失败。这些样例不能替代真实微信联调。
+
+[中文实测](archive/2026-10-06-issue94-chinese-images.json) 五组均符合人工期望：明确时间与催促语、省略年份、两项任务、长图底部任务，以及不可读模糊图。清晰图同时检查时间、任务数和没有多余审核理由；模糊图必须报告质量错误而非无任务。测试使用生成图片，保留真实模型草稿和最终输出，不代表独立召回率评测。
 
 传输格式与像素限制处理参考 [七牛请求文档](https://developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api) 和 [Pillow 安全说明](https://pillow.readthedocs.io/en/stable/handbook/security.html)；以实际选用模型的合成实测为准，不能据通用 API 文档声称所有模型都支持文件。

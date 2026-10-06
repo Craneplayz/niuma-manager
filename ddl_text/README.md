@@ -49,6 +49,7 @@ ddl_text/
 │   ├── test_media_pipeline.py # 文件/证据/质量/超时与兼容验证
 │   ├── test_media_transport.py # 本机模拟服务验证图片传输和重定向隔离
 │   ├── run_media_smoke.py # 显式启用的非私人图片真实模型验证
+│   ├── run_chinese_media_smoke.py # 本机字体生成中文长图、多任务及模糊图实测
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
 │   ├── run_classification_smoke.py # 显式启用的真实模型分类验证入口
@@ -67,6 +68,7 @@ ddl_text/
     ├── image-input.md    # v0.3.1 图片入口、受限读取回调和预算说明
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
         ├── 2026-10-06-issue94-images.json # 最初五组生成图片的真实模型输入、草稿与输出
+        ├── 2026-10-06-issue94-chinese-images.json # 五组中文合成图片的真实输入、草稿与输出
         └── 2026-10-06-issue118-year-review.json # 修复多余补年理由后的同图真实模型验证
 ```
 
