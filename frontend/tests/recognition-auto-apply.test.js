@@ -54,7 +54,8 @@ test('review sections appear only after import and dismissed items can be restor
  const initial=recognition.assistantPage();
  assert.doesNotMatch(initial,/import-review-section|import-ignored-section/);
  assert.match(initial,/data-agent-source-mode="manual"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="manual"/);
- assert.ok(initial.indexOf('data-agent-source-mode="manual"')<initial.indexOf('data-agent-source-mode="teaching_web"'));
+ assert.doesNotMatch(initial,/data-agent-source-mode="teaching_web"/);
+ assert.ok(initial.indexOf('data-agent-source-mode="manual"')<initial.indexOf('data-agent-source-mode="wechat"'));
  globalThis.fetch=async(path,options)=>{
   if(path==='/api/recognition/batches'){
    const body=JSON.parse(options.body),index=batches.length+1,item={id:'candidate-'+index,version:1,state:'pending',candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id,title:'本次任务 '+index}};

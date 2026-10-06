@@ -99,6 +99,7 @@ function importModePanel(support){
  if(importMode==='manual')return manualImportPanel(support);
  return syncActionPanel();
 }
+const importModes=()=>[['manual','粘贴通知'],...(syncSources.has('teaching_web')?[['teaching_web','教学网']]:[]),['wechat','微信']];
 export function assistantPage(){
  if(!loaded&&session.user){loaded=true;queueMicrotask(load);}
  if(session.user&&location.hash==='#agent'&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
@@ -107,8 +108,9 @@ export function assistantPage(){
  const importStarted=importProgress.active||activeRequestIds.size>0;
  const failedBatches=currentBatches().filter(batch=>!batch.demo&&['failed','partial_success'].includes(batch.result.status));
  const progressTotal=Math.max(importProgress.total,1),progress=Math.min(100,Math.round(importProgress.processed/progressTotal*100));
+ const modes=importModes();if(!modes.some(([value])=>value===importMode))importMode='manual';
  return `<div class="page-heading"><h1>通知导入</h1></div>
- <div class="notification-import"><section class="panel agent-chat import-entry-card"><div class="agent-chat-header import-entry-header"><div class="import-source-tabs" role="tablist" aria-label="导入方式">${[['manual','粘贴通知'],['teaching_web','教学网'],['wechat','微信']].map(([value,label])=>`<button type="button" role="tab" aria-selected="${importMode===value}" class="import-source-tab ${importMode===value?'active':''}" data-agent-source-mode="${value}" ${busy&&importMode!==value?'disabled':''}>${label}</button>`).join('')}</div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
+ <div class="notification-import"><section class="panel agent-chat import-entry-card"><div class="agent-chat-header import-entry-header"><div class="import-source-tabs" role="tablist" aria-label="导入方式">${modes.map(([value,label])=>`<button type="button" role="tab" aria-selected="${importMode===value}" class="import-source-tab ${importMode===value?'active':''}" data-agent-source-mode="${value}" ${busy&&importMode!==value?'disabled':''}>${label}</button>`).join('')}</div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
  <div class="import-mode-panel">${importModePanel(support)}</div>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section>
@@ -252,7 +254,7 @@ async function restoreCandidate(item,current){
 }
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
- if(button.dataset.agentSourceMode){if(!busy&&['teaching_web','wechat','manual'].includes(button.dataset.agentSourceMode)){importMode=button.dataset.agentSourceMode;error='';notice='';refresh();}return;}
+ if(button.dataset.agentSourceMode){if(!busy&&importModes().some(([value])=>value===button.dataset.agentSourceMode)){importMode=button.dataset.agentSourceMode;error='';notice='';refresh();}return;}
  const candidateAction=button.dataset.agentConfirm||button.dataset.agentReview||button.dataset.agentIgnore||button.dataset.agentRestore;
  if(busy&&!candidateAction&&!['stop','voice'].includes(button.dataset.agentAction))return;
  if(button.dataset.agentEditTask){host.editTask?.(button.dataset.agentEditTask);return;}

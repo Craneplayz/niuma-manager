@@ -342,13 +342,14 @@ test('a late sync response cannot send any records after account switch',async()
 
 test('failed source sync clears stale loading notice and remains retryable',async()=>{
  await login('A');
- await recognition.handleAssistantClick({dataset:{agentSourceMode:'teaching_web'}});
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
   ? {ok:false,status:502,json:async()=>({error:'服务处理失败，请稍后重试；数据未变更'})}
   : originalFetch(path,options);
  try{
   recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+  await new Promise(resolve=>setImmediate(resolve));
+  await recognition.handleAssistantClick({dataset:{agentSourceMode:'teaching_web'}});
   recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
   await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
   const page=recognition.assistantPage();
