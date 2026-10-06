@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:niuma:contracts:result:0.3",
+  "title": "Recognition result v0.3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "request_id",
+    "status",
+    "record_results",
+    "tasks",
+    "errors"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "0.3"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "enum": [
+        "success",
+        "no_tasks",
+        "partial_success",
+        "failed"
+      ]
+    },
+    "record_results": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:niuma:contracts:common:0.3#/$defs/record_result"
+      },
+      "maxItems": 20
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:niuma:contracts:common:0.3#/$defs/candidate"
+      },
+      "maxItems": 2000
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:niuma:contracts:common:0.3#/$defs/result_error"
+      }
+    }
+  }
+}
