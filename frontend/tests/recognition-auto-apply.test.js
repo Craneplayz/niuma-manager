@@ -345,3 +345,25 @@ test('teaching web auto-import opens a real planning preview and writes schedule
  await planner.plannerClick({dataset:{planAction:'apply'}});
  assert.equal(state.schedule.length,1);
 });
+
+test('quick confirmation of an external candidate opens planning only for eligible saved tasks',async()=>{
+ recognition.resetAssistant();session.user={id:'quick-planning'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const item={id:'review-external',version:1,state:'pending',candidate:{...fixture.expected.tasks[0],needs_review:true,review_reasons:['核对正文']}};
+ const batch={request:fixture.request,result:fixture.expected,items:[item]};
+ let tasks=[];const planned=[];
+ globalThis.fetch=async(path)=>{
+  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
+  if(path.endsWith('/resolve')){item.state='applied';return {ok:true,json:async()=>({batches:[batch]})};}
+  throw new Error('unexpected '+path);
+ };
+ recognition.configureAssistant({render(){},toast(){},getState:()=>({tasks}),refresh:async()=>{
+  const base={due:'2026-10-11',status:'todo',plans:[],recognitionHistory:[{storageId:item.id}]};
+  tasks=[{...base,id:'eligible'},{...base,id:'completed',status:'done'},{...base,id:'excluded',planningExcluded:true},{...base,id:'scheduled',plans:[{id:'block'}]},{...base,id:'undated',due:''}];
+ },proposeForTasks:async ids=>planned.push(ids)});
+ recognition.assistantPage();await new Promise(resolve=>setImmediate(resolve));
+ await recognition.handleAssistantClick({dataset:{agentConfirm:item.id}});
+ assert.deepEqual(planned,[['eligible']]);
+ await recognition.handleAssistantClick({dataset:{agentConfirm:item.id}});
+ assert.deepEqual(planned,[['eligible']]);
+});
