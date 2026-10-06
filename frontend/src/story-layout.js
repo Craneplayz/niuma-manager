@@ -7,7 +7,7 @@ const chapters=[
  {title:'腾出时间',hint:'规划 · 日历',route:'plan',pages:['plan','calendar']},
 ];
 const sections={
- tasks:[['tasks','任务中心'],['decompose','AI 拆解'],['book','课程与资料'],['trash','回收站']],
+ tasks:[['tasks','任务中心'],['decompose','AI 拆解'],['book','课程与资料']],
  plan:[['plan','智能规划'],['calendar','学习日程']],
 };
 const stories={
@@ -34,5 +34,5 @@ export function storyShell({page,user,saveLabel,saveAlert,content,focus=''}){
  <nav class="story-chapters" aria-label="学习旅程">${chapters.map(item=>`<a href="#${item.route}" class="story-chapter ${chapter===item?'selected':''}" ${chapter===item?'aria-current="true"':''}><span>${item.title}<small>${item.hint}</small></span></a>`).join('<span class="story-chapter-line" aria-hidden="true"></span>')}<div class="story-day">${esc(day)}<span id="save-status">${esc(saveLabel)}</span></div></nav>
  ${local.length?`<nav class="story-section-nav" aria-label="本章节功能">${local.map(([id,label])=>`<a href="#${id}" ${page===id?'class="selected" aria-current="page"':''}>${label}</a>`).join('')}</nav>`:''}
  <main class="story-main"><div class="content"><div id="save-alert">${saveAlert}</div>${content}</div></main>
- <footer class="story-footer"><span>${chapter?['散落的信息 → 一件清楚的事','一件清楚的事 → 几个能开始的步骤','几个小步骤 → 日历里的真实时间'][chapters.indexOf(chapter)]:'照顾好今天，也留一点时间给自己。'}</span><div><a href="#book">课程与资料</a><a href="#trash">回收站</a><a href="#settings">账号与来源</a><button data-action="notifications">到期提醒</button><button data-action="calendar-export">导出日历</button><button data-action="export">数据备份</button></div></footer>${focus}</div>`;
+ <footer class="story-footer"><span>${chapter?['散落的信息 → 一件清楚的事','一件清楚的事 → 几个能开始的步骤','几个小步骤 → 日历里的真实时间'][chapters.indexOf(chapter)]:'照顾好今天，也留一点时间给自己。'}</span><div><a href="#book">课程与资料</a><a href="#settings">账号与来源</a><button data-action="notifications">到期提醒</button><button data-action="calendar-export">导出日历</button><button data-action="export">数据备份</button></div></footer>${focus}</div>`;
 }

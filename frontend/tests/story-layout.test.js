@@ -4,8 +4,8 @@ import {storyShell} from '../src/story-layout.js';
 
 const shell=page=>storyShell({page,user:null,saveLabel:'未登录',saveAlert:'',content:'',focus:''});
 
-test('each business route stays directly reachable in its chapter or workspace tools',()=>{
- const pages=['agent','tasks','decompose','book','trash','plan','calendar','settings'];
+test('primary business routes stay directly reachable in their chapter or workspace tools',()=>{
+ const pages=['agent','tasks','decompose','book','plan','calendar','settings'];
  const navigation=['agent','tasks','calendar'].map(shell).join('');
  for(const page of pages)assert.ok(navigation.includes(`href="#${page}"`),`${page} has a direct entry`);
  assert.match(shell('decompose'),/href="#decompose" class="selected" aria-current="page"/);
