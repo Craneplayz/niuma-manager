@@ -1,5 +1,6 @@
 import {api,flushStore,saveData,workspaceValue,session,accountVersion,planDateTime} from './store.js';
 import {icon} from './icons.js';
+import {pageIntro} from './story-layout.js';
 import {priorityLabels} from './data.js';
 
 let host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,replanExisting=false,targetedIds=null;
@@ -49,7 +50,7 @@ document.addEventListener('toggle',event=>{
 export function plannerPage(){
  invalidateChangedProposal();
  const tasks=active(),selected=tasks.filter(t=>targetedIds||!t.planningExcluded),a=currentAvailability();
- return `<div class="page-heading"><h1>智能规划</h1></div>
+ return `${pageIntro('plan')}
  <div class="planner-grid"><section class="panel priority-lab"><div class="section-title"><h2>可用时间</h2><span>北京时间</span></div>
  <div class="form-grid"><label>每日开始<input type="time" data-plan-field="startTime" value="${a.startTime}"></label><label>每日结束<input type="time" data-plan-field="endTime" value="${a.endTime}"></label></div>
  <div class="weekday-options">${[1,2,3,4,5,6,0].map(d=>`<label><input type="checkbox" data-plan-day="${d}" ${a.weekdays.includes(d)?'checked':''}>${['周日','周一','周二','周三','周四','周五','周六'][d]}</label>`).join('')}</div>
