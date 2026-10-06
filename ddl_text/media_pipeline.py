@@ -17,6 +17,7 @@ from contracts.check_v03_examples import coverage
 from .adapters import AgentError
 from .config import Settings
 from .image_reader import IMAGE_MIMES, READER_VERSION, ImageLimits, MetadataMismatch, read_image
+from .pdf_reader import PDF_MIME, READER_VERSION as PDF_READER_VERSION, PdfLimits, read_pdf
 from .media_schema import parse_draft, prompt_schema
 from .media_worker import bounded
 from .time_validation import _nearest_year
@@ -40,6 +41,7 @@ class MediaInputError(ValueError):
 @dataclass(frozen=True)
 class MediaLimits:
     images: ImageLimits = field(default_factory=ImageLimits)
+    pdf: PdfLimits = field(default_factory=PdfLimits)
     record_seconds: float = 70
     batch_seconds: float = 180
     model_input_bytes: int = 16 * 1024 * 1024
@@ -53,7 +55,7 @@ class MediaLimits:
 
 
 MESSAGES = {
-    'reader_unsupported': '本读取器仅支持静态 JPG/PNG；其他文件格式尚未开放。',
+    'reader_unsupported': '仅支持静态 JPG/PNG 和普通 PDF 页面；其他格式、PDF 表单、脚本、加密或内嵌文件尚未开放。',
     'file_ref_unavailable': '附件不可读取，请恢复文件或重新上传。',
     'file_read_failed': '附件读取未完成，请检查文件后重试。',
     'limit_exceeded': '附件或本次处理超过限制，请拆分或减小输入。',
@@ -73,12 +75,16 @@ def _error(record, code, stage, asset_id=None, retryable=False):
 
 def _file_summary(asset, status='failed'):
     return dict(asset_id=asset['asset_id'], content_mode='file', status=status,
-                reader_version=READER_VERSION, coverage_basis='unverified',
+                reader_version=PDF_READER_VERSION if asset['mime_type'] == PDF_MIME else READER_VERSION, coverage_basis='unverified',
                 coverage=dict(complete=False, unread_locations=['整张图片或文件尚未读取'], truncated=False),
                 quality='normal', quality_notes=[])
 
 
 def _mark_complete(summary):
+    if summary['reader_version'] == PDF_READER_VERSION:
+        summary.update(status='complete' if summary['coverage']['complete'] else 'partial',
+                       coverage_basis='adapter_confirmed')
+        return
     summary.update(status='complete', coverage_basis='adapter_confirmed',
                    coverage=dict(complete=True, unread_locations=[], truncated=False))
 
@@ -107,17 +113,20 @@ def _prepare(record, loader, limits, expires):
         if asset.get('content_mode') != 'file' or asset['status'] != 'available':
             continue
         try:
-            if asset['mime_type'] not in IMAGE_MIMES:
+            is_pdf = asset['mime_type'] == PDF_MIME
+            if asset['mime_type'] not in IMAGE_MIMES and not is_pdf:
                 summary['status'] = 'unsupported'
                 raise AgentError('reader_unsupported', False)
             remaining = expires - time.monotonic()
             if remaining <= 0:
                 raise AgentError('file_read_failed', True)
-            if asset['size_bytes'] > limits.images.max_bytes:
+            read_limits = limits.pdf if is_pdf else limits.images
+            read_seconds = read_limits.render_seconds if is_pdf else read_limits.decode_seconds
+            if asset['size_bytes'] > read_limits.max_bytes:
                 raise AgentError('limit_exceeded', False)
             try:
-                data = loader(asset['file_ref'], max_bytes=limits.images.max_bytes,
-                              timeout_seconds=min(remaining, limits.images.decode_seconds))
+                data = loader(asset['file_ref'], max_bytes=read_limits.max_bytes,
+                              timeout_seconds=min(remaining, read_seconds))
             except FileNotFoundError:
                 raise AgentError('file_ref_unavailable', False) from None
             except (TimeoutError, OSError):
@@ -129,12 +138,24 @@ def _prepare(record, loader, limits, expires):
             remaining = expires - time.monotonic()
             if remaining <= 0:
                 raise AgentError('file_read_failed', True)
-            png = read_image(data, asset, replace(limits.images, decode_seconds=min(remaining, limits.images.decode_seconds)))
-            encoded = base64.b64encode(png).decode('ascii')
-            if size + len(encoded) > limits.model_input_bytes:
+            if is_pdf:
+                rendered = read_pdf(data, asset, replace(limits.pdf, render_seconds=min(remaining, read_seconds)))
+                prepared = [(asset['asset_id'], base64.b64encode(png).decode('ascii'), index)
+                            for index, png in enumerate(rendered['pages'], 1)]
+            else:
+                png = read_image(data, asset, replace(limits.images, decode_seconds=min(remaining, read_seconds)))
+                prepared = [(asset['asset_id'], base64.b64encode(png).decode('ascii'), None)]
+            added_size = sum(len(item[1]) for item in prepared)
+            if size + added_size > limits.model_input_bytes:
                 raise AgentError('limit_exceeded', False)
-            size += len(encoded)
-            pictures.append((asset['asset_id'], encoded))
+            size += added_size
+            pictures.extend(prepared)
+            if is_pdf:
+                unread = len(prepared) < rendered['total_pages']
+                summary['coverage'] = dict(complete=not unread, truncated=unread,
+                    unread_locations=[f"第 {len(prepared) + 1}–{rendered['total_pages']} 页未读取"] if unread else [])
+                if rendered['error']:
+                    errors.append(_error(record, rendered['error'], 'read', asset['asset_id']))
         except MetadataMismatch:
             raise  # An immutable stored file did not match its authorized receipt.
         except AgentError as error:
@@ -151,10 +172,18 @@ def _parts(record, summaries, pictures, errors):
     for asset in source['attachments']:
         for key in ('file_ref', 'sha256', 'size_bytes'):
             asset.pop(key, None)
-    payload = dict(record=source, reader=dict(sent_image_ids=[p[0] for p in pictures], errors=errors))
+    # Final summaries stay failed until the model call returns. The prompt instead
+    # describes pages that are actually in this request, not that provisional state.
+    sent_ids = list(dict.fromkeys(p[0] for p in pictures))
+    prepared = copy.deepcopy(summaries)
+    for summary in prepared:
+        if summary['asset_id'] in sent_ids:
+            _mark_complete(summary)
+    payload = dict(record=source, reader=dict(sent_image_ids=sent_ids,
+        sent_pages=[dict(asset_id=p[0], page=p[2]) for p in pictures], attachments=prepared, errors=errors))
     parts = [dict(type='text', text=json.dumps(payload, ensure_ascii=False))]
-    for asset_id, encoded in pictures:
-        parts.extend([dict(type='text', text=json.dumps(dict(asset_id=asset_id))),
+    for asset_id, encoded, page in pictures:
+        parts.extend([dict(type='text', text=json.dumps(dict(asset_id=asset_id, page=page))),
                       dict(type='image_url', image_url=dict(url='data:image/png;base64,' + encoded))])
     return parts
 
@@ -251,7 +280,7 @@ def _finish(record, summaries, tasks, errors):
 def _record(request_id, record, loader, client, settings, limits, expires):
     summaries, errors, pictures = _prepare(record, loader, limits, expires)
     tasks = []
-    prepared_ids = {pid for pid, _ in pictures}
+    prepared_ids = {picture[0] for picture in pictures}
     # Failed files must not suppress an otherwise readable message or attachment.
     readable = pictures or record['text'].strip() or any(c['text'].strip() for c in record['context']) or any(
         a.get('blocks') for a in record['attachments'])
@@ -275,6 +304,13 @@ def _record(request_id, record, loader, client, settings, limits, expires):
                 if summary['asset_id'] in prepared_ids:
                     _mark_complete(summary)
             draft = parse_draft(raw, prepared_ids)
+            pdf_pages = {(asset_id, page) for asset_id, _, page in pictures if page is not None}
+            pdf_ids = {a['asset_id'] for a in record['attachments'] if a.get('mime_type') == PDF_MIME}
+            for task in draft['tasks']:
+                for evidence in task['evidence']:
+                    if evidence['field'] == 'attachment_file' and evidence['asset_id'] in pdf_ids:
+                        if (evidence['asset_id'], evidence['locator']['page']) not in pdf_pages:
+                            raise ValueError('unread_pdf_page')
             qualities = {q['asset_id']: q for q in draft['image_quality']}
             for summary in summaries:
                 if summary['asset_id'] in qualities:
@@ -302,6 +338,9 @@ def _record(request_id, record, loader, client, settings, limits, expires):
             if not model_completed:
                 for summary in summaries:
                     if summary['asset_id'] in prepared_ids:
+                        summary.update(status='failed', coverage_basis='unverified',
+                                       coverage=dict(complete=False, truncated=False,
+                                                     unread_locations=['模型识别未完成，文件内容尚未可靠读取']))
                         errors.append(_error(record, 'file_read_failed', 'read', summary['asset_id'], read_retryable))
     elif not errors:
         errors.append(_error(record, 'incomplete_content', 'recognize'))

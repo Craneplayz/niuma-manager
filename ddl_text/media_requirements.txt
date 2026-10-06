@@ -1,3 +1,4 @@
 # Optional v0.3.1 image runtime; existing v0.2 remains standard-library only.
 -r ../contracts/requirements-dev.txt
 Pillow>=12.3,<13
+pypdfium2>=5.14,<6
