@@ -37,6 +37,20 @@ test('replanning one scheduled task previews replacement, keeps its old block un
  await planner.plannerClick({dataset:{planAction:'apply'}});
  assert.equal(state.schedule[0].id,'new-plan');assert.equal(state.tasks.length,2);
 });
+test('an empty planning range explains whether tasks are missing, scheduled or excluded',async()=>{
+ await setup();
+ state.tasks=[];state.schedule=[];
+ assert.match(planner.plannerPage(),/还没有待规划的任务/);
+ assert.match(planner.plannerPage(),/href="#tasks"/);
+ await setup();
+ state.schedule.push({id:'new-schedule',taskId:'new',date:'2026-10-09',start:19,hours:1});
+ assert.match(planner.plannerPage(),/未完成的任务已经有安排/);
+ assert.match(planner.plannerPage(),/href="#calendar"/);
+ await setup();
+ state.tasks.find(task=>task.id==='new').planningExcluded=true;
+ assert.match(planner.plannerPage(),/在“无需规划的任务”中取消勾选/);
+ assert.doesNotMatch(planner.plannerPage(),/未完成的任务已经有安排/);
+});
 test('the global replan option includes scheduled tasks; a late cancelled preview cannot replace old plans',async()=>{
  await setup();
  planner.plannerChange({target:{dataset:{planReplan:'true'},checked:true}});
