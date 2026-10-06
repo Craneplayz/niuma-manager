@@ -864,6 +864,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="最多检查的最近会话数，默认 10000。",
     )
     parser.add_argument(
+        "--chat",
+        dest="selected_chats",
+        action="append",
+        default=[],
+        metavar="ID_OR_NAME",
+        help="只导出指定会话 ID 或显示名；可重复指定多个会话。",
+    )
+    parser.add_argument(
         "--skip-media",
         action="store_true",
         help="只导出消息和 URL，不复制/解密本地媒体。",
@@ -929,6 +937,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
 
     sessions = recent_sessions(db, cutoff_timestamp, args.session_limit)
+    if args.selected_chats:
+        selected = {str(value) for value in args.selected_chats}
+        sessions = [
+            session
+            for session in sessions
+            if str(session.get("username") or "") in selected
+            or str(db.get_nickname(str(session.get("username") or "")) or "") in selected
+        ]
+        print(f"按 --chat 筛选后会话数：{len(sessions)}")
     print(f"时间窗内候选活跃会话：{len(sessions)}")
     if not sessions:
         print("没有找到时间窗内的活跃联系人或群聊。")

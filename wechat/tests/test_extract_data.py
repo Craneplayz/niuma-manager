@@ -60,6 +60,7 @@ class ExtractDataHelpersTest(unittest.TestCase):
         self.assertEqual(args.platform, "auto")
         self.assertEqual(args.days, 7.0)
         self.assertEqual(args.session_limit, 10000)
+        self.assertEqual(args.selected_chats, [])
         self.assertFalse(args.skip_media)
 
     def test_parser_rejects_unknown_arguments(self):

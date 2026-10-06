@@ -1,9 +1,24 @@
+# User exports, attachments, snapshots and generated request queues.
 data/
 snapshots/
+assets/
+requests-v031.jsonl
+pending-v031.json
+*.jsonl
+
+# Runtime caches and local diagnostics.
 .cache/
 .pycache/
 __pycache__/
 *.py[cod]
-*.jsonl
 *.tmp
+*.log
 .DS_Store
+
+# Local credentials and signing material; never commit these from a workstation.
+.env
+.env.*
+*.token
+*.secret
+*.pem
+*.key
