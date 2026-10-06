@@ -1,6 +1,6 @@
-# v0.3.1 图片与 PDF 识别入口
+# v0.3.1 图片与文档识别入口
 
-本入口实现 #94 的静态 JPG/PNG 与普通 PDF 可见页面读取；不提供上传、账号鉴权、任务队列或前端入口，DOCX 返回 `reader_unsupported`，现有 v0.2 路由保持不变。
+本入口实现 #94 的静态 JPG/PNG、普通 PDF 可见页面和 DOCX 结构读取；不提供上传、账号鉴权、任务队列或前端入口，现有 v0.2 路由保持不变。
 
 ## 安装与调用
 
@@ -38,9 +38,20 @@ result = process_media_request(request, account_bound_loader,
 - 同一 PDF 的已读页面一起调用模型，按 `asset_id + locator.page` 校验物理页码；引用未发送页或省略 PDF 页码的草稿被拒绝。可见批注参与渲染，隐藏内容、弹窗全文和嵌入附件不在可见页面保证内。
 - PDF 页面证据仍为 `model_reported`，保留固定图片引文审核要求；本模块不证明逐字准确，也不自动存为正式任务。
 
+### DOCX 边界
+
+- 直接读取普通 OOXML DOCX 的正文、表格单元格、引用的页眉/页脚/脚注/尾注/批注，以及内嵌静态 PNG/JPEG；不需要运行端安装 Word、LibreOffice 或上传原件给供应商文档 API，读取过程中不写解压文件、不执行宏或访问外部链接。
+- 段落在正文、表格和附属文字中按读取顺序连续编号，从 1 开始，空段也计数；`location` 仅作模型内部上下文，表格保留行列关系。`locator.paragraph` 必须存在，page/bbox 为 null，不推测 Word 页码或自动列表编号；纯文字引文还要通过对应段落的逐字检查，图内引文保持模型报告性质。
+- 文档文字与内嵌图片一起送入一次识别；全文件质量由模型汇总。输出仍为 v0.3.1 `attachment_file/model_reported`，强制审核，即使文字引文通过逐字检查也不擅自升级协议中的可信度。
+- 默认原件 20 MiB、512 个 ZIP 条目、展开后合计 64 MiB、单 XML 8 MiB、500 段、50,000 字符、8 张图片、图片合计 3200 万像素/PNG 8 MiB、读取 15 秒，通过 `DocxLimits` 调整。ZIP 重复/穿越路径、异常压缩比、XML DTD/实体、宏包和超限被拒绝；也受总模型输入与记录时限限制。
+- 动态域、修订、删除线/隐藏内容、文本框、公式、图表、嵌入对象、裁剪/变换/特殊效果图片、外部或损坏图片等本期不能完整读取：保留已可靠读取的内容和明确缺口；无任务也只能报告失败，不能伪装完整 no_tasks。含隐藏/删除线样式、加密文件和非普通 OOXML 方言整体不支持。
+- `complete` 表示受支持的结构内容及图片已提供，不表示 Word 页面布局已还原或模型语义绝对正确。批注与正文的冲突、列表/浮动图片位置依赖仍需核实；没有版式渲染器时不宣称已做页面像素验证。
+
+DOCX 结构参考 [Microsoft WordprocessingML](https://learn.microsoft.com/en-us/office/open-xml/word/how-to-open-and-add-text-to-a-word-processing-document)，安全解析使用 [defusedxml](https://github.com/tiran/defusedxml)，ZIP 边界参考 [Python zipfile](https://docs.python.org/3.13/library/zipfile.html)。
+
 ## 输出和局限
 
-读取结果由程序填写，模型只能补充可读性疑点：`adapter_confirmed/complete` 代表整张静态图已成功解码且全部像素送到正常结束的模型调用，不能证明模型逐字读对、读全或零漏报。动态 PNG 拒绝，不只读取第一帧。
+读取结果由程序填写，模型只能补充可读性疑点：`adapter_confirmed/complete` 代表相应读取器支持的内容已送到正常结束的模型调用，不能证明模型逐字读对、读全或零漏报；图片完整性指整张静态图，DOCX 指上述结构内容。动态 PNG 拒绝，不只读取第一帧。
 
 图片证据只能为 `attachment_file/model_reported`，候选强制待审核；未知页码/位置不补造，文字与上下文引文用原文核验，来源地址从输入复制。质量不明且无任务返回失败，不能 `no_tasks`；部分附件失败仍保留其他可靠候选，缺失内容可能含期限时 `not_provided` 改为 `unknown`。
 
@@ -57,6 +68,7 @@ python -m unittest ddl_text.tests.test_media_pipeline ddl_text.tests.test_media_
 # PDF 构造器只用于测试；运行端仅需 media_requirements.txt
 python -m pip install -r ddl_text/media_test_requirements.txt
 python -m unittest ddl_text.tests.test_pdf_reader -v
+python -m unittest ddl_text.tests.test_docx_reader -v
 python -m unittest discover -s ddl_text/tests -t . -q
 python contracts/check_v031_examples.py
 # 显式付费测试：只生成非私人图片，输出路径必须不存在
@@ -64,6 +76,9 @@ python -m ddl_text.tests.run_media_smoke --live --output local-data/media-smoke.
 # 中文测试需本机可用的中文字体；不会上传或提交字体文件
 python -m ddl_text.tests.run_chinese_media_smoke --live --font C:/Windows/Fonts/msyh.ttc --images-dir local-data/chinese-media --output local-data/chinese-media-smoke.json
 python -m ddl_text.tests.run_pdf_smoke --live --font C:/Windows/Fonts/msyh.ttc --pdf-dir local-data/pdf-smoke --output local-data/pdf-smoke.json
+# 先生成非私人 DOCX；--live 会校验生成回执，防止误测被替换的文件
+python -m ddl_text.tests.run_docx_smoke --prepare --font C:/Windows/Fonts/msyh.ttc --input-dir local-data/docx-smoke
+python -m ddl_text.tests.run_docx_smoke --live --input-dir local-data/docx-smoke --output local-data/docx-smoke.json
 ```
 
 可查看 [最初五组真实模型合成测试](archive/2026-10-06-issue94-images.json) 与 [补年审核修复后的同图实测](archive/2026-10-06-issue118-year-review.json)。最初的通过条件未检查多余审核理由；当前 `yearless-date` 同时检查日期、时间状态及仅保留图片审核理由，旧结果在新条件下失败。这些样例不能替代真实微信联调。
@@ -71,5 +86,7 @@ python -m ddl_text.tests.run_pdf_smoke --live --font C:/Windows/Fonts/msyh.ttc -
 [中文实测](archive/2026-10-06-issue94-chinese-images.json) 五组均符合人工期望：明确时间与催促语、省略年份、两项任务、长图底部任务，以及不可读模糊图。清晰图同时检查时间、任务数和没有多余审核理由；模糊图必须报告质量错误而非无任务。测试使用生成图片，保留真实模型草稿和最终输出，不代表独立召回率评测。
 
 [PDF 实测](archive/2026-10-06-issue94-pdf.json) 保留首次英文文件两次 45 秒超时，以及修正准备状态提示后的三个通过样例：文字 PDF、中文扫描跨页、主动限制到第一页后的部分成功；不能据此保证服务不再超时，也不代替真实文件上传联调。页面渲染依据 [pypdfium2 API](https://pypdfium2.readthedocs.io/en/stable/python_api.html)。
+
+[DOCX 实测](archive/2026-10-06-issue94-docx.json) 的普通通知、表格多任务、内嵌图片截止与动态域缺口四组均符合期望；保留真实草稿/输出和耗时。测试文件由 python-docx 生成，检查了结构和实际内嵌图片；本机缺少受支持的 LibreOffice 渲染器，未完成 Word 页面版式验证，不影响本实现的结构读取，但不能据此声称布局完全复原。
 
 传输格式与像素限制处理参考 [七牛请求文档](https://developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api) 和 [Pillow 安全说明](https://pillow.readthedocs.io/en/stable/handbook/security.html)；以实际选用模型的合成实测为准，不能据通用 API 文档声称所有模型都支持文件。

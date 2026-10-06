@@ -2,3 +2,4 @@
 -r ../contracts/requirements-dev.txt
 Pillow>=12.3,<13
 pypdfium2>=5.14,<6
+defusedxml>=0.7.1,<0.8
