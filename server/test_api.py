@@ -75,6 +75,20 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='Test-password-2026'))[0],200)
         self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),1)
 
+    def test_task_delete_permanently_removes_task_plans_feedback_and_dependencies(self):
+        client=self.client();self.register(client,'delete@test.local')
+        removed=dict(id='removed',title='删除我',status='completed',completedAt='2026-10-06',dependsOn='',plans=[dict(id='plan',title='日程',startAt='2026-10-07T10:00:00+08:00',endAt='2026-10-07T11:00:00+08:00')],subtasks=[],due=None)
+        kept=dict(id='kept',title='保留我',status='not_started',dependsOn='removed',plans=[],subtasks=[],due=None)
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[removed,kept],version=0))[0],200)
+        self.assertEqual(self.call(client,'/data/feedback','PUT',dict(value=[dict(taskId='removed',actualMinutes=30)],version=0))[0],200)
+        status,result=self.call(client,'/data/tasks','DELETE',dict(ids=['removed'],version=1))
+        self.assertEqual(status,200);self.assertEqual(result['deletedIds'],['removed'])
+        workspace=self.call(client,'/workspace')[1]
+        self.assertEqual([task['id'] for task in workspace['tasks']['value']],['kept'])
+        self.assertEqual(workspace['tasks']['value'][0]['dependsOn'],'')
+        self.assertEqual(workspace['feedback']['value'],[])
+        self.assertEqual(self.call(client,'/data/tasks','DELETE',dict(ids=['removed'],version=2))[0],404)
+
     def test_account_profile_and_password_management(self):
         a,b=self.client(),self.client();email='account@test.local'
         self.register(a,email)

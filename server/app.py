@@ -104,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='GET' and origin and origin not in ['http://localhost:1331','http://127.0.0.1:1331']:
             raise ApiError(403,'不允许的请求来源')
         path=self.path.split('?')[0]
-        body=self.body() if self.command in ['POST','PUT'] else {}
+        body=self.body() if self.command in ['POST','PUT','DELETE'] else {}
         with connection() as db:
             self.db=db
             if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
@@ -152,6 +152,30 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
+            if path=='/api/data/tasks' and self.command=='DELETE':
+                ids=body.get('ids')
+                if not isinstance(ids,list) or not ids or len(ids)>500 or any(not isinstance(item,str) or not item or len(item)>100 for item in ids) or len(ids)!=len(set(ids)): raise ApiError(400,'删除任务范围不正确')
+                db.execute('BEGIN IMMEDIATE')
+                row=db.execute('SELECT value,version FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+                version=row['version'] if row else 0
+                if body.get('version')!=version: raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
+                tasks=json.loads(row['value']) if row else []
+                existing={task['id'] for task in tasks}
+                if any(item not in existing for item in ids): raise ApiError(404,'要删除的任务不存在')
+                selected=set(ids);tasks=[task for task in tasks if task['id'] not in selected]
+                for task in tasks:
+                    if task.get('dependsOn') in selected: task['dependsOn']=''
+                next_version=version+1
+                db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),next_version))
+                feedback_row=db.execute('SELECT value,version FROM workspace WHERE user_id=? AND name="feedback"',(uid,)).fetchone()
+                feedback_version=None;feedback=None
+                if feedback_row:
+                    feedback=json.loads(feedback_row['value']);filtered=[item for item in feedback if item.get('taskId') not in selected]
+                    feedback_version=feedback_row['version']
+                    if len(filtered)!=len(feedback):
+                        feedback=filtered;feedback_version+=1
+                        db.execute('UPDATE workspace SET value=?,version=? WHERE user_id=? AND name="feedback"',(json.dumps(feedback),feedback_version,uid))
+                return self.reply(200,dict(deletedIds=ids,version=next_version,feedback=feedback,feedbackVersion=feedback_version))
             if path.startswith('/api/data/') and self.command=='PUT':
                 name=path.rsplit('/',1)[1]
                 if name not in ['tasks','candidates','availability','feedback','preferences','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
@@ -240,6 +264,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self): self.handle_request()
     def do_POST(self): self.handle_request()
     def do_PUT(self): self.handle_request()
+    def do_DELETE(self): self.handle_request()
     def handle_request(self):
         try: self.route()
         except ApiError as e: self.reply(e.status,dict(error=e.message))

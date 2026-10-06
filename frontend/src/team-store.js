@@ -131,6 +131,22 @@ export function saveStore(data){
  if(!session.user||session.changing){report('error','请先登录账号，或等待账号切换完成');return false;}
  latest=clone(data);if(!failed)enqueue(latest);return true;
 }
+export async function deleteStoredTasks(ids){
+ if(!session.user||session.changing)throw new Error('请先登录账号，或等待账号切换完成');
+ const selected=[...new Set(ids)];if(!selected.length)throw new Error('请选择要删除的任务');
+ const epoch=accountEpoch;await flushStore();if(epoch!==accountEpoch)throw new Error('账号已切换');
+ report('saving');
+ try{
+  const result=await api('/api/data/tasks',{ids:selected,version:versions.tasks||0},'DELETE');
+  if(epoch!==accountEpoch)throw new Error('账号已切换');
+  const removed=new Set(result.deletedIds);canonicalTasks=canonicalTasks.filter(task=>!removed.has(task.id));
+  versions.tasks=result.version;workspace.tasks={value:clone(canonicalTasks),version:result.version};
+  if(Array.isArray(result.feedback)&&Number.isInteger(result.feedbackVersion)){
+   versions.feedback=result.feedbackVersion;workspace.feedback={value:clone(result.feedback),version:result.feedbackVersion};
+  }
+  session.conflict=false;report('saved');return result;
+ }catch(error){session.conflict=error.status===409;report('error',error.message);throw error;}
+}
 export async function flushStore(){await queue;if(failed)throw new Error(session.error||'还有未保存的数据');}
 export async function retrySave(){if(session.conflict)throw new Error('数据已被其他页面修改，请刷新后再编辑');failed=false;if(latest)await enqueue(latest);await flushStore();}
 export async function authenticate(mode,credentials){

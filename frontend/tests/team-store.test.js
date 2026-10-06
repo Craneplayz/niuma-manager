@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 globalThis.window={addEventListener(){},dispatchEvent(){}};
 globalThis.CustomEvent ||= class {constructor(type){this.type=type;}};
-const {initSession,saveStore,flushStore}=await import('../src/team-store.js');
+const {initSession,saveStore,deleteStoredTasks,flushStore}=await import('../src/team-store.js');
 
 test('collaborator task edits preserve team metadata, plans and cancelled history',async()=>{
  const original=[
@@ -82,4 +82,30 @@ test('UTC plans display at the same Beijing time as offset timestamps',async()=>
  assert.equal(state.schedule[0].date,'2026-09-26');
  assert.equal(state.schedule[0].start,1.5);
  assert.equal(state.schedule[0].hours,1);
+});
+
+test('permanent task deletion uses the server delete endpoint and cannot return in later saves',async()=>{
+ let tasks=[
+  {id:'delete',title:'永久删除',status:'completed',due:null,subtasks:[],plans:[{id:'p',title:'计划',startAt:'2026-10-07T10:00:00+08:00',endAt:'2026-10-07T11:00:00+08:00'}]},
+  {id:'keep',title:'保留',status:'not_started',dependsOn:'delete',due:null,subtasks:[],plans:[]}
+ ],version=3,deletedRequest,saveRequest;
+ globalThis.fetch=async(path,options={})=>{
+  if(path==='/api/auth/me')return {ok:true,json:async()=>({user:{id:'u',name:'测试'}})};
+  if(path==='/api/workspace')return {ok:true,json:async()=>({tasks:{value:structuredClone(tasks),version},feedback:{value:[{taskId:'delete',actualMinutes:30}],version:1}})};
+  if(path==='/api/data/tasks'&&options.method==='DELETE'){
+   deletedRequest=JSON.parse(options.body);tasks=[{...tasks[1],dependsOn:''}];version++;
+   return {ok:true,json:async()=>({deletedIds:['delete'],version,feedback:[],feedbackVersion:2})};
+  }
+  if(path==='/api/data/tasks'){
+   saveRequest=JSON.parse(options.body);tasks=saveRequest.value;version++;
+   return {ok:true,json:async()=>({version})};
+  }
+  throw new Error('unexpected request '+path);
+ };
+ const state=await initSession();await deleteStoredTasks(['delete']);
+ assert.deepEqual(deletedRequest,{ids:['delete'],version:3});
+ state.tasks=state.tasks.filter(task=>task.id!=='delete');state.tasks[0].title='仍然保留';state.tasks[0].dependsOn='';
+ saveStore(state);await flushStore();
+ assert.deepEqual(saveRequest.value.map(task=>task.id),['keep']);
+ assert.equal(saveRequest.value[0].title,'仍然保留');
 });
