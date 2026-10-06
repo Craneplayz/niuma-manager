@@ -8,4 +8,6 @@ test('account management forms expose explicit submit buttons to their save hand
  const password=source.match(/<form id="account-password-form">[\s\S]*?<\/form>/)?.[0]||'';
  assert.match(profile,/<button type="submit" class="btn primary">保存昵称<\/button>/);
  assert.match(password,/<button type="submit" class="btn primary">更新密码<\/button>/);
+ assert.match(source,/const accountActions=new Set\(\['account-profile','account-password'\]\)/);
+ assert.match(source,/event\.preventDefault\(\);event\.stopImmediatePropagation\(\);actions\[action\]\(\)/);
 });
