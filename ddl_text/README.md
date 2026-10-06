@@ -17,6 +17,7 @@ ddl_text/
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
 ├── pipeline.py           # 批量输入处理和结果汇总
+├── policy_version.py     # 文本规则与实际模型配置的可追溯版本清单
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
@@ -38,6 +39,8 @@ ddl_text/
 │   │   └── text-classification-drafts.json # 与共享 F3 分类样例配套的人工草稿
 │   ├── __init__.py       # 测试包入口
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
+│   ├── reprocessing_cases.py # #112 旧/新结果及用户决定的合成交接案例
+│   ├── test_policy_version.py # 版本稳定性、变更与回归输入校验
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
 │   ├── run_classification_smoke.py # 显式启用的真实模型分类验证入口
@@ -53,6 +56,7 @@ ddl_text/
 │   └── test_render.py          # 文字输出测试
 └── docs/                 # 当前配置说明与历史归档
     ├── api-setup.md      # 供应商配置及故障定位
+    ├── policy-version.md # #112 规则版本使用方式与后端重识别交接
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
 ```
 
@@ -87,6 +91,8 @@ ddl_text/
 自动入库必须由消费者同时检查真实外部来源、notice_type、needs_review/review_reasons 和期限状态；手动输入、demo、reference/inferred/unknown/conflict 不可自动入库。文本侧不会绕过这些标志主动保存。
 
 规则只作用于新识别请求，不回溯删除已保存任务或缓存候选；旧批次需由后端重新识别或由用户处理，不能假定其已经过历史过滤。当前仅记录级采集时点参与判断，不代替日历中的实时逾期状态。
+
+[#112 规则版本交接](docs/policy-version.md) 提供 `text_policy_manifest` 与 9 组重识别合成案例，供后端保存实际执行版本；不改变 v0.2 输出或自动刷新旧候选，重识别队列、幂等及用户决定保留仍由消费者实现。
 
 示例效果见 [F3 共享输入/输出](../contracts/text-to-app/text-classification-v02.json) 和 [真实模型合成测试输出](docs/archive/2026-09-30-issue68-classification-final.json)；后者保留原始草稿、标准 JSON、人工期望与耗时，不代表独立召回率评测。补交通知缺少用户任务上下文时，新增补交行动或更新原任务均可保留待核实，但不能沿用已失效的旧截止作为新期限。
 
