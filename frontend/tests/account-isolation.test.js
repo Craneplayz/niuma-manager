@@ -12,9 +12,9 @@ const recognition=await import('../src/team-recognition-ui.js');
 let state,active='A',delay=null,requests=[];
 const task=(id,title,status)=>({id,title,status,due:null,plans:[],subtasks:[]});
 const accounts={
- A:{tasks:{version:1,value:[task('a','A 的私有任务','completed'),task('a2','A 待规划','not_started')]},preferences:{version:1,value:{askCompletionMinutes:false}}},
+ A:{tasks:{version:1,value:[task('a','A 的私有任务','completed'),task('a2','A 待规划','not_started')]}},
  B:{tasks:{version:1,value:[task('b','B 的任务','completed'),task('b2','B 待规划','not_started')]},
-    availability:{version:1,value:{startTime:'08:00',endTime:'10:00',weekdays:[0]}},preferences:{version:1,value:{askCompletionMinutes:true}}}
+    availability:{version:1,value:{startTime:'08:00',endTime:'10:00',weekdays:[0]}}}
 };
 const response=value=>({ok:true,json:async()=>structuredClone(value)});
 globalThis.fetch=async(path,options={})=>{
@@ -67,24 +67,23 @@ function defer(path){
 }
 async function login(id){state=await store.authenticate('login',{email:id,password:'test'});}
 
-test('account switch loads its own completion feedback preference, planning drafts and recognition metadata',async()=>{
+test('account switch clears feedback samples, planning drafts and recognition metadata',async()=>{
  state=await store.initSession();
- assert.equal(feedback.asksForCompletionMinutes(),false);
- assert.doesNotMatch(feedback.personalizationSettings(),/data-feedback-setting="completion-minutes" checked/);
+ feedback.personalizationClick({dataset:{feedbackAction:'sample'}});
+ assert.match(feedback.personalizationSection(state.tasks),/A 的私有任务/);
  planner.plannerChange({target:{dataset:{planField:'startTime'},value:'13:00'}});
  recognition.handleAssistantInput({target:{id:'agent-published',value:'2026-09-01'}});
  recognition.handleAssistantInput({target:{id:'agent-quality',value:'partial'}});
  state=await store.logout();
- assert.equal(feedback.asksForCompletionMinutes(),true);
+ assert.doesNotMatch(feedback.personalizationSection(state.tasks),/A 的私有任务/);
  await login('B');
- assert.equal(feedback.asksForCompletionMinutes(),true);
+ assert.doesNotMatch(feedback.personalizationSection(state.tasks),/A 的私有任务/);
  assert.match(planner.plannerPage(),/value="08:00"/);
  assert.doesNotMatch(planner.plannerPage(),/value="13:00"/);
  assert.doesNotMatch(recognition.assistantPage(),/2026-09-01/);
- assert.match(recognition.assistantPage(),/data-agent-source-mode="manual"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-agent-source-mode="manual"/);
- await recognition.handleAssistantClick({dataset:{agentSourceMode:'manual'}});
  assert.match(recognition.assistantPage(),/value="complete" selected/);
- assert.match(feedback.personalizationSettings(),/data-feedback-setting="completion-minutes" checked/);
+ feedback.personalizationClick({dataset:{feedbackAction:'sample'}});
+ assert.match(feedback.personalizationSection(state.tasks),/B 的任务/);
 });
 
 test('late planning response cannot repopulate another account or leave it busy',async()=>{
@@ -295,7 +294,7 @@ test('sync processes more than twenty single records, continues past failure and
   assert.equal(seen.length,25);
   const page=recognition.assistantPage();
   assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
-  assert.match(page,/已创建 0 项 · 失败 1 项 · 跳过 40 项/);
+  assert.match(page,/仅无疑点的任务自动入库/);
   assert.doesNotMatch(page,/有日期任务进入日历/);
   assert.doesNotMatch(page,/新任务已加入日历/);
   assert.match(page,/data-agent-retry="sync:0"/);
@@ -313,9 +312,8 @@ test('empty source sync does not report zero unchanged records as filtered conte
  const originalFetch=globalThis.fetch;
  globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
   ? response({requests:[],summary:{total:0,skipped:0,pending:0}})
- : originalFetch(path,options);
+  : originalFetch(path,options);
  try{
-  await recognition.handleAssistantClick({dataset:{agentSourceMode:'teaching_web'}});
   recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
   recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
   await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
@@ -348,8 +346,6 @@ test('failed source sync clears stale loading notice and remains retryable',asyn
   : originalFetch(path,options);
  try{
   recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
-  await new Promise(resolve=>setImmediate(resolve));
-  await recognition.handleAssistantClick({dataset:{agentSourceMode:'teaching_web'}});
   recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
   await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
   const page=recognition.assistantPage();

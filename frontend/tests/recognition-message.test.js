@@ -6,7 +6,7 @@ globalThis.location={hash:'#agent'};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
 
-test('historical failed batches do not leak into a new import session',async()=>{
+test('partial source and failed model records show readable review messages',async()=>{
  session.user={id:'test'};
  const record={input_id:'private-id',text:'通知标题',course_or_project:'数据库课'};
  globalThis.fetch=async path=>({ok:true,json:async()=>path==='/api/recognition/batches'?[{
@@ -18,29 +18,8 @@ test('historical failed batches do not leak into a new import session',async()=>
  recognition.assistantPage();
  await new Promise(resolve=>setImmediate(resolve));
  const html=recognition.assistantPage();
- assert.doesNotMatch(html,/import-review-section|import-ignored-section/);
- assert.doesNotMatch(html,/正文不完整|数据库课|重试失败记录|incomplete_text|private-id|原始错误/);
-});
-
-test('notification import only shows teaching web after it is selected as a sync source',async()=>{
- session.user={id:'test'};
- let sources=[];
- globalThis.fetch=async path=>({ok:true,json:async()=>{
-  if(path==='/api/workspace')return {sources:{value:sources,version:1}};
-  if(path==='/api/sources/credentials')return {configured:false};
-  if(path==='/api/recognition/batches')return [];
-  throw new Error('unexpected request '+path);
- }});
- recognition.configureAssistant({render(){}});
- recognition.resetAssistant();recognition.assistantPage();
- await new Promise(resolve=>setImmediate(resolve));
- let html=recognition.assistantPage();
- assert.match(html,/data-agent-source-mode="manual"/);
- assert.match(html,/data-agent-source-mode="wechat"/);
- assert.doesNotMatch(html,/data-agent-source-mode="teaching_web"/);
-
- sources=['teaching_web'];recognition.resetAssistant();recognition.assistantPage();
- await new Promise(resolve=>setImmediate(resolve));
- html=recognition.assistantPage();
- assert.match(html,/data-agent-source-mode="teaching_web"/);
+ assert.match(html,/正文不完整/);
+ assert.match(html,/数据库课：识别超时/);
+ assert.match(html,/重试失败记录/);
+ assert.doesNotMatch(html,/incomplete_text|private-id|原始错误/);
 });

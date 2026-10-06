@@ -15,7 +15,6 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
-import task_decomposition
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -44,7 +43,6 @@ def initialize():
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
-        task_decomposition.initialize(db)
 
 def seed():
     initialize()
@@ -129,35 +127,18 @@ class Handler(BaseHTTPRequestHandler):
             uid=user['id']
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if recognition.route(self,db,uid,path,body,ApiError): return
-            if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
                 return self.reply(200,{},'niuma_session=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0')
-            if path=='/api/auth/profile' and self.command=='POST':
-                name=str(body.get('name','')).strip()
-                if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
-                db.execute('UPDATE users SET name=? WHERE id=?',(name,uid))
-                return self.reply(200,dict(user=dict(user,name=name)))
-            if path=='/api/auth/password' and self.command=='POST':
-                current=str(body.get('currentPassword',''))
-                new=str(body.get('newPassword',''))
-                if not 8<=len(new)<=128: raise ApiError(400,'新密码需要 8–128 个字符')
-                row=db.execute('SELECT salt,hash FROM users WHERE id=?',(uid,)).fetchone()
-                if not hmac.compare_digest(row['hash'],password_hash(current,row['salt'])): raise ApiError(400,'当前密码不正确')
-                salt=secrets.token_hex(16)
-                db.execute('UPDATE users SET salt=?,hash=? WHERE id=?',(salt,password_hash(new,salt),uid))
-                db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
-                return self.reply(200,{})
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
             if path.startswith('/api/data/') and self.command=='PUT':
                 name=path.rsplit('/',1)[1]
-                if name not in ['tasks','candidates','availability','feedback','preferences','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
+                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
                 value=body.get('value')
-                if not isinstance(value,dict if name in ['availability','focus','preferences'] else list): raise ApiError(400,'数据格式不正确')
-                if name=='preferences' and (set(value)!=set(['askCompletionMinutes']) or type(value['askCompletionMinutes'])!=bool): raise ApiError(400,'个性化设置格式不正确')
+                if not isinstance(value,dict if name in ['availability','focus'] else list): raise ApiError(400,'数据格式不正确')
                 if name=='sources' and (len(value)>1 or any(source!='teaching_web' for source in value)): raise ApiError(400,'来源选择不正确')
                 if name=='courses':
                     from urllib.parse import urlsplit
