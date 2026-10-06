@@ -3,6 +3,16 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── requirements-teaching-dev.txt     # 教学网草案校验依赖，不用于业务运行
+├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
+├── schemas/
+│   └── teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案 Schema，不是 API 请求
+├── examples/
+│   └── teaching-review-v0.4-draft-cases.json # 20 个教学网审核与年份判断合成样例
+├── tests/
+│   └── test_teaching_review_draft.py  # 草案证据、身份绑定、边界与反例检查
+├── docs/
+│   └── teaching-review-v0.4-draft.md  # #108/#109 阶段 A 的字段及接入边界
 ├── source-to-text/                   # 爬虫、微信等来源交给文本识别的 v0.2 请求
 │   ├── text-frontend-v02-request.json # 两条通知输入，覆盖来源、发布时间及一条通知多任务
 │   └── text-year-inference-request.json # 缺年份、跨年及显式年份的五条合成输入
@@ -14,6 +24,8 @@ contracts/
 ```
 
 ## 交接方式
+
+教学网 #108/#109 的新增覆盖/学期规则见 [v0.4-draft.1 政策组件](docs/teaching-review-v0.4-draft.md)；仅供审查和离线验证，不是新 API，不改变以下 v0.2 运行契约，也不放宽 PR #98 的 v0.3.1 文件审核规则。
 
 - 来源模块按 [输入样例](source-to-text/text-frontend-v02-request.json) 提供原文及元数据，文本模块接收完整 v0.2 请求。
 - `platform` 标明来源：教学网 `teaching_web`、微信 `wechat` 的结果可直接进日历；对话框手动输入一律填 `manual`，结果须用户确认。`unknown` 已停用，新代码不得再送；旧数据中的 `unknown` 按 `manual` 处理。
