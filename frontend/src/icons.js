@@ -1,4 +1,6 @@
 const paths={
+ trash:'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
+ restore:'M3 10a9 9 0 1 1 2 9M3 4v6h6M12 7v5l3 2',
  decompose:'M4 6h7M4 12h11M4 18h7M17 4l1.2 3.3L22 8.5l-3.8 1.2L17 13l-1.2-3.3L12 8.5l3.8-1.2z',
  plan:'M4 19V9M10 19V5M16 19v-7M22 19H2M4 9l6-4 6 7 6-8',
  play:'M8 4l12 8-12 8z',pause:'M8 5v14M16 5v14',
