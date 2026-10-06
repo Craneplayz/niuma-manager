@@ -4,7 +4,7 @@ import {session,saveData,workspaceValue} from './store.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let host={},timer={duration:1500,remaining:1500,running:false,endsAt:0,taskId:''};
 let paletteQuery='',paletteIndex=0,paletteResults=[];
-const routes=[['overview','今日概览','home'],['decompose','AI 拆解','decompose'],['book','课程与资料','book'],['trash','回收站','trash'],['agent','通知导入','import'],['tasks','任务中心','tasks'],['plan','智能规划','plan'],['calendar','学习日程','calendar'],['settings','账号、来源与数据','settings']];
+const routes=[['decompose','AI 拆解','decompose'],['book','课程与资料','book'],['trash','回收站','trash'],['agent','通知导入','import'],['tasks','任务中心','tasks'],['plan','智能规划','plan'],['calendar','学习日程','calendar'],['settings','账号、来源与数据','settings']];
 export function configureExperience(callbacks){host=callbacks;setInterval(tick,1000);}
 function saveTimer(){if(session.user)saveData('focus',{...timer}).catch(error=>host.toast?.(error.message));}
 export function switchFocusAccount(id){paletteQuery='';paletteIndex=0;paletteResults=[];timer={duration:1500,remaining:1500,running:false,endsAt:0,taskId:''};if(id){const v=workspaceValue('focus',null);if(v&&[1500,3000].includes(v.duration)&&Number.isFinite(v.remaining)&&typeof v.running==='boolean'&&Number.isFinite(v.endsAt)&&typeof v.taskId==='string')timer=v;}tick();}
