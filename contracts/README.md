@@ -3,6 +3,7 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── task-decomposition/              # AI 拆解公开 v0.1 请求、回应 Schema 及合成样例
 ├── source-to-text/                   # 爬虫、微信等来源交给文本识别的 v0.2 请求
 │   ├── text-frontend-v02-request.json # 两条通知输入，覆盖来源、发布时间及一条通知多任务
 │   └── text-year-inference-request.json # 缺年份、跨年及显式年份的五条合成输入
@@ -15,6 +16,7 @@ contracts/
 
 ## 交接方式
 
+- AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
 - 来源模块按 [输入样例](source-to-text/text-frontend-v02-request.json) 提供原文及元数据，文本模块接收完整 v0.2 请求。
 - `platform` 标明来源：教学网 `teaching_web`、微信 `wechat` 的结果可直接进日历；对话框手动输入一律填 `manual`，结果须用户确认。`unknown` 已停用，新代码不得再送；旧数据中的 `unknown` 按 `manual` 处理。
 - 文本模块输出 [候选结果](text-to-app/text-frontend-v02-output.json)，后端校验保存候选，前端供用户核对后确认成任务。

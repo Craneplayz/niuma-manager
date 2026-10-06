@@ -8,7 +8,7 @@ const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',
 const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',manual:'手动输入',unknown:'其他'};
 let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='manual',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};
 export function configureAssistant(callbacks){host=callbacks;}
-export function resetAssistant(){cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};}
+export function resetAssistant(){reviewScope='current';newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#settings','#sources'].includes(location.hash))host.render();};
@@ -21,10 +21,26 @@ export const canAutoApplyCandidate=(c,batch)=>{
   d.kind==='deadline'&&d.status==='explicit'&&['date','datetime'].includes(d.precision)&&Boolean(d.value)&&exactMinute||
   d.status==='not_provided'&&d.value===null));
 };
-const currentBatches=()=>batches.filter(batch=>activeRequestIds.has(batch.request.request_id));
+let reviewScope='current',newPlanningTaskIds=new Set();
+const currentBatches=()=>reviewScope==='all'||!activeRequestIds.size?batches:batches.filter(batch=>activeRequestIds.has(batch.request.request_id));
 const currentItems=state=>currentBatches().flatMap(batch=>batch.items.filter(item=>item.state===state));
 const sourceFor=(item)=>{const batch=batches.find(batch=>batch.items.some(candidate=>candidate.id===item.id));return batch?.request.records.find(record=>record.input_id===item.candidate.input_id);};
-function beginImport(requestIds,source,total=requestIds.length,skipped=0){activeRequestIds=new Set(requestIds);candidateBusy.clear();importProgress={active:true,source,total,processed:0,created:0,failed:0,skipped};error='';notice='';}
+function beginImport(requestIds,source,total=requestIds.length,skipped=0){reviewScope='current';activeRequestIds=new Set(requestIds);candidateBusy.clear();importProgress={active:true,source,total,processed:0,created:0,failed:0,skipped};error='';notice='';}
+function queuePlanning(candidateIds){
+ for(const task of host.getState?.().tasks||[])if(candidateIds.some(id=>task.recognitionHistory?.some(history=>history.storageId===id)))newPlanningTaskIds.add(task.id);
+}
+async function planNewTasks(current){
+ if(!current())return;
+ const state=host.getState?.(),ids=[...newPlanningTaskIds].filter(id=>{const task=state?.tasks.find(item=>item.id===id);return task?.due&&task.status!=='done'&&!task.planningExcluded&&!task.plans?.length&&!state.schedule?.some(block=>block.taskId===id);});
+ newPlanningTaskIds.clear();
+ if(ids.length)await host.proposeForTasks?.(ids);
+}
+async function planReviewedCandidate(item,action,current){
+ const batch=batches.find(batch=>batch.items.some(candidate=>candidate.id===item.id));
+ if(action==='create'&&!batch?.demo&&['teaching_web','wechat'].includes(sourceFor(item)?.platform)){
+  queuePlanning([item.id]);await planNewTasks(current);
+ }
+}
 function displayTime(d){
  if(!d.value)return '';
  if(d.precision==='date')return d.value.replaceAll('-','/');
@@ -79,14 +95,14 @@ async function load(refreshWorkspace=false){
  catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
 }
 async function autoApplyCandidates(requestId,current,previousIds){
- let applied=0;
+ let applied=0;const appliedIds=[];
  const items=batches.filter(batch=>!batch.demo&&batch.request.request_id===requestId).flatMap(batch=>batch.items.filter(item=>!previousIds.has(item.id)&&item.state==='pending'&&canAutoApplyCandidate(item.candidate,batch)));
  for(const item of items){
   if(!current())return applied;
-  try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;}
+  try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;appliedIds.push(item.id);}
   catch(e){if(current())error='自动加入任务失败：'+e.message;}
  }
- if(applied){try{await host.refresh();}catch(e){if(current())error='任务已创建，但页面刷新失败：'+e.message;}}
+ if(applied){try{await host.refresh();if(current())queuePlanning(appliedIds);}catch(e){if(current())error='任务已创建，但页面刷新失败：'+e.message;}}
  return applied;
 }
 function manualImportPanel(support){return `<form id="agent-message-form" class="agent-composer import-manual-composer"><label for="agent-input">粘贴或说出原文</label><textarea id="agent-input" rows="4" required maxlength="4000" placeholder="粘贴课程通知正文或描述任务…">${esc(text)}</textarea>
@@ -106,7 +122,9 @@ export function assistantPage(){
  const support=voiceSupport();
  const review=currentItems('pending'),ignored=currentItems('ignored');
  const importStarted=importProgress.active||activeRequestIds.size>0;
- const failedBatches=currentBatches().filter(batch=>!batch.demo&&['failed','partial_success'].includes(batch.result.status));
+ const allPending=batches.flatMap(batch=>batch.items).filter(item=>item.state==='pending').length,allIgnored=batches.flatMap(batch=>batch.items).filter(item=>item.state==='ignored').length;
+ const showReview=importStarted||allPending||allIgnored;
+ const failedBatches=batches.filter(batch=>(reviewScope==='all'||activeRequestIds.has(batch.request.request_id))&&!batch.demo&&['failed','partial_success'].includes(batch.result.status));
  const progressTotal=Math.max(importProgress.total,1),progress=Math.min(100,Math.round(importProgress.processed/progressTotal*100));
  const modes=importModes();if(!modes.some(([value])=>value===importMode))importMode='manual';
  return `<div class="page-heading"><h1>通知导入</h1></div>
@@ -115,6 +133,8 @@ export function assistantPage(){
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section>
  ${importStarted?`<section class="import-progress ${importProgress.active?'active':''}" aria-label="导入进度"><div><strong>${esc(importProgress.source||'本次导入')}</strong><span>${importProgress.active?`${importProgress.processed} / ${importProgress.total||'…'}`:'导入完成'}</span></div><div class="import-progress-track"><i style="width:${importProgress.active&&importProgress.total?progress:100}%"></i></div><small>已创建 ${importProgress.created} 项${importProgress.failed?` · 失败 ${importProgress.failed} 项`:''}${importProgress.skipped?` · 跳过 ${importProgress.skipped} 项`:''}</small></section>
+ `:''}
+ ${showReview?`<div class="button-row" role="group" aria-label="候选范围"><button class="btn" data-agent-review-scope="current" aria-pressed="${reviewScope==='current'&&activeRequestIds.size>0}" ${!activeRequestIds.size?'disabled':''}>本次导入</button><button class="btn" data-agent-review-scope="all" aria-pressed="${reviewScope==='all'||!activeRequestIds.size}">账号全部候选 · 待核对 ${allPending} · 已忽略 ${allIgnored}</button></div>
  <section class="import-review-section"><div class="result-heading"><h2>待核对 <span>${review.length}</span></h2></div>${review.map(candidateCard).join('')}${!review.length?'<div class="result-empty compact"><h3>暂无待核对内容</h3></div>':''}</section>
  <details class="import-ignored-section"><summary>不加入任务 <span>${ignored.length}</span></summary><div>${ignored.map(candidateCard).join('')}${!ignored.length?'<div class="result-empty compact"><h3>暂无内容</h3></div>':''}</div></details>`:''}</div>`;
 }
@@ -183,12 +203,13 @@ async function resolve(form){
    await host.refresh();
    if(!current())return;
    host.toast(notice);
+   await planReviewedCandidate(item,body.action,current);
   }
   catch(e){if(current())error='任务已保存，但页面刷新失败：'+e.message+'。请点击“刷新候选”重新读取。';}
  }catch(e){if(current()){errorNode.textContent=e.message;form.querySelector('[data-agent-action="refresh-review"]').hidden=e.status!==409;}}
  finally{candidateBusy.delete(item.id);if(current()){fields.forEach(field=>field.disabled=false);submit.disabled=false;submit.textContent=label;refresh();}}
 }
-async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false){
+async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false,planAfter=true){
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const external=autoApply&&body.records.some(record=>['teaching_web','wechat'].includes(record.platform));
@@ -203,6 +224,8 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   const batch=next.find(batch=>batch.request.request_id===body.request_id),result=batch?.result;
   const complete=result&&['success','no_tasks'].includes(result.status);
   const applied=autoApply?await autoApplyCandidates(body.request_id,current,previousIds):0;
+  if(!current())return;
+  if(planAfter&&external)await planNewTasks(current);
   if(!current())return;
   if(activeRequestIds.has(body.request_id))importProgress.created+=applied;
   const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(item=>item.state==='pending').length||0;
@@ -234,7 +257,7 @@ async function quickCreate(item,current){
   await flushStore();if(!current())return;
   const response=await api('/api/recognition/candidates/'+item.id+'/resolve',buildQuickResolution(item,dataVersion('tasks')));
   if(!current())return;batches=response.batches;importProgress.created++;
-  await host.refresh?.();if(current())host.toast?.('任务已创建');
+  await host.refresh?.();if(current()){host.toast?.('任务已创建');await planReviewedCandidate(item,'create',current);}
  }catch(e){if(current())error=e.message;}
  finally{candidateBusy.delete(item.id);if(current())refresh();}
 }
@@ -254,6 +277,7 @@ async function restoreCandidate(item,current){
 }
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ if(['current','all'].includes(button.dataset.agentReviewScope)){reviewScope=button.dataset.agentReviewScope;refresh();return;}
  if(button.dataset.agentSourceMode){if(!busy&&importModes().some(([value])=>value===button.dataset.agentSourceMode)){importMode=button.dataset.agentSourceMode;error='';notice='';refresh();}return;}
  const candidateAction=button.dataset.agentConfirm||button.dataset.agentReview||button.dataset.agentIgnore||button.dataset.agentRestore;
  if(busy&&!candidateAction&&!['stop','voice'].includes(button.dataset.agentAction))return;
@@ -295,12 +319,13 @@ export async function handleAssistantClick(button){
     if(!current())return;
     const batch=sourceImport.requests[index];
     notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条未变化通知`;refresh();
-    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true);
+    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true,false);
     if(!current())return;
     attempted++;
     if(!complete)failed++;
     if(complete===undefined)break;
    }
+   await planNewTasks(current);
    if(current()){importProgress.active=false;syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。${failed?'失败记录可重试。':''}`;}
   }catch(e){if(current()){notice='';error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}}
   finally{if(current()){busy=false;activeController=null;importProgress.active=false;refresh();}}

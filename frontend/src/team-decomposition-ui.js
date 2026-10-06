@@ -8,6 +8,8 @@ let result=null;
 let error='';
 let busy=false;
 let applied=false;
+let resultTaskId='';
+let activeController=null;
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const tasks=()=>host.getState().tasks.filter(task=>task.status!=='done');
@@ -16,8 +18,11 @@ const selected=()=>tasks().find(task=>task.id===selectedId);
 export function configureDecomposition(callbacks){host=callbacks;}
 
 export function resetDecomposition(){
- selectedId='';conversation=[];result=null;error='';busy=false;applied=false;
+ activeController?.abort();activeController=null;
+ selectedId='';conversation=[];result=null;resultTaskId='';error='';busy=false;applied=false;
 }
+
+const validResult=()=>Boolean(result&&selected()&&resultTaskId===selectedId&&result.taskId===selectedId);
 
 function taskList(){
  return tasks().map(task=>`<button class="decomposition-task ${task.id===selectedId?'selected':''}" data-decomposition-action="select" data-task-id="${esc(task.id)}">
@@ -52,6 +57,7 @@ function planPanel(task){
 
 function workPanel(){
  const task=selected();
+ if(result&&!validResult()){result=null;resultTaskId='';}
  if(busy)return `<div class="decomposition-placeholder busy">${icon('spark')}<h2>正在理解任务…</h2><p>会结合任务说明、原始要求与已有进度生成方案。</p></div>`;
  if(error)return `<div class="decomposition-placeholder error-state"><h2>暂时没有生成方案</h2><p>${esc(error)}</p><button class="btn primary" data-decomposition-action="start">重新尝试</button></div>`;
  if(applied)return `<div class="decomposition-placeholder applied">${icon('check')}<h2>步骤已经写入任务</h2><p>${esc(task?.title||'任务')}现在可以在任务中心逐项完成。</p><div class="decomposition-actions"><a class="btn primary" href="#tasks">查看任务</a><button class="btn" data-decomposition-action="reset">继续拆解</button></div></div>`;
@@ -69,34 +75,42 @@ export function decompositionPage(){
 
 async function requestProposal(){
  if(!selected()||busy)return;
- const epoch=accountVersion();busy=true;error='';result=null;applied=false;host.render();
+ const epoch=accountVersion(),taskId=selectedId,history=structuredClone(conversation),controller=new AbortController();
+ const current=()=>epoch===accountVersion()&&selectedId===taskId&&Boolean(selected())&&activeController===controller&&!controller.signal.aborted;
+ activeController=controller;busy=true;error='';result=null;resultTaskId='';applied=false;host.render();
  try{
   await flushStore();
-  const next=await api('/api/decomposition/proposals',{taskId:selectedId,conversation},'POST',{timeoutMs:30000});
-  if(epoch!==accountVersion())return;
-  result=next;
- }catch(event){if(epoch===accountVersion())error=event.message;}
- finally{if(epoch===accountVersion()){busy=false;host.render();}}
+  if(!current())return;
+  const next=await api('/api/decomposition/proposals',{taskId,conversation:history},'POST',{timeoutMs:30000,signal:controller.signal});
+  if(!current())return;
+  if(next.taskId!==taskId)throw new Error('拆解方案与当前任务不匹配，请重新生成');
+  result=next;resultTaskId=taskId;
+ }catch(event){if(current())error=event.message;}
+ finally{if(current()){activeController=null;busy=false;host.render();}}
 }
 
 async function applyProposal(requestId){
- if(!requestId||busy)return;
- const epoch=accountVersion();busy=true;error='';host.render();
+ if(!requestId||busy||!validResult()||result.status!=='ready_to_plan'||requestId!==result.requestId)return;
+ const epoch=accountVersion(),taskId=selectedId,controller=new AbortController();
+ const current=()=>epoch===accountVersion()&&selectedId===taskId&&Boolean(selected())&&activeController===controller&&!controller.signal.aborted;
+ activeController=controller;busy=true;error='';host.render();
  try{
-  await api('/api/decomposition/apply',{requestId});
-  if(epoch!==accountVersion())return;
+  await flushStore();
+  if(!current()||!validResult()||result.requestId!==requestId)return;
+  await api('/api/decomposition/apply',{requestId,taskId},'POST',{signal:controller.signal});
+  if(!current())return;
   await host.refresh();
-  if(epoch!==accountVersion())return;
-  result=null;conversation=[];applied=true;host.toast('AI 拆解步骤已写入任务');
- }catch(event){if(epoch===accountVersion())error=event.message;}
- finally{if(epoch===accountVersion()){busy=false;host.render();}}
+  if(!current())return;
+  result=null;resultTaskId='';conversation=[];applied=true;host.toast('AI 拆解步骤已写入任务');
+ }catch(event){if(current())error=event.message;}
+ finally{if(current()){activeController=null;busy=false;host.render();}}
 }
 
 export function decompositionClick(button){
  const action=button.dataset.decompositionAction;
  if(!action)return false;
  if(action==='select'){
-  selectedId=button.dataset.taskId;conversation=[];result=null;error='';applied=false;host.render();
+  resetDecomposition();selectedId=button.dataset.taskId;host.render();
  }else if(action==='reset'){
   resetDecomposition();host.render();
  }else if(action==='start'){
@@ -108,6 +122,7 @@ export function decompositionClick(button){
 
 export function decompositionSubmit(form){
  if(form.id!=='decomposition-questions-form')return false;
+ if(busy||!validResult()||result.status!=='needs_clarification')return true;
  const answers=[...form.querySelectorAll('input[name^="answer-"]')].map(input=>input.value.trim());
  if(answers.some(value=>!value)){host.toast('请回答所有问题');return true;}
  const questions=result.questions;

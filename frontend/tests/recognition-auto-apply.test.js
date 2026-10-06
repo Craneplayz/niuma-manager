@@ -75,6 +75,10 @@ test('review sections appear only after import and dismissed items can be restor
  const current=recognition.assistantPage();
  assert.doesNotMatch(current,/本次任务 1/);
  assert.match(current,/本次任务 2/);
+ await recognition.handleAssistantClick({dataset:{agentReviewScope:'all'}});
+ assert.match(recognition.assistantPage(),/本次任务 1/);
+ assert.match(recognition.assistantPage(),/本次任务 2/);
+ await recognition.handleAssistantClick({dataset:{agentReviewScope:'current'}});
  await recognition.handleAssistantClick({dataset:{agentIgnore:'candidate-2'}});
  const ignored=recognition.assistantPage();
  assert.match(ignored,/<details class="import-ignored-section"><summary>不加入任务 <span>1<\/span>/);
@@ -88,7 +92,7 @@ test('review sections appear only after import and dismissed items can be restor
  assert.match(restored,/不加入任务 <span>0/);
 });
 
-test('quick confirmation sends a reviewed create without triggering planning',async()=>{
+test('manual quick confirmation saves without triggering planning',async()=>{
  recognition.resetAssistant();session.user={id:'test'};
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  let batch,planned=0,resolution;
@@ -116,8 +120,8 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  recognition.resetAssistant();session.user={id:'test'};
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const batch={request:fixture.request,result:fixture.expected,demo:false,items:fixture.expected.tasks.map(task=>({id:task.candidate_id,version:1,state:'pending',candidate:task}))};
- const applied=[];let refreshed=0,planned=0;
- recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;},getState:()=>({tasks:[]}),proposeForTasks:async()=>{planned++;}});
+ const applied=[],planned=[];let refreshed=0,tasks=[];
+ recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;tasks=batch.items.filter(item=>item.state==='applied').map(item=>({id:'task-'+item.id,due:item.candidate.deadline.value,status:'todo',plans:[],recognitionHistory:[{storageId:item.id}]}));},getState:()=>({tasks}),proposeForTasks:async ids=>{planned.push(ids);}});
  recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'source.json',size:100,text:async()=>JSON.stringify(fixture.request)}]}});
  await new Promise(resolve=>setTimeout(resolve,0));
  recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
@@ -136,7 +140,8 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  await recognition.handleAssistantClick({dataset:{agentImportIndex:'0'}});
  assert.deepEqual(applied.sort(),['dated','mixed','old-but-future','undated','yearless-current'].map(id=>'synthetic:f3:'+id).sort());
  assert.equal(refreshed,1);
- assert.equal(planned,0);
+ assert.equal(planned.length,1);
+ assert.deepEqual(planned[0].sort(),batch.items.filter(item=>item.state==='applied'&&item.candidate.deadline.value).map(item=>'task-'+item.id).sort());
  assert.match(recognition.assistantPage(),/待核对 <span>6/);
  assert.match(recognition.assistantPage(),/data-agent-confirm=/);
 });
@@ -155,10 +160,11 @@ test('refresh does not auto-apply old unfiltered batches',async()=>{
  recognition.assistantPage();
  await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(resolved,0);
- assert.doesNotMatch(recognition.assistantPage(),/import-review-section|import-ignored-section|old-candidate/);
+ assert.match(recognition.assistantPage(),/import-review-section/);
+ assert.match(recognition.assistantPage(),/data-agent-confirm="old-candidate"/);
 });
 
-test('reviewed candidates save and refresh without generating a planning proposal',async()=>{
+test('reviewed external creates with a DDL automatically propose; manual, undated and updates do not',async()=>{
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const originalFormData=globalThis.FormData;
  try{
@@ -183,7 +189,7 @@ test('reviewed candidates save and refresh without generating a planning proposa
    await new Promise(resolve=>setTimeout(resolve,0));
    assert.equal(error.textContent,'');
    assert.deepEqual(calls.slice(0,2),['save','refresh']);
-   assert.deepEqual(calls.slice(2),[]);
+   assert.deepEqual(calls.slice(2),platform!=='manual'&&due&&action==='create'?[['saved-task']]:[]);
   }
  }finally{globalThis.FormData=originalFormData;}
 });
@@ -263,4 +269,79 @@ test('existing undated tasks stay in the task center instead of the current impo
  assert.doesNotMatch(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况|待补日期/);
  task.due=dayKey();
  assert.match(calendarPage({tasks:[task],schedule:[]},0),/查看讨论课分班情况/);
+});
+
+test('refresh and two successive imports retain account pending and ignored candidates',async()=>{
+ recognition.resetAssistant();session.user={id:'recovery'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const batches=[];
+ globalThis.fetch=async(path,options={})=>{
+  if(path==='/api/sources/credentials')return {ok:true,json:async()=>({configured:false})};
+  if(path==='/api/workspace')return {ok:true,json:async()=>({})};
+  if(path==='/api/recognition/batches'){
+   if(options.body){const body=JSON.parse(options.body);batches.push({request:body,result:{status:'success',record_results:[],errors:[]},items:[{id:'recover-'+batches.length,version:1,state:'pending',candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id,title:'保留通知 '+batches.length}}]});}
+   return {ok:true,json:async()=>structuredClone(batches)};
+  }
+  if(path.includes('/resolve')){batches[0].items[0].state='ignored';return {ok:true,json:async()=>({batches:structuredClone(batches)})};}
+  throw new Error('unexpected '+path);
+ };
+ recognition.configureAssistant({render(){},refresh:async()=>{}});
+ await recognition.submitRecognitionText('一');
+ await recognition.handleAssistantClick({dataset:{agentIgnore:'recover-0'}});
+ await recognition.submitRecognitionText('二');
+ await recognition.submitRecognitionText('三');
+ assert.doesNotMatch(recognition.assistantPage(),/data-agent-confirm="recover-1"/);
+ await recognition.handleAssistantClick({dataset:{agentReviewScope:'all'}});
+ assert.match(recognition.assistantPage(),/data-agent-confirm="recover-1"/);
+ assert.match(recognition.assistantPage(),/data-agent-confirm="recover-2"/);
+ assert.match(recognition.assistantPage(),/data-agent-restore="recover-0"/);
+ recognition.resetAssistant();recognition.assistantPage();await new Promise(resolve=>setImmediate(resolve));
+ const restored=recognition.assistantPage();
+ assert.match(restored,/待核对 <span>2/);
+ assert.match(restored,/data-agent-restore="recover-0"/);
+ assert.match(restored,/data-agent-confirm="recover-1"/);
+ assert.match(restored,/data-agent-confirm="recover-2"/);
+ window.dispatchEvent(new Event('niuma:account-reset'));
+ batches.length=0;session.user={id:'other'};
+ recognition.assistantPage();await new Promise(resolve=>setImmediate(resolve));
+ assert.doesNotMatch(recognition.assistantPage(),/recover-[012]/);
+});
+
+test('teaching web auto-import opens a real planning preview and writes schedules only after confirmation',async()=>{
+ globalThis.document ||= new EventTarget();
+ const store=await import('../src/team-store.js'),planner=await import('../src/team-planner-ui.js');
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const batch={request:fixture.request,result:fixture.expected,items:[{id:'imported',version:1,state:'pending',candidate:fixture.expected.tasks[0]}]};
+ const workspace={tasks:{version:0,value:[]}};let state,opened=0;const calls=[];
+ const reply=value=>({ok:true,json:async()=>structuredClone(value)});
+ globalThis.fetch=async(path,options={})=>{
+  const body=options.body?JSON.parse(options.body):null;calls.push({path,body});
+  if(path==='/api/auth/me')return reply({user:{id:'planning-test'}});
+  if(path==='/api/workspace')return reply(workspace);
+  if(path==='/api/recognition/batches')return reply([]);
+  if(path==='/api/recognition/retry')return reply([batch]);
+  if(path.includes('/resolve')){
+   batch.items[0].state='applied';workspace.tasks.version++;
+   workspace.tasks.value=[{id:'homework',title:'作业',status:'not_started',due:{date:'2026-10-11',precision:'date'},subtasks:[],plans:[],recognitionHistory:[{storageId:'imported'}]}];return reply({batches:[batch]});
+  }
+  if(path==='/api/data/availability')return reply({version:1});
+  if(path==='/api/planning/proposals')return reply({requestId:'plan',estimates:{homework:60},blocks:[{taskId:'homework',title:'写作业',startAt:'2026-10-07T19:00:00+08:00',endAt:'2026-10-07T20:00:00+08:00'}],warnings:[]});
+  if(path==='/api/planning/apply'){workspace.tasks.value[0].plans=[{id:'block',title:'写作业',startAt:'2026-10-07T19:00:00+08:00',endAt:'2026-10-07T20:00:00+08:00'}];workspace.tasks.version++;return reply({});}
+  throw new Error('unexpected '+path);
+ };
+ state=await store.initSession();window.dispatchEvent(new Event('niuma:account-reset'));
+ const host={getState:()=>state,render(){},toast(){},refresh:async()=>{state=await store.refreshStore();}};
+ planner.configurePlanner({...host,openPreview(){opened++;}});
+ recognition.configureAssistant({...host,proposeForTasks:planner.proposeForTasks});
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-source-file',files:[{name:'teaching.json',size:100,text:async()=>JSON.stringify(fixture.request)}]}});
+ await new Promise(resolve=>setImmediate(resolve));
+ recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
+ await recognition.handleAssistantClick({dataset:{agentImportIndex:'0'}});
+ assert.equal(opened,1);
+ assert.deepEqual(calls.find(call=>call.path==='/api/planning/proposals').body,{taskIds:['homework']});
+ assert.match(planner.plannerPage(),/排程提案/);
+ assert.equal(state.schedule.length,0);
+ assert.equal(calls.some(call=>call.path==='/api/planning/apply'),false);
+ await planner.plannerClick({dataset:{planAction:'apply'}});
+ assert.equal(state.schedule.length,1);
 });

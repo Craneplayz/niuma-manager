@@ -22,7 +22,7 @@ task_planning/
 
 接收一个候选任务、已提取的文档正文、对话补充信息、当前时间和可用时段，判断信息是否足以规划。可用时间由消费方预先展开为带时区的 `availability.windows[]`，已有安排放入 `availability.existing_blocks[]`，两者均使用 `{start, end}`。信息不足时每轮只提出一至三个会实际改变计划的问题；信息足够时输出可检查的小任务、依赖、预计用时和建议时间。简单且原子化的行动保留为一个任务，不为了形式完整强行拆解。
 
-当前草稿格式仍是模块内部协议；业务后端通过账号隔离的 `/api/decomposition/proposals` 与 `/api/decomposition/apply` 调用并校验它，前端只展示经过后端校验的结果。文件上传、PDF/DOCX/PPTX/OCR 解析仍由输入方完成，本模块只读取带来源编号的纯文本。
+模型草稿由业务后端校验并包装成 [contracts/ 中的公开拆解协议](../contracts/task-decomposition/README.md)；账号隔离的 `/api/decomposition/proposals` 返回发起任务 ID，`/api/decomposition/apply` 再核对任务 ID 后写入步骤。文件上传、PDF/DOCX/PPTX/OCR 解析仍由输入方完成，本模块只读取带来源编号的纯文本。
 
 规划 Harness 只让模型估算每个任务的剩余分钟数，具体时段由 `scheduling.py` 确定性产生。排序依据为「DDL 前可用分钟 − 预计所需分钟」，容量越小越先排；同级依次比较 DDL、用户明确优先级和输入顺序。不与已有安排重叠，不超过 DDL；无 DDL 任务仅估时不自动排，排不下时返回等级与缺少分钟数。
 

@@ -7,9 +7,18 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 from unittest.mock import patch
+from jsonschema import Draft202012Validator
 
 import app
 
+CONTRACTS = Path(__file__).resolve().parent.parent / 'contracts' / 'task-decomposition'
+EXAMPLES = json.loads((CONTRACTS / 'examples-v0.1.json').read_text(encoding='utf-8'))
+SCHEMA = json.loads((CONTRACTS / 'schema-v0.1.json').read_text(encoding='utf-8'))
+
+
+def validate_contract(name, value):
+    Draft202012Validator({'$schema': SCHEMA['$schema'], '$defs': SCHEMA['$defs'],
+                          '$ref': '#/$defs/' + name}).validate(value)
 
 def assessment(complexity):
     return dict(summary='完成剩余项目工作', complexity=complexity, confidence=0.9,
@@ -93,17 +102,21 @@ class TaskDecompositionApiTests(unittest.TestCase):
                                          dict(taskId='project', conversation=conversation))
         self.assertEqual(status, 200)
         self.assertIn('requestId', response)
-        self.assertEqual(self.call(other, '/decomposition/apply', dict(requestId=response['requestId']))[0], 404)
+        self.assertEqual(response['taskId'], 'project')
+        self.assertEqual(response['contract_version'], '0.1')
+        self.assertEqual(self.call(client, '/decomposition/apply', dict(requestId=response['requestId'], taskId='other'))[0], 409)
+        self.assertEqual(self.call(client, '/decomposition/apply', dict(requestId=response['requestId']))[0], 400)
+        self.assertEqual(self.call(other, '/decomposition/apply', dict(requestId=response['requestId'], taskId='project'))[0], 404)
         before = self.call(client, '/workspace', None, 'GET')[1]['tasks']['value'][0]
         self.assertEqual(before['subtasks'], task['subtasks'])
 
-        status, applied = self.call(client, '/decomposition/apply', dict(requestId=response['requestId']))
+        status, applied = self.call(client, '/decomposition/apply', dict(requestId=response['requestId'], taskId='project'))
         self.assertEqual(status, 200)
         updated = applied['value'][0]
         self.assertEqual([item['title'] for item in updated['subtasks']], ['完成任务页', '制作演示文稿'])
         self.assertEqual(updated['estimatedMinutes'], 120)
         self.assertEqual(updated['subtasks'][1]['dependsOn'], [updated['subtasks'][0]['id']])
-        self.assertEqual(self.call(client, '/decomposition/apply', dict(requestId=response['requestId']))[0], 409)
+        self.assertEqual(self.call(client, '/decomposition/apply', dict(requestId=response['requestId'], taskId='project'))[0], 409)
 
     def test_completed_tasks_bad_conversation_and_stale_preview_are_rejected(self):
         client = self.client()
@@ -123,7 +136,49 @@ class TaskDecompositionApiTests(unittest.TestCase):
             _, response = self.call(client, '/decomposition/proposals', dict(taskId='active'))
         changed = dict(active, description='任务已经修改')
         self.assertEqual(self.save_task(client, changed, 2)[0], 200)
-        self.assertEqual(self.call(client, '/decomposition/apply', dict(requestId=response['requestId']))[0], 409)
+        self.assertEqual(self.call(client, '/decomposition/apply', dict(requestId=response['requestId'], taskId='active'))[0], 409)
+
+    def test_public_contract_examples_round_trip_without_exposing_internal_drafts(self):
+        client = self.client()
+        self.register(client, 'decomposition-contract@test.local')
+        task = dict(id='project', title='完成课程项目', description='', status='not_started',
+                    plans=[], subtasks=[], due=None)
+        atomic = dict(task, id='atomic', title='提交报告')
+        self.assertEqual(self.call(client, '/data/tasks', dict(value=[task, atomic], version=0), 'PUT')[0], 200)
+        Draft202012Validator.check_schema(SCHEMA)
+        for name in ['clarification', 'no_split', 'ready']:
+            example = EXAMPLES[name]
+            validate_contract('proposalRequest', example['request'])
+            validate_contract('proposalResponse', example['response'])
+            draft = {key: example['response'][key] for key in ['status', 'assessment', 'questions', 'plan']}
+            app.task_decomposition.validate_model_draft(draft)
+            with patch.object(app.task_decomposition, 'generate', return_value={**draft, 'schema_version': '0.1-internal'}):
+                status, response = self.call(client, '/decomposition/proposals', example['request'])
+            self.assertEqual(status, 200)
+            self.assertNotIn('schema_version', response)
+            validate_contract('proposalResponse', response)
+            if name == 'ready':
+                proposal_id = response['requestId']
+                response['requestId'] = example['response']['requestId']
+            self.assertEqual(response, example['response'])
+        status, applied = self.call(client, '/decomposition/apply',
+                                    dict(EXAMPLES['apply']['request'], requestId=proposal_id))
+        self.assertEqual(status, 200)
+        validate_contract('applyRequest', EXAMPLES['apply']['request'])
+        validate_contract('applyResponse', EXAMPLES['apply']['response'])
+        validate_contract('applyResponse', applied)
+        for example in EXAMPLES['errors']:
+            validate_contract('errorResponse', example['response'])
+        expected = EXAMPLES['apply']['response']['value'][0]
+        updated = applied['value'][0]
+        for key in ['estimatedMinutes', 'title']:
+            self.assertEqual(updated[key], expected[key])
+        for actual, expected_step in zip(updated['subtasks'], expected['subtasks']):
+            for key in ['title', 'status', 'outcome', 'estimatedMinutes', 'sourceBasis', 'assumption']:
+                self.assertEqual(actual[key], expected_step[key])
+        self.assertEqual(updated['subtasks'][1]['dependsOn'], [updated['subtasks'][0]['id']])
+        self.assertEqual(updated['plans'], [])
+        self.assertEqual(applied['value'][1], atomic)
 
 
 if __name__ == '__main__':

@@ -119,12 +119,19 @@ def route(handler, db, user_id, path, body, ApiError):
             db.execute('INSERT INTO decomposition_proposals VALUES(?,?,?,?,?,0)',
                        (request_id, user_id, task_id, row['version'], json.dumps(result)))
             result = dict(result, requestId=request_id)
-        return handler.reply(200, result) or True
+        response = {key: result[key] for key in ['status', 'assessment', 'questions', 'plan']}
+        response.update(contract_version='0.1', taskId=task_id)
+        if 'requestId' in result:
+            response['requestId'] = result['requestId']
+        return handler.reply(200, response) or True
 
     if path == '/api/decomposition/apply' and handler.command == 'POST':
         request_id = body.get('requestId')
         if not isinstance(request_id, str) or not request_id:
             raise ApiError(400, '拆解方案编号不正确')
+        task_id = body.get('taskId')
+        if not isinstance(task_id, str) or not task_id:
+            raise ApiError(400, '请选择需要拆解的任务')
         db.execute('BEGIN IMMEDIATE')
         proposal = db.execute('SELECT * FROM decomposition_proposals WHERE id=? AND user_id=?',
                               (request_id, user_id)).fetchone()
@@ -132,6 +139,8 @@ def route(handler, db, user_id, path, body, ApiError):
                          (user_id,)).fetchone()
         if not proposal or not row:
             raise ApiError(404, '拆解方案不存在')
+        if proposal['task_id'] != task_id:
+            raise ApiError(409, '拆解方案与当前任务不匹配')
         if proposal['applied']:
             raise ApiError(409, '拆解方案已经应用')
         if row['version'] != proposal['version']:
