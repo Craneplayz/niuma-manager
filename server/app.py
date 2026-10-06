@@ -225,23 +225,37 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/planning/proposals' and self.command=='POST':
                 rows={r['name']:r for r in db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,))}
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []
-                pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and not t.get('planningExcluded') and not t['plans']]
+                replan=body.get('replan',False)
+                if type(replan)!=bool: raise ApiError(400,'重新规划选项不正确')
                 task_ids=body.get('taskIds')
                 if task_ids is not None:
                     if not isinstance(task_ids,list) or not task_ids or any(not isinstance(item,str) for item in task_ids) or len(set(task_ids))!=len(task_ids): raise ApiError(400,'规划任务范围不正确')
+                    if replan and any(not any(t['id']==tid and t['status'] not in ['completed','cancelled'] for t in tasks) for tid in task_ids): raise ApiError(400,'要重新规划的任务不存在或已经完成')
+                pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and
+                         (not t.get('planningExcluded') or replan and task_ids is not None) and (replan or not t['plans'])]
+                if task_ids is not None:
                     pending=[t for t in pending if t['id'] in task_ids and t.get('due')]
                 if not pending: raise ApiError(400,'没有需要规划的任务')
-                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=datetime.now(TZ).isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']],availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
+                now=datetime.now(TZ)
+                replace_plans={t['id']:[p['id'] for p in t['plans'] if datetime.fromisoformat(p['startAt'])>now] for t in pending if replan and t.get('due')}
+                existing=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans'] if p['id'] not in replace_plans.get(t['id'],[])]
+                pending=[dict(t,plans=[p for p in t['plans'] if p['id'] not in replace_plans.get(t['id'],[])]) for t in pending]
+                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=now.isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=existing,availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)
                 result=planning.plan(payload,ApiError)
-                try: validate_proposal(payload,result)
+                try:
+                    scheduled={block['taskId'] for block in result.get('blocks',[])}
+                    payload['existingPlans'].extend(dict(plan,taskId=task['id']) for task in tasks if task['id'] not in scheduled for plan in task['plans'] if plan['id'] in replace_plans.get(task['id'],[]))
+                    validate_proposal(payload,result)
                 except (ValueError,KeyError,TypeError,AttributeError):
                     raise ApiError(502,'模型返回的规划格式不正确；任务未修改') from None
                 result['priorityOrder']=planning.priority_explanations(payload,result['estimates'])
                 result['requestId']=payload['requestId']
-                db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(result)))
+                replace_plans={tid:ids for tid,ids in replace_plans.items() if ids and tid in scheduled}
+                result['replannedTaskIds']=list(replace_plans)
+                db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(dict(result,replacePlanIds=replace_plans))))
                 return self.reply(200,result)
             if path=='/api/planning/apply' and self.command=='POST':
                 db.execute('BEGIN IMMEDIATE')
@@ -252,6 +266,10 @@ class Handler(BaseHTTPRequestHandler):
                 if row['version']!=proposal['version']: raise ApiError(409,'任务已变化，请重新规划')
                 tasks=json.loads(row['value'])
                 result=json.loads(proposal['result'])
+                for task in tasks:
+                    if any(plan['id'] in result.get('replacePlanIds',{}).get(task['id'],[]) and datetime.fromisoformat(plan['startAt'])<=datetime.now(TZ) for plan in task['plans']): raise ApiError(409,'原安排已经开始，请重新生成提案')
+                for task in tasks:
+                    task['plans']=[plan for plan in task['plans'] if plan['id'] not in result.get('replacePlanIds',{}).get(task['id'],[])]
                 for block in result['blocks']:
                     if datetime.fromisoformat(block['startAt'])<datetime.now(TZ): raise ApiError(409,'规划时段已过期，请重新规划')
                     task=next(t for t in tasks if t['id']==block['taskId'])

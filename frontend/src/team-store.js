@@ -62,7 +62,7 @@ function toCanonical(task,previous){
   ...(task.id.startsWith('example-')&&Number.isFinite(task.hours)?{estimatedMinutes:task.hours*60}:{}),
   location:task.location||'',owner:task.owner||'',dependsOn:task.dependsOn||'',
   subtasks:(task.subtasks||[]).map(s=>{const previous=stepsById.get(s.id)||oldSteps.get(s.title)||{};return {...previous,id:s.id||previous.id||crypto.randomUUID(),title:s.title,status:s.done?'completed':'pending'};}),
-  plans:old.plans||[]};
+  plans:[]};
 }
 function view(){
  canonicalTasks=clone(workspace.tasks?.value||[]);
@@ -98,11 +98,14 @@ function payload(data){
  const byId=new Map(tasks.map(t=>[t.id,t]));
  for(const item of data.schedule){
   const task=byId.get(item.taskId);if(!task)continue;
-  if(task.plans.some(p=>p.id===item.id))continue;
+  const previous=old.get(item.taskId)?.plans?.find(plan=>plan.id===item.id)||{};
   const h=String(Math.floor(item.start)).padStart(2,'0'),m=String(Math.round((item.start%1)*60)).padStart(2,'0');
   const startAt=`${item.date}T${h}:${m}:00+08:00`;
-  task.plans.push({id:item.id||crypto.randomUUID(),title:item.label||task.title,startAt,
-   endAt:new Date(Date.parse(startAt)+Number(item.hours)*3600000).toISOString(),origin:'manual'});
+  const endAt=new Date(Date.parse(startAt)+Number(item.hours)*3600000).toISOString();
+  const unchanged=previous.startAt&&Date.parse(previous.startAt)===Date.parse(startAt)&&
+   (!previous.endAt||Date.parse(previous.endAt)===Date.parse(endAt))&&previous.title===(item.label||task.title);
+  task.plans.push(unchanged?previous:{...previous,id:item.id||crypto.randomUUID(),title:item.label||task.title,startAt,
+   endAt,origin:'manual'});
  }
  const courses=data.courses.map(c=>{const old=canonicalCourses.find(x=>x.id===c.id)||{};return {...old,id:c.id,name:c.name,
   teacher:c.teacher||'',notes:c.description||'',url:c.url||'',color:c.color||'blue'};});

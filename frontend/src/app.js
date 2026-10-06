@@ -10,6 +10,7 @@ import {configurePersonalization,personalizationSettings,personalizationChange,p
 import {calendarPage,calendarClick,calendarStep,calendarToday} from './team-calendar-ui.js';
 import {configureDecomposition,decompositionPage,decompositionClick,decompositionSubmit} from './team-decomposition-ui.js';
 import {updateTaskCompletion,restoreTaskCompletion,removeTasks,restoreRemovedTasks} from './task-bulk.js';
+import {configureScheduleEditor,scheduleEditorClick,scheduleEditorSubmit} from './schedule-editor.js';
 let state=readStore(), page=location.hash.slice(1)||'agent', filter='all', query='', sort='due', week=0;
 initTheme();
 const expandedTasks=new Set();
@@ -74,6 +75,8 @@ document.addEventListener('click',event=>{const button=event.target.closest('[da
 document.addEventListener('change',event=>{if(handleThemeChange(event)){render();event.stopImmediatePropagation();}},true);
 document.addEventListener('click',event=>{const button=event.target.closest('button');if(button&&decompositionClick(button)){event.preventDefault();event.stopImmediatePropagation();}},true);
 document.addEventListener('submit',event=>{if(decompositionSubmit(event.target)){event.preventDefault();event.stopImmediatePropagation();}},true);
+document.addEventListener('click',event=>{const button=event.target.closest('button');if(button&&scheduleEditorClick(button)){event.preventDefault();event.stopImmediatePropagation();}},true);
+document.addEventListener('submit',event=>{if(scheduleEditorSubmit(event.target)){event.preventDefault();event.stopImmediatePropagation();}},true);
 function openDialog(html){clearTimeout(dialog.closeTimer);dialog.classList.remove('closing');dialog.innerHTML=html;if(!dialog.open)dialog.showModal();}
 function closeDialog(){if(!dialog.open)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){dialog.close();return;}dialog.classList.add('closing');dialog.closeTimer=setTimeout(()=>{dialog.close();dialog.classList.remove('closing');},140);}
 const dialogHeader=title=>`<div class="dialog-title"><h2>${title}</h2><button type="button" class="icon-btn" data-action="close" aria-label="关闭">${icon('close')}</button></div>`;
@@ -160,6 +163,7 @@ configureAssistant({proposeForTasks,getState:()=>state,editTask:taskDialog,rende
 configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
 configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:planDialog,refresh:async()=>{state=await refreshStore();render();}});
 configurePersonalization({getState:()=>state,render,toast,openDialog,closeDialog,dialogHeader});
+configureScheduleEditor({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
 configureDecomposition({getState:()=>state,render,toast,requireLogin:()=>authDialog('login'),refresh:async()=>{state=await refreshStore();render();}});
 document.addEventListener('keydown',experienceKey);
 document.addEventListener('change',event=>{if(event.target.id==='agent-source-file')handleAssistantInput(event);experienceInput(event);if(personalizationChange(event))return;if(plannerChange(event))return;if(event.target.id==='task-sort'){sort=event.target.value;document.querySelector('#task-results').innerHTML=taskResults();}if(event.target.dataset.subtaskTask){const rect=event.target.getBoundingClientRect(),task=state.tasks.find(t=>t.id===event.target.dataset.subtaskTask),sub=task?.subtasks[Number(event.target.dataset.subtaskIndex)];if(sub){sub.done=event.target.checked;expandedTasks.add(task.id);persist();const completed=task.subtasks.filter(item=>item.done).length,total=task.subtasks.length;render();if(sub.done)celebrate(rect,completed===total?'所有小步骤完成！可以完成整项任务了。':`完成一步 · ${completed}/${total}`,completed===total);else toast(`已重新打开 · ${completed}/${total}`);}}});

@@ -3,6 +3,7 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── task-planning/                   # 业务排程及重新规划的请求、回应和确认语义
 ├── task-decomposition/              # AI 拆解公开 v0.1 请求、回应 Schema 及合成样例
 ├── requirements-dev.txt              # 离线契约校验依赖，不加入应用运行依赖
 ├── check_v03_examples.py             # v0.3 Schema、引用、覆盖/状态与进度检查
@@ -45,6 +46,7 @@ contracts/
 
 ## 交接方式
 
+- 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
 - 来源模块按 [输入样例](source-to-text/text-frontend-v02-request.json) 提供原文及元数据，文本模块接收完整 v0.2 请求。
 - `platform` 标明来源：教学网 `teaching_web`、微信 `wechat` 的结果可直接进日历；对话框手动输入一律填 `manual`，结果须用户确认。`unknown` 已停用，新代码不得再送；旧数据中的 `unknown` 按 `manual` 处理。

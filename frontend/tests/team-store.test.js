@@ -84,6 +84,31 @@ test('UTC plans display at the same Beijing time as offset timestamps',async()=>
  assert.equal(state.schedule[0].hours,1);
 });
 
+test('edited and removed learning blocks survive saving and reload without resurrecting old plans',async()=>{
+ let tasks=[{id:'t',title:'报告',status:'not_started',subtasks:[],due:{date:'2026-10-10',precision:'date'},plans:[
+  {id:'move',title:'起草',startAt:'2026-10-07T19:00:00+08:00',endAt:'2026-10-07T20:00:00+08:00',origin:'ai',source:'preserved'},
+  {id:'remove',title:'检查',startAt:'2026-10-08T19:00:00+08:00',endAt:'2026-10-08T20:00:00+08:00',origin:'ai'}
+ ]}],version=1;
+ globalThis.fetch=async(path,options={})=>{
+  if(path==='/api/auth/me')return {ok:true,json:async()=>({user:{id:'schedule',name:'测试'}})};
+  if(path==='/api/workspace')return {ok:true,json:async()=>({tasks:{value:structuredClone(tasks),version}})};
+  const body=JSON.parse(options.body);assert.equal(body.version,version);tasks=body.value;
+  return {ok:true,json:async()=>({version:++version})};
+ };
+ let state=await initSession();
+ state.schedule=state.schedule.filter(plan=>plan.id!=='remove');
+ Object.assign(state.schedule[0],{date:'2026-10-08',start:23.5,hours:1.25,label:'修改后的安排'});
+ saveStore(state);await flushStore();
+ state=await initSession();
+ assert.equal(state.schedule.length,1);assert.equal(state.schedule[0].hours,1.25);
+ assert.equal(tasks[0].plans[0].id,'move');assert.equal(tasks[0].plans[0].origin,'manual');
+ assert.equal(tasks[0].plans[0].source,'preserved');
+ assert.equal(Date.parse(tasks[0].plans[0].endAt),Date.parse('2026-10-09T00:45:00+08:00'));
+ assert.deepEqual(tasks[0].due,{date:'2026-10-10',precision:'date'});
+ state.tasks[0].notes='之后修改任务';saveStore(state);await flushStore();
+ assert.deepEqual(tasks[0].plans.map(plan=>plan.id),['move']);
+});
+
 test('permanent task deletion uses the server delete endpoint and cannot return in later saves',async()=>{
  let tasks=[
   {id:'delete',title:'永久删除',status:'completed',due:null,subtasks:[],plans:[{id:'p',title:'计划',startAt:'2026-10-07T10:00:00+08:00',endAt:'2026-10-07T11:00:00+08:00'}]},

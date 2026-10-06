@@ -15,7 +15,7 @@ test('month navigation from the 31st reaches the immediately adjacent month',()=
  }finally{globalThis.Date=RealDate;}
 });
 
-test('month and week dates open the day view while every calendar item opens its task',()=>{
+test('calendar dates open the day view; plans open their own editor and deadlines open tasks',()=>{
  const originalAnimationFrame=globalThis.requestAnimationFrame;
  globalThis.requestAnimationFrame=()=>0;
  try{
@@ -30,12 +30,12 @@ test('month and week dates open the day view while every calendar item opens its
  let html=calendarPage(state,0);
  assert.match(html,new RegExp(`data-calendar-day="${date}"[^>]*aria-label="查看 ${date} 日程"`));
  assert.match(html,/class="calendar-month-ddl" data-edit="task-1"/);
- assert.match(html,/class="calendar-month-plan" data-edit="task-1"/);
+ assert.match(html,/class="calendar-month-plan" data-schedule-id="plan-1" data-schedule-task="task-1"/);
 
  calendarClick({dataset:{calendarView:'week'}},()=>{});
  html=calendarPage(state,0);
  assert.match(html,new RegExp(`<header><button class="calendar-day-link" data-calendar-day="${date}"`));
- assert.match(html,/class="calendar-timed-event plan" data-edit="task-1"/);
+ assert.match(html,/class="calendar-timed-event plan" data-schedule-id="plan-1" data-schedule-task="task-1"/);
  assert.match(html,/class="calendar-timed-event ddl" data-edit="task-1"/);
 
  let rendered=0;

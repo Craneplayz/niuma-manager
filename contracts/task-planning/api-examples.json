@@ -1,0 +1,17 @@
+{
+  "defaultRequest": {},
+  "newTasksRequest": {"taskIds": ["new"]},
+  "singleReplanRequest": {"taskIds": ["scheduled"], "replan": true},
+  "scopedReplanRequest": {"taskIds": ["a", "b"], "replan": true},
+  "allReplanRequest": {"replan": true},
+  "replanResponse": {
+    "requestId": "synthetic-replan",
+    "estimates": {"a": 60, "b": 60},
+    "blocks": [{"taskId": "a", "title": "新学习时段", "startAt": "2026-10-08T22:00:00+08:00", "endAt": "2026-10-08T23:00:00+08:00"}],
+    "warnings": ["b：未生成新时段，保留原安排"],
+    "priorityOrder": [{"taskId": "a", "rank": 1, "level": 3, "availableMinutes": 240, "estimatedMinutes": 60, "slackMinutes": 180}, {"taskId": "b", "rank": 2, "level": 3, "availableMinutes": 240, "estimatedMinutes": 60, "slackMinutes": 180}],
+    "replannedTaskIds": ["a"]
+  },
+  "applyRequest": {"requestId": "synthetic-replan"},
+  "conflictResponse": {"error": "原安排已经开始，请重新生成提案"}
+}
