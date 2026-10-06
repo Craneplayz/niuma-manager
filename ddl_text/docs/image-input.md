@@ -36,6 +36,8 @@ result = process_media_request(request, account_bound_loader,
 
 图片证据只能为 `attachment_file/model_reported`，候选强制待审核；未知页码/位置不补造，文字与上下文引文用原文核验，来源地址从输入复制。质量不明且无任务返回失败，不能 `no_tasks`；部分附件失败仍保留其他可靠候选，缺失内容可能含期限时 `not_provided` 改为 `unknown`。
 
+仅省略年份、且对应原始发布时间支持最近合理年份时，不额外要求核实年份；补年依据仍保留在 `deadline.basis`。模型内部草稿用 `{code, message}` 区分常规补年说明与其他疑点，程序按每项截止证据自己的时间来源复核，再输出 v0.3.1 原有字符串理由。未知原图时间、冲突、参考时间或不完整读取不会因此被免除审核；图片证据的固定待审核要求保持不变。
+
 任务、时间及旧图转发判断由 [图片规则](../skills/image-task-extraction/SKILL.md) 指导，结构/日期/时区/证据由共享校验器复核；本步未实现独立图片召回率评测，也不自动推断用户是否做完作业。
 
 后端接入前须完成 #103 的 v0.3.1 迁移、真实鉴权/文件生命周期、结果持久化及重试保留规则；本入口不替代 `check_retry_result`，不能用一次重新生成的结果覆盖此前成功候选和用户操作。模型需具备图片能力，不会自动切换供应商。
@@ -50,6 +52,6 @@ python contracts/check_v031_examples.py
 python -m ddl_text.tests.run_media_smoke --live --output local-data/media-smoke.json
 ```
 
-可查看 [五组真实模型合成测试的输入、草稿和完整结果](archive/2026-10-06-issue94-images.json)，包括明确时间与催促语、省略年份、无期限、无行动及跨图片关联；这些样例不能替代真实微信联调。
+可查看 [最初五组真实模型合成测试](archive/2026-10-06-issue94-images.json) 与 [补年审核修复后的同图实测](archive/2026-10-06-issue118-year-review.json)。最初的通过条件未检查多余审核理由；当前 `yearless-date` 同时检查日期、时间状态及仅保留图片审核理由，旧结果在新条件下失败。这些样例不能替代真实微信联调。
 
 传输格式与像素限制处理参考 [七牛请求文档](https://developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api) 和 [Pillow 安全说明](https://pillow.readthedocs.io/en/stable/handbook/security.html)；以实际选用模型的合成实测为准，不能据通用 API 文档声称所有模型都支持文件。

@@ -13,8 +13,9 @@ from contracts.check_v031_examples import check_pair, check_request
 from ddl_text.config import Settings
 from ddl_text.image_reader import ImageLimits, MetadataMismatch, read_image
 from ddl_text.media_pipeline import MediaInputError, MediaLimits, _prepare, process_media_request
-from ddl_text.tests.media_cases import ROOT, FakeMediaClient, good_draft, image_bytes, memory_loader, request_for
-from ddl_text.media_schema import GENERATED, draft_schema
+from ddl_text.tests.media_cases import ROOT, FakeMediaClient, draft_task, good_draft, image_bytes, memory_loader, request_for
+from ddl_text.media_schema import draft_schema
+from ddl_text.tests.run_media_smoke import expected_result
 from jsonschema import Draft202012Validator, ValidationError
 
 
@@ -211,8 +212,7 @@ class MediaTests(unittest.TestCase):
             with self.subTest(case=case['name']):
                 if len(case['request']['records']) != 1:
                     continue
-                draft = dict(tasks=[{k: v for k, v in task.items() if k not in GENERATED}
-                                    for task in case['expected']['tasks']], image_quality=[])
+                draft = dict(tasks=[draft_task(task) for task in case['expected']['tasks']], image_quality=[])
                 result = self.run_request(request=case['request'], draft=draft)
                 self.assertEqual(result['status'], case['expected']['status'])
                 self.assertEqual(len(result['tasks']), len(case['expected']['tasks']))
@@ -295,6 +295,99 @@ class MediaTests(unittest.TestCase):
         self.assertEqual([r['status'] for r in result['record_results']], ['success', 'failed'])
         self.assertEqual(result['tasks'], first['tasks'])
         self.assertEqual(result['errors'][-1]['code'], 'limit_exceeded')
+
+    def yearless_case(self):
+        # The real failed wording is kept unchanged; classify it in the new private draft.
+        archive = json.loads((ROOT / 'ddl_text/docs/archive/2026-10-06-issue94-images.json').read_text(encoding='utf-8'))
+        case = next(c for c in archive['results'] if c['case'] == 'yearless-date')
+        self.request = case['request']
+        self.data = image_bytes(size=(1400, 230), text=case['synthetic_image_text'])
+        draft = json.loads(case['raw_draft'])
+        draft['tasks'][0]['review_reasons'] = [dict(code='year_completion', message=r)
+                                               for r in draft['tasks'][0]['review_reasons']]
+        return draft
+
+    def test_routine_year_reason_removed_but_image_review_and_date_preserved(self):
+        draft = self.yearless_case()
+        deadline = copy.deepcopy(draft['tasks'][0]['deadline'])
+        result = self.run_request(draft=draft)
+        task = result['tasks'][0]
+        self.assertEqual(task['deadline'], deadline)
+        self.assertEqual(task['review_reasons'], ['图片引文由模型读取，尚未经原文逐字核对，请确认。'])
+        self.assertTrue(task['needs_review'])
+        self.assertEqual(task['evidence'], draft['tasks'][0]['evidence'])
+
+    def test_unrelated_reason_survives_normal_year_completion(self):
+        draft = self.yearless_case()
+        reason = '尚不清楚这份作业适用于哪个班级。'
+        draft['tasks'][0]['review_reasons'].append(dict(code='other', message=reason))
+        result = self.run_request(draft=draft)
+        self.assertEqual(result['tasks'][0]['review_reasons'], [reason, '图片引文由模型读取，尚未经原文逐字核对，请确认。'])
+
+    def test_missing_or_old_original_date_cannot_borrow_current_message_year(self):
+        for publication in (dict(value=None, precision='unknown', basis='unknown'),
+                            dict(value='2023-10-01', precision='date', basis='source')):
+            with self.subTest(publication=publication):
+                draft = self.yearless_case()
+                asset = self.request['records'][0]['attachments'][0]
+                asset.update(origin='forwarded', original_published_at=publication)
+                result = self.run_request(draft=draft)
+                self.assertIn(draft['tasks'][0]['review_reasons'][0]['message'], result['tasks'][0]['review_reasons'])
+
+    def test_unresolved_deadline_retains_year_reason(self):
+        for status in ('unknown', 'conflict', 'inferred'):
+            with self.subTest(status=status):
+                draft = self.yearless_case()
+                deadline = draft['tasks'][0]['deadline']
+                if status == 'unknown':
+                    deadline.update(status='unknown', value=None, precision='unknown', kind='unknown')
+                elif status == 'conflict':
+                    deadline.update(status='conflict', value=None, precision='unknown',
+                                    alternatives=['2025-10-09', '2026-10-09'])
+                else:
+                    deadline.update(status='inferred', kind='reference')
+                result = self.run_request(draft=draft)
+                self.assertIn(draft['tasks'][0]['review_reasons'][0]['message'], result['tasks'][0]['review_reasons'])
+
+    def test_uncertain_read_preserves_year_caution(self):
+        draft = self.yearless_case()
+        draft['image_quality'][0].update(quality='uncertain', quality_notes=['日期附近有遮挡。'])
+        result = self.run_request(draft=draft)
+        self.assertIn(draft['tasks'][0]['review_reasons'][0]['message'], result['tasks'][0]['review_reasons'])
+
+    def test_other_time_problem_is_not_removed_by_its_wording(self):
+        draft = self.yearless_case()
+        reason = '原图出现两个不同年份，需核实。'
+        draft['tasks'][0]['review_reasons'] = [dict(code='other', message=reason)]
+        result = self.run_request(draft=draft)
+        self.assertIn(reason, result['tasks'][0]['review_reasons'])
+
+    def test_year_completion_uses_each_deadline_evidence_source(self):
+        draft = self.yearless_case()
+        record = self.request['records'][0]
+        context = {k: copy.deepcopy(record[k]) for k in
+                   ('input_id', 'text', 'published_at', 'timezone', 'platform', 'source_url', 'source_label')}
+        context.update(input_id='older-context', text='Due October 9.',
+                       published_at=dict(value='2023-10-01', precision='date', basis='source'))
+        record['context'].append(context)
+        draft['tasks'][0]['evidence'].append(dict(input_id='older-context', field='text',
+                                                quote='Due October 9.', supports=['deadline']))
+        result = self.run_request(draft=draft)
+        self.assertIn(draft['tasks'][0]['review_reasons'][0]['message'], result['tasks'][0]['review_reasons'])
+
+    def test_private_reason_types_are_required_and_unknown_types_rejected(self):
+        for reason in ('年份待核实', dict(code='ignore_all_warnings', message='year')):
+            with self.subTest(reason=reason):
+                draft = good_draft()
+                draft['tasks'][0]['review_reasons'] = [reason]
+                self.assertEqual(self.run_request(draft=draft)['errors'][-1]['code'], 'invalid_agent_output')
+
+    def test_smoke_assertion_detects_original_false_positive(self):
+        archive = json.loads((ROOT / 'ddl_text/docs/archive/2026-10-06-issue94-images.json').read_text(encoding='utf-8'))
+        original = next(c for c in archive['results'] if c['case'] == 'yearless-date')['result']
+        self.assertFalse(expected_result('yearless-date', original, '2026-10-09', 'date'))
+        draft = self.yearless_case()
+        self.assertTrue(expected_result('yearless-date', self.run_request(draft=draft), '2026-10-09', 'date'))
 
 
 if __name__ == '__main__':

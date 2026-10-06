@@ -6,8 +6,10 @@ import json
 import math
 import time
 from dataclasses import dataclass, field, replace
+from datetime import date, datetime
 from pathlib import Path
 from typing import Protocol
+from zoneinfo import ZoneInfo
 
 from jsonschema import ValidationError
 from contracts.check_v031_examples import check_request, check_pair, json_bytes
@@ -17,6 +19,7 @@ from .config import Settings
 from .image_reader import IMAGE_MIMES, READER_VERSION, ImageLimits, MetadataMismatch, read_image
 from .media_schema import parse_draft, prompt_schema
 from .media_worker import bounded
+from .time_validation import _nearest_year
 
 
 class AssetLoader(Protocol):
@@ -156,6 +159,51 @@ def _parts(record, summaries, pictures, errors):
     return parts
 
 
+def _routine_year_completion(task, record, cov):
+    """Check normalized dates against their own sources, never parse source wording.
+
+    The model classifies the reason. Source metadata and the existing nearest-year
+    policy establish whether that classification can suppress a redundant message.
+    No deadline, evidence, or mandatory image review flag is changed here.
+    """
+    deadline = task['deadline']
+    if (not cov['complete'] or cov['uncertain'] or deadline['status'] != 'explicit'
+            or deadline['kind'] != 'deadline' or deadline['alternatives']
+            or deadline['precision'] not in ('date', 'datetime')):
+        return False
+    sources = {s['input_id']: s for s in [record] + record['context']}
+    assets = {a['asset_id']: a for a in record['attachments']}
+    evidence = [e for e in task['evidence'] if 'deadline' in e['supports']]
+    if not evidence:
+        return False
+    try:
+        target = date.fromisoformat(deadline['value'][:10])
+        for item in evidence:
+            source = sources[item['input_id']]
+            if item['field'] in ('attachment_file', 'attachment'):
+                if item['input_id'] != record['input_id']:
+                    return False
+                publication = assets[item['asset_id']]['original_published_at']
+            elif item['field'] == 'text':
+                publication = source['published_at']
+            else:
+                return False
+            if publication['basis'] != 'source':
+                return False
+            if publication['precision'] == 'date':
+                anchor = date.fromisoformat(publication['value'])
+            elif publication['precision'] == 'datetime' and source['timezone'] is not None:
+                anchor = datetime.fromisoformat(publication['value'].replace('Z', '+00:00')).astimezone(
+                    ZoneInfo(source['timezone'])).date()
+            else:
+                return False
+            if target != _nearest_year(target, anchor):
+                return False
+        return True
+    except (ValueError, KeyError, TypeError, OverflowError):
+        return False  # Unverifiable reasons remain visible; shared validation still runs.
+
+
 def _compile(request_id, record, draft, cov):
     sources = {s['input_id']: s for s in [record] + record['context']}
     prefix = hashlib.sha256((request_id + '\0' + record['input_id']).encode('utf-8')).hexdigest()[:24]
@@ -169,7 +217,10 @@ def _compile(request_id, record, draft, cov):
         task['sources'] = [dict(input_id=s['input_id'], platform=s['platform'], url=s['source_url'],
                                 label=s['source_label'], source_item_id=s.get('source_item_id'))
                            for sid, s in sources.items() if sid in evidence_ids]
-        reasons = task['review_reasons']
+        routine_year = (any(r['code'] == 'year_completion' for r in task['review_reasons'])
+                        and _routine_year_completion(task, record, cov))
+        reasons = [r['message'] for r in task['review_reasons']
+                   if not (routine_year and r['code'] == 'year_completion')]
         if any(e['field'] == 'attachment_file' for e in task['evidence']):
             reasons.append('图片引文由模型读取，尚未经原文逐字核对，请确认。')
         if not cov['complete'] or cov['uncertain']:

@@ -7,7 +7,8 @@ description: 从微信 JPG/PNG 作业图片、消息正文及显式关联上下�
 
 - 作业、练习题、实验报告等课程材料本身可以表达行动要求，不要求出现“请完成”；宣传、知识介绍、答案参考和纯复习资料不强行生成任务。保留无日期的明确行动，多项独立行动分别提取。
 - 同一行动的准确截止优先于“尽快”等催促语；活动开始时间不冒充提交截止。模型直接归一化时间，不依赖日期原话的格式白名单；只给日期就保留 date，不补 23:59。矛盾、模糊或无法定位的时间用 unknown/conflict，并保留具体疑点。
-- 原文仅省略年份时，按对应来源的可信原始发布时间选择最近合理年份，不单独要求核实年份。图片的 original_published_at 与消息的 published_at 各自使用；旧图转发、原始时间不明不能无条件拿当前聊天时间当作图片创作时间，保留该独立疑点。当前采集时间仅作兜底，不能伪装为发布时间。
+- 原文仅省略年份时，按对应来源的可信原始发布时间选择最近合理年份，deadline.status 用 explicit，basis 简短记录依据；这是常规归一化，不产生审核理由，不在 description 中要求用户核实年份。图片的 original_published_at 与消息的 published_at 各自使用；旧图转发、原始时间不明不能无条件拿当前聊天时间当作图片创作时间，保留该独立疑点。当前采集时间仅作兜底，不能伪装为发布时间。
+- 草稿 review_reasons 每项为 {code, message}，只记录真实疑点；日期冲突、原图年代不明、任务适用对象不明等用 other，逐项独立说明。若仍需报告仅仅“省略年份所以补年”的说明，用 year_completion，不能将其他疑点混入这一项；程序会核验对应日期基准并移除正常补年说明。没有疑点就 []；图片引文需要用户确认的固定提示由程序补充。
 - title/description 可以概括；evidence.quote 必须来自对应内容，supports 标出支持字段。文字及 context 引文逐字复制；图片引文使用 field=attachment_file、asset_id、verification=model_reported。图片不是已验证 OCR 文本，不伪造 block_id。普通单张图片不杜撰页码或段落，locator 的 page/paragraph/bbox 可全部为 null。
 - target_reference 表示更新、延期、取消时要定位的旧任务，不是作业编号：create 时必须为 null，编号可以保留在 title/description。变更候选的证据须支持 notice_type，有 target_reference 时也须支持它；推断课程和 prerequisites 分别需要 supports 包含 course_or_project 和 prerequisites 的证据。
 - 图片中的 deadline.raw 必须包含在支持 deadline 的图片引文中；来源是文字/context 时遵守同样规则。course_or_project 有上游值则沿用 provided，否则仅有证据时 inferred，没有信息就 unknown/null。

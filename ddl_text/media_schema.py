@@ -21,7 +21,14 @@ def draft_schema():
         'if': {'properties': {'notice_type': {'const': 'create'}}},
         'then': {'properties': {'target_reference': {'type': 'null'}}},
     }]
-    candidate['properties']['review_reasons']['maxItems'] = 15  # Reserve room for adapter reasons.
+    reasons = candidate['properties']['review_reasons']
+    reasons['maxItems'] = 15  # Reserve room for adapter reasons.
+    # This is the model's private draft only; the public result still uses strings.
+    reasons['items'] = dict(type='object', additionalProperties=False, required=['code', 'message'], properties={
+        'code': dict(type='string', enum=['year_completion', 'other'], description=(
+            'year_completion 仅表示省略年份后的常规补年说明；年份冲突、旧图年代不明及其他真实疑点用 other。')),
+        'message': copy.deepcopy(reasons['items']),
+    })
     summary = definitions['common__file_attachment_summary']
     quality_fields = ('asset_id', 'quality', 'quality_notes')
     quality_schema = dict(type='object', additionalProperties=False, required=list(quality_fields),

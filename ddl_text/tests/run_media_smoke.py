@@ -12,7 +12,7 @@ from ddl_text.chat_client import ChatClient
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings
 from ddl_text.media_pipeline import process_media_request
-from ddl_text.tests.media_cases import ROOT, image_bytes, memory_loader, request_for
+from ddl_text.tests.media_cases import ROOT, image_bytes, request_for
 
 
 CASES = [
@@ -37,6 +37,22 @@ class SyntheticCaptureClient(ChatClient):
         raw = super().complete_json(instructions, parts, settings)
         Path(self.path).write_text(raw, encoding='utf-8')
         return raw
+
+
+def expected_result(name, result, deadline, precision):
+    tasks = result['tasks']
+    if precision is None:
+        return result['status'] == 'no_tasks' and not tasks
+    if not (result['status'] == 'success' and len(tasks) == 1 and
+            tasks[0]['deadline']['value'] == deadline and tasks[0]['deadline']['precision'] == precision and
+            tasks[0]['needs_review'] is True and
+            (precision != 'unknown' or tasks[0]['deadline']['status'] == 'not_provided')):
+        return False
+    if name == 'yearless-date':
+        # A correct date alone did not catch the original spurious review reason.
+        return (tasks[0]['deadline']['status'] == 'explicit' and
+                tasks[0]['review_reasons'] == ['图片引文由模型读取，尚未经原文逐字核对，请确认。'])
+    return True
 
 
 def main():
@@ -83,11 +99,7 @@ def main():
                 result = process_media_request(request, loader, SyntheticCaptureClient(options['key'], str(capture)), settings)
                 raw_draft = capture.read_text(encoding='utf-8') if capture.exists() else None
             tasks = result['tasks']
-            passed = (result['status'] == 'no_tasks' and not tasks) if precision is None else (
-                result['status'] == 'success' and len(tasks) == 1 and
-                tasks[0]['deadline']['value'] == deadline and tasks[0]['deadline']['precision'] == precision and
-                tasks[0]['needs_review'] is True and
-                (precision != 'unknown' or tasks[0]['deadline']['status'] == 'not_provided'))
+            passed = expected_result(name, result, deadline, precision)
             results.append(dict(case=name, synthetic_image_text=text, image_sha256=hashlib.sha256(data).hexdigest(),
                                 request=request, raw_draft=raw_draft, result=result,
                                 elapsed_seconds=round(time.monotonic()-started, 2), passed=passed))

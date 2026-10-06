@@ -31,9 +31,15 @@ def request_for(data=None):
     return request, data
 
 
+def draft_task(task):
+    draft = {key: copy.deepcopy(value) for key, value in task.items() if key not in GENERATED}
+    draft['review_reasons'] = [dict(code='other', message=reason) for reason in draft['review_reasons']]
+    return draft
+
+
 def good_draft():
     result = json.loads((ROOT / 'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
-    task = {key: value for key, value in result['tasks'][0].items() if key not in GENERATED}
+    task = draft_task(result['tasks'][0])
     task['review_reasons'] = []
     return dict(tasks=[task], image_quality=[dict(asset_id='asset-001', quality='normal', quality_notes=[])])
 
