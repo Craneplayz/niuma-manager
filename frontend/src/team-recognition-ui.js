@@ -94,16 +94,16 @@ async function load(refreshWorkspace=false){
  try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';loaded=true;refresh();}
  catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
 }
-async function autoApplyCandidates(requestId,current,previousIds){
- let applied=0;const appliedIds=[];
- const items=batches.filter(batch=>!batch.demo&&batch.request.request_id===requestId).flatMap(batch=>batch.items.filter(item=>!previousIds.has(item.id)&&item.state==='pending'&&canAutoApplyCandidate(item.candidate,batch)));
+async function autoApplyCandidates(requestId,current,previousIds,resumeAutoApply=false){
+ let applied=0,failed=0;const appliedIds=[];
+ const items=batches.filter(batch=>!batch.demo&&batch.request.request_id===requestId).flatMap(batch=>batch.items.filter(item=>(!previousIds.has(item.id)||resumeAutoApply&&item.version===1)&&item.state==='pending'&&canAutoApplyCandidate(item.candidate,batch)));
  for(const item of items){
-  if(!current())return applied;
-  try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return applied;batches=updated.batches;applied++;appliedIds.push(item.id);}
-  catch(e){if(current())error='自动加入任务失败：'+e.message;}
+  if(!current())return {applied,failed};
+  try{const updated=await api('/api/recognition/candidates/'+item.id+'/resolve',{action:'create',auto_apply:true,version:item.version});if(!current())return {applied,failed};batches=updated.batches;applied++;appliedIds.push(item.id);}
+  catch(e){if(current()){failed++;error='自动加入任务失败：'+e.message+'；可再次同步补上未创建的任务。';}}
  }
  if(applied){try{await host.refresh();if(current())queuePlanning(appliedIds);}catch(e){if(current())error='任务已创建，但页面刷新失败：'+e.message;}}
- return applied;
+ return {applied,failed};
 }
 function manualImportPanel(support){return `<form id="agent-message-form" class="agent-composer import-manual-composer"><label for="agent-input">粘贴或说出原文</label><textarea id="agent-input" rows="4" required maxlength="4000" placeholder="粘贴课程通知正文或描述任务…">${esc(text)}</textarea>
  <div class="form-grid"><label>文本完整度<select id="agent-quality"><option value="complete" ${quality==='complete'?'selected':''}>完整正文</option><option value="partial" ${quality==='partial'?'selected':''}>部分正文</option><option value="summary" ${quality==='summary'?'selected':''}>摘要或标题</option></select></label><label>原文发布日期（可选）<input id="agent-published" type="date" value="${published}"></label></div>
@@ -209,7 +209,7 @@ async function resolve(form){
  }catch(e){if(current()){errorNode.textContent=e.message;form.querySelector('[data-agent-action="refresh-review"]').hidden=e.status!==409;}}
  finally{candidateBusy.delete(item.id);if(current()){fields.forEach(field=>field.disabled=false);submit.disabled=false;submit.textContent=label;refresh();}}
 }
-async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false,planAfter=true){
+async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=false,planAfter=true,resumeAutoApply=false){
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const external=autoApply&&body.records.some(record=>['teaching_web','wechat'].includes(record.platform));
@@ -222,15 +222,16 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   if(!current())return;
   batches=next;loaded=true;
   const batch=next.find(batch=>batch.request.request_id===body.request_id),result=batch?.result;
-  const complete=result&&['success','no_tasks'].includes(result.status);
-  const applied=autoApply?await autoApplyCandidates(body.request_id,current,previousIds):0;
+  const recognized=result&&['success','no_tasks'].includes(result.status);
+  const {applied,failed}=autoApply?await autoApplyCandidates(body.request_id,current,previousIds,resumeAutoApply):{applied:0,failed:0};
+  const complete=recognized&&!failed;
   if(!current())return;
   if(planAfter&&external)await planNewTasks(current);
   if(!current())return;
   if(activeRequestIds.has(body.request_id))importProgress.created+=applied;
   const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(item=>item.state==='pending').length||0;
   const filtered=result?.record_results?.filter(r=>r.warnings.some(w=>w.startsWith('history_filtered:')||w.startsWith('no_action:'))).length||0;
-  notice=`${applied?`已自动加入 ${applied} 项任务；`:''}${remaining?`${remaining} 项待处理；`:''}${filtered?`${filtered} 条资讯或历史通知未生成任务；`:''}${complete?'识别完成':'部分记录识别失败，可重试'}`;
+  notice=`${applied?`已自动加入 ${applied} 项任务；`:''}${remaining?`${remaining} 项待处理；`:''}${filtered?`${filtered} 条资讯或历史通知未生成任务；`:''}${failed?`${failed} 项自动加入失败，请再次同步；`:''}${recognized?'识别完成':'部分记录识别失败，可重试'}`;
   if(complete)onSuccess?.();
   if(activeRequestIds.has(body.request_id)){importProgress.processed++;if(!complete)importProgress.failed++;}
   return Boolean(complete);
@@ -313,20 +314,20 @@ export async function handleAssistantClick(button){
    if(!result.requests.length){sourceImport=null;const skipped=result.summary?.skipped||0;beginImport([],'教学网',0,skipped);importProgress.active=false;notice=`同步完成，暂无待识别内容${skipped?`；${skipped} 条已识别通知没有变化`:''}`;return;}
    sourceImport={kind:'requests',requests:result.requests,sent:new Set()};sourceName='教学网增量同步（每条独立识别）';sourceConsent=true;
    busy=false;activeController=null;
-   const total=sourceImport.requests.length,skipped=result.summary?.skipped||0;let failed=0,attempted=0;
+   const total=sourceImport.requests.length,skipped=result.summary?.skipped||0,failureMessages=[];let failed=0,attempted=0;
    beginImport(sourceImport.requests.map(request=>request.request_id),'教学网',total,skipped);
    for(let index=0;index<total;index++){
     if(!current())return;
     const batch=sourceImport.requests[index];
     notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条未变化通知`;refresh();
-    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true,false);
+    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true,false,true);
     if(!current())return;
     attempted++;
-    if(!complete)failed++;
+    if(!complete){failed++;if(error)failureMessages.push(error);}
     if(complete===undefined)break;
    }
    await planNewTasks(current);
-   if(current()){importProgress.active=false;syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。${failed?'失败记录可重试。':''}`;}
+   if(current()){if(failureMessages.length)error=[...new Set(failureMessages)].join('；');importProgress.active=false;syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。${failed?'未完成内容可再次同步，识别失败记录可重试。':''}`;}
   }catch(e){if(current()){notice='';error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}}
   finally{if(current()){busy=false;activeController=null;importProgress.active=false;refresh();}}
   return;

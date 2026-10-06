@@ -89,6 +89,23 @@ def due(value):
         return dict(date=value['date'],precision='datetime',time=value['time'])
     return dict(date=value['date'],precision='date')
 
+def can_auto_apply(candidate, request, demo=False):
+    source=next((r for r in request['records'] if r['input_id']==candidate['input_id']),None)
+    d=candidate['deadline']
+    valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
+    if valid_due and d['precision']=='datetime':
+        stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
+        valid_due=stamp.second==0 and stamp.microsecond==0
+    return bool(not demo and source and source['platform'] in ('teaching_web','wechat')
+                and candidate['notice_type']=='create' and not candidate['needs_review']
+                and not candidate['review_reasons'] and valid_due)
+
+def has_unapplied_auto_tasks(db, uid, request, demo=False):
+    # Reopened candidates have already been handled by the user and stay manual.
+    return any(can_auto_apply(json.loads(row['candidate']),request,demo)
+               for row in db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1',
+                                     (uid,request['request_id'])))
+
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
     if path=='/api/recognition/batches' and handler.command=='GET':
@@ -170,15 +187,7 @@ def route(handler,db,uid,path,body,ApiError):
         if auto:
             d=c['deadline']
             batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
-            records={r['input_id']:r for r in json.loads(batch['request'])['records']}
-            source=records.get(c['input_id'])
-            external=source and source['platform'] in ('teaching_web','wechat')
-            valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
-            if valid_due and d['precision']=='datetime':
-                stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
-                valid_due=stamp.second==0 and stamp.microsecond==0
-            if (batch['demo'] or action!='create' or c['notice_type']!='create' or c['needs_review']
-                    or c['review_reasons'] or not valid_due or not external):
+            if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
                 raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':
             if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')

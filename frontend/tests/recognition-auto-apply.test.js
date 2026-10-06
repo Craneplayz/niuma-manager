@@ -234,6 +234,47 @@ test('source import does not auto-apply a replayed batch before history is loade
  assert.equal(old.state,'pending');
 });
 
+test('teaching sync resumes cached auto tasks after creation failure without adding reviewed or dismissed items',async()=>{
+ recognition.resetAssistant();session.user={id:'resume-sync'};
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const candidate=fixture.expected.tasks[0];
+ const pending={id:'resume-auto',version:1,state:'pending',candidate};
+ const reviewed={id:'resume-review',version:1,state:'pending',candidate:{...candidate,needs_review:true,review_reasons:['核对正文']}};
+ const ignored={id:'resume-ignored',version:2,state:'ignored',candidate};
+ const reopened={id:'resume-reopened',version:3,state:'pending',candidate};
+ const batch={request:fixture.request,result:{status:'success',record_results:[],errors:[]},demo:false,items:[pending,reviewed,ignored,reopened]};
+ let attempts=0,refreshed=0;
+ recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;},getState:()=>({tasks:[]})});
+ globalThis.fetch=async(path,options={})=>{
+  const reply=(data,ok=true,status=200)=>({ok,status,json:async()=>structuredClone(data)});
+  if(path==='/api/data/sources')return reply({version:1});
+  if(path==='/api/sources/sync')return reply({requests:[fixture.request],summary:{skipped:0}});
+  if(path==='/api/recognition/batches'||path==='/api/recognition/retry')return reply([batch]);
+  if(path.includes('/resolve')){
+   assert.match(path,/resume-auto/);attempts++;
+   if(attempts===1)return reply({error:'创建暂时失败'},false,503);
+   pending.state='applied';pending.version++;
+   return reply({batches:[batch]});
+  }
+  throw new Error('unexpected request '+path);
+ };
+ recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+ await new Promise(resolve=>setImmediate(resolve));
+ for(let i=0;i<2;i++){
+  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+  if(i===0){
+   assert.match(recognition.assistantPage(),/尚未全部完成：成功 0 条，失败 1 条/);
+   assert.match(recognition.assistantPage(),/自动加入任务失败/);
+  }
+ }
+ assert.equal(attempts,2);
+ assert.equal(pending.state,'applied');
+ assert.equal(refreshed,1);
+ assert.equal(reviewed.state,'pending');assert.equal(ignored.state,'ignored');assert.equal(reopened.state,'pending');
+ assert.match(recognition.assistantPage(),/已创建 1 项/);
+});
+
 test('source management shows import, consent, credential, and selection errors',async()=>{
  recognition.resetAssistant();session.user={id:'test'};
  recognition.configureAssistant({render(){}});
