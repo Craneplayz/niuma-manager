@@ -210,7 +210,7 @@ class ApiTests(unittest.TestCase):
             captured.append(copy.deepcopy(payload))
             return dict(estimates={'a':60,'b':60},blocks=[dict(taskId='a',title='新安排',startAt=day+'T22:00:00+08:00',endAt=day+'T23:00:00+08:00')],warnings=[])
         with patch.object(app.planning,'plan',model):
-            status,proposal=self.call(client,'/planning/proposals','POST',json.loads((Path(__file__).resolve().parent.parent / 'contracts/task-planning/api-examples.json').read_text())['scopedReplanRequest'])
+            status,proposal=self.call(client,'/planning/proposals','POST',json.loads((Path(__file__).resolve().parent.parent / 'contracts/task-planning/api-examples.json').read_text(encoding='utf-8'))['scopedReplanRequest'])
         self.assertEqual(status,200);self.assertEqual(proposal['replannedTaskIds'],['a'])
         self.assertEqual([task['id'] for task in captured[0]['tasks']],['a','b'])
         self.assertEqual({plan['id'] for plan in captured[0]['existingPlans']},{'past','ongoing','untouched'})
