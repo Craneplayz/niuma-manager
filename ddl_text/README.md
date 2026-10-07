@@ -21,8 +21,12 @@ ddl_text/
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
+├── teaching_draft.py     # #108/#109 待审政策的内部教学网识别预览，不是 HTTP API
+├── teaching_requirements.txt # 可选教学网政策预览/测试依赖，复用共享契约版本
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
+│   ├── teaching-task-extraction/
+│   │   └── SKILL.md      # 教学网逐任务附件依赖、可信学期和历史语义
 │   └── text-task-extraction/
 │       ├── SKILL.md      # 任务、来源、日期及更新意图的识别规则
 │       └── references/
@@ -41,6 +45,9 @@ ddl_text/
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
 │   ├── reprocessing_cases.py # #112 旧/新结果及用户决定的合成交接案例
 │   ├── test_policy_version.py # 版本稳定性、变更与回归输入校验
+│   ├── teaching_cases.py  # 从共享政策样例派生的内部/真实合成测试输入
+│   ├── test_teaching_draft.py # 覆盖、学期、历史、信任及超时回归
+│   ├── run_teaching_smoke.py # 显式调用当前模型的合成教学网政策预览
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
 │   ├── homework_cases.py # 作业语境、参考资料和可选行动的合成验证输入
@@ -59,10 +66,13 @@ ddl_text/
 └── docs/                 # 当前配置说明与历史归档
     ├── api-setup.md      # 供应商配置及故障定位
     ├── policy-version.md # #112 规则版本使用方式与后端重识别交接
+    ├── teaching-draft.md # 待审教学网适配的调用方式、信任边界和接入依赖
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
 ```
 
 接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
+
+教学网 #108/#109 的 [内部政策预览](docs/teaching-draft.md) 依赖待审 #114；用结构化覆盖/学期事实逐任务判断附件依赖，保留历史过滤。尚未接入正式 HTTP、采集或自动入库，不代表现有网页的审核提示已改变。
 
 ## 输入输出与规则
 

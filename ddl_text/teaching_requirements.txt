@@ -1,0 +1,2 @@
+# Optional draft adapter dependency; production v0.2 remains standard-library only.
+-r ../contracts/requirements-teaching-dev.txt
