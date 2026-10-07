@@ -8,7 +8,7 @@ import subprocess
 import socket
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from http.client import HTTPConnection
+from http.client import HTTPConnection, RemoteDisconnected
 import unittest
 from http.cookiejar import CookieJar
 from pathlib import Path
@@ -656,6 +656,26 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
             limits=self.call(client,'/sources/wechat/credential')[1]['limits']
         self.assertEqual(limits,dict(asset_bytes=20*1048576,account_bytes=200*1048576,queued_jobs=20,unreferenced_ttl_seconds=600))
 
+    def test_actual_file_size_boundary_matches_receipt_and_rejects_empty_or_oversized_files(self):
+        client=self.client('wechat-file-byte-boundary@test.local')
+        raw=b'\x89PNG\r\n\x1a\n'+b'x'*(wechat_media.MAX_ASSET-8)
+        status,receipt=self.call(client,'/sources/wechat/assets','POST',raw,multipart=True)
+        self.assertEqual(status,201)
+        self.assertEqual(receipt['size_bytes'],20*1024*1024)
+        self.assertEqual(receipt['sha256'],hashlib.sha256(raw).hexdigest())
+        with app.connection() as db:
+            path=Path(db.execute('SELECT path FROM wechat_assets WHERE ref=?',(receipt['file_ref'],)).fetchone()['path'])
+            self.assertEqual(path.stat().st_size,receipt['size_bytes'])
+        for invalid in (b'',raw+b'x'):
+            with self.subTest(size=len(invalid)):
+                status,error=self.call(client,'/sources/wechat/assets','POST',invalid,multipart=True)
+                self.assertEqual(status,413)
+                self.assertEqual(error['error']['code'],'limit_exceeded')
+        with app.connection() as db:
+            uid=db.execute('SELECT id FROM users WHERE email=?',('wechat-file-byte-boundary@test.local',)).fetchone()['id']
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_assets WHERE user_id=?',(uid,)).fetchone()[0],1)
+        self.assertEqual(len(list(path.parent.iterdir())),1)
+
     def test_concurrent_uploads_and_import_replays_create_one_file_and_job(self):
         client=self.client('wechat-parallel-replays@test.local')
         _,credential=self.call(client,'/sources/wechat/credential','POST',{})
@@ -694,6 +714,46 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
             self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_assets WHERE user_id=?',(uid,)).fetchone()[0],1)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_jobs WHERE user_id=?',(uid,)).fetchone()[0],1)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM recognition_candidates WHERE user_id=?',(uid,)).fetchone()[0],1)
+
+    def test_lost_import_and_retry_acknowledgments_do_not_leave_jobs_unstarted(self):
+        client=self.client('wechat-lost-ack@test.local')
+        cases=json.loads((Path(__file__).parent.parent/'contracts/examples/text-attachments-v031-cases.json').read_text(encoding='utf-8'))
+        case=next(item for item in cases if item['name']=='recognition-timeout-preserves-first-task')
+        request,result=copy.deepcopy(case['request']),copy.deepcopy(case['expected'])
+        request['request_id']='lost-ack';result['request_id']=request['request_id']
+        original_reply=app.Handler.reply
+        def lose_accepted_reply(handler,status,value,cookie=None):
+            if status==202:
+                handler.db.commit()
+                handler.connection.shutdown(socket.SHUT_RDWR)
+                raise ConnectionResetError('synthetic lost acknowledgment')
+            return original_reply(handler,status,value,cookie)
+        def finished(job_id):
+            for _ in range(100):
+                _,job=self.call(client,'/sources/wechat/imports/'+job_id)
+                if job['status'] not in ('queued','running'):return job
+                time.sleep(.02)
+            self.fail('accepted job was not started after lost acknowledgment')
+        def model(body,*args,**kwargs):
+            return result if len(body['records'])==len(request['records']) else wechat_media._failed_result(body)
+        with patch.object(wechat_media,'recognize_v03',side_effect=model) as adapter, \
+                patch.object(self.server,'handle_error'):
+            with patch.object(app.Handler,'reply',lose_accepted_reply):
+                with self.assertRaises(RemoteDisconnected):
+                    self.call(client,'/sources/wechat/imports','POST',request)
+            status,ack=self.call(client,'/sources/wechat/imports','POST',request)
+            self.assertEqual(status,200)
+            original=finished(ack['job_id'])
+            path='/sources/wechat/imports/'+ack['job_id']+'/retry'
+            retry=dict(retry_id='lost-retry-ack')
+            with patch.object(app.Handler,'reply',lose_accepted_reply):
+                with self.assertRaises(RemoteDisconnected):self.call(client,path,'POST',retry)
+            self.assertEqual(self.call(client,path,'POST',retry)[0],200)
+            recovered=finished(ack['job_id'])
+            self.assertEqual(recovered['result']['tasks'],original['result']['tasks'])
+            self.assertEqual(adapter.call_count,2)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT attempts FROM wechat_jobs WHERE id=?',(ack['job_id'],)).fetchone()['attempts'],1)
 
     def test_incomplete_upload_and_slow_json_body_are_rejected_without_saving_data(self):
         client=self.client('wechat-body-budget@test.local')

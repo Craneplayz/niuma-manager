@@ -163,3 +163,23 @@ test('an old polling finally cannot clear the loading state of a newer source po
  assert.match(media.wechatMediaPanel(),/暂无微信附件导入记录/);
  window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
 });
+
+test('network failure keeps known credentials and persisted results until reconnection',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'network-recovery'};location.hash='#settings';
+ media.configureWechatMedia({render(){}});
+ const job={job_id:'offline-job',status:'succeeded',progress:{total_records:1,finished_records:1,failed_records:0},
+  result:{status:'no_tasks',tasks:[],errors:[],record_results:[{coverage:{complete:true,uncertain:false},attachments:[]}]}};
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):response({jobs:[job]});
+ await media.load();
+ globalThis.fetch=async()=>{throw new TypeError('合成网络中断');};
+ await media.load();let html=media.wechatMediaPanel();
+ assert.match(html,/撤销本机导入凭证|已完整识别，未发现任务/);
+ assert.doesNotMatch(html,/data-media-action="issue"/);
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):response({jobs:[]});
+ await media.load();assert.match(media.wechatMediaPanel(),/暂无微信附件导入记录/);
+ window.dispatchEvent(new Event('niuma:account-reset'));
+ globalThis.fetch=async()=>{throw new TypeError('初次查询失败');};
+ await media.load();html=media.wechatMediaPanel();
+ assert.match(html,/data-media-action="issue" disabled/);
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
+});

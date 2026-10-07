@@ -29,7 +29,7 @@ export async function load(){
     if(added.length)await host.proposeForTasks?.(added);
    }
   }
- }catch(e){if(epoch===accountVersion()&&revision===sourceRevision){credential={configured:false};error=e.message;}}
+ }catch(e){if(epoch===accountVersion()&&revision===sourceRevision){credential??={configured:null};error=e.message;}}
  finally{if(epoch===accountVersion()&&revision===sourceRevision){loading=false;refresh();schedule();}}
 }
 function evidence(item,job,task){
@@ -77,7 +77,7 @@ export function wechatMediaPanel(){
  return `<section class="panel wechat-media-panel"><h2>微信附件同步</h2><p>本机采集器可将图片或文件送到此账号的后端和模型；上传原件前请确认其内容可以发送。读取不支持或失败时会明确提示，不会当作无任务。</p>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${credential?.limits?`<details><summary>附件限制与保留</summary><p>单文件 ${esc(credential.limits.asset_bytes/1048576)} MiB，账号总量 ${esc(credential.limits.account_bytes/1048576)} MiB；未引用原件保留 ${esc(credential.limits.unreferenced_ttl_seconds%3600===0?credential.limits.unreferenced_ttl_seconds/3600+' 小时':credential.limits.unreferenced_ttl_seconds+' 秒')}。已关联导入记录的原件保留至删除来源或撤销文件。</p></details>`:''}
- <div class="button-row"><button class="btn" data-media-action="refresh" ${loading?'disabled':''}>${loading?'读取中…':'刷新处理状态'}</button>${credential?.configured?`<button class="btn" data-media-action="revoke" ${busy?'disabled':''}>撤销本机导入凭证</button>`:`<button class="btn" data-media-action="issue" ${busy||!session.user?'disabled':''}>生成本机导入凭证</button>`}</div>
+ <div class="button-row"><button class="btn" data-media-action="refresh" ${loading?'disabled':''}>${loading?'读取中…':'刷新处理状态'}</button>${credential?.configured?`<button class="btn" data-media-action="revoke" ${busy?'disabled':''}>撤销本机导入凭证</button>`:`<button class="btn" data-media-action="issue" ${busy||!session.user||credential?.configured==null?'disabled':''}>生成本机导入凭证</button>`}</div>
  ${session.user&&(credential?.configured||jobs.length)?`<button class="btn" data-media-action="prepare-remove" ${busy?'disabled':''}>删除微信来源数据</button>`:''}
  ${removeConfirmation?`<div class="wechat-media-removal"><p>将删除微信原件、导入记录和候选；已加入日历的任务保留。删除的原件无法从本服务恢复。</p><div class="button-row"><button class="btn" data-media-action="remove" ${busy?'disabled':''}>确认删除</button><button class="btn" data-media-action="cancel-remove" ${busy?'disabled':''}>取消</button></div></div>`:''}
  ${token?`<div class="wechat-media-token"><p>凭证只显示这一次，请复制到本机采集器；不要发送给他人或写入仓库。</p><code>${esc(token)}</code><button class="btn" data-media-action="hide">关闭凭证显示</button></div>`:''}

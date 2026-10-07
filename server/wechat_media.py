@@ -824,8 +824,9 @@ def route(handler, db, uid, path, body, data_dir):
         job_id = 'job-' + secrets.token_urlsafe(18)
         db.execute('INSERT INTO wechat_jobs(id,user_id,request_id,fingerprint,request,status,result,previous_result,retry_id,attempts) VALUES(?,?,?,?,?,?,?,?,?,0)', (job_id, uid, body['request_id'], fingerprint, json.dumps(body, ensure_ascii=False), 'queued', None, None, None))
         _retain_assets(db,job_id,body)
-        handler.reply(202, dict(contract_version='0.3.1', job_id=job_id, request_id=body['request_id'], status='queued'))
+        db.commit()
         threading.Thread(target=_process, args=(handler.media_db_path, job_id), daemon=True).start()
+        handler.reply(202, dict(contract_version='0.3.1', job_id=job_id, request_id=body['request_id'], status='queued'))
         return True
     parts = path[len('/api/sources/wechat/imports/'):].split('/') if path.startswith('/api/sources/wechat/imports/') else []
     if parts:
@@ -860,7 +861,8 @@ def route(handler, db, uid, path, body, data_dir):
                 raise MediaError(503,'queue_busy','导入队列已满，请稍后重试',True)
             db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
             db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))
-            handler.reply(202, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status='queued'))
+            db.commit()
             threading.Thread(target=_process, args=(handler.media_db_path, row['id']), daemon=True).start()
+            handler.reply(202, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status='queued'))
             return True
     raise MediaError(404, 'not_found', '接口不存在')
