@@ -350,6 +350,13 @@ describe("assignment collection invariants across supported layouts", () => {
     { name: "block fields", render: (value: string) => `<div><div class="label"><strong>Due Date</strong></div><div class="value">${value}</div><div data-role="label">Available from</div><div class="value">2026-10-01</div></div>` },
     { name: "metadata rows", render: (value: string) => `<div class="metaField"><span class="label"><strong>Due Date</strong></span><span class="value">${value}</span></div><div class="metaField"><span class="label">Available from</span><span class="value">2026-10-01</span></div>` },
     { name: "table cells", render: (value: string) => `<table><tr><td><strong>Due Date</strong></td><td class="value">${value}</td><td class="label">Available from</td><td>2026-10-01</td></tr></table>` },
+    { name: "native table headers", render: (value: string) => `<table><tr><th>Due Date</th> \n<!-- separator --><td>${value}</td><th>Available from</th><td>2026-10-01</td></tr></table>` },
+    { name: "nested table headers", render: (value: string) => `<table><tr><th><strong>Due Date</strong></th><td>${value}</td><th><em>Available from</em></th><td>2026-10-01</td></tr></table>` },
+    { name: "ARIA table headers", render: (value: string) => `<table><tr><td role="rowheader"><strong>Due Date</strong></td><td>${value}</td><td role="columnheader">Available from</td><td>2026-10-01</td></tr></table>` },
+    { name: "unmarked table fields", render: (value: string) => `<table><tr><td>Due Date</td><td>${value}</td><td>Available from</td><td>2026-10-01</td></tr></table>` },
+    { name: "table row boundary", render: (value: string) => `<table><tr><th>Due Date</th><td>${value}</td></tr><tr><th>Available from</th><td>2026-10-01</td></tr></table>` },
+    { name: "native next label within value", render: (value: string) => `<span class="label">Due Date</span><span class="value">${value}<label>Available from</label><span>2026-10-01</span></span>` },
+    { name: "ARIA next label within value", render: (value: string) => `<span class="label">Due Date</span><span class="value">${value}<span role="rowheader">Available from</span><span>2026-10-01</span></span>` },
     { name: "own-text label with child value", render: (value: string) => `<div>Due Date<span class="value">${value}</span><span class="label">Available from</span><span class="value">2026-10-01</span></div>` },
     { name: "missing value node", render: (value: string) => `<div><span class="label">Due Date</span>${value ? `<span class="value">${value}</span>` : ""}<span class="label">Available from</span><span class="value">2026-10-01</span></div>` },
     { name: "pure label wrappers", render: (value: string) => `<div><div><span class="label"><strong>Due Date</strong></span></div>${value ? `<span class="value">${value}</span>` : ""}<span data-role="label">Available from</span><span class="value">2026-10-01</span></div>` },
@@ -378,6 +385,19 @@ describe("assignment collection invariants across supported layouts", () => {
       expect(JSON.stringify(record)).not.toContain("2026-10-01");
     },
   );
+  it.each([
+    '<table><tr><th>Due Date</th><th>Available from</th><td>2026-10-01</td></tr></table>',
+    '<table><tr><th><strong>Due Date</strong></th></tr><tr><th>Available from</th><td>2026-10-01</td></tr></table>',
+  ])("keeps a missing table value cell unread: %s", async (fields) => {
+    const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><section id="assignmentInfo">${fields}<div class="vtbegenerated">Submit the report.</div></section>`, detailUrl);
+    expect(detail.due_raw).toBeNull();
+    expect(detail.due_unread).toBe(true);
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source(), detailUrl, detail)], vi.fn());
+    const record = toRecognitionRequests([result])[0].records[0];
+    expect(record.text_quality).toBe("partial");
+    expect(record.upstream_hints.references[0]).toMatchObject({ content_read: false, read_status: "failed" });
+    expect(JSON.stringify(record)).not.toContain("2026-10-01");
+  });
   it.each([false, true])("retains multiple dates while flagging conflicts=%s", (conflict) => {
     const second = conflict ? "2027-01-01" : "2026-12-31";
     const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><section id="assignmentInfo"><div><span>Due Date</span><span>2026-12-31</span></div><div><span>Due Date</span><span>${second}</span></div><div class="vtbegenerated">Teacher instructions.</div></section>`, detailUrl);

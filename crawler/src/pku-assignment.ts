@@ -12,7 +12,7 @@ const GENERIC_UNREAD_WARNING = UNREAD_REFERENCE_WARNING;
 const ASSIGNMENT_INFO = "#assignmentInfo, .assignmentInfo, [data-role=assignment-info]";
 const DESCRIPTION_SELECTORS = "[data-assignment-description], #assignmentDescription, .assignment-description, #assignmentInfo .vtbegenerated, .assignmentInfo .vtbegenerated, [data-role=assignment-info] .vtbegenerated";
 const OTHER_FIELDS = /(?:满分|Points Possible|Full Points|作业提交|Assignment Submission)/i;
-const FIELD_LABEL = ".label, [data-role=label]";
+const FIELD_LABEL = ".label, [data-role=label], label, th, [role=rowheader], [role=columnheader]";
 const FIELD_ROW = ".metaField, tr, li";
 
 export type AssignmentPageState = "active" | "submitted" | "unknown";
@@ -63,7 +63,7 @@ function readableText($: CheerioAPI, node: Cheerio<AnyNode>): string {
 }
 
 /** Read only the prefix owned by this field, including boundaries nested in value nodes. */
-function readDueNodes($: CheerioAPI, nodes: AnyNode[], tableCells = false) {
+function readDueNodes($: CheerioAPI, nodes: AnyNode[], tableCell = false) {
   const parts: string[] = [];
   let bounded = false;
   let hasValue = false;
@@ -80,14 +80,14 @@ function readDueNodes($: CheerioAPI, nodes: AnyNode[], tableCells = false) {
       return;
     }
     if (next.is(`${FIELD_LABEL}, ${FIELD_ROW}, ${ASSIGNMENT_INFO}, ${DESCRIPTION_SELECTORS}`)
-      || (!insideValue && !next.is(`span, strong, b, em, i, time, br, .value, [data-role=value]${tableCells ? ", td, th" : ""}`))) {
+      || (!insideValue && !next.is(`span, strong, b, em, i, time, br, .value, [data-role=value]${tableCell ? ", td" : ""}`))) {
       bounded = true;
       return;
     }
     // An empty value node still belongs to this field; do not climb past it.
     if (!next.is("br")) hasValue = true;
     if (next.is("br")) parts.push(" ");
-    const valueContainer = insideValue || next.is(".value, [data-role=value], td, th");
+    const valueContainer = insideValue || next.is(".value, [data-role=value], td");
     for (const child of next.contents().toArray()) visit(child, valueContainer);
   }
   for (const node of nodes) {
@@ -108,7 +108,13 @@ function dueValueFromLabel($: CheerioAPI, label: Cheerio<AnyNode>): string | nul
   let candidate = label;
   for (let depth = 0; depth < 5; depth += 1) {
     if (candidate.is(`${ASSIGNMENT_INFO}, ${FIELD_ROW}`)) break;
-    const adjacent = readDueNodes($, followingNodes(candidate), candidate.parent().is("tr"));
+    const inTableRow = candidate.parent().is("tr");
+    const following = followingNodes(candidate);
+    // A table field owns one adjacent value cell, even when later headers have no class.
+    const nodes = inTableRow
+      ? following.filter((node) => node.type !== "comment" && (node.type !== "text" || normalize($(node).text()))).slice(0, 1)
+      : following;
+    const adjacent = readDueNodes($, nodes, inTableRow);
     if (adjacent.value !== null || adjacent.bounded || adjacent.hasValue) return adjacent.value;
     const parent = candidate.parent();
     // Only unwrap a pure label. Never retry by concatenating a containing field/region.
