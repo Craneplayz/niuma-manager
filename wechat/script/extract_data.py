@@ -26,6 +26,7 @@ import re
 import shutil
 import sys
 import tempfile
+import unicodedata
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -103,6 +104,10 @@ def safe_name(value: str, fallback: str = "未命名会话", max_length: int = 1
     """Return a readable filename component valid on Windows and macOS."""
 
     value = INVALID_FILENAME_CHARS.sub("_", (value or "").strip())
+    value = "".join(
+        "_" if unicodedata.category(char) in {"Cc", "Cf", "Cs"} else char
+        for char in value
+    )
     value = re.sub(r"\s+", " ", value).rstrip(" .")
     if not value:
         value = fallback
