@@ -33,3 +33,23 @@ test('one-time credential is erased on account reset',async()=>{
  session.user=null;
  assert.doesNotMatch(media.wechatMediaPanel(),/private-once/);
 });
+
+test('settings exposes review and ignore for persisted media candidates',async()=>{
+ session.user={id:'review-test'};location.hash='#settings';
+ let reviewed='',ignored='';
+ const item={id:'stored-media-candidate',candidate_id:'media-task',state:'pending',version:2};
+ const job={job_id:'job-review',status:'succeeded',progress:{total_records:1,finished_records:1,failed_records:0},items:[item],result:{status:'success',tasks:[{candidate_id:'media-task',title:'核对附件作业',description:'报告',needs_review:true,deadline:{status:'not_provided',value:null},evidence:[]}],errors:[]}};
+ media.configureWechatMedia({render(){},reviewCandidate:async id=>{reviewed=id;}});
+ globalThis.fetch=async(path,options)=>{
+  if(path.includes('/resolve')){ignored=path;assert.deepEqual(JSON.parse(options.body),{action:'ignore',version:2});item.state='ignored';return response({batches:[]});}
+  return path.endsWith('/credential')?response({configured:false}):response({jobs:[job]});
+ };
+ await media.load();
+ assert.match(media.wechatMediaPanel(),/data-media-action="review"|data-media-action="ignore"/);
+ await media.wechatMediaClick({dataset:{mediaAction:'review',mediaCandidate:item.id}});
+ assert.equal(reviewed,item.id);
+ await media.wechatMediaClick({dataset:{mediaAction:'ignore',mediaCandidate:item.id}});
+ assert.match(ignored,/stored-media-candidate\/resolve$/);
+ assert.match(media.wechatMediaPanel(),/已忽略/);
+ assert.doesNotMatch(media.wechatMediaPanel(),/data-media-action="review"/);
+});

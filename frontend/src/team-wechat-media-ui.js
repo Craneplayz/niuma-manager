@@ -4,15 +4,16 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,character=>({'&':'&amp;','
 const labels={queued:'排队中',running:'识别中',succeeded:'已完成',partial_failed:'部分失败',failed:'处理失败'};
 let host={},jobs=[],credential=null,token='',loading=false,busy=false,error='',notice='',timer=null;
 export function configureWechatMedia(callbacks){host=callbacks;}
-function refresh(){if(location.hash==='#sources')host.render?.();}
+function active(){return ['#sources','#settings'].includes(location.hash);}
+function refresh(){if(active())host.render?.();}
 function reset(){clearTimeout(timer);timer=null;jobs=[];credential=null;token='';loading=false;busy=false;error='';notice='';}
 window.addEventListener('niuma:account-reset',reset);
 function schedule(){
  clearTimeout(timer);
- if(location.hash==='#sources'&&jobs.some(job=>['queued','running'].includes(job.status)))timer=setTimeout(load,3000);
+ if(active()&&jobs.some(job=>['queued','running'].includes(job.status)))timer=setTimeout(load,3000);
 }
 export async function load(){
- if(!session.user||loading||location.hash!=='#sources')return;
+ if(!session.user||loading||!active())return;
  const epoch=accountVersion();loading=true;
  try{
   const previous=new Map(jobs.map(job=>[job.job_id,job.status]));
@@ -49,9 +50,9 @@ function result(job){
  const data=job.result;
  if(!data)return '';
  const tasks=data.tasks||[];
- const errors=data.errors||[];
- const retry=errors.some(item=>item.retryable&&['request','recognize'].includes(item.stage));
- return `<div class="wechat-media-result">${tasks.map(task=>`<article class="draft-card"><h3>${esc(task.title)}</h3><p>${esc(task.description)}</p><p>${esc(deadlineText(task.deadline))}${task.needs_review?' · 待核对':' · 已识别'}</p><details><summary>来源依据</summary><ul>${task.evidence.map(item=>evidence(item,job)).join('')}</ul></details></article>`).join('')}
+ const errors=[...new Map([...(data.errors||[]),...(job.last_attempt_errors||[])].map(error=>[JSON.stringify(error),error])).values()];
+ const retry=errors.some(item=>item.retryable&&['read','recognize'].includes(item.stage)&&['agent_timeout','agent_unavailable','file_read_failed'].includes(item.code));
+ return `<div class="wechat-media-result">${tasks.map(task=>{const item=job.items?.find(item=>item.candidate_id===task.candidate_id);return `<article class="draft-card"><h3>${esc(task.title)}</h3><p>${esc(task.description)}</p><p>${esc(deadlineText(task.deadline))} · ${item?.state==='applied'?'已加入任务':item?.state==='ignored'?'已忽略':task.needs_review?'待核对':'已识别'}</p><details><summary>来源依据</summary><ul>${task.evidence.map(item=>evidence(item,job)).join('')}</ul></details>${item?.state==='pending'?`<div class="button-row"><button class="btn primary" data-media-action="review" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>核对并确认</button><button class="btn" data-media-action="ignore" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;}).join('')}
  ${data.status==='no_tasks'?'<p>已完整识别，未发现任务。</p>':''}
  ${errors.map(item=>`<p class="error" role="alert">${esc(item.message)}${item.asset_id?' · 附件 '+esc(item.asset_id):''}${item.stage==='read'||item.stage==='collect'||item.stage==='upload'?'；请在本机重新获取或处理附件。':''}</p>`).join('')}
  ${retry?`<button class="btn" data-media-action="retry" data-media-job="${esc(job.job_id)}" ${busy?'disabled':''}>重试识别失败部分</button>`:''}</div>`;
@@ -72,7 +73,12 @@ export async function wechatMediaClick(button){
  if(busy)return true;
  busy=true;error='';notice='';refresh();
  try{
-  if(action==='issue'){
+  if(action==='review'){
+   await host.reviewCandidate?.(button.dataset.mediaCandidate);
+  }else if(action==='ignore'){
+   const item=jobs.flatMap(job=>job.items||[]).find(item=>item.id===button.dataset.mediaCandidate);
+   if(item){await api('/api/recognition/candidates/'+encodeURIComponent(item.id)+'/resolve',{action:'ignore',version:item.version});if(epoch===accountVersion())await load();}
+  }else if(action==='issue'){
    const response=await api('/api/sources/wechat/credential',{});
    if(epoch===accountVersion()){credential={configured:true};token=response.token;notice='凭证已生成，旧凭证已失效。';}
   }else if(action==='revoke'){

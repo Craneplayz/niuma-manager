@@ -10,6 +10,19 @@ const recognition=await import('../src/team-recognition-ui.js');
 const {calendarPage}=await import('../src/team-calendar-ui.js');
 const {dayKey}=await import('../src/data.js');
 
+test('attachment retry opens its persisted job instead of the v0.2 text endpoint',async()=>{
+ recognition.resetAssistant();session.user={id:'media-retry'};location.hash='#agent';
+ const batch={request:{contract_version:'0.3.1',request_id:'media-retry',records:[]},result:{status:'partial_success',record_results:[],errors:[]},demo:false,items:[]};
+ recognition.configureAssistant({render(){}});
+ globalThis.fetch=async path=>{
+  assert.equal(path,'/api/recognition/batches');
+  return {ok:true,json:async()=>[batch]};
+ };
+ recognition.assistantPage();await new Promise(resolve=>setTimeout(resolve,0));
+ await recognition.handleAssistantClick({dataset:{agentRetry:'media-retry'}});
+ assert.equal(location.hash,'#settings');
+});
+
 test('F3 auto-apply accepts clear external actions and rejects uncertain or manual input',async()=>{
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const batch={request:fixture.request,demo:false};

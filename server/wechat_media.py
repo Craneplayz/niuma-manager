@@ -1,9 +1,8 @@
-"""Account-scoped v0.3 WeChat asset and asynchronous import transport."""
+"""Account-scoped v0.3.1 WeChat asset and asynchronous import transport."""
 import hashlib
 import io
 import hmac
 import json
-import copy
 import secrets
 import sqlite3
 import threading
@@ -14,7 +13,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zipfile import ZipFile, is_zipfile
 
-from contracts.check_v03_examples import check_pair, check_request, schema
+from contracts.check_v031_examples import check_pair, check_request, check_job, schema, request_fingerprint, retryable_records, check_asset_metadata
 
 MAX_ASSET = 20 * 1024 * 1024
 _slot = threading.Semaphore(1)
@@ -30,7 +29,10 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS wechat_credentials(user_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, created_at REAL NOT NULL);
     CREATE TABLE IF NOT EXISTS wechat_assets(ref TEXT PRIMARY KEY, user_id TEXT NOT NULL, file_name TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, path TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS wechat_jobs(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, status TEXT NOT NULL, result TEXT, previous_result TEXT, retry_id TEXT, attempts INTEGER NOT NULL DEFAULT 0, UNIQUE(user_id,request_id));
+    CREATE TABLE IF NOT EXISTS wechat_retries(job_id TEXT NOT NULL, retry_id TEXT NOT NULL, targets TEXT NOT NULL, status TEXT NOT NULL, errors TEXT, PRIMARY KEY(job_id,retry_id));
     ''')
+    if 'errors' not in {row[1] for row in db.execute('PRAGMA table_info(wechat_retries)')}:
+        db.execute('ALTER TABLE wechat_retries ADD COLUMN errors TEXT')
     db.execute("UPDATE wechat_jobs SET status='queued' WHERE status='running'")
 
 
@@ -78,10 +80,15 @@ def _upload(handler, db, uid, data_dir):
     data = parts[0].get_payload(decode=True)
     if not data or len(data) > MAX_ASSET:
         raise MediaError(413, 'limit_exceeded', '附件为空或超过 20 MiB')
-    name = Path(parts[0].get_filename() or '').name
+    name = parts[0].get_filename() or ''
     if not name or name in ('.', '..') or len(name) > 255 or '/' in name or '\\' in name:
         raise MediaError(400, 'invalid_request', '文件名无效')
     mime, digest = _asset_type(data), hashlib.sha256(data).hexdigest()
+    try:
+        from contracts.check_v031_examples import check_file_name
+        check_file_name(name)
+    except Exception:
+        raise MediaError(400, 'invalid_request', '文件名无效') from None
     row = db.execute('SELECT * FROM wechat_assets WHERE user_id=? AND sha256=?', (uid, digest)).fetchone()
     if row:
         status, ref = 200, row['ref']
@@ -97,7 +104,7 @@ def _upload(handler, db, uid, data_dir):
         with path.open('xb') as target:
             target.write(data)
         db.execute('INSERT INTO wechat_assets VALUES(?,?,?,?,?,?,?)', (ref, uid, name, mime, len(data), digest, str(path)))
-    ack = dict(contract_version='0.3', file_ref=ref, file_name=name, mime_type=mime, size_bytes=len(data), sha256=digest)
+    ack = dict(contract_version='0.3.1', file_ref=ref, file_name=name, mime_type=mime, size_bytes=len(data), sha256=digest)
     schema('wechat-import', ack, 'asset_ack')
     handler.reply(status, ack)
     return True
@@ -111,27 +118,29 @@ def _validate_assets(db, uid, request):
             row = db.execute('SELECT * FROM wechat_assets WHERE ref=? AND user_id=?', (asset['file_ref'], uid)).fetchone()
             if not row or not Path(row['path']).is_file():
                 raise MediaError(404, 'not_found', '附件不存在或不属于当前账号')
-            if any(asset[key] != row[key] for key in ('file_name', 'mime_type', 'size_bytes', 'sha256')):
-                raise MediaError(400, 'invalid_request', '附件回执与原件不一致')
+            receipt = dict(contract_version='0.3.1', file_ref=row['ref'], **{key:row[key] for key in ('file_name','mime_type','size_bytes','sha256')})
+            try:
+                check_asset_metadata(asset, receipt)
+            except Exception:
+                raise MediaError(400, 'asset_metadata_mismatch', '附件回执与原件不一致') from None
 
 
 def _fingerprint(request):
-    stable = copy.deepcopy(request)
-    stable.pop('request_id', None)
-    for record in stable['records']:
-        record.pop('collected_at', None)
-        for asset in record['attachments']:
-            if asset.get('file_ref'):
-                asset['file_ref'] = asset['sha256']
-    return hashlib.sha256(json.dumps(stable, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return request_fingerprint(request)
 
 
-def _job(row):
+def _job(row, db=None):
     total = len(json.loads(row['request'])['records'])
     result = json.loads(row['result']) if row['result'] else None
     finished = total if row['status'] in ('succeeded', 'partial_failed', 'failed') else 0
     failed = total if row['status'] == 'failed' else sum(r['status'] in ('failed', 'partial_success') for r in result['record_results']) if result else 0
-    return dict(contract_version='0.3', job_id=row['id'], request_id=row['request_id'], status=row['status'], progress=dict(total_records=total, finished_records=finished, failed_records=failed), result=result)
+    if row['previous_result'] and row['status'] in ('queued','running'):
+        previous = json.loads(row['previous_result'])
+        attempt = db.execute('SELECT targets FROM wechat_retries WHERE job_id=? AND retry_id=?', (row['id'],row['retry_id'])).fetchone() if db else None
+        targets = set(json.loads(attempt['targets'])) if attempt else retryable_records(previous)
+        finished = total - len(targets)
+        failed = sum(r['status'] in ('failed','partial_success') and r['input_id'] not in targets for r in previous['record_results'])
+    return dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status=row['status'], progress=dict(total_records=total, finished_records=finished, failed_records=failed), result=result)
 
 
 def _sources(request):
@@ -145,11 +154,11 @@ def _sources(request):
 
 def recognize_v03(request, assets):
     """#94 supplies the real adapter; never treat unread files as no_tasks."""
-    raise NotImplementedError('v0.3 附件读取适配器尚未接入')
+    raise NotImplementedError('v0.3.1 附件读取适配器尚未接入')
 
 
 def _failed_result(request, code='agent_unavailable', message='附件识别暂不可用；没有将其当作无任务'):
-    return dict(contract_version='0.3', request_id=request['request_id'], status='failed', record_results=[], tasks=[], errors=[dict(input_id=None, asset_id=None, block_id=None, stage='request', code=code, message=message, retryable=code=='agent_unavailable')])
+    return dict(contract_version='0.3.1', request_id=request['request_id'], status='failed', record_results=[], tasks=[], errors=[dict(input_id=None, asset_id=None, block_id=None, stage='request', code=code, message=message, retryable=code=='agent_unavailable')])
 
 
 def _apply_clear_tasks(db, row, result):
@@ -189,6 +198,19 @@ def _apply_clear_tasks(db, row, result):
         db.execute('INSERT INTO workspace(user_id,name,value,version) VALUES(?,?,?,1) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=workspace.version+1', (row['user_id'], 'tasks', json.dumps(tasks, ensure_ascii=False)))
 
 
+def _store_candidates(db, row, result):
+    request = json.loads(row['request'])
+    task_row = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (row['user_id'],)).fetchone()
+    applied = {history.get('storageId') for task in json.loads(task_row['value']) for history in task.get('recognitionHistory', [])} if task_row else set()
+    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET result=excluded.result',
+               (row['user_id'], row['request_id'], row['fingerprint'], row['request'], json.dumps(result, ensure_ascii=False)))
+    for candidate in result['tasks']:
+        storage_id = row['id'] + ':' + candidate['candidate_id']
+        state = 'applied' if storage_id in applied else 'pending'
+        db.execute('INSERT OR IGNORE INTO recognition_candidates(id,user_id,request_id,candidate,state) VALUES(?,?,?,?,?)',
+                   (storage_id,row['user_id'],request['request_id'],json.dumps(candidate,ensure_ascii=False),state))
+
+
 def _process(db_path, job_id):
     with _slot:
         db = sqlite3.connect(db_path, timeout=10)
@@ -199,16 +221,22 @@ def _process(db_path, job_id):
                 return
             request = json.loads(row['request'])
             previous = json.loads(row['previous_result']) if row['previous_result'] else None
-            done = {item['input_id'] for item in previous['record_results'] if item['status'] in ('success','no_tasks')} if previous else set()
-            extraction = dict(request, records=[item for item in request['records'] if item['input_id'] not in done])
+            attempt = db.execute('SELECT targets FROM wechat_retries WHERE job_id=? AND retry_id=?', (job_id,row['retry_id'])).fetchone() if row['retry_id'] else None
+            selected = set(json.loads(attempt['targets'])) if attempt else {item['input_id'] for item in request['records']}
+            done = {item['input_id'] for item in request['records']} - selected
+            extraction = dict(request, records=[item for item in request['records'] if item['input_id'] in selected])
             db.execute("UPDATE wechat_jobs SET status='running' WHERE id=?", (job_id,))
             db.commit()
+            attempt_errors = []
             try:
                 assets = {a['file_ref']: Path(db.execute('SELECT path FROM wechat_assets WHERE ref=? AND user_id=?', (a['file_ref'], row['user_id'])).fetchone()['path']) for r in request['records'] for a in r['attachments'] if a.get('file_ref')}
                 result = recognize_v03(extraction, assets)
                 check_pair(extraction, result)
-                if previous and result['record_results']:
-                    outcomes = {item['input_id']:item for item in previous['record_results'] if item['input_id'] in done}
+                attempt_errors = result['errors']
+                if previous and not result['record_results']:
+                    result = previous
+                elif previous:
+                    outcomes = {item['input_id']:item for item in previous['record_results']}
                     outcomes.update({item['input_id']:item for item in result['record_results']})
                     prior = {item['candidate_id']: item for item in previous['tasks']}
                     tasks = list(prior.values()) + [item for item in result['tasks'] if item['candidate_id'] not in prior]
@@ -218,21 +246,27 @@ def _process(db_path, job_id):
                     failures = sum(item['status']=='failed' for item in outcomes.values())
                     partial = any(item['status']=='partial_success' for item in outcomes.values())
                     status = ('failed' if failures==len(request['records']) else 'partial_success') if failures else 'partial_success' if partial else 'success' if tasks else 'no_tasks'
-                    result = dict(contract_version='0.3', request_id=request['request_id'], status=status,
+                    result = dict(contract_version='0.3.1', request_id=request['request_id'], status=status,
                                   record_results=[outcomes[item['input_id']] for item in request['records']], tasks=tasks, errors=errors)
                     check_pair(request, result)
             except NotImplementedError:
+                attempt_errors = _failed_result(request)['errors']
                 result = previous if previous else _failed_result(request, message='附件读取适配器尚未接入；没有将其当作无任务')
             except (ValueError, KeyError, TypeError):
-                result = previous if previous else _failed_result(request, 'invalid_agent_output', '识别结果未通过 v0.3 校验；任务未新增')
+                attempt_errors = _failed_result(request,'invalid_agent_output','识别结果未通过 v0.3.1 校验')['errors']
+                result = previous if previous else _failed_result(request, 'invalid_agent_output', '识别结果未通过 v0.3.1 校验；任务未新增')
             except Exception:
+                attempt_errors = _failed_result(request)['errors']
                 result = previous if previous else _failed_result(request)
             status = {'success':'succeeded', 'no_tasks':'succeeded', 'partial_success':'partial_failed', 'failed':'failed'}[result['status']]
             try:
                 db.execute('BEGIN IMMEDIATE')
                 if status in ('succeeded', 'partial_failed'):
                     _apply_clear_tasks(db, row, result)
+                    _store_candidates(db, row, result)
                 db.execute('UPDATE wechat_jobs SET status=?,result=?,previous_result=NULL WHERE id=?', (status, json.dumps(result, ensure_ascii=False), job_id))
+                if row['retry_id']:
+                    db.execute('UPDATE wechat_retries SET status=?,errors=? WHERE job_id=? AND retry_id=?', (status,json.dumps(attempt_errors,ensure_ascii=False),job_id,row['retry_id']))
                 db.commit()
             except Exception:
                 db.rollback()
@@ -280,42 +314,48 @@ def route(handler, db, uid, path, body, data_dir):
         return _upload(handler, db, uid, data_dir)
     if path == '/api/sources/wechat/imports' and handler.command == 'GET':
         rows = db.execute('SELECT * FROM wechat_jobs WHERE user_id=? ORDER BY rowid DESC LIMIT 20', (uid,)).fetchall()
-        handler.reply(200, dict(jobs=[dict(_job(row), sources=_sources(json.loads(row['request']))) for row in rows]))
+        jobs = []
+        for row in rows:
+            attempt = db.execute('SELECT errors FROM wechat_retries WHERE job_id=? AND retry_id=?', (row['id'],row['retry_id'])).fetchone()
+            items = [dict(id=item['id'],candidate_id=json.loads(item['candidate'])['candidate_id'],state=item['state'],version=item['version']) for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,row['request_id']))]
+            jobs.append(dict(_job(row,db),sources=_sources(json.loads(row['request'])),items=items,last_attempt_errors=json.loads(attempt['errors']) if attempt and attempt['errors'] else []))
+        handler.reply(200, dict(jobs=jobs))
         return True
     if path == '/api/sources/wechat/imports' and handler.command == 'POST':
-        if body.get('contract_version') != '0.3':
-            raise MediaError(400, 'unsupported_version', '仅支持微信附件 v0.3 导入')
+        if body.get('contract_version') != '0.3.1':
+            raise MediaError(400, 'unsupported_version', '仅支持微信附件 v0.3.1 导入')
         try:
             check_request(body)
         except Exception:
-            raise MediaError(400, 'invalid_request', 'v0.3 导入请求格式不正确') from None
+            raise MediaError(400, 'invalid_request', 'v0.3.1 导入请求格式不正确') from None
+        db.execute('BEGIN IMMEDIATE')
         _validate_assets(db, uid, body)
         fingerprint = _fingerprint(body)
         row = db.execute('SELECT * FROM wechat_jobs WHERE user_id=? AND request_id=?', (uid, body['request_id'])).fetchone()
         if row:
             if row['fingerprint'] != fingerprint:
                 raise MediaError(409, 'request_conflict', '同一 request_id 对应不同内容')
-            handler.reply(200, dict(contract_version='0.3', job_id=row['id'], request_id=row['request_id'], status=row['status']))
+            handler.reply(200, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status=row['status']))
             return True
-        row = db.execute('SELECT * FROM wechat_jobs WHERE user_id=? AND fingerprint=? ORDER BY rowid DESC LIMIT 1', (uid, fingerprint)).fetchone()
-        if row:
-            handler.reply(200, dict(contract_version='0.3', job_id=row['id'], request_id=row['request_id'], status=row['status']))
-            return True
+        if db.execute('SELECT 1 FROM recognition_batches WHERE user_id=? AND request_id=?', (uid,body['request_id'])).fetchone():
+            raise MediaError(409, 'request_conflict', '请求编号已用于其他识别批次')
         if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= 20:
             raise MediaError(503, 'queue_busy', '导入队列已满，请稍后重试', True)
         job_id = 'job-' + secrets.token_urlsafe(18)
         db.execute('INSERT INTO wechat_jobs(id,user_id,request_id,fingerprint,request,status,result,previous_result,retry_id,attempts) VALUES(?,?,?,?,?,?,?,?,?,0)', (job_id, uid, body['request_id'], fingerprint, json.dumps(body, ensure_ascii=False), 'queued', None, None, None))
-        handler.reply(202, dict(contract_version='0.3', job_id=job_id, request_id=body['request_id'], status='queued'))
+        handler.reply(202, dict(contract_version='0.3.1', job_id=job_id, request_id=body['request_id'], status='queued'))
         threading.Thread(target=_process, args=(handler.media_db_path, job_id), daemon=True).start()
         return True
     parts = path[len('/api/sources/wechat/imports/'):].split('/') if path.startswith('/api/sources/wechat/imports/') else []
     if parts:
+        if handler.command == 'POST':
+            db.execute('BEGIN IMMEDIATE')
         row = db.execute('SELECT * FROM wechat_jobs WHERE id=? AND user_id=?', (parts[0], uid)).fetchone()
         if not row:
             raise MediaError(404, 'not_found', '导入任务不存在')
         if len(parts) == 1 and handler.command == 'GET':
-            result = _job(row)
-            schema('wechat-import', result, 'job')
+            result = _job(row, db)
+            check_job(json.loads(row['request']), result)
             handler.reply(200, result)
             return True
         if len(parts) == 2 and parts[1] == 'retry' and handler.command == 'POST':
@@ -324,15 +364,18 @@ def route(handler, db, uid, path, body, data_dir):
                 schema('wechat-import', body, 'retry')
             except Exception:
                 raise MediaError(400, 'invalid_request', '重试编号无效') from None
-            if row['retry_id'] == retry_id:
-                handler.reply(202, dict(contract_version='0.3', job_id=row['id'], request_id=row['request_id'], status=row['status']))
+            accepted = db.execute('SELECT status FROM wechat_retries WHERE job_id=? AND retry_id=?', (row['id'],retry_id)).fetchone()
+            if accepted:
+                handler.reply(200, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status=accepted['status']))
                 return True
             previous = json.loads(row['result']) if row['result'] else None
+            selected = retryable_records(previous) if previous else set()
             if (row['status'] not in ('failed','partial_failed') or row['attempts'] >= 3 or not previous
-                    or not any(error['retryable'] and error['stage'] in ('recognize','request') for error in previous['errors'])):
+                    or not selected):
                 raise MediaError(409, 'invalid_job_state', '当前任务不能重试')
+            db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
             db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))
-            handler.reply(202, dict(contract_version='0.3', job_id=row['id'], request_id=row['request_id'], status='queued'))
+            handler.reply(202, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status='queued'))
             threading.Thread(target=_process, args=(handler.media_db_path, row['id']), daemon=True).start()
             return True
     raise MediaError(404, 'not_found', '接口不存在')

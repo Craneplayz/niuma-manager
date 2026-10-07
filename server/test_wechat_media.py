@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import app
 import wechat_media
-from contracts.check_v03_examples import check_pair
+from contracts.check_v031_examples import check_pair
 
 
 class WechatMediaTests(unittest.TestCase):
@@ -59,7 +59,7 @@ class WechatMediaTests(unittest.TestCase):
         raw = b'\x89PNG\r\n\x1a\nabc'
         status, ack = self.call(a, '/sources/wechat/assets', 'POST', raw, token=token, multipart=True)
         self.assertEqual(status, 200)
-        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v03-request.json').read_text(encoding='utf-8'))
+        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
         asset = request['records'][0]['attachments'][0]
         asset.update({key:ack[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
         self.assertEqual(self.call(b, '/sources/wechat/imports', 'POST', request)[0], 404)
@@ -67,8 +67,10 @@ class WechatMediaTests(unittest.TestCase):
         self.assertEqual(status, 202)
         self.assertEqual(self.call(a, '/sources/wechat/imports', 'POST', request)[0], 200)
         same = copy.deepcopy(request); same['request_id'] = 'another-collection'; same['records'][0]['collected_at'] = '2026-10-02T20:05:00+08:00'
-        self.assertEqual(self.call(a, '/sources/wechat/imports', 'POST', same)[1]['job_id'], submitted['job_id'])
+        self.assertNotEqual(self.call(a, '/sources/wechat/imports', 'POST', same)[1]['job_id'], submitted['job_id'])
         changed = copy.deepcopy(request); changed['records'][0]['source_label'] = 'different'
+        self.assertEqual(self.call(a, '/sources/wechat/imports', 'POST', changed)[0], 409)
+        changed = copy.deepcopy(request); changed['records'][0]['collected_at'] = '2026-10-02T20:05:00+08:00'
         self.assertEqual(self.call(a, '/sources/wechat/imports', 'POST', changed)[0], 409)
         self.assertEqual(self.call(b, '/sources/wechat/imports/' + submitted['job_id'])[0], 404)
         for _ in range(100):
@@ -81,26 +83,19 @@ class WechatMediaTests(unittest.TestCase):
         self.assertNotEqual(job['result']['status'], 'no_tasks')
         check_pair(request, job['result'])
         status, retry = self.call(a, '/sources/wechat/imports/' + submitted['job_id'] + '/retry', 'POST', dict(retry_id='retry-once'))
-        self.assertEqual(status, 202)
-        self.assertEqual(self.call(a, '/sources/wechat/imports/' + submitted['job_id'] + '/retry', 'POST', dict(retry_id='retry-once'))[0], 202)
-        for _ in range(100):
-            _, job = self.call(a, '/sources/wechat/imports/' + submitted['job_id'])
-            if job['status'] == 'failed': break
-            time.sleep(.02)
-        self.assertEqual(job['status'], 'failed')
-        self.assertEqual(self.call(a, '/sources/wechat/imports/' + submitted['job_id'] + '/retry', 'POST', dict(retry_id='retry-twice'))[0], 202)
+        self.assertEqual(status, 409)
         self.assertEqual(self.call(a, '/sources/wechat/credential/revoke', 'POST', {})[0], 200)
         self.assertEqual(self.call(a, '/sources/wechat/imports/' + submitted['job_id'], token=token)[0], 401)
 
-    def test_valid_adapter_result_auto_adds_once_and_stays_owned(self):
+    def test_model_reported_candidates_require_confirmation_and_stay_owned(self):
         a, b = self.client('wechat-success@test.local'), self.client('wechat-success-other@test.local')
         raw = b'\x89PNG\r\n\x1a\nnew-image'
         _, ack = self.call(a, '/sources/wechat/assets', 'POST', raw, multipart=True)
-        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v03-request.json').read_text(encoding='utf-8'))
+        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
         request['request_id'] = 'wechat-success-test'
         asset = request['records'][0]['attachments'][0]
         asset.update({key:ack[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
-        result = json.loads((Path(__file__).parent.parent / 'contracts/text-to-app/text-attachments-v03-output.json').read_text(encoding='utf-8'))
+        result = json.loads((Path(__file__).parent.parent / 'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
         result['request_id'] = request['request_id']
         with patch.object(wechat_media, 'recognize_v03', return_value=result):
             status, submitted = self.call(a, '/sources/wechat/imports', 'POST', request)
@@ -110,17 +105,58 @@ class WechatMediaTests(unittest.TestCase):
                 if job['status'] == 'succeeded': break
                 time.sleep(.02)
         self.assertEqual(job['status'], 'succeeded')
-        self.assertEqual(len(self.call(a, '/workspace')[1]['tasks']['value']), 1)
+        self.assertEqual(len(self.call(a, '/workspace')[1].get('tasks',{}).get('value',[])), 0)
+        batch = self.call(a, '/recognition/batches')[1][0]
+        candidate = batch['items'][0]
+        self.assertTrue(candidate['candidate']['needs_review'])
+        self.assertEqual(candidate['state'], 'pending')
+        resolution = dict(action='create',version=candidate['version'],tasks_version=0,reviewed=True,
+                          draft=dict(title='提交实验报告',description='已核对附件',course='计算机系统导论',
+                                     due=dict(date='2026-10-05',time='09:00',precision='datetime')))
+        self.assertEqual(self.call(b, '/recognition/candidates/'+candidate['id']+'/resolve', 'POST',resolution)[0],404)
+        self.assertEqual(self.call(a, '/recognition/candidates/'+candidate['id']+'/resolve', 'POST',resolution)[0],200)
         self.assertEqual(len(self.call(b, '/workspace')[1].get('tasks', {}).get('value', [])), 0)
         self.assertEqual(self.call(a, '/sources/wechat/imports', 'POST', request)[0], 200)
         self.assertEqual(len(self.call(a, '/workspace')[1]['tasks']['value']), 1)
         self.assertEqual(len(self.call(a, '/sources/wechat/imports')[1]['jobs']), 1)
 
+    def test_failed_retry_envelope_preserves_candidates_and_retry_history(self):
+        client = self.client('wechat-retry-history@test.local')
+        cases = json.loads((Path(__file__).parent.parent / 'contracts/examples/text-attachments-v031-cases.json').read_text(encoding='utf-8'))
+        case = next(item for item in cases if item['name'] == 'recognition-timeout-preserves-first-task')
+        request, result = copy.deepcopy(case['request']), copy.deepcopy(case['expected'])
+        request['request_id'] = 'retry-history'
+        result['request_id'] = request['request_id']
+        def finished(job_id):
+            for _ in range(100):
+                _, job = self.call(client, '/sources/wechat/imports/'+job_id)
+                if job['status'] not in ('queued','running'): return job
+                time.sleep(.02)
+            self.fail('job did not finish')
+        with patch.object(wechat_media, 'recognize_v03', return_value=result):
+            _, ack = self.call(client, '/sources/wechat/imports', 'POST', request)
+            original = finished(ack['job_id'])
+        batch = self.call(client, '/recognition/batches')[1][0]
+        item = batch['items'][0]
+        self.assertEqual(self.call(client, '/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='ignore',version=item['version']))[0],200)
+        with patch.object(wechat_media, 'recognize_v03', side_effect=lambda body,assets:wechat_media._failed_result(body)) as model:
+            for retry_id in ['retry-A','retry-B']:
+                self.assertEqual(self.call(client, '/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id=retry_id))[0],202)
+                after = finished(ack['job_id'])
+                self.assertEqual(after['result']['tasks'],original['result']['tasks'])
+            self.assertEqual(self.call(client, '/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id='retry-A'))[0],200)
+            self.assertEqual(model.call_count,2)
+        self.assertEqual(self.call(client, '/recognition/batches')[1][0]['items'][0]['state'],'ignored')
+        self.assertEqual(self.call(client, '/sources/wechat/imports')[1]['jobs'][0]['last_attempt_errors'][0]['code'],'agent_unavailable')
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT attempts FROM wechat_jobs WHERE id=?',(ack['job_id'],)).fetchone()['attempts'],2)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_retries WHERE job_id=?',(ack['job_id'],)).fetchone()[0],2)
+
     def test_synthetic_file_rejects_spoofed_metadata_and_missing_reference(self):
         client = self.client('wechat-invalid@test.local')
         self.assertEqual(self.call(client, '/sources/wechat/assets', 'POST', b'not-a-png', multipart=True)[0], 400)
         _, ack = self.call(client, '/sources/wechat/assets', 'POST', b'\x89PNG\r\n\x1a\nsynthetic', multipart=True)
-        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v03-request.json').read_text(encoding='utf-8'))
+        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
         asset = request['records'][0]['attachments'][0]
         asset.update({key: ack[key] for key in ('file_ref', 'file_name', 'mime_type', 'size_bytes', 'sha256')})
         altered = copy.deepcopy(request)
@@ -132,7 +168,7 @@ class WechatMediaTests(unittest.TestCase):
 
     def test_restart_recovers_a_running_job_without_losing_it(self):
         a = self.client('wechat-recover@test.local')
-        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v03-request.json').read_text(encoding='utf-8'))
+        request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
         request['request_id'] = 'recover-synthetic'
         with app.connection() as db:
             uid = db.execute('SELECT id FROM users WHERE email=?', ('wechat-recover@test.local',)).fetchone()['id']
@@ -147,7 +183,7 @@ class WechatMediaTests(unittest.TestCase):
 
     def test_partial_retry_keeps_candidate_and_only_retries_failed_record(self):
         a = self.client('wechat-partial@test.local')
-        cases = json.loads((Path(__file__).parent.parent / 'contracts/examples/text-attachments-v03-cases.json').read_text(encoding='utf-8'))
+        cases = json.loads((Path(__file__).parent.parent / 'contracts/examples/text-attachments-v031-cases.json').read_text(encoding='utf-8'))
         case = next(item for item in cases if item['name'] == 'recognition-timeout-preserves-first-task')
         request, partial = case['request'], case['expected']
         complete = copy.deepcopy(partial)

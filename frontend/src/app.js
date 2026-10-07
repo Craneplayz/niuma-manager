@@ -1,6 +1,6 @@
 import {dayKey,offsetDay,priorityLabels,statusLabels,isBlocked} from './data.js';
 import {api,readStore,saveStore,deleteStoredTasks,session,initSession,authenticate,logout,retrySave,refreshStore,flushStore,workspaceValue} from './store.js';
-import {assistantPage,sourceManagementPage,configureAssistant,handleAssistantClick,handleAssistantInput,handleAssistantSubmit,resetAssistant,leaveAssistant} from './team-recognition-ui.js';
+import {assistantPage,sourceManagementPage,configureAssistant,handleAssistantClick,handleAssistantInput,handleAssistantSubmit,resetAssistant,leaveAssistant,openMediaCandidate} from './team-recognition-ui.js';
 import {icon} from './icons.js';
 import {selectTasks} from './productivity.js';
 import {configureExperience,experienceClick,experienceInput,experienceKey,focusPill,switchFocusAccount} from './experience.js';
@@ -163,7 +163,7 @@ function exportCalendar(){
 configureAssistant({proposeForTasks,getState:()=>state,editTask:taskDialog,render,persist,toast,openDialog,closeDialog,dialogHeader,refresh:async()=>{state=await refreshStore();render();}});
 configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
 configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:planDialog,refresh:async()=>{state=await refreshStore();render();}});
-configureWechatMedia({render,getState:()=>state,proposeForTasks,refresh:async()=>{state=await refreshStore();render();}});
+configureWechatMedia({render,getState:()=>state,proposeForTasks,reviewCandidate:openMediaCandidate,refresh:async()=>{state=await refreshStore();render();}});
 document.addEventListener('click',event=>{const button=event.target.closest?.('[data-media-action]');if(button)wechatMediaClick(button);});
 configurePersonalization({getState:()=>state,render,toast,openDialog,closeDialog,dialogHeader});
 configureScheduleEditor({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});

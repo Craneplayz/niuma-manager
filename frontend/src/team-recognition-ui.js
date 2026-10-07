@@ -64,7 +64,7 @@ function sourceSyncPanel(){
 function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#settings">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源原文发送给文本识别服务。</label><button type="button" class="btn primary" data-agent-action="${busy?'stop':'sync-sources'}" ${!session.user?'disabled':''}>${busy?'停止导入':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>`;}
 export function sourceManagementPage(embedded=false){
  if(session.user&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
- const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${sourceImportPanel()}`;
+ const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${sourceImportPanel()}${wechatMediaPanel()}`;
  return embedded?`<div class="settings-source-management"><hr><h2>来源管理</h2>${content}</div>`:`<div class="page-heading"><h1>来源管理</h1></div>${content}`;
 }
 function sourceImportPanel(standalone=false){
@@ -94,6 +94,11 @@ async function load(refreshWorkspace=false){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';loaded=true;refresh();}
  catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
+}
+export async function openMediaCandidate(id){
+ await load(true);
+ const item=batches.flatMap(batch=>batch.items).find(item=>item.id===id);
+ if(item?.state==='pending')review(item);
 }
 async function autoApplyCandidates(requestId,current,previousIds,resumeAutoApply=false){
  let applied=0,failed=0;const appliedIds=[];
@@ -291,6 +296,7 @@ export async function handleAssistantClick(button){
  if(button.dataset.agentAction==='refresh'){await load(true);return;}
  if(button.dataset.agentRetry){
   const batch=batches.find(b=>b.request.request_id===button.dataset.agentRetry);
+  if(batch?.request.contract_version==='0.3.1'){location.hash='#settings';return;}
   if(batch&&!batch.demo)await submitRecognitionRequest(batch.request,()=>{
    const index=sourceImport?.requests?.findIndex(r=>r.request_id===batch.request.request_id);
    if(index>=0)sourceImport.sent.add(index);
