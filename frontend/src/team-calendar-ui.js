@@ -9,6 +9,8 @@ const dateAt=(date,days)=>{const result=new Date(date+'T12:00:00');result.setDat
 const monday=date=>{const d=new Date(date+'T12:00:00');return dateAt(date,-((d.getDay()+6)%7));};
 const hour=n=>pad(Math.floor(n))+':'+pad(Math.round((n%1)*60));
 export function calendarPage(state,week){
+ const completed=new Set(state.tasks.filter(task=>task.status==='done').map(task=>task.id)),now=Date.now();
+ state={...state,schedule:state.schedule.filter(plan=>!completed.has(plan.taskId)||Date.parse(plan.date+'T00:00:00+08:00')+plan.start*3600000<=now)};
  const current=dayKey(),start=dateAt(monday(current),week*7);
  const dates=view==='day'?[selectedDay]:view==='week'?Array.from({length:7},(_,i)=>dateAt(start,i)):Array.from({length:42},(_,i)=>dateAt(monday(selectedDay.slice(0,7)+'-01'),i));
  const ddl=state.tasks.filter(t=>t.status!=='done'&&t.due);

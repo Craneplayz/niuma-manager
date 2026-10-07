@@ -150,11 +150,32 @@ class ApiTests(unittest.TestCase):
         for bad in [dict(timer,remaining=-1),dict(timer,duration=10),dict(timer,taskId='foreign'),dict(timer,endsAt=float('inf'))]:
             self.assertEqual(self.call(a,'/data/focus','PUT',dict(value=bad,version=1))[0],400)
 
+    def test_task_completion_invalidates_an_unapplied_planning_proposal(self):
+        client=self.client();self.register(client,'completion-stale-plan@test.local')
+        day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
+        task=dict(id='finished',title='报告',status='not_started',plans=[],subtasks=[],due=dict(date=day,precision='date'))
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
+        result=dict(estimates={'finished':60},blocks=[dict(taskId='finished',title='写报告',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])
+        with patch.object(app.planning,'plan',return_value=result):
+            status,proposal=self.call(client,'/planning/proposals','POST',{})
+        self.assertEqual(status,200)
+        task['status']='completed'
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=1))[0],200)
+        self.assertEqual(self.call(client,'/planning/apply','POST',dict(requestId=proposal['requestId']))[0],409)
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],[task])
+        with patch.object(app.planning,'plan') as model:
+            self.assertEqual(self.call(client,'/planning/proposals','POST',{})[0],400)
+            model.assert_not_called()
+
     def test_harness_snapshot_exclusions_feedback_and_atomic_apply(self):
         a=self.client();self.register(a,'planner@test.local')
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
         base=dict(title='报告',description='测试',status='not_started',plans=[],subtasks=[],due=dict(date=day,precision='date'))
-        tasks=[dict(base,id='plan'),dict(base,id='excluded',planningExcluded=True),dict(base,id='done',status='completed')]
+        now=app.datetime.now(app.TZ)
+        completed_plans=[dict(id='done-future',title='已完成任务的未来安排',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00'),
+                         dict(id='done-started',title='已经开始的安排',startAt=(now-app.timedelta(minutes=15)).isoformat(),endAt=(now+app.timedelta(minutes=45)).isoformat()),
+                         dict(id='done-past',title='历史安排',startAt=(now-app.timedelta(days=1)).isoformat(),endAt=(now-app.timedelta(days=1,hours=-1)).isoformat())]
+        tasks=[dict(base,id='plan'),dict(base,id='excluded',planningExcluded=True),dict(base,id='done',status='completed',plans=completed_plans)]
         self.assertEqual(self.call(a,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='done',actualMinutes=80,recordedAt='2026-09-23T00:00:00Z')],version=0))[0],200)
         self.assertEqual(self.call(a,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='22:00',weekdays=list(range(7))),version=0))[0],200)
@@ -166,10 +187,13 @@ class ApiTests(unittest.TestCase):
             status,result=self.call(a,'/planning/proposals','POST',{})
         self.assertEqual(status,200)
         self.assertEqual([t['id'] for t in captured[0]['tasks']],['plan'])
+        self.assertEqual([p['id'] for p in captured[0]['existingPlans']],['done-started','done-past'])
+        self.assertEqual(captured[0]['completionHistory'][0]['task']['plans'],completed_plans)
         self.assertNotIn('startDate',captured[0]['availability'])
         self.assertNotIn('estimatedMinutes',captured[0]['tasks'][0])
         self.assertEqual(captured[0]['completionHistory'][0]['task']['title'],'报告')
         self.assertEqual(self.call(a,'/workspace')[1]['tasks']['value'][0]['plans'],[])
+        self.assertEqual(self.call(a,'/workspace')[1]['tasks']['value'][2]['plans'],completed_plans)
         status,applied=self.call(a,'/planning/apply','POST',dict(requestId=result['requestId']))
         self.assertEqual(status,200);self.assertEqual(len(applied['value'][0]['plans']),1)
         self.assertEqual(applied['value'][0]['due'],base['due'])
