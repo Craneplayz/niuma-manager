@@ -4,6 +4,8 @@ import io
 import tempfile
 import threading
 import unittest
+import shutil
+import subprocess
 from pathlib import Path
 from http.cookiejar import CookieJar
 from urllib.request import build_opener, HTTPCookieProcessor, Request
@@ -74,6 +76,60 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='wrong-password'))[0],401)
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='Test-password-2026'))[0],200)
         self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),1)
+
+    def test_calendar_editor_store_http_save_preserves_released_completed_history(self):
+        node=shutil.which('node')
+        if not node:self.skipTest('Node.js is required for the frontend HTTP integration')
+        client=self.client();self.register(client,'manual-calendar-http@test.local')
+        date='2099-10-08'
+        completed_plan=dict(id='released',title='已完成安排',startAt=date+'T19:00:00+08:00',endAt=date+'T20:00:00+08:00',origin='ai',isLocked=True)
+        active_plan=dict(id='active-plan',title='学习',startAt=date+'T21:00:00+08:00',endAt=date+'T22:00:00+08:00',origin='ai')
+        tasks=[dict(id='done',title='已完成任务',status='completed',plans=[completed_plan],subtasks=[],due=None),
+               dict(id='active',title='未完成任务',status='not_started',plans=[active_plan],subtasks=[],due=None)]
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
+        jar=next(handler.cookiejar for handler in client.handlers if isinstance(handler,HTTPCookieProcessor))
+        environment=dict(app.os.environ,NIUMA_TEST_API=self.base.rsplit('/api',1)[0],
+                         NIUMA_TEST_COOKIE='; '.join(cookie.name+'='+cookie.value for cookie in jar))
+        script='''
+import assert from 'node:assert/strict';
+globalThis.window=new EventTarget();globalThis.document=new EventTarget();
+globalThis.requestAnimationFrame=()=>0;
+globalThis.FormData=class {constructor(form){return new Map(Object.entries(form.values));}};
+Date.now=()=>Date.parse('2099-10-08T12:00:00+08:00');
+const realFetch=fetch;
+globalThis.fetch=(path,options={})=>realFetch(process.env.NIUMA_TEST_API+path,
+ {...options,headers:{...options.headers,Cookie:process.env.NIUMA_TEST_COOKIE}});
+const root=process.argv[1];
+const {initSession,saveStore,api}=await import(root+'/store.js');
+const {calendarPage,calendarClick}=await import(root+'/team-calendar-ui.js');
+const {configureScheduleEditor,scheduleEditorSubmit}=await import(root+'/schedule-editor.js');
+const state=await initSession();
+calendarClick({dataset:{calendarDay:'2099-10-08'}},()=>{});
+assert.doesNotMatch(calendarPage(state,0),/data-schedule-id="released"/);
+const error={textContent:''},form={id:'schedule-form',dataset:{planId:'active-plan',taskId:'active'},
+ values:{date:'2099-10-08',start:'19:00',endDate:'2099-10-08',end:'20:00',label:'学习'},
+ querySelector:()=>error,querySelectorAll:()=>[]};
+let finish,timer;const finished=new Promise(resolve=>{finish=resolve;});
+configureScheduleEditor({getState:()=>state,persist:()=>saveStore(state),closeDialog:()=>{},render:()=>{},toast:finish});
+assert.equal(scheduleEditorSubmit(form),true);
+try{assert.equal(await Promise.race([finished,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(error.textContent||'editor save timed out')),10000);})]),'学习时段已保存');}
+finally{clearTimeout(timer);}
+assert.equal(error.textContent,'');
+const saved=await api('/api/workspace');
+assert.equal(saved.tasks.version,2);
+assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'2099-10-08T19:00:00+08:00');
+'''
+        result=subprocess.run([node,'--input-type=module','-e',script,
+            (Path(__file__).resolve().parent.parent/'frontend/src').as_uri()],
+            env=environment,capture_output=True,text=True,encoding='utf-8',timeout=20)
+        self.assertEqual(result.returncode,0,result.stderr)
+        stored=self.call(client,'/workspace')[1]['tasks']
+        self.assertEqual(stored['version'],2)
+        by_id={task['id']:task for task in stored['value']}
+        self.assertEqual(by_id['done']['plans'],[completed_plan])
+        self.assertEqual(by_id['done']['status'],'completed')
+        self.assertEqual(by_id['active']['plans'][0]['id'],'active-plan')
+        self.assertEqual(by_id['active']['plans'][0]['origin'],'manual')
 
     def test_task_delete_permanently_removes_task_plans_feedback_and_dependencies(self):
         client=self.client();self.register(client,'delete@test.local')
