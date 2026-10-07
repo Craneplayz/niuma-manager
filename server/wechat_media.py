@@ -16,6 +16,7 @@ from email.policy import default
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zipfile import ZipFile, is_zipfile
+from urllib.parse import unquote
 
 from contracts.check_v031_examples import check_pair, check_request, check_job, check_retry_result, schema, request_fingerprint, retryable_records, check_asset_metadata
 
@@ -36,6 +37,10 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS wechat_retries(job_id TEXT NOT NULL, retry_id TEXT NOT NULL, targets TEXT NOT NULL, status TEXT NOT NULL, errors TEXT, PRIMARY KEY(job_id,retry_id));
     CREATE TABLE IF NOT EXISTS wechat_asset_lifetime(ref TEXT PRIMARY KEY, uploaded_at REAL NOT NULL);
     CREATE TABLE IF NOT EXISTS wechat_job_assets(job_id TEXT NOT NULL, ref TEXT NOT NULL, PRIMARY KEY(job_id,ref));
+    CREATE TABLE IF NOT EXISTS wechat_content_cache(user_id TEXT NOT NULL, content_key TEXT NOT NULL, job_id TEXT NOT NULL, PRIMARY KEY(user_id,content_key));
+    CREATE TABLE IF NOT EXISTS wechat_job_origins(job_id TEXT PRIMARY KEY, origin_job_id TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS wechat_pending_deletes(ref TEXT PRIMARY KEY, user_id TEXT NOT NULL, path TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS wechat_revoked_assets(ref TEXT PRIMARY KEY, user_id TEXT NOT NULL);
     ''')
     if 'errors' not in {row[1] for row in db.execute('PRAGMA table_info(wechat_retries)')}:
         db.execute('ALTER TABLE wechat_retries ADD COLUMN errors TEXT')
@@ -43,7 +48,43 @@ def initialize(db):
     db.execute('INSERT OR IGNORE INTO wechat_asset_lifetime SELECT ref,? FROM wechat_assets',(time.time(),))
     for row in db.execute('SELECT id,request FROM wechat_jobs'):
         _retain_assets(db,row['id'],json.loads(row['request']))
+    orphaned = {row[0] for row in db.execute('''SELECT user_id FROM wechat_assets WHERE user_id NOT IN(SELECT id FROM users)
+        UNION SELECT user_id FROM wechat_jobs WHERE user_id NOT IN(SELECT id FROM users)
+        UNION SELECT user_id FROM wechat_credentials WHERE user_id NOT IN(SELECT id FROM users)
+        UNION SELECT user_id FROM wechat_revoked_assets WHERE user_id NOT IN(SELECT id FROM users)''')}
+    for uid in orphaned:
+        remove_source(db,uid)
+    _purge_deleted_files(db)
     _expire_unreferenced(db)
+
+
+def _purge_deleted_files(db):
+    root = Path(db.execute('PRAGMA database_list').fetchone()[2]).parent.resolve()
+    for asset in db.execute('SELECT * FROM wechat_pending_deletes').fetchall():
+        path = Path(asset['path'])
+        if path.parent.resolve() != root/'wechat-assets'/asset['user_id']:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            continue
+        db.execute('DELETE FROM wechat_pending_deletes WHERE ref=?',(asset['ref'],))
+
+
+def remove_source(db, uid):
+    """Invalidate handles and jobs before cleanup; preserve user-owned tasks."""
+    db.execute('INSERT OR IGNORE INTO wechat_pending_deletes SELECT ref,user_id,path FROM wechat_assets WHERE user_id=?',(uid,))
+    db.execute('INSERT OR IGNORE INTO wechat_revoked_assets SELECT ref,user_id FROM wechat_assets WHERE user_id=?',(uid,))
+    for table in ('recognition_candidates','recognition_batches'):
+        db.execute(f'DELETE FROM {table} WHERE user_id=? AND request_id IN(SELECT request_id FROM wechat_jobs WHERE user_id=?)',(uid,uid))
+    for table in ('wechat_retries','wechat_job_assets','wechat_job_origins'):
+        db.execute(f'DELETE FROM {table} WHERE job_id IN(SELECT id FROM wechat_jobs WHERE user_id=?)',(uid,))
+    db.execute('DELETE FROM wechat_asset_lifetime WHERE ref IN(SELECT ref FROM wechat_assets WHERE user_id=?)',(uid,))
+    for table in ('wechat_content_cache','wechat_assets','wechat_credentials','wechat_jobs'):
+        db.execute(f'DELETE FROM {table} WHERE user_id=?',(uid,))
+    if not db.execute('SELECT 1 FROM users WHERE id=?',(uid,)).fetchone():
+        db.execute('DELETE FROM wechat_revoked_assets WHERE user_id=?',(uid,))
+    _purge_deleted_files(db)
 
 
 def _retain_assets(db, job_id, request):
@@ -55,12 +96,13 @@ def _retain_assets(db, job_id, request):
 
 def _asset_ttl():
     ttl = float(os.environ.get('WECHAT_UNREFERENCED_TTL_SECONDS','86400'))
-    if not math.isfinite(ttl) or ttl <= 0:
+    if not math.isfinite(ttl) or ttl < 300:
         raise ValueError('invalid_asset_ttl')
     return ttl
 
 
 def _expire_unreferenced(db, now=None):
+    _purge_deleted_files(db)
     expired = db.execute('''SELECT a.* FROM wechat_assets a JOIN wechat_asset_lifetime l ON l.ref=a.ref
         WHERE l.uploaded_at<? AND NOT EXISTS(SELECT 1 FROM wechat_job_assets j WHERE j.ref=a.ref)''',
         ((time.time() if now is None else now)-_asset_ttl(),)).fetchall()
@@ -76,6 +118,7 @@ def _expire_unreferenced(db, now=None):
             continue
         db.execute('DELETE FROM wechat_assets WHERE ref=?',(asset['ref'],))
         db.execute('DELETE FROM wechat_asset_lifetime WHERE ref=?',(asset['ref'],))
+        db.execute('INSERT OR IGNORE INTO wechat_revoked_assets VALUES(?,?)',(asset['ref'],asset['user_id']))
 
 
 def bearer_user(db, headers):
@@ -86,7 +129,7 @@ def bearer_user(db, headers):
     if not token or len(token) > 256:
         raise MediaError(401, 'unauthorized', '导入凭证无效')
     digest = hashlib.sha256(token.encode()).hexdigest()
-    row = db.execute('SELECT user_id,token_hash FROM wechat_credentials WHERE token_hash=?', (digest,)).fetchone()
+    row = db.execute('SELECT user_id,token_hash FROM wechat_credentials c JOIN users u ON u.id=c.user_id WHERE token_hash=?', (digest,)).fetchone()
     if not row or not hmac.compare_digest(row['token_hash'], digest):
         raise MediaError(401, 'unauthorized', '导入凭证无效')
     return row['user_id']
@@ -117,34 +160,17 @@ def _upload(handler, db, uid, data_dir):
     raw = handler.rfile.read(size)
     message = BytesParser(policy=default).parsebytes(b'Content-Type: ' + content_type.encode() + b'\r\nMIME-Version: 1.0\r\n\r\n' + raw)
     parts = list(message.iter_parts()) if message.is_multipart() else []
-    allowed = {'contract_version','file_name','mime_type','size_bytes','sha256'}
-    files, supplied = [], {}
-    for part in parts:
-        field = part.get_param('name',header='content-disposition')
-        if field == 'file':
-            files.append(part)
-        elif field in allowed and field not in supplied and part.get_filename() is None and not part.is_multipart():
-            value = part.get_payload(decode=True)
-            if value is None or len(value)>1024:
-                raise MediaError(400,'invalid_request','附件字段无效')
-            try:
-                supplied[field] = value.decode('utf-8')
-            except UnicodeDecodeError:
-                raise MediaError(400,'invalid_request','附件字段须使用 UTF-8') from None
-        else:
-            raise MediaError(400,'invalid_request','附件包含未知或重复字段')
-    if len(files) != 1 or files[0].is_multipart():
+    if (len(parts) != 1 or parts[0].is_multipart()
+            or parts[0].get_param('name',header='content-disposition') != 'file'
+            or parts[0].get_filename() is None):
         raise MediaError(400, 'invalid_request', '仅允许上传一个 file 附件')
-    data = files[0].get_payload(decode=True)
+    data = parts[0].get_payload(decode=True)
     if not data or len(data) > MAX_ASSET:
         raise MediaError(413, 'limit_exceeded', '附件为空或超过 20 MiB')
-    name = files[0].get_filename() or ''
+    name = parts[0].get_filename() or ''
     if not name or name in ('.', '..') or len(name) > 255 or '/' in name or '\\' in name:
         raise MediaError(400, 'invalid_request', '文件名无效')
     mime, digest = _asset_type(data), hashlib.sha256(data).hexdigest()
-    computed = dict(contract_version='0.3.1',file_name=name,mime_type=mime,size_bytes=str(len(data)),sha256=digest)
-    if any(value != computed[field] for field,value in supplied.items()):
-        raise MediaError(400,'asset_metadata_mismatch','附件声明与原件不一致')
     try:
         from contracts.check_v031_examples import check_file_name
         check_file_name(name)
@@ -154,15 +180,34 @@ def _upload(handler, db, uid, data_dir):
     _expire_unreferenced(db)
     row = db.execute('SELECT * FROM wechat_assets WHERE user_id=? AND sha256=?', (uid, digest)).fetchone()
     if row:
+        try:
+            account_asset_loader(handler.media_db_path,uid)(row['ref'],max_bytes=MAX_ASSET,timeout_seconds=10)
+        except (OSError,ValueError):
+            db.execute('INSERT OR IGNORE INTO wechat_revoked_assets VALUES(?,?)',(row['ref'],uid))
+            db.execute('INSERT OR IGNORE INTO wechat_pending_deletes VALUES(?,?,?)',(row['ref'],uid,row['path']))
+            db.execute('DELETE FROM wechat_assets WHERE ref=?',(row['ref'],))
+            db.execute('DELETE FROM wechat_asset_lifetime WHERE ref=?',(row['ref'],))
+            _purge_deleted_files(db)
+            row=None
+    if row:
         status, ref = 200, row['ref']
         name, mime = row['file_name'], row['mime_type']
     else:
         used = db.execute('SELECT COALESCE(SUM(size_bytes),0) FROM wechat_assets WHERE user_id=?', (uid,)).fetchone()[0]
+        for pending in db.execute('SELECT path FROM wechat_pending_deletes WHERE user_id=?',(uid,)):
+            pending_path=Path(pending['path'])
+            try:
+                expected=data_dir.resolve()/'wechat-assets'/uid
+                used += pending_path.lstat().st_size if pending_path.parent.resolve()==expected and not pending_path.is_symlink() else MAX_ASSET
+            except OSError:
+                used += MAX_ASSET
         if used + len(data) > 200 * 1024 * 1024:
             raise MediaError(413, 'limit_exceeded', '当前账号附件总量超过 200 MiB')
         status, ref = 201, 'asset:' + secrets.token_urlsafe(24)
         folder = data_dir / 'wechat-assets' / uid
-        folder.mkdir(parents=True, exist_ok=True)
+        folder.mkdir(mode=0o700,parents=True, exist_ok=True)
+        if folder.resolve()!=data_dir.resolve()/'wechat-assets'/uid:
+            raise MediaError(503,'queue_busy','附件存储目录不可用')
         path = folder / ref[6:]
         with path.open('xb') as target:
             if os.name == 'posix':
@@ -198,6 +243,38 @@ def _validate_assets(db, uid, request):
 
 def _fingerprint(request):
     return request_fingerprint(request)
+
+
+def _content_key(request):
+    """Semantic content is separate from the immutable request identity."""
+    from recognition import ROOT
+    from ddl_text.codex_client import live_options
+    try:
+        options = live_options(ROOT / '.env')
+        configuration = {key:options[key] for key in ('provider','model','endpoint')}
+    except (OSError,ValueError,KeyError,TypeError):
+        return None
+    files = ['ddl_text/media_pipeline.py','ddl_text/image_reader.py','ddl_text/media_schema.py',
+             'ddl_text/media_worker.py','ddl_text/skills/image-task-extraction/SKILL.md',
+             'ddl_text/time_validation.py','ddl_text/chat_client.py','ddl_text/config.py','server/wechat_media.py',
+             'contracts/check_v031_examples.py','contracts/check_v03_examples.py',
+             'contracts/schemas/bundle-v0.3.1.schema.json']
+    policy = {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in files}
+    content = copy.deepcopy(request)
+    del content['request_id']
+    for record in content['records']:
+        record.pop('collected_at',None)
+        for context in record['context']:
+            context.pop('collected_at',None)
+        for asset in record['attachments']:
+            asset.pop('file_ref',None)
+    encoded = json.dumps(dict(version=1,content=content,configuration=configuration,policy=policy),sort_keys=True,ensure_ascii=False,separators=(',',':'))
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest()
+
+
+def _origin_job(db, job_id):
+    origin = db.execute('SELECT origin_job_id FROM wechat_job_origins WHERE job_id=?',(job_id,)).fetchone()
+    return origin['origin_job_id'] if origin else job_id
 
 
 def _job(row, db=None):
@@ -338,12 +415,14 @@ def _apply_clear_tasks(db, row, result):
         db.execute('INSERT INTO workspace(user_id,name,value,version) VALUES(?,?,?,1) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=workspace.version+1', (row['user_id'], 'tasks', json.dumps(tasks, ensure_ascii=False)))
 
 
-def _store_candidates(db, row, result):
+def _store_candidates(db, row, result, origin_job_id=None):
     request = json.loads(row['request'])
     task_row = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (row['user_id'],)).fetchone()
     applied = {history.get('storageId') for task in json.loads(task_row['value']) for history in task.get('recognitionHistory', [])} if task_row else set()
     db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET result=excluded.result',
                (row['user_id'], row['request_id'], row['fingerprint'], row['request'], json.dumps(result, ensure_ascii=False)))
+    if origin_job_id and origin_job_id != row['id']:
+        return
     for candidate in result['tasks']:
         storage_id = row['id'] + ':' + candidate['candidate_id']
         state = 'applied' if storage_id in applied else 'pending'
@@ -368,9 +447,23 @@ def _process(db_path, job_id):
             db.execute("UPDATE wechat_jobs SET status='running' WHERE id=?", (job_id,))
             db.commit()
             attempt_errors = []
+            origin_job_id, content_key = job_id, None
             try:
                 assets = account_asset_loader(db_path, row['user_id'])
-                result = recognize_v03(extraction, assets)
+                content_key = _content_key(request)
+                cached = db.execute('''SELECT j.* FROM wechat_content_cache c JOIN wechat_jobs j ON j.id=c.job_id
+                    WHERE c.user_id=? AND c.content_key=? AND j.user_id=? AND j.status='succeeded' ''',
+                    (row['user_id'],content_key,row['user_id'])).fetchone() if content_key and not previous else None
+                if cached:
+                    # A cached semantic result does not grant access to revoked/corrupt files.
+                    for record in request['records']:
+                        for asset in record['attachments']:
+                            if asset.get('content_mode')=='file' and asset['status']=='available':
+                                assets(asset['file_ref'],max_bytes=asset['size_bytes'],timeout_seconds=10)
+                    result = dict(json.loads(cached['result']),request_id=request['request_id'])
+                    origin_job_id = _origin_job(db,cached['id'])
+                else:
+                    result = recognize_v03(extraction, assets)
                 check_pair(extraction, result)
                 attempt_errors = result['errors']
                 if previous and not result['record_results']:
@@ -403,6 +496,9 @@ def _process(db_path, job_id):
             except MediaError as error:
                 attempt_errors = _failed_result(request,error.code,error.message)['errors']
                 result = previous if previous else _failed_result(request,error.code,error.message)
+            except FileNotFoundError:
+                attempt_errors = _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')['errors']
+                result = previous if previous else _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')
             except (ValueError, KeyError, TypeError):
                 attempt_errors = _failed_result(request,'invalid_agent_output','识别结果未通过 v0.3.1 校验')['errors']
                 result = previous if previous else _failed_result(request, 'invalid_agent_output', '识别结果未通过 v0.3.1 校验；任务未新增')
@@ -412,10 +508,21 @@ def _process(db_path, job_id):
             status = {'success':'succeeded', 'no_tasks':'succeeded', 'partial_success':'partial_failed', 'failed':'failed'}[result['status']]
             try:
                 db.execute('BEGIN IMMEDIATE')
+                current = db.execute('SELECT status FROM wechat_jobs WHERE id=? AND user_id=?',(job_id,row['user_id'])).fetchone()
+                if not current or current['status']!='running':
+                    db.rollback()
+                    return
                 if status in ('succeeded', 'partial_failed'):
-                    _apply_clear_tasks(db, row, result)
-                    _store_candidates(db, row, result)
+                    if origin_job_id == job_id:
+                        _apply_clear_tasks(db, row, result)
+                        _store_candidates(db, row, result)
+                    else:
+                        db.execute('INSERT INTO wechat_job_origins VALUES(?,?)',(job_id,origin_job_id))
+                        _store_candidates(db,row,result,origin_job_id)
                 db.execute('UPDATE wechat_jobs SET status=?,result=?,previous_result=NULL WHERE id=?', (status, json.dumps(result, ensure_ascii=False), job_id))
+                if content_key and status=='succeeded' and not attempt_errors:
+                    db.execute('INSERT INTO wechat_content_cache VALUES(?,?,?) ON CONFLICT(user_id,content_key) DO UPDATE SET job_id=excluded.job_id',
+                               (row['user_id'],content_key,origin_job_id))
                 if row['retry_id']:
                     db.execute('UPDATE wechat_retries SET status=?,errors=? WHERE job_id=? AND retry_id=?', (status,json.dumps(attempt_errors,ensure_ascii=False),job_id,row['retry_id']))
                 db.commit()
@@ -446,6 +553,16 @@ def resume(db_path):
 def route(handler, db, uid, path, body, data_dir):
     if not path.startswith('/api/sources/wechat/'):
         return False
+    if path == '/api/sources/wechat/remove' and handler.command == 'POST':
+        if handler.headers.get('Authorization'):
+            raise MediaError(403,'forbidden','请在登录页面删除来源')
+        if body != {'confirmed':True}:
+            raise MediaError(400,'invalid_request','请确认删除原件和导入记录')
+        db.execute('BEGIN IMMEDIATE')
+        remove_source(db,uid)
+        pending = db.execute('SELECT COUNT(*) FROM wechat_pending_deletes WHERE user_id=?',(uid,)).fetchone()[0]
+        handler.reply(200,dict(configured=False,cleanup_pending=pending))
+        return True
     if path == '/api/sources/wechat/credential':
         if handler.headers.get('Authorization'):
             raise MediaError(403, 'forbidden', '请在登录页面管理导入凭证')
@@ -467,12 +584,31 @@ def route(handler, db, uid, path, body, data_dir):
         return True
     if path == '/api/sources/wechat/assets' and handler.command == 'POST':
         return _upload(handler, db, uid, data_dir)
+    if path.startswith('/api/sources/wechat/assets/') and handler.command == 'DELETE':
+        if handler.headers.get('Authorization'):
+            raise MediaError(403,'forbidden','请在登录页面撤销原件')
+        ref = unquote(path[len('/api/sources/wechat/assets/'):])
+        db.execute('BEGIN IMMEDIATE')
+        asset = db.execute('SELECT * FROM wechat_assets WHERE ref=? AND user_id=?',(ref,uid)).fetchone()
+        if not asset:
+            if not db.execute('SELECT 1 FROM wechat_revoked_assets WHERE ref=? AND user_id=?',(ref,uid)).fetchone():
+                raise MediaError(404,'not_found','附件不存在或不属于当前账号')
+        else:
+            db.execute('INSERT INTO wechat_revoked_assets VALUES(?,?)',(ref,uid))
+            db.execute('INSERT INTO wechat_pending_deletes VALUES(?,?,?)',(ref,uid,asset['path']))
+            db.execute('DELETE FROM wechat_assets WHERE ref=?',(ref,))
+            db.execute('DELETE FROM wechat_asset_lifetime WHERE ref=?',(ref,))
+            _purge_deleted_files(db)
+        handler.reply(204,{})
+        return True
     if path == '/api/sources/wechat/imports' and handler.command == 'GET':
+        _expire_unreferenced(db)
         rows = db.execute('SELECT * FROM wechat_jobs WHERE user_id=? ORDER BY rowid DESC LIMIT 20', (uid,)).fetchall()
         jobs = []
         for row in rows:
             attempt = db.execute('SELECT errors FROM wechat_retries WHERE job_id=? AND retry_id=?', (row['id'],row['retry_id'])).fetchone()
-            items = [dict(id=item['id'],candidate_id=json.loads(item['candidate'])['candidate_id'],state=item['state'],version=item['version']) for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,row['request_id']))]
+            origin = db.execute('SELECT request_id FROM wechat_jobs WHERE id=? AND user_id=?',(_origin_job(db,row['id']),uid)).fetchone()
+            items = [dict(id=item['id'],candidate_id=json.loads(item['candidate'])['candidate_id'],state=item['state'],version=item['version']) for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,origin['request_id']))]
             jobs.append(dict(_job(row,db),sources=_sources(json.loads(row['request'])),items=items,last_attempt_errors=json.loads(attempt['errors']) if attempt and attempt['errors'] else []))
         handler.reply(200, dict(jobs=jobs))
         return True
@@ -529,6 +665,8 @@ def route(handler, db, uid, path, body, data_dir):
             if (row['status'] not in ('failed','partial_failed') or row['attempts'] >= 3 or not previous
                     or not selected):
                 raise MediaError(409, 'invalid_job_state', '当前任务不能重试')
+            request=json.loads(row['request'])
+            _validate_assets(db,uid,dict(request,records=[record for record in request['records'] if record['input_id'] in selected]))
             db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
             db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))
             handler.reply(202, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status='queued'))

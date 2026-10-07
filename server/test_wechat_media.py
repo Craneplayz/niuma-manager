@@ -50,7 +50,8 @@ class WechatMediaTests(unittest.TestCase):
             response = client.open(Request(self.base + path, data, headers, method=method))
         except HTTPError as error:
             response = error
-        return response.status, json.loads(response.read())
+        raw=response.read()
+        return response.status, json.loads(raw) if raw else {}
 
     def test_upload_scope_import_idempotency_and_failure_is_not_no_tasks(self):
         a, b = self.client('wechat-a@test.local'), self.client('wechat-b@test.local')
@@ -114,22 +115,18 @@ class WechatMediaTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             loader(ack['file_ref'],max_bytes=100,timeout_seconds=1)
 
-    def test_collector_multipart_fields_are_optional_but_must_match_actual_bytes(self):
+    def test_collector_multipart_accepts_only_one_file_part(self):
         client = self.client('wechat-multipart@test.local')
         raw = b'\x89PNG\r\n\x1a\ncollector-body'
-        # Same field ordering/UTF-8 encoding as #121 f95a67a::_multipart_body.
-        fields = dict(file_name='work.png',mime_type='image/png',size_bytes=str(len(raw)),sha256=hashlib.sha256(raw).hexdigest())
-        status, ack = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=fields)
+        status, ack = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True)
         self.assertEqual(status,201)
-        self.assertEqual(ack['sha256'],fields['sha256'])
-        self.assertEqual(self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=dict(fields,contract_version='0.3.1'))[0],200)
-        for key in fields:
-            bad = dict(fields);bad[key]='wrong'
-            status, response = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=bad)
+        self.assertEqual(ack['sha256'],hashlib.sha256(raw).hexdigest())
+        self.assertEqual(ack['size_bytes'],len(raw))
+        self.assertEqual(self.call(client,'/sources/wechat/assets','POST',raw,multipart=True)[0],200)
+        for key in ('contract_version','file_name','mime_type','size_bytes','sha256','user_id','file'):
+            status, response = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields={key:'extra'})
             self.assertEqual(status,400)
-            self.assertEqual(response['error']['code'],'asset_metadata_mismatch')
-        self.assertEqual(self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=dict(fields,user_id='injected'))[0],400)
-        self.assertEqual(self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields={'file':'extra-file'})[0],400)
+            self.assertEqual(response['error']['code'],'invalid_request')
     def test_shared_reader_receives_only_the_bound_loader_and_model_configuration(self):
         try:
             from ddl_text.media_pipeline import process_media_request
@@ -311,6 +308,174 @@ class WechatMediaTests(unittest.TestCase):
         self.assertEqual(job['status'], 'succeeded')
         self.assertEqual(len(job['result']['tasks']), 1)
         self.assertEqual(job['result']['tasks'][0]['candidate_id'], partial['tasks'][0]['candidate_id'])
+
+
+    def test_content_cache_keeps_new_request_identity_and_old_user_decisions(self):
+        client = self.client('wechat-content-cache@test.local')
+        _, receipt = self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\ncache',multipart=True)
+        root = Path(__file__).parent.parent
+        request = json.loads((root/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        request['request_id'] = 'content-cache-first'
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        result = json.loads((root/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        def model(body,loader):
+            return dict(result,request_id=body['request_id'])
+        def finish(job_id):
+            for _ in range(100):
+                _, job = self.call(client,'/sources/wechat/imports/'+job_id)
+                if job['status'] not in ('queued','running'): return job
+                time.sleep(.02)
+            self.fail('cache job did not finish')
+        options = dict(provider='qiniu',key='synthetic-key',model='cache-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options),patch.object(wechat_media,'recognize_v03',side_effect=model) as adapter:
+            _, first = self.call(client,'/sources/wechat/imports','POST',request)
+            self.assertEqual(finish(first['job_id'])['status'],'succeeded')
+            item = self.call(client,'/recognition/batches')[1][0]['items'][0]
+            self.call(client,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='ignore',version=item['version']))
+            recollected = copy.deepcopy(request)
+            recollected['request_id'] = 'content-cache-recollected'
+            recollected['records'][0]['collected_at'] = '2026-10-07T10:00:00+08:00'
+            _, second = self.call(client,'/sources/wechat/imports','POST',recollected)
+            cached = finish(second['job_id'])
+            self.assertNotEqual(first['job_id'],second['job_id'])
+            self.assertEqual(second['request_id'],recollected['request_id'])
+            self.assertEqual(cached['result']['request_id'],recollected['request_id'])
+            check_pair(recollected,cached['result'])
+            self.assertEqual(adapter.call_count,1)
+            jobs = self.call(client,'/sources/wechat/imports')[1]['jobs']
+            self.assertEqual(jobs[0]['items'][0]['id'],item['id'])
+            self.assertEqual(jobs[0]['items'][0]['state'],'ignored')
+            batches=self.call(client,'/recognition/batches')[1]
+            self.assertEqual(len(batches),2)
+            self.assertEqual(sum(len(batch['items']) for batch in batches),1)
+            options['model'] = 'new-cache-model'
+            upgraded = dict(recollected,request_id='content-cache-new-policy')
+            _, third = self.call(client,'/sources/wechat/imports','POST',upgraded)
+            self.assertEqual(finish(third['job_id'])['status'],'succeeded')
+            self.assertEqual(adapter.call_count,2)
+
+    def test_content_key_includes_message_context_publication_and_policy_but_not_handles(self):
+        request = json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        options = dict(provider='qiniu',key='synthetic-key',model='key-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options):
+            key = wechat_media._content_key(request)
+            changed = copy.deepcopy(request);changed['request_id']='other-id'
+            changed['records'][0]['collected_at']='2026-10-07T10:00:00+08:00'
+            changed['records'][0]['attachments'][0]['file_ref']='asset:resigned_handle_1234567890'
+            self.assertEqual(wechat_media._content_key(changed),key)
+            for field in ('input_id','source_item_id','text','source_label'):
+                changed = copy.deepcopy(request);changed['records'][0][field]='different-value'
+                self.assertNotEqual(wechat_media._content_key(changed),key)
+            changed = copy.deepcopy(request);changed['records'][0]['context'][0]['text']='different-context'
+            self.assertNotEqual(wechat_media._content_key(changed),key)
+            changed = copy.deepcopy(request);changed['records'][0]['attachments'][0]['sha256']='0'*64
+            self.assertNotEqual(wechat_media._content_key(changed),key)
+            options['key']='rotated-secret'
+            self.assertEqual(wechat_media._content_key(request),key)
+
+    def test_source_removal_invalidates_handles_and_cannot_revive_a_late_result(self):
+        client = self.client('wechat-source-remove@test.local')
+        other = self.client('wechat-source-keep@test.local')
+        raw = b'\x89PNG\r\n\x1a\nremove-source'
+        _, receipt = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True)
+        _, other_receipt = self.call(other,'/sources/wechat/assets','POST',raw,multipart=True)
+        _, credential = self.call(client,'/sources/wechat/credential','POST',{})
+        root = Path(__file__).parent.parent
+        request = json.loads((root/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        request['request_id']='remove-running-source'
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        result = json.loads((root/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        result['request_id']=request['request_id']
+        started, release, finished = threading.Event(),threading.Event(),threading.Event()
+        def model(body,loader):
+            started.set();release.wait(5)
+            return result
+        original_process=wechat_media._process
+        def worker(*args):
+            try: original_process(*args)
+            finally: finished.set()
+        with app.connection() as db:
+            uid=db.execute('SELECT id FROM users WHERE email=?',('wechat-source-remove@test.local',)).fetchone()['id']
+            path=Path(db.execute('SELECT path FROM wechat_assets WHERE ref=?',(receipt['file_ref'],)).fetchone()['path'])
+            db.execute('INSERT INTO workspace VALUES(?,?,?,?)',(uid,'tasks',json.dumps([dict(id='keep-user-task',title='已确认任务')]),1))
+        with patch.object(wechat_media,'recognize_v03',side_effect=model),patch.object(wechat_media,'_process',side_effect=worker):
+            _, ack=self.call(client,'/sources/wechat/imports','POST',request)
+            self.assertTrue(started.wait(3))
+            self.assertEqual(self.call(client,'/sources/wechat/remove','POST',{})[0],400)
+            self.assertEqual(self.call(client,'/sources/wechat/remove','POST',dict(confirmed=True),token=credential['token'])[0],403)
+            status,deleted=self.call(client,'/sources/wechat/remove','POST',dict(confirmed=True))
+            self.assertEqual(status,200)
+            self.assertEqual(deleted['cleanup_pending'],0)
+            release.set();self.assertTrue(finished.wait(3))
+        self.assertFalse(path.exists())
+        self.assertEqual(self.call(client,'/sources/wechat/imports/'+ack['job_id'])[0],404)
+        self.assertEqual(self.call(client,'/sources/wechat/imports')[1]['jobs'],[])
+        self.assertEqual(self.call(client,'/recognition/batches')[1],[])
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'][0]['id'],'keep-user-task')
+        self.assertEqual(self.call(client,'/sources/wechat/imports',token=credential['token'])[0],401)
+        with self.assertRaises(FileNotFoundError):
+            wechat_media.account_asset_loader(app.DB,uid)(receipt['file_ref'],max_bytes=100,timeout_seconds=1)
+        with app.connection() as db:
+            self.assertIsNotNone(db.execute('SELECT 1 FROM wechat_assets WHERE ref=?',(other_receipt['file_ref'],)).fetchone())
+
+    def test_deleted_account_and_locked_file_cleanup_are_recovered_on_startup(self):
+        client = self.client('wechat-deleted-account@test.local')
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\naccount-cleanup',multipart=True)
+        _,credential=self.call(client,'/sources/wechat/credential','POST',{})
+        with app.connection() as db:
+            uid=db.execute('SELECT id FROM users WHERE email=?',('wechat-deleted-account@test.local',)).fetchone()['id']
+            path=Path(db.execute('SELECT path FROM wechat_assets WHERE ref=?',(receipt['file_ref'],)).fetchone()['path'])
+            db.execute('DELETE FROM users WHERE id=?',(uid,))
+            with patch.object(Path,'unlink',side_effect=PermissionError('synthetic locked file')):
+                wechat_media.initialize(db)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_pending_deletes WHERE user_id=?',(uid,)).fetchone()[0],1)
+        self.assertEqual(self.call(client,'/sources/wechat/imports',token=credential['token'])[0],401)
+        with app.connection() as db:
+            wechat_media.initialize(db)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_pending_deletes WHERE user_id=?',(uid,)).fetchone()[0],0)
+        self.assertFalse(path.exists())
+
+    def test_asset_revocation_is_owner_idempotent_and_reupload_signs_a_new_handle(self):
+        client=self.client('wechat-revoke-asset@test.local')
+        other=self.client('wechat-revoke-other@test.local')
+        raw=b'\x89PNG\r\n\x1a\nrevoke-one-file'
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',raw,multipart=True)
+        path='/sources/wechat/assets/'+receipt['file_ref']
+        _,credential=self.call(client,'/sources/wechat/credential','POST',{})
+        self.assertEqual(self.call(client,path,'DELETE',token=credential['token'])[0],403)
+        self.assertEqual(self.call(other,path,'DELETE')[0],404)
+        self.assertEqual(self.call(client,path,'DELETE')[0],204)
+        self.assertEqual(self.call(client,path,'DELETE')[0],204)
+        status,reuploaded=self.call(client,'/sources/wechat/assets','POST',raw,multipart=True)
+        self.assertEqual(status,201)
+        self.assertNotEqual(receipt['file_ref'],reuploaded['file_ref'])
+        self.assertEqual(self.call(client,path,'DELETE')[0],204)
+        root=Path(__file__).parent.parent
+        request=json.loads((root/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        self.assertEqual(self.call(client,'/sources/wechat/imports','POST',request)[0],404)
+
+    def test_revoked_file_cannot_be_retried_after_a_recoverable_model_failure(self):
+        try:
+            from ddl_text.tests.media_cases import FakeMediaClient,image_bytes,request_for
+        except ImportError:
+            self.skipTest('image runtime dependencies unavailable')
+        client=self.client('wechat-revoked-retry@test.local')
+        pixels=image_bytes();request,_=request_for(pixels)
+        request['request_id']='revoked-file-retry'
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',pixels,multipart=True)
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.chat_client.ChatClient',return_value=FakeMediaClient(behavior='failure')):
+            _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+        self.assertEqual(job['status'],'failed')
+        self.assertTrue(wechat_media.retryable_records(job['result']))
+        self.assertEqual(self.call(client,'/sources/wechat/assets/'+receipt['file_ref'],'DELETE')[0],204)
+        self.assertEqual(self.call(client,'/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id='after-revocation'))[0],404)
 
 
 if __name__ == '__main__': unittest.main()

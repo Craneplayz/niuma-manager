@@ -12,6 +12,8 @@ let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',publis
 export function configureAssistant(callbacks){host=callbacks;}
 export function resetAssistant(){reviewScope='current';newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
+let candidateRevision=0;
+window.addEventListener('niuma:recognition-changed',()=>{candidateRevision++;batches=[];loaded=false;refresh();});
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#settings','#sources'].includes(location.hash))host.render();};
 export const canAutoApplyCandidate=(c,batch)=>{
@@ -91,10 +93,11 @@ export function suggestedDue(d){
  return {date:p.year+'-'+p.month+'-'+p.day,time:stamp.getUTCSeconds()||stamp.getUTCMilliseconds()?'':p.hour+':'+p.minute};
 }
 async function load(refreshWorkspace=false){
+ const revision=candidateRevision;
  if(!session.user)return;
- const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ const epoch=accountVersion(),current=()=>epoch===accountVersion()&&revision===candidateRevision;
  try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';loaded=true;refresh();}
- catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
+ catch(e){if(!current())return;error=e.message;loaded=true;refresh();}
 }
 export async function openMediaCandidate(id){
  await load(true);

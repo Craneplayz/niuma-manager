@@ -76,7 +76,7 @@ class ApiError(Exception):
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, value, cookie=None):
-        data=json.dumps(value,ensure_ascii=False).encode()
+        data=b'' if status==204 else json.dumps(value,ensure_ascii=False).encode()
         if status<400 and getattr(self,'db',None) is not None:
             self.db.commit()
         self.send_response(status)

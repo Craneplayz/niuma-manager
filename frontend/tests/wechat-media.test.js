@@ -53,3 +53,29 @@ test('settings exposes review and ignore for persisted media candidates',async()
  assert.match(media.wechatMediaPanel(),/已忽略/);
  assert.doesNotMatch(media.wechatMediaPanel(),/data-media-action="review"/);
 });
+
+test('source deletion requires confirmation and discards a late polling response',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'remove-source'};location.hash='#settings';
+ const job={job_id:'job-stale',request_id:'request-stale',status:'succeeded',progress:{total_records:1,finished_records:1,failed_records:0},result:{status:'no_tasks',tasks:[],errors:[]}};
+ media.configureWechatMedia({render(){}});
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):response({jobs:[job]});
+ await media.load();
+ let resolveList,removed=0,changed=0;
+ const changedListener=()=>{changed++;};window.addEventListener('niuma:recognition-changed',changedListener);
+ globalThis.fetch=async(path,options)=>{
+  if(path.endsWith('/remove')){removed++;assert.deepEqual(JSON.parse(options.body),{confirmed:true});return response({configured:false,cleanup_pending:0});}
+  if(path.endsWith('/credential'))return response({configured:true});
+  return new Promise(resolve=>{resolveList=resolve;});
+ };
+ await media.wechatMediaClick({dataset:{mediaAction:'remove'}});
+ assert.equal(removed,0);
+ const poll=media.load();
+ await media.wechatMediaClick({dataset:{mediaAction:'prepare-remove'}});
+ assert.match(media.wechatMediaPanel(),/无法从本服务恢复/);
+ await media.wechatMediaClick({dataset:{mediaAction:'remove'}});
+ resolveList(response({jobs:[job]}));await poll;
+ assert.equal(removed,1);assert.equal(changed,1);
+ assert.doesNotMatch(media.wechatMediaPanel(),/微信导入 · 已完成/);
+ assert.match(media.wechatMediaPanel(),/日历中的任务保留/);
+ window.removeEventListener('niuma:recognition-changed',changedListener);
+});
