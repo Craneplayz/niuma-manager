@@ -47,15 +47,29 @@ function deadlineText(deadline){
  if(!Number.isFinite(value.getTime()))return '日期待核对';
  return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(value);
 }
+function readingDetails(data,job){
+ const states={complete:'已读取',partial:'仅部分读取',failed:'读取失败',available:'文字已提供',asset_missing:'原件缺失',upload_failed:'上传失败',unsupported:'格式不支持',encrypted:'文件已加密'};
+ const rows=(data.record_results||[]).flatMap(record=>(record.attachments||[]).map(asset=>{
+  const name=job.sources?.[record.input_id]?.assets?.[asset.asset_id]||'附件';
+  const notes=[...(asset.coverage?.unread_locations||[]),...(asset.quality_notes||[])];
+  const uncertain=asset.quality==='uncertain'||asset.uncertain_block_ids?.length;
+  return `<li><span>${esc(name)} · ${esc(states[asset.status]||'读取状态待确认')}${uncertain?' · 清晰度需核对':''}${asset.coverage?.truncated?' · 内容被截断':''}</span>${notes.length?`<ul>${notes.map(note=>`<li>${esc(note)}</li>`).join('')}</ul>`:''}</li>`;
+ }));
+ return rows.length?`<details><summary>附件读取情况</summary><ul>${rows.join('')}</ul></details>`:'';
+}
 function result(job){
  const data=job.result;
  if(!data)return '';
  const tasks=data.tasks||[];
  const errors=[...new Map([...(data.errors||[]),...(job.last_attempt_errors||[])].map(error=>[JSON.stringify(error),error])).values()];
  const retry=errors.some(item=>item.retryable&&['read','recognize'].includes(item.stage)&&['agent_timeout','agent_unavailable','file_read_failed'].includes(item.code));
+ const records=data.record_results||[],incomplete=records.some(record=>record.coverage?.complete===false),uncertain=records.some(record=>record.coverage?.uncertain===true);
+ const fullyRead=records.length>0&&records.every(record=>record.coverage?.complete===true&&record.coverage?.uncertain===false);
  return `<div class="wechat-media-result">${tasks.map(task=>{const item=job.items?.find(item=>item.candidate_id===task.candidate_id);return `<article class="draft-card"><h3>${esc(task.title)}</h3><p>${esc(task.description)}</p><p>${esc(deadlineText(task.deadline))} · ${item?.state==='applied'?'已加入任务':item?.state==='ignored'?'已忽略':task.needs_review?'待核对':'已识别'}</p><details><summary>来源依据</summary><ul>${task.evidence.map(item=>evidence(item,job)).join('')}</ul></details>${item?.state==='pending'?`<div class="button-row"><button class="btn primary" data-media-action="review" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>核对并确认</button><button class="btn" data-media-action="ignore" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;}).join('')}
- ${data.status==='no_tasks'?'<p>已完整识别，未发现任务。</p>':''}
- ${errors.map(item=>`<p class="error" role="alert">${esc(item.message)}${item.asset_id?' · 附件 '+esc(item.asset_id):''}${item.stage==='read'||item.stage==='collect'||item.stage==='upload'?'；请在本机重新获取或处理附件。':''}</p>`).join('')}
+ ${data.status==='no_tasks'?`<p>${fullyRead?'已完整识别，未发现任务。':incomplete?'本次未发现任务，仍有内容未读完整。':'本次未发现任务，读取情况仍需核对。'}</p>`:''}
+ ${data.status!=='no_tasks'&&(incomplete||uncertain)?`<p class="draft-warning">${incomplete?'部分内容未读完整，请核对。':'部分内容清晰度存疑，请核对。'}</p>`:''}
+ ${readingDetails(data,job)}
+ ${errors.map(item=>`<p class="error" role="alert">${esc(item.message)}${item.asset_id?' · '+esc(job.sources?.[item.input_id]?.assets?.[item.asset_id]||'附件'):''}${item.code==='file_ref_unavailable'?'；请重新上传原件。':item.stage==='collect'||item.stage==='upload'?'；请在本机重新获取或上传附件。':''}</p>`).join('')}
  ${retry?`<button class="btn" data-media-action="retry" data-media-job="${esc(job.job_id)}" ${busy?'disabled':''}>重试识别失败部分</button>`:''}</div>`;
 }
 export function wechatMediaPanel(){

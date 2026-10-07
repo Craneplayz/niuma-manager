@@ -20,9 +20,30 @@ test('source page distinguishes pending, failed, no tasks and shows validated ev
  assert.match(html,/作业\.png|第 2 页|模型读取/);
  assert.match(html,/&lt;作业要求&gt;/);
  assert.doesNotMatch(html,/file:\/\/|data-media-action="retry"/);
- job.status='succeeded';job.result={status:'no_tasks',tasks:[],errors:[]};
+ job.status='succeeded';job.result={status:'no_tasks',tasks:[],errors:[],record_results:[{coverage:{complete:true,uncertain:false},attachments:[]}]};
  await media.load();
  assert.match(media.wechatMediaPanel(),/已完整识别，未发现任务/);
+});
+
+test('attachment coverage and quality stay distinct from completed no-task recognition',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'coverage-display'};location.hash='#settings';
+ media.configureWechatMedia({render(){}});
+ const job={job_id:'coverage-job',status:'partial_failed',progress:{total_records:1,finished_records:1,failed_records:1},
+  sources:{message:{assets:{file:'作业图片.png'}}},result:{status:'partial_success',tasks:[],errors:[],record_results:[{
+   input_id:'message',coverage:{complete:false,uncertain:true},attachments:[{asset_id:'file',status:'partial',quality:'uncertain',
+    coverage:{complete:false,truncated:true,unread_locations:['底部<截止日期>未读取']},quality_notes:['文字模糊']}]}]}};
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):response({jobs:[job]});
+ await media.load();let html=media.wechatMediaPanel();
+ assert.match(html,/部分内容未读完整|仅部分读取|清晰度需核对|内容被截断/);
+ assert.match(html,/作业图片\.png|底部&lt;截止日期&gt;未读取|文字模糊/);
+ assert.match(html,/<details><summary>附件读取情况/);
+ assert.doesNotMatch(html,/<details open|已完整识别/);
+ job.result.status='no_tasks';await media.load();
+ assert.match(media.wechatMediaPanel(),/本次未发现任务，仍有内容未读完整/);
+ job.result.record_results[0].coverage={complete:true,uncertain:true};await media.load();
+ assert.match(media.wechatMediaPanel(),/读取情况仍需核对/);
+ assert.doesNotMatch(media.wechatMediaPanel(),/已完整识别/);
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
 });
 
 test('one-time credential is erased on account reset',async()=>{
