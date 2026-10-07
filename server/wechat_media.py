@@ -313,6 +313,13 @@ def _content_key(request):
              'ddl_text/time_validation.py','ddl_text/chat_client.py','ddl_text/config.py','server/wechat_media.py',
              'contracts/check_v031_examples.py','contracts/check_v03_examples.py',
              'contracts/schemas/bundle-v0.3.1.schema.json']
+    if (ROOT/'ddl_text/pdf_reader.py').is_file():
+        files.append('ddl_text/pdf_reader.py')
+        try:
+            from pypdfium2.version import PDFIUM_INFO, PYPDFIUM_INFO
+        except ImportError:
+            return None
+        configuration['pdf_runtime'] = [str(PYPDFIUM_INFO),str(PDFIUM_INFO)]
     policy = {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in files}
     content = copy.deepcopy(request)
     del content['request_id']

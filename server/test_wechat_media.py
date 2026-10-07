@@ -7,6 +7,7 @@ import threading
 import subprocess
 import socket
 import sys
+from types import ModuleType
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection, RemoteDisconnected
 import unittest
@@ -482,6 +483,34 @@ except OSError:sys.exit(26)
             self.assertNotEqual(wechat_media._content_key(changed),key)
             options['key']='rotated-secret'
             self.assertEqual(wechat_media._content_key(request),key)
+
+    def test_content_cache_versions_optional_pdf_reader_limits_and_actual_pdfium_runtime(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        options=dict(provider='qiniu',key='synthetic-key',model='key-model',endpoint='https://example.invalid/v1/chat/completions')
+        pdf_path=Path(__file__).parent.parent/'ddl_text/pdf_reader.py'
+        original_is_file,original_read_bytes=Path.is_file,Path.read_bytes
+        runtime=ModuleType('pypdfium2.version')
+        runtime.PYPDFIUM_INFO='synthetic-bindings-1';runtime.PDFIUM_INFO='synthetic-pdfium-1'
+        reader=[b'synthetic PDF reader and limits version 1']
+        with patch('ddl_text.codex_client.live_options',return_value=options):
+            with patch.object(Path,'is_file',lambda path: False if path==pdf_path else original_is_file(path)):
+                image_only=wechat_media._content_key(request)
+            self.assertIsNotNone(image_only)
+            with patch.object(Path,'is_file',lambda path: True if path==pdf_path else original_is_file(path)), \
+                    patch.object(Path,'read_bytes',lambda path: reader[0] if path==pdf_path else original_read_bytes(path)), \
+                    patch.dict(sys.modules,{'pypdfium2.version':runtime}):
+                key=wechat_media._content_key(request)
+                self.assertIsNotNone(key);self.assertNotEqual(key,image_only)
+                reader[0]=b'synthetic PDF reader and limits version 2'
+                updated_reader=wechat_media._content_key(request)
+                self.assertNotEqual(updated_reader,key)
+                runtime.PYPDFIUM_INFO='synthetic-bindings-2'
+                updated_bindings=wechat_media._content_key(request)
+                self.assertNotEqual(updated_bindings,updated_reader)
+                runtime.PDFIUM_INFO='synthetic-pdfium-2'
+                self.assertNotEqual(wechat_media._content_key(request),updated_bindings)
+                with patch.dict(sys.modules,{'pypdfium2.version':None}):
+                    self.assertIsNone(wechat_media._content_key(request))
 
     def test_source_removal_invalidates_handles_and_cannot_revive_a_late_result(self):
         client = self.client('wechat-source-remove@test.local')
