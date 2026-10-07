@@ -391,27 +391,27 @@ def account_asset_loader(db_path, uid):
     return load
 
 
-def _interrupted_record(request, record):
+def _interrupted_record(request, record, message=None):
     from contracts.check_v03_examples import coverage
     summaries, errors = [], []
     for asset in record['attachments']:
         errors.extend(dict(input_id=record['input_id'],asset_id=asset['asset_id'],block_id=None,**error) for error in asset['errors'])
         if asset.get('content_mode') == 'file':
             summaries.append(dict(asset_id=asset['asset_id'],content_mode='file',status='failed' if asset['status']=='available' else asset['status'],
-                reader_version='server-interrupted-v1',coverage_basis='unverified',
-                coverage=dict(complete=False,unread_locations=['处理进程中断，读取结果未保存'],truncated=False),
+                reader_version='server-unavailable-v1' if message else 'server-interrupted-v1',coverage_basis='unverified',
+                coverage=dict(complete=False,unread_locations=[message or '处理进程中断，读取结果未保存'],truncated=False),
                 quality='normal',quality_notes=[]))
             if not any(error['asset_id']==asset['asset_id'] and error['stage'] in ('collect','upload','read') for error in errors):
                 errors.append(dict(input_id=record['input_id'],asset_id=asset['asset_id'],block_id=None,stage='read',
-                    code='file_read_failed',message='处理进程中断，读取结果未保存。',retryable=asset['status']=='available'))
+                    code='file_read_failed',message=message or '处理进程中断，读取结果未保存。',retryable=asset['status']=='available'))
         else:
             summaries.append(dict(asset_id=asset['asset_id'],status=asset['status'],block_count=len(asset['blocks']),
                 uncertain_block_ids=[block['block_id'] for block in asset['blocks'] if block['quality']=='uncertain']))
     cov = coverage(record,summaries)
     cov['complete'] = False
-    outcome = dict(input_id=record['input_id'],status='failed',task_ids=[],warnings=['处理进程中断，请重试此记录。'],coverage=cov,attachments=summaries)
+    outcome = dict(input_id=record['input_id'],status='failed',task_ids=[],warnings=[message or '处理进程中断，请重试此记录。'],coverage=cov,attachments=summaries)
     error = dict(input_id=record['input_id'],asset_id=None,block_id=None,stage='recognize',code='agent_unavailable',
-        message='处理进程中断，未自动重复模型请求；可定向重试。',retryable=True)
+        message=message or '处理进程中断，未自动重复模型请求；可定向重试。',retryable=True)
     result = dict(contract_version='0.3.1',request_id=request['request_id'],status='failed',record_results=[outcome],tasks=[],errors=errors+[error])
     check_pair(dict(request,records=[record]),result)
     return result
@@ -441,11 +441,20 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
     with _ACTIVE:
         try:
             options = live_options(ROOT / '.env')
+            # The image adapter requires a multimodal Chat Completions provider.
+            if options['provider'] != 'qiniu' or not options['key'].strip():
+                raise ValueError('image_provider_unavailable')
         except (OSError,ValueError,KeyError,TypeError):
+            if checkpoint is not None and completed:
+                parts = []
+                for record in request['records']:
+                    part = completed.get(record['input_id'])
+                    if part is None:
+                        part = _interrupted_record(request,record,'模型配置不可用；已保存的记录保留，请配置后重试此记录。')
+                        checkpoint(record,part)
+                    parts.append(part)
+                return _combine_records(request,parts)
             raise MediaError(503,'agent_unavailable','图片识别配置不可用，请检查模型配置') from None
-        # The image adapter requires a multimodal Chat Completions provider.
-        if options['provider'] != 'qiniu' or not options['key'].strip():
-            raise MediaError(503,'agent_unavailable','图片识别需配置支持图片的模型服务')
         settings = Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=45,max_retries=0)
         if checkpoint is None:
             return process_media_request(request,assets,ChatClient(options['key']),settings)

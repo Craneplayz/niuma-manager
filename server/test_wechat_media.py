@@ -712,6 +712,32 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         self.assertEqual(recovered,result)
         options.assert_not_called()
 
+    def test_partial_saved_results_survive_unavailable_model_configuration(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        saved_record=request['records'][0]
+        request['records'] += [dict(copy.deepcopy(saved_record),input_id='interrupted-config'),
+                               dict(copy.deepcopy(saved_record),input_id='unstarted-config')]
+        completed={saved_record['input_id']:result,'interrupted-config':None}
+        for options in (ValueError('not configured'),dict(provider='codex',key='synthetic',model='test'),
+                        dict(provider='qiniu',key='',model='test')):
+            with self.subTest(options=type(options).__name__), \
+                    patch('ddl_text.codex_client.live_options',side_effect=options if isinstance(options,Exception) else None,
+                          return_value=options), \
+                    patch('ddl_text.media_pipeline.process_media_request') as adapter, \
+                    patch('ddl_text.chat_client.ChatClient') as client:
+                checkpoints=[]
+                recovered=wechat_media.recognize_v03(request,lambda *args,**kwargs:None,
+                    checkpoint=lambda record,part:checkpoints.append((record['input_id'],part)),completed=completed)
+                check_pair(request,recovered)
+                self.assertEqual(recovered['status'],'partial_success')
+                self.assertEqual(recovered['tasks'],result['tasks'])
+                self.assertEqual(recovered['record_results'][0],result['record_results'][0])
+                self.assertEqual(wechat_media.retryable_records(recovered),{'interrupted-config','unstarted-config'})
+                self.assertEqual([item[0] for item in checkpoints],['interrupted-config','unstarted-config'])
+                self.assertTrue(all('模型配置不可用' in item[1]['record_results'][0]['warnings'][0] for item in checkpoints))
+                adapter.assert_not_called();client.assert_not_called()
+
     def test_revoked_file_cannot_be_retried_after_a_recoverable_model_failure(self):
         try:
             from ddl_text.tests.media_cases import FakeMediaClient,image_bytes,request_for
