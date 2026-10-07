@@ -11,6 +11,7 @@ import {
   readAssignmentDetail,
 } from "../src/pku-assignment.js";
 import { toRecognitionRequests } from "../src/pku-recognition.js";
+import { enrichSourceAttachments } from "../src/pku-attachments.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 
 const detailUrl = "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?content_id=synthetic&course_id=course";
@@ -154,5 +155,54 @@ describe("assignment reference coverage", () => {
   it("does not call a due-date-only detail complete", () => {
     const enriched = enrichAssignmentSource(source(""), detailUrl, { state: "active", title: "HW", description: "", due_raw: "2026-12-31" });
     expect(enriched.text_quality).toBe("partial");
+  });
+});
+
+describe("review regression: description containers and text budgets", () => {
+  it("continues past empty placeholders to collect the real deadline and attachment", () => {
+    const html = '<h1>Upload Assignment: HW</h1><div data-assignment-description></div><div id="assignmentInfo"><div class="vtbegenerated">Submit report by 2026-10-12.<a href="/bbcswebdav/pid-1-dt-content-rid-2/HW.txt">HW.txt</a></div></div>';
+    const detail = parseAssignmentDetailHtml(html, detailUrl);
+    const result = enrichAssignmentSource(source("请按详情说明完成"), detailUrl, detail);
+    expect(detail.description).toContain("Submit report by 2026-10-12.");
+    expect(result.body).toContain("2026-10-12");
+    expect(result.references).toHaveLength(2);
+    expect(result.text_quality).toBe("partial");
+  });
+  it("keeps image-only containers and multiple later teacher blocks", () => {
+    const detail = parseAssignmentDetailHtml('<h1>Upload Assignment: HW</h1><div data-assignment-description><img src="/notice.png"></div><div id="assignmentInfo"><div class="vtbegenerated">Submit before 2026-10-12.</div><div class="vtbegenerated">Bring a printed report.</div></div>', detailUrl);
+    expect(detail.description).toContain("Submit before 2026-10-12.");
+    expect(detail.description).toContain("Bring a printed report.");
+    expect(detail.references?.[0].kind).toBe("image");
+    expect(enrichAssignmentSource(source(), detailUrl, detail).text_quality).toBe("partial");
+  });
+  it("retains a whole listing on oversized detail merge and still exports other records", async () => {
+    const original = source("a".repeat(60_000));
+    const detail = { state: "active" as const, title: "HW", description: "b".repeat(60_000), due_raw: "2026-12-31 18:00" };
+    const enriched = enrichAssignmentSource(original, detailUrl, detail);
+    const normal = { ...source("Submit report by 2026-12-31."), input_id: "synthetic:normal" };
+    const records = await enrichSourceAttachments([enriched, normal], vi.fn());
+    const [request] = toRecognitionRequests(records, "review:text-limit");
+    expect(request.records).toHaveLength(2);
+    const fallback = request.records[0];
+    expect(fallback.text).toBe(`${original.title}\n\n${original.body}`);
+    expect(fallback.text_quality).toBe("partial");
+    expect(fallback.upstream_hints.references[0]).toMatchObject({ content_read: false, read_status: "failed", reason: "too_large" });
+    expect(fallback.upstream_hints.raw.assignment_due_date).toBe(detail.due_raw);
+    expect(fallback.upstream_hints.warnings.join(" ")).toContain("manual review");
+    expect(request.records[1].text).toContain(normal.body);
+  });
+  it("counts title, separator and due-date text at the exact v0.2 boundary", () => {
+    const title = "HW";
+    const due = "2026-12-31";
+    const fact = `\n到期日期：${due}`;
+    const description = "a".repeat(100_000 - title.length - 2 - fact.length);
+    const original = source("");
+    const exact = enrichAssignmentSource(original, detailUrl, { state: "active", title, description, due_raw: due });
+    expect(toRecognitionRequests([exact])[0].records[0].text).toHaveLength(100_000);
+    const overflow = enrichAssignmentSource(original, detailUrl, { state: "active", title, description: description + "a", due_raw: due });
+    expect(overflow.body).toBe(original.body);
+    expect(overflow.references[0].reason).toBe("too_large");
+    expect(overflow.text_quality).toBe("summary");
+    expect(() => toRecognitionRequests([overflow])).not.toThrow();
   });
 });

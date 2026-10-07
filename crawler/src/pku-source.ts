@@ -18,6 +18,11 @@ export interface SourceReference {
   reason: string | null;
   text?: string;
 }
+export const MAX_SOURCE_TEXT_LENGTH = 100_000;
+export function sourceTextFits(title: string, body: string): boolean {
+  return [title, body].filter(Boolean).join("\n\n").length <= MAX_SOURCE_TEXT_LENGTH;
+}
+
 export const UNREAD_REFERENCE_WARNING = "linked pages, attachments and images were not read";
 
 export interface CourseSourceRecord {

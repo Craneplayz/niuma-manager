@@ -3,7 +3,7 @@ import { Worker } from "node:worker_threads";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import type { BrowserContext } from "playwright";
-import { UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
+import { UNREAD_REFERENCE_WARNING, sourceTextFits, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
 
 const ORIGIN = "https://course.pku.edu.cn";
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -65,7 +65,9 @@ export function authenticatedAttachmentReader(context: Pick<BrowserContext, "coo
 }
 
 function formatOf(reference: SourceReference): "pdf" | "txt" | null {
-  const name = `${reference.label} ${decodeURIComponent(new URL(reference.url).pathname)}`;
+  let path = "";
+  try { path = decodeURIComponent(new URL(reference.url).pathname); } catch { /* Invalid URLs are rejected before any download. */ }
+  const name = `${reference.label} ${path}`;
   if (/\.pdf(?:\s|$)/i.test(name)) return "pdf";
   if (/\.txt(?:\s|$)/i.test(name)) return "txt";
   return null;
@@ -90,7 +92,20 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
       const { parentPort, workerData } = require("node:worker_threads");
       (async () => {
         const { getDocument, OPS } = await import(workerData.module);
-        const loading = getDocument({ data: workerData.bytes, isEvalSupported: false, useSystemFonts: false, verbosity: 0 });
+        let degraded = false;
+        console.warn = () => { degraded = true; };
+        console.info = (message) => {
+          // PDF.js also logs successful page timings; these are not recovery diagnostics.
+          if (!/^Info: page=\\d+ - get(?:TextContent|OperatorList): time=\\d+ms(?:, len=\\d+)?$/.test(String(message))) degraded = true;
+        };
+        const loading = getDocument({ data: workerData.bytes, isEvalSupported: false, useSystemFonts: true, stopAtErrors: true, verbosity: 5 });
+        // Unknown graphics must not be mistaken for text just because extraction returned words.
+        const textOnlyOps = new Set([
+          "dependency", "save", "restore", "transform", "setLineWidth", "setLineCap", "setLineJoin", "setMiterLimit", "setDash", "setRenderingIntent", "setFlatness",
+          "beginText", "endText", "setCharSpacing", "setWordSpacing", "setHScale", "setLeading", "setFont", "setTextRenderingMode", "setTextRise", "moveText", "setLeadingMoveText", "setTextMatrix", "nextLine", "showText", "showSpacedText", "nextLineShowText", "nextLineSetSpacingShowText", "setCharWidth", "setCharWidthAndBounds",
+          "setStrokeColorSpace", "setFillColorSpace", "setStrokeColor", "setFillColor", "setStrokeGray", "setFillGray", "setStrokeRGBColor", "setFillRGBColor", "setStrokeCMYKColor", "setFillCMYKColor", "setStrokeTransparent", "setFillTransparent",
+          "markPoint", "markPointProps", "beginMarkedContent", "beginMarkedContentProps", "endMarkedContent", "beginCompat", "endCompat", "paintFormXObjectBegin", "paintFormXObjectEnd"
+        ].map((name) => OPS[name]));
         try {
           const pdf = await loading.promise;
           if (pdf.numPages > ${MAX_PAGES}) throw new Error("too_large");
@@ -101,7 +116,7 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
             const content = await page.getTextContent();
             const text = content.items.map((item) => "str" in item ? item.str + (item.hasEOL ? "\\n" : " ") : "").join("").trim();
             const ops = await page.getOperatorList();
-            partial ||= !text || ops.fnArray.some((op) => [OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.paintImageMaskXObjectGroup, OPS.paintInlineImageXObjectGroup, OPS.constructPath].includes(op));
+            partial ||= !text || ops.fnArray.some((op) => !textOnlyOps.has(op));
             partial ||= (await page.getAnnotations()).length > 0;
             pages.push(text);
             if (pages.join("\\n\\n").length > ${MAX_TEXT}) throw new Error("too_large");
@@ -109,7 +124,7 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
           }
           const text = pages.join("\\n\\n").trim();
           if (!text) throw new Error("empty_text");
-          parentPort.postMessage({ text, partial });
+          parentPort.postMessage({ text, partial: partial || degraded });
         } finally { await loading.destroy(); }
       })().catch((error) => parentPort.postMessage({ reason: ["too_large", "empty_text"].includes(error.message) ? error.message : "parse_failed" }));
     `, { eval: true, workerData: { bytes: file.bytes, module: pathToFileURL(createRequire(import.meta.url).resolve("pdfjs-dist/legacy/build/pdf.mjs")).href }, resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32 } });
@@ -135,11 +150,12 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
     for (const original of source.references) {
       let ref = { ...original };
       if (ref.kind === "attachment" && !ref.content_read) {
-        const cached = cache.get(ref.url);
+        const format = formatOf(ref);
+        const cacheKey = `${ref.url}\n${format}`;
+        const cached = format ? cache.get(cacheKey) : undefined;
         if (cached) ref = { ...cached, label: ref.label };
         else {
           try {
-            const format = formatOf(ref);
             if (!format) throw new ReadFailure("unsupported_format");
             if (!isTeacherAttachmentUrl(ref.url)) throw new ReadFailure("untrusted_attachment_url");
             const file = await read(ref.url).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
@@ -149,11 +165,11 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
             const reason = error instanceof ReadFailure ? error.message : "parse_failed";
             ref = { ...ref, content_read: false, read_status: ["unsupported_format", "untrusted_attachment_url"].includes(reason) ? "unsupported" : "failed", reason };
           }
-          cache.set(ref.url, ref);
+          if (format) cache.set(cacheKey, ref);
         }
         if (ref.text) {
           const addition = `${body ? "\n\n" : ""}附件正文：${ref.label || "未命名附件"}\n${ref.text}`;
-          if (source.title.length + body.length + addition.length + 2 > 100_000) {
+          if (!sourceTextFits(source.title, body + addition)) {
             delete ref.text;
             ref = { ...ref, content_read: false, read_status: "failed", reason: "too_large" };
           } else body += addition;

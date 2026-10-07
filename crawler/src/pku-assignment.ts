@@ -1,7 +1,7 @@
 import { load, type Cheerio, type CheerioAPI } from "cheerio";
 import type { AnyNode } from "domhandler";
 import type { Page } from "playwright";
-import { parseTeacherContent, UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
+import { parseTeacherContent, sourceTextFits, makeSourceReference, UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const ASSIGNMENT_PATH = /^\/webapps\/assignment\//i;
@@ -64,11 +64,18 @@ function dueValueFromLabel($: CheerioAPI, label: Cheerio<AnyNode>): string | nul
 
 function assignmentDescription($: CheerioAPI, baseUrl: string) {
   const selectors = ["[data-assignment-description]", "#assignmentDescription", ".assignment-description", "#assignmentInfo .vtbegenerated", ".assignmentInfo .vtbegenerated", "[data-role=assignment-info] .vtbegenerated"];
+  const texts: string[] = [];
+  const references: SourceReference[] = [];
   for (const selector of selectors) {
-    const node = $(selector).first();
-    if (node.length) return parseTeacherContent($, node, baseUrl);
+    for (const node of $(selector).toArray()) {
+      const parsed = parseTeacherContent($, $(node), baseUrl);
+      if (parsed.text && !texts.some((text) => normalize(text) === normalize(parsed.text))) texts.push(parsed.text);
+      for (const reference of parsed.references) {
+        if (!references.some((item) => item.url === reference.url && item.kind === reference.kind)) references.push(reference);
+      }
+    }
   }
-  return { text: "", references: [] as SourceReference[] };
+  return { text: texts.join("\n\n"), references };
 }
 
 /** Parse only stable, teacher-authored assignment information. Submission history stays private. */
@@ -139,6 +146,18 @@ function appendFact(body: string, fact: string): string {
   return body ? `${body}\n${fact}` : fact;
 }
 
+/** Keep a whole listing as fallback, with the omitted detail explicitly unread. */
+function retainListingOnOverflow(source: CourseSourceRecord, detailUrl: string, references: SourceReference[], assignment: NonNullable<CourseSourceRecord["assignment"]>): CourseSourceRecord {
+  const unread = references.map((ref) => ref.url === detailUrl
+    ? { ...ref, content_read: false, read_status: "failed" as const, reason: "too_large" } : ref);
+  if (!unread.some((ref) => ref.url === detailUrl)) unread.push({ ...makeSourceReference(source.title, detailUrl, "detail"), read_status: "failed", reason: "too_large" });
+  return {
+    ...source, references: unread, assignment,
+    text_quality: source.body ? "partial" : source.title ? "summary" : "missing",
+    warnings: warningsAfterRead(source, unread, ["assignment detail exceeds the v0.2 input limit; whole listing text retained for manual review"]),
+  };
+}
+
 /** Merge stable assignment facts without changing the listing-derived identity. */
 export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: string, detail: AssignmentDetail): CourseSourceRecord {
   const references = detail.state === "unknown"
@@ -160,6 +179,7 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
   if (detail.state === "submitted") {
     const body = /(?:提交状态|Submission status)\s*[:：]?\s*(?:已提交|Submitted)/i.test(source.body)
       ? source.body : appendFact(source.body, "提交状态：已提交");
+    if (!sourceTextFits(detail.title ?? source.title, body)) return retainListingOnOverflow(source, detailUrl, references, { state: "submitted", due_raw: null });
     return {
       ...source,
       title: detail.title ?? source.title,
@@ -176,6 +196,7 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
     body = `列表正文：${source.body}\n\n作业详情：${detail.description}`;
   }
   if (detail.due_raw && !normalize(body).includes(normalize(detail.due_raw))) body = appendFact(body, `到期日期：${detail.due_raw}`);
+  if (!sourceTextFits(detail.title ?? source.title, body)) return retainListingOnOverflow(source, detailUrl, references, { state: "active", due_raw: detail.due_raw });
   const unread = references.some((reference) => !reference.content_read);
   return {
     ...source,
