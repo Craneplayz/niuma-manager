@@ -34,7 +34,7 @@ def connection():
 def password_hash(password, salt):
     return hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),600000).hex()
 
-def initialize():
+def initialize(recover=True):
     DB.parent.mkdir(parents=True, exist_ok=True)
     with connection() as db:
         db.executescript('''
@@ -45,12 +45,13 @@ def initialize():
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
-        wechat_media.initialize(db)
+        wechat_media.initialize(db,recover=recover)
         task_decomposition.initialize(db)
-    wechat_media.resume(DB)
+    if recover:
+        wechat_media.resume(DB)
 
 def seed():
-    initialize()
+    initialize(recover=False)
     email, password = 'demo@niuma.test', 'Niuma-Test-2026!'
     with connection() as db:
         if db.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone():
@@ -354,8 +355,9 @@ def validate_proposal(request,result):
 
 if __name__=='__main__':
     import sys
-    initialize()
     if '--seed' in sys.argv: seed()
     else:
-        print('牛马管理器 API: http://127.0.0.1:1332',flush=True)
-        ThreadingHTTPServer(('127.0.0.1',1332),Handler).serve_forever()
+        with ThreadingHTTPServer(('127.0.0.1',1332),Handler) as server:
+            initialize()
+            print('牛马管理器 API: http://127.0.0.1:1332',flush=True)
+            server.serve_forever()

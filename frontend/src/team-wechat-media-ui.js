@@ -32,12 +32,12 @@ export async function load(){
  }catch(e){if(epoch===accountVersion()&&revision===sourceRevision){credential={configured:false};error=e.message;}}
  finally{if(epoch===accountVersion()&&revision===sourceRevision){loading=false;refresh();schedule();}}
 }
-function evidence(item,job){
+function evidence(item,job,task){
  const source=job.sources?.[item.input_id]||{};
  const name=item.asset_id?source.assets?.[item.asset_id]:null;
  const loc=item.locator;
  const position=loc?.page?'第 '+loc.page+' 页':loc?.paragraph?'第 '+loc.paragraph+' 段':'';
- return `<li><span>${esc(source.label||'微信消息')}${name?' · '+esc(name):''}${position?' · '+esc(position):''}${item.field==='attachment_file'?' · 模型读取':''}</span><blockquote>${esc(item.quote)}</blockquote></li>`;
+ return `<li><span>${esc(task.sources?.find(entry=>entry.input_id===item.input_id)?.label||source.label||'微信消息')}${name?' · '+esc(name):''}${position?' · '+esc(position):''}${item.field==='attachment_file'?' · 模型读取':''}</span><blockquote>${esc(item.quote)}</blockquote></li>`;
 }
 function deadlineText(deadline){
  if(deadline.status==='not_provided')return '待补日期';
@@ -65,7 +65,7 @@ function result(job){
  const retry=errors.some(item=>item.retryable&&['read','recognize'].includes(item.stage)&&['agent_timeout','agent_unavailable','file_read_failed'].includes(item.code));
  const records=data.record_results||[],incomplete=records.some(record=>record.coverage?.complete===false),uncertain=records.some(record=>record.coverage?.uncertain===true);
  const fullyRead=records.length>0&&records.every(record=>record.coverage?.complete===true&&record.coverage?.uncertain===false);
- return `<div class="wechat-media-result">${tasks.map(task=>{const item=job.items?.find(item=>item.candidate_id===task.candidate_id);return `<article class="draft-card"><h3>${esc(task.title)}</h3><p>${esc(task.description)}</p><p>${esc(deadlineText(task.deadline))} · ${item?.state==='applied'?'已加入任务':item?.state==='ignored'?'已忽略':task.needs_review?'待核对':'已识别'}</p><details><summary>来源依据</summary><ul>${task.evidence.map(item=>evidence(item,job)).join('')}</ul></details>${item?.state==='pending'?`<div class="button-row"><button class="btn primary" data-media-action="review" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>核对并确认</button><button class="btn" data-media-action="ignore" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;}).join('')}
+ return `<div class="wechat-media-result">${tasks.map(task=>{const item=job.items?.find(item=>item.candidate_id===task.candidate_id);return `<article class="draft-card"><h3>${esc(task.title)}</h3><p>${esc(task.description)}</p><p>${esc(deadlineText(task.deadline))} · ${item?.state==='applied'?'已加入任务':item?.state==='ignored'?'已忽略':task.needs_review?'待核对':'已识别'}</p><details><summary>来源依据</summary><ul>${task.evidence.map(item=>evidence(item,job,task)).join('')}</ul></details>${item?.state==='pending'?`<div class="button-row"><button class="btn primary" data-media-action="review" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>核对并确认</button><button class="btn" data-media-action="ignore" data-media-candidate="${esc(item.id)}" ${busy?'disabled':''}>忽略</button></div>`:''}</article>`;}).join('')}
  ${data.status==='no_tasks'?`<p>${fullyRead?'已完整识别，未发现任务。':incomplete?'本次未发现任务，仍有内容未读完整。':'本次未发现任务，读取情况仍需核对。'}</p>`:''}
  ${data.status!=='no_tasks'&&(incomplete||uncertain)?`<p class="draft-warning">${incomplete?'部分内容未读完整，请核对。':'部分内容清晰度存疑，请核对。'}</p>`:''}
  ${readingDetails(data,job)}

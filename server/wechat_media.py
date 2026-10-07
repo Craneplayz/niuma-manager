@@ -60,7 +60,7 @@ def read_body(handler, maximum):
     return b''.join(chunks)
 
 
-def initialize(db):
+def initialize(db, recover=True):
     db.executescript('''
     CREATE TABLE IF NOT EXISTS wechat_credentials(user_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, created_at REAL NOT NULL);
     CREATE TABLE IF NOT EXISTS wechat_assets(ref TEXT PRIMARY KEY, user_id TEXT NOT NULL, file_name TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, path TEXT NOT NULL);
@@ -76,7 +76,8 @@ def initialize(db):
     ''')
     if 'errors' not in {row[1] for row in db.execute('PRAGMA table_info(wechat_retries)')}:
         db.execute('ALTER TABLE wechat_retries ADD COLUMN errors TEXT')
-    db.execute("UPDATE wechat_jobs SET status='queued' WHERE status='running'")
+    if recover:
+        db.execute("UPDATE wechat_jobs SET status='queued' WHERE status='running'")
     db.execute('INSERT OR IGNORE INTO wechat_asset_lifetime SELECT ref,? FROM wechat_assets',(time.time(),))
     for row in db.execute('SELECT id,request FROM wechat_jobs'):
         _retain_assets(db,row['id'],json.loads(row['request']))
@@ -86,7 +87,8 @@ def initialize(db):
         UNION SELECT user_id FROM wechat_revoked_assets WHERE user_id NOT IN(SELECT id FROM users)''')}
     for uid in orphaned:
         remove_source(db,uid)
-    _recover_orphan_files(db)
+    if recover:
+        _recover_orphan_files(db)
     _purge_deleted_files(db)
     _expire_unreferenced(db)
 
@@ -354,7 +356,7 @@ def _sources(request):
     for record in request['records']:
         sources[record['input_id']] = dict(label=record['source_label'], assets={asset['asset_id']:asset['file_name'] for asset in record['attachments']})
         for context in record['context']:
-            sources[context['input_id']] = dict(label=context['source_label'], assets={})
+            sources.setdefault(context['input_id'],dict(label=context['source_label'],assets={}))
     return sources
 
 

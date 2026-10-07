@@ -5,6 +5,7 @@ import tempfile
 import time
 import threading
 import subprocess
+import socket
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
@@ -21,6 +22,55 @@ from contracts.check_v031_examples import check_pair
 
 
 class WechatMediaTests(unittest.TestCase):
+    def test_context_mapping_does_not_erase_primary_message_attachment_names(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        original=request['records'][0]
+        following=copy.deepcopy(original)
+        following.update(input_id='following-message',attachments=[],source_label='后续消息')
+        context=copy.deepcopy(original['context'][0])
+        context.update(input_id=original['input_id'],source_label='引用中的群名')
+        following['context']=[context]
+        for records in ([original,following],[following,original]):
+            with self.subTest(order=[record['input_id'] for record in records]):
+                mapped=wechat_media._sources(dict(request,records=records))
+                self.assertEqual(mapped[original['input_id']]['label'],original['source_label'])
+                self.assertEqual(mapped[original['input_id']]['assets'],
+                    {asset['asset_id']:asset['file_name'] for asset in original['attachments']})
+
+    def test_failed_port_binding_and_seeding_do_not_restart_an_existing_job(self):
+        client=self.client('wechat-startup-ownership@test.local')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        request['request_id']='existing-running-job'
+        with app.connection() as db:
+            uid=db.execute('SELECT id FROM users WHERE email=?',('wechat-startup-ownership@test.local',)).fetchone()['id']
+            db.execute('INSERT INTO wechat_jobs VALUES(?,?,?,?,?,?,?,?,?,0)',
+                ('job-existing-running',uid,request['request_id'],wechat_media._fingerprint(request),json.dumps(request),'running',None,None,None))
+        script='''
+import http.server,os,runpy,sys
+os.environ['NIUMA_DB']=sys.argv[1]
+original=http.server.ThreadingHTTPServer
+http.server.ThreadingHTTPServer=lambda address,handler:original(('127.0.0.1',int(sys.argv[2])),handler)
+import app
+import wechat_media
+wechat_media.recognize_v03=lambda body,*args,**kwargs:wechat_media._failed_result(body)
+try:runpy.run_module('app',run_name='__main__')
+except OSError:sys.exit(26)
+'''
+        with socket.socket() as occupied:
+            occupied.bind(('127.0.0.1',0));occupied.listen()
+            process=subprocess.run([sys.executable,'-X','utf8','-c',script,str(app.DB),str(occupied.getsockname()[1])],
+                cwd=Path(__file__).parent,capture_output=True,timeout=15)
+        self.assertEqual(process.returncode,26,process.stderr.decode('utf-8',errors='replace'))
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT status FROM wechat_jobs WHERE id="job-existing-running"').fetchone()['status'],'running')
+        with patch.object(wechat_media,'resume') as resume:
+            app.seed()
+            resume.assert_not_called()
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT status FROM wechat_jobs WHERE id="job-existing-running"').fetchone()['status'],'running')
+            db.execute('DELETE FROM wechat_job_assets WHERE job_id="job-existing-running"')
+            db.execute('DELETE FROM wechat_jobs WHERE id="job-existing-running"')
+
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()

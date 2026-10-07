@@ -46,6 +46,21 @@ test('attachment coverage and quality stay distinct from completed no-task recog
  window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
 });
 
+test('evidence labels follow each candidate context instead of a global overwritten label',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'context-evidence'};location.hash='#settings';
+ media.configureWechatMedia({render(){}});
+ const job={job_id:'context-label',status:'succeeded',progress:{total_records:1,finished_records:1,failed_records:0},
+  sources:{reply:{label:'其他记录的群名',assets:{file:'报告.png'}}},result:{status:'success',errors:[],tasks:[{
+   title:'交报告',description:'课程报告',deadline:{status:'not_provided'},needs_review:true,
+   sources:[{input_id:'reply',label:'候选引用的<课程群>'}],
+   evidence:[{input_id:'reply',asset_id:'file',field:'attachment_file',quote:'10月9日交报告',locator:{page:null,paragraph:null}}]}]}};
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):response({jobs:[job]});
+ await media.load();const html=media.wechatMediaPanel();
+ assert.match(html,/候选引用的&lt;课程群&gt; · 报告\.png · 模型读取/);
+ assert.doesNotMatch(html,/其他记录的群名|第 1 页/);
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
+});
+
 test('one-time credential is erased on account reset',async()=>{
  globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true,token:'private-once'}):response({jobs:[]});
  await media.wechatMediaClick({dataset:{mediaAction:'issue'}});
