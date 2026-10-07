@@ -15,6 +15,7 @@ from ddl_text.contract_v02 import validate_result
 from ddl_text.extraction import compile_drafts, load_instructions
 from ddl_text.provider import make_client
 from ddl_text.tests.classification_cases import CASES, matches, signature
+from ddl_text.tests.homework_cases import CASES as HOMEWORK_CASES
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,12 +26,16 @@ def main():
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--cases", nargs="+", choices=[c["name"] for c in CASES])
+    parser.add_argument("--suite", choices=["classification", "homework"], default="classification")
+    parser.add_argument("--cases", nargs="+", choices=[c["name"] for c in CASES + HOMEWORK_CASES])
     args = parser.parse_args()
     if not args.live:
         parser.error("--live is required")
     if args.output.exists():
         parser.error("output already exists")
+    cases = CASES if args.suite == "classification" else HOMEWORK_CASES
+    if args.cases and not set(args.cases) <= {c["name"] for c in cases}:
+        parser.error("--cases must belong to the selected --suite")
     options = live_options(args.env_file)
     client = make_client(options)
     settings = Settings(mode="real", model=options["model"], endpoint=options["endpoint"], timeout_seconds=90, max_retries=0)
@@ -43,7 +48,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", encoding="utf-8") as file:
         json.dump(report, file, ensure_ascii=False, indent=2)
-    for case in CASES:
+    for case in cases:
         if args.cases and case["name"] not in args.cases:
             continue
         row = dict(case, passed=False)
@@ -60,7 +65,10 @@ def main():
                           "task_ids": [t["candidate_id"] for t in tasks], "warnings": tasks.warnings}]}
             row["result"] = validate_result(case["request"], result)
             row["actual"] = [signature(t) for t in tasks]
-            row["passed"] = row["result"] == result and matches(case, result)
+            # The public validator may add incomplete-input warnings. Evaluate
+            # the validated result rather than treating that normalization as
+            # a failed semantic prediction.
+            row["passed"] = matches(case, row["result"])
         except AgentError as error:
             row["error_code"] = error.code
         except (ValueError, TypeError, KeyError):

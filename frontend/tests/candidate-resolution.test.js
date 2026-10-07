@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 globalThis.window=new EventTarget();
-const {buildResolution,deadlineLabel,suggestedDue,candidateCard}=await import('../src/team-recognition-ui.js');
+const {buildResolution,buildQuickResolution,deadlineLabel,suggestedDue,candidateCard}=await import('../src/team-recognition-ui.js');
 const item={version:3};
 const values={action:'create',title:'需求报告',description:'提交报告',course:'工程课',date:'2026-09-30',time:'',reviewed:'on'};
 
@@ -16,8 +16,13 @@ test('deadline display is concise and inferred dates remain reviewable',()=>{
  assert.deepEqual(suggestedDue({...d,value:'2026-09-29T09:00:30+08:00'}),{date:'2026-09-29',time:''});
  const html=candidateCard({id:'sample',state:'pending',candidate:{title:'交报告',description:'报告',notice_type:'create',deadline:d,review_reasons:[d.basis,'正文不完整'],prerequisites:[],evidence:[],sources:[]}});
  assert.equal(html.split(d.basis).length-1,1);
- assert.ok(html.indexOf(d.basis)>html.indexOf('<summary>证据与来源</summary>'));
+ assert.ok(html.indexOf(d.basis)>html.indexOf('<summary>查看证据</summary>'));
  assert.match(html,/<p class="draft-warning">正文不完整<\/p>/);
+ assert.match(html,/data-agent-confirm="sample"/);
+});
+test('quick confirmation creates the reviewed task draft directly',()=>{
+ const candidate={title:'需求报告',description:'提交报告',course_or_project:'工程课',deadline:{kind:'deadline',status:'explicit',precision:'date',value:'2026-09-30'}};
+ assert.deepEqual(buildQuickResolution({version:4,candidate},9),{action:'create',version:4,tasks_version:9,target_id:null,reviewed:true,draft:{title:'需求报告',description:'提交报告',course:'工程课',due:{date:'2026-09-30',precision:'date'}}});
 });
 
 test('a date-only candidate can become a task without fabricating a deadline time',()=>{

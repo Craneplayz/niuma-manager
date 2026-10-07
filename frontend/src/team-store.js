@@ -1,7 +1,7 @@
 // Adapts the collaborator's page state to the shared team workspace API.
 import {dayKey} from './data.js';
 export const session={user:null,backend:true,aiConfigured:false,sync:'saved',error:'',conflict:false,changing:false};
-const empty=()=>({version:1,tasks:[],courses:[],schedule:[],materials:[]});
+const empty=()=>({version:1,tasks:[],trash:[],courses:[],schedule:[],materials:[]});
 let workspace={},versions={},canonicalTasks=[],canonicalCourses=[],queue=Promise.resolve(),latest=null,failed=false;
 const clone=value=>structuredClone(value);
 let accountEpoch=0;
@@ -62,16 +62,18 @@ function toCanonical(task,previous){
   ...(task.id.startsWith('example-')&&Number.isFinite(task.hours)?{estimatedMinutes:task.hours*60}:{}),
   location:task.location||'',owner:task.owner||'',dependsOn:task.dependsOn||'',
   subtasks:(task.subtasks||[]).map(s=>{const previous=stepsById.get(s.id)||oldSteps.get(s.title)||{};return {...previous,id:s.id||previous.id||crypto.randomUUID(),title:s.title,status:s.done?'completed':'pending'};}),
-  plans:old.plans||[]};
+  plans:[]};
 }
 function view(){
  canonicalTasks=clone(workspace.tasks?.value||[]);
  canonicalCourses=clone(workspace.courses?.value||[]);
- const tasks=canonicalTasks.filter(t=>t.status!=='cancelled').map(toView);
- const schedule=canonicalTasks.filter(t=>t.status!=='cancelled').flatMap(t=>(t.plans||[]).map(p=>({
+ const active=canonicalTasks.filter(t=>t.status!=='cancelled'&&!t.recycleBin);
+ const tasks=active.map(toView);
+ const trash=canonicalTasks.filter(t=>t.recycleBin).map(t=>toView({...t,status:t.recycleBin.status}));
+ const schedule=active.flatMap(t=>(t.plans||[]).map(p=>({
   id:p.id,taskId:t.id,date:planDateTime(p.startAt).date,start:planDateTime(p.startAt).hour,
   hours:p.endAt?(Date.parse(p.endAt)-Date.parse(p.startAt))/3600000:1,label:p.title})));
- return {version:1,tasks,courses:canonicalCourses.map(c=>({...c,color:c.color||'blue',description:c.notes||''})),
+ return {version:1,tasks,trash,courses:canonicalCourses.map(c=>({...c,color:c.color||'blue',description:c.notes||''})),
   schedule,materials:clone(workspace.materials?.value||[])};
 }
 export async function initSession(){
@@ -94,15 +96,18 @@ export async function initSession(){
 export async function refreshStore(){const epoch=accountEpoch;await flushStore();if(epoch!==accountEpoch)throw new Error('账号已切换');return initSession();}
 function payload(data){
  const old=new Map(canonicalTasks.map(t=>[t.id,t]));
- const tasks=[...canonicalTasks.filter(t=>t.status==='cancelled'),...data.tasks.map(t=>toCanonical(t,old.get(t.id)))];
+ const tasks=[...canonicalTasks.filter(t=>t.status==='cancelled'||t.recycleBin),...data.tasks.filter(t=>!old.get(t.id)?.recycleBin).map(t=>toCanonical(t,old.get(t.id)))];
  const byId=new Map(tasks.map(t=>[t.id,t]));
  for(const item of data.schedule){
-  const task=byId.get(item.taskId);if(!task)continue;
-  if(task.plans.some(p=>p.id===item.id))continue;
+  const task=byId.get(item.taskId);if(!task||task.recycleBin)continue;
+  const previous=old.get(item.taskId)?.plans?.find(plan=>plan.id===item.id)||{};
   const h=String(Math.floor(item.start)).padStart(2,'0'),m=String(Math.round((item.start%1)*60)).padStart(2,'0');
   const startAt=`${item.date}T${h}:${m}:00+08:00`;
-  task.plans.push({id:item.id||crypto.randomUUID(),title:item.label||task.title,startAt,
-   endAt:new Date(Date.parse(startAt)+Number(item.hours)*3600000).toISOString(),origin:'manual'});
+  const endAt=new Date(Date.parse(startAt)+Number(item.hours)*3600000).toISOString();
+  const unchanged=previous.startAt&&Date.parse(previous.startAt)===Date.parse(startAt)&&
+   (!previous.endAt||Date.parse(previous.endAt)===Date.parse(endAt))&&previous.title===(item.label||task.title);
+  task.plans.push(unchanged?previous:{...previous,id:item.id||crypto.randomUUID(),title:item.label||task.title,startAt,
+   endAt,origin:'manual'});
  }
  const courses=data.courses.map(c=>{const old=canonicalCourses.find(x=>x.id===c.id)||{};return {...old,id:c.id,name:c.name,
   teacher:c.teacher||'',notes:c.description||'',url:c.url||'',color:c.color||'blue'};});
@@ -130,6 +135,77 @@ function enqueue(snapshot){
 export function saveStore(data){
  if(!session.user||session.changing){report('error','请先登录账号，或等待账号切换完成');return false;}
  latest=clone(data);if(!failed)enqueue(latest);return true;
+}
+export async function deleteStoredTasks(ids){
+ if(!session.user||session.changing)throw new Error('请先登录账号，或等待账号切换完成');
+ const selected=[...new Set(ids)];if(!selected.length)throw new Error('请选择要删除的任务');
+ const epoch=accountEpoch;await flushStore();if(epoch!==accountEpoch)throw new Error('账号已切换');
+ report('saving');
+ try{
+  const result=await api('/api/data/tasks',{ids:selected,version:versions.tasks||0},'DELETE');
+  if(epoch!==accountEpoch)throw new Error('账号已切换');
+  const removed=new Set(result.deletedIds);canonicalTasks=canonicalTasks.filter(task=>!removed.has(task.id)).map(task=>{
+   const next={...task};if(removed.has(next.dependsOn))next.dependsOn='';return next;
+  });
+  versions.tasks=result.version;workspace.tasks={value:clone(canonicalTasks),version:result.version};
+  if(Array.isArray(result.feedback)&&Number.isInteger(result.feedbackVersion)){
+   versions.feedback=result.feedbackVersion;workspace.feedback={value:clone(result.feedback),version:result.feedbackVersion};
+  }
+  session.conflict=false;report('saved');return result;
+ }catch(error){session.conflict=error.status===409;report('error',error.message);throw error;}
+}
+async function changeStoredTasks(transform){
+ if(!session.user||session.changing)throw new Error('请先登录账号，或等待账号切换完成');
+ const epoch=accountEpoch;
+ const update=queue.then(async()=>{
+  if(failed)throw new Error(session.error||'还有未保存的数据');
+  if(epoch!==accountEpoch)throw new Error('账号已切换');
+  const value=transform(clone(canonicalTasks));
+  report('saving');
+  try{
+   const result=await api('/api/data/tasks',{value,version:versions.tasks||0},'PUT');
+   if(epoch!==accountEpoch)throw new Error('账号已切换');
+   versions.tasks=result.version;workspace.tasks={value:clone(value),version:result.version};canonicalTasks=clone(value);
+   session.conflict=false;report('saved');
+  }catch(error){if(epoch===accountEpoch){session.conflict=error.status===409;report('error',error.message);}throw error;}
+ });
+ queue=update.catch(()=>{});return update;
+}
+export function trashStoredTasks(ids){
+ const selected=new Set(ids);
+ return changeStoredTasks(tasks=>{
+  if(!selected.size||[...selected].some(id=>!tasks.some(task=>task.id===id&&task.status!=='cancelled'&&!task.recycleBin)))throw new Error('要删除的任务不存在，请刷新后重试');
+  const deletedAt=new Date().toISOString();
+  return tasks.map(task=>{
+   const next={...task};
+   if(selected.has(task.id)){
+    next.recycleBin={deletedAt,status:task.status,plans:task.plans,dependsOn:task.dependsOn||'',dependents:tasks.filter(item=>item.dependsOn===task.id).map(item=>item.id)};
+    // Completed tasks retain their status so their saved time feedback stays valid.
+    next.status=task.status==='completed'?'completed':'cancelled';next.plans=[];
+   }
+   if(selected.has(next.dependsOn))next.dependsOn='';
+   return next;
+  });
+ });
+}
+export function restoreStoredTasks(ids){
+ const selected=new Set(ids);
+ return changeStoredTasks(tasks=>{
+  if(!selected.size||[...selected].some(id=>!tasks.some(task=>task.id===id&&task.recycleBin)))throw new Error('回收站任务不存在，请刷新后重试');
+  const archived=tasks.filter(task=>selected.has(task.id)),active=new Set(tasks.filter(task=>selected.has(task.id)||task.status!=='cancelled'&&!task.recycleBin).map(task=>task.id));
+  const restored=tasks.map(task=>{
+   if(!selected.has(task.id))return task;
+   const {recycleBin,...next}=task;
+   next.status=recycleBin.status;next.plans=recycleBin.plans||[];
+   next.dependsOn=active.has(recycleBin.dependsOn)?recycleBin.dependsOn:'';
+   return next;
+  });
+  for(const task of archived)for(const id of task.recycleBin.dependents||[]){
+   const dependent=restored.find(item=>item.id===id);
+   if(dependent&&active.has(id)&&!dependent.dependsOn)dependent.dependsOn=task.id;
+  }
+  return restored;
+ });
 }
 export async function flushStore(){await queue;if(failed)throw new Error(session.error||'还有未保存的数据');}
 export async function retrySave(){if(session.conflict)throw new Error('数据已被其他页面修改，请刷新后再编辑');failed=false;if(latest)await enqueue(latest);await flushStore();}
