@@ -8,6 +8,7 @@ import secrets
 from pathlib import Path
 
 from text_contract import validate_request
+from recognition import has_unapplied_auto_tasks
 
 CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
 
@@ -45,9 +46,10 @@ def incremental_requests(db, uid, username, requests):
                 request = dict(contract_version='0.2', request_id='teaching_web:sync:' + secrets.token_hex(16), records=[record])
                 db.execute('INSERT INTO source_versions VALUES(?,?,?,?,?) ON CONFLICT(user_id,account,input_id) DO UPDATE SET digest=excluded.digest,request=excluded.request',
                            (uid, account, record['input_id'], digest, json.dumps(request)))
-            stored = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',
+            stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                                 (uid, request['request_id'])).fetchone()
-            if stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks'):
+            if (stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks')
+                    and not has_unapplied_auto_tasks(db, uid, request, stored['demo'])):
                 skipped += 1
             else:
                 pending.append(request)
