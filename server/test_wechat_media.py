@@ -6,6 +6,8 @@ import time
 import threading
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from http.client import HTTPConnection
 import unittest
 from http.cookiejar import CookieJar
 from pathlib import Path
@@ -456,6 +458,146 @@ class WechatMediaTests(unittest.TestCase):
         request=json.loads((root/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
         request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
         self.assertEqual(self.call(client,'/sources/wechat/imports','POST',request)[0],404)
+
+    def test_http_errors_and_limits_use_the_formal_envelope(self):
+        client=self.client('wechat-http-limits@test.local')
+        _,credential=self.call(client,'/sources/wechat/credential','POST',{})
+        token=credential['token']
+        status,error=self.call(build_opener(),'/sources/wechat/imports')
+        self.assertEqual(status,401)
+        self.assertEqual(error['error']['code'],'unauthorized')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        cases=[]
+        many=copy.deepcopy(request);many['records']=[dict(many['records'][0],input_id='limit-'+str(i)) for i in range(21)];cases.append(many)
+        label=copy.deepcopy(request);label['records'][0]['source_label']='中'*513;cases.append(label)
+        hints=copy.deepcopy(request);hints['records'][0]['upstream_hints']={'text':'x'*4097};cases.append(hints)
+        for body in cases:
+            status,error=self.call(client,'/sources/wechat/imports','POST',body)
+            self.assertEqual(status,413,error)
+            self.assertEqual(error['error']['code'],'limit_exceeded')
+        self.assertEqual(self.call(client,'/sources/wechat/imports','POST',[])[1]['error']['code'],'invalid_request')
+        for length in ('-1','not-a-length','999999999999999999999999'):
+            connection=HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
+            try:
+                connection.request('POST','/api/sources/wechat/imports',body=b'',headers={'Authorization':'Bearer '+token,'Content-Length':length})
+                response=connection.getresponse();error=json.loads(response.read())
+                self.assertEqual(response.status,413 if length.isdigit() else 400)
+                self.assertEqual(error['error']['code'],'limit_exceeded' if length.isdigit() else 'invalid_request')
+            finally:connection.close()
+        connection=HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
+        try:
+            connection.putrequest('POST','/api/sources/wechat/imports')
+            connection.putheader('Authorization','Bearer '+token)
+            connection.putheader('Content-Length','2')
+            connection.putheader('Content-Length','2')
+            connection.endheaders(b'{}')
+            response=connection.getresponse()
+            self.assertEqual(response.status,400)
+            self.assertEqual(json.loads(response.read())['error']['code'],'invalid_request')
+        finally:connection.close()
+        with patch.dict(wechat_media.os.environ,{'WECHAT_UNREFERENCED_TTL_SECONDS':'600'}):
+            limits=self.call(client,'/sources/wechat/credential')[1]['limits']
+        self.assertEqual(limits,dict(asset_bytes=20*1048576,account_bytes=200*1048576,queued_jobs=20,unreferenced_ttl_seconds=600))
+
+    def test_concurrent_uploads_and_import_replays_create_one_file_and_job(self):
+        client=self.client('wechat-parallel-replays@test.local')
+        _,credential=self.call(client,'/sources/wechat/credential','POST',{})
+        token=credential['token'];raw=b'\x89PNG\r\n\x1a\nparallel-file'
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            uploads=list(pool.map(lambda _:self.call(build_opener(),'/sources/wechat/assets','POST',raw,token=token,multipart=True),range(6)))
+        self.assertEqual(sum(status==201 for status,_ in uploads),1)
+        self.assertTrue(all(status in (200,201) for status,_ in uploads))
+        self.assertEqual(len({receipt['file_ref'] for _,receipt in uploads}),1)
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        request['request_id']='parallel-import'
+        request['records'][0]['attachments'][0].update({key:uploads[0][1][key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        result['request_id']=request['request_id']
+        started,release=threading.Event(),threading.Event()
+        def model(*args,**kwargs):
+            started.set();release.wait(5);return result
+        with patch.object(wechat_media,'recognize_v03',side_effect=model) as adapter:
+            try:
+                with ThreadPoolExecutor(max_workers=6) as pool:
+                    replies=list(pool.map(lambda _:self.call(build_opener(),'/sources/wechat/imports','POST',request,token=token),range(6)))
+                self.assertTrue(started.wait(3))
+                self.assertEqual(sum(status==202 for status,_ in replies),1)
+                self.assertTrue(all(status in (200,202) for status,_ in replies))
+                self.assertEqual(len({reply['job_id'] for _,reply in replies}),1)
+            finally:release.set()
+            job_id=replies[0][1]['job_id']
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+job_id)
+                if job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+            self.assertEqual(job['status'],'succeeded',job)
+            self.assertEqual(adapter.call_count,1)
+        with app.connection() as db:
+            uid=db.execute('SELECT id FROM users WHERE email=?',('wechat-parallel-replays@test.local',)).fetchone()['id']
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_assets WHERE user_id=?',(uid,)).fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_jobs WHERE user_id=?',(uid,)).fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recognition_candidates WHERE user_id=?',(uid,)).fetchone()[0],1)
+
+    def test_incomplete_upload_and_slow_json_body_are_rejected_without_saving_data(self):
+        client=self.client('wechat-body-budget@test.local')
+        _,credential=self.call(client,'/sources/wechat/credential','POST',{})
+        token=credential['token']
+        incomplete=b'--broken\r\nContent-Disposition: form-data; name="file"; filename="work.png"\r\nContent-Type: image/png\r\n\r\n\x89PNG\r\n\x1a\npixels'
+        connection=HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
+        try:
+            connection.request('POST','/api/sources/wechat/assets',body=incomplete,
+                headers={'Authorization':'Bearer '+token,'Content-Type':'multipart/form-data; boundary=broken'})
+            response=connection.getresponse()
+            self.assertEqual(response.status,400)
+            self.assertEqual(json.loads(response.read())['error']['code'],'invalid_request')
+        finally:connection.close()
+        connection=HTTPConnection('127.0.0.1',self.server.server_port,timeout=3)
+        try:
+            with patch.object(wechat_media,'BODY_SECONDS',.05):
+                connection.putrequest('POST','/api/sources/wechat/imports')
+                connection.putheader('Authorization','Bearer '+token)
+                connection.putheader('Content-Length','100')
+                connection.endheaders(b'{')
+                response=connection.getresponse()
+                self.assertEqual(response.status,400)
+                self.assertEqual(json.loads(response.read())['error']['code'],'invalid_request')
+        finally:connection.close()
+        with app.connection() as db:
+            uid=db.execute('SELECT id FROM users WHERE email=?',('wechat-body-budget@test.local',)).fetchone()['id']
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_assets WHERE user_id=?',(uid,)).fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_jobs WHERE user_id=?',(uid,)).fetchone()[0],0)
+
+    def test_full_queue_rejects_new_jobs_but_still_accepts_idempotent_replays(self):
+        client=self.client('wechat-full-queue@test.local')
+        cases=json.loads((Path(__file__).parent.parent/'contracts/examples/text-attachments-v031-cases.json').read_text(encoding='utf-8'))
+        case=next(item for item in cases if item['name']=='recognition-timeout-preserves-first-task')
+        with patch.object(wechat_media,'recognize_v03',return_value=case['expected']):
+            _,failed_ack=self.call(client,'/sources/wechat/imports','POST',case['request'])
+            for _ in range(200):
+                _,failed_job=self.call(client,'/sources/wechat/imports/'+failed_ack['job_id'])
+                if failed_job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+            self.assertEqual(failed_job['status'],'partial_failed')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        record=copy.deepcopy(request['records'][0]);record.update(text='课程说明。',text_quality='complete',attachments=[],context=[])
+        request['records']=[record]
+        with patch.object(wechat_media,'_process'):
+            for i in range(20):
+                request['request_id']='queue-'+str(i)
+                self.assertEqual(self.call(client,'/sources/wechat/imports','POST',request)[0],202)
+            request['request_id']='queue-extra'
+            status,error=self.call(client,'/sources/wechat/imports','POST',request)
+            self.assertEqual(status,503)
+            self.assertEqual(error['error'],dict(code='queue_busy',message='导入队列已满，请稍后重试',retryable=True))
+            status,error=self.call(client,'/sources/wechat/imports/'+failed_ack['job_id']+'/retry','POST',dict(retry_id='full-queue-retry'))
+            self.assertEqual(status,503)
+            self.assertEqual(error['error']['code'],'queue_busy')
+            with app.connection() as db:
+                self.assertEqual(db.execute('SELECT attempts,status FROM wechat_jobs WHERE id=?',(failed_ack['job_id'],)).fetchone()['attempts'],0)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_retries WHERE job_id=?',(failed_ack['job_id'],)).fetchone()[0],0)
+            request['request_id']='queue-0'
+            self.assertEqual(self.call(client,'/sources/wechat/imports','POST',request)[0],200)
+            self.assertEqual(self.call(client,'/sources/wechat/remove','POST',dict(confirmed=True))[0],200)
 
     def test_record_progress_is_persisted_before_the_next_record_finishes(self):
         client=self.client('wechat-record-progress@test.local')

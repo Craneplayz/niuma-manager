@@ -34,6 +34,16 @@ test('one-time credential is erased on account reset',async()=>{
  assert.doesNotMatch(media.wechatMediaPanel(),/private-once/);
 });
 
+test('source limits reflect the configured retention and stay folded by default',async()=>{
+ session.user={id:'limits-test'};
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true,limits:{asset_bytes:20971520,account_bytes:209715200,queued_jobs:20,unreferenced_ttl_seconds:86400}}):response({jobs:[]});
+ await media.load();
+ const html=media.wechatMediaPanel();
+ assert.match(html,/<details><summary>附件限制与保留/);
+ assert.match(html,/20 MiB|200 MiB|24 小时/);
+ assert.doesNotMatch(html,/<details open/);
+});
+
 test('settings exposes review and ignore for persisted media candidates',async()=>{
  session.user={id:'review-test'};location.hash='#settings';
  let reviewed='',ignored='';

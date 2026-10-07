@@ -17,16 +17,46 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zipfile import ZipFile, is_zipfile
 from urllib.parse import unquote
+from jsonschema import ValidationError
 
 from contracts.check_v031_examples import check_pair, check_request, check_job, check_retry_result, schema, request_fingerprint, retryable_records, check_asset_metadata
 
 MAX_ASSET = 20 * 1024 * 1024
+BODY_SECONDS = 30
 _slot = threading.Semaphore(1)
 
 
 class MediaError(Exception):
     def __init__(self, status, code, message, retryable=False):
         self.status, self.code, self.message, self.retryable = status, code, message, retryable
+
+
+def read_body(handler, maximum):
+    lengths = handler.headers.get_all('Content-Length', [])
+    if handler.headers.get('Transfer-Encoding') or len(lengths)>1 or (lengths and not lengths[0].isascii()) or (lengths and not lengths[0].isdigit()):
+        raise MediaError(400,'invalid_request','请求长度无效')
+    if lengths and len(lengths[0])>10:
+        raise MediaError(413,'limit_exceeded','请求超过大小限制')
+    size = int(lengths[0]) if lengths else 0
+    if size > maximum:
+        raise MediaError(413,'limit_exceeded','请求超过大小限制')
+    expires, chunks, remaining = time.monotonic()+BODY_SECONDS, [], size
+    timeout = handler.connection.gettimeout()
+    try:
+        while remaining:
+            budget = expires-time.monotonic()
+            if budget<=0:
+                raise TimeoutError()
+            handler.connection.settimeout(budget)
+            chunk = handler.rfile.read1(min(65536,remaining))
+            if not chunk:
+                raise MediaError(400,'invalid_request','请求内容未完整传输')
+            chunks.append(chunk);remaining-=len(chunk)
+    except (TimeoutError,OSError):
+        raise MediaError(400,'invalid_request','请求传输未完成，请重新发送') from None
+    finally:
+        handler.connection.settimeout(timeout)
+    return b''.join(chunks)
 
 
 def initialize(db):
@@ -152,16 +182,15 @@ def _asset_type(data):
 
 
 def _upload(handler, db, uid, data_dir):
-    size = int(handler.headers.get('Content-Length', '0'))
-    if size <= 0 or size > MAX_ASSET + 8192:
-        raise MediaError(413, 'limit_exceeded', '附件不得超过 20 MiB')
     content_type = handler.headers.get('Content-Type', '')
     if not content_type.startswith('multipart/form-data;'):
         raise MediaError(400, 'invalid_request', '请选择附件文件')
-    raw = handler.rfile.read(size)
+    raw = read_body(handler,MAX_ASSET+8192)
     message = BytesParser(policy=default).parsebytes(b'Content-Type: ' + content_type.encode() + b'\r\nMIME-Version: 1.0\r\n\r\n' + raw)
     parts = list(message.iter_parts()) if message.is_multipart() else []
-    if (len(parts) != 1 or parts[0].is_multipart()
+    if (message.defects or len(parts) != 1 or parts[0].defects or parts[0].is_multipart()
+            or parts[0].get_content_disposition() != 'form-data'
+            or parts[0].get('Content-Transfer-Encoding','binary').lower() not in ('binary','8bit')
             or parts[0].get_param('name',header='content-disposition') != 'file'
             or parts[0].get_filename() is None):
         raise MediaError(400, 'invalid_request', '仅允许上传一个 file 附件')
@@ -660,7 +689,8 @@ def route(handler, db, uid, path, body, data_dir):
             raise MediaError(403, 'forbidden', '请在登录页面管理导入凭证')
         row = db.execute('SELECT 1 FROM wechat_credentials WHERE user_id=?', (uid,)).fetchone()
         if handler.command == 'GET':
-            handler.reply(200, dict(configured=bool(row)))
+            handler.reply(200, dict(configured=bool(row),limits=dict(asset_bytes=MAX_ASSET,account_bytes=200*1024*1024,
+                queued_jobs=20,unreferenced_ttl_seconds=_asset_ttl())))
         elif handler.command == 'POST':
             token = secrets.token_urlsafe(32)
             db.execute('INSERT INTO wechat_credentials VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at', (uid, hashlib.sha256(token.encode()).hexdigest(), time.time()))
@@ -709,7 +739,13 @@ def route(handler, db, uid, path, body, data_dir):
             raise MediaError(400, 'unsupported_version', '仅支持微信附件 v0.3.1 导入')
         try:
             check_request(body)
-        except Exception:
+        except ValidationError as error:
+            if error.validator in ('maxItems','maxLength','maxProperties','maximum'):
+                raise MediaError(413,'limit_exceeded','导入内容超过字段或数量限制') from None
+            raise MediaError(400,'invalid_request','v0.3.1 导入请求格式不正确') from None
+        except (ValueError,KeyError,TypeError,RecursionError) as error:
+            if str(error) in ('request_too_large','hints_too_large','too_many_hint_nodes','hints_too_deep_or_wide','hint_text_too_long','record_text_too_large'):
+                raise MediaError(413,'limit_exceeded','导入内容超过限制') from None
             raise MediaError(400, 'invalid_request', 'v0.3.1 导入请求格式不正确') from None
         db.execute('BEGIN IMMEDIATE')
         _validate_assets(db, uid, body)
@@ -759,6 +795,8 @@ def route(handler, db, uid, path, body, data_dir):
                 raise MediaError(409, 'invalid_job_state', '当前任务不能重试')
             request=json.loads(row['request'])
             _validate_assets(db,uid,dict(request,records=[record for record in request['records'] if record['input_id'] in selected]))
+            if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= 20:
+                raise MediaError(503,'queue_busy','导入队列已满，请稍后重试',True)
             db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
             db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))
             handler.reply(202, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status='queued'))

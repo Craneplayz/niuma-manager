@@ -88,6 +88,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def body(self):
+        if self.path.startswith('/api/sources/wechat/'):
+            try:
+                value=json.loads(wechat_media.read_body(self,2000000) or b'{}')
+            except (ValueError,UnicodeError):
+                raise wechat_media.MediaError(400,'invalid_request','请求须为有效 JSON') from None
+            if not isinstance(value,dict):
+                raise wechat_media.MediaError(400,'invalid_request','请求须为 JSON 对象')
+            return value
         size=int(self.headers.get('Content-Length','0'))
         if size>2000000:
             if self.path.startswith('/api/sources/wechat/'):
@@ -298,11 +306,22 @@ class Handler(BaseHTTPRequestHandler):
     def handle_request(self):
         try: self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
-        except ApiError as e: self.reply(e.status,dict(error=e.message))
-        except (ValueError,KeyError,TypeError): self.reply(400,dict(error='数据格式不正确'))
+        except ApiError as e:
+            if self.path.startswith('/api/sources/wechat/'):
+                code={401:'unauthorized',403:'forbidden',404:'not_found',413:'limit_exceeded',503:'queue_busy'}.get(e.status,'invalid_request')
+                self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
+            else: self.reply(e.status,dict(error=e.message))
+        except (ValueError,KeyError,TypeError):
+            if self.path.startswith('/api/sources/wechat/'):
+                self.reply(400,dict(error=dict(code='invalid_request',message='数据格式不正确',retryable=False)))
+            else: self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
-            print(type(e).__name__,str(e),flush=True)
-            self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
+            if self.path.startswith('/api/sources/wechat/'):
+                print(type(e).__name__,flush=True)
+                self.reply(503,dict(error=dict(code='queue_busy',message='附件服务暂不可用，请稍后重试',retryable=True)))
+            else:
+                print(type(e).__name__,str(e),flush=True)
+                self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
         finally:
             if getattr(self,'db',None) is not None: self.db.close()
 
