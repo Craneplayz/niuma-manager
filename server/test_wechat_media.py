@@ -510,6 +510,62 @@ class WechatMediaTests(unittest.TestCase):
         request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
         self.assertEqual(self.call(client,'/sources/wechat/imports','POST',request)[0],404)
 
+    def test_crashed_upload_orphan_recovers_without_deleting_registered_files(self):
+        client=self.client('wechat-crashed-upload@test.local')
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nregistered',multipart=True)
+        with app.connection() as db:
+            uid=db.execute('SELECT id FROM users WHERE email=?',('wechat-crashed-upload@test.local',)).fetchone()['id']
+            registered=Path(db.execute('SELECT path FROM wechat_assets WHERE ref=?',(receipt['file_ref'],)).fetchone()['path'])
+        script='''
+import io,os,socket,sqlite3,sys
+from email.message import Message
+from pathlib import Path
+from types import SimpleNamespace
+import app
+import wechat_media
+db=sqlite3.connect(sys.argv[1]);db.row_factory=sqlite3.Row
+class CrashConnection:
+    def execute(self,sql,args=()):
+        if sql.startswith('INSERT INTO wechat_assets '):os._exit(24)
+        return db.execute(sql,args)
+raw=b'--crash-boundary\\r\\nContent-Disposition: form-data; name="file"; filename="orphan.png"\\r\\nContent-Type: image/png\\r\\n\\r\\n\\x89PNG\\r\\n\\x1a\\norphan\\r\\n--crash-boundary--\\r\\n'
+headers=Message();headers['Content-Type']='multipart/form-data; boundary=crash-boundary';headers['Content-Length']=str(len(raw))
+handler=SimpleNamespace(headers=headers,rfile=io.BytesIO(raw),connection=socket.socket(),media_db_path=Path(sys.argv[1]),reply=lambda *args:os._exit(25))
+wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).parent)
+'''
+        process=subprocess.run([sys.executable,'-X','utf8','-c',script,str(app.DB),uid],
+            cwd=Path(__file__).parent,capture_output=True,timeout=15)
+        self.assertEqual(process.returncode,24,process.stderr.decode('utf-8',errors='replace'))
+        orphans=[path for path in registered.parent.iterdir() if path!=registered]
+        self.assertEqual(len(orphans),1)
+        orphan=orphans[0]
+        note=registered.parent/'notes.txt';note.write_text('synthetic unmanaged note',encoding='utf-8')
+        if wechat_media.os.name=='posix':
+            external=Path(self.tmp.name)/('external-'+uid);external.mkdir()
+            outside=external/('A'*32);outside.write_bytes(b'synthetic outside file')
+            link=registered.parent/('B'*32);link.symlink_to(outside)
+            linked_folder=registered.parent.parent/('0'*32);linked_folder.symlink_to(external,target_is_directory=True)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_assets WHERE user_id=?',(uid,)).fetchone()[0],1)
+            with patch.object(Path,'unlink',side_effect=PermissionError('synthetic locked orphan')):
+                wechat_media.initialize(db)
+            pending=db.execute('SELECT * FROM wechat_pending_deletes WHERE user_id=?',(uid,)).fetchall()
+            self.assertEqual([Path(row['path']).resolve() for row in pending],[orphan.resolve()])
+        with orphan.open('r+b') as target:target.truncate(200*1024*1024)
+        with patch.object(Path,'unlink',side_effect=PermissionError('synthetic locked orphan')):
+            status,error=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nquota',multipart=True)
+        self.assertEqual(status,413)
+        self.assertEqual(error['error']['code'],'limit_exceeded')
+        with app.connection() as db:
+            wechat_media.initialize(db)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_pending_deletes WHERE user_id=?',(uid,)).fetchone()[0],0)
+        self.assertFalse(orphan.exists())
+        self.assertTrue(registered.exists())
+        self.assertEqual(note.read_text(encoding='utf-8'),'synthetic unmanaged note')
+        if wechat_media.os.name=='posix':
+            self.assertTrue(link.is_symlink());self.assertTrue(linked_folder.is_symlink())
+            self.assertEqual(outside.read_bytes(),b'synthetic outside file')
+
     def test_http_errors_and_limits_use_the_formal_envelope(self):
         client=self.client('wechat-http-limits@test.local')
         _,credential=self.call(client,'/sources/wechat/credential','POST',{})

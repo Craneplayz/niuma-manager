@@ -6,6 +6,7 @@ import hmac
 import json
 import math
 import os
+import re
 import secrets
 import sqlite3
 import stat
@@ -85,8 +86,29 @@ def initialize(db):
         UNION SELECT user_id FROM wechat_revoked_assets WHERE user_id NOT IN(SELECT id FROM users)''')}
     for uid in orphaned:
         remove_source(db,uid)
+    _recover_orphan_files(db)
     _purge_deleted_files(db)
     _expire_unreferenced(db)
+
+
+def _recover_orphan_files(db):
+    """Recover managed files left between writing bytes and committing a receipt."""
+    root = Path(db.execute('PRAGMA database_list').fetchone()[2]).parent.resolve()/'wechat-assets'
+    if not root.is_dir() or root.is_symlink():
+        return
+    # initialize already holds SQLite's write lock, excluding active uploads.
+    with os.scandir(root) as folders:
+        for folder in folders:
+            if not re.fullmatch(r'[0-9a-f]{32}',folder.name) or not folder.is_dir(follow_symlinks=False):
+                continue
+            with os.scandir(folder.path) as files:
+                for entry in files:
+                    if not re.fullmatch(r'[A-Za-z0-9_-]{32}',entry.name) or not entry.is_file(follow_symlinks=False):
+                        continue
+                    ref = 'asset:'+entry.name
+                    if db.execute('SELECT 1 FROM wechat_assets WHERE ref=? AND user_id=?',(ref,folder.name)).fetchone():
+                        continue
+                    db.execute('INSERT OR IGNORE INTO wechat_pending_deletes VALUES(?,?,?)',(ref,folder.name,entry.path))
 
 
 def _purge_deleted_files(db):
