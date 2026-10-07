@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, quote, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from zoneinfo import ZoneInfo
 
 # Direct script execution puts ``wechat/script`` first on sys.path.  Add the
@@ -44,6 +44,16 @@ try:
     from .extract_data import base_message_type, extract_urls, safe_name
 except ImportError:  # Direct ``python wechat/script/v031.py`` execution.
     from extract_data import base_message_type, extract_urls, safe_name
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """Do not replay authenticated requests at a location chosen by a server."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_HTTP_OPENER = build_opener(_NoRedirectHandler())
 
 
 CONTRACT_VERSION = "0.3.1"
@@ -1015,6 +1025,19 @@ class ClientSettings:
     def clear_credential(self) -> None:
         self.credential = None
 
+    def queue_scope(self) -> str:
+        """Return a non-secret scope that binds local retries to this client."""
+
+        parsed = urlsplit(self.server_url)
+        host = (parsed.hostname or "").casefold().rstrip(".")
+        port = parsed.port
+        if port is None:
+            port = 443 if parsed.scheme.casefold() == "https" else 80
+        origin = f"{parsed.scheme.casefold()}://{host}:{port}"
+        credential = self.credential or ""
+        fingerprint = hashlib.sha256(credential.encode("utf-8")).hexdigest()
+        return f"{origin}|credential:{fingerprint}"
+
 
 class WechatImportClient:
     """Small standard-library client for the v0.3.1 source-to-app endpoints."""
@@ -1032,7 +1055,7 @@ class WechatImportClient:
             headers["Authorization"] = f"Bearer {self.settings.credential}"
         request = Request(self.settings.server_url + path, data=body, headers=headers, method=method)
         try:
-            with urlopen(request, timeout=self.timeout) as response:
+            with _HTTP_OPENER.open(request, timeout=self.timeout) as response:
                 raw = response.read(MAX_REQUEST_BYTES + 1)
                 if len(raw) > MAX_REQUEST_BYTES:
                     raise V031RemoteError("limit_exceeded", "服务器响应超过 2,000,000 字节", retryable=False)
@@ -1257,7 +1280,7 @@ class PendingQueue:
         temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, self.path)
 
-    def add(self, request: Mapping[str, Any]) -> None:
+    def add(self, request: Mapping[str, Any], *, scope: str | None = None) -> None:
         if not isinstance(request, Mapping) or request.get("contract_version") != CONTRACT_VERSION:
             raise V031BuildError("只能将 v0.3.1 请求加入待提交队列")
         _validate_request_contract(request)
@@ -1269,6 +1292,8 @@ class PendingQueue:
         for batch in payload["batches"]:
             if batch.get("request_id") == request_id:
                 existing = batch.get("request")
+                if batch.get("scope") != scope:
+                    raise V031BuildError(f"request_id 已绑定其他账号或服务器：{request_id}")
                 if _json_bytes(existing) != canonical:
                     raise V031BuildError(f"request_id 内容冲突：{request_id}")
                 return
@@ -1279,6 +1304,7 @@ class PendingQueue:
             {
                 "request_id": request_id,
                 "request": request,
+                "scope": scope,
                 "recovery_assets": {
                     str(asset_id): {"path": _text(value.get("path"))}
                     for asset_id, value in recovery_assets.items()
@@ -1291,9 +1317,11 @@ class PendingQueue:
         )
         self._write(payload)
 
-    def pending(self) -> list[dict[str, Any]]:
+    def pending(self, *, scope: str | None = None) -> list[dict[str, Any]]:
         result = []
         for batch in self._read()["batches"]:
+            if batch.get("scope") != scope:
+                continue
             if batch.get("job_id"):
                 continue
             if int(batch.get("attempts") or 0) >= MAX_QUEUE_ATTEMPTS:
@@ -1323,7 +1351,7 @@ class PendingQueue:
                 return
         raise V031BuildError(f"待提交队列中不存在 request_id：{request_id}")
 
-    def supersede_request(self, request_id: str, request: Mapping[str, Any]) -> None:
+    def supersede_request(self, request_id: str, request: Mapping[str, Any], *, scope: str | None = None) -> None:
         """Keep an attempted request immutable and enqueue repaired content under a new ID."""
 
         new_request_id = _text(request.get("request_id"))
@@ -1335,9 +1363,13 @@ class PendingQueue:
             if batch.get("request_id") == new_request_id:
                 raise V031BuildError(f"恢复请求 request_id 已存在：{new_request_id}")
         found = False
+        original_scope = None
         for batch in payload["batches"]:
             if batch.get("request_id") == request_id:
                 found = True
+                original_scope = batch.get("scope")
+                if original_scope != scope:
+                    raise V031BuildError("恢复请求的账号或服务器作用域不匹配")
                 batch["job_id"] = f"superseded:{new_request_id}"
                 batch["last_error"] = None
         if not found:
@@ -1347,6 +1379,7 @@ class PendingQueue:
             {
                 "request_id": new_request_id,
                 "request": request,
+                "scope": original_scope,
                 "recovery_assets": {
                     str(asset_id): {"path": _text(value.get("path"))}
                     for asset_id, value in recovery_assets.items()
@@ -1438,7 +1471,9 @@ def _recovery_request(request: Mapping[str, Any]) -> V031Request:
 
 def submit_pending(client: WechatImportClient, queue: PendingQueue) -> list[Mapping[str, Any]]:
     responses: list[Mapping[str, Any]] = []
-    for batch in queue.pending():
+    scope_factory = getattr(client, "queue_scope", None)
+    scope = scope_factory() if callable(scope_factory) else None
+    for batch in queue.pending(scope=scope):
         request_id = _text(batch.get("request_id"))
         try:
             request = _recover_failed_uploads(
@@ -1449,7 +1484,7 @@ def submit_pending(client: WechatImportClient, queue: PendingQueue) -> list[Mapp
             if request.get("records") != batch["request"].get("records"):
                 if batch.get("last_error") is not None:
                     recovered_request = _recovery_request(request)
-                    queue.supersede_request(request_id, recovered_request)
+                    queue.supersede_request(request_id, recovered_request, scope=scope)
                     request = recovered_request
                     request_id = _text(request["request_id"])
                 else:
@@ -1517,7 +1552,7 @@ def main(argv: list[str] | None = None) -> int:
         if client is not None:
             queue = PendingQueue(args.queue_file)
             for request in requests:
-                queue.add(request)
+                queue.add(request, scope=client.queue_scope())
             responses = submit_pending(client, queue)
             for response in responses:
                 print(json.dumps(response, ensure_ascii=False))

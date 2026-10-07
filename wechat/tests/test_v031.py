@@ -1,9 +1,11 @@
 """Offline acceptance tests for the Windows-oriented v0.3.1 hand-off."""
 
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from wechat.script.v031 import (
     ClientSettings,
     MAX_QUEUE_ATTEMPTS,
     PendingQueue,
+    WechatImportClient,
     V031RemoteError,
     V031BuildError,
     _multipart_body,
@@ -350,7 +353,7 @@ class V031RequestTest(unittest.TestCase):
             output_path = root / "output.jsonl"
             input_path.write_text(json.dumps(chat, ensure_ascii=False), encoding="utf-8")
             completed = subprocess.run(
-                [sys.executable, "wechat/script/v031.py", str(input_path), "--output", str(output_path)],
+                [sys.executable, "-X", "utf8", "wechat/script/v031.py", str(input_path), "--output", str(output_path)],
                 cwd=Path(__file__).resolve().parents[2],
                 capture_output=True,
                 text=True,
@@ -358,6 +361,50 @@ class V031RequestTest(unittest.TestCase):
             )
         self.assertEqual(completed.returncode, 2, completed.stderr)
         self.assertIn("record_text_too_large", completed.stderr)
+
+    def test_authenticated_redirect_is_not_followed_to_another_origin(self):
+        forwarded = []
+
+        class TargetHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                forwarded.append(self.headers.get("Authorization"))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, format, *args):
+                return
+
+        target = ThreadingHTTPServer(("127.0.0.1", 0), TargetHandler)
+        target_thread = threading.Thread(target=target.serve_forever, daemon=True)
+        target_thread.start()
+
+        class RedirectHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{target.server_port}/stolen")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, format, *args):
+                return
+
+        redirect = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+        redirect_thread = threading.Thread(target=redirect.serve_forever, daemon=True)
+        redirect_thread.start()
+        try:
+            client = WechatImportClient(
+                ClientSettings(f"http://127.0.0.1:{redirect.server_port}", "secret-token")
+            )
+            with self.assertRaises(V031RemoteError):
+                client.get_job("synthetic-job")
+            self.assertEqual(forwarded, [])
+        finally:
+            redirect.shutdown()
+            target.shutdown()
+            redirect.server_close()
+            target.server_close()
 
 
 class V031QueueTest(unittest.TestCase):
@@ -381,6 +428,59 @@ class V031QueueTest(unittest.TestCase):
         self.assertEqual(len(payload["batches"]), 1)
         self.assertEqual(payload["batches"][0]["job_id"], "job-1")
         self.assertEqual(responses[0]["status"], "queued")
+
+    def test_pending_queue_isolated_by_server_and_credential_scope(self):
+        class ScopedClient:
+            def __init__(self, settings):
+                self.settings = settings
+                self.upload_calls = 0
+                self.submitted = []
+
+            def queue_scope(self):
+                return self.settings.queue_scope()
+
+            def upload(self, path, metadata):
+                self.upload_calls += 1
+                return dict(metadata, file_ref="asset:" + "d" * 24)
+
+            def submit_import(self, request):
+                self.submitted.append(request)
+                return {
+                    "contract_version": "0.3.1",
+                    "job_id": "job-scoped",
+                    "request_id": request["request_id"],
+                    "status": "queued",
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "private.pdf"
+            path.write_bytes(b"private content")
+            request = build_requests(
+                [make_chat([message(1, "[文件] private.pdf", type_code=49, assets=[{"path": str(path)}])])],
+                request_id="scoped-queue",
+            )[0]
+            queue = PendingQueue(Path(directory) / "pending.json")
+            account_a = ClientSettings("https://example.com/import", "account-a-token")
+            account_b = ClientSettings("https://example.com/import", "account-b-token")
+            other_server = ClientSettings("https://other.example/import", "account-a-token")
+            queue.add(request, scope=account_a.queue_scope())
+            payload = json.loads(queue.path.read_text(encoding="utf-8"))
+            self.assertNotIn("account-a-token", json.dumps(payload, ensure_ascii=False))
+
+            client_b = ScopedClient(account_b)
+            client_other = ScopedClient(other_server)
+            self.assertEqual(submit_pending(client_b, queue), [])
+            self.assertEqual(submit_pending(client_other, queue), [])
+            self.assertEqual(client_b.upload_calls, 0)
+            self.assertEqual(client_other.upload_calls, 0)
+            self.assertEqual(len(queue.pending(scope=account_a.queue_scope())), 1)
+
+            client_a = ScopedClient(account_a)
+            responses = submit_pending(client_a, queue)
+            self.assertEqual(responses[0]["status"], "queued")
+            self.assertEqual(client_a.upload_calls, 1)
+            self.assertEqual(client_a.submitted[0]["records"][0]["attachments"][0]["status"], "available")
+            self.assertEqual(queue.pending(scope=account_a.queue_scope()), [])
 
     def test_job_progress_and_remote_error_feedback(self):
         job = {

@@ -21,6 +21,147 @@ Android（PWA 或 Capacitor APK）
 - **正式多人使用**：前端和 API 放在同一 HTTPS 域名下，后端部署到云服务器或学校/公司服务器；Docker 是可选的部署方式，不是 Android 运行的必需品。
 - **微信同步的现实边界**：当前实时微信读取依赖 Windows 10/11、已登录微信 4.x 和 `wechatauto-replica`，Android 不能直接读取 Windows 微信数据库。因此手机端应先支持“选择导出的 JSON/JSONL 文件并提交文字”，实时采集继续由 Windows 伴随程序完成。
 
+## 框架结构对照：当前项目与目标 App
+
+这里的“做成 Android App”主要是改变**客户端交付方式和运行边界**，不是把整个仓库复制到手机。目标是让 Android 负责界面、账号操作和手机能力，让服务端负责数据、模型、长任务和需要 Windows 的采集能力。
+
+### 当前代码框架
+
+```text
+niuma-manager/
+├── frontend/                 Vite + 原生 JavaScript 单页前端
+│   ├── src/app.js            页面路由、页面组装和交互事件
+│   ├── src/team-store.js     账号会话、工作区和业务 API 客户端
+│   ├── src/team-*-ui.js      识别、规划、日历和个性化界面
+│   ├── src/source-import.js  本地 JSON/JSONL 和微信文字导入
+│   └── src/*.css             桌面和移动端响应式样式
+├── server/                   Python 本地业务 API
+│   ├── app.py                HTTP 接口、认证、SQLite 工作区
+│   ├── recognition.py        文本识别批次和候选确认
+│   ├── planning.py           任务规划调用和提案确认
+│   └── source_sync.py        教学网同步和爬虫子进程调度
+├── ddl_text/                 文本识别和模型调用
+├── task_planning/            任务拆解、工时估计和排程规则
+├── crawler/                  Node.js + Playwright 教学网/公开来源采集
+├── wechat/                   Windows 微信导出、附件和 v0.3.1 工具链
+├── contracts/                模块间 JSON Schema、样例和语义校验
+└── scripts/                  跨平台启动器和检查脚本
+```
+
+当前主要是一个**仓库内聚合、单机运行**的结构：
+
+```text
+浏览器 :1331
+   │ Vite 开发代理 /api
+   ▼
+Python API :1332 ── SQLite + credential.key
+   ├── 直接调用 ddl_text / task_planning
+   ├── 子进程调用 crawler（教学网）
+   └── 读取本机配置和模型凭据
+
+Windows 微信  ── wechat/script ── JSON/JSONL 或 v0.3.1 请求
+                                      └─ 当前前端主要选择文件后提交 v0.2 文字请求
+```
+
+当前框架的特点是：
+
+- `frontend`、`server`、识别和规划默认在同一台 Windows 电脑上协作；
+- Vite 的 `/api` 代理只在开发环境存在，后端默认只监听 `127.0.0.1:1332`；
+- SQLite、教学网凭据密钥和模型配置都在本机；
+- 教学网和微信采集是有平台依赖的工具，不是浏览器可以直接执行的通用后端能力；
+- 长任务主要通过一次较长的 HTTP 请求完成，移动网络下的断线恢复能力还需要加强。
+
+### 期望的 Android App 框架
+
+推荐的目标结构是“**移动客户端 + 业务 API + 异步任务/数据层 + Windows 采集代理**”：
+
+```text
+android-app/                         手机端（PWA 或 Capacitor APK）
+├── web/                             复用 frontend 的 Vite 构建产物
+│   ├── presentation/                页面、日历、对话框、表单
+│   ├── state/                        登录态、任务态、加载/错误状态
+│   ├── api-client/                   HTTPS API、超时、重试、上传进度
+│   └── device-adapters/              文件、语音、分享、通知等手机能力
+├── android/                          Capacitor 生成的 Android 工程（若需要 APK）
+└── app-config/                       API 地址、应用版本、环境配置
+
+backend/                              服务端（Windows、云主机或学校服务器）
+├── gateway/                          HTTPS、反向代理、Origin、限流
+├── api/                              认证、任务、日历、识别、规划、导入接口
+├── application/                      业务用例和权限边界
+├── workers/                          教学网同步、识别、规划、附件导入等长任务
+├── connectors/                       crawler、模型提供商、Windows 代理连接器
+├── persistence/                      用户、任务、会话、job 状态和迁移
+├── object-storage/                   微信/课程附件及生命周期管理
+└── observability/                    日志、审计、健康检查和错误追踪
+
+windows-agent/                        可选但微信场景需要的电脑伴随程序
+├── wechat-reader/                    读取已授权的 Windows 微信本地数据
+├── teaching-web-runner/              执行需要 Windows/校园网的采集
+├── upload-queue/                     幂等上传、断点/有限重试和本地待发送队列
+└── pairing/                          设备配对和短期导入凭据
+
+contracts/                            共享协议（继续作为独立边界）
+deploy/                               HTTPS、Docker/Compose、数据库和备份配置
+```
+
+目标运行拓扑如下：
+
+```text
+Android App / PWA
+       │ HTTPS，同源优先
+       ▼
+API Gateway / Reverse Proxy
+       │
+       ▼
+业务 API ───────────────► 数据库（SQLite 单实例或 PostgreSQL）
+   │  │  │               对象存储（附件）
+   │  │  └──────────────► 任务队列 / Worker ──► 模型 API
+   │  └─────────────────► 规划、日历和识别服务
+   └────────────────────► Windows Agent（微信/教学网采集）
+```
+
+其中，Android App **不包含** Python、Node.js、Playwright、SQLite 主数据库、模型密钥、教学网密码或 `credential.key`。APK 中只放前端资源、应用配置和必要的原生桥接代码；用户数据和敏感凭据留在服务端或 Windows 代理的受控存储中。
+
+### 当前结构到目标结构的映射
+
+| 当前模块/能力 | 目标位置 | 是否需要重写 | 主要变化 |
+| --- | --- | --- | --- |
+| `frontend/src` 页面和样式 | `android-app/web/presentation` | 否，优先复用 | 改为生产 API 地址；补真机交互、加载和离线状态 |
+| `frontend/src/team-store.js` | `android-app/web/api-client` + `state` | 小幅修改 | 处理 HTTPS、会话刷新、断线、超时和重试 |
+| `frontend/vite.config.ts` `/api` 代理 | 开发配置；生产由网关反向代理 | 不作为生产方案 | APK 不再依赖 Vite dev server |
+| `server/app.py` | `backend/api` | 建议重构边界 | 配置 host/port/Origin；增加生产入口和统一错误格式 |
+| `server/recognition.py`、`planning.py` | `backend/application` + `workers` | 逻辑可复用 | 长任务改为 job 状态，手机轮询/SSE 获取进度 |
+| `server/source_sync.py`、`crawler/` | `backend/connectors` 或 Windows Agent | 部分拆分 | 需要运行环境、超时、队列和失败重试，不放入 APK |
+| `wechat/script/*` | `windows-agent/wechat-reader` | 不迁移到 Android | Windows 继续读取微信；手机只接收授权后的导出结果 |
+| `ddl_text/`、`task_planning/` | `backend/workers` 或独立内部服务 | 逻辑可复用 | 模型密钥只在服务端；限制并发和资源使用 |
+| `server/data/niuma.sqlite3` | `backend/persistence` | 小规模可继续 SQLite | 云端多实例时改持久卷或 PostgreSQL |
+| `credential.key`、`.env` 模型配置 | 服务端密钥管理 | 不进入 App | 使用环境变量、密钥服务和备份策略 |
+| `contracts/` | `contracts/` 共享包/版本化 API | 继续复用 | 为附件、job、错误、分页和版本兼容补契约 |
+
+### 两种框架的核心区别
+
+| 维度 | 当前项目 | 目标 Android App | 需要解决的问题 |
+| --- | --- | --- | --- |
+| 客户端 | 桌面浏览器 + Vite 开发服务器 | PWA 或 Capacitor APK | 静态资源打包、签名、真机适配 |
+| API 地址 | `/api` 代理到本机 `127.0.0.1:1332` | HTTPS 域名或局域网电脑 IP | 同源部署、Origin、Cookie/Token 和证书 |
+| 运行位置 | 主要是一台 Windows 电脑 | 手机只做 UI，服务端独立运行 | 明确哪些逻辑不能下沉到手机 |
+| 数据库 | 本机 SQLite | 服务端持久化数据库 | 备份、并发、多实例和迁移 |
+| AI 调用 | API 进程直接调用模型 | 服务端 Worker/内部服务调用 | 密钥保护、队列、限流和异步状态 |
+| 教学网采集 | API 启动本地 Node/Playwright | Windows Agent 或后端专用 Worker | 浏览器运行环境和网络可达性 |
+| 微信采集 | Windows 本地数据库/导出脚本 | Windows Agent；Android 只导入 | Android 无法访问 Windows 微信数据库 |
+| 长任务 | 长 HTTP 请求 + 页面等待 | job ID + 轮询/SSE/WebSocket | 断线恢复、取消、重试和幂等 |
+| 文件附件 | 当前主要是本地文件预览或脚本上传 | Android 文件选择器 + 服务端对象存储 | `content://`、大小、哈希、进度和权限 |
+| 发布 | 本机命令启动 | Web 发布或 APK/AAB 签名发布 | 构建流水线、版本和签名密钥保护 |
+
+因此，目标架构不是“把当前项目完整复制到 Android”，而是把当前的**单机聚合结构**拆成清晰的三层：
+
+1. **移动客户端层**：展示和交互，调用 API，使用有限的手机能力。
+2. **服务端业务层**：认证、任务、日历、识别、规划、持久化和长任务编排。
+3. **平台采集层**：Windows 微信/教学网等必须依赖特定操作系统或网络环境的能力。
+
+这三层继续通过 `contracts/` 的版本化 JSON 契约连接，先保证功能边界稳定，再决定是否将 API、Worker、数据库和文件存储分别部署到云端。
+
 ## 1. Android 安装方式
 
 ### 方案比较
