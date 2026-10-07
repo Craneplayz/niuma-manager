@@ -470,10 +470,10 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
             if options['provider'] != 'qiniu' or not options['key'].strip():
                 raise ValueError('image_provider_unavailable')
         except (OSError,ValueError,KeyError,TypeError):
-            if checkpoint is not None and completed:
+            if checkpoint is not None:
                 parts = []
                 for record in request['records']:
-                    part = completed.get(record['input_id'])
+                    part = (completed or {}).get(record['input_id'])
                     if part is None:
                         part = _interrupted_record(request,record,'模型配置不可用；已保存的记录保留，请配置后重试此记录。')
                         checkpoint(record,part)
@@ -502,9 +502,14 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
             else:
                 checkpoint(record,None)
                 remaining = max(0.000001,expires-time.monotonic())
-                part = process_media_request(single,assets,client,settings,
-                    MediaLimits(record_seconds=min(70,remaining),batch_seconds=remaining))
-                check_pair(single,part)
+                try:
+                    part = process_media_request(single,assets,client,settings,
+                        MediaLimits(record_seconds=min(70,remaining),batch_seconds=remaining))
+                    check_pair(single,part)
+                except (ValueError, ValidationError, KeyError, TypeError):
+                    part = _interrupted_record(request,record,'此记录的识别结果未通过校验；其他记录保留。','invalid_agent_output')
+                except Exception:
+                    part = _interrupted_record(request,record,'此记录处理失败；其他记录保留，可定向重试。')
                 checkpoint(record,part)
             check_pair(single,part)
             parts.append(part)

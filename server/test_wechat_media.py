@@ -140,7 +140,12 @@ except OSError:sys.exit(26)
         self.assertNotEqual(job['result']['status'], 'no_tasks')
         check_pair(request, job['result'])
         status, retry = self.call(a, '/sources/wechat/imports/' + submitted['job_id'] + '/retry', 'POST', dict(retry_id='retry-once'))
-        self.assertEqual(status, 409)
+        self.assertEqual(status, 202)
+        for _ in range(100):
+            _, job = self.call(a, '/sources/wechat/imports/' + submitted['job_id'])
+            if job['status'] == 'failed': break
+            time.sleep(.02)
+        self.assertEqual(job['status'], 'failed')
         self.assertEqual(self.call(a, '/sources/wechat/credential/revoke', 'POST', {})[0], 200)
         self.assertEqual(self.call(a, '/sources/wechat/imports/' + submitted['job_id'], token=token)[0], 401)
 
@@ -954,6 +959,96 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
                 self.assertEqual([item[0] for item in checkpoints],['interrupted-config','unstarted-config'])
                 self.assertTrue(all('模型配置不可用' in item[1]['record_results'][0]['warnings'][0] for item in checkpoints))
                 adapter.assert_not_called();client.assert_not_called()
+
+    def test_record_adapter_failure_preserves_completed_candidates(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        request['records'].append(dict(copy.deepcopy(request['records'][0]),input_id='adapter-failed'))
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        for failure,code in ((RuntimeError('synthetic adapter failure'),'agent_unavailable'),
+                             ({'status':'success'},'invalid_agent_output')):
+            with self.subTest(code=code),patch('ddl_text.codex_client.live_options',return_value=options), \
+                    patch('ddl_text.media_pipeline.process_media_request',side_effect=[result,failure]) as adapter:
+                checkpoints=[]
+                recovered=wechat_media.recognize_v03(request,lambda *args,**kwargs:None,
+                    checkpoint=lambda record,part:checkpoints.append((record['input_id'],part)))
+                check_pair(request,recovered)
+                self.assertEqual(recovered['status'],'partial_success')
+                self.assertEqual(recovered['tasks'],result['tasks'])
+                self.assertEqual(recovered['record_results'][0],result['record_results'][0])
+                self.assertEqual(recovered['record_results'][1]['status'],'failed')
+                self.assertEqual(recovered['errors'][-1]['code'],code)
+                self.assertEqual(adapter.call_count,2)
+                self.assertEqual(len(checkpoints),4)
+                self.assertEqual(checkpoints[-1][1]['record_results'][0]['input_id'],'adapter-failed')
+
+    def test_partial_adapter_failure_persists_candidates_and_retry_targets(self):
+        client=self.client('wechat-partial-adapter@test.local')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nsynthetic',multipart=True)
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        request['records'].append(dict(copy.deepcopy(request['records'][0]),input_id='adapter-failed'))
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options), \
+                patch('ddl_text.media_pipeline.process_media_request',side_effect=[result,RuntimeError('synthetic failure')]) as adapter:
+            _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+            self.assertEqual(job['status'],'partial_failed')
+            self.assertEqual(job['result']['tasks'],result['tasks'])
+            self.assertEqual(wechat_media.retryable_records(job['result']),{'adapter-failed'})
+            self.assertEqual(adapter.call_count,2)
+        with app.connection() as db:
+            uid=db.execute('SELECT user_id FROM wechat_jobs WHERE id=?',(ack['job_id'],)).fetchone()['user_id']
+            candidates=db.execute('SELECT candidate,state FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchall()
+            self.assertEqual(len(candidates),1)
+            self.assertEqual(json.loads(candidates[0]['candidate']),result['tasks'][0])
+            self.assertEqual(candidates[0]['state'],'pending')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_record_runs WHERE job_id=? AND result IS NOT NULL',(ack['job_id'],)).fetchone()[0],2)
+
+    def test_first_import_without_model_configuration_can_retry_after_configuration(self):
+        client=self.client('wechat-config-retry@test.local')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nsynthetic',multipart=True)
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        def finished(job_id):
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+job_id)
+                if job['status'] not in ('queued','running'):return job
+                time.sleep(.02)
+            self.fail('job did not finish')
+        with patch('ddl_text.codex_client.live_options',side_effect=ValueError('not configured')), \
+                patch('ddl_text.media_pipeline.process_media_request') as adapter:
+            _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+            failed=finished(ack['job_id'])
+            self.assertEqual(failed['status'],'failed')
+            self.assertEqual(wechat_media.retryable_records(failed['result']),{request['records'][0]['input_id']})
+            adapter.assert_not_called()
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options), \
+                patch('ddl_text.media_pipeline.process_media_request',return_value=result) as adapter:
+            self.assertEqual(self.call(client,'/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id='configured-now'))[0],202)
+            recovered=finished(ack['job_id'])
+            self.assertEqual(recovered['status'],'succeeded')
+            self.assertEqual(recovered['result']['tasks'],result['tasks'])
+            self.assertEqual(adapter.call_count,1)
+
+    def test_checkpoint_failure_stops_further_adapter_calls(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        request['records'].append(dict(copy.deepcopy(request['records'][0]),input_id='must-not-start'))
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        def checkpoint(record,part):
+            if part is not None:raise RuntimeError('synthetic checkpoint failure')
+        with patch('ddl_text.codex_client.live_options',return_value=options), \
+                patch('ddl_text.media_pipeline.process_media_request',return_value=result) as adapter:
+            with self.assertRaisesRegex(RuntimeError,'synthetic checkpoint failure'):
+                wechat_media.recognize_v03(request,lambda *args,**kwargs:None,checkpoint=checkpoint)
+            self.assertEqual(adapter.call_count,1)
 
     def test_revoked_file_cannot_be_retried_after_a_recoverable_model_failure(self):
         try:
