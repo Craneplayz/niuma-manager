@@ -428,7 +428,7 @@ def _interrupted_record(request, record, message=None, code='agent_unavailable')
             if not any(error['asset_id']==asset['asset_id'] and error['stage'] in ('collect','upload','read') for error in errors):
                 errors.append(dict(input_id=record['input_id'],asset_id=asset['asset_id'],block_id=None,stage='read',
                     code='file_ref_unavailable' if code=='file_ref_unavailable' else 'file_read_failed',
-                    message=message or '处理进程中断，读取结果未保存。',retryable=asset['status']=='available' and code!='file_ref_unavailable'))
+                    message=message or '处理进程中断，读取结果未保存。',retryable=asset['status']=='available' and code not in ('file_ref_unavailable','limit_exceeded')))
         else:
             summaries.append(dict(asset_id=asset['asset_id'],status=asset['status'],block_count=len(asset['blocks']),
                 uncertain_block_ids=[block['block_id'] for block in asset['blocks'] if block['quality']=='uncertain']))
@@ -492,7 +492,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
         saved, parts = completed or {}, []
         client = ChatClient(options['key'])
         expires = time.monotonic() + 180
-        for record in request['records']:
+        for index,record in enumerate(request['records']):
             single = dict(request,records=[record])
             if record['input_id'] in saved:
                 part = saved[record['input_id']]
@@ -510,6 +510,17 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
                     part = _interrupted_record(request,record,'此记录的识别结果未通过校验；其他记录保留。','invalid_agent_output')
                 except Exception:
                     part = _interrupted_record(request,record,'此记录处理失败；其他记录保留，可定向重试。')
+                # Reserve a failure envelope for every remaining record before saving a result.
+                reserved = [saved.get(item['input_id']) or _interrupted_record(request,item,
+                    '本批结果容量不足，请拆分导入。','limit_exceeded') for item in request['records'][index+1:]]
+                try:
+                    _combine_records(request,parts+[part]+reserved)
+                except (ValueError,ValidationError) as error:
+                    limited = str(error)=='result_too_large' or isinstance(error,ValidationError) and error.validator=='maxItems'
+                    part = _interrupted_record(request,record,
+                        '本批结果容量不足，请拆分导入；此前结果保留。' if limited else '此记录与批次结果不一致；此前结果保留。',
+                        'limit_exceeded' if limited else 'invalid_agent_output')
+                    _combine_records(request,parts+[part]+reserved)
                 checkpoint(record,part)
             check_pair(single,part)
             parts.append(part)
@@ -659,9 +670,12 @@ def _process(db_path, job_id):
             except FileNotFoundError:
                 attempt_errors = _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')['errors']
                 result = previous if previous else _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')
-            except (ValueError, KeyError, TypeError):
-                attempt_errors = _failed_result(request,'invalid_agent_output','识别结果未通过 v0.3.1 校验')['errors']
-                result = previous if previous else _failed_result(request, 'invalid_agent_output', '识别结果未通过 v0.3.1 校验；任务未新增')
+            except (ValueError, ValidationError, KeyError, TypeError) as error:
+                limited = str(error)=='result_too_large' or isinstance(error,ValidationError) and error.validator=='maxItems'
+                code = 'limit_exceeded' if limited else 'invalid_agent_output'
+                message = '合并结果超过容量限制，请拆分导入；已有结果保留。' if limited else '识别结果未通过 v0.3.1 校验；任务未新增'
+                attempt_errors = _failed_result(request,code,message)['errors']
+                result = previous if previous else _failed_result(request,code,message)
             except Exception:
                 attempt_errors = _failed_result(request)['errors']
                 result = previous if previous else _failed_result(request)

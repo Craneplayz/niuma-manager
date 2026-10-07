@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import app
 import wechat_media
-from contracts.check_v031_examples import check_pair
+from contracts.check_v031_examples import check_pair, json_bytes
 
 
 class WechatMediaTests(unittest.TestCase):
@@ -1008,6 +1008,65 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
             self.assertEqual(json.loads(candidates[0]['candidate']),result['tasks'][0])
             self.assertEqual(candidates[0]['state'],'pending')
             self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_record_runs WHERE job_id=? AND result IS NOT NULL',(ack['job_id'],)).fetchone()[0],2)
+
+    def test_aggregate_result_limit_preserves_earlier_valid_candidates(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        original=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        first_id=request['records'][0]['input_id']
+        request['records'].append(dict(copy.deepcopy(request['records'][0]),input_id='large-second'))
+        parts=[]
+        for record in request['records']:
+            part=copy.deepcopy(original);rid=record['input_id']
+            part['record_results'][0]['input_id']=rid
+            task=part['tasks'][0];task.update(input_id=rid,candidate_id=rid+':large',description='x'*1100000)
+            part['record_results'][0]['task_ids']=[task['candidate_id']]
+            for source in task['sources']+task['evidence']:
+                if source['input_id']==first_id:source['input_id']=rid
+            check_pair(dict(request,records=[record]),part)
+            parts.append(part)
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        for reserve,kept in ((False,0),(True,1)):
+            current=copy.deepcopy(parts)
+            if reserve:
+                current[0]['tasks'][0]['description']=''
+                current[0]['tasks'][0]['description']='x'*(2000000-len(json_bytes(current[0]))-10)
+                check_pair(dict(request,records=[request['records'][0]]),current[0])
+            with self.subTest(reserve=reserve),patch('ddl_text.codex_client.live_options',return_value=options), \
+                    patch('ddl_text.media_pipeline.process_media_request',side_effect=current) as adapter:
+                checkpoints=[]
+                result=wechat_media.recognize_v03(request,lambda *args,**kwargs:None,
+                    checkpoint=lambda record,part:checkpoints.append((record['input_id'],part)))
+                check_pair(request,result)
+                self.assertEqual(result['status'],'partial_success')
+                self.assertEqual(result['tasks'],current[kept]['tasks'])
+                self.assertEqual(result['record_results'][1-kept]['status'],'failed')
+                self.assertEqual(result['errors'][-1]['code'],'limit_exceeded')
+                self.assertFalse(wechat_media.retryable_records(result))
+                self.assertEqual(checkpoints[(1-kept)*2+1][1]['tasks'],[])
+                self.assertEqual(adapter.call_count,2)
+        client=self.client('wechat-aggregate-retry@test.local')
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nsynthetic',multipart=True)
+        for record in request['records']:
+            record['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        def finished(job_id):
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+job_id)
+                if job['status'] not in ('queued','running'):return job
+                time.sleep(.02)
+            self.fail('job did not finish')
+        with patch('ddl_text.codex_client.live_options',return_value=options), \
+                patch('ddl_text.media_pipeline.process_media_request',side_effect=[parts[0],RuntimeError('synthetic failure'),parts[1]]) as adapter:
+            _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+            initial=finished(ack['job_id'])
+            self.assertEqual(initial['status'],'partial_failed')
+            self.assertEqual(initial['result']['tasks'],parts[0]['tasks'])
+            self.assertEqual(self.call(client,'/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id='large-merge'))[0],202)
+            retried=finished(ack['job_id'])
+            self.assertEqual(retried['result'],initial['result'])
+            _,listing=self.call(client,'/sources/wechat/imports')
+            listed=next(item for item in listing['jobs'] if item['job_id']==ack['job_id'])
+            self.assertEqual(listed['last_attempt_errors'][0]['code'],'limit_exceeded')
+            self.assertEqual(adapter.call_count,3)
 
     def test_first_import_without_model_configuration_can_retry_after_configuration(self):
         client=self.client('wechat-config-retry@test.local')
