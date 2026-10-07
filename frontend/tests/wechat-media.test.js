@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 
 globalThis.window=new EventTarget();
 globalThis.location={hash:'#sources'};
@@ -9,7 +10,41 @@ session.user={id:'test'};
 media.configureWechatMedia({render(){}});
 const response=value=>({ok:true,json:async()=>value});
 
+test('shared v0.3.1 cases retain task counts, date precision and file evidence distinctions',async()=>{
+ const cases=JSON.parse(readFileSync(new URL('../../contracts/examples/text-attachments-v031-cases.json',import.meta.url),'utf8'));
+ media.configureWechatMedia({render(){}});location.hash='#settings';
+ for(const sample of cases){
+  window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'shared-media-cases'};
+  const result=sample.expected;
+  const states={success:'succeeded',no_tasks:'succeeded',partial_success:'partial_failed',failed:'failed'};
+  const job={job_id:sample.name,status:states[result.status],result,
+   progress:{total_records:sample.request.records.length,finished_records:sample.request.records.length,
+    failed_records:result.record_results.filter(record=>['failed','partial_success'].includes(record.status)).length},
+   sources:Object.fromEntries(sample.request.records.map(record=>[record.input_id,{label:record.source_label,
+    assets:Object.fromEntries(record.attachments.map(asset=>[asset.asset_id,asset.file_name]))}])),
+   items:result.tasks.map(task=>({id:task.candidate_id,candidate_id:task.candidate_id,state:'pending',version:0}))};
+  globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):response({jobs:[job]});
+  await media.load();const html=media.wechatMediaPanel();
+  assert.equal((html.match(/class="draft-card"/g)||[]).length,result.tasks.length,sample.name);
+  for(const task of result.tasks){
+   if(task.deadline.precision==='date'&&task.deadline.value){
+    const date=task.deadline.value.replaceAll('-','/');
+    assert.ok(html.includes(date+' ·'),sample.name);
+    assert.ok(!html.includes(date+' 23:59'),sample.name);
+   }
+   if(task.deadline.status==='not_provided')assert.match(html,/待补日期/,sample.name);
+  }
+  if(result.tasks.some(task=>task.evidence.some(item=>item.field==='attachment_file'))){
+   assert.match(html,/模型读取/,sample.name);
+  }else assert.doesNotMatch(html,/ · 模型读取/,sample.name);
+  if(result.status==='failed')assert.doesNotMatch(html,/已完整识别，未发现任务/,sample.name);
+  assert.doesNotMatch(html,/file:\/\/|data-media-action="preview"/,sample.name);
+ }
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
+});
+
 test('source page distinguishes pending, failed, no tasks and shows validated evidence safely',async()=>{
+ session.user={id:'test'};location.hash='#sources';
  const job={job_id:'job-one',request_id:'request-one',status:'partial_failed',progress:{total_records:2,finished_records:2,failed_records:1},
   sources:{'msg-1':{label:'课程群',assets:{'asset-1':'作业.png'}}},
   result:{status:'partial_success',tasks:[{title:'提交作业',description:'完成报告',needs_review:true,deadline:{status:'explicit',value:'2026-10-05T09:00:00+08:00'},evidence:[{input_id:'msg-1',asset_id:'asset-1',field:'attachment_file',quote:'<作业要求>',locator:{page:2}}]}],errors:[{stage:'read',asset_id:'asset-2',message:'文件读取失败',retryable:false}]}};
