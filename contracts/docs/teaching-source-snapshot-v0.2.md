@@ -20,4 +20,4 @@
 
 所有新字段仅是来源事实，不能从 upstream_hints 取得后端 source_verified 授信；v0.3.1 attachment_file/model_reported 强制审核规则保持原样。
 
-支持教师信息区内标签后的相邻日期节点及日期行；明确存在日期标签但值无法读取或多个值冲突时，保留已读说明与日期证据、将详情标为 failed / detail_unrecognized 并提示人工核对，不标 complete。明确“未设置 / Not set”表示无到期日期。过滤后的“作业信息 / Assignment Information”标题继续作为页面识别入口。教师说明按 DOM 顺序合并，只读取最外层匹配容器，已被祖先覆盖的后代不重复采集；独立容器及其引用仍保留。平台提交区域 #assignmentSubmission 即使没有 submission class 也排除。
+支持教师信息区内标签后的相邻日期节点及日期行；读取在下一字段标签（含嵌套的 .label / data-role=label）、行或说明边界停止，父容器查找只穿过纯标签包装，不拼接其他字段的值。明确存在日期标签但值无法读取或多个值冲突时，保留已读说明与日期证据、将详情标为 failed / detail_unrecognized 并提示人工核对，不标 complete。明确“未设置 / Not set”表示无到期日期。过滤后的“作业信息 / Assignment Information”标题继续作为页面识别入口。教师说明按 DOM 顺序合并，只读取最外层匹配容器，已被祖先覆盖的后代不重复采集；独立容器及其引用仍保留。平台提交区域 #assignmentSubmission 即使没有 submission class 也排除。

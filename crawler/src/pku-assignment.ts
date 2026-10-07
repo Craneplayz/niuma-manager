@@ -12,6 +12,8 @@ const GENERIC_UNREAD_WARNING = UNREAD_REFERENCE_WARNING;
 const ASSIGNMENT_INFO = "#assignmentInfo, .assignmentInfo, [data-role=assignment-info]";
 const DESCRIPTION_SELECTORS = "[data-assignment-description], #assignmentDescription, .assignment-description, #assignmentInfo .vtbegenerated, .assignmentInfo .vtbegenerated, [data-role=assignment-info] .vtbegenerated";
 const OTHER_FIELDS = /(?:满分|Points Possible|Full Points|作业提交|Assignment Submission)/i;
+const FIELD_LABEL = ".label, [data-role=label]";
+const FIELD_ROW = ".metaField, tr, li";
 
 export type AssignmentPageState = "active" | "submitted" | "unknown";
 
@@ -60,45 +62,67 @@ function readableText($: CheerioAPI, node: Cheerio<AnyNode>): string {
   return normalize(safe.text());
 }
 
-/** Read adjacent value nodes, stopping at descriptions, metadata labels and block boundaries. */
-function adjacentDueValue($: CheerioAPI, label: Cheerio<AnyNode>): string | null {
+/** Read only the prefix owned by this field, including boundaries nested in value nodes. */
+function readDueNodes($: CheerioAPI, nodes: AnyNode[], tableCells = false) {
   const parts: string[] = [];
-  for (let node = label[0]?.nextSibling; node; node = node.nextSibling) {
-    if (node.type === "comment") continue;
+  let bounded = false;
+  let hasValue = false;
+  function visit(node: AnyNode, insideValue = false): void {
+    if (bounded || node.type === "comment") return;
     const next = $(node);
-    if (node.type !== "text" && (!next.is("span, strong, b, em, i, time, br, .value, [data-role=value]")
-      || next.is(DESCRIPTION_SELECTORS) || next.find(DESCRIPTION_SELECTORS).length)) break;
-    const text = readableText($, next);
-    if (OTHER_FIELDS.test(text) || DUE_LABELS.some((value) => text.toLowerCase() === value.toLowerCase())) break;
-    parts.push(text);
-    if (parts.join(" ").length > 200) return null;
+    if (node.type === "text") {
+      const text = normalize(next.text());
+      if (OTHER_FIELDS.test(text) || DUE_LABELS.some((value) => text.toLowerCase() === value.toLowerCase())) {
+        bounded = true;
+        return;
+      }
+      if (text) { parts.push(next.text()); hasValue = true; }
+      return;
+    }
+    if (next.is(`${FIELD_LABEL}, ${FIELD_ROW}, ${ASSIGNMENT_INFO}, ${DESCRIPTION_SELECTORS}`)
+      || (!insideValue && !next.is(`span, strong, b, em, i, time, br, .value, [data-role=value]${tableCells ? ", td, th" : ""}`))) {
+      bounded = true;
+      return;
+    }
+    // An empty value node still belongs to this field; do not climb past it.
+    if (!next.is("br")) hasValue = true;
+    if (next.is("br")) parts.push(" ");
+    const valueContainer = insideValue || next.is(".value, [data-role=value], td, th");
+    for (const child of next.contents().toArray()) visit(child, valueContainer);
   }
-  return dueCandidate(parts.join(" "));
+  for (const node of nodes) {
+    visit(node);
+    parts.push(" ");
+    if (bounded) break;
+  }
+  return { value: dueCandidate(parts.join("")), bounded, hasValue };
 }
 
 function dueValueFromLabel($: CheerioAPI, label: Cheerio<AnyNode>): string | null {
+  // An exact own-text label may also contain its value, e.g. <td>Due Date<span>...</span></td>.
+  const contents = label.contents().toArray();
+  const lastLabelText = contents.reduce((last, node, index) => node.type === "text" && normalize($(node).text()) ? index : last, -1);
+  const inside = readDueNodes($, contents.slice(lastLabelText + 1));
+  if (inside.value !== null || inside.bounded || inside.hasValue) return inside.value;
   const labelText = normalize(label.text());
   let candidate = label;
   for (let depth = 0; depth < 5; depth += 1) {
-    // Adjacent values can live directly in the region; never read the entire region.
-    if (candidate.is(ASSIGNMENT_INFO)) break;
-    // A labelled metadata row owns its value; its following siblings are other fields.
-    if (!candidate.is(".metaField, tr, li")) {
-      const adjacent = adjacentDueValue($, candidate);
-      if (adjacent !== null) return adjacent;
-    }
-    const readable = candidate.clone();
-    readable.find(DESCRIPTION_SELECTORS).remove();
-    readable.find("br").replaceWith(" ");
-    const text = normalize(readable.text());
-    const remainder = dueCandidate(text.replace(labelText, ""));
-    if (remainder !== null) return remainder;
-    if (candidate.is(".metaField, tr, li")) break;
+    if (candidate.is(`${ASSIGNMENT_INFO}, ${FIELD_ROW}`)) break;
+    const adjacent = readDueNodes($, followingNodes(candidate), candidate.parent().is("tr"));
+    if (adjacent.value !== null || adjacent.bounded || adjacent.hasValue) return adjacent.value;
     const parent = candidate.parent();
-    if (!parent.length || parent.is("body, html")) break;
+    // Only unwrap a pure label. Never retry by concatenating a containing field/region.
+    if (!parent.length || parent.is(`body, html, ${ASSIGNMENT_INFO}, ${FIELD_ROW}`)
+      || readableText($, parent) !== labelText) break;
     candidate = parent;
   }
   return null;
+}
+
+function followingNodes(node: Cheerio<AnyNode>): AnyNode[] {
+  const nodes: AnyNode[] = [];
+  for (let next = node[0]?.nextSibling; next; next = next.nextSibling) nodes.push(next);
+  return nodes;
 }
 
 function assignmentDescription($: CheerioAPI, baseUrl: string) {

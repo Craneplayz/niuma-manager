@@ -341,6 +341,43 @@ describe("assignment collection invariants across supported layouts", () => {
     expect(detail.due_unread).toBeUndefined();
     expect(enrichAssignmentSource(source(), detailUrl, detail).text_quality).toBe("complete");
   });
+  const fieldLayouts = [
+    { name: "inline class labels", render: (value: string) => `<span class="label">Due Date</span><span class="value">${value}</span><span class="label">Available from</span><span class="value">2026-10-01</span>` },
+    { name: "inline role labels", render: (value: string) => `<span data-role="label"><strong>Due Date</strong></span><span data-role="value">${value}</span><span data-role="label">Available from</span><span data-role="value">2026-10-01</span>` },
+    { name: "generic parent fallback", render: (value: string) => `<div><span class="label"><strong>Due Date</strong></span><span class="value">${value}</span><span class="label">Available from</span><span class="value">2026-10-01</span></div>` },
+    { name: "nested next label", render: (value: string) => `<div><span class="label">Due Date</span><span class="value">${value}</span><span><strong data-role="label">Available from</strong><span>2026-10-01</span></span></div>` },
+    { name: "next label within value", render: (value: string) => `<div><span class="label">Due Date</span><span class="value">${value}<span class="label">Available from</span><span>2026-10-01</span></span></div>` },
+    { name: "block fields", render: (value: string) => `<div><div class="label"><strong>Due Date</strong></div><div class="value">${value}</div><div data-role="label">Available from</div><div class="value">2026-10-01</div></div>` },
+    { name: "metadata rows", render: (value: string) => `<div class="metaField"><span class="label"><strong>Due Date</strong></span><span class="value">${value}</span></div><div class="metaField"><span class="label">Available from</span><span class="value">2026-10-01</span></div>` },
+    { name: "table cells", render: (value: string) => `<table><tr><td><strong>Due Date</strong></td><td class="value">${value}</td><td class="label">Available from</td><td>2026-10-01</td></tr></table>` },
+    { name: "own-text label with child value", render: (value: string) => `<div>Due Date<span class="value">${value}</span><span class="label">Available from</span><span class="value">2026-10-01</span></div>` },
+    { name: "missing value node", render: (value: string) => `<div><span class="label">Due Date</span>${value ? `<span class="value">${value}</span>` : ""}<span class="label">Available from</span><span class="value">2026-10-01</span></div>` },
+    { name: "pure label wrappers", render: (value: string) => `<div><div><span class="label"><strong>Due Date</strong></span></div>${value ? `<span class="value">${value}</span>` : ""}<span data-role="label">Available from</span><span class="value">2026-10-01</span></div>` },
+  ];
+  const fieldValues = [
+    { name: "empty", html: "", due: null, unread: true },
+    { name: "unset", html: "Not set", due: null, unread: false },
+    { name: "date", html: "2026-12-31", due: "2026-12-31", unread: false },
+    { name: "split date and time", html: "<strong>2026-12-31</strong><br><span>23:59</span>", due: "2026-12-31 23:59", unread: false },
+    { name: "date punctuation across nested nodes", html: "<strong>2026</strong>-<span>12</span>-<span>31</span>", due: "2026-12-31", unread: false },
+  ];
+  it.each(fieldLayouts.flatMap((layout) => fieldValues.map((value) => ({ layout: layout.name, ...value, fields: layout.render(value.html) }))))(
+    "bounds the $name due value within $layout through final export", async ({ fields, due, unread }) => {
+      const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><section id="assignmentInfo">${fields}<div class="vtbegenerated">Submit the report.<a href="/bbcswebdav/pid-1-dt-content-rid-2/HW.txt">HW.txt</a></div></section>`, detailUrl);
+      expect(detail.due_raw).toBe(due);
+      expect(Boolean(detail.due_unread)).toBe(unread);
+      const read = vi.fn().mockResolvedValue({ bytes: new TextEncoder().encode("Teacher attachment text."), contentType: "text/plain" });
+      const [result] = await enrichSourceAttachments([enrichAssignmentSource(source(), detailUrl, detail)], read);
+      const record = toRecognitionRequests([result])[0].records[0];
+      expect(record.text_quality).toBe(unread ? "partial" : "complete");
+      expect(record.upstream_hints.assignment).toMatchObject({ due_raw: due });
+      expect(record.upstream_hints.references[0]).toMatchObject({ content_read: !unread, read_status: unread ? "failed" : "complete" });
+      expect(record.upstream_hints.references[1].content_read).toBe(true);
+      expect(record.text).toContain("Teacher attachment text.");
+      expect(JSON.stringify(record)).not.toContain("Available from");
+      expect(JSON.stringify(record)).not.toContain("2026-10-01");
+    },
+  );
   it.each([false, true])("retains multiple dates while flagging conflicts=%s", (conflict) => {
     const second = conflict ? "2027-01-01" : "2026-12-31";
     const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><section id="assignmentInfo"><div><span>Due Date</span><span>2026-12-31</span></div><div><span>Due Date</span><span>${second}</span></div><div class="vtbegenerated">Teacher instructions.</div></section>`, detailUrl);
