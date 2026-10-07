@@ -40,12 +40,14 @@ ddl_text/
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
-│   ├── run_classification_smoke.py # 显式启用的真实模型分类验证入口
+│   ├── homework_cases.py # 作业语境、参考资料和可选行动的合成验证输入
+│   ├── run_classification_smoke.py # 显式启用的真实模型分类/作业语境验证入口
 │   ├── test_classification.py # 分类、历史过滤、证据及跨进程透传测试
 │   ├── run_time_smoke.py # 显式启用的真实模型时间验证入口
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
 │   ├── test_extraction.py      # 草稿编译、时间合并和原文证据测试
+│   ├── test_homework.py        # 真实合成作业草稿回放与前后端分类一致性检查
 │   ├── test_normalized_time.py # 标准时间草稿及基准的独立校验测试
 │   ├── test_frontend_contract.py # v0.2 契约及本机 HTTP 测试
 │   ├── test_output_validation.py # 非法模型输出测试
@@ -63,6 +65,10 @@ ddl_text/
 - [共享接口协议](../docs/backend-harness-alignment.md)：v0.2 输入输出及确认流程。
 - [输入样例](../contracts/source-to-text/text-frontend-v02-request.json)、[离线草稿](tests/fixtures/text-frontend-v02-drafts.json)、[输出样例](../contracts/text-to-app/text-frontend-v02-output.json)；交接方向与文件说明见 [contracts](../contracts/README.md)。
 - [识别规则](skills/text-task-extraction/SKILL.md)：行动要求、来源和日期判断；未知、推断、冲突的时间保留不确定性，参考时间不直接当作明确截止时间。
+
+课程作业结合标题、正文和已有栏目语境识别，不强求“请完成/提交”等固定词；作业存在与附件内容/日期未知分别判断。参考答案、讲义等不因含“作业”就变成新任务；完整性、历史有效性和用户确认规则仍独立生效。
+
+作业语境的合成输入、模型草稿及输出见 [真实调用样例](docs/archive/2026-10-06-issue111-homework-live.json)；8 条固定样例不代表独立召回率评测，未读附件对应的未知日期仍待核实。
 
 模型按语义直接生成标准时间及原文证据，程序校验 ISO 值、日历、时区与基准，不再按原话格式白名单决定是否接受。内部草稿新增 `times[].normalized`，旧草稿需迁移；对外 v0.2 不变。结构校验不能证明语义一定正确；农历、校历和节假日等缺少依据时仍需核实。
 
@@ -116,6 +122,8 @@ python -m ddl_text.http_server --real
 python -m ddl_text.tests.run_time_smoke --live --output local-data/time-smoke-new.json
 # F3 分类回归：14 条固定合成通知，保留模型草稿及过滤说明
 python -m ddl_text.tests.run_classification_smoke --live --output local-data/classification-smoke-new.json
+# 作业语境：8 条合成通知，不读取真实附件；不代表独立召回率评测
+python -m ddl_text.tests.run_classification_smoke --live --suite homework --output local-data/homework-smoke-new.json
 ```
 
 账户后端默认直接调用 `process_request`，读取根目录 `.env`，无需单独启动识别服务；网页与后端启动方式见 [frontend/README.md](../frontend/README.md)。Windows 后端直调的真实合成结果见 [验证 JSON](docs/archive/2026-10-01-issue69-backend-direct.json)。
