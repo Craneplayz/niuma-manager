@@ -89,3 +89,41 @@ test('source deletion requires confirmation and discards a late polling response
  assert.match(media.wechatMediaPanel(),/日历中的任务保留/);
  window.removeEventListener('niuma:recognition-changed',changedListener);
 });
+
+test('source deletion during workspace refresh does not start a stale planning request',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'refresh-deletion'};location.hash='#settings';
+ const job={job_id:'refresh-job',status:'queued',progress:{total_records:1,finished_records:0,failed_records:0}};
+ let finishRefresh,startedRefresh,plans=0,tasks=[];
+ const started=new Promise(resolve=>{startedRefresh=resolve;});
+ media.configureWechatMedia({render(){},getState:()=>({tasks}),refresh:()=>{
+  startedRefresh();return new Promise(resolve=>{finishRefresh=()=>{tasks=[{id:'late-task',due:{date:'2026-10-09'},plans:[]}];resolve();};});
+ },proposeForTasks:async()=>{plans++;}});
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):
+  path.endsWith('/remove')?response({configured:false,cleanup_pending:0}):response({jobs:[structuredClone(job)]});
+ await media.load();
+ job.status='succeeded';job.result={status:'success',tasks:[{title:'旧任务'}]};
+ const poll=media.load();await started;
+ await media.wechatMediaClick({dataset:{mediaAction:'prepare-remove'}});
+ await media.wechatMediaClick({dataset:{mediaAction:'remove'}});
+ finishRefresh();await poll;
+ assert.equal(plans,0);
+ assert.doesNotMatch(media.wechatMediaPanel(),/旧任务/);
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
+});
+
+test('an old polling finally cannot clear the loading state of a newer source poll',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'poll-generations'};location.hash='#settings';
+ media.configureWechatMedia({render(){}});
+ const polls=[];
+ globalThis.fetch=async path=>path.endsWith('/credential')?response({configured:true}):
+  path.endsWith('/remove')?response({configured:false,cleanup_pending:0}):new Promise(resolve=>{polls.push(resolve);});
+ const old=media.load();
+ await media.wechatMediaClick({dataset:{mediaAction:'prepare-remove'}});
+ await media.wechatMediaClick({dataset:{mediaAction:'remove'}});
+ const next=media.load();assert.equal(polls.length,2);
+ polls[0](response({jobs:[]}));await old;
+ await media.load();assert.equal(polls.length,2);
+ polls[1](response({jobs:[]}));await next;
+ assert.match(media.wechatMediaPanel(),/暂无微信附件导入记录/);
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user=null;
+});

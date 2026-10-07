@@ -59,6 +59,29 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  assert.match(recognition.assistantPage(),/data-agent-confirm="manual-candidate"/);
 });
 
+test('candidate removal invalidates a late ignore response without restoring deleted results',async()=>{
+ recognition.resetAssistant();session.user={id:'candidate-removal'};location.hash='#agent';
+ recognition.configureAssistant({render(){}});
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const candidate={...fixture.expected.tasks[0],input_id:'manual:removed',title:'已删除来源的旧候选'};
+ let stored,finishIgnore;
+ globalThis.fetch=async(path,options)=>{
+  if(path.includes('/resolve'))return new Promise(resolve=>{finishIgnore=()=>resolve({ok:true,json:async()=>({batches:[{...stored,items:[{...stored.items[0],state:'ignored'}]}]})});});
+  if(path==='/api/recognition/batches'&&options?.body){
+   const body=JSON.parse(options.body);
+   stored={request:body,result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'deleted-candidate',version:1,state:'pending',candidate}]};
+   return {ok:true,json:async()=>[stored]};
+  }
+  return {ok:true,json:async()=>[]};
+ };
+ await recognition.submitRecognitionText('10月9日交作业');
+ const ignore=recognition.handleAssistantClick({dataset:{agentIgnore:'deleted-candidate'}});
+ assert.equal(typeof finishIgnore,'function');
+ window.dispatchEvent(new Event('niuma:recognition-changed'));
+ finishIgnore();await ignore;
+ assert.doesNotMatch(recognition.assistantPage(),/已删除来源的旧候选|data-agent-restore="deleted-candidate"/);
+});
+
 test('review sections appear only after import and dismissed items can be restored',async()=>{
  recognition.resetAssistant();session.user={id:'test'};
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));

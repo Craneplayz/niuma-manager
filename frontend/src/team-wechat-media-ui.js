@@ -24,13 +24,13 @@ export async function load(){
   if(jobs.some(job=>['succeeded','partial_failed'].includes(job.status)&&job.result?.tasks?.length&&['queued','running'].includes(previous.get(job.job_id)))){
    const before=new Set(host.getState?.()?.tasks?.map(task=>task.id)||[]);
    await host.refresh?.();
-   if(epoch===accountVersion()){
+   if(epoch===accountVersion()&&revision===sourceRevision){
     const added=(host.getState?.()?.tasks||[]).filter(task=>!before.has(task.id)&&task.due&&!task.plans?.length).map(task=>task.id);
     if(added.length)await host.proposeForTasks?.(added);
    }
   }
  }catch(e){if(epoch===accountVersion()&&revision===sourceRevision){credential={configured:false};error=e.message;}}
- finally{if(epoch===accountVersion()){loading=false;refresh();schedule();}}
+ finally{if(epoch===accountVersion()&&revision===sourceRevision){loading=false;refresh();schedule();}}
 }
 function evidence(item,job){
  const source=job.sources?.[item.input_id]||{};
@@ -82,7 +82,7 @@ export async function wechatMediaClick(button){
    if(!removeConfirmation)return true;
    const response=await api('/api/sources/wechat/remove',{confirmed:true});
    if(epoch===accountVersion()){
-    sourceRevision++;jobs=[];credential={configured:false};token='';removeConfirmation=false;
+    sourceRevision++;clearTimeout(timer);timer=null;loading=false;jobs=[];credential={configured:false};token='';removeConfirmation=false;
     notice=response.cleanup_pending?'来源已删除，原件被占用时将在后续清理。':'来源及原件已删除，日历中的任务保留。';
     window.dispatchEvent(new Event('niuma:recognition-changed'));
    }

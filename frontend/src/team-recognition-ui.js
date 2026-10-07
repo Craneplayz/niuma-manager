@@ -192,7 +192,7 @@ export function buildQuickResolution(item,tasksVersion){
  return {action:'create',version:item.version,tasks_version:tasksVersion,target_id:null,reviewed:true,draft:{title:c.title,description:c.description||'',course:c.course_or_project||null,due:d.date?{date:d.date,precision:d.time?'datetime':'date',...(d.time?{time:d.time}:{})}:null}};
 }
 async function resolve(form){
- const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ const epoch=accountVersion(),revision=candidateRevision,current=()=>epoch===accountVersion()&&revision===candidateRevision;
  const values=Object.fromEntries(new FormData(form)),item=batches.flatMap(b=>b.items).find(i=>i.id===form.dataset.candidate);
  const errorNode=form.querySelector('#candidate-error');
  if(!item||item.state!=='pending'){errorNode.textContent='该候选已经处理，请刷新后查看任务';return;}
@@ -287,15 +287,16 @@ async function restoreCandidate(item,current){
 }
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ const revision=candidateRevision,candidateCurrent=()=>current()&&revision===candidateRevision;
  if(['current','all'].includes(button.dataset.agentReviewScope)){reviewScope=button.dataset.agentReviewScope;refresh();return;}
  if(button.dataset.agentSourceMode){if(!busy&&importModes().some(([value])=>value===button.dataset.agentSourceMode)){importMode=button.dataset.agentSourceMode;error='';notice='';refresh();}return;}
  const candidateAction=button.dataset.agentConfirm||button.dataset.agentReview||button.dataset.agentIgnore||button.dataset.agentRestore;
  if(busy&&!candidateAction&&!['stop','voice'].includes(button.dataset.agentAction))return;
  if(button.dataset.agentEditTask){host.editTask?.(button.dataset.agentEditTask);return;}
- if(button.dataset.agentConfirm){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentConfirm);if(item?.candidate.notice_type==='create')await quickCreate(item,current);else if(item)review(item);return;}
+ if(button.dataset.agentConfirm){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentConfirm);if(item?.candidate.notice_type==='create')await quickCreate(item,candidateCurrent);else if(item)review(item);return;}
  if(button.dataset.agentReview){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentReview);if(item)review(item);return;}
- if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);await ignoreCandidate(item,current);return;}
- if(button.dataset.agentRestore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentRestore);await restoreCandidate(item,current);return;}
+ if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);await ignoreCandidate(item,candidateCurrent);return;}
+ if(button.dataset.agentRestore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentRestore);await restoreCandidate(item,candidateCurrent);return;}
  if(button.dataset.agentAction==='refresh'){await load(true);return;}
  if(button.dataset.agentRetry){
   const batch=batches.find(b=>b.request.request_id===button.dataset.agentRetry);
