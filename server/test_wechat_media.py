@@ -87,6 +87,89 @@ class WechatMediaTests(unittest.TestCase):
         self.assertEqual(self.call(a, '/sources/wechat/credential/revoke', 'POST', {})[0], 200)
         self.assertEqual(self.call(a, '/sources/wechat/imports/' + submitted['job_id'], token=token)[0], 401)
 
+    def test_asset_loader_rechecks_ownership_bytes_and_deleted_handles(self):
+        client = self.client('wechat-loader@test.local')
+        raw = b'\x89PNG\r\n\x1a\nloader'
+        _, ack = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True)
+        with app.connection() as db:
+            uid = db.execute('SELECT id FROM users WHERE email=?',('wechat-loader@test.local',)).fetchone()['id']
+            path = Path(db.execute('SELECT path FROM wechat_assets WHERE ref=?',(ack['file_ref'],)).fetchone()['path'])
+        loader = wechat_media.account_asset_loader(app.DB,uid)
+        self.assertEqual(loader(ack['file_ref'],max_bytes=100,timeout_seconds=1),raw)
+        with self.assertRaises(FileNotFoundError):
+            wechat_media.account_asset_loader(app.DB,'other-account')(ack['file_ref'],max_bytes=100,timeout_seconds=1)
+        with self.assertRaises(ValueError):
+            loader(ack['file_ref'],max_bytes=2,timeout_seconds=1)
+        with self.assertRaises(TimeoutError), patch.object(wechat_media.time,'monotonic',side_effect=[0,2]):
+            loader(ack['file_ref'],max_bytes=100,timeout_seconds=1)
+        # Simulate a corrupt storage object without changing the persisted receipt.
+        with path.open('ab') as target:
+            target.write(b'changed')
+        with self.assertRaises(ValueError):
+            loader(ack['file_ref'],max_bytes=100,timeout_seconds=1)
+        with app.connection() as db:
+            db.execute('DELETE FROM wechat_assets WHERE ref=?',(ack['file_ref'],))
+        with self.assertRaises(FileNotFoundError):
+            loader(ack['file_ref'],max_bytes=100,timeout_seconds=1)
+
+    def test_shared_reader_receives_only_the_bound_loader_and_model_configuration(self):
+        try:
+            from ddl_text.media_pipeline import process_media_request
+        except ImportError:
+            self.skipTest('image runtime requires Python 3.10+ and media dependencies')
+        request = {'request_id':'adapter-wiring'}
+        loader = lambda *args,**kwargs:b'account-scoped-bytes'
+        options = dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options), patch('ddl_text.media_pipeline.process_media_request',return_value={'status':'success'}) as adapter:
+            self.assertEqual(wechat_media.recognize_v03(request,loader),{'status':'success'})
+            arguments = adapter.call_args.args
+            self.assertIs(arguments[1],loader)
+            self.assertEqual(arguments[3].model,'test-image-model')
+            self.assertEqual(arguments[3].max_retries,0)
+
+    def test_expiration_removes_only_unreferenced_uploads_and_retains_job_files(self):
+        client = self.client('wechat-ttl@test.local')
+        _, loose = self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nloose',multipart=True)
+        _, held = self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nheld',multipart=True)
+        with app.connection() as db:
+            paths = {row['ref']:Path(row['path']) for row in db.execute('SELECT * FROM wechat_assets WHERE ref IN (?,?)',(loose['file_ref'],held['file_ref']))}
+            db.execute('UPDATE wechat_asset_lifetime SET uploaded_at=0 WHERE ref IN (?,?)',(loose['file_ref'],held['file_ref']))
+            wechat_media._retain_assets(db,'retained-ttl-job',{'records':[{'attachments':[{'file_ref':held['file_ref']}]}]})
+            wechat_media._expire_unreferenced(db,now=100000)
+            self.assertIsNone(db.execute('SELECT 1 FROM wechat_assets WHERE ref=?',(loose['file_ref'],)).fetchone())
+            self.assertIsNotNone(db.execute('SELECT 1 FROM wechat_assets WHERE ref=?',(held['file_ref'],)).fetchone())
+        self.assertFalse(paths[loose['file_ref']].exists())
+        self.assertTrue(paths[held['file_ref']].exists())
+
+    def test_uploaded_pixels_run_through_shared_reader_and_persist_review_candidate(self):
+        try:
+            from ddl_text.tests.media_cases import FakeMediaClient, image_bytes, request_for
+        except ImportError:
+            self.skipTest('image runtime dependencies unavailable')
+        client = self.client('wechat-pixel-pipeline@test.local')
+        pixels = image_bytes()
+        request, _ = request_for(pixels)
+        request['request_id'] = 'uploaded-pixel-pipeline'
+        _, receipt = self.call(client,'/sources/wechat/assets','POST',pixels,multipart=True)
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        options = dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options), patch('ddl_text.chat_client.ChatClient',return_value=FakeMediaClient()):
+            status, ack = self.call(client,'/sources/wechat/imports','POST',request)
+            self.assertEqual(status,202)
+            for _ in range(200):
+                _, job = self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued','running'): break
+                time.sleep(.05)
+        self.assertEqual(job['status'],'succeeded',job)
+        check_pair(request,job['result'])
+        summary = job['result']['record_results'][0]['attachments'][0]
+        self.assertEqual(summary['coverage_basis'],'adapter_confirmed')
+        self.assertTrue(job['result']['tasks'][0]['needs_review'])
+        batch = self.call(client,'/recognition/batches')[1][0]
+        self.assertEqual(batch['items'][0]['state'],'pending')
+        self.assertEqual(self.call(client,'/workspace')[1].get('tasks',{}).get('value',[]),[])
+        self.assertNotIn(receipt['file_ref'],json.dumps(job['result']))
+
     def test_model_reported_candidates_require_confirmation_and_stay_owned(self):
         a, b = self.client('wechat-success@test.local'), self.client('wechat-success-other@test.local')
         raw = b'\x89PNG\r\n\x1a\nnew-image'

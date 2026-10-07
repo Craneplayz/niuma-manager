@@ -1,10 +1,14 @@
 """Account-scoped v0.3.1 WeChat asset and asynchronous import transport."""
 import hashlib
+import copy
 import io
 import hmac
 import json
+import math
+import os
 import secrets
 import sqlite3
+import stat
 import threading
 import time
 from email.parser import BytesParser
@@ -13,7 +17,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zipfile import ZipFile, is_zipfile
 
-from contracts.check_v031_examples import check_pair, check_request, check_job, schema, request_fingerprint, retryable_records, check_asset_metadata
+from contracts.check_v031_examples import check_pair, check_request, check_job, check_retry_result, schema, request_fingerprint, retryable_records, check_asset_metadata
 
 MAX_ASSET = 20 * 1024 * 1024
 _slot = threading.Semaphore(1)
@@ -30,10 +34,48 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS wechat_assets(ref TEXT PRIMARY KEY, user_id TEXT NOT NULL, file_name TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, path TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS wechat_jobs(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, status TEXT NOT NULL, result TEXT, previous_result TEXT, retry_id TEXT, attempts INTEGER NOT NULL DEFAULT 0, UNIQUE(user_id,request_id));
     CREATE TABLE IF NOT EXISTS wechat_retries(job_id TEXT NOT NULL, retry_id TEXT NOT NULL, targets TEXT NOT NULL, status TEXT NOT NULL, errors TEXT, PRIMARY KEY(job_id,retry_id));
+    CREATE TABLE IF NOT EXISTS wechat_asset_lifetime(ref TEXT PRIMARY KEY, uploaded_at REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS wechat_job_assets(job_id TEXT NOT NULL, ref TEXT NOT NULL, PRIMARY KEY(job_id,ref));
     ''')
     if 'errors' not in {row[1] for row in db.execute('PRAGMA table_info(wechat_retries)')}:
         db.execute('ALTER TABLE wechat_retries ADD COLUMN errors TEXT')
     db.execute("UPDATE wechat_jobs SET status='queued' WHERE status='running'")
+    db.execute('INSERT OR IGNORE INTO wechat_asset_lifetime SELECT ref,? FROM wechat_assets',(time.time(),))
+    for row in db.execute('SELECT id,request FROM wechat_jobs'):
+        _retain_assets(db,row['id'],json.loads(row['request']))
+    _expire_unreferenced(db)
+
+
+def _retain_assets(db, job_id, request):
+    for record in request['records']:
+        for asset in record['attachments']:
+            if asset.get('file_ref'):
+                db.execute('INSERT OR IGNORE INTO wechat_job_assets VALUES(?,?)',(job_id,asset['file_ref']))
+
+
+def _asset_ttl():
+    ttl = float(os.environ.get('WECHAT_UNREFERENCED_TTL_SECONDS','86400'))
+    if not math.isfinite(ttl) or ttl <= 0:
+        raise ValueError('invalid_asset_ttl')
+    return ttl
+
+
+def _expire_unreferenced(db, now=None):
+    expired = db.execute('''SELECT a.* FROM wechat_assets a JOIN wechat_asset_lifetime l ON l.ref=a.ref
+        WHERE l.uploaded_at<? AND NOT EXISTS(SELECT 1 FROM wechat_job_assets j WHERE j.ref=a.ref)''',
+        ((time.time() if now is None else now)-_asset_ttl(),)).fetchall()
+    root = Path(db.execute('PRAGMA database_list').fetchone()[2]).parent.resolve()
+    for asset in expired:
+        path = Path(asset['path'])
+        # The recorded leaf is removed, never a directory or an input-provided path.
+        if path.parent.resolve() != root / 'wechat-assets' / asset['user_id']:
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            continue
+        db.execute('DELETE FROM wechat_assets WHERE ref=?',(asset['ref'],))
+        db.execute('DELETE FROM wechat_asset_lifetime WHERE ref=?',(asset['ref'],))
 
 
 def bearer_user(db, headers):
@@ -89,6 +131,8 @@ def _upload(handler, db, uid, data_dir):
         check_file_name(name)
     except Exception:
         raise MediaError(400, 'invalid_request', '文件名无效') from None
+    db.execute('BEGIN IMMEDIATE')
+    _expire_unreferenced(db)
     row = db.execute('SELECT * FROM wechat_assets WHERE user_id=? AND sha256=?', (uid, digest)).fetchone()
     if row:
         status, ref = 200, row['ref']
@@ -102,8 +146,15 @@ def _upload(handler, db, uid, data_dir):
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / ref[6:]
         with path.open('xb') as target:
+            if os.name == 'posix':
+                os.fchmod(target.fileno(),0o600)
             target.write(data)
-        db.execute('INSERT INTO wechat_assets VALUES(?,?,?,?,?,?,?)', (ref, uid, name, mime, len(data), digest, str(path)))
+        try:
+            db.execute('INSERT INTO wechat_assets VALUES(?,?,?,?,?,?,?)', (ref, uid, name, mime, len(data), digest, str(path)))
+            db.execute('INSERT INTO wechat_asset_lifetime VALUES(?,?)',(ref,time.time()))
+        except Exception:
+            path.unlink()
+            raise
     ack = dict(contract_version='0.3.1', file_ref=ref, file_name=name, mime_type=mime, size_bytes=len(data), sha256=digest)
     schema('wechat-import', ack, 'asset_ack')
     handler.reply(status, ack)
@@ -111,6 +162,7 @@ def _upload(handler, db, uid, data_dir):
 
 
 def _validate_assets(db, uid, request):
+    _expire_unreferenced(db)
     for record in request['records']:
         for asset in record['attachments']:
             if asset.get('content_mode') != 'file' or asset['status'] != 'available':
@@ -152,9 +204,78 @@ def _sources(request):
     return sources
 
 
+def account_asset_loader(db_path, uid):
+    """Resolve opaque handles afresh; never give a model a filesystem path."""
+    def load(file_ref, *, max_bytes, timeout_seconds):
+        if type(max_bytes) is not int or max_bytes <= 0 or not isinstance(timeout_seconds,(int,float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError('invalid_read_budget')
+        expires = time.monotonic() + timeout_seconds
+        with sqlite3.connect(db_path, timeout=min(10, timeout_seconds)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute('SELECT a.* FROM wechat_assets a JOIN users u ON u.id=a.user_id WHERE a.ref=? AND a.user_id=?', (file_ref,uid)).fetchone()
+            if not row:
+                raise FileNotFoundError('file_ref_unavailable')
+            lifetime = db.execute('SELECT uploaded_at FROM wechat_asset_lifetime WHERE ref=?',(file_ref,)).fetchone()
+            retained = db.execute('SELECT 1 FROM wechat_job_assets WHERE ref=?',(file_ref,)).fetchone()
+            if not retained and (not lifetime or lifetime['uploaded_at'] < time.time()-_asset_ttl()):
+                raise FileNotFoundError('file_ref_unavailable')
+            path = Path(row['path'])
+            folder = Path(db_path).parent / 'wechat-assets' / uid
+            expected = Path(db_path).parent.resolve() / 'wechat-assets' / uid
+            if folder.resolve() != expected or path.parent.resolve() != expected or path.is_symlink():
+                raise FileNotFoundError('file_ref_unavailable')
+            cap = min(max_bytes, MAX_ASSET)
+            if row['size_bytes'] > cap:
+                raise ValueError('limit_exceeded')
+            flags = os.O_RDONLY | getattr(os,'O_BINARY',0) | getattr(os,'O_NOFOLLOW',0) | getattr(os,'O_NONBLOCK',0)
+            try:
+                descriptor = os.open(path, flags)
+            except OSError:
+                raise FileNotFoundError('file_ref_unavailable') from None
+            with os.fdopen(descriptor,'rb') as source:
+                info = os.fstat(source.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_size != row['size_bytes']:
+                    raise ValueError('asset_metadata_mismatch')
+                if (info.st_dev,info.st_ino) != (path.stat().st_dev,path.stat().st_ino):
+                    raise FileNotFoundError('file_ref_unavailable')
+                chunks, size = [], 0
+                while True:
+                    if time.monotonic() >= expires:
+                        raise TimeoutError('file_read_failed')
+                    chunk = source.read(min(65536, cap + 1 - size))
+                    if not chunk:
+                        break
+                    chunks.append(chunk); size += len(chunk)
+                    if size > cap:
+                        raise ValueError('limit_exceeded')
+            data = b''.join(chunks)
+            if len(data) != row['size_bytes'] or hashlib.sha256(data).hexdigest() != row['sha256']:
+                raise ValueError('asset_metadata_mismatch')
+            if not db.execute('SELECT 1 FROM wechat_assets WHERE ref=? AND user_id=?', (file_ref,uid)).fetchone():
+                raise FileNotFoundError('file_ref_unavailable')
+            if time.monotonic() >= expires:
+                raise TimeoutError('file_read_failed')
+            return data
+    return load
+
+
 def recognize_v03(request, assets):
-    """#94 supplies the real adapter; never treat unread files as no_tasks."""
-    raise NotImplementedError('v0.3.1 附件读取适配器尚未接入')
+    """Use the shared image adapter with a trusted, account-bound loader."""
+    from recognition import ROOT, _ACTIVE
+    from ddl_text.codex_client import live_options
+    from ddl_text.chat_client import ChatClient
+    from ddl_text.config import Settings
+    from ddl_text.media_pipeline import process_media_request
+    with _ACTIVE:
+        try:
+            options = live_options(ROOT / '.env')
+        except (OSError,ValueError,KeyError,TypeError):
+            raise MediaError(503,'agent_unavailable','图片识别配置不可用，请检查模型配置') from None
+        # The image adapter requires a multimodal Chat Completions provider.
+        if options['provider'] != 'qiniu' or not options['key'].strip():
+            raise MediaError(503,'agent_unavailable','图片识别需配置支持图片的模型服务')
+        settings = Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=45,max_retries=0)
+        return process_media_request(request,assets,ChatClient(options['key']),settings)
 
 
 def _failed_result(request, code='agent_unavailable', message='附件识别暂不可用；没有将其当作无任务'):
@@ -229,17 +350,23 @@ def _process(db_path, job_id):
             db.commit()
             attempt_errors = []
             try:
-                assets = {a['file_ref']: Path(db.execute('SELECT path FROM wechat_assets WHERE ref=? AND user_id=?', (a['file_ref'], row['user_id'])).fetchone()['path']) for r in request['records'] for a in r['attachments'] if a.get('file_ref')}
+                assets = account_asset_loader(db_path, row['user_id'])
                 result = recognize_v03(extraction, assets)
                 check_pair(extraction, result)
                 attempt_errors = result['errors']
                 if previous and not result['record_results']:
                     result = previous
                 elif previous:
-                    outcomes = {item['input_id']:item for item in previous['record_results']}
+                    outcomes = {item['input_id']:copy.deepcopy(item) for item in previous['record_results']}
                     outcomes.update({item['input_id']:item for item in result['record_results']})
                     prior = {item['candidate_id']: item for item in previous['tasks']}
-                    tasks = list(prior.values()) + [item for item in result['tasks'] if item['candidate_id'] not in prior]
+                    tasks = list(prior.values())
+                    for item in result['tasks']:
+                        if item['candidate_id'] in prior:
+                            if item == prior[item['candidate_id']]:
+                                continue
+                            item = dict(item,candidate_id='retry:'+hashlib.sha256((row['retry_id']+':'+item['candidate_id']).encode()).hexdigest())
+                        tasks.append(item)
                     for outcome in outcomes.values():
                         outcome['task_ids'] = [item['candidate_id'] for item in tasks if item['input_id'] == outcome['input_id']]
                     errors = [item for item in previous['errors'] if item['input_id'] in done] + result['errors']
@@ -249,9 +376,14 @@ def _process(db_path, job_id):
                     result = dict(contract_version='0.3.1', request_id=request['request_id'], status=status,
                                   record_results=[outcomes[item['input_id']] for item in request['records']], tasks=tasks, errors=errors)
                     check_pair(request, result)
+                if previous:
+                    check_retry_result(request,previous,result,sorted(selected))
             except NotImplementedError:
                 attempt_errors = _failed_result(request)['errors']
                 result = previous if previous else _failed_result(request, message='附件读取适配器尚未接入；没有将其当作无任务')
+            except MediaError as error:
+                attempt_errors = _failed_result(request,error.code,error.message)['errors']
+                result = previous if previous else _failed_result(request,error.code,error.message)
             except (ValueError, KeyError, TypeError):
                 attempt_errors = _failed_result(request,'invalid_agent_output','识别结果未通过 v0.3.1 校验')['errors']
                 result = previous if previous else _failed_result(request, 'invalid_agent_output', '识别结果未通过 v0.3.1 校验；任务未新增')
@@ -271,8 +403,12 @@ def _process(db_path, job_id):
             except Exception:
                 db.rollback()
                 failure = previous if previous else _failed_result(request)
+                fallback_status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[failure['status']]
                 db.execute('UPDATE wechat_jobs SET status=?,result=?,previous_result=NULL WHERE id=?',
-                           ('partial_failed' if previous else 'failed', json.dumps(failure, ensure_ascii=False), job_id))
+                           (fallback_status, json.dumps(failure, ensure_ascii=False), job_id))
+                if row['retry_id']:
+                    db.execute('UPDATE wechat_retries SET status=?,errors=? WHERE job_id=? AND retry_id=?',
+                               (fallback_status,json.dumps(_failed_result(request)['errors']),job_id,row['retry_id']))
                 db.commit()
         finally:
             db.close()
@@ -343,6 +479,7 @@ def route(handler, db, uid, path, body, data_dir):
             raise MediaError(503, 'queue_busy', '导入队列已满，请稍后重试', True)
         job_id = 'job-' + secrets.token_urlsafe(18)
         db.execute('INSERT INTO wechat_jobs(id,user_id,request_id,fingerprint,request,status,result,previous_result,retry_id,attempts) VALUES(?,?,?,?,?,?,?,?,?,0)', (job_id, uid, body['request_id'], fingerprint, json.dumps(body, ensure_ascii=False), 'queued', None, None, None))
+        _retain_assets(db,job_id,body)
         handler.reply(202, dict(contract_version='0.3.1', job_id=job_id, request_id=body['request_id'], status='queued'))
         threading.Thread(target=_process, args=(handler.media_db_path, job_id), daemon=True).start()
         return True
