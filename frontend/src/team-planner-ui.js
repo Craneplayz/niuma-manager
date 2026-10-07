@@ -1,5 +1,6 @@
 import {api,flushStore,saveData,workspaceValue,session,accountVersion,planDateTime} from './store.js';
 import {icon} from './icons.js';
+import {pageIntro} from './story-layout.js';
 import {priorityLabels} from './data.js';
 
 let host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,replanExisting=false,targetedIds=null;
@@ -49,7 +50,7 @@ document.addEventListener('toggle',event=>{
 export function plannerPage(){
  invalidateChangedProposal();
  const tasks=active(),selected=tasks.filter(t=>targetedIds||!t.planningExcluded),a=currentAvailability();
- return `<div class="page-heading"><h1>智能规划</h1></div>
+ return `${pageIntro('plan')}
  <div class="planner-grid"><section class="panel priority-lab"><div class="section-title"><h2>可用时间</h2><span>北京时间</span></div>
  <div class="form-grid"><label>每日开始<input type="time" data-plan-field="startTime" value="${a.startTime}"></label><label>每日结束<input type="time" data-plan-field="endTime" value="${a.endTime}"></label></div>
  <div class="weekday-options">${[1,2,3,4,5,6,0].map(d=>`<label><input type="checkbox" data-plan-day="${d}" ${a.weekdays.includes(d)?'checked':''}>${['周日','周一','周二','周三','周四','周五','周六'][d]}</label>`).join('')}</div>
@@ -59,6 +60,7 @@ export function plannerPage(){
  <p>${targetedIds?'本次只处理上方选中的任务，其他任务的安排保持原值。':replanExisting?'所有尚未完成且未标记为“无需规划”的任务会一起送交模型。':'所有尚未完成、没有安排且未标记为“无需规划”的任务会一起送交模型。'}</p>
  ${targetedIds?'':`<details class="planning-exclusions" ${exclusionsOpen?'open':''}><summary>无需规划的任务 · 已排除 ${tasks.length-selected.length} 项</summary>
  ${tasks.map(t=>`<label><input type="checkbox" data-plan-exclude="${esc(t.id)}" ${t.planningExcluded?'checked':''}><span>${esc(t.title)}</span><small>${t.due?`${t.due} ${t.dueTime||'待补充时刻'}`:'无 DDL'}</small></label>`).join('')||'<p>当前没有需要安排的任务。</p>'}</details>`}
+ ${!selected.length&&!busy&&!result?`<div class="planning-empty-state" role="status">${!session.user?'<h3>登录后，安排你的学习时间。</h3><p>登录后即可读取任务，生成排程提案。</p><button class="btn" data-action="login">登录 / 注册</button>':tasks.length?'<h3>这些任务暂时无需规划。</h3><p>在“无需规划的任务”中取消勾选，就能重新加入。</p>':host.getState().tasks.some(task=>task.status!=='done')?'<h3>未完成的任务已经有安排。</h3><p>可以查看当前日程，或勾选上方选项重新规划。</p><a class="story-link" href="#calendar">查看学习日程 '+icon('arrow')+'</a>':'<h3>还没有待规划的任务。</h3><p>先导入通知或添加任务，再为它们安排时间。</p><a class="story-link" href="#tasks">前往任务中心 '+icon('arrow')+'</a>'}</div>`:''}
  <div class="planner-actions"><button class="btn primary" data-plan-action="start" ${busy||!selected.length?'disabled':''}>${icon('spark')}${busy?'正在处理…':'开始规划'}</button>${busy?'<button class="btn" data-plan-action="cancel">取消等待</button>':''}</div></section></div>
  ${error?`<p class="save-error" role="alert">${esc(error)}</p>`:''}
  ${result?`<section class="panel planning-insights"><div class="section-title"><h2>排程提案</h2><span>确认后才写入日历</span></div>

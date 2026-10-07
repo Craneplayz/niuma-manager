@@ -1,5 +1,6 @@
 import {api,flushStore,session,accountVersion} from './team-store.js';
 import {icon} from './icons.js';
+import {pageIntro} from './story-layout.js';
 
 let host={};
 let selectedId='';
@@ -68,7 +69,7 @@ function workPanel(){
 
 export function decompositionPage(){
  if(selectedId&&!selected())resetDecomposition();
- return `<div class="page-heading"><div><h1>AI 任务拆解</h1><p>把复杂任务整理成可完成、可核对的小步骤。</p></div></div>
+ return `${pageIntro('decompose')}
  <div class="decomposition-layout"><section class="panel decomposition-list"><div class="section-title"><h2>选择任务</h2><span>${tasks().length} 项未完成</span></div>${taskList()}</section>
  <section class="panel decomposition-work" aria-live="polite">${workPanel()}</section></div>`;
 }
