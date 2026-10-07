@@ -2,12 +2,12 @@ import {api,flushStore,saveData,workspaceValue,session,accountVersion,planDateTi
 import {icon} from './icons.js';
 import {priorityLabels} from './data.js';
 
-let host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false;
+let host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,replanExisting=false,targetedIds=null;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
-const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&!host.getState().schedule.some(p=>p.taskId===t.id));
+const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&(targetedIds?targetedIds.includes(t.id):replanExisting||!host.getState().schedule.some(p=>p.taskId===t.id)));
 function currentAvailability(){return availability||workspaceValue('availability',defaults);}
-const planningContext=()=>JSON.stringify([host.getState().tasks,host.getState().schedule,currentAvailability()]);
+const planningContext=()=>JSON.stringify([host.getState().tasks,host.getState().schedule,currentAvailability(),replanExisting,targetedIds]);
 const changedMessage='任务或可用时间已更新，请重新规划。';
 function invalidateChangedProposal(){
  if(result&&resultContext!==planningContext()){result=null;error=changedMessage;}
@@ -41,33 +41,43 @@ export function proposalSummaryHtml(proposal,tasks,now=Date.now()){
  ${otherWarnings.length?`<div class="proposal-extra" role="status">${otherWarnings.map(warning=>`<p>${esc(warning)}</p>`).join('')}</div>`:''}`;
 }
 window.addEventListener('niuma:account-reset',()=>{
- activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;
+ activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;replanExisting=false;targetedIds=null;
 });
 document.addEventListener('toggle',event=>{
  if(event.target.isConnected&&event.target.classList?.contains('planning-exclusions'))exclusionsOpen=event.target.open;
 },true);
 export function plannerPage(){
  invalidateChangedProposal();
- const tasks=active(),selected=tasks.filter(t=>!t.planningExcluded),a=currentAvailability();
+ const tasks=active(),selected=tasks.filter(t=>targetedIds||!t.planningExcluded),a=currentAvailability();
  return `<div class="page-heading"><h1>智能规划</h1></div>
  <div class="planner-grid"><section class="panel priority-lab"><div class="section-title"><h2>可用时间</h2><span>北京时间</span></div>
  <div class="form-grid"><label>每日开始<input type="time" data-plan-field="startTime" value="${a.startTime}"></label><label>每日结束<input type="time" data-plan-field="endTime" value="${a.endTime}"></label></div>
  <div class="weekday-options">${[1,2,3,4,5,6,0].map(d=>`<label><input type="checkbox" data-plan-day="${d}" ${a.weekdays.includes(d)?'checked':''}>${['周日','周一','周二','周三','周四','周五','周六'][d]}</label>`).join('')}</div>
- <p class="panel-note">可用时间保存到账号；已有安排始终保留。</p></section>
+ <p class="panel-note">可用时间保存到账号；规划预览不会修改当前安排。</p></section>
  <section class="panel timeline-panel"><div class="section-title"><h2>规划范围</h2><span>${selected.length} 项待规划</span></div>
- <p>所有尚未完成、没有安排且未标记为“无需规划”的任务会一起送交模型。</p>
- <details class="planning-exclusions" ${exclusionsOpen?'open':''}><summary>无需规划的任务 · 已排除 ${tasks.length-selected.length} 项</summary>
- ${tasks.map(t=>`<label><input type="checkbox" data-plan-exclude="${esc(t.id)}" ${t.planningExcluded?'checked':''}><span>${esc(t.title)}</span><small>${t.due?`${t.due} ${t.dueTime||'待补充时刻'}`:'无 DDL'}</small></label>`).join('')||'<p>当前没有需要安排的任务。</p>'}</details>
+ ${targetedIds?`<p class="planning-replacement-note">只重新规划：${selected.map(task=>esc(task.title)).join('、')}</p><button class="btn" data-plan-action="default-range" ${busy?'disabled':''}>恢复默认规划范围</button>`:`<label class="planning-replan-option"><input type="checkbox" data-plan-replan="true" ${replanExisting?'checked':''} ${busy?'disabled':''}><span>同时重新规划已有安排的任务<small>确认新提案后替换尚未开始的时段；已开始的安排保留。</small></span></label>`}
+ <p>${targetedIds?'本次只处理上方选中的任务，其他任务的安排保持原值。':replanExisting?'所有尚未完成且未标记为“无需规划”的任务会一起送交模型。':'所有尚未完成、没有安排且未标记为“无需规划”的任务会一起送交模型。'}</p>
+ ${targetedIds?'':`<details class="planning-exclusions" ${exclusionsOpen?'open':''}><summary>无需规划的任务 · 已排除 ${tasks.length-selected.length} 项</summary>
+ ${tasks.map(t=>`<label><input type="checkbox" data-plan-exclude="${esc(t.id)}" ${t.planningExcluded?'checked':''}><span>${esc(t.title)}</span><small>${t.due?`${t.due} ${t.dueTime||'待补充时刻'}`:'无 DDL'}</small></label>`).join('')||'<p>当前没有需要安排的任务。</p>'}</details>`}
  <div class="planner-actions"><button class="btn primary" data-plan-action="start" ${busy||!selected.length?'disabled':''}>${icon('spark')}${busy?'正在处理…':'开始规划'}</button>${busy?'<button class="btn" data-plan-action="cancel">取消等待</button>':''}</div></section></div>
  ${error?`<p class="save-error" role="alert">${esc(error)}</p>`:''}
  ${result?`<section class="panel planning-insights"><div class="section-title"><h2>排程提案</h2><span>确认后才写入日历</span></div>
+ ${result.replannedTaskIds?.length?`<p class="planning-replacement-note">确认后将替换以下任务尚未开始的安排：${result.replannedTaskIds.map(id=>esc(host.getState().tasks.find(task=>task.id===id)?.title||id)).join('、')}。未生成新时段的任务保留原安排。</p>`:''}
  ${proposalSummaryHtml(result,host.getState().tasks)}
  ${result.blocks.length?`<section class="proposal-group"><h3>建议时间</h3><div class="proposal-list">${result.blocks.map(b=>{const start=planDateTime(b.startAt),end=planDateTime(b.endAt);return `<article class="plan-block"><b>${esc(b.title)}</b><span>${start.date} ${start.time}–${start.date===end.date?'':end.date+' '}${end.time}</span></article>`;}).join('')}</div></section>`:''}
  <div class="planner-actions"><button class="btn primary" data-plan-action="apply" ${busy||!result.blocks.length?'disabled':''}>确认写入日历</button><button class="btn" data-plan-action="modify" ${busy?'disabled':''}>修改可用时间</button><button class="btn" data-plan-action="discard" ${busy?'disabled':''}>取消提案</button></div></section>`:''}`;
 }
 export async function proposeForTasks(taskIds){
  if(!session.user||busy||!taskIds.length)return false;
+ targetedIds=null;replanExisting=false;
  return requestProposal({taskIds});
+}
+export async function replanTasks(taskIds){
+ if(!session.user||busy||!taskIds.length)return false;
+ targetedIds=[...taskIds];replanExisting=true;
+ const a=currentAvailability();
+ if(!a.weekdays.length||!a.startTime||a.endTime<=a.startTime){error='请选择有效可用时间和星期';host.openPreview?.();host.render();return false;}
+ return requestProposal({taskIds,replan:true});
 }
 async function requestProposal(payload={}){
  const epoch=accountVersion(),controller=new AbortController();
@@ -88,7 +98,7 @@ async function requestProposal(payload={}){
   if(!current())return false;
   if(context!==planningContext())throw new Error(changedMessage);
   resultContext=context;result=next;return true;
- }catch(e){if(current())error=(payload.taskIds?'任务已加入日历，但排程提案未生成：':'')+e.message;return false;}
+ }catch(e){if(current())error=(payload.replan?'重新规划未完成，原安排保留：':payload.taskIds?'任务已创建，但排程提案未生成：':'')+e.message;return false;}
  finally{clearTimeout(timer);if(current()){activeController=null;busy=false;host.render();}}
 }
 export async function plannerClick(button){
@@ -97,12 +107,13 @@ export async function plannerClick(button){
  if(action==='cancel'){activeController?.abort();return true;}
  if(action==='discard'){result=null;error='';host.render();return true;}
  if(action==='modify'){result=null;host.render();return true;}
+ if(action==='default-range'&&!busy){targetedIds=null;replanExisting=false;result=null;error='';host.render();return true;}
  if(!session.user||session.changing){error='请先登录账号';host.render();return true;}
  if(action==='start'){
   if(busy)return true;
   const a=currentAvailability();
   if(!a.weekdays.length||!a.startTime||a.endTime<=a.startTime){error='请选择有效可用时间和星期';host.render();return true;}
-  await requestProposal();
+  await requestProposal(targetedIds?{taskIds:targetedIds,replan:true}:replanExisting?{replan:true}:{});
   return true;
  }
  if(action==='apply'){
@@ -124,6 +135,7 @@ export async function plannerClick(button){
 }
 export function plannerChange(event){
  const target=event.target;
+ if(target.dataset.planReplan!==undefined){replanExisting=target.checked;result=null;host.render();return true;}
  if(target.dataset.planField){availability={...currentAvailability(),[target.dataset.planField]:target.value};result=null;host.render();return true;}
  if(target.dataset.planDay!==undefined){const d=Number(target.dataset.planDay),a=currentAvailability();availability={...a,weekdays:target.checked?[...a.weekdays,d]:a.weekdays.filter(x=>x!==d)};result=null;host.render();return true;}
  if(target.dataset.planExclude){
