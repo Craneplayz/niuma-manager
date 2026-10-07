@@ -1,6 +1,8 @@
 """Offline acceptance tests for the Windows-oriented v0.3.1 hand-off."""
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -145,6 +147,41 @@ class V031RequestTest(unittest.TestCase):
         self.assertEqual(len(uploader.calls), 1)
         self.assertEqual([item["status"] for item in (record["attachments"][0] for record in request["records"])], ["available", "available"])
         self.assertEqual(request["records"][0]["attachments"][0]["file_ref"], request["records"][1]["attachments"][0]["file_ref"])
+
+    def test_server_dedupe_receipt_can_use_canonical_name_across_builds(self):
+        class CanonicalNameUploader:
+            def __init__(self):
+                self.calls = 0
+
+            def upload(self, path, metadata):
+                self.calls += 1
+                return {
+                    "contract_version": "0.3.1",
+                    "file_ref": "asset:" + "c" * 24,
+                    "file_name": "canonical.pdf",
+                    "mime_type": metadata["mime_type"],
+                    "size_bytes": metadata["size_bytes"],
+                    "sha256": metadata["sha256"],
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "current-name.pdf"
+            path.write_bytes(b"same-server-content")
+            uploader = CanonicalNameUploader()
+            [first] = build_requests(
+                [make_chat([message(1, "[文件] first-name.pdf", type_code=49, assets=[{"path": str(path), "file_name": "first-name.pdf"}])])],
+                request_id="server-dedupe-1",
+                uploader=uploader,
+            )
+            [second] = build_requests(
+                [make_chat([message(2, "[文件] second-name.pdf", type_code=49, assets=[{"path": str(path), "file_name": "second-name.pdf"}])])],
+                request_id="server-dedupe-2",
+                uploader=uploader,
+            )
+        self.assertEqual(uploader.calls, 2)
+        self.assertEqual(first["records"][0]["attachments"][0]["status"], "available")
+        self.assertEqual(second["records"][0]["attachments"][0]["status"], "available")
+        self.assertEqual(second["records"][0]["attachments"][0]["file_ref"], "asset:" + "c" * 24)
 
     def test_readable_image_supersedes_matching_encrypted_cache(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -302,7 +339,25 @@ class V031RequestTest(unittest.TestCase):
             )
         self.assertIn(b'filename="\xe6\x8a\xa5\xe5\x91\x8a.pdf"', body)
         self.assertIn(b"Content-Type: application/pdf", body)
+        self.assertNotIn(b'name="sha256"', body)
         self.assertIn(b"multipart/form-data; boundary=", content_type.encode())
+
+    def test_direct_script_uses_shared_validator_for_record_text_limit(self):
+        chat = make_chat([message(1, "x" * 60000, context=[message(2, "y" * 60000)])])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = root / "input.json"
+            output_path = root / "output.jsonl"
+            input_path.write_text(json.dumps(chat, ensure_ascii=False), encoding="utf-8")
+            completed = subprocess.run(
+                [sys.executable, "wechat/script/v031.py", str(input_path), "--output", str(output_path)],
+                cwd=Path(__file__).resolve().parents[2],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+        self.assertEqual(completed.returncode, 2, completed.stderr)
+        self.assertIn("record_text_too_large", completed.stderr)
 
 
 class V031QueueTest(unittest.TestCase):
@@ -386,6 +441,37 @@ class V031QueueTest(unittest.TestCase):
             },
         }
         self.assertEqual(validate_job(terminal, job_id="job-1")["status"], "succeeded")
+
+    def test_request_level_failure_counts_all_records_as_failed(self):
+        request = build_requests([make_chat([message(1)])], request_id="request-level-failure")[0]
+        result = {
+            "contract_version": "0.3.1",
+            "request_id": request["request_id"],
+            "status": "failed",
+            "record_results": [],
+            "tasks": [],
+            "errors": [
+                {
+                    "input_id": None,
+                    "asset_id": None,
+                    "block_id": None,
+                    "stage": "request",
+                    "code": "agent_unavailable",
+                    "message": "识别服务暂不可用",
+                    "retryable": True,
+                }
+            ],
+        }
+        job = {
+            "contract_version": "0.3.1",
+            "job_id": "job-request-level-failure",
+            "request_id": request["request_id"],
+            "status": "failed",
+            "progress": {"total_records": 1, "finished_records": 1, "failed_records": 1},
+            "result": result,
+        }
+        self.assertEqual(validate_result(result, request=request)["status"], "failed")
+        self.assertEqual(validate_job(job)["status"], "failed")
 
     def test_retryable_upload_is_recovered_before_import(self):
         class FlakyClient:

@@ -28,9 +28,16 @@ from urllib.parse import parse_qsl, quote, urlsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+# Direct script execution puts ``wechat/script`` first on sys.path.  Add the
+# repository root before loading the shared contract checker so the documented
+# entry point cannot silently fall back to partial validation.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 try:
     from contracts.check_v031_examples import check_request as _shared_check_request
-except ImportError:  # The exporter can run without the optional jsonschema dependency.
+except ImportError:
     _shared_check_request = None
 
 try:
@@ -271,6 +278,17 @@ def _file_name(asset: Mapping[str, Any], path: Path | None, fallback: str) -> st
     return sanitized.rstrip(" .") or fallback
 
 
+def _valid_file_name(value: Any) -> bool:
+    """Apply the contract's display-name safety rules to a server receipt."""
+
+    value = _text(value)
+    return bool(value) and len(value) <= 255 and _clean_metadata(value) and value not in {".", ".."} \
+        and value[-1] not in " ." \
+        and not any(char in value for char in '<>:"/\\|?*') \
+        and not re.search(r"%(?:2e|2f|5c|25|0[0-9a-f]|1[0-9a-f]|7f)", value, re.I) \
+        and not re.fullmatch(r"(?:con|prn|aux|nul|com[1-9]|lpt[1-9])", value.split(".")[0], re.I)
+
+
 def _mime_type(asset: Mapping[str, Any], path: Path | None) -> str:
     explicit = _text(asset.get("mime_type")).strip().lower()
     if explicit:
@@ -335,6 +353,8 @@ def _asset_ack(
     file_ref = _text(ack.get("file_ref"))
     if not FILE_REF_RE.fullmatch(file_ref):
         raise V031BuildError("上传回执缺少合法的 file_ref")
+    if not _valid_file_name(ack.get("file_name")):
+        raise V031BuildError("上传回执包含非法 file_name")
     keys = ("mime_type", "size_bytes", "sha256")
     if strict_file_name:
         keys = ("file_name",) + keys
@@ -536,7 +556,10 @@ def _attachment_from_asset(
     try:
         ack = upload_cache.get(cache_key)
         if ack is None:
-            ack = _asset_ack(uploader.upload(path, metadata), metadata)
+            # The backend may return a canonical display name for a content
+            # dedupe hit.  Content identity remains strict; names are checked
+            # for safety independently in _asset_ack.
+            ack = _asset_ack(uploader.upload(path, metadata), metadata, strict_file_name=False)
             upload_cache[cache_key] = ack
         else:
             # The cache is keyed by content identity.  A different display
@@ -852,48 +875,13 @@ def message_to_record(
     }
 
 
-def _check_hint_limits(value: Any) -> None:
-    if value is None:
-        return
-    if len(_json_bytes(value)) > 16_384:
-        raise V031BuildError("upstream_hints 超过 16,384 字节限制")
-    count = 0
-    stack: list[tuple[Any, int]] = [(value, 1)]
-    while stack:
-        item, depth = stack.pop()
-        count += 1
-        if count > 256:
-            raise V031BuildError("upstream_hints 节点超过 256 个")
-        if isinstance(item, (dict, list)):
-            if depth > 4 or len(item) > 32:
-                raise V031BuildError("upstream_hints 深度或宽度超过契约限制")
-            if isinstance(item, dict):
-                for key, nested in item.items():
-                    if not isinstance(key, str) or len(key) > 64 or not _clean_metadata(key):
-                        raise V031BuildError("upstream_hints 包含非法键")
-                    stack.append((nested, depth + 1))
-            else:
-                stack.extend((nested, depth + 1) for nested in item)
-        elif isinstance(item, str) and len(item) > 4096:
-            raise V031BuildError("upstream_hints 文本超过 4,096 字符限制")
-
-
 def _validate_request_contract(request: Mapping[str, Any]) -> None:
+    if _shared_check_request is None:
+        raise V031BuildError(
+            "缺少 v0.3.1 共享契约校验器；请在 wechat-export 环境安装 contracts/requirements-dev.txt"
+        )
     try:
-        if _shared_check_request is not None:
-            _shared_check_request(request)
-            return
-        _check_request_size(request)
-        records = request.get("records")
-        if not isinstance(records, list):
-            raise V031BuildError("请求 records 必须是数组")
-        for record in records:
-            if not isinstance(record, Mapping):
-                raise V031BuildError("请求 record 必须是对象")
-            _check_hint_limits(record.get("upstream_hints"))
-            source_url = record.get("source_url")
-            if source_url is not None and _safe_source_url(source_url) != source_url:
-                raise V031BuildError("请求包含不安全 source_url")
+        _shared_check_request(request)
     except V031BuildError:
         raise
     except Exception as exc:
@@ -991,27 +979,17 @@ def _multipart_body(path: Path, metadata: Mapping[str, Any]) -> tuple[bytes, str
     boundary = f"----niuma-wechat-{uuid.uuid4().hex}"
     filename = safe_name(_text(metadata.get("file_name")) or path.name, fallback="attachment", max_length=255)
     mime_type = _text(metadata.get("mime_type")) or "application/octet-stream"
-    chunks: list[bytes] = []
-    for key, value in metadata.items():
-        if key == "contract_version":
-            continue
-        chunks.extend(
-            [
-                f"--{boundary}\r\n".encode(),
-                f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
-                f"{value}\r\n".encode(),
-            ]
-        )
-    chunks.extend(
-        [
-            f"--{boundary}\r\n".encode(),
-            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
-            f"Content-Type: {mime_type}\r\n\r\n".encode(),
-            path.read_bytes(),
-            b"\r\n",
-            f"--{boundary}--\r\n".encode(),
-        ]
-    )
+    # The upload endpoint accepts exactly one multipart part and derives the
+    # authoritative hash, size and MIME from the bytes.  Metadata is checked
+    # against the JSON acknowledgement after upload instead of sent as fields.
+    chunks = [
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
+        f"Content-Type: {mime_type}\r\n\r\n".encode(),
+        path.read_bytes(),
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ]
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
@@ -1103,7 +1081,11 @@ class WechatImportClient:
 
     def upload(self, path: Path, metadata: Mapping[str, Any]) -> Mapping[str, Any]:
         body, content_type = _multipart_body(path, metadata)
-        return _asset_ack(self._request("POST", "/api/sources/wechat/assets", body, content_type), metadata)
+        return _asset_ack(
+            self._request("POST", "/api/sources/wechat/assets", body, content_type),
+            metadata,
+            strict_file_name=False,
+        )
 
     def submit_import(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         _validate_request_contract(request)
@@ -1165,12 +1147,26 @@ def validate_result(
         raise V031BuildError("识别结果的 tasks 无效")
     if not isinstance(result.get("errors"), list) or not all(isinstance(item, Mapping) for item in result["errors"]):
         raise V031BuildError("识别结果缺少 record_results/tasks/errors")
-    if request is not None:
+    request_level_failure = _is_request_level_failure(result)
+    if request is not None and not request_level_failure:
         expected_values = [record.get("input_id") for record in request.get("records", []) if isinstance(record, Mapping)]
         actual_values = [record.get("input_id") for record in result["record_results"] if isinstance(record, Mapping)]
         if len(expected_values) != len(set(expected_values)) or len(actual_values) != len(set(actual_values)) or set(expected_values) != set(actual_values):
             raise V031BuildError("识别结果没有为每条输入提供恰好一个 record_result")
     return result
+
+
+def _is_request_level_failure(result: Mapping[str, Any]) -> bool:
+    """Recognize the contract envelope for a failure before record processing."""
+
+    if result.get("status") != "failed" or result.get("record_results") or result.get("tasks"):
+        return False
+    return any(
+        isinstance(error, Mapping)
+        and error.get("input_id") is None
+        and error.get("stage") == "request"
+        for error in result.get("errors", [])
+    )
 
 
 def validate_job(
@@ -1206,7 +1202,9 @@ def validate_job(
             raise V031BuildError("终态 job 必须 finished_records 等于 total_records")
         result = validate_result(job["result"], request_id=expected_request_id)
         result_records = [item for item in result["record_results"] if isinstance(item, Mapping)]
-        failed_records = sum(item.get("status") in {"failed", "partial_success"} for item in result_records)
+        failed_records = total if _is_request_level_failure(result) else sum(
+            item.get("status") in {"failed", "partial_success"} for item in result_records
+        )
         if failed_records != failed:
             raise V031BuildError("job failed_records 与 result 不一致")
         expected_status = {
@@ -1422,7 +1420,7 @@ def _recover_failed_uploads(
                 "sha256": attachment.get("sha256"),
             }
             try:
-                ack = _asset_ack(uploader.upload(path, metadata), metadata)
+                ack = _asset_ack(uploader.upload(path, metadata), metadata, strict_file_name=False)
             except V031RemoteError:
                 raise
             except (V031BuildError, OSError) as exc:
