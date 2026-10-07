@@ -37,6 +37,12 @@ def live_cases():
         route = 'candidate' if codes or name == 'old-publication-keeps-old-year' else 'task'
         cases.append(dict(name=name, record=case['pair']['record'], source_verified=case['source_verified'],
                           expected=dict(recommendation=route, value=deadline['value'])))
+        if name == 'unread-authority':
+            # The body has a provisional date but delegates final authority to
+            # the unread file. Either retain that proposal or mark unknown;
+            # both must keep the required-file review, never claim no deadline.
+            cases[-1]['expected'] = dict(recommendation='candidate', allowed_values=[deadline['value'], None],
+                                         required_review_code='unread_required:extra')
     historical = deepcopy(cases[-1])
     historical['name'] = 'old-publication-without-conflict'
     historical['record']['source_metadata_text'] = '2023秋季学期，2023-09-01至2024-01-31；该学期布置的作业。'
@@ -55,6 +61,10 @@ def matches(case, decisions):
     if len(decisions) != 1:
         return False
     actual, expected = decisions[0], case['expected']
+    deadline = actual['pair']['assessment']['deadline']
+    allowed = expected.get('allowed_values', [expected.get('value')])
     return (actual['recommendation'] == expected['recommendation']
-            and actual['pair']['assessment']['deadline']['value'] == expected['value']
+            and deadline['value'] in allowed
+            and ('required_review_code' not in expected or
+                 expected['required_review_code'] in actual['review_codes'] and deadline['derivation'] != 'not_provided')
             and (expected['recommendation'] != 'task' or not actual['review_reasons']))

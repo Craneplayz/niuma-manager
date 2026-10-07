@@ -30,3 +30,5 @@ PR #120 的 text_policy_manifest 只标识旧文本流程，不覆盖此独立�
 正式接入仍需：Ken 审查 #114；#107 提供来源事实与受控快照；定义正式版本信封；server 接入鉴权、双侧校验、入库与 #112 定向重识别；随后完成前端及端到端验收。现有 v0.2 路由及 v0.3.1 微信文件强制审核不变。
 
 离线测试：`python -m unittest ddl_text.tests.test_teaching_draft -v`。真实合成测试：`python -m ddl_text.tests.run_teaching_smoke --live --env-file <本机配置> --output <忽略目录内结果.json>`；只发送固定合成样例，不读取私人课程。
+
+8 组真实合成输入、模型草稿和政策预览见 [实测归档](archive/2026-10-07-teaching-policy-live.json)，早期错误/预期修正见 [诊断归档](archive/2026-10-07-teaching-policy-diagnostics.json)。保留有冲突来源的审核、附件决定最终期限时的未知日期；原始通过标记与修订后的语义检查分别记录。归档是固定样例验证，不是独立召回率或线上验收。

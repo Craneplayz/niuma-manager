@@ -211,13 +211,32 @@ class TeachingDraftTests(unittest.TestCase):
 
     def test_saved_live_drafts_match_current_compiler(self):
         path = Path(__file__).resolve().parents[1] / 'docs/archive/2026-10-07-teaching-policy-live.json'
-        if not path.exists(): self.skipTest('synthetic live report not recorded yet')
-        from ddl_text.tests.teaching_cases import matches
+        self.assertTrue(path.exists(), 'synthetic live archive is part of this delivery')
+        from ddl_text.tests.teaching_cases import live_cases, matches
+        expected = {c['name']: c for c in live_cases()}
         for row in json.loads(path.read_text(encoding='utf-8'))['cases']:
             with self.subTest(name=row['name']):
+                self.assertEqual(row['record'], expected[row['name']]['record'])
+                self.assertEqual(row['expected'], expected[row['name']]['expected'])
                 decisions = compile_teaching_draft(row['model_draft'], row['record'], source_verified=row['source_verified'])
                 self.assertEqual(decisions, row['decisions'])
                 self.assertTrue(matches(row, decisions))
+
+    def test_live_check_does_not_allow_required_file_to_be_auto_accepted(self):
+        from ddl_text.tests.teaching_cases import live_cases, matches
+        case = next(c for c in live_cases() if c['name'] == 'unread-authority')
+        decisions = self.compile('unread-authority')
+        self.assertTrue(matches(case, decisions))
+        changed = deepcopy(decisions)
+        changed[0]['pair']['assessment']['deadline'].update(value=None, precision='unknown', derivation='unresolved', anchor=None)
+        self.assertTrue(matches(case, changed))
+        for change in ('route', 'missing_reason', 'false_no_deadline', 'wrong_date'):
+            bad = deepcopy(decisions)
+            if change == 'route': bad[0]['recommendation'] = 'task'
+            elif change == 'missing_reason': bad[0]['review_codes'] = []
+            elif change == 'false_no_deadline': bad[0]['pair']['assessment']['deadline'].update(value=None, derivation='not_provided')
+            else: bad[0]['pair']['assessment']['deadline']['value'] = '2030-01-01'
+            with self.subTest(change=change): self.assertFalse(matches(case, bad))
 
 
 if __name__ == '__main__':
