@@ -18,10 +18,10 @@ ddl_text/
 ├── http_server.py        # 本机 /recognize 和 /health 服务
 ├── image_reader.py       # JPG/PNG 字节核对、解码与元数据清理
 ├── pdf_reader.py         # PDF 可见页面的限时渲染与页数/像素预算
-├── media_pipeline.py     # 供后端显式调用的 v0.3.1 图片与文字块识别入口
+├── media_pipeline.py     # 供后端显式调用的 v0.3.1 图片、PDF 与文字块识别入口
 ├── media_schema.py       # 从共享契约派生模型草稿并校验
-├── media_worker.py       # 图片解码与模型调用的限时子进程
-├── media_requirements.txt # 可选图片识别及契约校验依赖
+├── media_worker.py       # 图片解码、PDF 渲染与模型调用的限时子进程
+├── media_requirements.txt # 可选附件读取、识别及契约校验依赖
 ├── media_test_requirements.txt # 合成 PDF 构造及异常文件测试依赖
 ├── pipeline.py           # 批量输入处理和结果汇总
 ├── policy_version.py     # 文本规则与实际模型配置的可追溯版本清单
