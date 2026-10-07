@@ -1,4 +1,5 @@
 import {icon} from './icons.js';
+import {pageIntro} from './story-layout.js';
 import {dayKey} from './data.js';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let view='week',selectedDay=dayKey();
@@ -14,7 +15,7 @@ export function calendarPage(state,week){
  const unknown=ddl.filter(t=>!t.dueTime&&dates.includes(t.due));
  const title=view==='month'?selectedDay.slice(0,7).replace('-',' 年 ')+' 月':view==='day'?selectedDay:start.replaceAll('-','.')+' — '+dates.at(-1).slice(5).replace('-','.');
  if(view!=='month')requestAnimationFrame(()=>{const grid=document.querySelector('.calendar-time-grid');if(grid)grid.scrollTop=10*52;});
- return `<div class="page-heading"><h1>学习日程</h1><div class="button-row"><button class="btn" data-action="new">新建任务</button><button class="btn primary" data-action="plan">${icon('spark')}开始规划</button></div></div>
+ return `${pageIntro('calendar','<button class="btn" data-action="new">新建任务</button><button class="btn primary" data-action="plan">'+icon('spark')+'开始规划</button>')}
  <section class="panel"><div class="section-title"><h2>${title}</h2><div class="button-row"><button class="btn" data-action="prev">上一${view==='day'?'日':view==='month'?'月':'周'}</button><button class="btn" data-action="thisweek">今天</button><button class="btn" data-action="next">下一${view==='day'?'日':view==='month'?'月':'周'}</button></div></div>
  <div class="calendar-view-tabs">${[['day','日'],['week','周'],['month','月']].map(([value,label])=>`<button class="btn ${view===value?'primary':''}" data-calendar-view="${value}">${label}</button>`).join('')}</div>
  ${unknown.length?`<div class="calendar-unknown"><b>待补充截止时刻</b>${unknown.map(t=>`<button data-edit="${esc(t.id)}">${esc(t.title)} · ${esc(t.due)} · ${esc(t.source||'手动创建')}</button>`).join('')}</div>`:''}
