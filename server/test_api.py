@@ -75,8 +75,42 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='Test-password-2026'))[0],200)
         self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),1)
 
+    def test_task_delete_permanently_removes_task_plans_feedback_and_dependencies(self):
+        client=self.client();self.register(client,'delete@test.local')
+        removed=dict(id='removed',title='删除我',status='completed',completedAt='2026-10-06',dependsOn='',plans=[dict(id='plan',title='日程',startAt='2026-10-07T10:00:00+08:00',endAt='2026-10-07T11:00:00+08:00')],subtasks=[],due=None)
+        kept=dict(id='kept',title='保留我',status='not_started',dependsOn='removed',plans=[],subtasks=[],due=None)
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[removed,kept],version=0))[0],200)
+        self.assertEqual(self.call(client,'/data/feedback','PUT',dict(value=[dict(taskId='removed',actualMinutes=30)],version=0))[0],200)
+        status,result=self.call(client,'/data/tasks','DELETE',dict(ids=['removed'],version=1))
+        self.assertEqual(status,200);self.assertEqual(result['deletedIds'],['removed'])
+        workspace=self.call(client,'/workspace')[1]
+        self.assertEqual([task['id'] for task in workspace['tasks']['value']],['kept'])
+        self.assertEqual(workspace['tasks']['value'][0]['dependsOn'],'')
+        self.assertEqual(workspace['feedback']['value'],[])
+        self.assertEqual(self.call(client,'/data/tasks','DELETE',dict(ids=['removed'],version=2))[0],404)
+
+    def test_account_profile_and_password_management(self):
+        a,b=self.client(),self.client();email='account@test.local'
+        self.register(a,email)
+        self.assertEqual(self.call(b,'/auth/login','POST',dict(email=email,password='Test-password-2026'))[0],200)
+        for name in ['', 'x'*41]: self.assertEqual(self.call(a,'/auth/profile','POST',dict(name=name))[0],400)
+        status,result=self.call(a,'/auth/profile','POST',dict(name='新的昵称'))
+        self.assertEqual(status,200);self.assertEqual(result['user']['name'],'新的昵称')
+        self.assertEqual(self.call(b,'/auth/me')[1]['user']['name'],'新的昵称')
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='wrong-password',newPassword='New-password-2026'))[0],400)
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='Test-password-2026',newPassword='short'))[0],400)
+        self.assertEqual(self.call(a,'/auth/password','POST',dict(currentPassword='Test-password-2026',newPassword='New-password-2026'))[0],200)
+        self.assertEqual(self.call(a,'/auth/me')[0],200)
+        self.assertEqual(self.call(b,'/auth/me')[0],401)
+        old=self.client();self.assertEqual(self.call(old,'/auth/login','POST',dict(email=email,password='Test-password-2026'))[0],401)
+        fresh=self.client();self.assertEqual(self.call(fresh,'/auth/login','POST',dict(email=email,password='New-password-2026'))[0],200)
+
     def test_feedback_and_no_model(self):
         a=self.client();self.register(a,'feedback@test.local')
+        self.assertEqual(self.call(a,'/data/preferences','PUT',dict(value=dict(askCompletionMinutes=True),version=0))[0],200)
+        self.assertTrue(self.call(a,'/workspace')[1]['preferences']['value']['askCompletionMinutes'])
+        for value in [{},dict(askCompletionMinutes='yes'),dict(askCompletionMinutes=True,extra=True)]:
+            self.assertEqual(self.call(a,'/data/preferences','PUT',dict(value=value,version=1))[0],400)
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='foreign',actualMinutes=10)],version=0))[0],400)
         with patch.object(app.planning,'plan') as model:
             self.assertEqual(self.call(a,'/planning/proposals','POST',{})[0],400)
@@ -161,17 +195,95 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(result['blocks'],[])
         self.assertTrue(all(not t['plans'] for t in self.call(a,'/workspace')[1]['tasks']['value']))
 
+    def test_replanning_only_replaces_selected_future_blocks_after_confirmation(self):
+        client=self.client();self.register(client,'replan@test.local')
+        now=app.datetime.now(app.TZ);day=(now+app.timedelta(days=1)).date().isoformat()
+        past=dict(id='past',title='过去的学习',startAt=(now-app.timedelta(days=2)).isoformat(),endAt=(now-app.timedelta(days=2,hours=-1)).isoformat(),origin='manual')
+        ongoing=dict(id='ongoing',title='正在学习',startAt=(now-app.timedelta(minutes=10)).isoformat(),endAt=(now+app.timedelta(minutes=10)).isoformat(),origin='manual')
+        def plan(pid,hour): return dict(id=pid,title='原安排',startAt=f'{day}T{hour}:00:00+08:00',endAt=f'{day}T{hour+1}:00:00+08:00',origin='ai')
+        base=dict(title='报告',status='not_started',due=dict(date=day,precision='date'),subtasks=[],priority='medium')
+        tasks=[dict(base,id='a',plans=[past,ongoing,plan('replace',19)]),dict(base,id='b',plans=[plan('no-block',20)]),dict(base,id='c',plans=[plan('untouched',21)])]
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
+        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='23:00',weekdays=list(range(7))),version=0))[0],200)
+        captured=[]
+        def model(payload,ApiError):
+            captured.append(copy.deepcopy(payload))
+            return dict(estimates={'a':60,'b':60},blocks=[dict(taskId='a',title='新安排',startAt=day+'T22:00:00+08:00',endAt=day+'T23:00:00+08:00')],warnings=[])
+        with patch.object(app.planning,'plan',model):
+            status,proposal=self.call(client,'/planning/proposals','POST',json.loads((Path(__file__).resolve().parent.parent / 'contracts/task-planning/api-examples.json').read_text(encoding='utf-8'))['scopedReplanRequest'])
+        self.assertEqual(status,200);self.assertEqual(proposal['replannedTaskIds'],['a'])
+        self.assertEqual([task['id'] for task in captured[0]['tasks']],['a','b'])
+        self.assertEqual({plan['id'] for plan in captured[0]['existingPlans']},{'past','ongoing','untouched'})
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],tasks)
+        status,result=self.call(client,'/planning/apply','POST',dict(requestId=proposal['requestId']))
+        self.assertEqual(status,200)
+        changed=result['value'][0]
+        self.assertEqual([plan['id'] for plan in changed['plans'][:2]],['past','ongoing'])
+        self.assertEqual(changed['plans'][2]['title'],'新安排')
+        self.assertEqual(changed['due'],base['due'])
+        self.assertEqual(result['value'][1:],tasks[1:])
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],result['value'])
+        self.assertEqual(self.call(client,'/planning/apply','POST',dict(requestId=proposal['requestId']))[0],409)
+
+    def test_replanning_failure_empty_preview_and_stale_apply_preserve_old_schedule(self):
+        client=self.client();self.register(client,'replan-failure@test.local')
+        day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
+        task=dict(id='a',title='报告',status='not_started',subtasks=[],due=dict(date=day,precision='date'),plans=[dict(id='old',title='原安排',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')])
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
+        for body in [dict(replan='yes'),dict(replan=True,taskIds=['foreign'])]:
+            with patch.object(app.planning,'plan') as model:
+                self.assertEqual(self.call(client,'/planning/proposals','POST',body)[0],400);model.assert_not_called()
+        with patch.object(app.planning,'plan',side_effect=app.ApiError(502,'模型不可用')):
+            self.assertEqual(self.call(client,'/planning/proposals','POST',dict(taskIds=['a'],replan=True))[0],502)
+        with patch.object(app.planning,'plan',return_value=dict(estimates={'a':60},blocks=[],warnings=[])):
+            status,empty=self.call(client,'/planning/proposals','POST',dict(taskIds=['a'],replan=True))
+        self.assertEqual(status,200);self.assertEqual(empty['replannedTaskIds'],[])
+        self.assertEqual(self.call(client,'/planning/apply','POST',dict(requestId=empty['requestId']))[0],200)
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],[task])
+        with patch.object(app.planning,'plan',return_value=dict(estimates={'a':60},blocks=[dict(taskId='a',title='新安排',startAt=day+'T20:00:00+08:00',endAt=day+'T21:00:00+08:00')],warnings=[])):
+            status,proposal=self.call(client,'/planning/proposals','POST',dict(taskIds=['a'],replan=True))
+        self.assertEqual(status,200)
+        with patch.object(app,'datetime',wraps=app.datetime) as clock:
+            clock.now.return_value=app.datetime.fromisoformat(day+'T19:30:00+08:00')
+            self.assertEqual(self.call(client,'/planning/apply','POST',dict(requestId=proposal['requestId']))[0],409)
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],[task])
+        task['title']='已编辑的任务'
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=2))[0],200)
+        self.assertEqual(self.call(client,'/planning/apply','POST',dict(requestId=proposal['requestId']))[0],409)
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],[task])
+
+    def test_replanning_rejects_conflicts_with_old_blocks_retained_without_a_replacement(self):
+        client=self.client();self.register(client,'replan-conflict@test.local')
+        day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
+        base=dict(title='任务',status='not_started',subtasks=[],due=dict(date=day,precision='date'))
+        tasks=[dict(base,id='a',plans=[]),dict(base,id='b',plans=[dict(id='keep',title='必须保留',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')])]
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
+        with patch.object(app.planning,'plan',return_value=dict(estimates={'a':60,'b':60},blocks=[dict(taskId='a',title='冲突',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])):
+            self.assertEqual(self.call(client,'/planning/proposals','POST',dict(replan=True))[0],502)
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],tasks)
+
     def test_recognition_demo_and_atomic_idempotent_confirmation(self):
         a,b=self.client(),self.client();self.register(a,'text-a@test.local');self.register(b,'text-b@test.local')
         status,batches=self.call(a,'/recognition/demo','POST',{})
         self.assertEqual(status,200);self.assertEqual(batches[0]['result']['status'],'partial_success')
         self.assertEqual(self.call(b,'/recognition/batches')[1],[])
+        ignored=batches[0]['items'][0]
+        status,result=self.call(a,'/recognition/candidates/'+ignored['id']+'/resolve','POST',dict(action='ignore',version=ignored['version']))
+        self.assertEqual(status,200)
+        ignored=next(candidate for candidate in result['batches'][0]['items'] if candidate['id']==ignored['id'])
+        self.assertEqual((ignored['state'],ignored['version']),('ignored',2))
+        self.assertEqual(self.call(a,'/recognition/candidates/'+ignored['id']+'/resolve','POST',dict(action='reopen',version=1))[0],409)
+        status,result=self.call(a,'/recognition/candidates/'+ignored['id']+'/resolve','POST',dict(action='reopen',version=ignored['version']))
+        self.assertEqual(status,200)
+        restored=next(candidate for candidate in result['batches'][0]['items'] if candidate['id']==ignored['id'])
+        self.assertEqual((restored['state'],restored['version']),('pending',3))
         item=batches[0]['items'][1]
         body=dict(action='create',version=item['version'],tasks_version=0,reviewed=True,target_id=None,draft=dict(title='阅读材料',description='确认无期限任务',due=None))
         self.assertEqual(self.call(b,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],404)
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(body,tasks_version=99))[0],409)
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],200)
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',body)[0],200)
+        self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='reopen',version=item['version']+1))[0],409)
         tasks=self.call(a,'/workspace')[1]['tasks']['value']
         self.assertEqual(len(tasks),1);self.assertIsNone(tasks[0]['due']);self.assertEqual(tasks[0]['subtasks'],[])
         self.assertEqual(self.call(a,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(body,action='cancel'))[0],409)
