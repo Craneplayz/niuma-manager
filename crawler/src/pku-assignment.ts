@@ -23,7 +23,6 @@ export interface AssignmentDetail {
   description: string;
   due_raw: string | null;
   references?: SourceReference[];
-  history_only?: boolean;
   due_unread?: boolean;
 }
 
@@ -37,8 +36,9 @@ function ownText($: CheerioAPI, node: AnyNode): string {
   return normalize($(node).clone().children().remove().end().text());
 }
 
-function headingTexts($: CheerioAPI): string[] {
+function headingTexts($: CheerioAPI, excluded = ""): string[] {
   return $("h1, h2, h3, [role=heading], #pageTitleText, .pageTitle")
+    .filter((_index, node) => !excluded || (!$(node).is(excluded) && !$(node).parents(excluded).length))
     .map((_index, node) => normalize($(node).text()))
     .get()
     .filter(Boolean);
@@ -151,11 +151,11 @@ export function parseAssignmentDetailHtml(html: string, baseUrl = PKU_ORIGIN): A
   const $ = load(cloneTeacherContent(raw, raw("body"), true).html() ?? "");
   $("form#uploadAssignmentForm").each((_i, node) => { $(node).replaceWith($(node).contents()); });
   const headings = headingTexts($);
-  const submittedHeading = headings.find((heading) => SUBMITTED_HEADING.test(heading));
+  const submittedHeading = headingTexts($, `${DESCRIPTION_SELECTORS}, ${ASSIGNMENT_INFO}, #content_listContainer, #announcementList`)
+    .find((heading) => SUBMITTED_HEADING.test(heading));
   if (submittedHeading) {
     return {
-      state: "unknown",
-      history_only: true,
+      state: "submitted",
       title: normalize(submittedHeading.replace(SUBMITTED_HEADING, "")) || null,
       description: "",
       due_raw: null,
@@ -204,6 +204,13 @@ export async function readAssignmentDetail(page: AssignmentPage, url: string, ti
     || await page.locator('input[type="password"]').count()) {
     throw new Error("assignment detail left the authenticated area; login may have expired");
   }
+  const requested = new URL(url);
+  for (const key of ["course_id", "content_id"]) {
+    const expected = requested.searchParams.get(key);
+    if (expected && destination.searchParams.get(key) !== expected) {
+      throw new Error("assignment detail redirected to a different or unidentified assignment");
+    }
+  }
   return parseAssignmentDetailHtml(await page.content(), url);
 }
 
@@ -236,9 +243,11 @@ function retainListingOnOverflow(source: CourseSourceRecord, detailUrl: string, 
 /** Merge stable assignment facts without changing the listing-derived identity. */
 export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: string, detail: AssignmentDetail): CourseSourceRecord {
   const descriptionMissing = detail.state === "active" && !detail.description && !detail.references?.length;
-  const references = detail.state === "unknown" || descriptionMissing || detail.due_unread
-    ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, content_read: false, read_status: "failed" as const, reason: detail.history_only ? "submission_history_only" : "detail_unrecognized" } : { ...reference })
-    : markDetailReferenceRead(source, detailUrl);
+  const references = detail.state === "submitted"
+    ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, content_read: false, read_status: "partial" as const, reason: "submission_history_only" } : { ...reference })
+    : detail.state === "unknown" || descriptionMissing || detail.due_unread
+      ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, content_read: false, read_status: "failed" as const, reason: "detail_unrecognized" } : { ...reference })
+      : markDetailReferenceRead(source, detailUrl);
   for (const reference of detail.references ?? []) {
     if (!references.some((item) => item.url === reference.url)) references.push({ ...reference });
   }
@@ -248,7 +257,7 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
       references,
       text_quality: source.body ? "partial" : source.text_quality,
       assignment: { state: "unknown", due_raw: null },
-      warnings: warningsAfterRead(source, references, [detail.history_only ? "submission history title alone does not establish current submission; private content was not read" : "assignment detail page structure was not recognized"]),
+      warnings: warningsAfterRead(source, references, ["assignment detail page structure was not recognized"]),
     };
   }
 
@@ -263,7 +272,7 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
       text_quality: "partial",
       references,
       assignment: { state: "submitted", due_raw: null },
-      warnings: warningsAfterRead(source, references, ["submission history detected; private submission, file and grading content was not read"]),
+      warnings: warningsAfterRead(source, references, ["submission history heading indicates submitted; private submission, file and grading content was not read"]),
     };
   }
 

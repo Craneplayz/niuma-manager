@@ -69,14 +69,14 @@ describe("Blackboard assignment detail parsing", () => {
 
   it("recognizes submission history without exposing files, grades or attempt times", async () => {
     const detail = parseAssignmentDetailHtml(await fixture("submitted-zh.html"));
-    expect(detail).toEqual({ state: "unknown", history_only: true, title: "人工智能基础 第一次概念题作业", description: "", due_raw: null });
+    expect(detail).toEqual({ state: "submitted", title: "人工智能基础 第一次概念题作业", description: "", due_raw: null });
     const original = source();
     const enriched = enrichAssignmentSource(original, detailUrl, detail);
     expect(enriched.input_id).toBe(original.input_id);
-    expect(enriched.body).toBe("外层作业说明");
+    expect(enriched.body).toBe("外层作业说明\n提交状态：已提交");
     expect(enriched.text_quality).toBe("partial");
-    expect(enriched.references[0].reason).toBe("submission_history_only");
-    expect(enriched.assignment).toEqual({ state: "unknown", due_raw: null });
+    expect(enriched.references[0]).toMatchObject({ content_read: false, read_status: "partial", reason: "submission_history_only" });
+    expect(enriched.assignment).toEqual({ state: "submitted", due_raw: null });
     expect(JSON.stringify(enriched)).not.toMatch(/学生私人|10\.00|26-5-17|学号姓名/);
   });
 
@@ -140,6 +140,101 @@ describe("read-only assignment enrichment", () => {
     expect(result.input_id).toBe(original.input_id);
     expect(result.body).toBe(original.body);
     expect(result.warnings).toContain("assignment detail could not be read; listing text was retained");
+  });
+});
+
+describe("#110 submitted state handoff", () => {
+  it.each(["复查提交历史记录：同名作业", "Review Submission History: Same homework"])("exports %s as submitted without reading private history", async (heading) => {
+    const html = `<h1>${heading}</h1><div class="attempt">SYNTHETIC_PRIVATE_ANSWER<a href="/private.pdf">SYNTHETIC_PRIVATE_FILE</a><div class="grade">SYNTHETIC_PRIVATE_GRADE</div></div><button>开始新的 / Start New</button>`;
+    const original = source();
+    const [enriched] = await enrichAssignmentSources(page(html), [original]);
+    const read = vi.fn();
+    const [result] = await enrichSourceAttachments([enriched], read);
+    const record = toRecognitionRequests([result])[0].records[0];
+    expect(record.upstream_hints.assignment).toEqual({ state: "submitted", due_raw: null });
+    expect(record.input_id).toBe(original.input_id);
+    expect(record.source_item_id).toBe(original.source_item_id);
+    expect(new URL(record.source_url).searchParams.get("course_id")).toBe("course");
+    expect(new URL(record.upstream_hints.references[0].url).searchParams.get("content_id")).toBe("synthetic");
+    expect(record.text_quality).toBe("partial");
+    expect(record.upstream_hints.references[0]).toMatchObject({ content_read: false, read_status: "partial", reason: "submission_history_only" });
+    expect(record.text).toContain("提交状态：已提交");
+    expect(JSON.stringify(record)).not.toContain("SYNTHETIC_PRIVATE");
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '<p>复查提交历史记录：HW</p>',
+    '<nav><h1>复查提交历史记录：HW</h1></nav>',
+    '<div id="assignmentDescription"><h2>Review Submission History: instructions</h2></div>',
+    '<div id="assignmentInfo"><h2>Review Submission History: instructions</h2></div>',
+    '<div id="assignmentSubmission"><h1>复查提交历史记录：HW</h1></div>',
+    '<div class="attempt"><h1>Review Submission History: old attempt</h1></div>',
+  ])("does not use body, navigation or private headings as the page state: %s", (content) => {
+    const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1>${content}`, detailUrl);
+    expect(detail.state).toBe("active");
+  });
+
+  it("preserves the state even if a teacher attachment cannot be read", async () => {
+    const original = source('<a href="/bbcswebdav/pid-1-dt-content-rid-2/HW.txt">HW.txt</a>');
+    const detail = parseAssignmentDetailHtml('<h1>Review Submission History: HW</h1>', detailUrl);
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(original, detailUrl, detail)], async () => { throw new Error("synthetic download failure"); });
+    expect(result.assignment?.state).toBe("submitted");
+    expect(result.references[1]).toMatchObject({ content_read: false, reason: "download_failed" });
+    expect(toRecognitionRequests([result])[0].records[0].text_quality).toBe("partial");
+  });
+
+  it("keeps unknown pages and failed reads unsubmitted", async () => {
+    const html = '<h1>系统消息</h1><p>提交失败，草稿已保存。</p>';
+    const [unknown] = await enrichAssignmentSources(page(html), [source()]);
+    expect(unknown.assignment?.state).toBe("unknown");
+    const failed = page('<h1>Review Submission History: HW</h1>');
+    vi.mocked(failed.goto).mockRejectedValue(new Error("timeout"));
+    const [unread] = await enrichAssignmentSources(failed, [source()]);
+    expect(unread.assignment?.state).not.toBe("submitted");
+    expect(unread.references[0].reason).toBe("detail_failed");
+  });
+
+  it.each([
+    detailUrl.replace("course_id=course", "course_id=other"),
+    detailUrl.replace("content_id=synthetic", "content_id=other"),
+    detailUrl.replace("&course_id=course", ""),
+    detailUrl.replace("content_id=synthetic&", ""),
+  ])("does not assign another or unidentified page's submitted state to this source: %s", async (destination) => {
+    const mock = page('<h1>Review Submission History: Same homework</h1>', destination);
+    const [result] = await enrichAssignmentSources(mock, [source()]);
+    expect(result.assignment?.state).not.toBe("submitted");
+    expect(result.references[0].reason).toBe("detail_failed");
+    expect(mock.content).not.toHaveBeenCalled();
+  });
+
+  it("retains identity across status and title changes and separates same-name assignments", () => {
+    const listing = (courseId: string, contentId: string, title: string) => extractCourseSourcesFromHtml(`<ul id="content_listContainer"><li id="contentListItem:${contentId}"><div class="item" id="${contentId}"><h3><a href="https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=${courseId}&content_id=${contentId}">${title}</a></h3></div><div class="details">Prepare a report and bring a printed copy.</div></li></ul>`, { course: "Same course name", section: "作业", sourceUrl: `https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=${courseId}`, collectedAt: "2026-10-07T12:00:00+08:00" })[0];
+    const original = listing("course-one", "hw-one", "Same homework");
+    const renamed = listing("course-one", "hw-one", "Renamed homework");
+    const submitted = parseAssignmentDetailHtml('<h1>Review Submission History: Renamed homework</h1>');
+    const result = enrichAssignmentSource(renamed, renamed.references[0].url, submitted);
+    expect(result.input_id).toBe(original.input_id);
+    expect(result.source_item_id).toBe(original.source_item_id);
+    expect(result.body).toContain("Prepare a report and bring a printed copy.");
+    expect(listing("course-two", "hw-one", "Same homework").input_id).not.toBe(original.input_id);
+    expect(listing("course-one", "hw-two", "Same homework").input_id).not.toBe(original.input_id);
+    const repeated = enrichAssignmentSource(result, renamed.references[0].url, submitted);
+    expect({ ...repeated, warnings: [...repeated.warnings].sort() }).toEqual({ ...result, warnings: [...result.warnings].sort() });
+    const active = enrichAssignmentSource(renamed, renamed.references[0].url, { state: "active", title: "Renamed homework", description: "Resubmit the report.", due_raw: null });
+    expect(active.assignment?.state).toBe("active");
+    expect(active.input_id).toBe(original.input_id);
+  });
+
+  it("retains submitted metadata when the text budget has no room for the status marker", () => {
+    const original = source();
+    original.body = "a".repeat(100_000 - original.title.length - 2);
+    const detail = parseAssignmentDetailHtml(`<h1>Review Submission History: ${original.title}</h1>`);
+    const result = enrichAssignmentSource(original, detailUrl, detail);
+    expect(result.body).toBe(original.body);
+    expect(result.assignment?.state).toBe("submitted");
+    expect(result.references[0].reason).toBe("too_large");
+    expect(toRecognitionRequests([result])[0].records[0].text).toHaveLength(100_000);
   });
 });
 

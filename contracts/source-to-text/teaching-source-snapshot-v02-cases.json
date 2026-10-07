@@ -384,6 +384,243 @@
         ]
       },
       "expected_text_quality": "partial"
+    },
+    {
+      "id": "assignment-active",
+      "html": "<ul id=\"content_listContainer\"><li id=\"contentListItem:synthetic-hw\"><div class=\"item\" id=\"synthetic-hw\"><h3><a href=\"https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw\">Synthetic homework</a></h3></div><div class=\"details\">Prepare a report and bring a printed copy.</div></li></ul>",
+      "detail_html": "<h1>Upload Assignment: Synthetic homework</h1><div id=\"assignmentDescription\">Prepare a report and bring a printed copy.</div>",
+      "detail_url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:110:assignment-active",
+        "records": [
+          {
+            "input_id": "pku:source:bde4e9bdde066708a39ddda60248c922c1181a3dac8ea83c01a157c18daa100c",
+            "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-one#contentListItem:synthetic-hw",
+            "source_label": "Synthetic homework",
+            "source_item_id": "synthetic-hw",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "assignment",
+              "section": "作业",
+              "references": [
+                {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw",
+                  "kind": "detail",
+                  "content_read": true,
+                  "read_status": "complete",
+                  "reason": null
+                }
+              ],
+              "warnings": [],
+              "assignment": {
+                "state": "active",
+                "due_raw": null
+              },
+              "raw": {
+                "title": "Synthetic homework",
+                "body": "Prepare a report and bring a printed copy.",
+                "publication_time": null,
+                "assignment_due_date": null
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "complete"
+    },
+    {
+      "id": "assignment-submitted-zh",
+      "html": "<ul id=\"content_listContainer\"><li id=\"contentListItem:synthetic-hw\"><div class=\"item\" id=\"synthetic-hw\"><h3><a href=\"https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw\">Synthetic homework</a></h3></div><div class=\"details\">Prepare a report and bring a printed copy.</div></li></ul>",
+      "detail_html": "<h1>复查提交历史记录：Synthetic homework</h1><div class=\"attempt\"><div>SYNTHETIC_PRIVATE_ANSWER</div><a href=\"/private.txt\">SYNTHETIC_PRIVATE_FILE</a><div class=\"grade\">SYNTHETIC_PRIVATE_GRADE</div></div><button>开始新的</button>",
+      "detail_url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:110:assignment-submitted-zh",
+        "records": [
+          {
+            "input_id": "pku:source:bde4e9bdde066708a39ddda60248c922c1181a3dac8ea83c01a157c18daa100c",
+            "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.\n提交状态：已提交",
+            "text_quality": "partial",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-one#contentListItem:synthetic-hw",
+            "source_label": "Synthetic homework",
+            "source_item_id": "synthetic-hw",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "assignment",
+              "section": "作业",
+              "references": [
+                {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw",
+                  "kind": "detail",
+                  "content_read": false,
+                  "read_status": "partial",
+                  "reason": "submission_history_only"
+                }
+              ],
+              "warnings": [
+                "linked pages, attachments and images were not read",
+                "submission history heading indicates submitted; private submission, file and grading content was not read"
+              ],
+              "assignment": {
+                "state": "submitted",
+                "due_raw": null
+              },
+              "raw": {
+                "title": "Synthetic homework",
+                "body": "Prepare a report and bring a printed copy.\n提交状态：已提交",
+                "publication_time": null,
+                "assignment_due_date": null
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "partial"
+    },
+    {
+      "id": "assignment-submitted-en-other-course",
+      "html": "<ul id=\"content_listContainer\"><li id=\"contentListItem:synthetic-hw\"><div class=\"item\" id=\"synthetic-hw\"><h3><a href=\"https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-two&content_id=synthetic-hw\">Synthetic homework</a></h3></div><div class=\"details\">Prepare a report and bring a printed copy.</div></li></ul>",
+      "detail_html": "<h1>Review Submission History: Synthetic homework</h1><div id=\"assignmentSubmission\">SYNTHETIC_PRIVATE_ANSWER</div>",
+      "detail_url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-two&content_id=synthetic-hw",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:110:assignment-submitted-en-other-course",
+        "records": [
+          {
+            "input_id": "pku:source:46a650bcc58abbbbea00ea137fadfd3808541696bb14a1cceb0c07d5f5362e56",
+            "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.\n提交状态：已提交",
+            "text_quality": "partial",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-two#contentListItem:synthetic-hw",
+            "source_label": "Synthetic homework",
+            "source_item_id": "synthetic-hw",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "assignment",
+              "section": "作业",
+              "references": [
+                {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-two&content_id=synthetic-hw",
+                  "kind": "detail",
+                  "content_read": false,
+                  "read_status": "partial",
+                  "reason": "submission_history_only"
+                }
+              ],
+              "warnings": [
+                "linked pages, attachments and images were not read",
+                "submission history heading indicates submitted; private submission, file and grading content was not read"
+              ],
+              "assignment": {
+                "state": "submitted",
+                "due_raw": null
+              },
+              "raw": {
+                "title": "Synthetic homework",
+                "body": "Prepare a report and bring a printed copy.\n提交状态：已提交",
+                "publication_time": null,
+                "assignment_due_date": null
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "partial"
+    },
+    {
+      "id": "assignment-unknown",
+      "html": "<ul id=\"content_listContainer\"><li id=\"contentListItem:synthetic-hw\"><div class=\"item\" id=\"synthetic-hw\"><h3><a href=\"https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw\">Synthetic homework</a></h3></div><div class=\"details\">Prepare a report and bring a printed copy.</div></li></ul>",
+      "detail_html": "<h1>系统消息</h1><p>提交失败，草稿已保存。</p>",
+      "detail_url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:110:assignment-unknown",
+        "records": [
+          {
+            "input_id": "pku:source:bde4e9bdde066708a39ddda60248c922c1181a3dac8ea83c01a157c18daa100c",
+            "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+            "text_quality": "partial",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-one#contentListItem:synthetic-hw",
+            "source_label": "Synthetic homework",
+            "source_item_id": "synthetic-hw",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "assignment",
+              "section": "作业",
+              "references": [
+                {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw",
+                  "kind": "detail",
+                  "content_read": false,
+                  "read_status": "failed",
+                  "reason": "detail_unrecognized"
+                }
+              ],
+              "warnings": [
+                "linked pages, attachments and images were not read",
+                "assignment detail page structure was not recognized"
+              ],
+              "assignment": {
+                "state": "unknown",
+                "due_raw": null
+              },
+              "raw": {
+                "title": "Synthetic homework",
+                "body": "Prepare a report and bring a printed copy.",
+                "publication_time": null,
+                "assignment_due_date": null
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "partial"
     }
   ]
 }

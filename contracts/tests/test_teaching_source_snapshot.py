@@ -34,3 +34,23 @@ class TeachingSourceSnapshotTest(unittest.TestCase):
         hints = copy.deepcopy(case['request']['records'][0]['upstream_hints'])
         hints['references'][0]['reason'] = 'download_failed'
         self.assertTrue(list(self.validator.iter_errors(hints)))
+
+    def test_submission_state_is_independent_of_reading_quality_and_identity(self):
+        cases = {case['id']: case['request']['records'][0] for case in self.cases}
+        active = cases['assignment-active']
+        submitted = cases['assignment-submitted-zh']
+        other_course = cases['assignment-submitted-en-other-course']
+        unknown = cases['assignment-unknown']
+        self.assertEqual(submitted['upstream_hints']['assignment']['state'], 'submitted')
+        self.assertEqual(submitted['text_quality'], 'partial')
+        reference = submitted['upstream_hints']['references'][0]
+        self.assertEqual(reference['read_status'], 'partial')
+        self.assertFalse(reference['content_read'])
+        self.assertEqual(reference['reason'], 'submission_history_only')
+        self.assertEqual(active['input_id'], submitted['input_id'])
+        self.assertEqual(active['source_item_id'], submitted['source_item_id'])
+        self.assertNotEqual(other_course['input_id'], submitted['input_id'])
+        self.assertEqual(other_course['source_item_id'], submitted['source_item_id'])
+        self.assertEqual(unknown['upstream_hints']['assignment']['state'], 'unknown')
+        self.assertNotIn('SYNTHETIC_PRIVATE', json.dumps(submitted))
+        self.assertNotIn('SYNTHETIC_PRIVATE', json.dumps(other_course))

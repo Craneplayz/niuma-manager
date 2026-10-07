@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { enrichSourceAttachments, extractAttachmentText, isTeacherAttachmentUrl, MAX_ATTACHMENT_BYTES } from "../src/pku-attachments.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
+import { enrichAssignmentSource, parseAssignmentDetailHtml } from "../src/pku-assignment.js";
 import { toRecognitionRequests } from "../src/pku-recognition.js";
 
 const url = "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-content-rid-2/HW1.txt";
@@ -161,10 +162,11 @@ describe("teacher attachment acquisition", () => {
 });
 
 it("reproduces the shared synthetic source-to-text examples", async () => {
-  const fixture = JSON.parse(await readFile(new URL("../../contracts/source-to-text/teaching-source-snapshot-v02-cases.json", import.meta.url), "utf8")) as { cases: { id: string; html: string; request: ReturnType<typeof toRecognitionRequests>[number]; expected_text_quality: string }[] };
+  const fixture = JSON.parse(await readFile(new URL("../../contracts/source-to-text/teaching-source-snapshot-v02-cases.json", import.meta.url), "utf8")) as { cases: { id: string; html: string; detail_html?: string; detail_url?: string; request: ReturnType<typeof toRecognitionRequests>[number]; expected_text_quality: string }[] };
   for (const example of fixture.cases) {
     const expected = example.request.records[0];
     let sources = extractCourseSourcesFromHtml(example.html, { course: expected.course_or_project!, section: expected.upstream_hints.section, sourceUrl: expected.source_url, collectedAt: expected.collected_at });
+    if (example.detail_html && example.detail_url) sources = sources.map((source) => enrichAssignmentSource(source, example.detail_url!, parseAssignmentDetailHtml(example.detail_html!, example.detail_url)));
     if (example.id === "text-attachment-read") sources = await enrichSourceAttachments(sources, async () => textFile("请在2026年12月31日18点前提交报告。"));
     if (example.id === "download-failed") sources = await enrichSourceAttachments(sources, async () => { throw new Error("synthetic transport failure"); });
     expect(toRecognitionRequests(sources, example.request.request_id)[0], example.id).toEqual(example.request);
