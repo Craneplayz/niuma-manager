@@ -20,6 +20,7 @@ class ExtractDataHelpersTest(unittest.TestCase):
         self.assertEqual(safe_name('  A<>:"/\\|?*  '), "A_________")
         self.assertEqual(safe_name("CON"), "_CON")
         self.assertEqual(safe_name("   "), "未命名会话")
+        self.assertEqual(safe_name("report\u202eexe.pdf"), "report_exe.pdf")
 
     def test_unique_chat_stem_disambiguates_duplicate_names(self):
         used = set()
