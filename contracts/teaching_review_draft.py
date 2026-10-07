@@ -120,9 +120,21 @@ def review_codes(pair, *, source_verified=False):
         codes.append("body_incomplete")
     if a["action"]["state"] != "supported":
         codes.append("action_uncertain")
+    field_parts = {item["part_id"] for field in (a["action"], d) for item in field["evidence"]}
+    known_fields = [a["action"]] + ([d] if d["value"] is not None else [])
+    body_supported = all(any(item["part_id"] == "body" for item in field["evidence"])
+                         for field in known_fields)
     for relation in a["unread_relations"]:
-        if relation["role"] != "supplementary":
-            codes.append("unread_" + relation["role"] + ":" + relation["ref_id"])
+        role = relation["role"]
+        if role == "supplementary":
+            # Captured text is valid evidence, but a partial reference cannot
+            # exempt itself while supplying the task's action or deadline.
+            if relation["ref_id"] in field_parts:
+                role = "required"
+            elif not body_supported or not all(item["part_id"] == "body" for item in relation["evidence"]):
+                role = "unknown"
+        if role != "supplementary":
+            codes.append("unread_" + role + ":" + relation["ref_id"])
     if d["derivation"] == "unresolved":
         codes.append("deadline_unknown")
     elif d["derivation"] == "not_provided":
