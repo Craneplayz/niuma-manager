@@ -68,12 +68,14 @@ describe("Blackboard assignment detail parsing", () => {
 
   it("recognizes submission history without exposing files, grades or attempt times", async () => {
     const detail = parseAssignmentDetailHtml(await fixture("submitted-zh.html"));
-    expect(detail).toEqual({ state: "submitted", title: "人工智能基础 第一次概念题作业", description: "", due_raw: null });
+    expect(detail).toEqual({ state: "unknown", history_only: true, title: "人工智能基础 第一次概念题作业", description: "", due_raw: null });
     const original = source();
     const enriched = enrichAssignmentSource(original, detailUrl, detail);
     expect(enriched.input_id).toBe(original.input_id);
-    expect(enriched.body).toBe("外层作业说明\n提交状态：已提交");
-    expect(enriched.assignment).toEqual({ state: "submitted", due_raw: null });
+    expect(enriched.body).toBe("外层作业说明");
+    expect(enriched.text_quality).toBe("partial");
+    expect(enriched.references[0].reason).toBe("submission_history_only");
+    expect(enriched.assignment).toEqual({ state: "unknown", due_raw: null });
     expect(JSON.stringify(enriched)).not.toMatch(/学生私人|10\.00|26-5-17|学号姓名/);
   });
 
@@ -137,5 +139,20 @@ describe("read-only assignment enrichment", () => {
     expect(result.input_id).toBe(original.input_id);
     expect(result.body).toBe(original.body);
     expect(result.warnings).toContain("assignment detail could not be read; listing text was retained");
+  });
+});
+
+describe("assignment reference coverage", () => {
+  it("includes attachments discovered only inside teacher instructions", () => {
+    const detail = parseAssignmentDetailHtml('<h1>Upload Assignment: HW1</h1><div id="assignmentDescription">Submit before 2026-12-31 18:00.<a href="/bbcswebdav/pid-1-dt-content-rid-2/HW1.pdf">HW1.pdf</a><img src="/images/ci/icons/cmlink_generic.gif" alt=""></div><div class="attempt"><a href="/private.pdf">Private.pdf</a></div>', detailUrl);
+    const enriched = enrichAssignmentSource(source(), detailUrl, detail);
+    expect(enriched.references).toHaveLength(2);
+    expect(enriched.references[1].kind).toBe("attachment");
+    expect(enriched.text_quality).toBe("partial");
+    expect(JSON.stringify(enriched)).not.toContain("Private.pdf");
+  });
+  it("does not call a due-date-only detail complete", () => {
+    const enriched = enrichAssignmentSource(source(""), detailUrl, { state: "active", title: "HW", description: "", due_raw: "2026-12-31" });
+    expect(enriched.text_quality).toBe("partial");
   });
 });

@@ -66,3 +66,31 @@ describe("source metadata fidelity", () => {
     expect(cleanSourceUrl("javascript:alert(1)")).toBeNull();
   });
 });
+
+describe("substantive references versus page chrome", () => {
+  const body = "请在2026年12月31日18点前提交报告。";
+  it("ignores known empty-alt UI icons and navigation", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("icon", "作业", `<p>${body}<img src="/images/ci/icons/cmlink_generic.gif" alt=""><img src="/images/ci/icons/cmlink_generic.gif" alt="文件"><img src="/images/ci/ng/cal_year_event.gif" alt="单击获得更多选项"></p><nav><a href="/menu">菜单</a></nav><a href="#top">回顶部</a>`)), context);
+    expect(record.text_quality).toBe("complete");
+    expect(record.references).toEqual([]);
+    expect(record.body).not.toContain("菜单");
+  });
+  it.each(["补充附件", "期限见附件"])("keeps an unread %s partial", (label) => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("attachment", "作业", `<p>${body}</p><a href="/hw.pdf">${label}</a>`)), context);
+    expect(record.text_quality).toBe("partial");
+    expect(record.references[0].read_status).toBe("unread");
+  });
+  it("retains meaningful UI-path images and unknown platform images and ordinary images with empty alt", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("img", "作业", `<p>${body}</p><img src="/images/ci/notice.png" alt="截止时间截图"><img src="/actual.png" alt=""><img src="/images/ci/custom.png" alt="">`)), context);
+    expect(record.references).toHaveLength(3);
+    expect(record.references.every((ref) => ref.kind === "image" && ref.reason === "image_not_read")).toBe(true);
+    expect(record.text_quality).toBe("partial");
+  });
+});
+
+it("keeps embedded/non-http images as unread without exporting their data", () => {
+  const [record] = extractCourseSourcesFromHtml(page(contentItem("inline", "作业", '<p>请按图中期限提交。</p><img src="data:image/png;base64,private-data">')), context);
+  expect(record.text_quality).toBe("partial");
+  expect(record.references[0]).toMatchObject({ kind: "image", url: "", content_read: false });
+  expect(JSON.stringify(record)).not.toContain("private-data");
+});

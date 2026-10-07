@@ -11,9 +11,13 @@ contracts/
 ├── check_v031_examples.py            # v0.3.1 独立根入口、边界、审核及状态机校验
 ├── tests/test_v03_contract.py        # 合成正例及非法输入/输出、部分失败回归
 ├── tests/test_v031_contract.py       # v0.3.1 审查意见对应的结构与语义反例
+├── docs/teaching-source-snapshot-v0.2.md # 教学网来源引用、读取状态及支持边界
 ├── docs/text-attachments-v0.3.md     # 微信图片/文件、异步导入和兼容规则
 ├── docs/text-attachments-v0.3.1.md   # 当前契约：安全边界、强制审核、幂等与生命周期
 ├── docs/archive/2026-10-01-file-input-probe.json # 当前模型合成附件试探及限制
+├── schemas/teaching-source-snapshot-v0.2.schema.json # 教学网采集 hints 独立校验
+├── tests/test_teaching_source_snapshot.py # 教学网采集样例与读取状态反例
+├── source-to-text/teaching-source-snapshot-v02-cases.json # 合成 HTML 与采集输出
 ├── schemas/common-v0.3.schema.json   # v0.3 记录、附件、证据、候选等共享定义
 ├── schemas/common-v0.3.1.schema.json # v0.3.1 收紧字段边界与审核规则的共享定义
 ├── schemas/bundle-v0.3.1.schema.json # 七种信封的自包含 Schema 包（生成文件）
@@ -45,6 +49,8 @@ contracts/
 ```
 
 ## 交接方式
+
+- 教学网采集的 v0.2 开放 hints 扩展见 [来源快照约定](docs/teaching-source-snapshot-v0.2.md)，仅记录读取事实，不改变审核、学期授信或 v0.3.1 文件强制审核规则。
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。

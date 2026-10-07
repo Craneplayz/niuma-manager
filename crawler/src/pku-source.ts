@@ -1,4 +1,5 @@
-import { load } from "cheerio";
+import { load, type Cheerio, type CheerioAPI } from "cheerio";
+import type { AnyNode } from "domhandler";
 import { DateTime } from "luxon";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 import { sha256 } from "./core/utils.js";
@@ -8,6 +9,17 @@ export interface PublicationTime {
   precision: "datetime" | "date" | "unknown";
   basis: "source" | "unknown";
 }
+export interface SourceReference {
+  label: string;
+  url: string;
+  content_read: boolean;
+  kind: "detail" | "attachment" | "image" | "link";
+  read_status: "unread" | "complete" | "partial" | "failed" | "unsupported";
+  reason: string | null;
+  text?: string;
+}
+export const UNREAD_REFERENCE_WARNING = "linked pages, attachments and images were not read";
+
 export interface CourseSourceRecord {
   input_id: string;
   source_item_id: string | null;
@@ -21,7 +33,7 @@ export interface CourseSourceRecord {
   published_at: PublicationTime;
   publication_raw: string | null;
   collected_at: string;
-  references: { label: string; url: string; content_read: boolean }[];
+  references: SourceReference[];
   assignment?: { state: "active" | "submitted" | "unknown"; due_raw: string | null };
   warnings: string[];
 }
@@ -78,20 +90,13 @@ export function extractCourseSourcesFromHtml(html: string, context: SourceContex
       ? details.children("p").map((_i, p) => $(p).text().trim()).get().find((text) => /^(?:发布时间|Posted on)\s*[:：]/i.test(text)) ?? null
       : null;
     const content = announcement ? details.find(".vtbegenerated") : details;
-    const references: CourseSourceRecord["references"] = [];
-    const addReference = (label: string, value: string) => {
-      const url = cleanSourceUrl(value, cleanPageUrl);
-      if (url && !references.some((ref) => ref.url === url)) references.push({ label, url, content_read: false });
-    };
-    if (href) addReference(title, href);
-    content.find("a[href]").each((_i, a) => addReference($(a).text().trim(), $(a).attr("href")!));
-    content.find("img[src]").each((_i, img) => addReference($(img).attr("alt") ?? "", $(img).attr("src")!));
-    const bodyNode = content.clone();
-    bodyNode.find("script, style, .announcementInfo").remove();
-    bodyNode.find("br").replaceWith("\n");
-    bodyNode.find("p, div, li, tr, dt, dd").after("\n");
-    bodyNode.find("td, th").after(" ");
-    const body = bodyNode.text().split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+    const parsed = parseTeacherContent($, content, cleanPageUrl);
+    const references = parsed.references;
+    if (href) {
+      const url = cleanSourceUrl(href, cleanPageUrl);
+      if (url && !references.some((ref) => ref.url === url)) references.unshift(makeSourceReference(title, url, /\/webapps\/assignment\//i.test(href) ? "detail" : referenceKind(url)));
+    }
+    const body = parsed.text;
     const id = announcement ? item.attr("id") : item.children(".item").attr("id") ?? item.attr("id");
     const url = new URL(cleanPageUrl);
     if (item.attr("id")) url.hash = item.attr("id")!;
@@ -108,7 +113,7 @@ export function extractCourseSourcesFromHtml(html: string, context: SourceContex
       collected_at: context.collectedAt, references,
       warnings: [
         ...(!body ? ["listing body is missing; only the title was collected"] : []),
-        ...(references.length ? ["linked pages, attachments and images were not read"] : []),
+        ...(references.length ? [UNREAD_REFERENCE_WARNING] : []),
         ...(publicationRaw && parseSourcePublication(publicationRaw).value === null ? ["publication time could not be parsed; raw value retained"] : []),
       ],
     });
@@ -123,4 +128,44 @@ export function deduplicateCourseSources(records: CourseSourceRecord[]): CourseS
     if (!previous || record.body.length > previous.body.length) unique.set(record.input_id, record);
   }
   return [...unique.values()];
+}
+
+export function referenceKind(url: string): SourceReference["kind"] {
+  return /\/bbcswebdav\/|\.(?:pdf|txt|zip|docx?|pptx?|xlsx?)(?:[?#]|$)/i.test(url) ? "attachment" : "link";
+}
+
+export function makeSourceReference(label: string, url: string, kind: SourceReference["kind"]): SourceReference {
+  return { label, url, kind, content_read: false, read_status: "unread", reason: kind === "image" ? "image_not_read" : "not_read" };
+}
+
+/** Work only inside the teacher-authored container; never inspect submission widgets. */
+export function parseTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, baseUrl: string): { text: string; references: SourceReference[] } {
+  const safe = content.clone();
+  safe.find("script, style, form, input, textarea, button, nav, [role=navigation], .announcementInfo, .submission, .attempt, .grade").remove();
+  const references: SourceReference[] = [];
+  const add = (label: string, value: string, kind: SourceReference["kind"]) => {
+    const url = cleanSourceUrl(value, baseUrl);
+    if (!references.some((ref) => ref.url === (url ?? "") && ref.kind === kind)) references.push(makeSourceReference(label, url ?? "", kind));
+  };
+  safe.find("a[href]").each((_i, node) => {
+    const href = $(node).attr("href")!;
+    // In-page anchors contain no unread document; substantive external links do.
+    if (!href.trim().startsWith("#")) add($(node).text().trim(), href, referenceKind(href));
+  });
+  safe.find("img[src]").each((_i, node) => {
+    const img = $(node);
+    const src = img.attr("src")!;
+    const url = cleanSourceUrl(src, baseUrl);
+    const knownIcon = url && ["/images/ci/icons/cmlink_generic.gif", "/images/ci/ng/cal_year_event.gif"].includes(new URL(url).pathname)
+      && /^(?:文件|File|单击获得更多选项|Click for more options)?$/i.test(img.attr("alt") ?? "");
+    const decorative = url && new URL(url).origin === new URL(baseUrl).origin
+      && /^\/images\/ci\//i.test(new URL(url).pathname)
+      && (img.attr("role") === "presentation" || img.attr("aria-hidden") === "true" || knownIcon);
+    if (!decorative) add(img.attr("alt") ?? "", src, "image");
+  });
+  safe.find("br").replaceWith("\n");
+  safe.find("p, div, li, tr, dt, dd").after("\n");
+  safe.find("td, th").after(" ");
+  const text = safe.text().split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+  return { text, references };
 }

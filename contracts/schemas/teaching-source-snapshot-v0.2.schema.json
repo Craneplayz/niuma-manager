@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://niuma-manager.local/contracts/teaching-source-snapshot-v0.2.schema.json",
+  "title": "Teaching source v0.2 upstream hints (collection facts only)",
+  "type": "object",
+  "required": ["source_kind", "section", "references", "warnings", "raw"],
+  "additionalProperties": false,
+  "properties": {
+    "source_kind": {"enum": ["announcement", "assignment", "content"]},
+    "section": {"type": "string"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "assignment": {
+      "type": "object", "required": ["state", "due_raw"], "additionalProperties": false,
+      "properties": {"state": {"enum": ["active", "submitted", "unknown"]}, "due_raw": {"type": ["string", "null"]}}
+    },
+    "raw": {
+      "type": "object", "required": ["title", "body", "publication_time"], "additionalProperties": false,
+      "properties": {
+        "title": {"type": "string"}, "body": {"type": "string"},
+        "publication_time": {"type": ["string", "null"]}, "assignment_due_date": {"type": ["string", "null"]}
+      }
+    },
+    "references": {
+      "type": "array", "items": {
+        "type": "object", "required": ["label", "url", "content_read", "kind", "read_status", "reason"], "additionalProperties": false,
+        "properties": {
+          "label": {"type": "string"}, "url": {"type": "string"}, "content_read": {"type": "boolean"},
+          "kind": {"enum": ["detail", "attachment", "image", "link"]},
+          "read_status": {"enum": ["unread", "complete", "partial", "failed", "unsupported"]},
+          "reason": {"enum": [null, "not_read", "image_not_read", "unsupported_format", "untrusted_attachment_url", "http_error", "authentication_required", "download_failed", "too_large", "parse_failed", "empty_text", "partial_pdf", "detail_unrecognized", "detail_failed", "submission_history_only"]},
+          "text": {"type": "string", "minLength": 1, "maxLength": 50000}
+        },
+        "allOf": [
+          {"if": {"properties": {"read_status": {"const": "complete"}}}, "then": {"properties": {"content_read": {"const": true}, "reason": {"type": "null"}}}, "else": {"properties": {"content_read": {"const": false}, "reason": {"type": "string"}}}}
+        ]
+      }
+    }
+  }
+}

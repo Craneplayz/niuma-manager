@@ -21,6 +21,7 @@ crawler/
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
 │   ├── pku-homework.ts               登录并采集课程内容
+│   ├── pku-attachments.ts            限定同源教师附件下载并提取 PDF / UTF-8 文本
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
 │   ├── pku-recognition.ts            转换课程记录为识别请求
 │   ├── pku-source.ts                 解析课程页面和来源记录
@@ -50,6 +51,8 @@ crawler/
 │   ├── pku-homework-cli.test.ts       测试课程采集命令行
 │   ├── pku-homework-html.test.ts      测试课程页面解析
 │   ├── pku-homework.test.ts           测试课程采集规则
+│   ├── pku-attachment-download.test.ts 测试流式大小限制、重定向及鉴权边界
+│   ├── pku-attachments.test.ts        测试附件读取、大小限制和失败状态
 │   ├── pku-assignment.test.ts         测试作业详情页的安全只读解析
 │   ├── pku-navigation.test.ts         测试课程页面导航
 │   ├── pku-recognition.test.ts        测试识别请求转换
@@ -113,4 +116,6 @@ pnpm pku:homework -- --format=recognition
 
 默认只采集名称含“作业”、`Assignment` 或 `Homework` 的栏目，不读取课程首页公告；找不到作业栏目的课程会在 `coverage_warnings` 中记录课程名。`--all-sections` 恢复课程公告和全部内容栏目的采集。默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
 
-课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。若页面已变为“复查提交历史记录”，仅记录已提交状态，不读取提交文件、作答、成绩或尝试时间；采集过程不会点击、填写或提交页面控件。附件内容仍不读取。
+课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。“复查提交历史记录”标题只记录状态 unknown 并提示核对，不读取提交文件、作答、成绩或尝试时间；采集过程不会点击、填写或提交作业控件。
+
+正文和作业详情中的同源教师 PDF / UTF-8 txt 附件会下载提取，引用逐项记录读取状态、原因和提取文字；仅页面装饰图标与菜单不影响完整性，真实图片和未读链接仍保留 partial。下载上限 5 MiB、15 秒、3 次同源重定向，PDF 上限 50 页、提取文字上限 50,000 字符；图片、矢量图、注释或空白页保留 partial，ZIP / Office / OCR / 外链与嵌套目录暂不支持。交接字段及下游边界见 [采集快照约定](../contracts/docs/teaching-source-snapshot-v0.2.md)。

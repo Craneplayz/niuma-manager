@@ -1,14 +1,14 @@
 import { load, type Cheerio, type CheerioAPI } from "cheerio";
 import type { AnyNode } from "domhandler";
 import type { Page } from "playwright";
-import type { CourseSourceRecord } from "./pku-source.js";
+import { parseTeacherContent, UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const ASSIGNMENT_PATH = /^\/webapps\/assignment\//i;
 const ACTIVE_HEADING = /^(?:上载作业|Upload Assignment)\s*[:：]?\s*/i;
 const SUBMITTED_HEADING = /^(?:复查提交历史记录|Review Submission History)\s*[:：]?\s*/i;
 const DUE_LABELS = ["到期日期", "Due Date"];
-const GENERIC_UNREAD_WARNING = "linked pages, attachments and images were not read";
+const GENERIC_UNREAD_WARNING = UNREAD_REFERENCE_WARNING;
 
 export type AssignmentPageState = "active" | "submitted" | "unknown";
 
@@ -17,6 +17,8 @@ export interface AssignmentDetail {
   title: string | null;
   description: string;
   due_raw: string | null;
+  references?: SourceReference[];
+  history_only?: boolean;
 }
 
 type AssignmentPage = Pick<Page, "goto" | "url" | "locator" | "content">;
@@ -60,36 +62,24 @@ function dueValueFromLabel($: CheerioAPI, label: Cheerio<AnyNode>): string | nul
   return null;
 }
 
-function assignmentDescription($: CheerioAPI): string {
-  const selectors = [
-    "[data-assignment-description]",
-    "#assignmentDescription",
-    ".assignment-description",
-    "#assignmentInfo .vtbegenerated",
-    ".assignmentInfo .vtbegenerated",
-    "[data-role=assignment-info] .vtbegenerated",
-  ];
+function assignmentDescription($: CheerioAPI, baseUrl: string) {
+  const selectors = ["[data-assignment-description]", "#assignmentDescription", ".assignment-description", "#assignmentInfo .vtbegenerated", ".assignmentInfo .vtbegenerated", "[data-role=assignment-info] .vtbegenerated"];
   for (const selector of selectors) {
     const node = $(selector).first();
-    if (!node.length) continue;
-    const safe = node.clone();
-    safe.find("script, style, form, input, textarea, button, .submission, .attempt, .grade").remove();
-    safe.find("br").replaceWith("\n");
-    safe.find("p, div, li, tr, dt, dd").after("\n");
-    const text = safe.text().split(/\r?\n/).map(normalize).filter(Boolean).join("\n");
-    if (text) return text;
+    if (node.length) return parseTeacherContent($, node, baseUrl);
   }
-  return "";
+  return { text: "", references: [] as SourceReference[] };
 }
 
 /** Parse only stable, teacher-authored assignment information. Submission history stays private. */
-export function parseAssignmentDetailHtml(html: string): AssignmentDetail {
+export function parseAssignmentDetailHtml(html: string, baseUrl = PKU_ORIGIN): AssignmentDetail {
   const $ = load(html);
   const headings = headingTexts($);
   const submittedHeading = headings.find((heading) => SUBMITTED_HEADING.test(heading));
   if (submittedHeading) {
     return {
-      state: "submitted",
+      state: "unknown",
+      history_only: true,
       title: normalize(submittedHeading.replace(SUBMITTED_HEADING, "")) || null,
       description: "",
       due_raw: null,
@@ -103,10 +93,12 @@ export function parseAssignmentDetailHtml(html: string): AssignmentDetail {
     return { state: "unknown", title: null, description: "", due_raw: null };
   }
 
+  const description = assignmentDescription($, baseUrl);
   return {
     state: "active",
     title: activeHeading ? normalize(activeHeading.replace(ACTIVE_HEADING, "")) || null : null,
-    description: assignmentDescription($),
+    description: description.text,
+    ...(description.references.length ? { references: description.references } : {}),
     due_raw: dueLabel ? dueValueFromLabel($, dueLabel) : null,
   };
 }
@@ -130,11 +122,11 @@ export async function readAssignmentDetail(page: AssignmentPage, url: string, ti
     || await page.locator('input[type="password"]').count()) {
     throw new Error("assignment detail left the authenticated area; login may have expired");
   }
-  return parseAssignmentDetailHtml(await page.content());
+  return parseAssignmentDetailHtml(await page.content(), url);
 }
 
 function markDetailReferenceRead(source: CourseSourceRecord, url: string): CourseSourceRecord["references"] {
-  return source.references.map((reference) => reference.url === url ? { ...reference, content_read: true } : { ...reference });
+  return source.references.map((reference) => reference.url === url ? { ...reference, content_read: true, read_status: "complete", reason: null } : { ...reference });
 }
 
 function warningsAfterRead(source: CourseSourceRecord, references: CourseSourceRecord["references"], extra: string[]): string[] {
@@ -149,13 +141,19 @@ function appendFact(body: string, fact: string): string {
 
 /** Merge stable assignment facts without changing the listing-derived identity. */
 export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: string, detail: AssignmentDetail): CourseSourceRecord {
-  const references = detail.state === "unknown" ? source.references.map((reference) => ({ ...reference })) : markDetailReferenceRead(source, detailUrl);
+  const references = detail.state === "unknown"
+    ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, read_status: "failed" as const, reason: detail.history_only ? "submission_history_only" : "detail_unrecognized" } : { ...reference })
+    : markDetailReferenceRead(source, detailUrl);
+  for (const reference of detail.references ?? []) {
+    if (!references.some((item) => item.url === reference.url)) references.push({ ...reference });
+  }
   if (detail.state === "unknown") {
     return {
       ...source,
       references,
+      text_quality: source.body ? "partial" : source.text_quality,
       assignment: { state: "unknown", due_raw: null },
-      warnings: warningsAfterRead(source, references, ["assignment detail page structure was not recognized"]),
+      warnings: warningsAfterRead(source, references, [detail.history_only ? "submission history title alone does not establish current submission; private content was not read" : "assignment detail page structure was not recognized"]),
     };
   }
 
@@ -174,13 +172,16 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
   }
 
   let body = detail.description || source.body;
+  if (detail.description && source.body && !normalize(detail.description).includes(normalize(source.body))) {
+    body = `列表正文：${source.body}\n\n作业详情：${detail.description}`;
+  }
   if (detail.due_raw && !normalize(body).includes(normalize(detail.due_raw))) body = appendFact(body, `到期日期：${detail.due_raw}`);
   const unread = references.some((reference) => !reference.content_read);
   return {
     ...source,
     title: detail.title ?? source.title,
     body,
-    text_quality: unread ? "partial" : body ? "complete" : "summary",
+    text_quality: unread || (!detail.description && !source.body) ? (body ? "partial" : "summary") : body ? "complete" : "summary",
     references,
     assignment: { state: "active", due_raw: detail.due_raw },
     warnings: warningsAfterRead(source, references, []),
@@ -201,7 +202,7 @@ export async function enrichAssignmentSources(page: AssignmentPage, sources: Cou
     } catch {
       enriched.push({
         ...source,
-        references: source.references.map((item) => ({ ...item })),
+        references: source.references.map((item) => item.url === reference.url ? { ...item, read_status: "failed", reason: "detail_failed" } : { ...item } ),
         warnings: [...new Set([...source.warnings, "assignment detail could not be read; listing text was retained"])],
       });
     }

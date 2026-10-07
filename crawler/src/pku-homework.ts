@@ -5,6 +5,7 @@ import { DateTime } from "luxon";
 import { chromium, type Browser, type Page } from "playwright";
 import { DEFAULT_TIMEZONE, parseEventTime } from "./core/time.js";
 import { enrichAssignmentSources } from "./pku-assignment.js";
+import { authenticatedAttachmentReader, enrichSourceAttachments } from "./pku-attachments.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const PKU_LOGIN_URL = `${PKU_ORIGIN}/webapps/bb-sso-BBLEARN/login.html`;
@@ -143,7 +144,8 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       }
     }
 
-    const sourceRecords = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
+    const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
+    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context));
     return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
       asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
       allSections: options.allSections ?? false, coverageWarnings,
@@ -165,8 +167,8 @@ export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: {
 }): HomeworkScrapeResult {
   const deduplicated = deduplicateRecords(records);
   const scopeWarning = context.allSections
-    ? "Course landing pages, linked content lists and native assignment details were inspected when available; nested folders, other detail pages and attachment contents were not read."
-    : "Only assignment sections and native assignment details were inspected; course announcements, other sections, nested folders and attachment contents were not read.";
+    ? "Course landing pages, linked content lists and native assignment details were inspected when available; nested folders and other detail pages were not read. Only same-origin teacher PDF/UTF-8 text attachments are supported; unread references retain their status."
+    : "Only assignment sections and native assignment details were inspected; course announcements, other sections and nested folders were not read. Only same-origin teacher PDF/UTF-8 text attachments are supported; unread references retain their status.";
   return {
     checked_at: context.asOf.toISO({ suppressMilliseconds: true })!,
     timezone: DEFAULT_TIMEZONE,
