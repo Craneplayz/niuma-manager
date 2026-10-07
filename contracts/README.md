@@ -6,7 +6,7 @@ contracts/
 ├── requirements-teaching-dev.txt     # 教学网草案校验依赖，不用于业务运行
 ├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
 ├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
-├── examples/teaching-review-v0.4-draft-cases.json # 20 个教学网审核与年份判断样例
+├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
 ├── tests/test_teaching_review_draft.py # 草案证据、身份绑定、边界与反例检查
 ├── docs/teaching-review-v0.4-draft.md  # #108/#109 阶段 A 的字段及接入边界
 ├── task-planning/                   # 业务排程及重新规划的请求、回应和确认语义

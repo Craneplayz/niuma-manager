@@ -163,6 +163,7 @@
         },
         "unread_relations": {
           "type": "array",
+          "description": "Model assessments, not automatic exemptions. review_codes requires body-only supplementary relation evidence, body evidence for action and any known deadline, and no task-field dependency on that incomplete reference. Insufficient support retains review without discarding the assessment.",
           "items": {
             "type": "object",
             "required": [

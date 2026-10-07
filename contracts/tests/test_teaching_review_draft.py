@@ -18,7 +18,7 @@ def sample(name="unread-supplement"):
 
 
 class TeachingDraftTests(unittest.TestCase):
-    def test_twenty_decision_cases(self):
+    def test_shared_decision_cases(self):
         for case in CASES:
             with self.subTest(name=case["name"]):
                 self.assertEqual(review_codes(case["pair"], source_verified=case["source_verified"]),
@@ -114,6 +114,74 @@ class TeachingDraftTests(unittest.TestCase):
         pair["assessment"]["action"]["state"] = "uncertain"
         pair["assessment"]["other_review_reasons"] = ["正文与学期范围冲突。"]
         self.assertEqual(review_codes(pair, source_verified=True), ["action_uncertain", "other_review"])
+
+    def test_partial_reference_cannot_exempt_itself(self):
+        pair = sample()
+        pair["record"]["text"] = "第二次作业的要求和截止日期见附件。"
+        pair["record"]["references"][0].update(
+            read_state="partial", text="完成练习1至3，2026年10月23日截止。本附件仅供参考。")
+        pair["assessment"]["action"]["evidence"] = [{"part_id": "extra", "quote": "完成练习1至3"}]
+        pair["assessment"]["deadline"]["evidence"] = [{"part_id": "extra", "quote": "2026年10月23日截止"}]
+        pair["assessment"]["unread_relations"][0]["evidence"] = [
+            {"part_id": "extra", "quote": "本附件仅供参考。"}]
+        before = deepcopy(pair)
+        validate_pair(pair)  # Captured quotes are valid; the exemption is not.
+        self.assertEqual(review_codes(pair, source_verified=True), ["unread_required:extra"])
+        self.assertEqual(pair, before)
+
+    def test_body_relation_does_not_hide_partial_field_support(self):
+        for field in ("action", "deadline"):
+            for keep_body in (False, True):
+                pair = sample()
+                pair["record"]["references"][0].update(read_state="partial", text=pair["record"]["text"])
+                evidence = pair["assessment"][field]["evidence"]
+                quote = dict(evidence[0], part_id="extra")
+                evidence[:] = (evidence if keep_body else []) + [quote]
+                with self.subTest(field=field, keep_body=keep_body):
+                    self.assertEqual(review_codes(pair, source_verified=True), ["unread_required:extra"])
+
+    def test_supplementary_relation_requires_only_body_evidence(self):
+        for state in ("complete", "partial"):
+            for keep_body in (False, True):
+                pair = sample()
+                pair["record"]["references"].append(dict(ref_id="other", kind="attachment", label="其他说明",
+                    read_state=state, text="附加练习仅供参考。"))
+                if state == "partial":
+                    pair["assessment"]["unread_relations"].append(dict(ref_id="other", role="unknown", evidence=[]))
+                evidence = pair["assessment"]["unread_relations"][0]["evidence"]
+                evidence[:] = (evidence if keep_body else []) + [dict(part_id="other", quote="附加练习仅供参考。")]
+                expected = ["unread_unknown:extra"] + (["unread_unknown:other"] if state == "partial" else [])
+                with self.subTest(state=state, keep_body=keep_body):
+                    self.assertEqual(review_codes(pair, source_verified=True), expected)
+
+    def test_complete_reference_alone_does_not_prove_body_support(self):
+        for field in ("action", "deadline"):
+            pair = sample()
+            pair["record"]["references"].append(dict(ref_id="read-file", kind="attachment", label="已读材料",
+                read_state="complete", text=pair["record"]["text"]))
+            pair["assessment"][field]["evidence"][0]["part_id"] = "read-file"
+            with self.subTest(field=field):
+                self.assertEqual(review_codes(pair, source_verified=True), ["unread_unknown:extra"])
+
+    def test_independent_body_support_allows_supplement_in_every_unread_state(self):
+        for state in ("unread", "partial", "failed", "unsupported"):
+            pair = sample()
+            pair["record"]["references"][0].update(read_state=state,
+                text="补充练习的参考思路。" if state == "partial" else None)
+            with self.subTest(state=state):
+                self.assertEqual(review_codes(pair, source_verified=True), [])
+
+    def test_partial_field_dependency_is_assessed_per_reference(self):
+        pair = sample()
+        pair["record"]["references"][0].update(read_state="partial", text=pair["record"]["text"])
+        pair["record"]["text"] += "其他讲义仅供参考。"
+        pair["record"]["references"].append(dict(ref_id="other", kind="attachment", label="其他讲义",
+            read_state="unread", text=None))
+        pair["assessment"]["unread_relations"].append(dict(ref_id="other", role="supplementary",
+            evidence=[dict(part_id="body", quote="其他讲义仅供参考。")]))
+        evidence = pair["assessment"]["deadline"]["evidence"]
+        evidence.append(dict(evidence[0], part_id="extra"))
+        self.assertEqual(review_codes(pair, source_verified=True), ["unread_required:extra"])
 
     def test_trusted_publication_takes_priority_over_term(self):
         pair = sample("yearless-current-assignment-term")

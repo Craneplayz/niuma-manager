@@ -6,7 +6,7 @@
 
 - 草案版本 `0.4-draft.1`：新增读取覆盖与学期结构，不能以补丁形式静默更改 v0.2/v0.3.1。正式 v0.4 信封、运行端接入及迁移由 Ken 和上下游审查后另行实现。
 - [独立根 Schema](../schemas/teaching-review-pair-v0.4-draft.schema.json) 校验 `record + assessment` 配对对象；它不是完整请求/结果 Schema。根拒绝空对象及额外字段，所有 `$ref` 均为包内引用，无需联网或注册 URN。
-- [判断样例](../examples/teaching-review-v0.4-draft-cases.json) 含 20 个合成配对及期望原因码；包装字段 `source_verified` 只供测试模拟可信后端通道，不能放进上游请求或模型输出。
+- [判断样例](../examples/teaching-review-v0.4-draft-cases.json) 含 23 个合成配对及期望原因码；包装字段 `source_verified` 只供测试模拟可信后端通道，不能放进上游请求或模型输出。
 - [参考校验器](../teaching_review_draft.py) 验证结构、证据与字段关系，返回这两项政策的审核原因码；**空原因列表只表示这两个检查通过**，不能取代历史排除、变更匹配、用户意向、完成状态和正式自动入库检查。
 
 ## 上游记录 record
@@ -53,6 +53,10 @@ Schema 通过、platform=teaching_web、课程名带年份或 JSON 中自行填�
 - required：正文把最终要求/截止交给附件，或当前任务字段依赖该内容；须引用依据，保留审核。
 - unknown：无法确定依赖关系，保留审核，无须伪造依据。
 
+`supplementary` 是模型的关系判断，不直接授予免审。参考门禁要求其关系证据全部来自 `body`，行动和已知日期各自至少有一条正文证据；缺少这些依据时返回 `unread_unknown:ID`。任何未完整读取的引用一旦被用于行动或日期证据，即使同时引用正文且自称 supplementary，仍返回 `unread_required:ID`，不能用该引用自身或其他附件的文字免责。只收紧有效免审条件，保留原始判断和引文供复核，不修改输入或丢弃候选；未知/未提供日期仍执行独立的日期门禁。
+
+例如正文只写“要求和截止见附件”，partial 附件提供全部行动/日期并自称“仅供参考”，须返回 `unread_required:ID`。正文独立给出行动/日期、正文说明附件仅供参考且字段证据不使用该未完整引用的原有正例仍通过；程序的引用位置检查不代替模型判断引文是否真正支持字段。
+
 正文不完整或 action=uncertain 仍审核。已完整正文有明确行动和日期，且没有 required/unknown 引用或其他疑点时，这一门禁不因补充材料未读而审核；不能因此说附件已读完。
 
 `not_provided` 只用于完整正文且无未读引用的无时间要求情形；仍有未读资料时，草案保守保留 deadline_coverage_unknown。明确未设置截止日期的特殊语义如需另行放宽，应补充样例后审查，不能靠空 times 推定附件里没有日期。
@@ -74,7 +78,7 @@ Schema 通过、platform=teaching_web、课程名带年份或 JSON 中自行填�
 | --- | --- |
 | source_unverified | 来源上下文尚未由后端核验。 |
 | body_incomplete / action_uncertain | 正文存在缺口 / 行动性质尚不明确。 |
-| unread_required:ID / unread_unknown:ID | 任务依赖未读内容 / 无法判断其影响。 |
+| unread_required:ID / unread_unknown:ID | 任务依赖未读内容（包括部分读取的字段证据）/ 无法判断其影响或缺少正文免审依据。 |
 | deadline_unknown / deadline_coverage_unknown | 日期本身未知 / 未读内容使“无 DDL”无法确认。 |
 | original_age_unknown | 缺少可信发布时间或适用学期，无法确认消息年代。 |
 | publication_required / publication_anchor_required | 相对时间缺发布时间 / 应优先使用已有可信发布时间。 |
