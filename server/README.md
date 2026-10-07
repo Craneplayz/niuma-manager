@@ -41,6 +41,7 @@ server/
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。
 
 微信附件由本机采集器使用账号来源设置中签发的一次显示凭证调用 `/api/sources/wechat/assets` 上传原件，再调用 `/api/sources/wechat/imports` 提交 v0.3.1 JSON；请求、回执、结果和查询均使用新版结构及语义校验。
+上传只接受一个 `file` 文件，可附带 `contract_version`、`file_name`、`mime_type`、`size_bytes`、`sha256`；回执由原件计算，声明不一致返回 400 `asset_metadata_mismatch`，未知或重复字段拒绝。
 附件候选保存到账号候选库，文件模型证据须经确认后入库；忽略、确认与刷新状态持久化，重试保留已有候选及用户决定。
 相同 request_id 的采集时间或引用变化返回 409；每次 retry_id 及其选定记录持久化，历史重放返回 200，识别请求级失败保留此前的部分成功结果。
 原件保存在数据库同目录的 `wechat-assets/`，不公开文件 URL；每次读取重新核验账号、有效句柄、存储位置、长度和 SHA-256，并限制读取时间与字节数。

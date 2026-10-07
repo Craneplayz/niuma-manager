@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import tempfile
 import time
@@ -35,11 +36,12 @@ class WechatMediaTests(unittest.TestCase):
         self.call(client, '/auth/register', 'POST', dict(name='Test', email=email, password='Test-password-2026'))
         return client
 
-    def call(self, client, path, method='GET', body=None, token=None, multipart=False):
+    def call(self, client, path, method='GET', body=None, token=None, multipart=False, fields=None):
         headers = {'Authorization': 'Bearer ' + token} if token else {}
         if multipart:
             boundary = 'niuma-test-boundary'
-            data = b'--' + boundary.encode() + b'\r\nContent-Disposition: form-data; name="file"; filename="work.png"\r\nContent-Type: image/png\r\n\r\n' + body + b'\r\n--' + boundary.encode() + b'--\r\n'
+            prefix = b''.join((f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n').encode('utf-8') for key,value in (fields or {}).items())
+            data = prefix + b'--' + boundary.encode() + b'\r\nContent-Disposition: form-data; name="file"; filename="work.png"\r\nContent-Type: image/png\r\n\r\n' + body + b'\r\n--' + boundary.encode() + b'--\r\n'
             headers['Content-Type'] = 'multipart/form-data; boundary=' + boundary
         else:
             data = json.dumps(body).encode() if body is not None else None
@@ -112,6 +114,22 @@ class WechatMediaTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             loader(ack['file_ref'],max_bytes=100,timeout_seconds=1)
 
+    def test_collector_multipart_fields_are_optional_but_must_match_actual_bytes(self):
+        client = self.client('wechat-multipart@test.local')
+        raw = b'\x89PNG\r\n\x1a\ncollector-body'
+        # Same field ordering/UTF-8 encoding as #121 f95a67a::_multipart_body.
+        fields = dict(file_name='work.png',mime_type='image/png',size_bytes=str(len(raw)),sha256=hashlib.sha256(raw).hexdigest())
+        status, ack = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=fields)
+        self.assertEqual(status,201)
+        self.assertEqual(ack['sha256'],fields['sha256'])
+        self.assertEqual(self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=dict(fields,contract_version='0.3.1'))[0],200)
+        for key in fields:
+            bad = dict(fields);bad[key]='wrong'
+            status, response = self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=bad)
+            self.assertEqual(status,400)
+            self.assertEqual(response['error']['code'],'asset_metadata_mismatch')
+        self.assertEqual(self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields=dict(fields,user_id='injected'))[0],400)
+        self.assertEqual(self.call(client,'/sources/wechat/assets','POST',raw,multipart=True,fields={'file':'extra-file'})[0],400)
     def test_shared_reader_receives_only_the_bound_loader_and_model_configuration(self):
         try:
             from ddl_text.media_pipeline import process_media_request

@@ -117,15 +117,34 @@ def _upload(handler, db, uid, data_dir):
     raw = handler.rfile.read(size)
     message = BytesParser(policy=default).parsebytes(b'Content-Type: ' + content_type.encode() + b'\r\nMIME-Version: 1.0\r\n\r\n' + raw)
     parts = list(message.iter_parts()) if message.is_multipart() else []
-    if len(parts) != 1 or parts[0].get_param('name', header='content-disposition') != 'file':
+    allowed = {'contract_version','file_name','mime_type','size_bytes','sha256'}
+    files, supplied = [], {}
+    for part in parts:
+        field = part.get_param('name',header='content-disposition')
+        if field == 'file':
+            files.append(part)
+        elif field in allowed and field not in supplied and part.get_filename() is None and not part.is_multipart():
+            value = part.get_payload(decode=True)
+            if value is None or len(value)>1024:
+                raise MediaError(400,'invalid_request','附件字段无效')
+            try:
+                supplied[field] = value.decode('utf-8')
+            except UnicodeDecodeError:
+                raise MediaError(400,'invalid_request','附件字段须使用 UTF-8') from None
+        else:
+            raise MediaError(400,'invalid_request','附件包含未知或重复字段')
+    if len(files) != 1 or files[0].is_multipart():
         raise MediaError(400, 'invalid_request', '仅允许上传一个 file 附件')
-    data = parts[0].get_payload(decode=True)
+    data = files[0].get_payload(decode=True)
     if not data or len(data) > MAX_ASSET:
         raise MediaError(413, 'limit_exceeded', '附件为空或超过 20 MiB')
-    name = parts[0].get_filename() or ''
+    name = files[0].get_filename() or ''
     if not name or name in ('.', '..') or len(name) > 255 or '/' in name or '\\' in name:
         raise MediaError(400, 'invalid_request', '文件名无效')
     mime, digest = _asset_type(data), hashlib.sha256(data).hexdigest()
+    computed = dict(contract_version='0.3.1',file_name=name,mime_type=mime,size_bytes=str(len(data)),sha256=digest)
+    if any(value != computed[field] for field,value in supplied.items()):
+        raise MediaError(400,'asset_metadata_mismatch','附件声明与原件不一致')
     try:
         from contracts.check_v031_examples import check_file_name
         check_file_name(name)
