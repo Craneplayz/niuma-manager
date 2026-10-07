@@ -268,6 +268,57 @@ class WechatMediaTests(unittest.TestCase):
         missing['records'][0]['attachments'][0]['file_ref'] = 'asset:' + 'A' * 32
         self.assertEqual(self.call(client, '/sources/wechat/imports', 'POST', missing)[0], 404)
 
+    def test_parallel_retry_replays_accept_one_attempt_and_keep_prior_decisions(self):
+        client=self.client('wechat-parallel-retry@test.local')
+        other=self.client('wechat-parallel-retry-other@test.local')
+        _,credential=self.call(client,'/sources/wechat/credential','POST',{})
+        token=credential['token']
+        cases=json.loads((Path(__file__).parent.parent/'contracts/examples/text-attachments-v031-cases.json').read_text(encoding='utf-8'))
+        case=next(item for item in cases if item['name']=='recognition-timeout-preserves-first-task')
+        request,result=copy.deepcopy(case['request']),copy.deepcopy(case['expected'])
+        request['request_id']='parallel-retry';result['request_id']=request['request_id']
+        def finished(job_id):
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+job_id)
+                if job['status'] not in ('queued','running'):return job
+                time.sleep(.02)
+            self.fail('job did not finish')
+        with patch.object(wechat_media,'recognize_v03',return_value=result):
+            _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+            original=finished(ack['job_id'])
+        item=self.call(client,'/recognition/batches')[1][0]['items'][0]
+        self.assertEqual(self.call(client,'/recognition/candidates/'+item['id']+'/resolve','POST',
+            dict(action='ignore',version=item['version']))[0],200)
+        path='/sources/wechat/imports/'+ack['job_id']+'/retry'
+        self.assertEqual(self.call(other,path,'POST',dict(retry_id='parallel-A'))[0],404)
+        started,release=threading.Event(),threading.Event()
+        def model(body,*args,**kwargs):
+            started.set()
+            if not release.wait(5):raise TimeoutError('test release timeout')
+            return wechat_media._failed_result(body)
+        with patch.object(wechat_media,'recognize_v03',side_effect=model) as adapter:
+            try:
+                with ThreadPoolExecutor(max_workers=6) as pool:
+                    replies=list(pool.map(lambda _:self.call(build_opener(),path,'POST',dict(retry_id='parallel-A'),token=token),range(6)))
+                self.assertTrue(started.wait(3))
+                self.assertEqual(sum(status==202 for status,_ in replies),1)
+                self.assertTrue(all(status in (200,202) for status,_ in replies))
+                self.assertEqual(self.call(client,path,'POST',dict(retry_id='parallel-B'))[0],409)
+            finally:release.set()
+            after=finished(ack['job_id'])
+            self.assertEqual(after['result']['tasks'],original['result']['tasks'])
+            self.assertEqual(self.call(client,path,'POST',dict(retry_id='parallel-B'))[0],202)
+            finished(ack['job_id'])
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                replays=list(pool.map(lambda _:self.call(build_opener(),path,'POST',dict(retry_id='parallel-A'),token=token),range(6)))
+            self.assertTrue(all(status==200 for status,_ in replays))
+            self.assertEqual(adapter.call_count,2)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT attempts FROM wechat_jobs WHERE id=?',(ack['job_id'],)).fetchone()['attempts'],2)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_retries WHERE job_id=?',(ack['job_id'],)).fetchone()[0],2)
+        items=self.call(client,'/recognition/batches')[1][0]['items']
+        self.assertEqual([(row['id'],row['state']) for row in items],[(item['id'],'ignored')])
+
     def test_restart_recovers_a_running_job_without_losing_it(self):
         a = self.client('wechat-recover@test.local')
         request = json.loads((Path(__file__).parent.parent / 'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
@@ -759,6 +810,78 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         self.assertTrue(wechat_media.retryable_records(job['result']))
         self.assertEqual(self.call(client,'/sources/wechat/assets/'+receipt['file_ref'],'DELETE')[0],204)
         self.assertEqual(self.call(client,'/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id='after-revocation'))[0],404)
+
+    def test_revocation_while_model_is_running_does_not_publish_new_candidates(self):
+        client=self.client('wechat-revoked-inflight@test.local')
+        _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\ninflight',multipart=True)
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        request['request_id']='revoked-inflight';result['request_id']=request['request_id']
+        request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        started,release=threading.Event(),threading.Event()
+        def model(*args,**kwargs):
+            started.set()
+            if not release.wait(5):raise TimeoutError('test release timeout')
+            return result
+        with patch.object(wechat_media,'recognize_v03',side_effect=model):
+            try:
+                _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+                self.assertTrue(started.wait(3))
+                self.assertEqual(self.call(client,'/sources/wechat/assets/'+receipt['file_ref'],'DELETE')[0],204)
+            finally:release.set()
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+        check_pair(request,job['result'])
+        self.assertEqual(job['status'],'failed')
+        self.assertEqual(job['result']['tasks'],[])
+        self.assertTrue(any(error['code']=='file_ref_unavailable' for error in job['result']['errors']))
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recognition_candidates WHERE request_id=?',(request['request_id'],)).fetchone()[0],0)
+
+    def test_one_revoked_record_keeps_other_records_in_the_same_job(self):
+        client=self.client('wechat-partial-revocation@test.local')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        request['request_id']='partial-revocation';result['request_id']=request['request_id']
+        kept=copy.deepcopy(request['records'][0]);kept['input_id']='unrevoked-record'
+        request['records'].append(kept)
+        kept_result=copy.deepcopy(result['record_results'][0]);kept_result['input_id']=kept['input_id']
+        extra=copy.deepcopy(result['tasks'])
+        for task in extra:
+            task['input_id']=kept['input_id'];task['candidate_id']+=':kept'
+            for source in task['sources']+task['evidence']:
+                if source['input_id']==request['records'][0]['input_id']:
+                    source['input_id']=kept['input_id']
+        kept_result['task_ids']=[task['candidate_id'] for task in extra]
+        result['record_results'].append(kept_result);result['tasks']+=extra
+        refs=[]
+        for index,record in enumerate(request['records']):
+            _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\n'+str(index).encode(),multipart=True)
+            refs.append(receipt['file_ref'])
+            record['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        check_pair(request,result)
+        started,release=threading.Event(),threading.Event()
+        def model(*args,**kwargs):
+            started.set()
+            if not release.wait(5):raise TimeoutError('test release timeout')
+            return result
+        with patch.object(wechat_media,'recognize_v03',side_effect=model):
+            try:
+                _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+                self.assertTrue(started.wait(3))
+                self.assertEqual(self.call(client,'/sources/wechat/assets/'+refs[0],'DELETE')[0],204)
+            finally:release.set()
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+        check_pair(request,job['result'])
+        self.assertEqual(job['status'],'partial_failed')
+        self.assertEqual(job['result']['tasks'],extra)
+        self.assertEqual(job['result']['record_results'][1],kept_result)
+        self.assertEqual(job['progress'],dict(total_records=2,finished_records=2,failed_records=1))
 
 
 if __name__ == '__main__': unittest.main()

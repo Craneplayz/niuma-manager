@@ -391,7 +391,7 @@ def account_asset_loader(db_path, uid):
     return load
 
 
-def _interrupted_record(request, record, message=None):
+def _interrupted_record(request, record, message=None, code='agent_unavailable'):
     from contracts.check_v03_examples import coverage
     summaries, errors = [], []
     for asset in record['attachments']:
@@ -403,15 +403,16 @@ def _interrupted_record(request, record, message=None):
                 quality='normal',quality_notes=[]))
             if not any(error['asset_id']==asset['asset_id'] and error['stage'] in ('collect','upload','read') for error in errors):
                 errors.append(dict(input_id=record['input_id'],asset_id=asset['asset_id'],block_id=None,stage='read',
-                    code='file_read_failed',message=message or '处理进程中断，读取结果未保存。',retryable=asset['status']=='available'))
+                    code='file_ref_unavailable' if code=='file_ref_unavailable' else 'file_read_failed',
+                    message=message or '处理进程中断，读取结果未保存。',retryable=asset['status']=='available' and code!='file_ref_unavailable'))
         else:
             summaries.append(dict(asset_id=asset['asset_id'],status=asset['status'],block_count=len(asset['blocks']),
                 uncertain_block_ids=[block['block_id'] for block in asset['blocks'] if block['quality']=='uncertain']))
     cov = coverage(record,summaries)
     cov['complete'] = False
     outcome = dict(input_id=record['input_id'],status='failed',task_ids=[],warnings=[message or '处理进程中断，请重试此记录。'],coverage=cov,attachments=summaries)
-    error = dict(input_id=record['input_id'],asset_id=None,block_id=None,stage='recognize',code='agent_unavailable',
-        message=message or '处理进程中断，未自动重复模型请求；可定向重试。',retryable=True)
+    error = dict(input_id=record['input_id'],asset_id=None,block_id=None,stage='recognize',code=code,
+        message=message or '处理进程中断，未自动重复模型请求；可定向重试。',retryable=code=='agent_unavailable')
     result = dict(contract_version='0.3.1',request_id=request['request_id'],status='failed',record_results=[outcome],tasks=[],errors=errors+[error])
     check_pair(dict(request,records=[record]),result)
     return result
@@ -642,6 +643,33 @@ def _process(db_path, job_id):
                 if not current or current['status']!='running':
                     db.rollback()
                     return
+                revoked = set()
+                for record in extraction['records']:
+                    try:
+                        _validate_assets(db,row['user_id'],dict(extraction,records=[record]))
+                    except MediaError as error:
+                        if error.status!=404:raise
+                        revoked.add(record['input_id'])
+                if revoked:
+                    message='附件已撤销或失效；未发布本次识别结果，请重新上传。'
+                    attempt_errors = _failed_result(request,'file_ref_unavailable',message)['errors']
+                    content_key = None
+                    if previous:
+                        result = previous
+                    elif not result['record_results']:
+                        result = _failed_result(request,'file_ref_unavailable',message)
+                    else:
+                        parts = []
+                        outcomes = {item['input_id']:item for item in result['record_results']}
+                        for index,record in enumerate(request['records']):
+                            rid = record['input_id']
+                            if rid in revoked:
+                                parts.append(_interrupted_record(request,record,message,'file_ref_unavailable'))
+                            else:
+                                parts.append(dict(record_results=[outcomes[rid]],tasks=[item for item in result['tasks'] if item['input_id']==rid],
+                                    errors=[item for item in result['errors'] if item['input_id']==rid or (index==0 and item['input_id'] is None)]))
+                        result = _combine_records(request,parts)
+                    status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[result['status']]
                 if status in ('succeeded', 'partial_failed'):
                     if origin_job_id == job_id:
                         _apply_clear_tasks(db, row, result)
