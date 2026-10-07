@@ -1,0 +1,222 @@
+{
+  "clarification": {
+    "request": {
+      "taskId": "project",
+      "conversation": []
+    },
+    "response": {
+      "contract_version": "0.1",
+      "taskId": "project",
+      "status": "needs_clarification",
+      "assessment": {
+        "summary": "完成并展示剩余项目工作",
+        "complexity": "uncertain",
+        "confidence": 0.9,
+        "known_facts": [
+          {
+            "text": "需要实现任务页并展示",
+            "source": "task"
+          }
+        ],
+        "assumptions": [],
+        "missing_information": [
+          "当前进度"
+        ]
+      },
+      "questions": [
+        {
+          "id": "progress",
+          "prompt": "目前完成到哪一步？",
+          "why": "决定剩余步骤",
+          "answer_options": [
+            "尚未开始",
+            "已有初稿"
+          ]
+        }
+      ],
+      "plan": null
+    }
+  },
+  "ready": {
+    "request": {
+      "taskId": "project",
+      "conversation": [
+        {
+          "role": "assistant",
+          "content": "目前完成到哪一步？"
+        },
+        {
+          "role": "user",
+          "content": "登录已完成，任务页尚未开始"
+        }
+      ]
+    },
+    "response": {
+      "contract_version": "0.1",
+      "taskId": "project",
+      "status": "ready_to_plan",
+      "assessment": {
+        "summary": "完成并展示剩余项目工作",
+        "complexity": "multi_step",
+        "confidence": 0.9,
+        "known_facts": [
+          {
+            "text": "需要实现任务页并展示",
+            "source": "task"
+          }
+        ],
+        "assumptions": [],
+        "missing_information": []
+      },
+      "questions": [],
+      "plan": {
+        "goal": "完成并展示课程项目",
+        "strategy": "先实现，再准备演示",
+        "warnings": [],
+        "subtasks": [
+          {
+            "id": "implementation",
+            "title": "完成任务页",
+            "outcome": "完成任务页可检查",
+            "duration_minutes": 80,
+            "depends_on": [],
+            "scheduled_start": null,
+            "scheduled_end": null,
+            "source_basis": [
+              "task"
+            ],
+            "assumption": false
+          },
+          {
+            "id": "slides",
+            "title": "制作演示文稿",
+            "outcome": "制作演示文稿可检查",
+            "duration_minutes": 40,
+            "depends_on": [
+              "implementation"
+            ],
+            "scheduled_start": null,
+            "scheduled_end": null,
+            "source_basis": [
+              "task"
+            ],
+            "assumption": false
+          }
+        ]
+      },
+      "requestId": "synthetic-proposal"
+    }
+  },
+  "no_split": {
+    "request": {
+      "taskId": "atomic"
+    },
+    "response": {
+      "contract_version": "0.1",
+      "taskId": "atomic",
+      "status": "no_split",
+      "assessment": {
+        "summary": "发送已完成的报告即可",
+        "complexity": "atomic",
+        "confidence": 0.9,
+        "known_facts": [
+          {
+            "text": "需要实现任务页并展示",
+            "source": "task"
+          }
+        ],
+        "assumptions": [],
+        "missing_information": []
+      },
+      "questions": [],
+      "plan": {
+        "goal": "提交报告",
+        "strategy": "直接提交",
+        "warnings": [],
+        "subtasks": [
+          {
+            "id": "submit",
+            "title": "提交报告",
+            "outcome": "平台确认接收",
+            "duration_minutes": 5,
+            "depends_on": [],
+            "scheduled_start": null,
+            "scheduled_end": null,
+            "source_basis": [
+              "task"
+            ],
+            "assumption": false
+          }
+        ]
+      }
+    }
+  },
+  "apply": {
+    "request": {
+      "requestId": "synthetic-proposal",
+      "taskId": "project"
+    },
+    "response": {
+      "value": [
+        {
+          "id": "project",
+          "title": "完成课程项目",
+          "description": "实现任务页并准备展示",
+          "status": "not_started",
+          "plans": [],
+          "due": null,
+          "subtasks": [
+            {
+              "id": "stored-implementation",
+              "title": "完成任务页",
+              "status": "pending",
+              "outcome": "完成任务页可检查",
+              "estimatedMinutes": 80,
+              "dependsOn": [],
+              "sourceBasis": [
+                "task"
+              ],
+              "assumption": false
+            },
+            {
+              "id": "stored-slides",
+              "title": "制作演示文稿",
+              "status": "pending",
+              "outcome": "制作演示文稿可检查",
+              "estimatedMinutes": 40,
+              "dependsOn": [
+                "stored-implementation"
+              ],
+              "sourceBasis": [
+                "task"
+              ],
+              "assumption": false
+            }
+          ],
+          "estimatedMinutes": 120
+        }
+      ],
+      "version": 2
+    }
+  },
+  "errors": [
+    {
+      "status": 409,
+      "response": {
+        "error": "拆解方案与当前任务不匹配"
+      }
+    },
+    {
+      "status": 409,
+      "response": {
+        "error": "任务已经变化，请重新拆解"
+      }
+    },
+    {
+      "status": 503,
+      "response": {
+        "error": "AI 拆解正在处理其他请求，请稍后重试"
+      }
+    }
+  ]
+}
