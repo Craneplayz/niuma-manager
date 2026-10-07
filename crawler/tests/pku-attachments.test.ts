@@ -11,10 +11,16 @@ function source(label = "HW1.txt", href = url, body = "请按附件要求提交�
 function textFile(text: string) { return { bytes: new TextEncoder().encode(text), contentType: "text/plain" }; }
 
 /** A small real PDF without images, generated entirely from synthetic text. */
-function pdf(text: string, blankPage = false, visual?: "stencil" | "bad-image" | "image" | "repeated-image") {
+function pdf(text: string, blankPage = false, visual?: "stencil" | "bad-image" | "image" | "repeated-image", embedded = false) {
   const drawing = visual ? (visual === "repeated-image" ? Array.from({ length: 12 }, (_, i) => `q 20 0 0 20 ${i * 22} 40 cm /Im1 Do Q`).join("\n") : "q 100 0 0 100 50 400 cm /Im1 Do Q") : "";
   const stream = `BT /F1 12 Tf 50 700 Td (${text}) Tj ET\n${drawing}`;
   const objects = ["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [3 0 R${blankPage ? " 6 0 R" : ""}] /Count ${blankPage ? 2 : 1} >>`, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> ${visual ? "/XObject << /Im1 6 0 R >>" : ""} >> /Contents 5 0 R >>`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`, ...(visual ? [visual === "stencil" ? "<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ImageMask true /BitsPerComponent 1 /Length 1 >>\nstream\n\x00\nendstream" : `<< /Type /XObject /Subtype /Image /Width ${visual === "bad-image" ? 0 : 1} /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 1 >>\nstream\nA\nendstream`] : blankPage ? ["<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>"] : [])];
+  if (embedded) {
+    const id = objects.length + 1;
+    const instructions = "SYNTHETIC_EMBEDDED_INSTRUCTIONS: Due 2026-12-31";
+    objects[0] = `<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names [(instructions.txt) ${id} 0 R] >> >> >>`;
+    objects.push(`<< /Type /Filespec /F (instructions.txt) /EF << /F ${id + 1} 0 R >> >>`, `<< /Type /EmbeddedFile /Length ${instructions.length} >>\nstream\n${instructions}\nendstream`);
+  }
   let document = "%PDF-1.4\n";
   const offsets = [0];
   objects.forEach((object, i) => { offsets.push(document.length); document += `${i + 1} 0 obj\n${object}\nendobj\n`; });
@@ -42,6 +48,18 @@ describe("teacher attachment acquisition", () => {
     expect(complete.text).toContain("Submit by 2026-12-31.");
     expect(complete.partial).toBe(false);
     expect((await extractAttachmentText(pdf("Submit report.", true), "pdf")).partial).toBe(true);
+  });
+  it("keeps document-level embedded files unread through the real PDF worker and export", async () => {
+    const file = pdf("Submit report; see embedded file.", false, undefined, true);
+    const extracted = await extractAttachmentText(file, "pdf");
+    expect(extracted).toMatchObject({ partial: true });
+    expect(extracted.text).toContain("Submit report; see embedded file.");
+    expect(extracted.text).not.toContain("SYNTHETIC_EMBEDDED_INSTRUCTIONS");
+    const [result] = await enrichSourceAttachments([source("Homework.pdf", url.replace("txt", "pdf"))], async () => file);
+    expect(result.references[0]).toMatchObject({ content_read: false, read_status: "partial", reason: "partial_pdf" });
+    const record = toRecognitionRequests([result])[0].records[0];
+    expect(record.text_quality).toBe("partial");
+    expect(JSON.stringify(record)).not.toContain("SYNTHETIC_EMBEDDED_INSTRUCTIONS");
   });
   it.each(["stencil", "bad-image", "image", "repeated-image"] as const)("keeps %s graphics/degraded PDFs partial through the real worker and export", async (visual) => {
     const file = pdf("Submit report by 2026-12-31.", false, visual);

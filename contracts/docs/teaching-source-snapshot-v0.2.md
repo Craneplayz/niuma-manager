@@ -16,4 +16,6 @@
 
 附件解析缓存按 URL 与推断格式区分；显示名不足以确定格式时不写入缓存，后续更明确的引用仍可读取。
 
+教师容器自身及祖先若属于表单、提交、尝试、成绩或导航区域，整块排除，不输出其文字和引用。图片同时检查 src、srcset 及 picture/source 的候选；默认 src 为装饰图标不能使其他实质候选被忽略，data / 非 HTTP 候选仍以空 url 保留未读，不输出内嵌数据。PDF 文档级内嵌附件未提取时保留 partial_pdf，不递归读取或输出内嵌文件内容。
+
 所有新字段仅是来源事实，不能从 upstream_hints 取得后端 source_verified 授信；v0.3.1 attachment_file/model_reported 强制审核规则保持原样。

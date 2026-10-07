@@ -143,10 +143,37 @@ export function makeSourceReference(label: string, url: string, kind: SourceRefe
   return { label, url, kind, content_read: false, read_status: "unread", reason: kind === "image" ? "image_not_read" : "not_read" };
 }
 
+const EXCLUDED_CONTENT = "script, style, form, input, textarea, button, nav, [role=navigation], .announcementInfo, .submission, .attempt, .grade";
+
+/** Scan URL tokens separately from descriptors; commas can be part of a URL/data URI. */
+function imageCandidates(srcset: string): string[] {
+  const urls: string[] = [];
+  let position = 0;
+  const whitespace = /[\t\n\f\r ]/;
+  while (position < srcset.length) {
+    while (position < srcset.length && (whitespace.test(srcset[position]) || srcset[position] === ",")) position++;
+    const start = position;
+    while (position < srcset.length && !whitespace.test(srcset[position])) position++;
+    const token = srcset.slice(start, position);
+    if (!token) break;
+    urls.push(token.replace(/,+$/, ""));
+    if (token.endsWith(",")) continue;
+    // Descriptor commas delimit candidates, except inside parentheses.
+    let depth = 0;
+    while (position < srcset.length) {
+      const char = srcset[position++];
+      if (char === "(") depth++;
+      else if (char === ")") depth = Math.max(0, depth - 1);
+      else if (char === "," && depth === 0) break;
+    }
+  }
+  return urls;
+}
+
 /** Work only inside the teacher-authored container; never inspect submission widgets. */
 export function parseTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, baseUrl: string): { text: string; references: SourceReference[] } {
-  const safe = content.clone();
-  safe.find("script, style, form, input, textarea, button, nav, [role=navigation], .announcementInfo, .submission, .attempt, .grade").remove();
+  const safe = content.filter((_i, node) => !$(node).is(EXCLUDED_CONTENT) && !$(node).parents(EXCLUDED_CONTENT).length).clone();
+  safe.find(EXCLUDED_CONTENT).remove();
   const references: SourceReference[] = [];
   const add = (label: string, value: string, kind: SourceReference["kind"]) => {
     const url = cleanSourceUrl(value, baseUrl);
@@ -157,16 +184,22 @@ export function parseTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, ba
     // In-page anchors contain no unread document; substantive external links do.
     if (!href.trim().startsWith("#")) add($(node).text().trim(), href, referenceKind(href));
   });
-  safe.find("img[src]").each((_i, node) => {
-    const img = $(node);
-    const src = img.attr("src")!;
-    const url = cleanSourceUrl(src, baseUrl);
+  const addImage = (value: string, alt: string, presentation: boolean) => {
+    const url = cleanSourceUrl(value, baseUrl);
     const knownIcon = url && ["/images/ci/icons/cmlink_generic.gif", "/images/ci/ng/cal_year_event.gif"].includes(new URL(url).pathname)
-      && /^(?:文件|File|单击获得更多选项|Click for more options)?$/i.test(img.attr("alt") ?? "");
+      && /^(?:文件|File|单击获得更多选项|Click for more options)?$/i.test(alt);
     const decorative = url && new URL(url).origin === new URL(baseUrl).origin
       && /^\/images\/ci\//i.test(new URL(url).pathname)
-      && (img.attr("role") === "presentation" || img.attr("aria-hidden") === "true" || knownIcon);
-    if (!decorative) add(img.attr("alt") ?? "", src, "image");
+      && (presentation || knownIcon);
+    if (!decorative) add(alt, value, "image");
+  };
+  safe.find("img[src], img[srcset], picture > source[srcset]").each((_i, node) => {
+    const image = $(node);
+    const fallback = image.is("source") ? image.parent().children("img").first() : image;
+    const alt = fallback.attr("alt") ?? "";
+    const presentation = fallback.attr("role") === "presentation" || fallback.attr("aria-hidden") === "true";
+    if (image.is("img") && image.attr("src") !== undefined) addImage(image.attr("src")!, alt, presentation);
+    for (const candidate of imageCandidates(image.attr("srcset") ?? "")) addImage(candidate, alt, presentation);
   });
   safe.find("br").replaceWith("\n");
   safe.find("p, div, li, tr, dt, dd").after("\n");

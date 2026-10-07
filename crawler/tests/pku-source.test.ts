@@ -69,6 +69,34 @@ describe("source metadata fidelity", () => {
 
 describe("substantive references versus page chrome", () => {
   const body = "请在2026年12月31日18点前提交报告。";
+  it.each([
+    '<img src="/images/ci/icons/cmlink_generic.gif" alt="" srcset="/deadline.png 1x, /deadline2.png 2x">',
+    '<picture><source media="(min-width: 800px)" srcset="/deadline.png 800w, /deadline2.png 1600w"><img src="/images/ci/icons/cmlink_generic.gif" alt=""></picture>',
+    '<img srcset="/deadline.png 1x, /deadline2.png 2x">',
+  ])("retains responsive substantive candidates behind a missing/decorative fallback: %s", (image) => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("responsive", "作业", `<p>${body}</p>${image}`)), context);
+    expect(record.text_quality).toBe("partial");
+    expect(record.references.map((ref) => ref.url)).toEqual(["https://example.test/deadline.png", "https://example.test/deadline2.png"]);
+    expect(record.references.every((ref) => ref.kind === "image" && !ref.content_read)).toBe(true);
+  });
+  it("preserves commas in image URLs and never exports data-URI candidates", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("commas", "作业", `<p>${body}</p><img srcset="data:image/png;base64,SYNTHETIC_BYTES 1x, /deadline,large.png 2x, /deadline.png 3x">`)), context);
+    expect(record.references.map((ref) => ref.url)).toEqual(["", "https://example.test/deadline,large.png", "https://example.test/deadline.png"]);
+    expect(JSON.stringify(record)).not.toContain("SYNTHETIC_BYTES");
+    expect(record.text_quality).toBe("partial");
+  });
+  it("deduplicates fallback candidates and ignores responsive decorative-only assets", () => {
+    const records = extractCourseSourcesFromHtml(page(contentItem("real", "作业", `<p>${body}</p><img src="/deadline.png" srcset="/deadline.png 1x, /deadline.png 2x">`) + contentItem("icons", "作业", `<p>${body}</p><picture><source srcset="/images/ci/ng/cal_year_event.gif 2x"><img src="/images/ci/icons/cmlink_generic.gif" srcset="/images/ci/icons/cmlink_generic.gif 1x" alt=""></picture>`)), context);
+    expect(records[0].references).toHaveLength(1);
+    expect(records[0].text_quality).toBe("partial");
+    expect(records[1].references).toEqual([]);
+    expect(records[1].text_quality).toBe("complete");
+  });
+  it("keeps responsive image-only content as a summary with unread references", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("only-image", "作业", '<picture><source srcset="/deadline.png 1x"><img alt=""></picture>')), context);
+    expect(record.text_quality).toBe("summary");
+    expect(record.references[0]).toMatchObject({ kind: "image", content_read: false, read_status: "unread" });
+  });
   it("ignores known empty-alt UI icons and navigation", () => {
     const [record] = extractCourseSourcesFromHtml(page(contentItem("icon", "作业", `<p>${body}<img src="/images/ci/icons/cmlink_generic.gif" alt=""><img src="/images/ci/icons/cmlink_generic.gif" alt="文件"><img src="/images/ci/ng/cal_year_event.gif" alt="单击获得更多选项"></p><nav><a href="/menu">菜单</a></nav><a href="#top">回顶部</a>`)), context);
     expect(record.text_quality).toBe("complete");

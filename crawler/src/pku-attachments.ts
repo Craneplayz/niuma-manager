@@ -110,7 +110,8 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
           const pdf = await loading.promise;
           if (pdf.numPages > ${MAX_PAGES}) throw new Error("too_large");
           const pages = [];
-          let partial = false;
+          // Embedded files are outside page text; discard their bytes without recursive extraction.
+          let partial = Object.keys(await pdf.getAttachments() || {}).length > 0;
           for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();

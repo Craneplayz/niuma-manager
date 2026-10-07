@@ -159,6 +159,24 @@ describe("assignment reference coverage", () => {
 });
 
 describe("review regression: description containers and text budgets", () => {
+  it.each(["form", 'div class="submission"', 'div class="attempt"', 'div class="grade"', 'nav', 'div role="navigation"'])("excludes matching private/UI containers under %s from the exported evidence", async (container) => {
+    const tag = container.split(" ")[0];
+    const html = `<h1>Upload Assignment: HW</h1><div data-assignment-description>Teacher instructions.</div>
+      <${container} data-assignment-description>SYNTHETIC_PRIVATE_ROOT<a href="/private-root.txt">SYNTHETIC_PRIVATE_FILE</a>
+        <div data-assignment-description>SYNTHETIC_PRIVATE_DRAFT<a href="/private-draft.txt">SYNTHETIC_PRIVATE_DRAFT_FILE</a></div>
+        <div class="assignmentInfo"><div class="vtbegenerated">SYNTHETIC_PRIVATE_ATTEMPT<img src="/private.png"></div></div>
+      </${tag}><div id="assignmentInfo"><div class="vtbegenerated">Teacher deadline: 2026-12-31.</div></div>`;
+    const detail = parseAssignmentDetailHtml(html, detailUrl);
+    expect(detail.description).toBe("Teacher instructions.\n\nTeacher deadline: 2026-12-31.");
+    expect(detail.references).toBeUndefined();
+    const read = vi.fn();
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source(""), detailUrl, detail)], read);
+    const exported = JSON.stringify(toRecognitionRequests([result]));
+    expect(exported).not.toContain("SYNTHETIC_PRIVATE");
+    expect(exported).not.toContain("/private");
+    expect(read).not.toHaveBeenCalled();
+    expect(result.text_quality).toBe("complete");
+  });
   it("continues past empty placeholders to collect the real deadline and attachment", () => {
     const html = '<h1>Upload Assignment: HW</h1><div data-assignment-description></div><div id="assignmentInfo"><div class="vtbegenerated">Submit report by 2026-10-12.<a href="/bbcswebdav/pid-1-dt-content-rid-2/HW.txt">HW.txt</a></div></div>';
     const detail = parseAssignmentDetailHtml(html, detailUrl);
