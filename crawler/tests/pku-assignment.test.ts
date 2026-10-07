@@ -159,7 +159,7 @@ describe("assignment reference coverage", () => {
 });
 
 describe("review regression: description containers and text budgets", () => {
-  it.each(["form", 'div class="submission"', 'div class="attempt"', 'div class="grade"', 'nav', 'div role="navigation"'])("excludes matching private/UI containers under %s from the exported evidence", async (container) => {
+  it.each(["form", 'form id="uploadAssignmentForm" class="submission"', 'div class="submission"', 'div class="attempt"', 'div class="grade"', 'nav', 'div role="navigation"'])("excludes matching private/UI containers under %s from the exported evidence", async (container) => {
     const tag = container.split(" ")[0];
     const html = `<h1>Upload Assignment: HW</h1><div data-assignment-description>Teacher instructions.</div>
       <${container} data-assignment-description>SYNTHETIC_PRIVATE_ROOT<a href="/private-root.txt">SYNTHETIC_PRIVATE_FILE</a>
@@ -222,5 +222,54 @@ describe("review regression: description containers and text budgets", () => {
     expect(overflow.references[0].reason).toBe("too_large");
     expect(overflow.text_quality).toBe("summary");
     expect(() => toRecognitionRequests([overflow])).not.toThrow();
+  });
+});
+
+describe("review regression: private metadata and assignment wrapper forms", () => {
+  it.each(['div class="submission"', 'div class="attempt"', 'div class="grade"', "form", "nav"])("ignores private headings and dates under %s before selecting teacher metadata", async (container) => {
+    const tag = container.split(" ")[0];
+    const html = `<${container}><h1>Review Submission History: SYNTHETIC_PRIVATE_TITLE</h1><div class="assignmentInfo"><div><span>Due Date</span><span>2026-11-01 SYNTHETIC_PRIVATE_GRADE_93</span></div></div></${tag}>
+      <h1>Upload Assignment: HW</h1><section id="assignmentInfo"><div class="metaField"><span>Due Date</span><span>2026-12-31</span><div class="grade">SYNTHETIC_PRIVATE_GRADE_87</div></div><div class="vtbegenerated">Teacher instructions.</div></section>`;
+    const detail = parseAssignmentDetailHtml(html, detailUrl);
+    expect(detail).toMatchObject({ state: "active", title: "HW", description: "Teacher instructions.", due_raw: "2026-12-31" });
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source(), detailUrl, detail)], vi.fn());
+    const exported = JSON.stringify(toRecognitionRequests([result]));
+    expect(exported).not.toContain("SYNTHETIC_PRIVATE");
+    expect(exported).not.toContain("2026-11-01");
+    expect(exported).toContain("2026-12-31");
+  });
+  it("does not obtain dates from outside teacher information or climb beyond its boundary", () => {
+    const detail = parseAssignmentDetailHtml('<h1>Upload Assignment: HW</h1><div><span>Due Date</span><span>2030-01-01</span></div><section id="assignmentInfo"><div class="metaField"><span>Due Date</span></div><div class="vtbegenerated">Read chapter 12.</div><div>Points Possible: 100</div></section>', detailUrl);
+    expect(detail.due_raw).toBeNull();
+    expect(detail.description).toBe("Read chapter 12.");
+  });
+  it("reads teacher text, date and attachments inside the known outer form while excluding controls/private regions", async () => {
+    const html = '<form id="uploadAssignmentForm"><h1>Upload Assignment: HW</h1><section id="assignmentInfo"><div class="metaField"><span>Due Date</span><span>2026-12-31</span></div><div class="vtbegenerated">Teacher instructions.<a href="/bbcswebdav/pid-1-dt-content-rid-2/HW.txt">HW.txt</a></div></section><textarea>SYNTHETIC_PRIVATE_CONTROL</textarea><div class="submission"><div data-assignment-description>SYNTHETIC_PRIVATE_DRAFT<a href="/private.pdf">Private.pdf</a></div></div><div class="attempt"><div class="assignmentInfo"><div class="vtbegenerated">SYNTHETIC_PRIVATE_ATTEMPT</div></div></div></form>';
+    const detail = parseAssignmentDetailHtml(html, detailUrl);
+    expect(detail.description).toContain("Teacher instructions.");
+    expect(detail.due_raw).toBe("2026-12-31");
+    expect(detail.references).toHaveLength(1);
+    const read = vi.fn().mockResolvedValue({ bytes: new TextEncoder().encode("Submit the teacher report."), contentType: "text/plain" });
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source("See teacher instructions."), detailUrl, detail)], read);
+    const [record] = toRecognitionRequests([result])[0].records;
+    expect(record.text_quality).toBe("complete");
+    expect(record.text).toContain("2026-12-31");
+    expect(record.text).toContain("Submit the teacher report.");
+    expect(JSON.stringify(record)).not.toContain("SYNTHETIC_PRIVATE");
+    expect(JSON.stringify(record)).not.toContain("Private.pdf");
+    expect(read).toHaveBeenCalledOnce();
+  });
+  it.each([
+    '<form id="unknownForm"><div id="assignmentInfo"><div class="vtbegenerated">Unrecognized form text.</div></div></form>',
+    '<div class="unknownDescription">Unrecognized description.</div>',
+  ])("keeps missing/unread teacher details partial despite a nonempty listing: %s", async (description) => {
+    const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1>${description}`, detailUrl);
+    const original = source("See teacher instructions.");
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(original, detailUrl, detail)], vi.fn());
+    expect(result.body).toBe(original.body);
+    expect(result.text_quality).toBe("partial");
+    expect(result.references[0]).toMatchObject({ content_read: false, read_status: "failed", reason: "detail_unrecognized" });
+    expect(result.warnings.join(" ")).toContain("manual review");
+    expect(toRecognitionRequests([result])[0].records[0].text_quality).toBe("partial");
   });
 });

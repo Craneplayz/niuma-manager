@@ -143,7 +143,15 @@ export function makeSourceReference(label: string, url: string, kind: SourceRefe
   return { label, url, kind, content_read: false, read_status: "unread", reason: kind === "image" ? "image_not_read" : "not_read" };
 }
 
-const EXCLUDED_CONTENT = "script, style, form, input, textarea, button, nav, [role=navigation], .announcementInfo, .submission, .attempt, .grade";
+const EXCLUDED_CONTENT = "script, style, input, textarea, button, nav, [role=navigation], .announcementInfo, .submission, .attempt, .grade";
+
+/** Only the known assignment page wrapper may contain teacher information and private controls. */
+export function cloneTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, allowAssignmentForm = false): Cheerio<AnyNode> {
+  const excluded = `${EXCLUDED_CONTENT}, ${allowAssignmentForm ? "form:not(#uploadAssignmentForm)" : "form"}`;
+  const safe = content.filter((_i, node) => !$(node).is(excluded) && !$(node).parents(excluded).length).clone();
+  safe.find(excluded).remove();
+  return safe;
+}
 
 /** Scan URL tokens separately from descriptors; commas can be part of a URL/data URI. */
 function imageCandidates(srcset: string): string[] {
@@ -172,8 +180,7 @@ function imageCandidates(srcset: string): string[] {
 
 /** Work only inside the teacher-authored container; never inspect submission widgets. */
 export function parseTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, baseUrl: string): { text: string; references: SourceReference[] } {
-  const safe = content.filter((_i, node) => !$(node).is(EXCLUDED_CONTENT) && !$(node).parents(EXCLUDED_CONTENT).length).clone();
-  safe.find(EXCLUDED_CONTENT).remove();
+  const safe = cloneTeacherContent($, content);
   const references: SourceReference[] = [];
   const add = (label: string, value: string, kind: SourceReference["kind"]) => {
     const url = cleanSourceUrl(value, baseUrl);

@@ -166,7 +166,7 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
             const reason = error instanceof ReadFailure ? error.message : "parse_failed";
             ref = { ...ref, content_read: false, read_status: ["unsupported_format", "untrusted_attachment_url"].includes(reason) ? "unsupported" : "failed", reason };
           }
-          if (format) cache.set(cacheKey, ref);
+          if (format) cache.set(cacheKey, { ...ref });
         }
         if (ref.text) {
           const addition = `${body ? "\n\n" : ""}附件正文：${ref.label || "未命名附件"}\n${ref.text}`;

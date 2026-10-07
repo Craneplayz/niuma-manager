@@ -94,6 +94,28 @@ describe("teacher attachment acquisition", () => {
     await enrichSourceAttachments([source(), source()], read);
     expect(read).toHaveBeenCalledOnce();
   });
+  it.each(["txt", "pdf"] as const)("preserves cached %s text after both fresh and cached per-record overflows", async (format) => {
+    const text = "SYNTHETIC_REQUIRED_DEADLINE_2026_12_31 ".repeat(6);
+    const file = format === "txt" ? textFile(text) : pdf(text, false, "image");
+    const href = url.replace("txt", format);
+    const sources = [99_950, 20, 99_950, 20].map((size, index) => ({ ...source(`HW${index}.${format}`, href, "a".repeat(size)), input_id: `synthetic:cache-overflow:${index}` }));
+    const read = vi.fn().mockResolvedValue(file);
+    const results = await enrichSourceAttachments(sources, read);
+    for (const index of [0, 2]) {
+      expect(results[index].references[0]).toMatchObject({ read_status: "failed", content_read: false, reason: "too_large" });
+      expect(results[index].references[0].text).toBeUndefined();
+      expect(results[index].text_quality).toBe("partial");
+    }
+    for (const index of [1, 3]) {
+      expect(results[index].references[0]).toMatchObject({ label: `HW${index}.${format}`, read_status: format === "txt" ? "complete" : "partial", reason: format === "txt" ? null : "partial_pdf" });
+      expect(results[index].references[0].text).toContain("SYNTHETIC_REQUIRED_DEADLINE");
+      expect(results[index].body).toContain("SYNTHETIC_REQUIRED_DEADLINE");
+    }
+    const records = toRecognitionRequests(results)[0].records;
+    expect(records[1].text_quality).toBe(format === "txt" ? "complete" : "partial");
+    expect(records[3].text).toContain("SYNTHETIC_REQUIRED_DEADLINE");
+    expect(read).toHaveBeenCalledOnce();
+  });
   it("keeps ZIP and external links unread without making a request", async () => {
     const read = vi.fn();
     const results = await enrichSourceAttachments([source("HW1.zip", url.replace("txt", "zip")), source("HW1.txt", "https://evil.test/HW1.txt")], read);

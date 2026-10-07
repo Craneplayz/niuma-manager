@@ -1,7 +1,7 @@
 import { load, type Cheerio, type CheerioAPI } from "cheerio";
 import type { AnyNode } from "domhandler";
 import type { Page } from "playwright";
-import { parseTeacherContent, sourceTextFits, makeSourceReference, UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
+import { cloneTeacherContent, parseTeacherContent, sourceTextFits, makeSourceReference, UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const ASSIGNMENT_PATH = /^\/webapps\/assignment\//i;
@@ -9,6 +9,7 @@ const ACTIVE_HEADING = /^(?:上载作业|Upload Assignment)\s*[:：]?\s*/i;
 const SUBMITTED_HEADING = /^(?:复查提交历史记录|Review Submission History)\s*[:：]?\s*/i;
 const DUE_LABELS = ["到期日期", "Due Date"];
 const GENERIC_UNREAD_WARNING = UNREAD_REFERENCE_WARNING;
+const ASSIGNMENT_INFO = "#assignmentInfo, .assignmentInfo, [data-role=assignment-info]";
 
 export type AssignmentPageState = "active" | "submitted" | "unknown";
 
@@ -38,9 +39,9 @@ function headingTexts($: CheerioAPI): string[] {
     .filter(Boolean);
 }
 
-function findExactText($: CheerioAPI, values: string[]): Cheerio<AnyNode> | null {
+function findExactText($: CheerioAPI, values: string[], scope: Cheerio<AnyNode>): Cheerio<AnyNode> | null {
   const lowered = new Set(values.map((value) => value.toLocaleLowerCase("en-US")));
-  const node = $("body *").toArray().find((candidate) => lowered.has(ownText($, candidate).toLocaleLowerCase("en-US")));
+  const node = scope.find("*").toArray().find((candidate) => lowered.has(ownText($, candidate).toLocaleLowerCase("en-US")));
   return node ? $(node) : null;
 }
 
@@ -48,6 +49,8 @@ function dueValueFromLabel($: CheerioAPI, label: Cheerio<AnyNode>): string | nul
   const labelText = normalize(label.text());
   let candidate = label;
   for (let depth = 0; depth < 5; depth += 1) {
+    // Do not borrow unrelated dates/points from the whole teacher region or page.
+    if (candidate.is(ASSIGNMENT_INFO)) break;
     const readable = candidate.clone();
     readable.find("br").replaceWith(" ");
     const text = normalize(readable.text());
@@ -80,7 +83,9 @@ function assignmentDescription($: CheerioAPI, baseUrl: string) {
 
 /** Parse only stable, teacher-authored assignment information. Submission history stays private. */
 export function parseAssignmentDetailHtml(html: string, baseUrl = PKU_ORIGIN): AssignmentDetail {
-  const $ = load(html);
+  const raw = load(html);
+  const $ = load(cloneTeacherContent(raw, raw("body"), true).html() ?? "");
+  $("form#uploadAssignmentForm").each((_i, node) => { $(node).replaceWith($(node).contents()); });
   const headings = headingTexts($);
   const submittedHeading = headings.find((heading) => SUBMITTED_HEADING.test(heading));
   if (submittedHeading) {
@@ -93,9 +98,10 @@ export function parseAssignmentDetailHtml(html: string, baseUrl = PKU_ORIGIN): A
     };
   }
 
-  const dueLabel = findExactText($, DUE_LABELS);
+  const information = $(ASSIGNMENT_INFO);
+  const dueLabel = findExactText($, DUE_LABELS, information);
   const activeHeading = headings.find((heading) => ACTIVE_HEADING.test(heading));
-  const assignmentInfo = findExactText($, ["作业信息", "Assignment Information"]);
+  const assignmentInfo = findExactText($, ["作业信息", "Assignment Information"], information);
   if (!activeHeading && !assignmentInfo && !dueLabel) {
     return { state: "unknown", title: null, description: "", due_raw: null };
   }
@@ -160,8 +166,9 @@ function retainListingOnOverflow(source: CourseSourceRecord, detailUrl: string, 
 
 /** Merge stable assignment facts without changing the listing-derived identity. */
 export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: string, detail: AssignmentDetail): CourseSourceRecord {
-  const references = detail.state === "unknown"
-    ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, read_status: "failed" as const, reason: detail.history_only ? "submission_history_only" : "detail_unrecognized" } : { ...reference })
+  const descriptionMissing = detail.state === "active" && !detail.description && !detail.references?.length;
+  const references = detail.state === "unknown" || descriptionMissing
+    ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, content_read: false, read_status: "failed" as const, reason: detail.history_only ? "submission_history_only" : "detail_unrecognized" } : { ...reference })
     : markDetailReferenceRead(source, detailUrl);
   for (const reference of detail.references ?? []) {
     if (!references.some((item) => item.url === reference.url)) references.push({ ...reference });
@@ -202,10 +209,10 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
     ...source,
     title: detail.title ?? source.title,
     body,
-    text_quality: unread || (!detail.description && !source.body) ? (body ? "partial" : "summary") : body ? "complete" : "summary",
+    text_quality: unread || descriptionMissing ? (body ? "partial" : "summary") : body ? "complete" : "summary",
     references,
     assignment: { state: "active", due_raw: detail.due_raw },
-    warnings: warningsAfterRead(source, references, []),
+    warnings: warningsAfterRead(source, references, descriptionMissing ? ["assignment teacher description was not found; listing text retained for manual review"] : []),
   };
 }
 
