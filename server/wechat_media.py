@@ -41,6 +41,7 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS wechat_job_origins(job_id TEXT PRIMARY KEY, origin_job_id TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS wechat_pending_deletes(ref TEXT PRIMARY KEY, user_id TEXT NOT NULL, path TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS wechat_revoked_assets(ref TEXT PRIMARY KEY, user_id TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS wechat_record_runs(job_id TEXT NOT NULL, retry_id TEXT NOT NULL, input_id TEXT NOT NULL, result TEXT, PRIMARY KEY(job_id,retry_id,input_id));
     ''')
     if 'errors' not in {row[1] for row in db.execute('PRAGMA table_info(wechat_retries)')}:
         db.execute('ALTER TABLE wechat_retries ADD COLUMN errors TEXT')
@@ -77,7 +78,7 @@ def remove_source(db, uid):
     db.execute('INSERT OR IGNORE INTO wechat_revoked_assets SELECT ref,user_id FROM wechat_assets WHERE user_id=?',(uid,))
     for table in ('recognition_candidates','recognition_batches'):
         db.execute(f'DELETE FROM {table} WHERE user_id=? AND request_id IN(SELECT request_id FROM wechat_jobs WHERE user_id=?)',(uid,uid))
-    for table in ('wechat_retries','wechat_job_assets','wechat_job_origins'):
+    for table in ('wechat_retries','wechat_job_assets','wechat_job_origins','wechat_record_runs'):
         db.execute(f'DELETE FROM {table} WHERE job_id IN(SELECT id FROM wechat_jobs WHERE user_id=?)',(uid,))
     db.execute('DELETE FROM wechat_asset_lifetime WHERE ref IN(SELECT ref FROM wechat_assets WHERE user_id=?)',(uid,))
     for table in ('wechat_content_cache','wechat_assets','wechat_credentials','wechat_jobs'):
@@ -288,6 +289,12 @@ def _job(row, db=None):
         targets = set(json.loads(attempt['targets'])) if attempt else retryable_records(previous)
         finished = total - len(targets)
         failed = sum(r['status'] in ('failed','partial_success') and r['input_id'] not in targets for r in previous['record_results'])
+    if db and row['status'] in ('queued','running'):
+        completed = [json.loads(item['result']) for item in db.execute(
+            'SELECT result FROM wechat_record_runs WHERE job_id=? AND retry_id=? AND result IS NOT NULL',
+            (row['id'],row['retry_id'] or ''))]
+        finished += len(completed)
+        failed += sum(item['status']=='failed' or item['status']=='partial_success' for part in completed for item in part['record_results'])
     return dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status=row['status'], progress=dict(total_records=total, finished_records=finished, failed_records=failed), result=result)
 
 
@@ -355,13 +362,53 @@ def account_asset_loader(db_path, uid):
     return load
 
 
-def recognize_v03(request, assets):
+def _interrupted_record(request, record):
+    from contracts.check_v03_examples import coverage
+    summaries, errors = [], []
+    for asset in record['attachments']:
+        errors.extend(dict(input_id=record['input_id'],asset_id=asset['asset_id'],block_id=None,**error) for error in asset['errors'])
+        if asset.get('content_mode') == 'file':
+            summaries.append(dict(asset_id=asset['asset_id'],content_mode='file',status='failed' if asset['status']=='available' else asset['status'],
+                reader_version='server-interrupted-v1',coverage_basis='unverified',
+                coverage=dict(complete=False,unread_locations=['处理进程中断，读取结果未保存'],truncated=False),
+                quality='normal',quality_notes=[]))
+            if not any(error['asset_id']==asset['asset_id'] and error['stage'] in ('collect','upload','read') for error in errors):
+                errors.append(dict(input_id=record['input_id'],asset_id=asset['asset_id'],block_id=None,stage='read',
+                    code='file_read_failed',message='处理进程中断，读取结果未保存。',retryable=asset['status']=='available'))
+        else:
+            summaries.append(dict(asset_id=asset['asset_id'],status=asset['status'],block_count=len(asset['blocks']),
+                uncertain_block_ids=[block['block_id'] for block in asset['blocks'] if block['quality']=='uncertain']))
+    cov = coverage(record,summaries)
+    cov['complete'] = False
+    outcome = dict(input_id=record['input_id'],status='failed',task_ids=[],warnings=['处理进程中断，请重试此记录。'],coverage=cov,attachments=summaries)
+    error = dict(input_id=record['input_id'],asset_id=None,block_id=None,stage='recognize',code='agent_unavailable',
+        message='处理进程中断，未自动重复模型请求；可定向重试。',retryable=True)
+    result = dict(contract_version='0.3.1',request_id=request['request_id'],status='failed',record_results=[outcome],tasks=[],errors=errors+[error])
+    check_pair(dict(request,records=[record]),result)
+    return result
+
+
+def _combine_records(request, parts):
+    outcomes = [item for part in parts for item in part['record_results']]
+    tasks = [item for part in parts for item in part['tasks']]
+    statuses = {item['status'] for item in outcomes}
+    status = ('failed' if statuses=={'failed'} else 'partial_success') if 'failed' in statuses else (
+        'partial_success' if 'partial_success' in statuses else 'success' if tasks else 'no_tasks')
+    result = dict(contract_version='0.3.1',request_id=request['request_id'],status=status,record_results=outcomes,
+        tasks=tasks,errors=[item for part in parts for item in part['errors']])
+    check_pair(request,result)
+    return result
+
+
+def recognize_v03(request, assets, *, checkpoint=None, completed=None):
     """Use the shared image adapter with a trusted, account-bound loader."""
     from recognition import ROOT, _ACTIVE
     from ddl_text.codex_client import live_options
     from ddl_text.chat_client import ChatClient
     from ddl_text.config import Settings
-    from ddl_text.media_pipeline import process_media_request
+    from ddl_text.media_pipeline import process_media_request, MediaLimits
+    if checkpoint is not None and completed and all(completed.get(record['input_id']) is not None for record in request['records']):
+        return _combine_records(request,[completed[record['input_id']] for record in request['records']])
     with _ACTIVE:
         try:
             options = live_options(ROOT / '.env')
@@ -371,7 +418,34 @@ def recognize_v03(request, assets):
         if options['provider'] != 'qiniu' or not options['key'].strip():
             raise MediaError(503,'agent_unavailable','图片识别需配置支持图片的模型服务')
         settings = Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=45,max_retries=0)
-        return process_media_request(request,assets,ChatClient(options['key']),settings)
+        if checkpoint is None:
+            return process_media_request(request,assets,ChatClient(options['key']),settings)
+        check_request(request)
+        potential_errors = 3 * len(request['records']) + sum(
+            len(asset['errors']) + (2 if asset.get('content_mode')=='file' and asset['status']=='available' else 0)
+            for record in request['records'] for asset in record['attachments'])
+        if potential_errors > 200:
+            raise MediaError(413,'limit_exceeded','本次处理记录过多，请拆分导入')
+        saved, parts = completed or {}, []
+        client = ChatClient(options['key'])
+        expires = time.monotonic() + 180
+        for record in request['records']:
+            single = dict(request,records=[record])
+            if record['input_id'] in saved:
+                part = saved[record['input_id']]
+                if part is None:
+                    part = _interrupted_record(request,record)
+                    checkpoint(record,part)
+            else:
+                checkpoint(record,None)
+                remaining = max(0.000001,expires-time.monotonic())
+                part = process_media_request(single,assets,client,settings,
+                    MediaLimits(record_seconds=min(70,remaining),batch_seconds=remaining))
+                check_pair(single,part)
+                checkpoint(record,part)
+            check_pair(single,part)
+            parts.append(part)
+        return _combine_records(request,parts)
 
 
 def _failed_result(request, code='agent_unavailable', message='附件识别暂不可用；没有将其当作无任务'):
@@ -456,14 +530,32 @@ def _process(db_path, job_id):
                     (row['user_id'],content_key,row['user_id'])).fetchone() if content_key and not previous else None
                 if cached:
                     # A cached semantic result does not grant access to revoked/corrupt files.
+                    expires = time.monotonic() + 180
                     for record in request['records']:
                         for asset in record['attachments']:
                             if asset.get('content_mode')=='file' and asset['status']=='available':
-                                assets(asset['file_ref'],max_bytes=asset['size_bytes'],timeout_seconds=10)
+                                remaining = expires-time.monotonic()
+                                if remaining<=0:
+                                    raise MediaError(503,'file_read_failed','缓存原件核验超时，请拆分导入',True)
+                                assets(asset['file_ref'],max_bytes=asset['size_bytes'],timeout_seconds=min(10,remaining))
                     result = dict(json.loads(cached['result']),request_id=request['request_id'])
                     origin_job_id = _origin_job(db,cached['id'])
                 else:
-                    result = recognize_v03(extraction, assets)
+                    def checkpoint(record, part):
+                        db.execute('BEGIN IMMEDIATE')
+                        current = db.execute('SELECT status,retry_id FROM wechat_jobs WHERE id=? AND user_id=?',(job_id,row['user_id'])).fetchone()
+                        if not current or current['status']!='running' or current['retry_id']!=row['retry_id']:
+                            db.rollback()
+                            raise FileNotFoundError('job_removed')
+                        db.execute('INSERT INTO wechat_record_runs VALUES(?,?,?,?) ON CONFLICT(job_id,retry_id,input_id) DO UPDATE SET result=excluded.result',
+                            (job_id,row['retry_id'] or '',record['input_id'],json.dumps(part,ensure_ascii=False) if part is not None else None))
+                        db.commit()
+                    completed = {item['input_id']:json.loads(item['result']) if item['result'] is not None else None
+                        for item in db.execute('SELECT input_id,result FROM wechat_record_runs WHERE job_id=? AND retry_id=?',(job_id,row['retry_id'] or ''))}
+                    # Recovered results may belong to a previous deployment/configuration.
+                    if completed:
+                        content_key = None
+                    result = recognize_v03(extraction, assets,checkpoint=checkpoint,completed=completed)
                 check_pair(extraction, result)
                 attempt_errors = result['errors']
                 if previous and not result['record_results']:

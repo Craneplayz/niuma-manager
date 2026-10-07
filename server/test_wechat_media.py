@@ -4,6 +4,8 @@ import json
 import tempfile
 import time
 import threading
+import subprocess
+import sys
 import unittest
 from http.cookiejar import CookieJar
 from pathlib import Path
@@ -237,7 +239,7 @@ class WechatMediaTests(unittest.TestCase):
         batch = self.call(client, '/recognition/batches')[1][0]
         item = batch['items'][0]
         self.assertEqual(self.call(client, '/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='ignore',version=item['version']))[0],200)
-        with patch.object(wechat_media, 'recognize_v03', side_effect=lambda body,assets:wechat_media._failed_result(body)) as model:
+        with patch.object(wechat_media, 'recognize_v03', side_effect=lambda body,assets,**kwargs:wechat_media._failed_result(body)) as model:
             for retry_id in ['retry-A','retry-B']:
                 self.assertEqual(self.call(client, '/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id=retry_id))[0],202)
                 after = finished(ack['job_id'])
@@ -318,7 +320,7 @@ class WechatMediaTests(unittest.TestCase):
         request['request_id'] = 'content-cache-first'
         request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
         result = json.loads((root/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
-        def model(body,loader):
+        def model(body,loader,**kwargs):
             return dict(result,request_id=body['request_id'])
         def finish(job_id):
             for _ in range(100):
@@ -387,7 +389,7 @@ class WechatMediaTests(unittest.TestCase):
         result = json.loads((root/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
         result['request_id']=request['request_id']
         started, release, finished = threading.Event(),threading.Event(),threading.Event()
-        def model(body,loader):
+        def model(body,loader,**kwargs):
             started.set();release.wait(5)
             return result
         original_process=wechat_media._process
@@ -454,6 +456,119 @@ class WechatMediaTests(unittest.TestCase):
         request=json.loads((root/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
         request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
         self.assertEqual(self.call(client,'/sources/wechat/imports','POST',request)[0],404)
+
+    def test_record_progress_is_persisted_before_the_next_record_finishes(self):
+        client=self.client('wechat-record-progress@test.local')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        record=copy.deepcopy(request['records'][0])
+        record.update(text='课程介绍材料。',text_quality='complete',attachments=[],context=[])
+        request.update(request_id='record-progress',records=[dict(record,input_id='progress-1'),dict(record,input_id='progress-2')])
+        started,release=threading.Event(),threading.Event()
+        calls=[]
+        def adapter(body,loader,model,settings,limits):
+            rid=body['records'][0]['input_id'];calls.append(rid)
+            self.assertLessEqual(limits.batch_seconds,180)
+            self.assertLessEqual(limits.record_seconds,70)
+            if rid=='progress-2':
+                started.set();release.wait(5)
+            return dict(contract_version='0.3.1',request_id=body['request_id'],status='no_tasks',tasks=[],errors=[],
+                record_results=[dict(input_id=rid,status='no_tasks',task_ids=[],warnings=[],coverage=dict(complete=True,uncertain=False),attachments=[])])
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.media_pipeline.process_media_request',side_effect=adapter):
+            _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+            try:
+                self.assertTrue(started.wait(3))
+                _,running=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                self.assertEqual(running['status'],'running')
+                self.assertEqual(running['progress'],dict(total_records=2,finished_records=1,failed_records=0))
+                with app.connection() as db:
+                    saved=db.execute('SELECT result FROM wechat_record_runs WHERE job_id=? AND input_id=?',(ack['job_id'],'progress-1')).fetchone()
+                    self.assertEqual(json.loads(saved['result'])['status'],'no_tasks')
+                self.assertIsNone(running['result'])
+            finally:
+                release.set()
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+        self.assertEqual(job['status'],'succeeded')
+        self.assertEqual(job['progress']['finished_records'],2)
+        self.assertEqual(calls,['progress-1','progress-2'])
+        check_pair(request,job['result'])
+
+    def test_restart_preserves_completed_records_and_does_not_repeat_an_inflight_call(self):
+        client=self.client('wechat-checkpoint-recovery@test.local')
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        record=copy.deepcopy(request['records'][0]);record.update(text='课程说明。',text_quality='complete',attachments=[],context=[])
+        request.update(request_id='checkpoint-recovery',records=[dict(record,input_id='saved-1'),dict(record,input_id='inflight-2'),dict(record,input_id='unstarted-3')])
+        def result(body):
+            rid=body['records'][0]['input_id']
+            return dict(contract_version='0.3.1',request_id=body['request_id'],status='no_tasks',tasks=[],errors=[],
+                record_results=[dict(input_id=rid,status='no_tasks',task_ids=[],warnings=[],coverage=dict(complete=True,uncertain=False),attachments=[])])
+        with patch.object(wechat_media,'_process'):
+            _,ack=self.call(client,'/sources/wechat/imports','POST',request)
+        saved=result(dict(request,records=[request['records'][0]]))
+        child = '''
+import json, os, sys
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0,str(Path.cwd()/'server'))
+import wechat_media
+def adapter(body,*args):
+    rid=body['records'][0]['input_id']
+    if rid=='inflight-2': os._exit(23)
+    return dict(contract_version='0.3.1',request_id=body['request_id'],status='no_tasks',tasks=[],errors=[],
+        record_results=[dict(input_id=rid,status='no_tasks',task_ids=[],warnings=[],coverage=dict(complete=True,uncertain=False),attachments=[])])
+options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.media_pipeline.process_media_request',side_effect=adapter):
+    wechat_media._process(Path(sys.argv[1]),sys.argv[2])
+'''
+        crashed=subprocess.run([sys.executable,'-c',child,str(app.DB),ack['job_id']],cwd=Path(__file__).parent.parent,
+            timeout=15,capture_output=True)
+        self.assertEqual(crashed.returncode,23,crashed.stderr.decode('utf-8',errors='replace'))
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT status FROM wechat_jobs WHERE id=?',(ack['job_id'],)).fetchone()['status'],'running')
+            markers={row['input_id']:row['result'] for row in db.execute('SELECT input_id,result FROM wechat_record_runs WHERE job_id=?',(ack['job_id'],))}
+            self.assertEqual(json.loads(markers['saved-1']),saved)
+            self.assertIsNone(markers['inflight-2'])
+            wechat_media.initialize(db)
+        options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
+        with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.media_pipeline.process_media_request',side_effect=lambda body,*args:result(body)) as adapter:
+            wechat_media._process(app.DB,ack['job_id'])
+            self.assertEqual([call.args[0]['records'][0]['input_id'] for call in adapter.call_args_list],['unstarted-3'])
+            wechat_media._process(app.DB,ack['job_id'])
+            self.assertEqual(adapter.call_count,1)
+            _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+            self.assertEqual(job['status'],'partial_failed')
+            self.assertEqual(job['progress'],dict(total_records=3,finished_records=3,failed_records=1))
+            self.assertEqual(job['result']['record_results'][0],saved['record_results'][0])
+            self.assertEqual(wechat_media.retryable_records(job['result']),{'inflight-2'})
+            check_pair(request,job['result'])
+            status,_=self.call(client,'/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id='retry-interrupted-only'))
+            self.assertEqual(status,202)
+            for _ in range(200):
+                _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued','running'):break
+                time.sleep(.02)
+            self.assertEqual(job['status'],'succeeded')
+            self.assertEqual([call.args[0]['records'][0]['input_id'] for call in adapter.call_args_list],['unstarted-3','inflight-2'])
+
+    def test_interrupted_file_results_pass_the_formal_contract(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        interrupted=wechat_media._interrupted_record(request,request['records'][0])
+        check_pair(request,interrupted)
+        self.assertEqual(interrupted['status'],'failed')
+        self.assertEqual(interrupted['record_results'][0]['attachments'][0]['coverage_basis'],'unverified')
+        self.assertEqual(wechat_media.retryable_records(interrupted),{request['records'][0]['input_id']})
+
+    def test_all_saved_record_results_recover_without_model_configuration(self):
+        request=json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        result=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+        completed={request['records'][0]['input_id']:result}
+        with patch('ddl_text.codex_client.live_options',side_effect=ValueError('not configured')) as options:
+            recovered=wechat_media.recognize_v03(request,lambda *args,**kwargs:None,checkpoint=lambda *args:None,completed=completed)
+        self.assertEqual(recovered,result)
+        options.assert_not_called()
 
     def test_revoked_file_cannot_be_retried_after_a_recoverable_model_failure(self):
         try:
