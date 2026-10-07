@@ -273,3 +273,103 @@ describe("review regression: private metadata and assignment wrapper forms", () 
     expect(toRecognitionRequests([result])[0].records[0].text_quality).toBe("partial");
   });
 });
+
+describe("assignment collection invariants across supported layouts", () => {
+  it.each(["作业信息", "Assignment Information"])("recognizes the safe %s fallback without a separate page heading or date field", async (heading) => {
+    const detail = parseAssignmentDetailHtml(`<h2>${heading}</h2><div data-assignment-description>Submit the report before 2026-12-31.</div>`, detailUrl);
+    expect(detail).toMatchObject({ state: "active", title: null, description: "Submit the report before 2026-12-31." });
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source(), detailUrl, detail)], vi.fn());
+    expect(toRecognitionRequests([result])[0].records[0].text_quality).toBe("complete");
+    expect(result.body).toContain("2026-12-31");
+  });
+  it.each(["作业信息", "Assignment Information"])("does not use a private %s heading to recognize an otherwise unknown page", (heading) => {
+    expect(parseAssignmentDetailHtml(`<div class="grade"><h2>${heading}</h2></div><div data-assignment-description>Unsupported page text.</div>`, detailUrl).state).toBe("unknown");
+  });
+  const regions = ['id="assignmentInfo"', 'class="assignmentInfo"', 'data-role="assignment-info"'];
+  const dates = [
+    '<span>Due Date</span><span>2026-12-31</span><br><span>23:59</span>',
+    '<div class="metaField"><div class="label"><strong>Due Date</strong></div><div class="value"><strong>2026-12-31</strong><br><span>23:59</span></div></div>',
+    '<span>Due Date</span> 2026-12-31 23:59 ',
+  ];
+  const layouts = regions.flatMap((region) => dates.flatMap((date, index) => [false, true].flatMap((wrapped) => [false, true].map((fallbackHeading) => ({ region, date, index, wrapped, fallbackHeading })))));
+  it.each(layouts)("preserves dates, independent content and unread images in $region / date $index / wrapper $wrapped / fallback $fallbackHeading", async ({ region, date, wrapped, fallbackHeading }) => {
+    const heading = fallbackHeading ? '<h2>Assignment Information</h2>' : '<h1>上载作业：HW</h1>';
+    const teacher = `${heading}<section ${region}>${date}<div data-assignment-description>Prepare the report.<div class="vtbegenerated">Use teacher materials.<img src="/deadline-note.png"></div></div></section><div class="assignment-description">Bring a printed copy.</div>`;
+    const privateArea = '<div class="attempt"><h1>Review Submission History: SYNTHETIC_PRIVATE_TITLE</h1><div class="assignmentInfo"><span>Due Date</span><span>2030-01-01</span><div class="vtbegenerated">SYNTHETIC_PRIVATE_BODY</div></div></div><div id="assignmentSubmission"><h2>Review Submission History: SYNTHETIC_PRIVATE_ID_TITLE</h2><div class="assignmentInfo"><span>Due Date</span><span>2030-01-01</span><div class="vtbegenerated">SYNTHETIC_PRIVATE_ID_BODY</div></div></div>';
+    const html = wrapped ? `<form id="uploadAssignmentForm">${privateArea}${teacher}<textarea>SYNTHETIC_PRIVATE_DRAFT</textarea></form>` : `${privateArea}${teacher}`;
+    const detail = parseAssignmentDetailHtml(html, detailUrl);
+    expect(detail.state).toBe("active");
+    expect(detail.due_raw).toBe("2026-12-31 23:59");
+    expect(detail.due_unread).toBeUndefined();
+    expect(detail.description.match(/Use teacher materials\./g)).toHaveLength(1);
+    expect(detail.description).toContain("Bring a printed copy.");
+    expect(detail.references).toHaveLength(1);
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source("Listing instructions."), detailUrl, detail)], vi.fn());
+    const [record] = toRecognitionRequests([result])[0].records;
+    expect(record.text_quality).toBe("partial");
+    expect(record.text).toContain("Listing instructions.");
+    expect(record.text).toContain("2026-12-31 23:59");
+    expect(record.text.match(/Use teacher materials\./g)).toHaveLength(1);
+    expect(record.upstream_hints.references[0]).toMatchObject({ kind: "detail", content_read: true });
+    expect(record.upstream_hints.references[1]).toMatchObject({ kind: "image", content_read: false });
+    expect(JSON.stringify(record)).not.toContain("SYNTHETIC_PRIVATE");
+    expect(JSON.stringify(record)).not.toContain("2030-01-01");
+  });
+  it.each([
+    '<span>Due Date</span><span class="value"></span>',
+    '<span>Due Date</span><span class="value">待确定</span>',
+    '<div class="metaField"><span>Due Date</span></div><span>Points Possible: 100</span>',
+    '<div class="metaField"><span>Due Date</span></div><span>2030-01-01</span>',
+    '<div class="metaField"><span>Due Date</span></div>',
+  ])("keeps an unread due-date field partial without borrowing chapter numbers: %s", async (date) => {
+    const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><section id="assignmentInfo">${date}<div class="vtbegenerated">Read chapter 12.<a href="/bbcswebdav/pid-1-dt-content-rid-2/HW.txt">HW.txt</a></div></section>`, detailUrl);
+    expect(detail.due_raw).toBeNull();
+    expect(detail.due_unread).toBe(true);
+    const read = vi.fn().mockResolvedValue({ bytes: new TextEncoder().encode("Teacher attachment text."), contentType: "text/plain" });
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source(), detailUrl, detail)], read);
+    expect(result.body).toContain("Read chapter 12.");
+    expect(result.body).toContain("Teacher attachment text.");
+    expect(result.text_quality).toBe("partial");
+    expect(result.references[0]).toMatchObject({ content_read: false, read_status: "failed", reason: "detail_unrecognized" });
+    expect(result.references[1].content_read).toBe(true);
+    expect(result.warnings.join(" ")).toContain("manual review");
+    expect(toRecognitionRequests([result])[0].records[0].text_quality).toBe("partial");
+  });
+  it.each(["Not set", "未设置"])("treats an explicit %s as no deadline rather than unread metadata", (unset) => {
+    const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><section id="assignmentInfo"><span>Due Date</span><span>${unset}</span><div class="vtbegenerated">Read the teacher notes.</div></section>`, detailUrl);
+    expect(detail.due_raw).toBeNull();
+    expect(detail.due_unread).toBeUndefined();
+    expect(enrichAssignmentSource(source(), detailUrl, detail).text_quality).toBe("complete");
+  });
+  it.each([false, true])("retains multiple dates while flagging conflicts=%s", (conflict) => {
+    const second = conflict ? "2027-01-01" : "2026-12-31";
+    const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><section id="assignmentInfo"><div><span>Due Date</span><span>2026-12-31</span></div><div><span>Due Date</span><span>${second}</span></div><div class="vtbegenerated">Teacher instructions.</div></section>`, detailUrl);
+    expect(detail.due_raw).toBe(conflict ? "2026-12-31 / 2027-01-01" : "2026-12-31");
+    const result = enrichAssignmentSource(source(), detailUrl, detail);
+    expect(result.text_quality).toBe(conflict ? "partial" : "complete");
+    expect(result.body).toContain(second);
+  });
+  it("keeps nested long teacher text once and preserves independent equal fragments and references", () => {
+    const longText = "a".repeat(60_000);
+    const detail = parseAssignmentDetailHtml(`<h1>Upload Assignment: HW</h1><div id="assignmentInfo"><div class="vtbegenerated">${longText}<div data-assignment-description>Nested instruction.<img src="/nested.png"></div></div></div><div data-assignment-description><p>Independent introduction.</p><div class="assignmentInfo"><div class="vtbegenerated">Nested instruction.<a href="/independent.txt">Independent.txt</a></div></div></div>`, detailUrl);
+    expect(detail.description.length).toBeLessThan(61_000);
+    expect(detail.description.split(longText)).toHaveLength(2);
+    expect(detail.description.match(/Nested instruction\./g)).toHaveLength(2);
+    expect(detail.references?.map((ref) => ref.kind)).toEqual(["image", "attachment"]);
+    const result = enrichAssignmentSource(source(), detailUrl, detail);
+    expect(result.body).toContain(longText);
+    expect(result.references[0]).toMatchObject({ kind: "detail", content_read: true, reason: null });
+    expect(toRecognitionRequests([result])[0].records[0].text.length).toBeLessThan(61_000);
+  });
+  it("exports a direct date as complete and does not treat labels in teacher prose as metadata", async () => {
+    const detail = parseAssignmentDetailHtml('<h2>Assignment Information</h2><section id="assignmentInfo"><span>Due Date</span><span>2026-12-31</span><div class="vtbegenerated">Submit the report.<span>Due Date</span><span>Read chapter 12.</span></div></section>', detailUrl);
+    expect(detail.due_raw).toBe("2026-12-31");
+    expect(detail.due_unread).toBeUndefined();
+    const [result] = await enrichSourceAttachments([enrichAssignmentSource(source(), detailUrl, detail)], vi.fn());
+    const record = toRecognitionRequests([result])[0].records[0];
+    expect(record.text_quality).toBe("complete");
+    expect(record.text).toContain("到期日期：2026-12-31");
+    expect(record.text).toContain("Read chapter 12.");
+    expect(record.upstream_hints.references[0]).toMatchObject({ content_read: true, read_status: "complete" });
+  });
+});

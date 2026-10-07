@@ -19,3 +19,5 @@
 教师容器自身及祖先若属于私人表单、提交、尝试、成绩或导航区域，整块排除，不输出其文字和引用；原生作业页仅允许已知外层 form#uploadAssignmentForm，其控件及私人区域仍先移除，再解析教师信息。标题、状态和到期日期也使用过滤后的页面；日期仅从 assignmentInfo / assignment-info 区域内的标签所在行或子容器提取，不向区域外回溯。未找到教师说明或实质引用时，保留列表文字并将详情标为 failed / detail_unrecognized、有文字时整条保持 partial，不用列表摘要证明详情读全。图片同时检查 src、srcset 及 picture/source 的候选；默认 src 为装饰图标不能使其他实质候选被忽略，data / 非 HTTP 候选仍以空 url 保留未读，不输出内嵌数据。PDF 文档级内嵌附件未提取时保留 partial_pdf，不递归读取或输出内嵌文件内容。
 
 所有新字段仅是来源事实，不能从 upstream_hints 取得后端 source_verified 授信；v0.3.1 attachment_file/model_reported 强制审核规则保持原样。
+
+支持教师信息区内标签后的相邻日期节点及日期行；明确存在日期标签但值无法读取或多个值冲突时，保留已读说明与日期证据、将详情标为 failed / detail_unrecognized 并提示人工核对，不标 complete。明确“未设置 / Not set”表示无到期日期。过滤后的“作业信息 / Assignment Information”标题继续作为页面识别入口。教师说明按 DOM 顺序合并，只读取最外层匹配容器，已被祖先覆盖的后代不重复采集；独立容器及其引用仍保留。平台提交区域 #assignmentSubmission 即使没有 submission class 也排除。

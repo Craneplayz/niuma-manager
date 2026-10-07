@@ -143,7 +143,7 @@ export function makeSourceReference(label: string, url: string, kind: SourceRefe
   return { label, url, kind, content_read: false, read_status: "unread", reason: kind === "image" ? "image_not_read" : "not_read" };
 }
 
-const EXCLUDED_CONTENT = "script, style, input, textarea, button, nav, [role=navigation], .announcementInfo, .submission, .attempt, .grade";
+const EXCLUDED_CONTENT = "script, style, input, textarea, button, nav, [role=navigation], .announcementInfo, #assignmentSubmission, .submission, .attempt, .grade";
 
 /** Only the known assignment page wrapper may contain teacher information and private controls. */
 export function cloneTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, allowAssignmentForm = false): Cheerio<AnyNode> {
