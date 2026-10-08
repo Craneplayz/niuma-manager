@@ -76,6 +76,8 @@ jobs:
             node: 22
           - os: windows-latest
             node: 24  # same major version as the integration owner's Windows machine
+          - os: windows-latest
+            node: 24.14.0  # exact environment of the consecutive PDF crash reported in #127
     defaults:
       run:
         working-directory: crawler
