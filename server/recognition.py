@@ -23,12 +23,17 @@ from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter
 from ddl_text.pipeline import process_request
 from ddl_text.provider import make_client
+from ddl_text.policy_version import text_policy_manifest, COMPONENTS, ROOT as POLICY_ROOT
 
 _ACTIVE = threading.Lock()
+_EXECUTION = threading.local()
+_POLICY_COMPONENTS = {name:hashlib.sha256((POLICY_ROOT/name).read_text(encoding='utf-8-sig').replace('\r\n','\n').replace('\r','\n').encode()).hexdigest()
+                      for name in COMPONENTS}
 
 
 def recognize(request, ApiError):
     """Share one bounded recognition slot across accounts and transports."""
+    _EXECUTION.policy = None
     if not _ACTIVE.acquire(blocking=False):
         raise ApiError(503, '文本识别正在处理其他请求，请稍后重试')
     try:
@@ -58,6 +63,13 @@ def recognize(request, ApiError):
         except (OSError, ValueError, TypeError, KeyError):
             raise ApiError(503, '文本识别配置不可用，请检查仓库根目录 .env 中的模型配置与密钥') from None
         try:
+            policy = text_policy_manifest(settings,provider='qiniu' if options['provider']=='qiniu' else 'codex')
+            if policy['components'] != _POLICY_COMPONENTS:
+                raise ValueError('policy_changed_after_startup')
+        except (OSError,ValueError,KeyError,TypeError):
+            raise ApiError(503,'识别规则与当前进程不一致，请重启后端后重试') from None
+        _EXECUTION.policy = policy
+        try:
             return process_request(request, adapter, settings, budget_seconds=90)
         except Exception:
             raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
@@ -69,6 +81,7 @@ def initialize(db):
     db.executescript('''
     CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
+    CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
 
 def batches(db,uid):
@@ -88,6 +101,23 @@ def due(value):
         datetime.strptime(value['time'],'%H:%M')
         return dict(date=value['date'],precision='datetime',time=value['time'])
     return dict(date=value['date'],precision='date')
+
+def can_auto_apply(candidate, request, demo=False):
+    source=next((r for r in request['records'] if r['input_id']==candidate['input_id']),None)
+    d=candidate['deadline']
+    valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
+    if valid_due and d['precision']=='datetime':
+        stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
+        valid_due=stamp.second==0 and stamp.microsecond==0
+    return bool(not demo and source and source['platform'] in ('teaching_web','wechat')
+                and candidate['notice_type']=='create' and not candidate['needs_review']
+                and not candidate['review_reasons'] and valid_due)
+
+def has_unapplied_auto_tasks(db, uid, request, demo=False):
+    # Reopened candidates have already been handled by the user and stay manual.
+    return any(can_auto_apply(json.loads(row['candidate']),request,demo)
+               for row in db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1',
+                                     (uid,request['request_id'])))
 
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
@@ -119,7 +149,9 @@ def route(handler,db,uid,path,body,ApiError):
             if not request['records']:
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
             else:
+                _EXECUTION.policy = None
                 result=recognize(extraction_request,ApiError)
+        policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
         try:
             result=validate_result(extraction_request,result)
             new_tasks=list(result['tasks'])
@@ -144,9 +176,15 @@ def route(handler,db,uid,path,body,ApiError):
             if previous is not None and json.loads(row['result'])==previous:
                 db.execute('UPDATE recognition_batches SET result=? WHERE user_id=? AND request_id=?',(json.dumps(result),uid,request['request_id']))
                 for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+                for record in extraction_request['records']:
+                    db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
+                        (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         else:
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+            for record in request['records']:
+                db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
+                    (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         handler.reply(200,batches(db,uid));return True
     if path.startswith('/api/recognition/candidates/') and path.endswith('/resolve') and handler.command=='POST':
         cid=path.split('/')[-2]
@@ -154,25 +192,23 @@ def route(handler,db,uid,path,body,ApiError):
         row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
         if not row: raise ApiError(404,'候选不存在')
         canonical=json.dumps(body,sort_keys=True)
+        action=body.get('action')
+        if action=='reopen':
+            if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
+            if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
+            db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
+            handler.reply(200,dict(batches=batches(db,uid)));return True
         if row['state']!='pending':
             if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
             handler.reply(200,dict(batches=batches(db,uid)));return True
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
-        action=body.get('action');c=json.loads(row['candidate'])
+        c=json.loads(row['candidate'])
         if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
         auto=body.get('auto_apply') is True
         if auto:
             d=c['deadline']
             batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
-            records={r['input_id']:r for r in json.loads(batch['request'])['records']}
-            source=records.get(c['input_id'])
-            external=source and source['platform'] in ('teaching_web','wechat')
-            valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
-            if valid_due and d['precision']=='datetime':
-                stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
-                valid_due=stamp.second==0 and stamp.microsecond==0
-            if (batch['demo'] or action!='create' or c['notice_type']!='create' or c['needs_review']
-                    or c['review_reasons'] or not valid_due or not external):
+            if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
                 raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':
             if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')

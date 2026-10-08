@@ -61,6 +61,10 @@ DOCX 结构参考 [Microsoft WordprocessingML](https://learn.microsoft.com/en-us
 
 后端接入前须完成 #103 的 v0.3.1 迁移、真实鉴权/文件生命周期、结果持久化及重试保留规则；本入口不替代 `check_retry_result`，不能用一次重新生成的结果覆盖此前成功候选和用户操作。模型需具备图片能力，不会自动切换供应商。
 
+启用 PDF 时，调用方安装上述运行依赖、沿用同一账号绑定 loader，并把 `pdf_reader.py`、读取器限制与实际 PDFium 版本纳入内容缓存版本；读取器升级不能继续复用旧结果。上传接收 PDF 不表示识别依赖已安装，文件下载、入库与用户入口仍由后端负责。
+
+启用 DOCX 时，同样把 `docx_reader.py`、读取器限制与实际 defusedxml/Pillow 版本纳入缓存版本；缺失运行依赖不能复用旧语义结果。`python-docx` 只用于生成测试文件，运行端不需要安装。
+
 ## 自检
 
 ```powershell

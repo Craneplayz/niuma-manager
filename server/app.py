@@ -15,6 +15,7 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import task_decomposition
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -43,6 +44,7 @@ def initialize():
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        task_decomposition.initialize(db)
 
 def seed():
     initialize()
@@ -102,7 +104,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='GET' and origin and origin not in ['http://localhost:1331','http://127.0.0.1:1331']:
             raise ApiError(403,'不允许的请求来源')
         path=self.path.split('?')[0]
-        body=self.body() if self.command in ['POST','PUT'] else {}
+        body=self.body() if self.command in ['POST','PUT','DELETE'] else {}
         with connection() as db:
             self.db=db
             if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
@@ -127,18 +129,59 @@ class Handler(BaseHTTPRequestHandler):
             uid=user['id']
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if recognition.route(self,db,uid,path,body,ApiError): return
+            if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
                 return self.reply(200,{},'niuma_session=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0')
+            if path=='/api/auth/profile' and self.command=='POST':
+                name=str(body.get('name','')).strip()
+                if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
+                db.execute('UPDATE users SET name=? WHERE id=?',(name,uid))
+                return self.reply(200,dict(user=dict(user,name=name)))
+            if path=='/api/auth/password' and self.command=='POST':
+                current=str(body.get('currentPassword',''))
+                new=str(body.get('newPassword',''))
+                if not 8<=len(new)<=128: raise ApiError(400,'新密码需要 8–128 个字符')
+                row=db.execute('SELECT salt,hash FROM users WHERE id=?',(uid,)).fetchone()
+                if not hmac.compare_digest(row['hash'],password_hash(current,row['salt'])): raise ApiError(400,'当前密码不正确')
+                salt=secrets.token_hex(16)
+                db.execute('UPDATE users SET salt=?,hash=? WHERE id=?',(salt,password_hash(new,salt),uid))
+                db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
+                return self.reply(200,{})
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
+            if path=='/api/data/tasks' and self.command=='DELETE':
+                ids=body.get('ids')
+                if not isinstance(ids,list) or not ids or len(ids)>500 or any(not isinstance(item,str) or not item or len(item)>100 for item in ids) or len(ids)!=len(set(ids)): raise ApiError(400,'删除任务范围不正确')
+                db.execute('BEGIN IMMEDIATE')
+                row=db.execute('SELECT value,version FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+                version=row['version'] if row else 0
+                if body.get('version')!=version: raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
+                tasks=json.loads(row['value']) if row else []
+                existing={task['id'] for task in tasks}
+                if any(item not in existing for item in ids): raise ApiError(404,'要删除的任务不存在')
+                selected=set(ids);tasks=[task for task in tasks if task['id'] not in selected]
+                for task in tasks:
+                    if task.get('dependsOn') in selected: task['dependsOn']=''
+                next_version=version+1
+                db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),next_version))
+                feedback_row=db.execute('SELECT value,version FROM workspace WHERE user_id=? AND name="feedback"',(uid,)).fetchone()
+                feedback_version=None;feedback=None
+                if feedback_row:
+                    feedback=json.loads(feedback_row['value']);filtered=[item for item in feedback if item.get('taskId') not in selected]
+                    feedback_version=feedback_row['version']
+                    if len(filtered)!=len(feedback):
+                        feedback=filtered;feedback_version+=1
+                        db.execute('UPDATE workspace SET value=?,version=? WHERE user_id=? AND name="feedback"',(json.dumps(feedback),feedback_version,uid))
+                return self.reply(200,dict(deletedIds=ids,version=next_version,feedback=feedback,feedbackVersion=feedback_version))
             if path.startswith('/api/data/') and self.command=='PUT':
                 name=path.rsplit('/',1)[1]
-                if name not in ['tasks','candidates','availability','feedback','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
+                if name not in ['tasks','candidates','availability','feedback','preferences','courses','focus','materials','sources']: raise ApiError(404,'未知数据类型')
                 value=body.get('value')
-                if not isinstance(value,dict if name in ['availability','focus'] else list): raise ApiError(400,'数据格式不正确')
+                if not isinstance(value,dict if name in ['availability','focus','preferences'] else list): raise ApiError(400,'数据格式不正确')
+                if name=='preferences' and (set(value)!=set(['askCompletionMinutes']) or type(value['askCompletionMinutes'])!=bool): raise ApiError(400,'个性化设置格式不正确')
                 if name=='sources' and (len(value)>1 or any(source!='teaching_web' for source in value)): raise ApiError(400,'来源选择不正确')
                 if name=='courses':
                     from urllib.parse import urlsplit
@@ -182,23 +225,38 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/planning/proposals' and self.command=='POST':
                 rows={r['name']:r for r in db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,))}
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []
-                pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and not t.get('planningExcluded') and not t['plans']]
+                replan=body.get('replan',False)
+                if type(replan)!=bool: raise ApiError(400,'重新规划选项不正确')
                 task_ids=body.get('taskIds')
                 if task_ids is not None:
                     if not isinstance(task_ids,list) or not task_ids or any(not isinstance(item,str) for item in task_ids) or len(set(task_ids))!=len(task_ids): raise ApiError(400,'规划任务范围不正确')
+                    if replan and any(not any(t['id']==tid and t['status'] not in ['completed','cancelled'] for t in tasks) for tid in task_ids): raise ApiError(400,'要重新规划的任务不存在或已经完成')
+                pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and
+                         (not t.get('planningExcluded') or replan and task_ids is not None) and (replan or not t['plans'])]
+                if task_ids is not None:
                     pending=[t for t in pending if t['id'] in task_ids and t.get('due')]
                 if not pending: raise ApiError(400,'没有需要规划的任务')
-                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=datetime.now(TZ).isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']],availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
+                now=datetime.now(TZ)
+                replace_plans={t['id']:[p['id'] for p in t['plans'] if datetime.fromisoformat(p['startAt'])>now] for t in pending if replan and t.get('due')}
+                existing=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']
+                          if p['id'] not in replace_plans.get(t['id'],[]) and (t['status']!='completed' or datetime.fromisoformat(p['startAt'])<=now)]
+                pending=[dict(t,plans=[p for p in t['plans'] if p['id'] not in replace_plans.get(t['id'],[])]) for t in pending]
+                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=now.isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=existing,availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)
                 result=planning.plan(payload,ApiError)
-                try: validate_proposal(payload,result)
+                try:
+                    scheduled={block['taskId'] for block in result.get('blocks',[])}
+                    payload['existingPlans'].extend(dict(plan,taskId=task['id']) for task in tasks if task['id'] not in scheduled for plan in task['plans'] if plan['id'] in replace_plans.get(task['id'],[]))
+                    validate_proposal(payload,result)
                 except (ValueError,KeyError,TypeError,AttributeError):
                     raise ApiError(502,'模型返回的规划格式不正确；任务未修改') from None
                 result['priorityOrder']=planning.priority_explanations(payload,result['estimates'])
                 result['requestId']=payload['requestId']
-                db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(result)))
+                replace_plans={tid:ids for tid,ids in replace_plans.items() if ids and tid in scheduled}
+                result['replannedTaskIds']=list(replace_plans)
+                db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(dict(result,replacePlanIds=replace_plans))))
                 return self.reply(200,result)
             if path=='/api/planning/apply' and self.command=='POST':
                 db.execute('BEGIN IMMEDIATE')
@@ -209,6 +267,10 @@ class Handler(BaseHTTPRequestHandler):
                 if row['version']!=proposal['version']: raise ApiError(409,'任务已变化，请重新规划')
                 tasks=json.loads(row['value'])
                 result=json.loads(proposal['result'])
+                for task in tasks:
+                    if any(plan['id'] in result.get('replacePlanIds',{}).get(task['id'],[]) and datetime.fromisoformat(plan['startAt'])<=datetime.now(TZ) for plan in task['plans']): raise ApiError(409,'原安排已经开始，请重新生成提案')
+                for task in tasks:
+                    task['plans']=[plan for plan in task['plans'] if plan['id'] not in result.get('replacePlanIds',{}).get(task['id'],[])]
                 for block in result['blocks']:
                     if datetime.fromisoformat(block['startAt'])<datetime.now(TZ): raise ApiError(409,'规划时段已过期，请重新规划')
                     task=next(t for t in tasks if t['id']==block['taskId'])
@@ -221,6 +283,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self): self.handle_request()
     def do_POST(self): self.handle_request()
     def do_PUT(self): self.handle_request()
+    def do_DELETE(self): self.handle_request()
     def handle_request(self):
         try: self.route()
         except ApiError as e: self.reply(e.status,dict(error=e.message))

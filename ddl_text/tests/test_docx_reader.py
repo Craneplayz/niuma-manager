@@ -37,6 +37,18 @@ class DocxTests(unittest.TestCase):
         check_pair(request, result)
         return result
 
+    def test_sequential_documents_and_read_failure_reap_workers(self):
+        import multiprocessing
+        children = {child.pid for child in multiprocessing.active_children()}
+        for text in (TEXT, '请于2026年10月9日提交第二份报告。'):
+            read = self.read(package(paragraph(text)))
+            self.assertEqual(read['blocks'][0]['text'], text)
+            self.assertTrue(read['coverage']['complete'])
+        with self.assertRaises(AgentError):
+            self.read(package(paragraph(TEXT), {'word/document.xml':'broken'}))
+        self.assertTrue(self.read(package(paragraph(TEXT)))['coverage']['complete'])
+        self.assertEqual({child.pid for child in multiprocessing.active_children()}, children)
+
     def test_body_runs_and_tables_keep_order_and_cell_context(self):
         data = package('<w:p><w:r><w:t>请提交</w:t></w:r><w:r><w:t>报告。</w:t></w:r></w:p>'+
                        '<w:tbl><w:tr><w:tc>'+paragraph('任务')+'</w:tc><w:tc>'+paragraph('10月8日')+'</w:tc></w:tr></w:tbl>')
