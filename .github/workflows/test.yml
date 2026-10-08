@@ -21,8 +21,12 @@ jobs:
       - run: python -m unittest discover -s contracts/tests -p 'test_*.py' -v
 
   text:
-    name: 文本识别 ddl_text
-    runs-on: ubuntu-latest
+    name: 文本识别 ddl_text (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,8 +36,12 @@ jobs:
       - run: python -m unittest discover -s ddl_text/tests -t . -q
 
   app:
-    name: 前端 frontend + 后端 server
-    runs-on: ubuntu-latest
+    name: 前端 frontend + 后端 server (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     defaults:
       run:
         working-directory: frontend
@@ -52,8 +60,16 @@ jobs:
       - run: npm run build
 
   crawler:
-    name: 爬虫 crawler
-    runs-on: ubuntu-latest
+    name: 爬虫 crawler (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: 22
+          - os: windows-latest
+            node: 24  # same major version as the integration owner's Windows machine
     defaults:
       run:
         working-directory: crawler
@@ -64,7 +80,7 @@ jobs:
           version: 10.17.1
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: pnpm
           cache-dependency-path: crawler/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
