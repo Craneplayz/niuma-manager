@@ -84,6 +84,105 @@ class RecognitionRuntimeTests(unittest.TestCase):
             record_results=[dict(input_id=r['input_id'], status='no_tasks', task_ids=[], warnings=[])
                             for r in request['records']], tasks=[], errors=[])
 
+    def policy_rows(self,client=None):
+        uid=self.call(client or self.client,'/auth/me')[1]['user']['id']
+        with app.connection() as db:
+            return {row['input_id']:json.loads(row['policy']) if row['policy'] is not None else None
+                    for row in db.execute('SELECT input_id,policy FROM recognition_record_policies WHERE user_id=? AND request_id=?',
+                        (uid,self.request['request_id']))}
+
+    def test_record_policy_uses_actual_settings_and_excludes_credentials(self):
+        versions=[]
+        with patch.object(recognition,'make_client',return_value=OfflineDraftClient(DRAFTS)), \
+                patch.object(recognition,'process_request',side_effect=lambda req,*args,**kwargs:self.empty_result(req)):
+            for key,model,endpoint in [('synthetic-key-one','policy-model','https://synthetic.invalid/v1'),
+                                       ('synthetic-key-two','policy-model','https://synthetic.invalid/v1'),
+                                       ('synthetic-key-two','new-policy-model','https://synthetic.invalid/v1'),
+                                       ('synthetic-key-two','new-policy-model','https://other-synthetic.invalid/v1')]:
+                self.request['request_id']+=':next'
+                with patch.dict(recognition.os.environ,{'QINIU_API_KEY':key,'DDL_MODEL':model,'DDL_ENDPOINT':endpoint}):
+                    self.assertEqual(self.submit()[0],200)
+                policies=self.policy_rows()
+                self.assertEqual(set(policies),{record['input_id'] for record in self.request['records']})
+                policy=next(iter(policies.values()))
+                self.assertTrue(all(item==policy for item in policies.values()))
+                self.assertEqual(policy['execution'],dict(provider='qiniu',model=model,endpoint=endpoint,
+                    timeout_seconds=90.0,max_retries=0,deployment_revision=None))
+                self.assertEqual(policy['components'],recognition._POLICY_COMPONENTS)
+                self.assertNotIn(key,json.dumps(policy))
+                versions.append(policy['version'])
+        self.assertEqual(versions[0],versions[1])
+        self.assertNotEqual(versions[1],versions[2])
+        self.assertNotEqual(versions[2],versions[3])
+
+    def test_deepseek_transport_policy_is_codex_not_qiniu(self):
+        with patch.dict(recognition.os.environ,{'DDL_PROVIDER':'deepseek','DEEPSEEK_API_KEY':'synthetic-codex-key'}), \
+                patch.object(recognition,'make_client',return_value=OfflineDraftClient(DRAFTS)), \
+                patch.object(recognition,'process_request',side_effect=lambda req,*args,**kwargs:self.empty_result(req)):
+            self.assertEqual(self.submit()[0],200)
+        policies=self.policy_rows()
+        self.assertTrue(all(policy['execution']['provider']=='codex' for policy in policies.values()))
+
+    def test_completed_replay_keeps_executed_policy_without_another_call(self):
+        with patch.dict(recognition.os.environ,{'QINIU_API_KEY':'synthetic-only','DDL_MODEL':'original-model'}), \
+                patch.object(recognition,'make_client',return_value=OfflineDraftClient(DRAFTS)), \
+                patch.object(recognition,'process_request',side_effect=lambda req,*args,**kwargs:self.empty_result(req)) as pipeline:
+            self.assertEqual(self.submit()[0],200)
+            original=self.policy_rows()
+            with patch.dict(recognition.os.environ,{'DDL_MODEL':'replacement-model'}):
+                self.assertEqual(self.submit()[0],200)
+                self.assertEqual(self.submit(retry=True)[0],200)
+            self.assertEqual(pipeline.call_count,1)
+        self.assertEqual(self.policy_rows(),original)
+
+    def test_legacy_results_are_not_backfilled_and_survive_initialization(self):
+        with patch.object(recognition,'recognize',return_value=self.empty_result(self.request)):
+            self.assertEqual(self.submit()[0],200)
+        uid=self.call(self.client,'/auth/me')[1]['user']['id']
+        with app.connection() as db:
+            db.execute('DELETE FROM recognition_record_policies WHERE user_id=? AND request_id=?',
+                (uid,self.request['request_id']))
+        with app.connection() as db:
+            recognition.initialize(db)
+        with patch.object(recognition,'recognize') as pipeline:
+            status,batches=self.submit()
+            self.assertEqual(status,200)
+            self.assertEqual(batches[0]['result'],self.empty_result(self.request))
+            pipeline.assert_not_called()
+        self.assertEqual(self.policy_rows(),{})
+
+    def test_rejected_result_does_not_persist_a_policy(self):
+        with patch.dict(recognition.os.environ,{'QINIU_API_KEY':'synthetic-only'}), \
+                patch.object(recognition,'make_client',return_value=OfflineDraftClient(DRAFTS)), \
+                patch.object(recognition,'process_request',return_value={}):
+            self.assertEqual(self.submit()[0],502)
+        self.assertEqual(self.policy_rows(),{})
+
+    def test_same_record_identity_keeps_policies_separate_between_accounts(self):
+        other=self.new_client(self.id()+'-other')
+        with patch.dict(recognition.os.environ,{'QINIU_API_KEY':'synthetic-only','DDL_MODEL':'account-a-model'}), \
+                patch.object(recognition,'make_client',return_value=OfflineDraftClient(DRAFTS)), \
+                patch.object(recognition,'process_request',side_effect=lambda req,*args,**kwargs:self.empty_result(req)):
+            self.assertEqual(self.submit()[0],200)
+            original=self.policy_rows()
+            with patch.dict(recognition.os.environ,{'DDL_MODEL':'account-b-model'}):
+                self.assertEqual(self.submit(client=other)[0],200)
+        self.assertEqual(self.policy_rows(),original)
+        self.assertTrue(all(policy['execution']['model']=='account-b-model' for policy in self.policy_rows(other).values()))
+        with app.connection() as db:
+            recognition.initialize(db)
+        self.assertEqual(self.policy_rows(),original)
+
+    def test_changed_policy_files_require_restart_before_a_model_call(self):
+        with patch.dict(recognition.os.environ,{'QINIU_API_KEY':'synthetic-only'}), \
+                patch.object(recognition,'_POLICY_COMPONENTS',{}), \
+                patch.object(recognition,'process_request') as pipeline:
+            status,error=self.submit()
+        self.assertEqual(status,503)
+        self.assertIn('重启',error['error'])
+        pipeline.assert_not_called()
+        self.assertEqual(self.policy_rows(),{})
+
     def test_direct_pipeline_spawns_and_preserves_contract_and_idempotence(self):
         with patch.dict(recognition.os.environ, {'QINIU_API_KEY': 'synthetic-only'}), \
                 patch.object(recognition, 'make_client', return_value=OfflineDraftClient(DRAFTS)) as provider, \
@@ -133,6 +232,11 @@ class RecognitionRuntimeTests(unittest.TestCase):
                 patch.object(recognition, 'urlopen', side_effect=harness), \
                 patch.object(recognition, 'live_options', side_effect=AssertionError('loaded local config')):
             self.assertEqual(self.submit()[0], 200)
+        self.assertTrue(self.policy_rows())
+        self.assertTrue(all(policy is None for policy in self.policy_rows().values()))
+        with app.connection() as db:
+            recognition.initialize(db)
+        self.assertTrue(all(policy is None for policy in self.policy_rows().values()))
 
     def test_busy_gate_is_shared_between_accounts_and_transports(self):
         other = self.new_client(self.id() + '-other')
@@ -200,7 +304,8 @@ class RecognitionRuntimeTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(batches[0]['result']['status'], 'partial_success')
         previous_ids = {c['id'] for c in batches[0]['items']}
-        with patch.dict(recognition.os.environ, {'QINIU_API_KEY': 'synthetic-only'}), \
+        previous_policies=self.policy_rows()
+        with patch.dict(recognition.os.environ, {'QINIU_API_KEY': 'synthetic-only','DDL_MODEL':'updated-retry-model'}), \
                 patch.object(recognition, 'make_client', return_value=OfflineDraftClient(DRAFTS)), \
                 patch.object(recognition, 'process_request', wraps=recognition.process_request) as pipeline:
             status, batches = self.submit(retry=True)
@@ -209,6 +314,9 @@ class RecognitionRuntimeTests(unittest.TestCase):
             self.assertEqual(len(batches[0]['items']), 3)
             self.assertTrue(previous_ids.issubset(c['id'] for c in batches[0]['items']))
             self.assertEqual([r['input_id'] for r in pipeline.call_args.args[0]['records']], ['synthetic:report'])
+        policies=self.policy_rows()
+        self.assertNotEqual(policies['synthetic:report']['version'],previous_policies['synthetic:report']['version'])
+        self.assertTrue(all(policies[rid]==old for rid,old in previous_policies.items() if rid!='synthetic:report'))
 
 
 if __name__ == '__main__':

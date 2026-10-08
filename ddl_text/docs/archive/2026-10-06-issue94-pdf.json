@@ -1,0 +1,1249 @@
+{
+  "scope": "Generated PDF smoke tests only, not a recall benchmark or real WeChat integration.",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "initial_runs": [
+    {
+      "tested_at": "2026-10-06T12:11:49.718223+00:00",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "scope": "Generated PDF pages only; not private documents or WeChat integration.",
+      "results": [
+        {
+          "case": "pdf-text",
+          "synthetic_pages": [
+            "Synthetic assignment PDF-T1\nSubmit the experiment review by October 15, 2026 at 17:00.\nPlease finish as soon as possible."
+          ],
+          "expected": {
+            "pages": [
+              "Synthetic assignment PDF-T1\nSubmit the experiment review by October 15, 2026 at 17:00.\nPlease finish as soon as possible."
+            ],
+            "deadline": "2026-10-15T17:00:00+08:00",
+            "deadline_page": 1
+          },
+          "pdf_sha256": "6cca1e1954578361969d646a7f65542829048cbafe99862a2254461a843909e4",
+          "request": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-text",
+            "records": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "text": "",
+                "text_quality": "missing",
+                "platform": "wechat",
+                "published_at": {
+                  "value": "2026-10-01T20:01:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "collected_at": "2026-10-01T20:05:00+08:00",
+                "timezone": "Asia/Shanghai",
+                "timezone_basis": "source",
+                "source_url": null,
+                "source_label": "合成课程群",
+                "source_item_id": "message-002",
+                "course_or_project": "合成测试课程",
+                "context": [],
+                "upstream_hints": null,
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "file_name": "pdf-text.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 1463,
+                    "sha256": "6cca1e1954578361969d646a7f65542829048cbafe99862a2254461a843909e4",
+                    "origin": "original",
+                    "original_published_at": {
+                      "value": "2026-10-01",
+                      "precision": "date",
+                      "basis": "source"
+                    },
+                    "status": "available",
+                    "errors": [],
+                    "content_mode": "file",
+                    "file_ref": "asset:synthetic_asset_001_001"
+                  }
+                ]
+              }
+            ]
+          },
+          "raw_draft": null,
+          "result": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-text",
+            "status": "failed",
+            "record_results": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "status": "failed",
+                "task_ids": [],
+                "warnings": [
+                  "部分读取或识别失败，请核对剩余内容。"
+                ],
+                "coverage": {
+                  "complete": false,
+                  "uncertain": false
+                },
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "content_mode": "file",
+                    "status": "failed",
+                    "reader_version": "niuma-pdf-pages/1",
+                    "coverage_basis": "unverified",
+                    "coverage": {
+                      "complete": false,
+                      "truncated": false,
+                      "unread_locations": [
+                        "模型识别未完成，文件内容尚未可靠读取"
+                      ]
+                    },
+                    "quality": "normal",
+                    "quality_notes": []
+                  }
+                ]
+              }
+            ],
+            "tasks": [],
+            "errors": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "asset_id": null,
+                "block_id": null,
+                "stage": "recognize",
+                "code": "agent_timeout",
+                "message": "图片识别超时，可稍后重试。",
+                "retryable": true
+              },
+              {
+                "input_id": "synthetic:pdf-text",
+                "asset_id": "asset-001",
+                "block_id": null,
+                "stage": "read",
+                "code": "file_read_failed",
+                "message": "附件读取未完成，请检查文件后重试。",
+                "retryable": true
+              }
+            ]
+          },
+          "elapsed_seconds": 45.36,
+          "passed": false
+        },
+        {
+          "case": "pdf-zh-cross-page",
+          "synthetic_pages": [
+            [
+              "合成作业 PDF-C2",
+              "请完成实验1、2的回顾并提交实验报告。",
+              "提交期限见下一页。"
+            ],
+            [
+              "合成作业 PDF-C2（续页）",
+              "本实验报告请于10月16日18:00前提交。",
+              "请大家尽快完成。"
+            ]
+          ],
+          "expected": {
+            "pages": [
+              [
+                "合成作业 PDF-C2",
+                "请完成实验1、2的回顾并提交实验报告。",
+                "提交期限见下一页。"
+              ],
+              [
+                "合成作业 PDF-C2（续页）",
+                "本实验报告请于10月16日18:00前提交。",
+                "请大家尽快完成。"
+              ]
+            ],
+            "deadline": "2026-10-16T18:00:00+08:00",
+            "deadline_page": 2
+          },
+          "pdf_sha256": "78cc22f2e761e5e954e1760fc6fb5ddb1a0dd860e8ec3e84ad1a01ea82b1b08a",
+          "request": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-cross-page",
+            "records": [
+              {
+                "input_id": "synthetic:pdf-zh-cross-page",
+                "text": "",
+                "text_quality": "missing",
+                "platform": "wechat",
+                "published_at": {
+                  "value": "2026-10-01T20:01:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "collected_at": "2026-10-01T20:05:00+08:00",
+                "timezone": "Asia/Shanghai",
+                "timezone_basis": "source",
+                "source_url": null,
+                "source_label": "合成课程群",
+                "source_item_id": "message-002",
+                "course_or_project": "合成测试课程",
+                "context": [],
+                "upstream_hints": null,
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "file_name": "pdf-zh-cross-page.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 39903,
+                    "sha256": "78cc22f2e761e5e954e1760fc6fb5ddb1a0dd860e8ec3e84ad1a01ea82b1b08a",
+                    "origin": "original",
+                    "original_published_at": {
+                      "value": "2026-10-01",
+                      "precision": "date",
+                      "basis": "source"
+                    },
+                    "status": "available",
+                    "errors": [],
+                    "content_mode": "file",
+                    "file_ref": "asset:synthetic_asset_001_001"
+                  }
+                ]
+              }
+            ]
+          },
+          "raw_draft": "{\"tasks\": [{\"title\": \"合成作业 PDF-C2：完成实验1、2的回顾并提交实验报告\", \"description\": \"PDF 第1页要求完成实验1、2的回顾并提交实验报告，并注明提交期限见下一页；第2页给出本实验报告须于10月16日18:00前提交，并附“请大家尽快完成”的催促语。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-16T18:00:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月16日18:00\", \"basis\": \"PDF 第2页正文“本实验报告请于10月16日18:00前提交”明确给出提交时间；原文仅省略年份，按附件原始发布时间（2026-10-01）补全为2026年。\", \"alternatives\": []}, \"review_reasons\": [], \"evidence\": [{\"input_id\": \"synthetic:pdf-zh-cross-page\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"合成作业 PDF-C2\\n请完成实验1、2的回顾并提交实验报告。\\n提交期限见下一页。\", \"locator\": {\"page\": 1, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:pdf-zh-cross-page\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"合成作业 PDF-C2（续页）\\n本实验报告请于10月16日18:00前提交。\\n请大家尽快完成。\", \"locator\": {\"page\": 2, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"description\", \"deadline\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+          "result": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-cross-page",
+            "status": "success",
+            "record_results": [
+              {
+                "input_id": "synthetic:pdf-zh-cross-page",
+                "status": "success",
+                "task_ids": [
+                  "media:eb49de883af2112211561dec:1"
+                ],
+                "warnings": [],
+                "coverage": {
+                  "complete": true,
+                  "uncertain": false
+                },
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "content_mode": "file",
+                    "status": "complete",
+                    "reader_version": "niuma-pdf-pages/1",
+                    "coverage_basis": "adapter_confirmed",
+                    "coverage": {
+                      "complete": true,
+                      "truncated": false,
+                      "unread_locations": []
+                    },
+                    "quality": "normal",
+                    "quality_notes": []
+                  }
+                ]
+              }
+            ],
+            "tasks": [
+              {
+                "title": "合成作业 PDF-C2：完成实验1、2的回顾并提交实验报告",
+                "description": "PDF 第1页要求完成实验1、2的回顾并提交实验报告，并注明提交期限见下一页；第2页给出本实验报告须于10月16日18:00前提交，并附“请大家尽快完成”的催促语。",
+                "prerequisites": [],
+                "course_or_project": "合成测试课程",
+                "course_basis": "provided",
+                "notice_type": "create",
+                "target_reference": null,
+                "deadline": {
+                  "value": "2026-10-16T18:00:00+08:00",
+                  "precision": "datetime",
+                  "timezone": "Asia/Shanghai",
+                  "kind": "deadline",
+                  "status": "explicit",
+                  "raw": "10月16日18:00",
+                  "basis": "PDF 第2页正文“本实验报告请于10月16日18:00前提交”明确给出提交时间；原文仅省略年份，按附件原始发布时间（2026-10-01）补全为2026年。",
+                  "alternatives": []
+                },
+                "review_reasons": [
+                  "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+                ],
+                "evidence": [
+                  {
+                    "input_id": "synthetic:pdf-zh-cross-page",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "合成作业 PDF-C2\n请完成实验1、2的回顾并提交实验报告。\n提交期限见下一页。",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title",
+                      "description"
+                    ]
+                  },
+                  {
+                    "input_id": "synthetic:pdf-zh-cross-page",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "合成作业 PDF-C2（续页）\n本实验报告请于10月16日18:00前提交。\n请大家尽快完成。",
+                    "locator": {
+                      "page": 2,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "description",
+                      "deadline"
+                    ]
+                  }
+                ],
+                "candidate_id": "media:eb49de883af2112211561dec:1",
+                "input_id": "synthetic:pdf-zh-cross-page",
+                "sources": [
+                  {
+                    "input_id": "synthetic:pdf-zh-cross-page",
+                    "platform": "wechat",
+                    "url": null,
+                    "label": "合成课程群",
+                    "source_item_id": "message-002"
+                  }
+                ],
+                "needs_review": true
+              }
+            ],
+            "errors": []
+          },
+          "elapsed_seconds": 10.16,
+          "passed": true
+        },
+        {
+          "case": "pdf-zh-page-limit",
+          "synthetic_pages": [
+            [
+              "合成作业 PDF-P3",
+              "请于10月17日18:00前提交读书报告。"
+            ],
+            [
+              "本页仅介绍课程背景，无行动要求。"
+            ],
+            [
+              "本页有另一项作业：10月20日前提交问卷。"
+            ]
+          ],
+          "expected": {
+            "pages": [
+              [
+                "合成作业 PDF-P3",
+                "请于10月17日18:00前提交读书报告。"
+              ],
+              [
+                "本页仅介绍课程背景，无行动要求。"
+              ],
+              [
+                "本页有另一项作业：10月20日前提交问卷。"
+              ]
+            ],
+            "deadline": "2026-10-17T18:00:00+08:00",
+            "deadline_page": 1,
+            "max_pages": 1
+          },
+          "pdf_sha256": "bca7b521766ee9cdb96d444d9126bff8d6546f2965983810c919b140c89dcf66",
+          "request": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-page-limit",
+            "records": [
+              {
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "text": "",
+                "text_quality": "missing",
+                "platform": "wechat",
+                "published_at": {
+                  "value": "2026-10-01T20:01:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "collected_at": "2026-10-01T20:05:00+08:00",
+                "timezone": "Asia/Shanghai",
+                "timezone_basis": "source",
+                "source_url": null,
+                "source_label": "合成课程群",
+                "source_item_id": "message-002",
+                "course_or_project": "合成测试课程",
+                "context": [],
+                "upstream_hints": null,
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "file_name": "pdf-zh-page-limit.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 32588,
+                    "sha256": "bca7b521766ee9cdb96d444d9126bff8d6546f2965983810c919b140c89dcf66",
+                    "origin": "original",
+                    "original_published_at": {
+                      "value": "2026-10-01",
+                      "precision": "date",
+                      "basis": "source"
+                    },
+                    "status": "available",
+                    "errors": [],
+                    "content_mode": "file",
+                    "file_ref": "asset:synthetic_asset_001_001"
+                  }
+                ]
+              }
+            ]
+          },
+          "raw_draft": "{\"tasks\": [{\"title\": \"提交读书报告（合成作业 PDF-P3）\", \"description\": \"PDF 第1页写明“合成作业 PDF-P3”，并要求于10月17日18:00前提交读书报告。该 PDF 仅第1页可用，第2–3页未读取。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-17T18:00:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月17日18:00\", \"basis\": \"图片原文仅省略年份，按该 PDF 附件可信原始发布时间 2026-10-01 补为最近合理年份 2026 年。\", \"alternatives\": []}, \"review_reasons\": [{\"code\": \"year_completion\", \"message\": \"原文只写“10月17日18:00”，依据 PDF 原件发布日期 2026-10-01 补全年份为 2026 年。\"}, {\"code\": \"other\", \"message\": \"该 PDF 仅发送并读取第1页，第2–3页因超出限制未读取，后续页面是否含其他要求或不同期限无法确认。\"}], \"evidence\": [{\"input_id\": \"synthetic:pdf-zh-page-limit\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"合成作业 PDF-P3\", \"locator\": {\"page\": 1, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\"]}, {\"input_id\": \"synthetic:pdf-zh-page-limit\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"请于10月17日18:00前提交读书报告。\", \"locator\": {\"page\": 1, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"description\", \"deadline\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+          "result": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-page-limit",
+            "status": "partial_success",
+            "record_results": [
+              {
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "status": "partial_success",
+                "task_ids": [
+                  "media:1e89fe7faa6a80f7d055c9f7:1"
+                ],
+                "warnings": [
+                  "部分读取或识别失败，请核对剩余内容。"
+                ],
+                "coverage": {
+                  "complete": false,
+                  "uncertain": false
+                },
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "content_mode": "file",
+                    "status": "partial",
+                    "reader_version": "niuma-pdf-pages/1",
+                    "coverage_basis": "adapter_confirmed",
+                    "coverage": {
+                      "complete": false,
+                      "truncated": true,
+                      "unread_locations": [
+                        "第 2–3 页未读取"
+                      ]
+                    },
+                    "quality": "normal",
+                    "quality_notes": []
+                  }
+                ]
+              }
+            ],
+            "tasks": [
+              {
+                "title": "提交读书报告（合成作业 PDF-P3）",
+                "description": "PDF 第1页写明“合成作业 PDF-P3”，并要求于10月17日18:00前提交读书报告。该 PDF 仅第1页可用，第2–3页未读取。",
+                "prerequisites": [],
+                "course_or_project": "合成测试课程",
+                "course_basis": "provided",
+                "notice_type": "create",
+                "target_reference": null,
+                "deadline": {
+                  "value": "2026-10-17T18:00:00+08:00",
+                  "precision": "datetime",
+                  "timezone": "Asia/Shanghai",
+                  "kind": "deadline",
+                  "status": "explicit",
+                  "raw": "10月17日18:00",
+                  "basis": "图片原文仅省略年份，按该 PDF 附件可信原始发布时间 2026-10-01 补为最近合理年份 2026 年。",
+                  "alternatives": []
+                },
+                "review_reasons": [
+                  "原文只写“10月17日18:00”，依据 PDF 原件发布日期 2026-10-01 补全年份为 2026 年。",
+                  "该 PDF 仅发送并读取第1页，第2–3页因超出限制未读取，后续页面是否含其他要求或不同期限无法确认。",
+                  "图片引文由模型读取，尚未经原文逐字核对，请确认。",
+                  "部分内容缺失或可读性不确定，请核对原件。"
+                ],
+                "evidence": [
+                  {
+                    "input_id": "synthetic:pdf-zh-page-limit",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "合成作业 PDF-P3",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title"
+                    ]
+                  },
+                  {
+                    "input_id": "synthetic:pdf-zh-page-limit",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "请于10月17日18:00前提交读书报告。",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "description",
+                      "deadline"
+                    ]
+                  }
+                ],
+                "candidate_id": "media:1e89fe7faa6a80f7d055c9f7:1",
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "sources": [
+                  {
+                    "input_id": "synthetic:pdf-zh-page-limit",
+                    "platform": "wechat",
+                    "url": null,
+                    "label": "合成课程群",
+                    "source_item_id": "message-002"
+                  }
+                ],
+                "needs_review": true
+              }
+            ],
+            "errors": [
+              {
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "asset_id": "asset-001",
+                "block_id": null,
+                "stage": "read",
+                "code": "limit_exceeded",
+                "message": "附件或本次处理超过限制，请拆分或减小输入。",
+                "retryable": false
+              }
+            ]
+          },
+          "elapsed_seconds": 16.91,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "tested_at": "2026-10-06T12:13:55.305444+00:00",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "scope": "Generated PDF pages only; not private documents or WeChat integration.",
+      "results": [
+        {
+          "case": "pdf-text",
+          "synthetic_pages": [
+            "Synthetic assignment PDF-T1\nSubmit the experiment review by October 15, 2026 at 17:00.\nPlease finish as soon as possible."
+          ],
+          "expected": {
+            "pages": [
+              "Synthetic assignment PDF-T1\nSubmit the experiment review by October 15, 2026 at 17:00.\nPlease finish as soon as possible."
+            ],
+            "deadline": "2026-10-15T17:00:00+08:00",
+            "deadline_page": 1
+          },
+          "pdf_sha256": "6cca1e1954578361969d646a7f65542829048cbafe99862a2254461a843909e4",
+          "request": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-text",
+            "records": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "text": "",
+                "text_quality": "missing",
+                "platform": "wechat",
+                "published_at": {
+                  "value": "2026-10-01T20:01:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "collected_at": "2026-10-01T20:05:00+08:00",
+                "timezone": "Asia/Shanghai",
+                "timezone_basis": "source",
+                "source_url": null,
+                "source_label": "合成课程群",
+                "source_item_id": "message-002",
+                "course_or_project": "合成测试课程",
+                "context": [],
+                "upstream_hints": null,
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "file_name": "pdf-text.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 1463,
+                    "sha256": "6cca1e1954578361969d646a7f65542829048cbafe99862a2254461a843909e4",
+                    "origin": "original",
+                    "original_published_at": {
+                      "value": "2026-10-01",
+                      "precision": "date",
+                      "basis": "source"
+                    },
+                    "status": "available",
+                    "errors": [],
+                    "content_mode": "file",
+                    "file_ref": "asset:synthetic_asset_001_001"
+                  }
+                ]
+              }
+            ]
+          },
+          "raw_draft": null,
+          "result": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-text",
+            "status": "failed",
+            "record_results": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "status": "failed",
+                "task_ids": [],
+                "warnings": [
+                  "部分读取或识别失败，请核对剩余内容。"
+                ],
+                "coverage": {
+                  "complete": false,
+                  "uncertain": false
+                },
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "content_mode": "file",
+                    "status": "failed",
+                    "reader_version": "niuma-pdf-pages/1",
+                    "coverage_basis": "unverified",
+                    "coverage": {
+                      "complete": false,
+                      "truncated": false,
+                      "unread_locations": [
+                        "模型识别未完成，文件内容尚未可靠读取"
+                      ]
+                    },
+                    "quality": "normal",
+                    "quality_notes": []
+                  }
+                ]
+              }
+            ],
+            "tasks": [],
+            "errors": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "asset_id": null,
+                "block_id": null,
+                "stage": "recognize",
+                "code": "agent_timeout",
+                "message": "图片识别超时，可稍后重试。",
+                "retryable": true
+              },
+              {
+                "input_id": "synthetic:pdf-text",
+                "asset_id": "asset-001",
+                "block_id": null,
+                "stage": "read",
+                "code": "file_read_failed",
+                "message": "附件读取未完成，请检查文件后重试。",
+                "retryable": true
+              }
+            ]
+          },
+          "elapsed_seconds": 45.38,
+          "passed": false
+        }
+      ]
+    }
+  ],
+  "current_runs": [
+    {
+      "tested_at": "2026-10-06T12:15:42.576088+00:00",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "scope": "Generated PDF pages only; not private documents or WeChat integration.",
+      "results": [
+        {
+          "case": "pdf-text",
+          "synthetic_pages": [
+            "Synthetic assignment PDF-T1\nSubmit the experiment review by October 15, 2026 at 17:00.\nPlease finish as soon as possible."
+          ],
+          "expected": {
+            "pages": [
+              "Synthetic assignment PDF-T1\nSubmit the experiment review by October 15, 2026 at 17:00.\nPlease finish as soon as possible."
+            ],
+            "deadline": "2026-10-15T17:00:00+08:00",
+            "deadline_page": 1
+          },
+          "pdf_sha256": "6cca1e1954578361969d646a7f65542829048cbafe99862a2254461a843909e4",
+          "request": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-text",
+            "records": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "text": "",
+                "text_quality": "missing",
+                "platform": "wechat",
+                "published_at": {
+                  "value": "2026-10-01T20:01:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "collected_at": "2026-10-01T20:05:00+08:00",
+                "timezone": "Asia/Shanghai",
+                "timezone_basis": "source",
+                "source_url": null,
+                "source_label": "合成课程群",
+                "source_item_id": "message-002",
+                "course_or_project": "合成测试课程",
+                "context": [],
+                "upstream_hints": null,
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "file_name": "pdf-text.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 1463,
+                    "sha256": "6cca1e1954578361969d646a7f65542829048cbafe99862a2254461a843909e4",
+                    "origin": "original",
+                    "original_published_at": {
+                      "value": "2026-10-01",
+                      "precision": "date",
+                      "basis": "source"
+                    },
+                    "status": "available",
+                    "errors": [],
+                    "content_mode": "file",
+                    "file_ref": "asset:synthetic_asset_001_001"
+                  }
+                ]
+              }
+            ]
+          },
+          "raw_draft": "{\"tasks\":[{\"title\":\"完成并提交实验报告（Synthetic assignment PDF-T1）\",\"description\":\"PDF 第 1 页给出课程行动要求：提交实验报告（experiment review），截止 2026 年 10 月 15 日 17:00，并催促尽快完成。“尽快”为催促语，不影响准确截止时间。\",\"prerequisites\":[],\"course_or_project\":\"合成测试课程\",\"course_basis\":\"provided\",\"notice_type\":\"create\",\"target_reference\":null,\"deadline\":{\"value\":\"2026-10-15T17:00:00+08:00\",\"precision\":\"datetime\",\"timezone\":\"Asia/Shanghai\",\"kind\":\"deadline\",\"status\":\"explicit\",\"raw\":\"October 15, 2026 at 17:00\",\"basis\":\"PDF 第 1 页明确写出 “Submit the experiment review by October 15, 2026 at 17:00.”，含完整日期与时间，按记录时区 Asia/Shanghai 归一化。\",\"alternatives\":[]},\"review_reasons\":[],\"evidence\":[{\"input_id\":\"synthetic:pdf-text\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Synthetic assignment PDF-T1\",\"locator\":{\"page\":1,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\"]},{\"input_id\":\"synthetic:pdf-text\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Submit the experiment review by October 15, 2026 at 17:00.\",\"locator\":{\"page\":1,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\",\"deadline\"]}]}],\"image_quality\":[{\"asset_id\":\"asset-001\",\"quality\":\"normal\",\"quality_notes\":[]}]}",
+          "result": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-text",
+            "status": "success",
+            "record_results": [
+              {
+                "input_id": "synthetic:pdf-text",
+                "status": "success",
+                "task_ids": [
+                  "media:0fca19e4e97e1873cab35108:1"
+                ],
+                "warnings": [],
+                "coverage": {
+                  "complete": true,
+                  "uncertain": false
+                },
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "content_mode": "file",
+                    "status": "complete",
+                    "reader_version": "niuma-pdf-pages/1",
+                    "coverage_basis": "adapter_confirmed",
+                    "coverage": {
+                      "complete": true,
+                      "truncated": false,
+                      "unread_locations": []
+                    },
+                    "quality": "normal",
+                    "quality_notes": []
+                  }
+                ]
+              }
+            ],
+            "tasks": [
+              {
+                "title": "完成并提交实验报告（Synthetic assignment PDF-T1）",
+                "description": "PDF 第 1 页给出课程行动要求：提交实验报告（experiment review），截止 2026 年 10 月 15 日 17:00，并催促尽快完成。“尽快”为催促语，不影响准确截止时间。",
+                "prerequisites": [],
+                "course_or_project": "合成测试课程",
+                "course_basis": "provided",
+                "notice_type": "create",
+                "target_reference": null,
+                "deadline": {
+                  "value": "2026-10-15T17:00:00+08:00",
+                  "precision": "datetime",
+                  "timezone": "Asia/Shanghai",
+                  "kind": "deadline",
+                  "status": "explicit",
+                  "raw": "October 15, 2026 at 17:00",
+                  "basis": "PDF 第 1 页明确写出 “Submit the experiment review by October 15, 2026 at 17:00.”，含完整日期与时间，按记录时区 Asia/Shanghai 归一化。",
+                  "alternatives": []
+                },
+                "review_reasons": [
+                  "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+                ],
+                "evidence": [
+                  {
+                    "input_id": "synthetic:pdf-text",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "Synthetic assignment PDF-T1",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title"
+                    ]
+                  },
+                  {
+                    "input_id": "synthetic:pdf-text",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "Submit the experiment review by October 15, 2026 at 17:00.",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title",
+                      "description",
+                      "deadline"
+                    ]
+                  }
+                ],
+                "candidate_id": "media:0fca19e4e97e1873cab35108:1",
+                "input_id": "synthetic:pdf-text",
+                "sources": [
+                  {
+                    "input_id": "synthetic:pdf-text",
+                    "platform": "wechat",
+                    "url": null,
+                    "label": "合成课程群",
+                    "source_item_id": "message-002"
+                  }
+                ],
+                "needs_review": true
+              }
+            ],
+            "errors": []
+          },
+          "elapsed_seconds": 8.5,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "tested_at": "2026-10-06T12:16:40.954416+00:00",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "scope": "Generated PDF pages only; not private documents or WeChat integration.",
+      "results": [
+        {
+          "case": "pdf-zh-cross-page",
+          "synthetic_pages": [
+            [
+              "合成作业 PDF-C2",
+              "请完成实验1、2的回顾并提交实验报告。",
+              "提交期限见下一页。"
+            ],
+            [
+              "合成作业 PDF-C2（续页）",
+              "本实验报告请于10月16日18:00前提交。",
+              "请大家尽快完成。"
+            ]
+          ],
+          "expected": {
+            "pages": [
+              [
+                "合成作业 PDF-C2",
+                "请完成实验1、2的回顾并提交实验报告。",
+                "提交期限见下一页。"
+              ],
+              [
+                "合成作业 PDF-C2（续页）",
+                "本实验报告请于10月16日18:00前提交。",
+                "请大家尽快完成。"
+              ]
+            ],
+            "deadline": "2026-10-16T18:00:00+08:00",
+            "deadline_page": 2
+          },
+          "pdf_sha256": "78cc22f2e761e5e954e1760fc6fb5ddb1a0dd860e8ec3e84ad1a01ea82b1b08a",
+          "request": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-cross-page",
+            "records": [
+              {
+                "input_id": "synthetic:pdf-zh-cross-page",
+                "text": "",
+                "text_quality": "missing",
+                "platform": "wechat",
+                "published_at": {
+                  "value": "2026-10-01T20:01:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "collected_at": "2026-10-01T20:05:00+08:00",
+                "timezone": "Asia/Shanghai",
+                "timezone_basis": "source",
+                "source_url": null,
+                "source_label": "合成课程群",
+                "source_item_id": "message-002",
+                "course_or_project": "合成测试课程",
+                "context": [],
+                "upstream_hints": null,
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "file_name": "pdf-zh-cross-page.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 39903,
+                    "sha256": "78cc22f2e761e5e954e1760fc6fb5ddb1a0dd860e8ec3e84ad1a01ea82b1b08a",
+                    "origin": "original",
+                    "original_published_at": {
+                      "value": "2026-10-01",
+                      "precision": "date",
+                      "basis": "source"
+                    },
+                    "status": "available",
+                    "errors": [],
+                    "content_mode": "file",
+                    "file_ref": "asset:synthetic_asset_001_001"
+                  }
+                ]
+              }
+            ]
+          },
+          "raw_draft": "{\"tasks\": [{\"title\": \"完成实验1、2的回顾并提交实验报告（合成作业 PDF-C2）\", \"description\": \"按合成作业 PDF-C2 要求，完成实验1、2的回顾并提交实验报告；提交期限见作业第二页。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-16T18:00:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月16日18:00前\", \"basis\": \"附件第2页写“本实验报告请于10月16日18:00前提交”，原文仅省略年份；按该附件原始发布时间 2026-10-01（消息发布时间同为 2026-10-01）补为 2026 年，得 2026-10-16 18:00（Asia/Shanghai）。\", \"alternatives\": []}, \"review_reasons\": [], \"evidence\": [{\"input_id\": \"synthetic:pdf-zh-cross-page\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"合成作业 PDF-C2\", \"locator\": {\"page\": 1, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:pdf-zh-cross-page\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"请完成实验1、2的回顾并提交实验报告。\", \"locator\": {\"page\": 1, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:pdf-zh-cross-page\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"本实验报告请于10月16日18:00前提交。\", \"locator\": {\"page\": 2, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"deadline\", \"description\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+          "result": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-cross-page",
+            "status": "success",
+            "record_results": [
+              {
+                "input_id": "synthetic:pdf-zh-cross-page",
+                "status": "success",
+                "task_ids": [
+                  "media:eb49de883af2112211561dec:1"
+                ],
+                "warnings": [],
+                "coverage": {
+                  "complete": true,
+                  "uncertain": false
+                },
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "content_mode": "file",
+                    "status": "complete",
+                    "reader_version": "niuma-pdf-pages/1",
+                    "coverage_basis": "adapter_confirmed",
+                    "coverage": {
+                      "complete": true,
+                      "truncated": false,
+                      "unread_locations": []
+                    },
+                    "quality": "normal",
+                    "quality_notes": []
+                  }
+                ]
+              }
+            ],
+            "tasks": [
+              {
+                "title": "完成实验1、2的回顾并提交实验报告（合成作业 PDF-C2）",
+                "description": "按合成作业 PDF-C2 要求，完成实验1、2的回顾并提交实验报告；提交期限见作业第二页。",
+                "prerequisites": [],
+                "course_or_project": "合成测试课程",
+                "course_basis": "provided",
+                "notice_type": "create",
+                "target_reference": null,
+                "deadline": {
+                  "value": "2026-10-16T18:00:00+08:00",
+                  "precision": "datetime",
+                  "timezone": "Asia/Shanghai",
+                  "kind": "deadline",
+                  "status": "explicit",
+                  "raw": "10月16日18:00前",
+                  "basis": "附件第2页写“本实验报告请于10月16日18:00前提交”，原文仅省略年份；按该附件原始发布时间 2026-10-01（消息发布时间同为 2026-10-01）补为 2026 年，得 2026-10-16 18:00（Asia/Shanghai）。",
+                  "alternatives": []
+                },
+                "review_reasons": [
+                  "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+                ],
+                "evidence": [
+                  {
+                    "input_id": "synthetic:pdf-zh-cross-page",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "合成作业 PDF-C2",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title",
+                      "description"
+                    ]
+                  },
+                  {
+                    "input_id": "synthetic:pdf-zh-cross-page",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "请完成实验1、2的回顾并提交实验报告。",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title",
+                      "description"
+                    ]
+                  },
+                  {
+                    "input_id": "synthetic:pdf-zh-cross-page",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "本实验报告请于10月16日18:00前提交。",
+                    "locator": {
+                      "page": 2,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "deadline",
+                      "description"
+                    ]
+                  }
+                ],
+                "candidate_id": "media:eb49de883af2112211561dec:1",
+                "input_id": "synthetic:pdf-zh-cross-page",
+                "sources": [
+                  {
+                    "input_id": "synthetic:pdf-zh-cross-page",
+                    "platform": "wechat",
+                    "url": null,
+                    "label": "合成课程群",
+                    "source_item_id": "message-002"
+                  }
+                ],
+                "needs_review": true
+              }
+            ],
+            "errors": []
+          },
+          "elapsed_seconds": 15.19,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "tested_at": "2026-10-06T12:16:59.077098+00:00",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "scope": "Generated PDF pages only; not private documents or WeChat integration.",
+      "results": [
+        {
+          "case": "pdf-zh-page-limit",
+          "synthetic_pages": [
+            [
+              "合成作业 PDF-P3",
+              "请于10月17日18:00前提交读书报告。"
+            ],
+            [
+              "本页仅介绍课程背景，无行动要求。"
+            ],
+            [
+              "本页有另一项作业：10月20日前提交问卷。"
+            ]
+          ],
+          "expected": {
+            "pages": [
+              [
+                "合成作业 PDF-P3",
+                "请于10月17日18:00前提交读书报告。"
+              ],
+              [
+                "本页仅介绍课程背景，无行动要求。"
+              ],
+              [
+                "本页有另一项作业：10月20日前提交问卷。"
+              ]
+            ],
+            "deadline": "2026-10-17T18:00:00+08:00",
+            "deadline_page": 1,
+            "max_pages": 1
+          },
+          "pdf_sha256": "bca7b521766ee9cdb96d444d9126bff8d6546f2965983810c919b140c89dcf66",
+          "request": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-page-limit",
+            "records": [
+              {
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "text": "",
+                "text_quality": "missing",
+                "platform": "wechat",
+                "published_at": {
+                  "value": "2026-10-01T20:01:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "collected_at": "2026-10-01T20:05:00+08:00",
+                "timezone": "Asia/Shanghai",
+                "timezone_basis": "source",
+                "source_url": null,
+                "source_label": "合成课程群",
+                "source_item_id": "message-002",
+                "course_or_project": "合成测试课程",
+                "context": [],
+                "upstream_hints": null,
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "file_name": "pdf-zh-page-limit.pdf",
+                    "mime_type": "application/pdf",
+                    "size_bytes": 32588,
+                    "sha256": "bca7b521766ee9cdb96d444d9126bff8d6546f2965983810c919b140c89dcf66",
+                    "origin": "original",
+                    "original_published_at": {
+                      "value": "2026-10-01",
+                      "precision": "date",
+                      "basis": "source"
+                    },
+                    "status": "available",
+                    "errors": [],
+                    "content_mode": "file",
+                    "file_ref": "asset:synthetic_asset_001_001"
+                  }
+                ]
+              }
+            ]
+          },
+          "raw_draft": "{\"tasks\": [{\"title\": \"提交读书报告（合成作业 PDF-P3）\", \"description\": \"PDF 作业“合成作业 PDF-P3”要求提交读书报告，须在 10 月 17 日 18:00 前提交。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-17T18:00:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月17日18:00前\", \"basis\": \"图片仅写“10月17日18:00前”未标年份，依据该附件原始发布时间 2026-10-01 选最近合理年份，归一化为 2026-10-17T18:00:00+08:00。\", \"alternatives\": []}, \"review_reasons\": [{\"code\": \"year_completion\", \"message\": \"图片原文只写“10月17日18:00”未标年份，按附件原始发布时间 2026-10-01 的常规归一化补为 2026 年。\"}, {\"code\": \"other\", \"message\": \"该 PDF 本次仅发送并读取了第 1 页，第 2–3 页未读取，可能还含本任务的其他要求或期限，本任务范围可能不完整。\"}], \"evidence\": [{\"input_id\": \"synthetic:pdf-zh-page-limit\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"合成作业 PDF-P3\", \"locator\": {\"page\": 1, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:pdf-zh-page-limit\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"请于10月17日18:00前提交读书报告。\", \"locator\": {\"page\": 1, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\", \"deadline\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+          "result": {
+            "contract_version": "0.3.1",
+            "request_id": "synthetic-pdf-zh-page-limit",
+            "status": "partial_success",
+            "record_results": [
+              {
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "status": "partial_success",
+                "task_ids": [
+                  "media:1e89fe7faa6a80f7d055c9f7:1"
+                ],
+                "warnings": [
+                  "部分读取或识别失败，请核对剩余内容。"
+                ],
+                "coverage": {
+                  "complete": false,
+                  "uncertain": false
+                },
+                "attachments": [
+                  {
+                    "asset_id": "asset-001",
+                    "content_mode": "file",
+                    "status": "partial",
+                    "reader_version": "niuma-pdf-pages/1",
+                    "coverage_basis": "adapter_confirmed",
+                    "coverage": {
+                      "complete": false,
+                      "truncated": true,
+                      "unread_locations": [
+                        "第 2–3 页未读取"
+                      ]
+                    },
+                    "quality": "normal",
+                    "quality_notes": []
+                  }
+                ]
+              }
+            ],
+            "tasks": [
+              {
+                "title": "提交读书报告（合成作业 PDF-P3）",
+                "description": "PDF 作业“合成作业 PDF-P3”要求提交读书报告，须在 10 月 17 日 18:00 前提交。",
+                "prerequisites": [],
+                "course_or_project": "合成测试课程",
+                "course_basis": "provided",
+                "notice_type": "create",
+                "target_reference": null,
+                "deadline": {
+                  "value": "2026-10-17T18:00:00+08:00",
+                  "precision": "datetime",
+                  "timezone": "Asia/Shanghai",
+                  "kind": "deadline",
+                  "status": "explicit",
+                  "raw": "10月17日18:00前",
+                  "basis": "图片仅写“10月17日18:00前”未标年份，依据该附件原始发布时间 2026-10-01 选最近合理年份，归一化为 2026-10-17T18:00:00+08:00。",
+                  "alternatives": []
+                },
+                "review_reasons": [
+                  "图片原文只写“10月17日18:00”未标年份，按附件原始发布时间 2026-10-01 的常规归一化补为 2026 年。",
+                  "该 PDF 本次仅发送并读取了第 1 页，第 2–3 页未读取，可能还含本任务的其他要求或期限，本任务范围可能不完整。",
+                  "图片引文由模型读取，尚未经原文逐字核对，请确认。",
+                  "部分内容缺失或可读性不确定，请核对原件。"
+                ],
+                "evidence": [
+                  {
+                    "input_id": "synthetic:pdf-zh-page-limit",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "合成作业 PDF-P3",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title",
+                      "description"
+                    ]
+                  },
+                  {
+                    "input_id": "synthetic:pdf-zh-page-limit",
+                    "field": "attachment_file",
+                    "asset_id": "asset-001",
+                    "quote": "请于10月17日18:00前提交读书报告。",
+                    "locator": {
+                      "page": 1,
+                      "paragraph": null,
+                      "bbox": null
+                    },
+                    "verification": "model_reported",
+                    "supports": [
+                      "title",
+                      "description",
+                      "deadline"
+                    ]
+                  }
+                ],
+                "candidate_id": "media:1e89fe7faa6a80f7d055c9f7:1",
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "sources": [
+                  {
+                    "input_id": "synthetic:pdf-zh-page-limit",
+                    "platform": "wechat",
+                    "url": null,
+                    "label": "合成课程群",
+                    "source_item_id": "message-002"
+                  }
+                ],
+                "needs_review": true
+              }
+            ],
+            "errors": [
+              {
+                "input_id": "synthetic:pdf-zh-page-limit",
+                "asset_id": "asset-001",
+                "block_id": null,
+                "stage": "read",
+                "code": "limit_exceeded",
+                "message": "附件或本次处理超过限制，请拆分或减小输入。",
+                "retryable": false
+              }
+            ]
+          },
+          "elapsed_seconds": 17.78,
+          "passed": true
+        }
+      ]
+    }
+  ],
+  "note": "Two initial English PDF calls timed out at 45 seconds. Prepared-page status in the prompt was corrected; all three final cases passed. These observations do not prove that every timeout was caused by the prompt.",
+  "current_passed": true
+}
