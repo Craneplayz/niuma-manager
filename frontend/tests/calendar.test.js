@@ -3,6 +3,29 @@ import assert from 'node:assert/strict';
 import {calendarClick,calendarStep,calendarPage,calendarToday} from '../src/team-calendar-ui.js';
 import {dayKey} from '../src/data.js';
 
+test('completed future plans leave the calendar while history and active tasks remain',()=>{
+ const originalAnimationFrame=globalThis.requestAnimationFrame;
+ globalThis.requestAnimationFrame=()=>0;
+ try{
+  const date=dayKey(),now=Date.parse(date+'T12:00:00+08:00');
+  const state={tasks:[{id:'done',status:'done'},{id:'active',status:'todo'}],schedule:[
+   {id:'history',taskId:'done',date,start:10,hours:1,label:'历史安排'},
+   {id:'ongoing',taskId:'done',date,start:12,hours:1,label:'已开始安排'},
+   {id:'unused',taskId:'done',date,start:19,hours:1,label:'已完成未来安排'},
+   {id:'active-plan',taskId:'active',date,start:19,hours:1,label:'未完成安排'}]};
+  const original=structuredClone(state),originalNow=Date.now;Date.now=()=>now;
+  try{
+   for(const view of ['day','week','month']){
+    calendarClick({dataset:{calendarView:view}},()=>{});
+    const html=calendarPage(state,0);
+    assert.doesNotMatch(html,/data-schedule-id="unused"/);
+    for(const id of ['history','ongoing','active-plan'])assert.ok(html.includes(`data-schedule-id="${id}"`),view);
+   }
+   assert.deepEqual(state,original);
+  }finally{Date.now=originalNow;}
+ }finally{globalThis.requestAnimationFrame=originalAnimationFrame;}
+});
+
 test('month navigation from the 31st reaches the immediately adjacent month',()=>{
  const RealDate=Date;
  globalThis.Date=class extends RealDate {constructor(...args){super(...(args.length?args:['2026-01-31T12:00:00']));}};

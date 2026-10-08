@@ -23,12 +23,17 @@ from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter
 from ddl_text.pipeline import process_request
 from ddl_text.provider import make_client
+from ddl_text.policy_version import text_policy_manifest, COMPONENTS, ROOT as POLICY_ROOT
 
 _ACTIVE = threading.Lock()
+_EXECUTION = threading.local()
+_POLICY_COMPONENTS = {name:hashlib.sha256((POLICY_ROOT/name).read_text(encoding='utf-8-sig').replace('\r\n','\n').replace('\r','\n').encode()).hexdigest()
+                      for name in COMPONENTS}
 
 
 def recognize(request, ApiError):
     """Share one bounded recognition slot across accounts and transports."""
+    _EXECUTION.policy = None
     if not _ACTIVE.acquire(blocking=False):
         raise ApiError(503, '文本识别正在处理其他请求，请稍后重试')
     try:
@@ -58,6 +63,13 @@ def recognize(request, ApiError):
         except (OSError, ValueError, TypeError, KeyError):
             raise ApiError(503, '文本识别配置不可用，请检查仓库根目录 .env 中的模型配置与密钥') from None
         try:
+            policy = text_policy_manifest(settings,provider='qiniu' if options['provider']=='qiniu' else 'codex')
+            if policy['components'] != _POLICY_COMPONENTS:
+                raise ValueError('policy_changed_after_startup')
+        except (OSError,ValueError,KeyError,TypeError):
+            raise ApiError(503,'识别规则与当前进程不一致，请重启后端后重试') from None
+        _EXECUTION.policy = policy
+        try:
             return process_request(request, adapter, settings, budget_seconds=90)
         except Exception:
             raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
@@ -69,6 +81,7 @@ def initialize(db):
     db.executescript('''
     CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
+    CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
 
 def batches(db,uid):
@@ -136,7 +149,9 @@ def route(handler,db,uid,path,body,ApiError):
             if not request['records']:
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
             else:
+                _EXECUTION.policy = None
                 result=recognize(extraction_request,ApiError)
+        policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
         try:
             result=validate_result(extraction_request,result)
             new_tasks=list(result['tasks'])
@@ -161,9 +176,15 @@ def route(handler,db,uid,path,body,ApiError):
             if previous is not None and json.loads(row['result'])==previous:
                 db.execute('UPDATE recognition_batches SET result=? WHERE user_id=? AND request_id=?',(json.dumps(result),uid,request['request_id']))
                 for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+                for record in extraction_request['records']:
+                    db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
+                        (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         else:
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+            for record in request['records']:
+                db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
+                    (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         handler.reply(200,batches(db,uid));return True
     if path.startswith('/api/recognition/candidates/') and path.endswith('/resolve') and handler.command=='POST':
         cid=path.split('/')[-2]

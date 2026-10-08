@@ -88,7 +88,7 @@ class MediaTests(unittest.TestCase):
         self.assertNotIn('PRIVATE-PATH', json.dumps(result))
 
     def test_document_reader_is_explicitly_unsupported_without_loading(self):
-        self.request['records'][0]['attachments'][0].update(mime_type='application/pdf', file_name='task.pdf')
+        self.request['records'][0]['attachments'][0].update(mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document', file_name='task.docx')
         draft = self.text_task()
         def forbidden(*args, **kwargs):
             self.fail('unsupported reader must not load bytes')
@@ -271,7 +271,7 @@ class MediaTests(unittest.TestCase):
             record['attachments'].append(asset); files[asset['file_ref']] = data
         _, errors, pictures = _prepare(record, lambda ref, **_: files[ref],
                                       MediaLimits(model_input_bytes=1000), time.monotonic() + 20)
-        self.assertEqual([identifier for identifier, _ in pictures], ['image-0', 'image-2'])
+        self.assertEqual([picture[0] for picture in pictures], ['image-0', 'image-2'])
         self.assertEqual([(e['asset_id'], e['code']) for e in errors], [('image-1', 'limit_exceeded')])
 
     def test_aggregate_result_limit_keeps_earlier_successful_record(self):
