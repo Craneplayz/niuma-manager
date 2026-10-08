@@ -45,12 +45,13 @@ describe("teacher attachment acquisition", () => {
     expect(result.text_quality).toBe("complete");
     expect(toRecognitionRequests([result])[0].records[0].upstream_hints.references[0].text).toContain("2026-12-31");
   });
+  // Two isolated parsers can each take up to 15s, including cold startup on Windows.
   it("reads an actual text PDF and keeps a blank/scanned page partial", async () => {
     const complete = await extractAttachmentText(pdf("Submit by 2026-12-31."), "pdf");
     expect(complete.text).toContain("Submit by 2026-12-31.");
     expect(complete.partial).toBe(false);
     expect((await extractAttachmentText(pdf("Submit report.", true), "pdf")).partial).toBe(true);
-  });
+  }, 35_000);
   it("parses the same real PDF repeatedly without taking down the caller", async () => {
     const file = pdf("Submit by 2026-12-31.");
     for (let i = 0; i < 10; i++) {
@@ -109,7 +110,7 @@ describe("teacher attachment acquisition", () => {
     const record = toRecognitionRequests([result])[0].records[0];
     expect(record.text_quality).toBe("partial");
     expect(JSON.stringify(record)).not.toContain("SYNTHETIC_EMBEDDED_INSTRUCTIONS");
-  });
+  }, 35_000);
   it.each(["stencil", "bad-image", "image", "repeated-image"] as const)("keeps %s graphics/degraded PDFs partial through the real worker and export", async (visual) => {
     const file = pdf("Submit report by 2026-12-31.", false, visual);
     const extracted = await extractAttachmentText(file, "pdf");
@@ -119,7 +120,7 @@ describe("teacher attachment acquisition", () => {
     expect(result.text_quality).toBe("partial");
     expect(result.references[0]).toMatchObject({ content_read: false, read_status: "partial", reason: "partial_pdf" });
     expect(toRecognitionRequests([result])[0].records[0].text_quality).toBe("partial");
-  });
+  }, 35_000);
   it("does not let an ambiguous label poison a later known format on the same URL", async () => {
     const href = "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-content-rid-2/xid-2_1";
     const read = vi.fn().mockResolvedValue(pdf("Submit report."));
@@ -128,7 +129,7 @@ describe("teacher attachment acquisition", () => {
     expect(known.references[0]).toMatchObject({ read_status: "complete", content_read: true });
     expect(known.body).toContain("Submit report.");
     expect(read).toHaveBeenCalledOnce();
-  });
+  }, 20_000);
   it("does not reuse a format-specific failure for a different format", async () => {
     const href = "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-content-rid-2/xid-2_1";
     const read = vi.fn().mockResolvedValue(pdf("Submit report."));
@@ -137,7 +138,7 @@ describe("teacher attachment acquisition", () => {
     expect(known.references[0].read_status).toBe("complete");
     expect(repeated.references[0]).toMatchObject({ read_status: "complete", label: "Same.pdf" });
     expect(read).toHaveBeenCalledTimes(2);
-  });
+  }, 20_000);
   it("caches repeated attachments across records within one run", async () => {
     const read = vi.fn().mockResolvedValue(textFile("Submit report."));
     await enrichSourceAttachments([source(), source()], read);
@@ -164,7 +165,7 @@ describe("teacher attachment acquisition", () => {
     expect(records[1].text_quality).toBe(format === "txt" ? "complete" : "partial");
     expect(records[3].text).toContain("SYNTHETIC_REQUIRED_DEADLINE");
     expect(read).toHaveBeenCalledOnce();
-  });
+  }, 20_000);
   it("keeps ZIP and external links unread without making a request", async () => {
     const read = vi.fn();
     const results = await enrichSourceAttachments([source("HW1.zip", url.replace("txt", "zip")), source("HW1.txt", "https://evil.test/HW1.txt")], read);
