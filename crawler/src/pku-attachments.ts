@@ -1,5 +1,5 @@
 import { request } from "node:https";
-import { Worker } from "node:worker_threads";
+import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import type { BrowserContext } from "playwright";
@@ -86,19 +86,22 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
     return { text, partial: false };
   }
   if (new TextDecoder().decode(file.bytes.slice(0, 5)) !== "%PDF-") throw new ReadFailure("parse_failed");
-  // Parse untrusted files in a bounded worker so a broken PDF cannot stall the sync.
+  // Native PDF dependencies must live outside the crawler process (including Vitest threads).
+  // Wait for cleanup and process exit; a native crash can then only fail this attachment.
   return new Promise((resolve, reject) => {
-    const worker = new Worker(`
-      const { parentPort, workerData } = require("node:worker_threads");
+    const parser = spawn(process.execPath, ["--max-old-space-size=128", "--max-semi-space-size=16", "--input-type=commonjs", "--eval", `
       (async () => {
-        const { getDocument, OPS } = await import(workerData.module);
+        const chunks = [];
+        for await (const chunk of process.stdin) chunks.push(chunk);
+        const bytes = new Uint8Array(Buffer.concat(chunks));
+        const { getDocument, OPS } = await import(process.argv[1]);
         let degraded = false;
         console.warn = () => { degraded = true; };
         console.info = (message) => {
           // PDF.js also logs successful page timings; these are not recovery diagnostics.
           if (!/^Info: page=\\d+ - get(?:TextContent|OperatorList): time=\\d+ms(?:, len=\\d+)?$/.test(String(message))) degraded = true;
         };
-        const loading = getDocument({ data: workerData.bytes, isEvalSupported: false, useSystemFonts: true, stopAtErrors: true, verbosity: 5 });
+        const loading = getDocument({ data: bytes, isEvalSupported: false, useSystemFonts: true, stopAtErrors: true, verbosity: 5 });
         // Unknown graphics must not be mistaken for text just because extraction returned words.
         const textOnlyOps = new Set([
           "dependency", "save", "restore", "transform", "setLineWidth", "setLineCap", "setLineJoin", "setMiterLimit", "setDash", "setRenderingIntent", "setFlatness",
@@ -125,19 +128,31 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
           }
           const text = pages.join("\\n\\n").trim();
           if (!text) throw new Error("empty_text");
-          parentPort.postMessage({ text, partial: partial || degraded });
+          return { text, partial: partial || degraded };
         } finally { await loading.destroy(); }
-      })().catch((error) => parentPort.postMessage({ reason: ["too_large", "empty_text"].includes(error.message) ? error.message : "parse_failed" }));
-    `, { eval: true, workerData: { bytes: file.bytes, module: pathToFileURL(createRequire(import.meta.url).resolve("pdfjs-dist/legacy/build/pdf.mjs")).href }, resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32 } });
-    const timer = setTimeout(() => { void worker.terminate(); reject(new ReadFailure("parse_failed")); }, 15_000);
-    worker.once("message", (result: { text: string; partial: boolean; reason?: string }) => {
+      })().catch((error) => ({ reason: ["too_large", "empty_text"].includes(error.message) ? error.message : "parse_failed" }))
+        .then((result) => process.send(result, (error) => {
+          if (error) process.exitCode = 1;
+          process.disconnect();
+        }));
+    `, pathToFileURL(createRequire(import.meta.url).resolve("pdfjs-dist/legacy/build/pdf.mjs")).href], {
+      stdio: ["pipe", "ignore", "ignore", "ipc"],
+      windowsHide: true,
+    });
+    let result: { text: string; partial: boolean; reason?: string } | undefined;
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; parser.kill(); }, 15_000);
+    parser.once("message", (message) => { result = message as typeof result; });
+    parser.once("error", () => { clearTimeout(timer); reject(new ReadFailure("parse_failed")); });
+    parser.once("close", (code) => {
       clearTimeout(timer);
-      void worker.terminate();
-      if (result.reason) reject(new ReadFailure(result.reason));
+      if (timedOut || code !== 0 || !result) reject(new ReadFailure("parse_failed"));
+      else if (result.reason) reject(new ReadFailure(result.reason));
       else resolve(result);
     });
-    worker.once("error", () => { clearTimeout(timer); reject(new ReadFailure("parse_failed")); });
-    worker.once("exit", (code) => { clearTimeout(timer); if (code !== 0) reject(new ReadFailure("parse_failed")); });
+    // A child crash may close stdin before all bytes are written; close handles the failure.
+    parser.stdin!.on("error", () => {});
+    parser.stdin!.end(file.bytes);
   });
 }
 

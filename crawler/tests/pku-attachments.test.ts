@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { enrichSourceAttachments, extractAttachmentText, isTeacherAttachmentUrl, MAX_ATTACHMENT_BYTES } from "../src/pku-attachments.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
@@ -50,6 +51,53 @@ describe("teacher attachment acquisition", () => {
     expect(complete.partial).toBe(false);
     expect((await extractAttachmentText(pdf("Submit report.", true), "pdf")).partial).toBe(true);
   });
+  it("parses the same real PDF repeatedly without taking down the caller", async () => {
+    const file = pdf("Submit by 2026-12-31.");
+    for (let i = 0; i < 10; i++) {
+      expect(await extractAttachmentText(file, "pdf")).toEqual({ text: "Submit by 2026-12-31.", partial: false });
+    }
+  }, 30_000);
+  it("also completes consecutive PDF parses in a standalone Node caller outside Vitest", () => {
+    const script = `
+      import { readFileSync } from "node:fs";
+      const { extractAttachmentText } = await import(${JSON.stringify(new URL("../src/pku-attachments.ts", import.meta.url).href)});
+      const file = { bytes: new Uint8Array(readFileSync(0)), contentType: "application/pdf" };
+      for (let i = 0; i < 10; i++) {
+        const result = await extractAttachmentText(file, "pdf");
+        if (result.text !== "Submit by 2026-12-31." || result.partial) throw new Error("wrong PDF result");
+      }
+      console.log("10 consecutive PDF parses passed");
+    `;
+    const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", script], {
+      cwd: new URL("../", import.meta.url), input: pdf("Submit by 2026-12-31.").bytes, encoding: "utf8", timeout: 30_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.signal).toBeNull();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("10 consecutive PDF parses passed");
+  }, 35_000);
+  it("exports multiple distinct PDFs and continues after a broken PDF", async () => {
+    const sources = ["First", "Broken", "Second", "Third"].map((name, index) => ({
+      ...source(`${name}.pdf`, url.replace("HW1.txt", `${name}.pdf`)), input_id: `synthetic:pdf-sequence:${index}`,
+    }));
+    const read = vi.fn(async (href: string) => href.includes("Broken")
+      ? { bytes: new TextEncoder().encode("%PDF-1.4\nnot a valid PDF"), contentType: "application/pdf" }
+      : pdf(href.includes("First") ? "Submit first." : href.includes("Second") ? "Submit second." : "Submit third."));
+    const results = await enrichSourceAttachments(sources, read);
+    expect(read).toHaveBeenCalledTimes(4);
+    expect(results[1].references[0]).toMatchObject({ read_status: "failed", reason: "parse_failed", content_read: false });
+    for (const index of [0, 2, 3]) {
+      expect(results[index].references[0]).toMatchObject({ read_status: "complete", reason: null, content_read: true });
+    }
+    const records = toRecognitionRequests(results)[0].records;
+    expect(records[0].text).toContain("Submit first.");
+    expect(records[2].text).toContain("Submit second.");
+    expect(records[3].text).toContain("Submit third.");
+  }, 30_000);
+  it("can parse independent PDFs concurrently without sharing native parser state", async () => {
+    const results = await Promise.all(["First", "Second", "Third"].map((name) => extractAttachmentText(pdf(`Submit ${name}.`), "pdf")));
+    expect(results).toEqual(["First", "Second", "Third"].map((name) => ({ text: `Submit ${name}.`, partial: false })));
+  }, 30_000);
   it("keeps document-level embedded files unread through the real PDF worker and export", async () => {
     const file = pdf("Submit report; see embedded file.", false, undefined, true);
     const extracted = await extractAttachmentText(file, "pdf");
