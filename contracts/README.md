@@ -3,6 +3,12 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── requirements-teaching-dev.txt     # 教学网草案校验依赖，不用于业务运行
+├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
+├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
+├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
+├── tests/test_teaching_review_draft.py # 草案证据、身份绑定、边界与反例检查
+├── docs/teaching-review-v0.4-draft.md  # #108/#109 阶段 A 的字段及接入边界
 ├── task-planning/                   # 业务排程及重新规划的请求、回应和确认语义
 ├── task-decomposition/              # AI 拆解公开 v0.1 请求、回应 Schema 及合成样例
 ├── requirements-dev.txt              # 离线契约校验依赖，不加入应用运行依赖
@@ -54,6 +60,8 @@ contracts/
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
+教学网 #108/#109 的新增覆盖/学期规则见 [v0.4-draft.1 政策组件](docs/teaching-review-v0.4-draft.md)；仅供审查和离线验证，不是新 API，不改变以下 v0.2 运行契约，也不放宽 PR #98 的 v0.3.1 文件审核规则。
+
 - 来源模块按 [输入样例](source-to-text/text-frontend-v02-request.json) 提供原文及元数据，文本模块接收完整 v0.2 请求。
 - `platform` 标明来源：教学网 `teaching_web`、微信 `wechat` 的结果可直接进日历；对话框手动输入一律填 `manual`，结果须用户确认。`unknown` 已停用，新代码不得再送；旧数据中的 `unknown` 按 `manual` 处理。
 - 文本模块输出 [候选结果](text-to-app/text-frontend-v02-output.json)，后端校验保存候选，前端供用户核对后确认成任务。

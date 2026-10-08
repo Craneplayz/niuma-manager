@@ -1,6 +1,6 @@
 import {icon} from './icons.js';
 import {pageIntro} from './story-layout.js';
-import {dayKey} from './data.js';
+import {dayKey,occupiedSchedule} from './data.js';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let view='week',selectedDay=dayKey();
 const pad=n=>String(n).padStart(2,'0');
@@ -9,6 +9,7 @@ const dateAt=(date,days)=>{const result=new Date(date+'T12:00:00');result.setDat
 const monday=date=>{const d=new Date(date+'T12:00:00');return dateAt(date,-((d.getDay()+6)%7));};
 const hour=n=>pad(Math.floor(n))+':'+pad(Math.round((n%1)*60));
 export function calendarPage(state,week){
+ state={...state,schedule:occupiedSchedule(state.schedule,state.tasks)};
  const current=dayKey(),start=dateAt(monday(current),week*7);
  const dates=view==='day'?[selectedDay]:view==='week'?Array.from({length:7},(_,i)=>dateAt(start,i)):Array.from({length:42},(_,i)=>dateAt(monday(selectedDay.slice(0,7)+'-01'),i));
  const ddl=state.tasks.filter(t=>t.status!=='done'&&t.due);

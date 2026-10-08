@@ -238,7 +238,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not pending: raise ApiError(400,'没有需要规划的任务')
                 now=datetime.now(TZ)
                 replace_plans={t['id']:[p['id'] for p in t['plans'] if datetime.fromisoformat(p['startAt'])>now] for t in pending if replan and t.get('due')}
-                existing=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans'] if p['id'] not in replace_plans.get(t['id'],[])]
+                existing=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']
+                          if p['id'] not in replace_plans.get(t['id'],[]) and (t['status']!='completed' or datetime.fromisoformat(p['startAt'])<=now)]
                 pending=[dict(t,plans=[p for p in t['plans'] if p['id'] not in replace_plans.get(t['id'],[])]) for t in pending]
                 payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=now.isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=existing,availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
