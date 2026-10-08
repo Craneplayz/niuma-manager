@@ -28,8 +28,10 @@ ddl_text/
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
-├── teaching_draft.py     # #108/#109 待审政策的内部教学网识别预览，不是 HTTP API
-├── teaching_requirements.txt # 可选教学网政策预览/测试依赖，复用共享契约版本
+├── teaching_draft.py     # 教学网内部模型草稿、逐任务证据和历史规则编译
+├── teaching_pipeline.py  # 显式 v0.4 批次调用、逐条失败和消费端复核
+├── teaching_policy.py    # 教学网实际运行规则和模型配置的独立版本
+├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
 │   ├── teaching-task-extraction/
@@ -64,6 +66,7 @@ ddl_text/
 │   ├── test_policy_version.py # 版本稳定性、变更与回归输入校验
 │   ├── teaching_cases.py  # 从共享政策样例派生的内部/真实合成测试输入
 │   ├── test_teaching_draft.py # 覆盖、学期、历史、信任及超时回归
+│   ├── test_teaching_pipeline.py # 共享批次样例、失败隔离、消费复核与版本回归
 │   ├── run_teaching_smoke.py # 显式调用当前模型的合成教学网政策预览
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
@@ -84,7 +87,7 @@ ddl_text/
     ├── api-setup.md      # 供应商配置及故障定位
     ├── image-input.md    # v0.3.1 图片入口、受限读取回调和预算说明
     ├── policy-version.md # #112 规则版本使用方式与后端重识别交接
-    ├── teaching-draft.md # 待审教学网适配的调用方式、信任边界和接入依赖
+    ├── teaching-draft.md # 教学网 v0.4 调用、信任边界、策略版本和接入依赖
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
         ├── 2026-10-06-issue94-images.json # 最初五组生成图片的真实模型输入、草稿与输出
         ├── 2026-10-06-issue94-chinese-images.json # 五组中文合成图片的真实输入、草稿与输出

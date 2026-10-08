@@ -1,2 +1,2 @@
-# Optional draft adapter dependency; production v0.2 remains standard-library only.
+# Optional teaching v0.4 entry and policy validation; v0.2 does not import these.
 -r ../contracts/requirements-teaching-dev.txt

@@ -1,6 +1,6 @@
-"""Experimental #108/#109 policy preview over the pending #114 component.
+"""Internal model compilation over the approved #114 evidence-policy component.
 
-This is a Python-only consumer, NOT a v0.2/v0.4 HTTP contract or auto-inserter.
+The public opt-in batch envelope is in teaching_pipeline; this is not an HTTP route.
 The caller owns authenticated snapshot resolution; JSON cannot grant trust.
 """
 

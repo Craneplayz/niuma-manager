@@ -1,34 +1,51 @@
-# 教学网政策识别预览
+# 教学网 v0.4 识别入口
 
-`teaching_draft.py` 消费 PR #114 的 `0.4-draft.1` 配对组件，完成 #108/#109 的内部模型草稿、逐任务附件依赖、学期补年及 F3 历史检查；尚不是正式 v0.4 请求/结果接口。
-
-先安装可选依赖：`python -m pip install -r ddl_text/teaching_requirements.txt`。旧服务不导入此模块。
+`teaching_pipeline.process_teaching_request` 提供 #108/#109 的独立批次入口，消费 [共享 v0.4 契约](../../contracts/docs/teaching-v0.4.md)，不修改已有 v0.2 HTTP 路由；部署前须安装 `python -m pip install -r ddl_text/teaching_requirements.txt`。
 
 ```python
-from ddl_text.config import Settings
 from ddl_text.chat_client import ChatClient
-from ddl_text.teaching_draft import process_teaching_draft
+from ddl_text.config import Settings
+from ddl_text.teaching_pipeline import process_teaching_request, validate_teaching_result
+from ddl_text.teaching_policy import teaching_policy_manifest
 
-preview = process_teaching_draft(
-    record, client=ChatClient(key),
-    settings=Settings(mode="real", model=model, endpoint=endpoint,
-                      timeout_seconds=45, max_retries=0),
-    source_verified=False,
+# request 和 verified_digests 由后端从当前账号的受控采集快照恢复。
+# 不得直接对客户端提交的任意 JSON 计算 digest 并授予信任。
+settings = Settings(mode="real", model=model, endpoint=endpoint,
+                    timeout_seconds=45, max_retries=0)
+manifest = teaching_policy_manifest(settings)  # 与实际作业配置一致，保存到后端运行记录
+result = process_teaching_request(
+    request, client=ChatClient(key), settings=settings,
+    verified_snapshot_digests=verified_digests, budget_seconds=90,
 )
+if result["policy_version"] != manifest["version"]:
+    raise ValueError("运行策略版本不一致")
+validate_teaching_result(request, result, verified_snapshot_digests=verified_digests)
 ```
 
-`record` 使用共享政策 Schema 中的 record；输入在模型调用前校验。当前实现使用 `complete_json` 客户端协议（七牛 ChatClient 支持），不经旧 v0.2 草稿 schema，也不调用 Codex。模型调用在限时子进程中执行，一次预览只尝试一次，不自动重试。
+每条记录只尝试一次，限时子进程负责终止卡住的调用；批次默认预算 90 秒、最多 180 秒，每次调用上限为配置超时与剩余预算的较小值；失败保留该记录错误，其他成功结果照常返回，未开始记录标记 `attempted=false`。
 
-返回 Python `TeachingPreview`，每项 decision 保留共享 `pair`、标题/说明、通知性质、历史证据、`review_codes`、简短 `review_reasons` 和 `recommendation`（task/candidate/filtered）。这些值用于对照试验，不可直接传给 `/api/recognition/*` 或当作允许自动入库的结果。候选 ID 是本次预览内编号，不是跨重识别的永久任务身份。
+真实运行使用内置 `ChatClient`；离线回放允许模型替身但 `policy_version=null`，不能冒充真实运行入库；输入不合法抛 `AgentError(invalid_input)`，部署配置或文件变更在执行前拒绝，记录级失败只输出固定错误码和安全消息。
 
-PR #120 的 text_policy_manifest 只标识旧文本流程，不覆盖此独立草案；正式接入前需另行定义教学网运行策略身份，不能借用旧版本号标记新预览结果。
+模型判断行动、逐任务附件依赖、期限与历史语义；程序验证引文、完整性、可信学期、日期和 F3 30 天历史规则；明确正文中的任务可以不受补充资料未读影响，缺少关键资料仍待审核。
 
-`no_action_complete` 仅在来源已核验、正文与引用均完整且模型返回空草稿时为 true；有缺口的空草稿附 warnings，不伪装成确定无任务。输入错误抛 invalid_input；结构/证据错误抛 invalid_agent_output；超时和供应商失败沿用 AgentError，不记录私人正文或供应商响应。
+`validate_teaching_result` 不调用模型，会重算全部政策与历史门禁；消费者须在保存前调用它，不能只看 Schema 或 `recommendation`。
 
-`source_verified` 默认 false，只允许受信任 Python 调用方设置。后端必须先从当前账号的受控采集快照恢复并核对完整记录，不能将客户端 ID、字段或 upstream_hints 自报可信直接透传为 true。此适配器不证明账号隔离、不读取 URL/本机附件、不核实来源状态；模型返回信任字段会被拒绝。
+来源课程名按输入 `source.course_or_project` 原样保留；缺少时为 null，不由模型猜测；正文、附件、图片和链接正文保持分离，不能把拼接摘要标为完整正文。
 
-正式接入仍需：Ken 审查 #114；#107 提供来源事实与受控快照；定义正式版本信封；server 接入鉴权、双侧校验、入库与 #112 定向重识别；随后完成前端及端到端验收。现有 v0.2 路由及 v0.3.1 微信文件强制审核不变。
+`teaching_policy_manifest` 标识本入口的代码、规则、共享校验、实际模型/地址、超时上限和运行依赖版本，独立于 `text-policy-v1`；它不含密钥、私人原文或账号信息，修改代码后必须重启工作进程；批次预算和耗时另由作业记录保存。
 
-离线测试：`python -m unittest ddl_text.tests.test_teaching_draft -v`。真实合成测试：`python -m ddl_text.tests.run_teaching_smoke --live --env-file <本机配置> --output <忽略目录内结果.json>`；只发送固定合成样例，不读取私人课程。
+候选 ID 只表示本次记录内序号，不能作为跨重识别永久任务身份；#112 消费端须按实际执行版本及逐条状态保存结果，失败、未尝试和旧结果不能被当前版本覆盖为成功，已确认/忽略/删除的用户决定须独立匹配保留。
 
-8 组真实合成输入、模型草稿和政策预览见 [实测归档](archive/2026-10-07-teaching-policy-live.json)，早期错误/预期修正见 [诊断归档](archive/2026-10-07-teaching-policy-diagnostics.json)。保留有冲突来源的审核、附件决定最终期限时的未知日期；原始通过标记与修订后的语义检查分别记录。归档是固定样例验证，不是独立召回率或线上验收。
+仍需后端提供鉴权快照、课程/学期事实、来源状态处理、入库和 UI 适配；当前爬虫 v0.2 的 `upstream_hints` 不能直接冒充 v0.4 可信完整性；本模块不读取 URL、不抓附件、不处理 submitted 状态或自动完成、不承诺网页已切换。
+
+旧 `teaching_draft.process_teaching_draft` 保留为内部单条预览和实测入口，其 Python 返回值不是公开 JSON 或自动入库许可；微信 v0.3.1 的直接文件强制审核规则不受影响。
+
+```powershell
+python -m unittest ddl_text.tests.test_teaching_draft ddl_text.tests.test_teaching_pipeline -q
+python -m unittest contracts.tests.test_teaching_io -q
+python -m contracts.build_teaching_v04 --check
+# 显式付费调用，仅发送固定合成样例；不是网页链路验收
+python -m ddl_text.tests.run_teaching_smoke --live --env-file <本机配置> --output <忽略目录内结果.json>
+```
+
+批次消费者测试读取 [7 组共享输入/输出](../../contracts/examples/teaching-v04-cases.json)，并回放 [8 组此前真实模型草稿](archive/2026-10-07-teaching-policy-live.json)；[诊断归档](archive/2026-10-07-teaching-policy-diagnostics.json) 保留原始失败与预期修正，这些不代表独立召回率或线上验收。
