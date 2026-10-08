@@ -1,5 +1,6 @@
 import {flushStore,retrySave,accountVersion} from './store.js';
 import {replanTasks} from './team-planner-ui.js';
+import {occupiedSchedule} from './data.js';
 
 let host={};
 const originals=new WeakMap();
@@ -11,10 +12,10 @@ export function scheduleTimes(item){
  const parts=Object.fromEntries(new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(end).map(part=>[part.type,part.value]));
  return {date:item.date,start:clock(item.start),endDate:`${parts.year}-${parts.month}-${parts.day}`,end:`${parts.hour}:${parts.minute}`};
 }
-export function editedSchedule(item,values,schedule){
+export function editedSchedule(item,values,schedule,tasks=[]){
  const startAt=Date.parse(`${values.date}T${values.start}:00+08:00`),endAt=Date.parse(`${values.endDate}T${values.end}:00+08:00`);
  if(!Number.isFinite(startAt)||!Number.isFinite(endAt)||endAt<=startAt)throw new Error('结束时间必须晚于开始时间');
- for(const other of schedule){
+ for(const other of occupiedSchedule(schedule,tasks)){
   if(other.id===item.id&&other.taskId===item.taskId)continue;
   const otherStart=Date.parse(`${other.date}T${clock(other.start)}:00+08:00`);
   if(startAt<otherStart+other.hours*3600000&&otherStart<endAt)throw new Error('这个时段与其他学习安排重叠，请调整时间');
@@ -52,7 +53,7 @@ async function saveEdit(form,remove=false){
  try{
   if(remove&&!form.dataset.removed){state.schedule.splice(index,1);form.dataset.removed='true';}
   else if(form.dataset.removed)remove=true;
-  else state.schedule[index]=editedSchedule(state.schedule[index],Object.fromEntries(new FormData(form)),state.schedule);
+  else state.schedule[index]=editedSchedule(state.schedule[index],Object.fromEntries(new FormData(form)),state.schedule,state.tasks);
   fields.forEach(field=>field.disabled=true);
   host.persist();await retrySave();await flushStore();
   if(epoch!==accountVersion())return;

@@ -4,6 +4,8 @@ import io
 import tempfile
 import threading
 import unittest
+import shutil
+import subprocess
 from pathlib import Path
 from http.cookiejar import CookieJar
 from urllib.request import build_opener, HTTPCookieProcessor, Request
@@ -74,6 +76,60 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='wrong-password'))[0],401)
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='Test-password-2026'))[0],200)
         self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),1)
+
+    def test_calendar_editor_store_http_save_preserves_released_completed_history(self):
+        node=shutil.which('node')
+        if not node:self.skipTest('Node.js is required for the frontend HTTP integration')
+        client=self.client();self.register(client,'manual-calendar-http@test.local')
+        date='2099-10-08'
+        completed_plan=dict(id='released',title='已完成安排',startAt=date+'T19:00:00+08:00',endAt=date+'T20:00:00+08:00',origin='ai',isLocked=True)
+        active_plan=dict(id='active-plan',title='学习',startAt=date+'T21:00:00+08:00',endAt=date+'T22:00:00+08:00',origin='ai')
+        tasks=[dict(id='done',title='已完成任务',status='completed',plans=[completed_plan],subtasks=[],due=None),
+               dict(id='active',title='未完成任务',status='not_started',plans=[active_plan],subtasks=[],due=None)]
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
+        jar=next(handler.cookiejar for handler in client.handlers if isinstance(handler,HTTPCookieProcessor))
+        environment=dict(app.os.environ,NIUMA_TEST_API=self.base.rsplit('/api',1)[0],
+                         NIUMA_TEST_COOKIE='; '.join(cookie.name+'='+cookie.value for cookie in jar))
+        script='''
+import assert from 'node:assert/strict';
+globalThis.window=new EventTarget();globalThis.document=new EventTarget();
+globalThis.requestAnimationFrame=()=>0;
+globalThis.FormData=class {constructor(form){return new Map(Object.entries(form.values));}};
+Date.now=()=>Date.parse('2099-10-08T12:00:00+08:00');
+const realFetch=fetch;
+globalThis.fetch=(path,options={})=>realFetch(process.env.NIUMA_TEST_API+path,
+ {...options,headers:{...options.headers,Cookie:process.env.NIUMA_TEST_COOKIE}});
+const root=process.argv[1];
+const {initSession,saveStore,api}=await import(root+'/store.js');
+const {calendarPage,calendarClick}=await import(root+'/team-calendar-ui.js');
+const {configureScheduleEditor,scheduleEditorSubmit}=await import(root+'/schedule-editor.js');
+const state=await initSession();
+calendarClick({dataset:{calendarDay:'2099-10-08'}},()=>{});
+assert.doesNotMatch(calendarPage(state,0),/data-schedule-id="released"/);
+const error={textContent:''},form={id:'schedule-form',dataset:{planId:'active-plan',taskId:'active'},
+ values:{date:'2099-10-08',start:'19:00',endDate:'2099-10-08',end:'20:00',label:'学习'},
+ querySelector:()=>error,querySelectorAll:()=>[]};
+let finish,timer;const finished=new Promise(resolve=>{finish=resolve;});
+configureScheduleEditor({getState:()=>state,persist:()=>saveStore(state),closeDialog:()=>{},render:()=>{},toast:finish});
+assert.equal(scheduleEditorSubmit(form),true);
+try{assert.equal(await Promise.race([finished,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(error.textContent||'editor save timed out')),10000);})]),'学习时段已保存');}
+finally{clearTimeout(timer);}
+assert.equal(error.textContent,'');
+const saved=await api('/api/workspace');
+assert.equal(saved.tasks.version,2);
+assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'2099-10-08T19:00:00+08:00');
+'''
+        result=subprocess.run([node,'--input-type=module','-e',script,
+            (Path(__file__).resolve().parent.parent/'frontend/src').as_uri()],
+            env=environment,capture_output=True,text=True,encoding='utf-8',timeout=20)
+        self.assertEqual(result.returncode,0,result.stderr)
+        stored=self.call(client,'/workspace')[1]['tasks']
+        self.assertEqual(stored['version'],2)
+        by_id={task['id']:task for task in stored['value']}
+        self.assertEqual(by_id['done']['plans'],[completed_plan])
+        self.assertEqual(by_id['done']['status'],'completed')
+        self.assertEqual(by_id['active']['plans'][0]['id'],'active-plan')
+        self.assertEqual(by_id['active']['plans'][0]['origin'],'manual')
 
     def test_task_delete_permanently_removes_task_plans_feedback_and_dependencies(self):
         client=self.client();self.register(client,'delete@test.local')
@@ -150,11 +206,32 @@ class ApiTests(unittest.TestCase):
         for bad in [dict(timer,remaining=-1),dict(timer,duration=10),dict(timer,taskId='foreign'),dict(timer,endsAt=float('inf'))]:
             self.assertEqual(self.call(a,'/data/focus','PUT',dict(value=bad,version=1))[0],400)
 
+    def test_task_completion_invalidates_an_unapplied_planning_proposal(self):
+        client=self.client();self.register(client,'completion-stale-plan@test.local')
+        day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
+        task=dict(id='finished',title='报告',status='not_started',plans=[],subtasks=[],due=dict(date=day,precision='date'))
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
+        result=dict(estimates={'finished':60},blocks=[dict(taskId='finished',title='写报告',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])
+        with patch.object(app.planning,'plan',return_value=result):
+            status,proposal=self.call(client,'/planning/proposals','POST',{})
+        self.assertEqual(status,200)
+        task['status']='completed'
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=1))[0],200)
+        self.assertEqual(self.call(client,'/planning/apply','POST',dict(requestId=proposal['requestId']))[0],409)
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],[task])
+        with patch.object(app.planning,'plan') as model:
+            self.assertEqual(self.call(client,'/planning/proposals','POST',{})[0],400)
+            model.assert_not_called()
+
     def test_harness_snapshot_exclusions_feedback_and_atomic_apply(self):
         a=self.client();self.register(a,'planner@test.local')
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
         base=dict(title='报告',description='测试',status='not_started',plans=[],subtasks=[],due=dict(date=day,precision='date'))
-        tasks=[dict(base,id='plan'),dict(base,id='excluded',planningExcluded=True),dict(base,id='done',status='completed')]
+        now=app.datetime.now(app.TZ)
+        completed_plans=[dict(id='done-future',title='已完成任务的未来安排',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00'),
+                         dict(id='done-started',title='已经开始的安排',startAt=(now-app.timedelta(minutes=15)).isoformat(),endAt=(now+app.timedelta(minutes=45)).isoformat()),
+                         dict(id='done-past',title='历史安排',startAt=(now-app.timedelta(days=1)).isoformat(),endAt=(now-app.timedelta(days=1,hours=-1)).isoformat())]
+        tasks=[dict(base,id='plan'),dict(base,id='excluded',planningExcluded=True),dict(base,id='done',status='completed',plans=completed_plans)]
         self.assertEqual(self.call(a,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='done',actualMinutes=80,recordedAt='2026-09-23T00:00:00Z')],version=0))[0],200)
         self.assertEqual(self.call(a,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='22:00',weekdays=list(range(7))),version=0))[0],200)
@@ -166,10 +243,13 @@ class ApiTests(unittest.TestCase):
             status,result=self.call(a,'/planning/proposals','POST',{})
         self.assertEqual(status,200)
         self.assertEqual([t['id'] for t in captured[0]['tasks']],['plan'])
+        self.assertEqual([p['id'] for p in captured[0]['existingPlans']],['done-started','done-past'])
+        self.assertEqual(captured[0]['completionHistory'][0]['task']['plans'],completed_plans)
         self.assertNotIn('startDate',captured[0]['availability'])
         self.assertNotIn('estimatedMinutes',captured[0]['tasks'][0])
         self.assertEqual(captured[0]['completionHistory'][0]['task']['title'],'报告')
         self.assertEqual(self.call(a,'/workspace')[1]['tasks']['value'][0]['plans'],[])
+        self.assertEqual(self.call(a,'/workspace')[1]['tasks']['value'][2]['plans'],completed_plans)
         status,applied=self.call(a,'/planning/apply','POST',dict(requestId=result['requestId']))
         self.assertEqual(status,200);self.assertEqual(len(applied['value'][0]['plans']),1)
         self.assertEqual(applied['value'][0]['due'],base['due'])

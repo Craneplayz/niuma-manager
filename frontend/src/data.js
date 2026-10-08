@@ -1,5 +1,9 @@
 export const dayKey = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
 export function offsetDay(n) {const d = new Date(); d.setDate(d.getDate()+n); return dayKey(d);}
+export function occupiedSchedule(schedule,tasks,now=Date.now()) {
+ const completed=new Set(tasks.filter(task=>task.status==='done').map(task=>task.id));
+ return schedule.filter(plan=>!completed.has(plan.taskId)||Date.parse(plan.date+'T00:00:00+08:00')+plan.start*3600000<=now);
+}
 export function seed() {
  return {version:1,tasks:[
  {id:'t1',title:'完成需求分析与用例设计',course:'智能化软件系统与工程',due:offsetDay(0),priority:'high',status:'doing',hours:2,location:'图书馆',notes:'梳理核心场景，整理用户故事与验收标准。',dependsOn:'',subtasks:[{title:'整理用户故事',done:true},{title:'绘制用例图',done:false},{title:'和小组对齐验收标准',done:false}]},
