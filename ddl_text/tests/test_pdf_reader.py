@@ -29,8 +29,8 @@ class PdfTests(unittest.TestCase):
 
     def test_full_pages_and_labels_have_no_storage_handle(self):
         record = self.request['records'][0]
-        summaries, errors, pictures = _prepare(record, memory_loader(self.data), MediaLimits(), time.monotonic()+20)
-        self.assertEqual([p[2] for p in pictures], [1, 2])
+        summaries, errors, pictures, _ = _prepare(record, memory_loader(self.data), MediaLimits(), time.monotonic()+20)
+        self.assertEqual([p.page for p in pictures], [1, 2])
         parts = _parts(record, summaries, pictures, errors)
         self.assertEqual(json.loads(parts[0]['text'])['reader']['attachments'][0]['status'], 'complete')
         self.assertEqual(summaries[0]['status'], 'failed')  # Await the actual model call.
