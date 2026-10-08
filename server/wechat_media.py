@@ -12,6 +12,8 @@ import sqlite3
 import stat
 import threading
 import time
+from contextlib import closing
+from importlib.metadata import PackageNotFoundError, version
 from email.parser import BytesParser
 from email.policy import default
 from pathlib import Path
@@ -25,6 +27,39 @@ from contracts.check_v031_examples import check_pair, check_request, check_job, 
 MAX_ASSET = 20 * 1024 * 1024
 BODY_SECONDS = 30
 _slot = threading.Semaphore(1)
+_workers = set()
+_workers_lock = threading.Lock()
+
+
+def _start_job(db_path, job_id):
+    def run():
+        try:
+            _process(db_path, job_id)
+        finally:
+            with _workers_lock:
+                _workers.discard((db_path, thread))
+    thread = threading.Thread(target=run, daemon=True)
+    with _workers_lock:
+        _workers.add((db_path, thread))
+        try:
+            thread.start()
+        except Exception:
+            _workers.discard((db_path, thread))
+            raise
+
+
+def wait_for_jobs(db_path, timeout=30):
+    """Drain this database's workers before closing its server or test fixture."""
+    expires = time.monotonic() + timeout
+    while True:
+        with _workers_lock:
+            threads = [thread for path, thread in _workers if path == db_path]
+        if not threads:
+            return True
+        remaining = expires - time.monotonic()
+        if remaining <= 0:
+            return False
+        threads[0].join(remaining)
 
 
 class MediaError(Exception):
@@ -320,6 +355,12 @@ def _content_key(request):
         except ImportError:
             return None
         configuration['pdf_runtime'] = [str(PYPDFIUM_INFO),str(PDFIUM_INFO)]
+    if (ROOT/'ddl_text/docx_reader.py').is_file():
+        files.append('ddl_text/docx_reader.py')
+        try:
+            configuration['docx_runtime'] = [version('defusedxml'), version('Pillow')]
+        except PackageNotFoundError:
+            return None
     policy = {name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in files}
     content = copy.deepcopy(request)
     del content['request_id']
@@ -373,7 +414,7 @@ def account_asset_loader(db_path, uid):
         if type(max_bytes) is not int or max_bytes <= 0 or not isinstance(timeout_seconds,(int,float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError('invalid_read_budget')
         expires = time.monotonic() + timeout_seconds
-        with sqlite3.connect(db_path, timeout=min(10, timeout_seconds)) as db:
+        with closing(sqlite3.connect(db_path, timeout=min(10, timeout_seconds))) as db:
             db.row_factory = sqlite3.Row
             row = db.execute('SELECT a.* FROM wechat_assets a JOIN users u ON u.id=a.user_id WHERE a.ref=? AND a.user_id=?', (file_ref,uid)).fetchone()
             if not row:
@@ -755,7 +796,7 @@ def resume(db_path):
     finally:
         db.close()
     for job_id in ids:
-        threading.Thread(target=_process, args=(db_path, job_id), daemon=True).start()
+        _start_job(db_path, job_id)
 
 
 def route(handler, db, uid, path, body, data_dir):
@@ -851,7 +892,7 @@ def route(handler, db, uid, path, body, data_dir):
         db.execute('INSERT INTO wechat_jobs(id,user_id,request_id,fingerprint,request,status,result,previous_result,retry_id,attempts) VALUES(?,?,?,?,?,?,?,?,?,0)', (job_id, uid, body['request_id'], fingerprint, json.dumps(body, ensure_ascii=False), 'queued', None, None, None))
         _retain_assets(db,job_id,body)
         db.commit()
-        threading.Thread(target=_process, args=(handler.media_db_path, job_id), daemon=True).start()
+        _start_job(handler.media_db_path, job_id)
         handler.reply(202, dict(contract_version='0.3.1', job_id=job_id, request_id=body['request_id'], status='queued'))
         return True
     parts = path[len('/api/sources/wechat/imports/'):].split('/') if path.startswith('/api/sources/wechat/imports/') else []
@@ -888,7 +929,7 @@ def route(handler, db, uid, path, body, data_dir):
             db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
             db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))
             db.commit()
-            threading.Thread(target=_process, args=(handler.media_db_path, row['id']), daemon=True).start()
+            _start_job(handler.media_db_path, row['id'])
             handler.reply(202, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status='queued'))
             return True
     raise MediaError(404, 'not_found', '接口不存在')

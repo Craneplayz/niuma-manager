@@ -39,11 +39,11 @@ frontend/
         ├── 2026-10-06-pr117/  保存候选恢复、自动规划、任务切换及日程编辑 / 重新规划的合成浏览器验证截图。
         ├── 2026-10-07-story-ui/ 保存叙事界面、候选操作、来源表单和规划空状态的桌面 / 手机验收截图。
         ├── 2026-10-07-pr103/   保存合成微信附件结果及核对弹窗截图。
-            ├── attachment-desktop.png 桌面显示任务、日期和模型读取证据。
-            ├── attachment-mobile.png 390px 窄屏显示附件结果与操作。
-            ├── review-mobile.png 窄屏核对弹窗预填识别的日期和时刻。
-            ├── attachment-coverage-desktop.png 桌面显示部分读取、质量疑点及折叠详情。
-            └── attachment-coverage-mobile.png 390px 窄屏显示任务与读取缺口。
+        │   ├── attachment-desktop.png 桌面显示任务、日期和模型读取证据。
+        │   ├── attachment-mobile.png 390px 窄屏显示附件结果与操作。
+        │   ├── review-mobile.png 窄屏核对弹窗预填识别的日期和时刻。
+        │   ├── attachment-coverage-desktop.png 桌面显示部分读取、质量疑点及折叠详情。
+        │   └── attachment-coverage-mobile.png 390px 窄屏显示任务与读取缺口。
         └── 2026-10-07-completion/ 保存已完成任务释放未来时段的合成截图。
             ├── calendar-desktop.png 桌面显示未完成任务占用已释放的未来时段。
             └── calendar-mobile.png 390px 窄屏显示相同日程且无横向溢出。
@@ -54,6 +54,8 @@ frontend/
 ## 启动
 
 需要 Node.js 20.19+、Python 3.9+。从 `frontend/` 目录执行：
+
+完整 `npm test` 需要 Python 3.10+，自动安装附件测试依赖并等待后台作业退出。
 
 ```bash
 npm ci

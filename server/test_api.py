@@ -208,6 +208,7 @@ assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'
 
     def test_task_completion_invalidates_an_unapplied_planning_proposal(self):
         client=self.client();self.register(client,'completion-stale-plan@test.local')
+        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='22:00',weekdays=list(range(7))),version=0))[0],200)
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
         task=dict(id='finished',title='报告',status='not_started',plans=[],subtasks=[],due=dict(date=day,precision='date'))
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
@@ -307,6 +308,7 @@ assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'
 
     def test_replanning_failure_empty_preview_and_stale_apply_preserve_old_schedule(self):
         client=self.client();self.register(client,'replan-failure@test.local')
+        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='22:00',weekdays=list(range(7))),version=0))[0],200)
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
         task=dict(id='a',title='报告',status='not_started',subtasks=[],due=dict(date=day,precision='date'),plans=[dict(id='old',title='原安排',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')])
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)

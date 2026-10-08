@@ -84,7 +84,102 @@ except OSError:sys.exit(26)
 
     @classmethod
     def tearDownClass(cls):
-        cls.server.shutdown(); cls.server.server_close(); cls.thread.join(); cls.tmp.cleanup()
+        cls.server.shutdown(); cls.server.server_close(); cls.thread.join()
+        if not wechat_media.wait_for_jobs(app.DB):
+            raise AssertionError('WeChat workers did not stop before database cleanup')
+        cls.tmp.cleanup()
+
+    def setUp(self):
+        # Tests never inherit a developer's private model configuration.
+        self.options = patch('ddl_text.codex_client.live_options', side_effect=ValueError('test model not configured'))
+        self.options.start()
+
+    def tearDown(self):
+        try:
+            self.assertTrue(wechat_media.wait_for_jobs(app.DB), 'WeChat workers still running')
+        finally:
+            self.options.stop()
+
+    def poll(self):
+        # Windows spawn and CI scheduling are not bounded by a fixed poll count.
+        expires = time.monotonic() + 30
+        while time.monotonic() < expires:
+            yield
+
+    def test_worker_drain_waits_for_the_active_database(self):
+        started, release = threading.Event(), threading.Event()
+        def blocked(*args):
+            started.set()
+            release.wait(30)
+        with patch.object(wechat_media, '_process', side_effect=blocked):
+            try:
+                wechat_media._start_job(app.DB, 'synthetic-drain')
+                self.assertTrue(started.wait(30))
+                self.assertTrue(wechat_media.wait_for_jobs('different-database', timeout=.01))
+                self.assertFalse(wechat_media.wait_for_jobs(app.DB, timeout=.01))
+            finally:
+                release.set()
+            self.assertTrue(wechat_media.wait_for_jobs(app.DB))
+
+    def test_slow_worker_start_finishes_before_fixture_cleanup(self):
+        client = self.client('wechat-slow-start@test.local')
+        request = json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        request['request_id'] = 'synthetic-slow-start'
+        _, ack = self.call(client, '/sources/wechat/assets', 'POST', b'\x89PNG\r\n\x1a\nslow', multipart=True)
+        request['records'][0]['attachments'][0].update({key:ack[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
+        original = wechat_media._process
+        def delayed(*args):
+            time.sleep(2.2)  # Exceeds the former two-second test polling window.
+            original(*args)
+        with patch.object(wechat_media, '_process', side_effect=delayed):
+            _, ack = self.call(client, '/sources/wechat/imports', 'POST', request)
+            for _ in self.poll():
+                _, job = self.call(client, '/sources/wechat/imports/'+ack['job_id'])
+                if job['status'] not in ('queued', 'running'):
+                    break
+                time.sleep(.02)
+            self.assertEqual(job['status'], 'failed')
+            self.assertTrue(wechat_media.wait_for_jobs(app.DB))
+
+    def test_docx_cache_versions_reader_and_xml_image_runtime(self):
+        request = json.loads((Path(__file__).parent.parent/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        options = dict(provider='qiniu',key='synthetic-key',model='test',endpoint='https://example.invalid/v1')
+        with patch('ddl_text.codex_client.live_options', return_value=options), \
+                patch.object(wechat_media, 'version', side_effect=lambda name: 'version-1'):
+            first = wechat_media._content_key(request)
+            self.assertIsNotNone(first)
+            original = Path.read_bytes
+            def changed(path):
+                data = original(path)
+                return data+b'changed' if path.name == 'docx_reader.py' else data
+            with patch.object(Path, 'read_bytes', changed):
+                self.assertNotEqual(first, wechat_media._content_key(request))
+            with patch.object(wechat_media, 'version', side_effect=lambda name: 'version-2'):
+                self.assertNotEqual(first, wechat_media._content_key(request))
+            with patch.object(wechat_media, 'version', side_effect=wechat_media.PackageNotFoundError):
+                self.assertIsNone(wechat_media._content_key(request))
+
+    def test_asset_loader_closes_sqlite_on_success_and_failure(self):
+        client = self.client('wechat-loader-close@test.local')
+        raw = b'\x89PNG\r\n\x1a\nclose-sqlite'
+        _, ack = self.call(client, '/sources/wechat/assets', 'POST', raw, multipart=True)
+        with app.connection() as db:
+            uid = db.execute('SELECT id FROM users WHERE email=?', ('wechat-loader-close@test.local',)).fetchone()['id']
+        original = wechat_media.sqlite3.connect
+        connections = []
+        def connect(*args, **kwargs):
+            db = original(*args, **kwargs)
+            connections.append(db)
+            return db
+        loader = wechat_media.account_asset_loader(app.DB, uid)
+        with patch.object(wechat_media.sqlite3, 'connect', side_effect=connect):
+            self.assertEqual(loader(ack['file_ref'], max_bytes=100, timeout_seconds=1), raw)
+            with self.assertRaises(FileNotFoundError):
+                loader('asset:missing', max_bytes=100, timeout_seconds=1)
+        self.assertEqual(len(connections), 2)
+        for db in connections:
+            with self.assertRaises(wechat_media.sqlite3.ProgrammingError):
+                db.execute('SELECT 1')
 
     def client(self, email):
         client = build_opener(HTTPCookieProcessor(CookieJar()))
@@ -131,7 +226,7 @@ except OSError:sys.exit(26)
         changed = copy.deepcopy(request); changed['records'][0]['collected_at'] = '2026-10-02T20:05:00+08:00'
         self.assertEqual(self.call(a, '/sources/wechat/imports', 'POST', changed)[0], 409)
         self.assertEqual(self.call(b, '/sources/wechat/imports/' + submitted['job_id'])[0], 404)
-        for _ in range(100):
+        for _ in self.poll():
             status, job = self.call(a, '/sources/wechat/imports/' + submitted['job_id'])
             if job['status'] == 'failed': break
             time.sleep(.02)
@@ -142,7 +237,7 @@ except OSError:sys.exit(26)
         check_pair(request, job['result'])
         status, retry = self.call(a, '/sources/wechat/imports/' + submitted['job_id'] + '/retry', 'POST', dict(retry_id='retry-once'))
         self.assertEqual(status, 202)
-        for _ in range(100):
+        for _ in self.poll():
             _, job = self.call(a, '/sources/wechat/imports/' + submitted['job_id'])
             if job['status'] == 'failed': break
             time.sleep(.02)
@@ -231,7 +326,7 @@ except OSError:sys.exit(26)
         with patch('ddl_text.codex_client.live_options',return_value=options), patch('ddl_text.chat_client.ChatClient',return_value=FakeMediaClient()):
             status, ack = self.call(client,'/sources/wechat/imports','POST',request)
             self.assertEqual(status,202)
-            for _ in range(200):
+            for _ in self.poll():
                 _, job = self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 if job['status'] not in ('queued','running'): break
                 time.sleep(.05)
@@ -258,7 +353,7 @@ except OSError:sys.exit(26)
         with patch.object(wechat_media, 'recognize_v03', return_value=result):
             status, submitted = self.call(a, '/sources/wechat/imports', 'POST', request)
             self.assertEqual(status, 202)
-            for _ in range(100):
+            for _ in self.poll():
                 _, job = self.call(a, '/sources/wechat/imports/' + submitted['job_id'])
                 if job['status'] == 'succeeded': break
                 time.sleep(.02)
@@ -286,7 +381,7 @@ except OSError:sys.exit(26)
         request['request_id'] = 'retry-history'
         result['request_id'] = request['request_id']
         def finished(job_id):
-            for _ in range(100):
+            for _ in self.poll():
                 _, job = self.call(client, '/sources/wechat/imports/'+job_id)
                 if job['status'] not in ('queued','running'): return job
                 time.sleep(.02)
@@ -334,7 +429,7 @@ except OSError:sys.exit(26)
         request,result=copy.deepcopy(case['request']),copy.deepcopy(case['expected'])
         request['request_id']='parallel-retry';result['request_id']=request['request_id']
         def finished(job_id):
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+job_id)
                 if job['status'] not in ('queued','running'):return job
                 time.sleep(.02)
@@ -350,13 +445,13 @@ except OSError:sys.exit(26)
         started,release=threading.Event(),threading.Event()
         def model(body,*args,**kwargs):
             started.set()
-            if not release.wait(5):raise TimeoutError('test release timeout')
+            if not release.wait(30):raise TimeoutError('test release timeout')
             return wechat_media._failed_result(body)
         with patch.object(wechat_media,'recognize_v03',side_effect=model) as adapter:
             try:
                 with ThreadPoolExecutor(max_workers=6) as pool:
                     replies=list(pool.map(lambda _:self.call(build_opener(),path,'POST',dict(retry_id='parallel-A'),token=token),range(6)))
-                self.assertTrue(started.wait(3))
+                self.assertTrue(started.wait(30))
                 self.assertEqual(sum(status==202 for status,_ in replies),1)
                 self.assertTrue(all(status in (200,202) for status,_ in replies))
                 self.assertEqual(self.call(client,path,'POST',dict(retry_id='parallel-B'))[0],409)
@@ -383,7 +478,7 @@ except OSError:sys.exit(26)
             uid = db.execute('SELECT id FROM users WHERE email=?', ('wechat-recover@test.local',)).fetchone()['id']
             db.execute('INSERT INTO wechat_jobs VALUES(?,?,?,?,?,?,?,?,?,?)', ('job-recover',uid,request['request_id'],'fingerprint',json.dumps(request),'running',None,None,None,0))
         app.initialize()
-        for _ in range(100):
+        for _ in self.poll():
             _, job = self.call(a, '/sources/wechat/imports/job-recover')
             if job['status'] == 'failed': break
             time.sleep(.02)
@@ -403,7 +498,7 @@ except OSError:sys.exit(26)
         with patch.object(wechat_media, 'recognize_v03', return_value=partial):
             status, submitted = self.call(a, '/sources/wechat/imports', 'POST', request)
             self.assertEqual(status, 202)
-            for _ in range(100):
+            for _ in self.poll():
                 _, job = self.call(a, '/sources/wechat/imports/' + submitted['job_id'])
                 if job['status'] == 'partial_failed': break
                 time.sleep(.02)
@@ -411,7 +506,7 @@ except OSError:sys.exit(26)
         self.assertEqual(job['result']['tasks'][0]['candidate_id'], partial['tasks'][0]['candidate_id'])
         with patch.object(wechat_media, 'recognize_v03', return_value=complete) as model:
             self.assertEqual(self.call(a, '/sources/wechat/imports/' + submitted['job_id'] + '/retry', 'POST', dict(retry_id='partial-retry'))[0], 202)
-            for _ in range(100):
+            for _ in self.poll():
                 _, job = self.call(a, '/sources/wechat/imports/' + submitted['job_id'])
                 if job['status'] == 'succeeded': break
                 time.sleep(.02)
@@ -432,7 +527,7 @@ except OSError:sys.exit(26)
         def model(body,loader,**kwargs):
             return dict(result,request_id=body['request_id'])
         def finish(job_id):
-            for _ in range(100):
+            for _ in self.poll():
                 _, job = self.call(client,'/sources/wechat/imports/'+job_id)
                 if job['status'] not in ('queued','running'): return job
                 time.sleep(.02)
@@ -527,7 +622,7 @@ except OSError:sys.exit(26)
         result['request_id']=request['request_id']
         started, release, finished = threading.Event(),threading.Event(),threading.Event()
         def model(body,loader,**kwargs):
-            started.set();release.wait(5)
+            started.set();release.wait(30)
             return result
         original_process=wechat_media._process
         def worker(*args):
@@ -539,13 +634,13 @@ except OSError:sys.exit(26)
             db.execute('INSERT INTO workspace VALUES(?,?,?,?)',(uid,'tasks',json.dumps([dict(id='keep-user-task',title='已确认任务')]),1))
         with patch.object(wechat_media,'recognize_v03',side_effect=model),patch.object(wechat_media,'_process',side_effect=worker):
             _, ack=self.call(client,'/sources/wechat/imports','POST',request)
-            self.assertTrue(started.wait(3))
+            self.assertTrue(started.wait(30))
             self.assertEqual(self.call(client,'/sources/wechat/remove','POST',{})[0],400)
             self.assertEqual(self.call(client,'/sources/wechat/remove','POST',dict(confirmed=True),token=credential['token'])[0],403)
             status,deleted=self.call(client,'/sources/wechat/remove','POST',dict(confirmed=True))
             self.assertEqual(status,200)
             self.assertEqual(deleted['cleanup_pending'],0)
-            release.set();self.assertTrue(finished.wait(3))
+            release.set();self.assertTrue(finished.wait(30))
         self.assertFalse(path.exists())
         self.assertEqual(self.call(client,'/sources/wechat/imports/'+ack['job_id'])[0],404)
         self.assertEqual(self.call(client,'/sources/wechat/imports')[1]['jobs'],[])
@@ -726,18 +821,18 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
         result['request_id']=request['request_id']
         started,release=threading.Event(),threading.Event()
         def model(*args,**kwargs):
-            started.set();release.wait(5);return result
+            started.set();release.wait(30);return result
         with patch.object(wechat_media,'recognize_v03',side_effect=model) as adapter:
             try:
                 with ThreadPoolExecutor(max_workers=6) as pool:
                     replies=list(pool.map(lambda _:self.call(build_opener(),'/sources/wechat/imports','POST',request,token=token),range(6)))
-                self.assertTrue(started.wait(3))
+                self.assertTrue(started.wait(30))
                 self.assertEqual(sum(status==202 for status,_ in replies),1)
                 self.assertTrue(all(status in (200,202) for status,_ in replies))
                 self.assertEqual(len({reply['job_id'] for _,reply in replies}),1)
             finally:release.set()
             job_id=replies[0][1]['job_id']
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+job_id)
                 if job['status'] not in ('queued','running'):break
                 time.sleep(.02)
@@ -763,7 +858,7 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
                 raise ConnectionResetError('synthetic lost acknowledgment')
             return original_reply(handler,status,value,cookie)
         def finished(job_id):
-            for _ in range(100):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+job_id)
                 if job['status'] not in ('queued','running'):return job
                 time.sleep(.02)
@@ -824,7 +919,7 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
         case=next(item for item in cases if item['name']=='recognition-timeout-preserves-first-task')
         with patch.object(wechat_media,'recognize_v03',return_value=case['expected']):
             _,failed_ack=self.call(client,'/sources/wechat/imports','POST',case['request'])
-            for _ in range(200):
+            for _ in self.poll():
                 _,failed_job=self.call(client,'/sources/wechat/imports/'+failed_ack['job_id'])
                 if failed_job['status'] not in ('queued','running'):break
                 time.sleep(.02)
@@ -863,14 +958,14 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
             self.assertLessEqual(limits.batch_seconds,180)
             self.assertLessEqual(limits.record_seconds,70)
             if rid=='progress-2':
-                started.set();release.wait(5)
+                started.set();release.wait(30)
             return dict(contract_version='0.3.1',request_id=body['request_id'],status='no_tasks',tasks=[],errors=[],
                 record_results=[dict(input_id=rid,status='no_tasks',task_ids=[],warnings=[],coverage=dict(complete=True,uncertain=False),attachments=[])])
         options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
         with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.media_pipeline.process_media_request',side_effect=adapter):
             _,ack=self.call(client,'/sources/wechat/imports','POST',request)
             try:
-                self.assertTrue(started.wait(3))
+                self.assertTrue(started.wait(30))
                 _,running=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 self.assertEqual(running['status'],'running')
                 self.assertEqual(running['progress'],dict(total_records=2,finished_records=1,failed_records=0))
@@ -880,7 +975,7 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
                 self.assertIsNone(running['result'])
             finally:
                 release.set()
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 if job['status'] not in ('queued','running'):break
                 time.sleep(.02)
@@ -939,7 +1034,7 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
             check_pair(request,job['result'])
             status,_=self.call(client,'/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id='retry-interrupted-only'))
             self.assertEqual(status,202)
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 if job['status'] not in ('queued','running'):break
                 time.sleep(.02)
@@ -1022,7 +1117,7 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         with patch('ddl_text.codex_client.live_options',return_value=options), \
                 patch('ddl_text.media_pipeline.process_media_request',side_effect=[result,RuntimeError('synthetic failure')]) as adapter:
             _,ack=self.call(client,'/sources/wechat/imports','POST',request)
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 if job['status'] not in ('queued','running'):break
                 time.sleep(.02)
@@ -1078,7 +1173,7 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         for record in request['records']:
             record['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
         def finished(job_id):
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+job_id)
                 if job['status'] not in ('queued','running'):return job
                 time.sleep(.02)
@@ -1104,7 +1199,7 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         _,receipt=self.call(client,'/sources/wechat/assets','POST',b'\x89PNG\r\n\x1a\nsynthetic',multipart=True)
         request['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_ref','file_name','mime_type','size_bytes','sha256')})
         def finished(job_id):
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+job_id)
                 if job['status'] not in ('queued','running'):return job
                 time.sleep(.02)
@@ -1151,7 +1246,7 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
         with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.chat_client.ChatClient',return_value=FakeMediaClient(behavior='failure')):
             _,ack=self.call(client,'/sources/wechat/imports','POST',request)
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 if job['status'] not in ('queued','running'):break
                 time.sleep(.02)
@@ -1170,15 +1265,15 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         started,release=threading.Event(),threading.Event()
         def model(*args,**kwargs):
             started.set()
-            if not release.wait(5):raise TimeoutError('test release timeout')
+            if not release.wait(30):raise TimeoutError('test release timeout')
             return result
         with patch.object(wechat_media,'recognize_v03',side_effect=model):
             try:
                 _,ack=self.call(client,'/sources/wechat/imports','POST',request)
-                self.assertTrue(started.wait(3))
+                self.assertTrue(started.wait(30))
                 self.assertEqual(self.call(client,'/sources/wechat/assets/'+receipt['file_ref'],'DELETE')[0],204)
             finally:release.set()
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 if job['status'] not in ('queued','running'):break
                 time.sleep(.02)
@@ -1214,15 +1309,15 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
         started,release=threading.Event(),threading.Event()
         def model(*args,**kwargs):
             started.set()
-            if not release.wait(5):raise TimeoutError('test release timeout')
+            if not release.wait(30):raise TimeoutError('test release timeout')
             return result
         with patch.object(wechat_media,'recognize_v03',side_effect=model):
             try:
                 _,ack=self.call(client,'/sources/wechat/imports','POST',request)
-                self.assertTrue(started.wait(3))
+                self.assertTrue(started.wait(30))
                 self.assertEqual(self.call(client,'/sources/wechat/assets/'+refs[0],'DELETE')[0],204)
             finally:release.set()
-            for _ in range(200):
+            for _ in self.poll():
                 _,job=self.call(client,'/sources/wechat/imports/'+ack['job_id'])
                 if job['status'] not in ('queued','running'):break
                 time.sleep(.02)
