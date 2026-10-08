@@ -53,11 +53,20 @@ describe("isolated PDF parser lifecycle", () => {
   });
   it("kills a timed-out parser and waits for its close before finishing", async () => {
     vi.useFakeTimers();
+    parser.kill.mockImplementation(() => true);
+    const done = vi.fn();
     const result = extractAttachmentText(file, "pdf");
+    const settled = result.then(done, done);
     const check = expect(result).rejects.toThrow("parse_failed");
     await vi.advanceTimersByTimeAsync(15_000);
-    await check;
     expect(parser.kill).toHaveBeenCalledOnce();
+    expect(parser.kill).toHaveBeenCalledWith("SIGKILL");
+    expect(done).not.toHaveBeenCalled();
+    // Even a late success cannot turn a timed-out parse into complete text.
+    parser.emit("message", parsed);
+    parser.emit("close", 0);
+    await check;
+    await settled;
   });
   it("preserves the explicit text/size failure after a clean exit", async () => {
     const result = extractAttachmentText(file, "pdf");

@@ -141,7 +141,8 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
     });
     let result: { text: string; partial: boolean; reason?: string } | undefined;
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; parser.kill(); }, 15_000);
+    // The deadline must also stop a parser that ignores graceful termination.
+    const timer = setTimeout(() => { timedOut = true; parser.kill("SIGKILL"); }, 15_000);
     parser.once("message", (message) => { result = message as typeof result; });
     parser.once("error", () => { clearTimeout(timer); reject(new ReadFailure("parse_failed")); });
     parser.once("close", (code) => {
