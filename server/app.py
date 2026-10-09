@@ -16,6 +16,7 @@ import recognition
 import planning
 import source_sync
 import task_decomposition
+import reprocessing
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -33,7 +34,7 @@ def connection():
 def password_hash(password, salt):
     return hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),600000).hex()
 
-def initialize():
+def initialize(recover=True):
     DB.parent.mkdir(parents=True, exist_ok=True)
     with connection() as db:
         db.executescript('''
@@ -44,10 +45,11 @@ def initialize():
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        reprocessing.initialize(db,recover=recover)
         task_decomposition.initialize(db)
 
 def seed():
-    initialize()
+    initialize(recover=False)
     email, password = 'demo@niuma.test', 'Niuma-Test-2026!'
     with connection() as db:
         if db.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone():
@@ -107,6 +109,7 @@ class Handler(BaseHTTPRequestHandler):
         body=self.body() if self.command in ['POST','PUT','DELETE'] else {}
         with connection() as db:
             self.db=db
+            self.media_db_path=DB
             if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
@@ -128,6 +131,7 @@ class Handler(BaseHTTPRequestHandler):
             user,token=self.user(db)
             uid=user['id']
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
+            if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
