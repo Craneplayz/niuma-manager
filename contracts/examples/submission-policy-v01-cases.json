@@ -1,0 +1,406 @@
+{
+  "cases": [
+    {
+      "name": "first-submitted-skip",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "scope": "submission_only",
+        "actions": []
+      },
+      "verified": true,
+      "previous_state": "active",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "submitted",
+        "skip_model": true,
+        "complete_action_ids": [],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [],
+        "needs_review": false,
+        "reasons": []
+      }
+    },
+    {
+      "name": "withdraw-and-complete-exact",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "scope": "submission_only",
+        "actions": [
+          {
+            "action_id": "candidate:1",
+            "kind": "candidate",
+            "decision": "pending",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          },
+          {
+            "action_id": "task:1",
+            "kind": "task",
+            "decision": "confirmed",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          },
+          {
+            "action_id": "task:edited",
+            "kind": "task",
+            "decision": "edited",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          }
+        ]
+      },
+      "verified": true,
+      "previous_state": "active",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "submitted",
+        "skip_model": true,
+        "complete_action_ids": [
+          "task:1",
+          "task:edited"
+        ],
+        "withdraw_candidate_ids": [
+          "candidate:1"
+        ],
+        "preserve_action_ids": [],
+        "needs_review": false,
+        "reasons": []
+      }
+    },
+    {
+      "name": "mixed-actions-preserved",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "scope": "mixed",
+        "actions": [
+          {
+            "action_id": "task:submit",
+            "kind": "task",
+            "decision": "confirmed",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          },
+          {
+            "action_id": "task:read",
+            "kind": "task",
+            "decision": "confirmed",
+            "relation": "other",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          },
+          {
+            "action_id": "task:ignored",
+            "kind": "task",
+            "decision": "ignored",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          },
+          {
+            "action_id": "task:manual",
+            "kind": "task",
+            "decision": "completed",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": "manual"
+          }
+        ]
+      },
+      "verified": true,
+      "previous_state": "active",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "submitted",
+        "skip_model": false,
+        "complete_action_ids": [
+          "task:submit"
+        ],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [
+          "task:read",
+          "task:ignored",
+          "task:manual"
+        ],
+        "needs_review": false,
+        "reasons": []
+      }
+    },
+    {
+      "name": "unresolved-association",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "scope": "unknown",
+        "actions": [
+          {
+            "action_id": "task:unknown",
+            "kind": "task",
+            "decision": "confirmed",
+            "relation": "unknown",
+            "link_basis": "unresolved",
+            "completion_origin": null
+          }
+        ]
+      },
+      "verified": true,
+      "previous_state": "active",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "needs_scope_review",
+        "skip_model": false,
+        "complete_action_ids": [],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [
+          "task:unknown"
+        ],
+        "needs_review": true,
+        "reasons": [
+          "submission_scope_unknown"
+        ]
+      }
+    },
+    {
+      "name": "imported-submitted-not-trusted",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "scope": "submission_only",
+        "actions": [
+          {
+            "action_id": "task:1",
+            "kind": "task",
+            "decision": "confirmed",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          }
+        ]
+      },
+      "verified": false,
+      "previous_state": "active",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "untrusted",
+        "skip_model": false,
+        "complete_action_ids": [],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [
+          "task:1"
+        ],
+        "needs_review": true,
+        "reasons": [
+          "source_unverified"
+        ]
+      }
+    },
+    {
+      "name": "active-after-submitted",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "active",
+          "basis": "active_assignment_page"
+        },
+        "scope": "submission_only",
+        "actions": [
+          {
+            "action_id": "task:done",
+            "kind": "task",
+            "decision": "completed",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": "source_submission"
+          }
+        ]
+      },
+      "verified": true,
+      "previous_state": "submitted",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "reopened_review",
+        "skip_model": true,
+        "complete_action_ids": [],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [
+          "task:done"
+        ],
+        "needs_review": true,
+        "reasons": [
+          "submission_status_changed"
+        ]
+      }
+    },
+    {
+      "name": "unknown-after-submitted",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "unknown",
+          "basis": "unknown"
+        },
+        "scope": "submission_only",
+        "actions": []
+      },
+      "verified": true,
+      "previous_state": "submitted",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "reopened_review",
+        "skip_model": true,
+        "complete_action_ids": [],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [],
+        "needs_review": true,
+        "reasons": [
+          "submission_status_changed"
+        ]
+      }
+    },
+    {
+      "name": "stale-submitted",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "scope": "submission_only",
+        "actions": [
+          {
+            "action_id": "task:1",
+            "kind": "task",
+            "decision": "confirmed",
+            "relation": "assignment_submission",
+            "link_basis": "server_exact",
+            "completion_origin": null
+          }
+        ]
+      },
+      "verified": true,
+      "previous_state": "active",
+      "latest_sequence": 3,
+      "expected": {
+        "disposition": "stale",
+        "skip_model": true,
+        "complete_action_ids": [],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [
+          "task:1"
+        ],
+        "needs_review": false,
+        "reasons": [
+          "stale_snapshot"
+        ]
+      }
+    },
+    {
+      "name": "unknown-normal-recognition",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:a",
+          "input_id": "item:a",
+          "course_id": "_course_1",
+          "content_id": "_assignment_1",
+          "snapshot_id": "snapshot:2",
+          "sequence": 2,
+          "observed_at": "2026-10-09T09:00:00+08:00",
+          "state": "unknown",
+          "basis": "unknown"
+        },
+        "scope": "submission_only",
+        "actions": []
+      },
+      "verified": true,
+      "previous_state": "unknown",
+      "latest_sequence": 1,
+      "expected": {
+        "disposition": "unknown",
+        "skip_model": false,
+        "complete_action_ids": [],
+        "withdraw_candidate_ids": [],
+        "preserve_action_ids": [],
+        "needs_review": false,
+        "reasons": []
+      }
+    }
+  ]
+}
