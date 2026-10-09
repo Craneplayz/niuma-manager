@@ -17,6 +17,7 @@ import planning
 import source_sync
 import wechat_media
 import task_decomposition
+import reprocessing
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
@@ -45,6 +46,7 @@ def initialize(recover=True):
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        reprocessing.initialize(db,recover=recover)
         wechat_media.initialize(db,recover=recover)
         task_decomposition.initialize(db)
     if recover:
@@ -149,6 +151,7 @@ class Handler(BaseHTTPRequestHandler):
                 uid=user['id']
             if wechat_media.route(self,db,uid,path,body,DB.parent): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
+            if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))

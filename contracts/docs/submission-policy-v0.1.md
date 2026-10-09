@@ -54,7 +54,7 @@ actions 至多 100 条，以后端永久 action_id 区分 candidate/task，记�
 
 ## 显式用户操作与持久化
 
-`control_schema()` / submission-control-v0.1.schema.json 定义内部用户操作，`apply_user_control(observation, operation)` 返回新 observation 及审计内容，不自行鉴权或写库；本 PR 尚未合入或发布，更新的是同一 v0.1 审查契约，接入方必须读取完整新根。
+`control_schema()` / submission-control-v0.1.schema.json 定义内部用户操作，`apply_user_control(observation, operation)` 返回新 observation 及审计内容，不自行鉴权或写库；公开请求与回执见独立的 [submission-operations/0.1](submission-operations-v0.1.md)。
 
 | kind | action_ids | 行为 |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ actions 至多 100 条，以后端永久 action_id 区分 candidate/task，记�
 
 处理新来源时，将 decide 返回的 review_pending/control_revision 与新来源 sequence/state、行动结果原子保存；结果落库前重新比较计算时的 snapshot_id/control_revision，迟到结果不能覆盖用户操作。未授信/过时观察不得更新来源或控制状态；两类结果都会保留已有 review_pending。所有改变用户决定/暂停/待核对状态的入口都须推进控制版本；服务重启恢复这些字段，不能仅保存最近一次 previous_state。
 
-明确解除后，以已保存最新来源 state 作为下一次 previous_state；后续新的 submitted→active/unknown 再次触发核对。人工确认的 HTTP/UI、数据库事务和审计存储由后端实现，本契约不新增业务路由。
+明确解除后，以已保存最新来源 state 作为下一次 previous_state；后续新的 submitted→active/unknown 再次触发核对。人工确认的 HTTP/UI、数据库事务和审计存储由后端实现，内部策略本身不提供运行端路由。
 
 只有可信且 submission_only 的首次观察才保证零模型调用；混合行动或未知范围属于真实语义缺口，应保留核对路径；不读取到附件不影响已有可信提交状态的处理。
 

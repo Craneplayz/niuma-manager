@@ -22,6 +22,7 @@ frontend/
 │   ├── store.js               导出统一的状态访问接口。
 │   ├── team-store.js          对接账号数据库和业务 API。
 │   ├── team-recognition-ui.js 展示通知导入、账号候选与来源证据。
+│   ├── reprocessing-ui.js     选择已保存通知并查询、停止持久化重识别运行。
 │   ├── task-trash-ui.js       展示任务回收站、恢复与彻底删除操作。
 │   ├── source-import.js        解析课程网 v0.2 文件与用户选择的微信文本。
 │   ├── team-wechat-media-ui.js 展示微信附件导入进度、证据和本机导入凭证。
@@ -32,7 +33,11 @@ frontend/
 │   ├── team-personalization-ui.js 记录实际用时反馈。
 │   ├── styles.css / polish.css / team-integration.css 维护界面样式。
 │   └── 其他工具模块           提供示例、搜索、计时、语音、主题和图标。
+├── docs/screenshots/          保存不含私人数据的桌面和移动端来源页验证截图。
+│   ├── 2026-10-09-reprocessing-desktop.png  展示旧通知选择与规则版本入口。
+│   └── 2026-10-09-reprocessing-mobile.png   展示 390px 窗口下的来源管理布局。
 ├── tests/                     覆盖前端行为与团队接口适配。
+│   └── reprocessing.test.js   验证显式记录选择、停止调用、分页与账号状态清理。
 └── docs/
     ├── maintenance.md         说明模块边界和验证要求。
     └── archive/               保存带日期的历史文档与验收截图。
