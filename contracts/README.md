@@ -8,10 +8,21 @@ contracts/
 ├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
 ├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
 ├── tests/test_teaching_review_draft.py # 草案证据、身份绑定、边界与反例检查
+├── submission_policy.py              # #110 提交状态、可信来源及精确行动的纯决策校验
+├── schemas/submission-policy-v0.1.schema.json # 后端内部观察与永久行动映射根 Schema
+├── schemas/submission-control-v0.1.schema.json # 用户重开、恢复自动完成及解除核对的操作根
+├── examples/submission-policy-v01-cases.json # 首次提交、多行动、状态变化及不可信输入
+├── tests/test_submission_policy.py    # 同源顺序、精确关联、用户决定和授信边界反例
+├── docs/submission-policy-v0.1.md     # 已提交作业退出候选与完成状态交接规约
 ├── docs/teaching-review-v0.4-draft.md  # #108/#109 阶段 A 的字段及接入边界
 ├── task-planning/                   # 业务排程及重新规划的请求、回应和确认语义
 ├── task-decomposition/              # AI 拆解公开 v0.1 请求、回应 Schema 及合成样例
 ├── requirements-dev.txt              # 离线契约校验依赖，不加入应用运行依赖
+├── reprocessing.py                   # #112 独立操作根、状态转换与永久行动关联参考
+├── schemas/reprocessing-v0.1.schema.json # 定向重识别自包含业务信封
+├── examples/reprocessing-v01-cases.json # 查询、运行、停止、失败和用户决定共享样例
+├── tests/test_reprocessing.py         # 幂等选择、版本、迟到结果与保留决定反例
+├── docs/reprocessing-v0.1.md          # 重识别操作、来源授权和队列交接规约
 ├── check_v03_examples.py             # v0.3 Schema、引用、覆盖/状态与进度检查
 ├── build_v031_bundle.py              # 生成/检查无外部引用的 v0.3.1 Schema 包
 ├── check_v031_examples.py            # v0.3.1 独立根入口、边界、审核及状态机校验
@@ -52,9 +63,13 @@ contracts/
 
 ## 交接方式
 
+- #112 [定向重识别业务契约](docs/reprocessing-v0.1.md) 提供选择旧记录、运行/停止、持久进度和用户决定关联的共享校验；供 server/UI 显式实现，不表示路由已开放，也不改变 v0.2 模型信封。
+
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
 教学网 #108/#109 的新增覆盖/学期规则见 [v0.4-draft.1 政策组件](docs/teaching-review-v0.4-draft.md)；仅供审查和离线验证，不是新 API，不改变以下 v0.2 运行契约，也不放宽 PR #98 的 v0.3.1 文件审核规则。
+
+- #110 [已提交状态决策契约](docs/submission-policy-v0.1.md) 区分来源事实和永久行动对应，提供纯校验与参考决策；后端显式接入后才生效，不凭模型或 imported hints 自动完成。
 
 - 来源模块按 [输入样例](source-to-text/text-frontend-v02-request.json) 提供原文及元数据，文本模块接收完整 v0.2 请求。
 - `platform` 标明来源：教学网 `teaching_web`、微信 `wechat` 的结果可直接进日历；对话框手动输入一律填 `manual`，结果须用户确认。`unknown` 已停用，新代码不得再送；旧数据中的 `unknown` 按 `manual` 处理。
