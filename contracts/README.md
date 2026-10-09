@@ -18,6 +18,11 @@ contracts/
 ├── task-planning/                   # 业务排程及重新规划的请求、回应和确认语义
 ├── task-decomposition/              # AI 拆解公开 v0.1 请求、回应 Schema 及合成样例
 ├── requirements-dev.txt              # 离线契约校验依赖，不加入应用运行依赖
+├── reprocessing.py                   # #112 独立操作根、状态转换与永久行动关联参考
+├── schemas/reprocessing-v0.1.schema.json # 定向重识别自包含业务信封
+├── examples/reprocessing-v01-cases.json # 查询、运行、停止、失败和用户决定共享样例
+├── tests/test_reprocessing.py         # 幂等选择、版本、迟到结果与保留决定反例
+├── docs/reprocessing-v0.1.md          # 重识别操作、来源授权和队列交接规约
 ├── check_v03_examples.py             # v0.3 Schema、引用、覆盖/状态与进度检查
 ├── build_v031_bundle.py              # 生成/检查无外部引用的 v0.3.1 Schema 包
 ├── check_v031_examples.py            # v0.3.1 独立根入口、边界、审核及状态机校验
@@ -57,6 +62,8 @@ contracts/
 ```
 
 ## 交接方式
+
+- #112 [定向重识别业务契约](docs/reprocessing-v0.1.md) 提供选择旧记录、运行/停止、持久进度和用户决定关联的共享校验；供 server/UI 显式实现，不表示路由已开放，也不改变 v0.2 模型信封。
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
