@@ -1,6 +1,6 @@
 import {dayKey,offsetDay,priorityLabels,statusLabels,isBlocked} from './data.js';
 import {api,readStore,saveStore,session,initSession,authenticate,logout,retrySave,refreshStore,flushStore,workspaceValue} from './store.js';
-import {assistantPage,sourceManagementPage,configureAssistant,handleAssistantClick,handleAssistantInput,handleAssistantSubmit,resetAssistant,leaveAssistant} from './team-recognition-ui.js';
+import {assistantPage,sourceManagementPage,configureAssistant,handleAssistantClick,handleAssistantInput,handleAssistantSubmit,resetAssistant,leaveAssistant,openMediaCandidate} from './team-recognition-ui.js';
 import {icon} from './icons.js';
 import {pageIntro,storyShell} from './story-layout.js';
 import {selectTasks} from './productivity.js';
@@ -9,6 +9,7 @@ import {plannerPage,configurePlanner,plannerClick,plannerChange,plannerSubmit,pl
 import {initTheme,themeButton,handleThemeClick,themeSetting,handleThemeChange} from './theme.js';
 import {configurePersonalization,personalizationSettings,personalizationChange,promptForCompletionMinutes,personalizationSubmit} from './team-personalization-ui.js';
 import {calendarPage,calendarClick,calendarStep,calendarToday} from './team-calendar-ui.js';
+import {configureWechatMedia,wechatMediaClick} from './team-wechat-media-ui.js';
 import {configureDecomposition,decompositionPage,decompositionClick,decompositionSubmit} from './team-decomposition-ui.js';
 import {updateTaskCompletion,restoreTaskCompletion} from './task-bulk.js';
 import {configureScheduleEditor,scheduleEditorClick,scheduleEditorSubmit} from './schedule-editor.js';
@@ -157,6 +158,8 @@ configureTrash({getState:()=>state,render,toast,openDialog,closeDialog:()=>dialo
 configureAssistant({proposeForTasks,getState:()=>state,editTask:taskDialog,render,persist,toast,openDialog,closeDialog,dialogHeader,refresh:async()=>{state=await refreshStore();render();}});
 configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
 configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:planDialog,refresh:async()=>{state=await refreshStore();render();}});
+configureWechatMedia({render,getState:()=>state,proposeForTasks,reviewCandidate:openMediaCandidate,refresh:async()=>{state=await refreshStore();render();}});
+document.addEventListener('click',event=>{const button=event.target.closest?.('[data-media-action]');if(button)wechatMediaClick(button);});
 configurePersonalization({getState:()=>state,render,toast,openDialog,closeDialog,dialogHeader});
 configureScheduleEditor({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
 configureDecomposition({getState:()=>state,render,toast,requireLogin:()=>authDialog('login'),refresh:async()=>{state=await refreshStore();render();}});

@@ -4,6 +4,7 @@ import {pageIntro} from './story-layout.js';
 import {startVoice,cancelVoice,voiceSupport} from './voice.js';
 import {parseSourceFile,wechatRequest} from './source-import.js';
 import {configureReprocessing,reprocessingPanel} from './reprocessing-ui.js';
+import {wechatMediaPanel} from './team-wechat-media-ui.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
@@ -12,6 +13,8 @@ let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',publis
 export function configureAssistant(callbacks){host=callbacks;configureReprocessing({render:callbacks.render,finished:async()=>{loaded=false;reviewScope='all';await callbacks.refresh?.();}});}
 export function resetAssistant(){reviewScope='current';newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
+let candidateRevision=0;
+window.addEventListener('niuma:recognition-changed',()=>{candidateRevision++;batches=[];loaded=false;refresh();});
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(['#agent','#settings','#sources'].includes(location.hash))host.render();};
 export const canAutoApplyCandidate=(c,batch)=>{
@@ -60,12 +63,12 @@ async function loadCredentials(){
 function sourceSyncPanel(){
  const configured=credentialStatus?.configured;
  const credentialForm=!credentialStatus?.loading&&(!configured||editCredentials)?`<form id="source-credential-form" class="source-sync-credentials"><label>教学网账号<input name="username" type="text" required maxlength="200" autocomplete="off" placeholder="校园卡账号" value="${esc(credentialStatus?.username||'')}"></label><label>教学网密码<input name="password" type="password" required maxlength="200" autocomplete="new-password" placeholder="保存到当前账号"></label><button class="btn" ${credentialBusy?'disabled':''}>${credentialBusy?'保存中…':'保存教学网凭据'}</button></form>`:'';
- return `<section class="agent-source-sync"><h2>选择同步来源</h2><div class="source-sync-options"><label><input type="checkbox" data-agent-sync-source="teaching_web" ${syncSources.has('teaching_web')?'checked':''} ${busy||sourceBusy||!session.user?'disabled':''}> 教学网</label><label><input type="checkbox" disabled> 微信（仅支持文件导入）</label></div>${session.user?`<p>${configured?'教学网账号已保存：'+esc(credentialStatus.username):credentialStatus?.loading?'正在读取教学网凭据…':'请先保存教学网账号和密码。'}</p>${configured?`<div class="button-row"><button type="button" class="btn" data-agent-action="edit-credentials">${editCredentials?'取消修改':'更换凭据'}</button><button type="button" class="btn" data-agent-action="remove-credentials">删除凭据</button></div>`:''}${credentialForm}${credentialStatus?.error?`<p class="error">${esc(credentialStatus.error)}</p>`:''}`:''}</section>`;
+ return `<section class="agent-source-sync"><h2>选择同步来源</h2><div class="source-sync-options"><label><input type="checkbox" data-agent-sync-source="teaching_web" ${syncSources.has('teaching_web')?'checked':''} ${busy||sourceBusy||!session.user?'disabled':''}> 教学网</label><label><input type="checkbox" disabled> 微信（见下方本机采集器）</label></div>${session.user?`<p>${configured?'教学网账号已保存：'+esc(credentialStatus.username):credentialStatus?.loading?'正在读取教学网凭据…':'请先保存教学网账号和密码。'}</p>${configured?`<div class="button-row"><button type="button" class="btn" data-agent-action="edit-credentials">${editCredentials?'取消修改':'更换凭据'}</button><button type="button" class="btn" data-agent-action="remove-credentials">删除凭据</button></div>`:''}${credentialForm}${credentialStatus?.error?`<p class="error">${esc(credentialStatus.error)}</p>`:''}`:''}</section>`;
 }
 function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#settings">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源原文发送给文本识别服务。</label><button type="button" class="btn primary" data-agent-action="${busy?'stop':'sync-sources'}" ${!session.user?'disabled':''}>${busy?'停止导入':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>`;}
 export function sourceManagementPage(embedded=false){
  if(session.user&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
- const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${reprocessingPanel()}${sourceImportPanel()}`;
+ const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${reprocessingPanel()}${sourceImportPanel()}${wechatMediaPanel()}`;
  return embedded?`<div class="settings-source-management"><hr><h2>来源管理</h2>${content}</div>`:`<div class="page-heading"><h1>来源管理</h1></div>${content}`;
 }
 function sourceImportPanel(standalone=false){
@@ -91,10 +94,16 @@ export function suggestedDue(d){
  return {date:p.year+'-'+p.month+'-'+p.day,time:stamp.getUTCSeconds()||stamp.getUTCMilliseconds()?'':p.hour+':'+p.minute};
 }
 async function load(refreshWorkspace=false){
+ const revision=candidateRevision;
  if(!session.user)return;
- const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ const epoch=accountVersion(),current=()=>epoch===accountVersion()&&revision===candidateRevision;
  try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';loaded=true;refresh();}
- catch(e){if(epoch!==accountVersion())return;error=e.message;loaded=true;refresh();}
+ catch(e){if(!current())return;error=e.message;loaded=true;refresh();}
+}
+export async function openMediaCandidate(id){
+ await load(true);
+ const item=batches.flatMap(batch=>batch.items).find(item=>item.id===id);
+ if(item?.state==='pending')review(item);
 }
 async function autoApplyCandidates(requestId,current,previousIds,resumeAutoApply=false){
  let applied=0,failed=0;const appliedIds=[];
@@ -184,7 +193,7 @@ export function buildQuickResolution(item,tasksVersion){
  return {action:'create',version:item.version,tasks_version:tasksVersion,target_id:null,reviewed:true,draft:{title:c.title,description:c.description||'',course:c.course_or_project||null,due:d.date?{date:d.date,precision:d.time?'datetime':'date',...(d.time?{time:d.time}:{})}:null}};
 }
 async function resolve(form){
- const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ const epoch=accountVersion(),revision=candidateRevision,current=()=>epoch===accountVersion()&&revision===candidateRevision;
  const values=Object.fromEntries(new FormData(form)),item=batches.flatMap(b=>b.items).find(i=>i.id===form.dataset.candidate);
  const errorNode=form.querySelector('#candidate-error');
  if(!item||item.state!=='pending'){errorNode.textContent='该候选已经处理，请刷新后查看任务';return;}
@@ -279,18 +288,20 @@ async function restoreCandidate(item,current){
 }
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
+ const revision=candidateRevision,candidateCurrent=()=>current()&&revision===candidateRevision;
  if(['current','all'].includes(button.dataset.agentReviewScope)){reviewScope=button.dataset.agentReviewScope;refresh();return;}
  if(button.dataset.agentSourceMode){if(!busy&&importModes().some(([value])=>value===button.dataset.agentSourceMode)){importMode=button.dataset.agentSourceMode;error='';notice='';refresh();}return;}
  const candidateAction=button.dataset.agentConfirm||button.dataset.agentReview||button.dataset.agentIgnore||button.dataset.agentRestore;
  if(busy&&!candidateAction&&!['stop','voice'].includes(button.dataset.agentAction))return;
  if(button.dataset.agentEditTask){host.editTask?.(button.dataset.agentEditTask);return;}
- if(button.dataset.agentConfirm){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentConfirm);if(item?.candidate.notice_type==='create')await quickCreate(item,current);else if(item)review(item);return;}
+ if(button.dataset.agentConfirm){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentConfirm);if(item?.candidate.notice_type==='create')await quickCreate(item,candidateCurrent);else if(item)review(item);return;}
  if(button.dataset.agentReview){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentReview);if(item)review(item);return;}
- if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);await ignoreCandidate(item,current);return;}
- if(button.dataset.agentRestore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentRestore);await restoreCandidate(item,current);return;}
+ if(button.dataset.agentIgnore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentIgnore);await ignoreCandidate(item,candidateCurrent);return;}
+ if(button.dataset.agentRestore){const item=batches.flatMap(b=>b.items).find(i=>i.id===button.dataset.agentRestore);await restoreCandidate(item,candidateCurrent);return;}
  if(button.dataset.agentAction==='refresh'){await load(true);return;}
  if(button.dataset.agentRetry){
   const batch=batches.find(b=>b.request.request_id===button.dataset.agentRetry);
+  if(batch?.request.contract_version==='0.3.1'){location.hash='#settings';return;}
   if(batch&&!batch.demo)await submitRecognitionRequest(batch.request,()=>{
    const index=sourceImport?.requests?.findIndex(r=>r.request_id===batch.request.request_id);
    if(index>=0)sourceImport.sent.add(index);

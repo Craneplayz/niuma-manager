@@ -15,6 +15,7 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import wechat_media
 import task_decomposition
 import reprocessing
 
@@ -46,7 +47,10 @@ def initialize(recover=True):
         recognition.initialize(db)
         source_sync.initialize(db)
         reprocessing.initialize(db,recover=recover)
+        wechat_media.initialize(db,recover=recover)
         task_decomposition.initialize(db)
+    if recover:
+        wechat_media.resume(DB)
 
 def seed():
     initialize(recover=False)
@@ -75,7 +79,7 @@ class ApiError(Exception):
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, value, cookie=None):
-        data=json.dumps(value,ensure_ascii=False).encode()
+        data=b'' if status==204 else json.dumps(value,ensure_ascii=False).encode()
         if status<400 and getattr(self,'db',None) is not None:
             self.db.commit()
         self.send_response(status)
@@ -87,8 +91,19 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def body(self):
+        if self.path.startswith('/api/sources/wechat/'):
+            try:
+                value=json.loads(wechat_media.read_body(self,2000000) or b'{}')
+            except (ValueError,UnicodeError):
+                raise wechat_media.MediaError(400,'invalid_request','请求须为有效 JSON') from None
+            if not isinstance(value,dict):
+                raise wechat_media.MediaError(400,'invalid_request','请求须为 JSON 对象')
+            return value
         size=int(self.headers.get('Content-Length','0'))
-        if size>2000000: raise ApiError(413,'数据过大')
+        if size>2000000:
+            if self.path.startswith('/api/sources/wechat/'):
+                raise wechat_media.MediaError(413,'limit_exceeded','数据超过 2 MB')
+            raise ApiError(413,'数据过大')
         value=json.loads(self.rfile.read(size) or b'{}')
         if not isinstance(value,dict): raise ApiError(400,'无效请求')
         return value
@@ -106,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='GET' and origin and origin not in ['http://localhost:1331','http://127.0.0.1:1331']:
             raise ApiError(403,'不允许的请求来源')
         path=self.path.split('?')[0]
-        body=self.body() if self.command in ['POST','PUT','DELETE'] else {}
+        body=self.body() if self.command in ['POST','PUT','DELETE'] and not (path=='/api/sources/wechat/assets' and self.headers.get('Content-Type','').startswith('multipart/form-data;')) else {}
         with connection() as db:
             self.db=db
             self.media_db_path=DB
@@ -128,8 +143,13 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
                 return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),'niuma_session='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age=86400')
-            user,token=self.user(db)
-            uid=user['id']
+            bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
+            if bearer:
+                uid,token,user=bearer,None,None
+            else:
+                user,token=self.user(db)
+                uid=user['id']
+            if wechat_media.route(self,db,uid,path,body,DB.parent): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return
@@ -290,11 +310,23 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self): self.handle_request()
     def handle_request(self):
         try: self.route()
-        except ApiError as e: self.reply(e.status,dict(error=e.message))
-        except (ValueError,KeyError,TypeError): self.reply(400,dict(error='数据格式不正确'))
+        except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
+        except ApiError as e:
+            if self.path.startswith('/api/sources/wechat/'):
+                code={401:'unauthorized',403:'forbidden',404:'not_found',413:'limit_exceeded',503:'queue_busy'}.get(e.status,'invalid_request')
+                self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
+            else: self.reply(e.status,dict(error=e.message))
+        except (ValueError,KeyError,TypeError):
+            if self.path.startswith('/api/sources/wechat/'):
+                self.reply(400,dict(error=dict(code='invalid_request',message='数据格式不正确',retryable=False)))
+            else: self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
-            print(type(e).__name__,str(e),flush=True)
-            self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
+            if self.path.startswith('/api/sources/wechat/'):
+                print(type(e).__name__,flush=True)
+                self.reply(503,dict(error=dict(code='queue_busy',message='附件服务暂不可用，请稍后重试',retryable=True)))
+            else:
+                print(type(e).__name__,str(e),flush=True)
+                self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
         finally:
             if getattr(self,'db',None) is not None: self.db.close()
 
@@ -327,8 +359,9 @@ def validate_proposal(request,result):
 
 if __name__=='__main__':
     import sys
-    initialize()
     if '--seed' in sys.argv: seed()
     else:
-        print('牛马管理器 API: http://127.0.0.1:1332',flush=True)
-        ThreadingHTTPServer(('127.0.0.1',1332),Handler).serve_forever()
+        with ThreadingHTTPServer(('127.0.0.1',1332),Handler) as server:
+            initialize()
+            print('牛马管理器 API: http://127.0.0.1:1332',flush=True)
+            server.serve_forever()
