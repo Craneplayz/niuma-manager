@@ -4,7 +4,7 @@ import {icon} from './icons.js';
 import {pageIntro} from './story-layout.js';
 import {priorityLabels} from './data.js';
 
-let host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,replanExisting=false,targetedIds=null;
+let focusedTaskId='',host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,replanExisting=false,targetedIds=null;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
 const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&(targetedIds?targetedIds.includes(t.id):replanExisting||!host.getState().schedule.some(p=>p.taskId===t.id)));
@@ -32,18 +32,29 @@ export function proposalSummaryHtml(proposal,tasks,now=Date.now()){
   const guidance={date:'补充截止日期后重新规划。',expired:'截止时间已过，无法安排；请核对日期或标记完成。',short:`还差 ${minutes(remaining)}；可增加可用时间。`,ready:'确认后写入日历。'}[status];
   const risk=rank&&Number.isInteger(rank.level)&&rank.level>=0&&rank.level<=3?rank.level:null;
   const reason=risk===null||status==='expired'?'':risk===0?`截止前可用 ${minutes(rank.availableMinutes)}，还缺 ${minutes(-rank.slackMinutes)}。`:`截止前可用 ${minutes(rank.availableMinutes)}，余量 ${minutes(rank.slackMinutes)}。`;
-  return {status,rank:rank?.rank??Infinity,html:`<article class="proposal-task ${status}"><div class="proposal-task-top"><span class="proposal-state">${label}</span>${displayOrder.has(id)?`<span class="proposal-rank">排程优先第 ${displayOrder.get(id)} 位</span>`:''}</div><h3>${esc(task?.title||id)}</h3><p class="proposal-task-meta"><span class="proposal-priority ${priority}">${esc(priorityLabels[priority]||'优先级未设置')}</span>${risk!==null?`<span class="proposal-risk p${risk}" aria-label="自动风险 P${risk}，${riskLabels[risk]}">风险 P${risk} · ${riskLabels[risk]}</span>`:''}<span>${due?`截止 ${esc(due)}${dueTime?' '+esc(dueTime):''}`:'尚无截止日期'} · 预计 ${minutes(estimate)}</span></p><p class="proposal-task-guidance">${guidance}</p>${reason?`<p class="proposal-task-reason">${esc(reason)}</p>`:''}</article>`};
+  return {status,rank:rank?.rank??Infinity,html:`<article class="proposal-task ${status}" data-plan-selected="${focusedTaskId===id}"><div class="proposal-task-top"><span class="proposal-state">${label}</span>${displayOrder.has(id)?`<span class="proposal-rank">排程优先第 ${displayOrder.get(id)} 位</span>`:''}</div><h3><button class="proposal-task-focus" data-plan-focus="${esc(id)}" aria-pressed="${focusedTaskId===id}">${esc(task?.title||id)}</button></h3><p class="proposal-task-meta"><span class="proposal-priority ${priority}">${esc(priorityLabels[priority]||'优先级未设置')}</span>${risk!==null?`<span class="proposal-risk p${risk}" aria-label="自动风险 P${risk}，${riskLabels[risk]}">风险 P${risk} · ${riskLabels[risk]}</span>`:''}<span>${due?`截止 ${esc(due)}${dueTime?' '+esc(dueTime):''}`:'尚无截止日期'} · 预计 ${minutes(estimate)}</span></p><p class="proposal-task-guidance">${guidance}</p>${reason?`<p class="proposal-task-reason">${esc(reason)}</p>`:''}</article>`};
  });
  const attention=cards.filter(card=>card.status!=='ready').sort((a,b)=>a.rank-b.rank),ready=cards.filter(card=>card.status==='ready').sort((a,b)=>a.rank-b.rank);
  const known=tasks.map(task=>task.title+'：');
  const otherWarnings=[...new Set(proposal.warnings.filter(warning=>!known.some(prefix=>warning.startsWith(prefix)&&/^(没有 DDL|P\d+，DDL 前尚缺|未全部安排)/.test(warning.slice(prefix.length)))))];
  return `<div class="proposal-intro"><strong>${ready.length} 项可安排${attention.length?` · ${attention.length} 项需要处理`:''}</strong><p>任务优先级由你设置；排程先看截止前余量，同等风险再比较截止时间和任务优先级。</p></div>
  ${attention.length?`<section class="proposal-group"><h3>需要你处理</h3><div class="proposal-task-grid">${attention.map(card=>card.html).join('')}</div></section>`:''}
- ${ready.length?`<section class="proposal-group"><h3>本次建议安排</h3><div class="proposal-task-grid">${ready.map(card=>card.html).join('')}</div></section>`:''}
  ${otherWarnings.length?`<div class="proposal-extra" role="status">${otherWarnings.map(warning=>`<p>${esc(warning)}</p>`).join('')}</div>`:''}`;
 }
+export function proposalBlocksHtml(proposal,tasks){
+ return proposal.blocks.map(block=>{
+  const task=tasks.find(task=>task.id===block.taskId),start=planDateTime(block.startAt),end=planDateTime(block.endAt);
+  const rank=proposal.priorityOrder?.find(item=>item.taskId===block.taskId);
+  const risk=rank&&Number.isInteger(rank.level)&&rank.level>=0&&rank.level<=3?rank.level:null;
+  const priority=['high','medium','low'].includes(task?.priority)?task.priority:'unset';
+  const estimate=proposal.estimates[block.taskId];
+  const position=(proposal.priorityOrder||[]).filter(item=>proposal.blocks.some(b=>b.taskId===item.taskId)).findIndex(item=>item.taskId===block.taskId)+1;
+  const reason=risk===null?'':risk===0?`截止前可用 ${minutes(rank.availableMinutes)}，还缺 ${minutes(-rank.slackMinutes)}。`:`截止前可用 ${minutes(rank.availableMinutes)}，余量 ${minutes(rank.slackMinutes)}。`;
+  return `<article class="plan-block" data-plan-selected="${focusedTaskId===block.taskId}">${position?`<span class="proposal-rank">排程优先第 ${position} 位</span>`:''}<button data-plan-focus="${esc(block.taskId)}" aria-pressed="${focusedTaskId===block.taskId}"><b>${esc(block.title||task?.title||block.taskId)}</b><span>${start.date} ${start.time}–${start.date===end.date?'':end.date+' '}${end.time}</span></button><p class="proposal-task-meta"><span class="proposal-priority ${priority}">${esc(priorityLabels[priority]||'优先级未设置')}</span>${risk!==null?`<span class="proposal-risk p${risk}" aria-label="自动风险 P${risk}，${riskLabels[risk]}">风险 P${risk} · ${riskLabels[risk]}</span>`:''}<span>${task?.due?`截止 ${esc(task.due)}${task.dueTime?' '+esc(task.dueTime):''}`:'尚无截止日期'}${Number.isFinite(estimate)?` · 任务预计 ${minutes(estimate)}`:''}</span></p>${reason?`<p class="proposal-task-reason">${esc(reason)}</p>`:''}</article>`;
+ }).join('');
+}
 window.addEventListener('niuma:account-reset',()=>{
- activeController?.abort();activeController=null;result=null;error='';busy=false;availability=null;exclusionsOpen=false;replanExisting=false;targetedIds=null;
+ activeController?.abort();activeController=null;focusedTaskId='';result=null;error='';busy=false;availability=null;exclusionsOpen=false;replanExisting=false;targetedIds=null;
 });
 document.addEventListener('toggle',event=>{
  if(event.target.isConnected&&event.target.classList?.contains('planning-exclusions'))exclusionsOpen=event.target.open;
@@ -68,7 +79,7 @@ export function plannerPage(){
  ${result?`<section class="panel planning-insights"><div class="section-title"><h2>排程提案</h2><span>确认后才写入日历</span></div>
  ${result.replannedTaskIds?.length?`<p class="planning-replacement-note">确认后将替换以下任务尚未开始的安排：${result.replannedTaskIds.map(id=>esc(host.getState().tasks.find(task=>task.id===id)?.title||id)).join('、')}。未生成新时段的任务保留原安排。</p>`:''}
  ${proposalSummaryHtml(result,host.getState().tasks)}
- ${result.blocks.length?`<section class="proposal-group"><h3>建议时间</h3><div class="proposal-list">${result.blocks.map(b=>{const start=planDateTime(b.startAt),end=planDateTime(b.endAt);return `<article class="plan-block"><b>${esc(b.title)}</b><span>${start.date} ${start.time}–${start.date===end.date?'':end.date+' '}${end.time}</span></article>`;}).join('')}</div></section>`:''}
+ ${result.blocks.length?`<p class="proposal-focus-note" role="status">${focusedTaskId?(result.blocks.some(block=>block.taskId===focusedTaskId)?'已高亮所选任务的建议时段。':'这项任务暂无建议时段，请先处理上方提示。'):'点击建议时段，高亮同一任务的安排。'}</p><section class="proposal-group"><h3>建议时间</h3><div class="proposal-list">${proposalBlocksHtml(result,host.getState().tasks)}</div></section>`:''}
  <div class="planner-actions"><button class="btn primary" data-plan-action="apply" ${busy||!result.blocks.length?'disabled':''}>确认写入日历</button><button class="btn" data-plan-action="modify" ${busy?'disabled':''}>修改可用时间</button><button class="btn" data-plan-action="discard" ${busy?'disabled':''}>取消提案</button></div></section>`:''}`;
 }
 export async function proposeForTasks(taskIds){
@@ -87,7 +98,7 @@ async function requestProposal(payload={}){
  const epoch=accountVersion(),controller=new AbortController();
  const context=planningContext();
  const current=()=>epoch===accountVersion()&&activeController===controller&&!controller.signal.aborted;
- activeController=controller;result=null;error='';busy=true;
+ activeController=controller;focusedTaskId='';result=null;error='';busy=true;
  controller.signal.addEventListener('abort',()=>{
   if(epoch!==accountVersion()||activeController!==controller)return;
   activeController=null;busy=false;error='已取消或请求超时；尚未写入排程，已导入的任务保留。';host.render();
@@ -106,6 +117,7 @@ async function requestProposal(payload={}){
  finally{clearTimeout(timer);if(current()){activeController=null;busy=false;host.render();}}
 }
 export async function plannerClick(button){
+ if(button.dataset.planFocus){focusedTaskId=focusedTaskId===button.dataset.planFocus?'':button.dataset.planFocus;host.render();return true;}
  const action=button.dataset.planAction;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  if(action==='cancel'){activeController?.abort();return true;}
@@ -124,13 +136,13 @@ export async function plannerClick(button){
   invalidateChangedProposal();
   if(!result){host.render();return true;}
   if(busy)return true;
-  const proposal=result,context=resultContext;
+  const proposal=result,context=resultContext,oldIds=new Set(host.getState().schedule.map(plan=>plan.id));
   busy=true;error='';host.render();
   try{
    await flushStore();if(!current())return true;
    if(context!==planningContext()){result=null;throw new Error(changedMessage);}
    await api('/api/planning/apply',{requestId:proposal.requestId});if(!current())return true;
-   result=null;await host.refresh();if(current())host.toast('规划已写入日历');
+   result=null;await host.refresh();if(current()){host.toast('规划已写入日历');const plans=host.getState().schedule.filter(plan=>!oldIds.has(plan.id)&&proposal.blocks.some(block=>block.taskId===plan.taskId));if(plans.length)host.showCalendar?.(plans[0].date,plans.map(plan=>plan.id));}
   }
   catch(e){if(current())error=e.message;}finally{if(current()){busy=false;host.render();}}
   return true;

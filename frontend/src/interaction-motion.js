@@ -4,13 +4,13 @@ const reduced=()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').ma
 let animations=[];
 function key(node,index){return node.dataset.motionTask?`task:${node.dataset.motionTask}`:node.dataset.candidateCard?`candidate:${node.dataset.candidateCard}`:`${node.className}:${index}:${node.textContent}`;}
 export function motionUpdate(update){
- if(reduced()){update();return;}
+ if(reduced()||document.documentElement?.dataset.motionScope){update();return;}
  for(const animation of animations)animation.cancel();animations=[];
  const before=new Map([...document.querySelectorAll(selector)].map((node,index)=>[key(node,index),{node,rect:node.getBoundingClientRect(),done:node.dataset.motionDone}]));
  const active=document.querySelector('.tabs button.active');
  const tabRect=active?.getBoundingClientRect();
  const previousFocus=document.activeElement;
- const focusKey=previousFocus?.dataset.complete||previousFocus?.dataset.filter;
+ const focusKey=previousFocus?.dataset.complete||previousFocus?.dataset.filter||previousFocus?.dataset.planFocus;
  update();
  const after=[...document.querySelectorAll(selector)];
  const keys=new Set();
@@ -33,6 +33,6 @@ export function motionUpdate(update){
  }
  const next=document.querySelector('.tabs button.active');
  if(tabRect&&next?.animate){const rect=next.getBoundingClientRect();if(rect.left!==tabRect.left)animations.push(next.animate([{transform:`translateX(${tabRect.left-rect.left}px) scaleX(${tabRect.width/rect.width})`},{transform:'translateX(0) scaleX(1)'}],{duration:220,easing:'ease-out',pseudoElement:'::after'}));}
- if(focusKey&&!previousFocus.isConnected){const target=[...document.querySelectorAll('[data-complete],[data-filter]')].find(node=>node.dataset.complete===focusKey||node.dataset.filter===focusKey);(target||document.querySelector('.tabs button.active'))?.focus({preventScroll:true});}
+ if(focusKey&&!previousFocus.isConnected){const target=[...document.querySelectorAll('[data-complete],[data-filter],[data-plan-focus]')].find(node=>node.dataset.complete===focusKey||node.dataset.filter===focusKey||node.dataset.planFocus===focusKey);(target||document.querySelector('.tabs button.active'))?.focus({preventScroll:true});}
 }
 export function waitingPanel(title,description){return `<section class="motion-waiting" role="status" aria-live="polite"><span class="motion-waiting-orb" aria-hidden="true"></span><div><strong>${title}</strong><p>${description}</p><div class="motion-skeleton" aria-hidden="true"><i></i><i></i><i></i></div></div></section>`;}

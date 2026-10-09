@@ -13,3 +13,23 @@
 @keyframes motion-orbit{to{transform:rotate(360deg)}}@keyframes motion-breathe{50%{opacity:.35}}@keyframes motion-check{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}@keyframes motion-expand{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.story-ui *{animation:none!important;transition:none!important}}
 .story-ui .tabs button{position:relative}.story-ui .tabs button.active{border-bottom-color:transparent}.story-ui .tabs button.active::after{content:'';position:absolute;bottom:-1px;left:0;width:100%;height:2px;background:var(--story-accent);transform-origin:left}
+/* Task details keep the list visible behind a native modal drawer. */
+html[data-task-drawer]{overflow:hidden}
+.story-ui dialog.task-drawer{position:fixed;inset:0 0 0 auto;margin:0;width:min(560px,100vw);max-width:100vw;height:100dvh;max-height:100dvh;border-radius:24px 0 0 24px;border-width:0 0 0 1px;padding:0 30px;overflow-y:auto;overscroll-behavior:contain;animation:drawer-enter 280ms cubic-bezier(.22,1,.36,1)}
+.story-ui dialog.task-drawer::backdrop{background:#202b2433;backdrop-filter:blur(2px)}
+.story-ui .task-drawer .dialog-title{position:sticky;top:0;z-index:2;background:var(--story-sheet);padding:26px 0 18px;margin:0;border-bottom:1px solid var(--story-line)}
+.story-ui .task-drawer .dialog-actions{position:sticky;bottom:0;z-index:2;background:var(--story-sheet);padding:18px 0 max(20px,env(safe-area-inset-bottom));margin-top:20px;border-top:1px solid var(--story-line)}
+.story-ui dialog.task-drawer.closing{animation:drawer-exit 240ms ease-in forwards}
+.story-ui [data-task-saved]{background:var(--story-soft);outline:1px solid var(--story-line);border-radius:8px;transition:background 300ms}
+.story-ui .proposal-task-focus{background:transparent;color:inherit;border:0;text-align:left;padding:0;font:inherit;cursor:pointer;width:100%}
+.story-ui [data-plan-selected=true],.story-ui [data-schedule-highlight=true]{outline:2px solid var(--story-accent);outline-offset:3px;background:var(--story-soft)}
+.story-ui .plan-block button{color:inherit;font:inherit;text-align:left;background:transparent;border:0;padding:0;width:100%;cursor:pointer}.story-ui .plan-block button span{display:block;margin-top:10px}
+.story-ui .proposal-focus-note,.story-ui .calendar-arrival{font-size:13px;line-height:1.8;color:var(--story-muted);padding:12px 0}
+@keyframes drawer-enter{from{opacity:.5;transform:translateX(100%)}to{opacity:1;transform:translateX(0)}}
+@keyframes drawer-exit{to{opacity:0;transform:translateX(100%)}}
+@media(max-width:600px){.story-ui dialog.task-drawer{inset:auto 0 0;margin:0;width:100%;height:92dvh;max-height:92dvh;border-radius:22px 22px 0 0;border-width:1px 0 0;padding:0 22px;animation-name:sheet-enter}.story-ui dialog.task-drawer.closing{animation-name:sheet-exit}.story-ui .task-drawer .dialog-title{padding-top:22px}.story-ui .task-drawer .form-grid{grid-template-columns:1fr 1fr}}
+@keyframes sheet-enter{from{opacity:.5;transform:translateY(100%)}to{opacity:1;transform:translateY(0)}}@keyframes sheet-exit{to{opacity:0;transform:translateY(100%)}}
+@media(prefers-reduced-motion:reduce){.story-ui dialog.task-drawer{animation:none!important}}
+.story-ui .plan-block .proposal-task-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0 0;font-size:12px;line-height:1.8;color:var(--story-muted)}
+.story-ui .plan-block .proposal-task-meta>span{margin:0;font-size:12px}
+.story-ui .plan-block .proposal-task-reason{font-size:12px;line-height:1.8;color:var(--story-muted);margin:10px 0 0}

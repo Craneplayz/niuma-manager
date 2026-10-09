@@ -1,3 +1,4 @@
+import {transitionView} from './view-motion.js';
 import {waitingPanel} from './interaction-motion.js';
 import {api,dataVersion,flushStore,session,accountVersion} from './store.js';
 import {icon} from './icons.js';
@@ -259,7 +260,8 @@ async function quickCreate(item,current){
  try{
   await flushStore();if(!current())return;
   const response=await api('/api/recognition/candidates/'+item.id+'/resolve',buildQuickResolution(item,dataVersion('tasks')));
-  if(!current())return;batches=response.batches;importProgress.created++;
+  if(!current())return;
+  batches=response.batches;importProgress.created++;
   await host.refresh?.();if(current()){host.toast?.('任务已创建');await planReviewedCandidate(item,'create',current);}
  }catch(e){if(current())error=e.message;}
  finally{candidateBusy.delete(item.id);if(current())refresh();}
@@ -281,7 +283,7 @@ async function restoreCandidate(item,current){
 export async function handleAssistantClick(button){
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  if(['current','all'].includes(button.dataset.agentReviewScope)){reviewScope=button.dataset.agentReviewScope;refresh();return;}
- if(button.dataset.agentSourceMode){if(!busy&&importModes().some(([value])=>value===button.dataset.agentSourceMode)){importMode=button.dataset.agentSourceMode;error='';notice='';refresh();}return;}
+ if(button.dataset.agentSourceMode){if(!busy&&importModes().some(([value])=>value===button.dataset.agentSourceMode)){transitionView(()=>{importMode=button.dataset.agentSourceMode;error='';notice='';refresh();},{scope:'import'});}return;}
  const candidateAction=button.dataset.agentConfirm||button.dataset.agentReview||button.dataset.agentIgnore||button.dataset.agentRestore;
  if(busy&&!candidateAction&&!['stop','voice'].includes(button.dataset.agentAction))return;
  if(button.dataset.agentEditTask){host.editTask?.(button.dataset.agentEditTask);return;}
