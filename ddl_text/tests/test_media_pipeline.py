@@ -87,14 +87,17 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(result['tasks'][0]['deadline']['status'], 'unknown')
         self.assertNotIn('PRIVATE-PATH', json.dumps(result))
 
-    def test_document_reader_is_explicitly_unsupported_without_loading(self):
-        self.request['records'][0]['attachments'][0].update(mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document', file_name='task.docx')
+    def test_upstream_unsupported_file_does_not_load_bytes(self):
+        self.request['records'][0]['attachments'][0].update(mime_type='image/gif', file_name='task.gif')
         draft = self.text_task()
         def forbidden(*args, **kwargs):
             self.fail('unsupported reader must not load bytes')
+        # An upstream unsupported file remains unsupported without invoking any reader.
+        asset = self.request['records'][0]['attachments'][0]
+        asset.update(status='unsupported', file_ref=None, errors=[dict(stage='collect', code='unsupported_type', message='合成不支持文件', retryable=False)])
         result = self.run_request(draft=draft, loader=forbidden)
         self.assertEqual(result['status'], 'partial_success')
-        self.assertEqual(result['errors'][0]['code'], 'reader_unsupported')
+        self.assertEqual(result['errors'][0]['code'], 'unsupported_type')
         self.assertEqual(result['record_results'][0]['attachments'][0]['status'], 'unsupported')
 
     def test_partial_failure_does_not_suppress_other_image_tasks(self):
@@ -269,9 +272,9 @@ class MediaTests(unittest.TestCase):
             asset.update(asset_id=f'image-{index}', file_ref=f'asset:synthetic_asset_{index:03}_001',
                          size_bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
             record['attachments'].append(asset); files[asset['file_ref']] = data
-        _, errors, pictures = _prepare(record, lambda ref, **_: files[ref],
+        _, errors, pictures, _ = _prepare(record, lambda ref, **_: files[ref],
                                       MediaLimits(model_input_bytes=1000), time.monotonic() + 20)
-        self.assertEqual([picture[0] for picture in pictures], ['image-0', 'image-2'])
+        self.assertEqual([picture.asset_id for picture in pictures], ['image-0', 'image-2'])
         self.assertEqual([(e['asset_id'], e['code']) for e in errors], [('image-1', 'limit_exceeded')])
 
     def test_aggregate_result_limit_keeps_earlier_successful_record(self):
