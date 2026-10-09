@@ -1,4 +1,5 @@
-import { load } from "cheerio";
+import { load, type Cheerio, type CheerioAPI } from "cheerio";
+import type { AnyNode } from "domhandler";
 import { DateTime } from "luxon";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 import { sha256 } from "./core/utils.js";
@@ -8,6 +9,22 @@ export interface PublicationTime {
   precision: "datetime" | "date" | "unknown";
   basis: "source" | "unknown";
 }
+export interface SourceReference {
+  label: string;
+  url: string;
+  content_read: boolean;
+  kind: "detail" | "attachment" | "image" | "link";
+  read_status: "unread" | "complete" | "partial" | "failed" | "unsupported";
+  reason: string | null;
+  text?: string;
+}
+export const MAX_SOURCE_TEXT_LENGTH = 100_000;
+export function sourceTextFits(title: string, body: string): boolean {
+  return [title, body].filter(Boolean).join("\n\n").length <= MAX_SOURCE_TEXT_LENGTH;
+}
+
+export const UNREAD_REFERENCE_WARNING = "linked pages, attachments and images were not read";
+
 export interface CourseSourceRecord {
   input_id: string;
   source_item_id: string | null;
@@ -21,7 +38,7 @@ export interface CourseSourceRecord {
   published_at: PublicationTime;
   publication_raw: string | null;
   collected_at: string;
-  references: { label: string; url: string; content_read: boolean }[];
+  references: SourceReference[];
   assignment?: { state: "active" | "submitted" | "unknown"; due_raw: string | null };
   warnings: string[];
 }
@@ -78,20 +95,13 @@ export function extractCourseSourcesFromHtml(html: string, context: SourceContex
       ? details.children("p").map((_i, p) => $(p).text().trim()).get().find((text) => /^(?:发布时间|Posted on)\s*[:：]/i.test(text)) ?? null
       : null;
     const content = announcement ? details.find(".vtbegenerated") : details;
-    const references: CourseSourceRecord["references"] = [];
-    const addReference = (label: string, value: string) => {
-      const url = cleanSourceUrl(value, cleanPageUrl);
-      if (url && !references.some((ref) => ref.url === url)) references.push({ label, url, content_read: false });
-    };
-    if (href) addReference(title, href);
-    content.find("a[href]").each((_i, a) => addReference($(a).text().trim(), $(a).attr("href")!));
-    content.find("img[src]").each((_i, img) => addReference($(img).attr("alt") ?? "", $(img).attr("src")!));
-    const bodyNode = content.clone();
-    bodyNode.find("script, style, .announcementInfo").remove();
-    bodyNode.find("br").replaceWith("\n");
-    bodyNode.find("p, div, li, tr, dt, dd").after("\n");
-    bodyNode.find("td, th").after(" ");
-    const body = bodyNode.text().split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+    const parsed = parseTeacherContent($, content, cleanPageUrl);
+    const references = parsed.references;
+    if (href) {
+      const url = cleanSourceUrl(href, cleanPageUrl);
+      if (url && !references.some((ref) => ref.url === url)) references.unshift(makeSourceReference(title, url, /\/webapps\/assignment\//i.test(href) ? "detail" : referenceKind(url)));
+    }
+    const body = parsed.text;
     const id = announcement ? item.attr("id") : item.children(".item").attr("id") ?? item.attr("id");
     const url = new URL(cleanPageUrl);
     if (item.attr("id")) url.hash = item.attr("id")!;
@@ -108,7 +118,7 @@ export function extractCourseSourcesFromHtml(html: string, context: SourceContex
       collected_at: context.collectedAt, references,
       warnings: [
         ...(!body ? ["listing body is missing; only the title was collected"] : []),
-        ...(references.length ? ["linked pages, attachments and images were not read"] : []),
+        ...(references.length ? [UNREAD_REFERENCE_WARNING] : []),
         ...(publicationRaw && parseSourcePublication(publicationRaw).value === null ? ["publication time could not be parsed; raw value retained"] : []),
       ],
     });
@@ -123,4 +133,84 @@ export function deduplicateCourseSources(records: CourseSourceRecord[]): CourseS
     if (!previous || record.body.length > previous.body.length) unique.set(record.input_id, record);
   }
   return [...unique.values()];
+}
+
+export function referenceKind(url: string): SourceReference["kind"] {
+  return /\/bbcswebdav\/|\.(?:pdf|txt|zip|docx?|pptx?|xlsx?)(?:[?#]|$)/i.test(url) ? "attachment" : "link";
+}
+
+export function makeSourceReference(label: string, url: string, kind: SourceReference["kind"]): SourceReference {
+  return { label, url, kind, content_read: false, read_status: "unread", reason: kind === "image" ? "image_not_read" : "not_read" };
+}
+
+const EXCLUDED_CONTENT = "script, style, input, textarea, button, nav, [role=navigation], .announcementInfo, #assignmentSubmission, .submission, .attempt, .grade";
+
+/** Only the known assignment page wrapper may contain teacher information and private controls. */
+export function cloneTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, allowAssignmentForm = false): Cheerio<AnyNode> {
+  const excluded = `${EXCLUDED_CONTENT}, ${allowAssignmentForm ? "form:not(#uploadAssignmentForm)" : "form"}`;
+  const safe = content.filter((_i, node) => !$(node).is(excluded) && !$(node).parents(excluded).length).clone();
+  safe.find(excluded).remove();
+  return safe;
+}
+
+/** Scan URL tokens separately from descriptors; commas can be part of a URL/data URI. */
+function imageCandidates(srcset: string): string[] {
+  const urls: string[] = [];
+  let position = 0;
+  const whitespace = /[\t\n\f\r ]/;
+  while (position < srcset.length) {
+    while (position < srcset.length && (whitespace.test(srcset[position]) || srcset[position] === ",")) position++;
+    const start = position;
+    while (position < srcset.length && !whitespace.test(srcset[position])) position++;
+    const token = srcset.slice(start, position);
+    if (!token) break;
+    urls.push(token.replace(/,+$/, ""));
+    if (token.endsWith(",")) continue;
+    // Descriptor commas delimit candidates, except inside parentheses.
+    let depth = 0;
+    while (position < srcset.length) {
+      const char = srcset[position++];
+      if (char === "(") depth++;
+      else if (char === ")") depth = Math.max(0, depth - 1);
+      else if (char === "," && depth === 0) break;
+    }
+  }
+  return urls;
+}
+
+/** Work only inside the teacher-authored container; never inspect submission widgets. */
+export function parseTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, baseUrl: string): { text: string; references: SourceReference[] } {
+  const safe = cloneTeacherContent($, content);
+  const references: SourceReference[] = [];
+  const add = (label: string, value: string, kind: SourceReference["kind"]) => {
+    const url = cleanSourceUrl(value, baseUrl);
+    if (!references.some((ref) => ref.url === (url ?? "") && ref.kind === kind)) references.push(makeSourceReference(label, url ?? "", kind));
+  };
+  safe.find("a[href]").each((_i, node) => {
+    const href = $(node).attr("href")!;
+    // In-page anchors contain no unread document; substantive external links do.
+    if (!href.trim().startsWith("#")) add($(node).text().trim(), href, referenceKind(href));
+  });
+  const addImage = (value: string, alt: string, presentation: boolean) => {
+    const url = cleanSourceUrl(value, baseUrl);
+    const knownIcon = url && ["/images/ci/icons/cmlink_generic.gif", "/images/ci/ng/cal_year_event.gif"].includes(new URL(url).pathname)
+      && /^(?:文件|File|单击获得更多选项|Click for more options)?$/i.test(alt);
+    const decorative = url && new URL(url).origin === new URL(baseUrl).origin
+      && /^\/images\/ci\//i.test(new URL(url).pathname)
+      && (presentation || knownIcon);
+    if (!decorative) add(alt, value, "image");
+  };
+  safe.find("img[src], img[srcset], picture > source[srcset]").each((_i, node) => {
+    const image = $(node);
+    const fallback = image.is("source") ? image.parent().children("img").first() : image;
+    const alt = fallback.attr("alt") ?? "";
+    const presentation = fallback.attr("role") === "presentation" || fallback.attr("aria-hidden") === "true";
+    if (image.is("img") && image.attr("src") !== undefined) addImage(image.attr("src")!, alt, presentation);
+    for (const candidate of imageCandidates(image.attr("srcset") ?? "")) addImage(candidate, alt, presentation);
+  });
+  safe.find("br").replaceWith("\n");
+  safe.find("p, div, li, tr, dt, dd").after("\n");
+  safe.find("td, th").after(" ");
+  const text = safe.text().split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean).join("\n");
+  return { text, references };
 }

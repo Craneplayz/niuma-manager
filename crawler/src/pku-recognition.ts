@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CourseSourceRecord, PublicationTime } from "./pku-source.js";
+import { sourceTextFits, type CourseSourceRecord, type PublicationTime } from "./pku-source.js";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 
 // Both the business API and recognition HTTP bridge cap request bodies at this size.
@@ -43,7 +43,7 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
     if (!source.input_id.trim() || ids.has(source.input_id)) throw new Error("source input_id must be nonempty and unique");
     ids.add(source.input_id);
     const text = [source.title, source.body].filter(Boolean).join("\n\n");
-    if (text.length > 100_000) throw new Error(`source ${source.input_id} exceeds the v0.2 text limit; text was not truncated`);
+    if (!sourceTextFits(source.title, source.body)) throw new Error(`source ${source.input_id} exceeds the v0.2 text limit; text was not truncated`);
     return {
       input_id: source.input_id, text, text_quality: source.text_quality,
       platform: "teaching_web", published_at: { ...source.published_at }, collected_at: source.collected_at,

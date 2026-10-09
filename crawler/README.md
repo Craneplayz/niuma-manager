@@ -21,6 +21,7 @@ crawler/
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
 │   ├── pku-homework.ts               登录并采集课程内容
+│   ├── pku-attachments.ts            限定同源教师附件下载，在独立进程提取 PDF / UTF-8 文本
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
 │   ├── pku-recognition.ts            转换课程记录为识别请求
 │   ├── pku-source.ts                 解析课程页面和来源记录
@@ -50,6 +51,9 @@ crawler/
 │   ├── pku-homework-cli.test.ts       测试课程采集命令行
 │   ├── pku-homework-html.test.ts      测试课程页面解析
 │   ├── pku-homework.test.ts           测试课程采集规则
+│   ├── pku-attachment-download.test.ts 测试流式大小限制、重定向及鉴权边界
+│   ├── pku-attachments.test.ts        测试附件读取、大小限制和失败状态
+│   ├── pku-pdf-process.test.ts        测试 PDF 子进程退出、崩溃与超时恢复
 │   ├── pku-assignment.test.ts         测试作业详情页的安全只读解析
 │   ├── pku-navigation.test.ts         测试课程页面导航
 │   ├── pku-recognition.test.ts        测试识别请求转换
@@ -113,4 +117,10 @@ pnpm pku:homework -- --format=recognition
 
 默认只采集名称含“作业”、`Assignment` 或 `Homework` 的栏目，不读取课程首页公告；找不到作业栏目的课程会在 `coverage_warnings` 中记录课程名。`--all-sections` 恢复课程公告和全部内容栏目的采集。默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
 
-课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。若页面已变为“复查提交历史记录”，仅记录已提交状态，不读取提交文件、作答、成绩或尝试时间；采集过程不会点击、填写或提交页面控件。附件内容仍不读取。
+课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。按“已提交视为完成”规则，原生页面的“复查提交历史记录 / Review Submission History”标题记录 submitted；提交历史详情仍标 partial / submission_history_only，不读取提交文件、作答、成绩或尝试时间，不推断是否需要重交；采集过程不会点击、填写或提交作业控件。列表 input_id / source_item_id 保持不变，课程 / 作业 ID 分别取自来源与原生详情链接，供 #110 后端在受控采集入口按账号匹配，不按标题匹配。
+
+正文和作业详情中的同源教师 PDF / UTF-8 txt 附件会下载提取，引用逐项记录读取状态、原因和提取文字；仅页面装饰图标与菜单不影响完整性，真实图片和未读链接仍保留 partial。下载上限 5 MiB、15 秒、3 次同源重定向，PDF 在独立 Node 子进程解析，等待清理与退出后返回；解析超过 15 秒强制结束子进程、旧生代堆上限 128 MiB，子进程崩溃只将当前附件标 parse_failed。PDF 上限 50 页、提取文字上限 50,000 字符；图片、stencil mask、矢量图、注释、未知绘制操作、空白页或解析退化警告保留 partial，ZIP / Office / OCR / 外链与嵌套目录暂不支持。列表与详情合并超限时保留完整列表正文及详情 too_large 核对原因，其他记录继续导出；空占位容器不阻断后续教师正文，附件缓存按 URL 与格式区分。交接字段及下游边界见 [采集快照约定](../contracts/docs/teaching-source-snapshot-v0.2.md)。
+
+教师容器自身或祖先属于私人表单、提交、尝试、成绩或导航区域时排除整块文字及引用；原生作业页允许已知 uploadAssignmentForm 外层表单，先移除私人区域和控件，再读取教师说明、标题与教师信息行中的日期。未找到教师说明时保留列表并标记详情未读，单条追加超限不会影响共享附件缓存；响应式图片的 srcset / picture 候选同样保留未读，PDF 文档级内嵌附件保留 partial_pdf，不递归提取。
+
+日期支持教师信息区内的相邻值节点，遇下一字段标签（包括原生 label / th 和 ARIA 行列头）、行或说明边界即停止，父容器查找只穿过纯标签包装；表格只读取同一行紧邻的一个 td 值单元格。空值保持未读，明确“未设置 / Not set”表示无日期，读取失败或值冲突时提示人工核对。过滤后的“作业信息 / Assignment Information”标题仍可识别页面，嵌套说明只读取最外层匹配容器，独立说明按页面顺序保留。
