@@ -189,9 +189,41 @@ class TeachingDraftTests(unittest.TestCase):
             task['assessment']['deadline'].update(value='2023-10-23', derivation='absolute', anchor=None, evidence=quote)
         self.assertEqual(self.compile('yearless-current-assignment-term', change)[0]['recommendation'], 'filtered')
 
-    def test_recently_overdue_stays_reviewable(self):
+    def test_recently_overdue_is_filtered_without_thirty_day_grace(self):
         def change(record, task): record['collected_at'] = '2026-10-24T12:00:00+08:00'
-        self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], 'candidate')
+        decision = self.compile('explicit-complete', change)[0]
+        self.assertEqual(decision['recommendation'], 'filtered')
+        self.assertEqual(decision['review_reasons'], [])
+        self.assertIn('在采集时已过', decision['filter_reason'])
+
+    def test_date_only_deadline_survives_entire_source_local_day(self):
+        for collected, expected in [('2026-10-23T15:59:59Z', 'task'),
+                                    ('2026-10-23T16:00:00Z', 'filtered')]:
+            def change(record, task): record['collected_at'] = collected
+            with self.subTest(collected=collected):
+                self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], expected)
+
+    def test_datetime_expires_only_after_its_instant(self):
+        for collected, expected in [('2026-10-23T09:59:59Z', 'task'),
+                                    ('2026-10-23T10:00:00Z', 'task'),
+                                    ('2026-10-23T10:00:01Z', 'filtered')]:
+            def change(record, task):
+                record.update(text='请于2026年10月23日18点交作业。', collected_at=collected)
+                evidence = [dict(part_id='body', quote=record['text'])]
+                task['assessment']['action']['evidence'] = evidence
+                task['assessment']['deadline'].update(value='2026-10-23T18:00:00+08:00',
+                    precision='datetime', evidence=evidence)
+            with self.subTest(collected=collected):
+                self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], expected)
+
+    def test_recent_overdue_does_not_override_real_uncertainty(self):
+        for case in ('yearless-unknown-age', 'unread-authority'):
+            def change(record, task): record['collected_at'] = '2026-10-24T12:00:00+08:00'
+            with self.subTest(case=case):
+                self.assertEqual(self.compile(case, change)[0]['recommendation'], 'candidate')
+        def incomplete(record, task):
+            record.update(collected_at='2026-10-24T12:00:00+08:00', body_status='partial')
+        self.assertEqual(self.compile('explicit-complete', incomplete)[0]['recommendation'], 'candidate')
 
     def test_invalid_model_json_and_dates_are_errors_not_no_tasks(self):
         record = policy_case()['pair']['record']

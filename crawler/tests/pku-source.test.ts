@@ -6,6 +6,24 @@ const contentItem = (id: string, title: string, body: string, href = "") => `<li
 const page = (items: string) => `<nav><h3>课程作业</h3></nav><ul id="content_listContainer">${items}</ul>`;
 
 describe("complete course source collection", () => {
+  const announcement = (body: string) => `<ul id="announcementList"><li id="n1"><h3>作业已发布</h3><div class="details"><p>发布时间：2026-09-25</p><div class="vtbegenerated">${body}</div></div><div class="announcementInfo">发帖者：老师</div></li></ul>`;
+  it("reads teacher text inside Blackboard's announcementForm but removes controls", () => {
+    const html = `<form id="announcementForm"><input name="private" value="PRIVATE_VALUE">${announcement('<p>请按时完成作业。</p><input value="PRIVATE_VALUE"><button>删除</button><a href="/extra.pdf">参考资料.pdf</a>')}</form>`;
+    const [record] = extractCourseSourcesFromHtml(html, context);
+    expect(record.body).toBe('请按时完成作业。\n参考资料.pdf');
+    expect(record.references.map(ref => ref.url)).toEqual(['https://example.test/extra.pdf']);
+    expect(record.published_at.value).toBe('2026-09-25');
+    expect(JSON.stringify(record)).not.toMatch(/PRIVATE_VALUE|发帖者|删除/);
+  });
+  it.each(['<form id="unrelated">', '<form id="announcementForm"><div>'])("does not exempt arbitrary outer forms: %s", wrapper => {
+    const [record] = extractCourseSourcesFromHtml(`${wrapper}${announcement('<p>必须保持被排除。</p>')}`, context);
+    expect(record.body).toBe('');
+    expect(record.text_quality).toBe('summary');
+  });
+  it("keeps a native title-only announcement incomplete", () => {
+    const [record] = extractCourseSourcesFromHtml(`<form id="announcementForm">${announcement('')}</form>`, context);
+    expect(record.text_quality).toBe('summary');
+  });
   it("preserves non-homework announcements and teaching materials without task decisions", () => {
     const html = `<ul id="announcementList"><li id="n1"><h3>加群通知</h3><div class="details"><p>发布时间: 2026年9月25日 星期五 下午01时30分45秒 CST</p><div class="vtbegenerated"><p>请加入课程群。</p><p>提前阅读教材。</p></div></div><div class="announcementInfo">发帖者：老师</div></li></ul>${page(contentItem("m1", "第一讲课件", "<p>本讲内容简介</p>"))}`;
     const records = extractCourseSourcesFromHtml(html, context);

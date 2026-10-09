@@ -221,6 +221,55 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertEqual(current['candidate']['deadline']['status'],'inferred')
         self.assertTrue(current['candidate']['needs_review'])
 
+    def test_same_quote_merges_action_and_deadline_support_without_losing_native_proof(self):
+        request,sync=self.capture(('explicit-complete',))
+        record=request['records'][0]['record'];iid=record['input_id']
+        draft=json.loads(self.drafts[iid]);quote=dict(part_id='body',quote=record['text'])
+        for field in ('action','deadline'):draft['tasks'][0]['assessment'][field]['evidence']=[quote]
+        self.drafts[iid]=json.dumps(draft)
+        batch=self.run_request(sync['requests'][0])
+        proof=batch['items'][0]['candidate']['evidence']
+        self.assertEqual(len(proof),1)
+        self.assertEqual(proof[0]['supports'],['title','description','deadline'])
+        with app.connection() as db:
+            raw=json.loads(db.execute('SELECT result FROM recognition_batches').fetchone()['result'])
+        assessment=raw['record_results'][0]['decisions'][0]['pair']['assessment']
+        self.assertEqual(assessment['action']['evidence'],[quote])
+        self.assertEqual(assessment['deadline']['evidence'],[quote])
+
+    def test_old_overdue_review_projection_preserves_raw_results_and_user_decisions(self):
+        _,sync=self.capture(('explicit-complete','explicit-complete','explicit-complete'))
+        expected={}
+        for view,state in zip(sync['requests'],('pending','applied','ignored')):
+            batch=self.run_request(view);item=batch['items'][0]
+            with app.connection() as db:
+                row=db.execute('SELECT request,result FROM recognition_batches WHERE request_id=?',(view['request_id'],)).fetchone()
+                request,result=json.loads(row['request']),json.loads(row['result'])
+                decision=result['record_results'][0]['decisions'][0]
+                # Reproduce a result stored by the earlier 30-day policy.
+                request['records'][0]['record']['collected_at']='2026-10-24T12:00:00+08:00'
+                decision['pair']['record']['collected_at']='2026-10-24T12:00:00+08:00'
+                decision.update(recommendation='candidate',review_reasons=['截止已过，是否仍需执行请核对原通知。'])
+                raw=json.dumps(result)
+                db.execute('UPDATE recognition_batches SET request=?,result=? WHERE request_id=?',
+                           (json.dumps(request),raw,view['request_id']))
+                db.execute('UPDATE recognition_candidates SET state=? WHERE id=?',(state,item['id']))
+                expected[view['request_id']]=(state,raw,item['id'])
+        with patch.object(teaching,'recognize') as model:
+            batches=self.call('/recognition/batches')[1]
+        model.assert_not_called()
+        for batch in batches:
+            state,raw,item_id=expected[batch['request']['request_id']]
+            self.assertEqual(batch['result']['tasks'],[])
+            self.assertEqual(batch['result']['record_results'][0]['status'],'no_tasks')
+            self.assertTrue(any(w.startswith('history_filtered:') for w in batch['result']['record_results'][0]['warnings']))
+            self.assertEqual([i['state'] for i in batch['items']],[] if state=='pending' else [state])
+            with app.connection() as db:
+                self.assertEqual(db.execute('SELECT result FROM recognition_batches WHERE request_id=?',
+                    (batch['request']['request_id'],)).fetchone()['result'],raw)
+                saved=db.execute('SELECT state,version FROM recognition_candidates WHERE id=?',(item_id,)).fetchone()
+                self.assertEqual((saved['state'],saved['version']),(state,1))
+
     def test_failed_record_retry_preserves_other_success_and_no_duplicate_cards(self):
         _,sync=self.capture(('explicit-complete','explicit-complete'))
         bad=sync['requests'][0];iid=bad['records'][0]['input_id'];valid=self.drafts[iid];self.drafts[iid]='invalid JSON'

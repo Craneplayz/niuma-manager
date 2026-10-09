@@ -23,6 +23,7 @@ validate_teaching_result(request, result, verified_snapshot_digests=verified_dig
 ```
 
 每条记录只尝试一次，限时子进程负责终止卡住的调用；批次默认预算 90 秒、最多 180 秒，每次调用上限为配置超时与剩余预算的较小值；失败保留该记录错误，其他成功结果照常返回，未开始记录标记 `attempted=false`。
+教学网有可信过期截止、完整行动证据且无继续执行要求的普通新增任务直接历史过滤；当天的日期级截止、仍须补交、变更和不确定任务不因此排除，旧 v0.2 宽限规则不变。
 
 真实运行使用内置 `ChatClient`；离线回放允许模型替身但 `policy_version=null`，不能冒充真实运行入库；输入不合法抛 `AgentError(invalid_input)`，部署配置或文件变更在执行前拒绝，记录级失败只输出固定错误码和安全消息。
 
@@ -30,7 +31,7 @@ validate_teaching_result(request, result, verified_snapshot_digests=verified_dig
 
 真实模型只选 `evidence_catalog` 中的连续原文片段编号；程序填回 `part_id + quote` 后照常执行全部校验。元数据编号只能作为适用范围证据，未知编号和未读内容仍拒绝；日期与任务语义仍由模型判断。旧离线草稿继续使用原逐字引用格式，对外 v0.4 不变。
 
-模型判断行动、逐任务附件依赖、期限与历史语义；程序验证引文、完整性、可信学期、日期和 F3 30 天历史规则；明确正文中的任务可以不受补充资料未读影响，缺少关键资料仍待审核。
+模型判断行动、逐任务附件依赖、期限与历史语义；程序验证引文、完整性、可信学期、日期和教学网过期过滤规则；明确正文中的任务可以不受补充资料未读影响，缺少关键资料仍待审核。
 
 `validate_teaching_result` 不调用模型，会重算全部政策与历史门禁；消费者须在保存前调用它，不能只看 Schema 或 `recommendation`。
 

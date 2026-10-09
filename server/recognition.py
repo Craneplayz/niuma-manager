@@ -93,6 +93,9 @@ def batches(db,uid):
             import teaching
             output = teaching.submission.project_result(db,uid,row['request_id'],teaching.result_view(request,output))
             cards = {c['candidate_id']: c for c in output['tasks']}
+            # History-filtered pending proposals leave the active review view;
+            # saved model runs and already applied/ignored user decisions remain.
+            items=[item for item in items if item['state']!='pending' or item['candidate']['candidate_id'] in cards]
             for item in items:
                 # Refresh the read-only presentation of existing results while
                 # preserving storage IDs, review state and user resolutions.

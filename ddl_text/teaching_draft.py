@@ -143,7 +143,7 @@ def _reasons(codes, record, assessment):
 
 
 def _history(draft, pair, codes, reasons, source_verified):
-    """Reuse F3's 30-day/ongoing/change rules without editing the v0.2 path."""
+    """Filter expired teaching creates; keep ongoing/change/uncertainty safeguards."""
     record, assessment = pair['record'], pair['assessment']
     deadline = assessment['deadline']
     known = deadline['value'] is not None and not UNRESOLVED_TIME.intersection(codes)
@@ -161,7 +161,7 @@ def _history(draft, pair, codes, reasons, source_verified):
         text_quality=record['body_status'], published_at=publication,
         collected_at=record['collected_at'], timezone=record['timezone'])
     history_draft = dict(relevance=draft['relevance'], times=[])
-    keep, extra, filtered = classify(task, history_draft, history_record)
+    keep, extra, filtered = classify(task, history_draft, history_record, history_grace_days=0)
     if not keep and reasons:
         return 'candidate', ['history_unresolved'], [REASONS['history_unresolved']], None
     return ('filtered' if not keep else 'candidate' if reasons or extra else 'task'), [], extra, filtered

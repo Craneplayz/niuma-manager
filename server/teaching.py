@@ -11,7 +11,7 @@ from contracts.teaching_capture import check_capture
 from ddl_text.chat_client import ChatClient
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings
-from ddl_text.teaching_draft import UNRESOLVED_TIME
+from ddl_text.teaching_draft import UNRESOLVED_TIME, compile_teaching_draft
 from ddl_text.teaching_pipeline import process_teaching_request, validate_teaching_result
 from ddl_text.teaching_policy import teaching_policy_manifest
 
@@ -63,9 +63,14 @@ def candidate_view(decision, entry):
     codes = set(decision['review_codes'])
     known = d['value'] is not None and not (UNRESOLVED_TIME - {'original_age_unknown'}).intersection(codes)
     inferred = known and 'original_age_unknown' in codes
-    evidence = []
+    evidence = []; by_quote = {}
     for quotes, supports in [(a['action']['evidence'], ['title','description']), (d['evidence'], ['deadline'])]:
-        evidence.extend(dict(input_id=r['input_id'], field=q['part_id'], quote=q['quote'], supports=supports) for q in quotes)
+        for q in quotes:
+            key=(q['part_id'],q['quote'])
+            if key not in by_quote:
+                by_quote[key]=dict(input_id=r['input_id'],field=q['part_id'],quote=q['quote'],supports=[])
+                evidence.append(by_quote[key])
+            by_quote[key]['supports']=list(dict.fromkeys(by_quote[key]['supports']+supports))
     return dict(candidate_id=a['candidate_id'], input_id=r['input_id'], title=decision['title'],
         description=decision['description'], course_or_project=source['course_or_project'],
         course_basis='provided' if source['course_or_project'] else 'unknown',
@@ -80,13 +85,32 @@ def candidate_view(decision, entry):
             url=source['url'], label=source['label'], source_item_id=r['source_item_id'])])
 
 
+def history_view(decision):
+    """Only demote old pending history; never promote a saved model run to a task."""
+    if decision['recommendation']!='candidate' or decision['review_codes']:
+        return decision
+    draft={key:deepcopy(decision[key]) for key in ('title','description','notice_type','target','relevance')}
+    draft['assessment']=deepcopy(decision['pair']['assessment'])
+    for key in ('input_id','candidate_id'):draft['assessment'].pop(key)
+    try:
+        # A saved decision without source_unverified passed the authenticated
+        # source gate. Recheck its unchanged evidence; no new model call/version.
+        refreshed=compile_teaching_draft(json.dumps(dict(tasks=[draft]),ensure_ascii=False),
+            decision['pair']['record'],source_verified=True)[0]
+    except Exception:
+        return decision
+    if refreshed['recommendation']!='filtered':return decision
+    return dict(decision,recommendation='filtered',review_codes=[],review_reasons=[],filter_reason=refreshed['filter_reason'])
+
+
 def result_view(request, result):
     tasks, rows, errors = [], [], []
     for entry, row in zip(request['records'], result['record_results']):
-        cards = [candidate_view(d, entry) for d in row['decisions'] if d['recommendation']!='filtered']
+        decisions=[history_view(d) for d in row['decisions']]
+        cards = [candidate_view(d, entry) for d in decisions if d['recommendation']!='filtered']
         tasks.extend(cards)
         warnings = list(row['warnings'])
-        warnings.extend('history_filtered:'+str(d['filter_reason']) for d in row['decisions'] if d['recommendation']=='filtered')
+        warnings.extend('history_filtered:'+str(d['filter_reason']) for d in decisions if d['recommendation']=='filtered')
         if row['status']=='no_tasks': warnings.append('no_action:未发现行动要求')
         failed = row['status'] in ('failed','incomplete')
         rows.append(dict(input_id=row['input_id'], status='failed' if failed else 'success' if cards else 'no_tasks',

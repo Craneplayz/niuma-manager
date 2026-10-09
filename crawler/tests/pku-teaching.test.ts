@@ -7,6 +7,15 @@ const source = () => extractCourseSourcesFromHtml('<ul id="content_listContainer
   { course: "测试课程", section: "课程作业", sourceUrl: "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1", collectedAt: "2026-10-09T10:00:00+08:00" })[0];
 
 describe("native teaching integration", () => {
+  it("projects announcementForm teacher text as complete instead of a heading-only summary", () => {
+    const html='<form id="announcementForm"><ul id="announcementList"><li id="notice"><h3>作业已发布，截止时间为2026-11-17 23:30</h3><div class="details"><div class="vtbegenerated"><p>请同学们按时完成。</p></div></div></li></ul></form>';
+    const input=extractCourseSourcesFromHtml(html, {course:'测试课程',section:'课程通知',sourceUrl:'https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1',collectedAt:'2026-10-09T10:00:00+08:00'})[0];
+    const record=toTeachingRequests([input])[0].records[0].record;
+    expect(record.body_status).toBe('complete');
+    expect(record.text).toContain('请同学们按时完成。');
+    expect(record.text).toContain('2026-11-17 23:30');
+    expect(record.references).toEqual([]);
+  });
   it("retains submitted state only for a bound native assignment", () => {
     const input=source();input.kind='assignment';input.assignment={state:'submitted',due_raw:null};
     input.references.unshift({kind:'detail',label:'作业',url:'https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=_1&content_id=_1',content_read:false,read_status:'partial',reason:'submission_history_only'});
