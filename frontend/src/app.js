@@ -14,6 +14,7 @@ import {configureDecomposition,decompositionPage,decompositionClick,decompositio
 import {updateTaskCompletion,restoreTaskCompletion} from './task-bulk.js';
 import {configureScheduleEditor,scheduleEditorClick,scheduleEditorSubmit} from './schedule-editor.js';
 import {configureTrash,trashPage,trashClick,moveTasksToTrash,isTrashBusy} from './task-trash-ui.js';
+import {reprocessingChange,reprocessingClick} from './reprocessing-ui.js';
 let state=readStore(), page=location.hash.slice(1)||'agent', filter='all', query='', sort='due', week=0;
 initTheme();
 const expandedTasks=new Set();
@@ -21,6 +22,8 @@ const selectedTaskIds=new Set();
 let bulkMode=false;
 let undoAction=null;
 const app=document.querySelector('#app'),dialog=document.querySelector('#dialog');
+document.addEventListener('change',reprocessingChange);
+document.addEventListener('click',reprocessingClick);
 for(const type of ['click','submit','input','change','keydown'])document.addEventListener(type,event=>{
  if(session.changing||isTrashBusy()){event.preventDefault();event.stopImmediatePropagation();}
 },true);
