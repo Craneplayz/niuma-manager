@@ -8,6 +8,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 VERSION = 'reprocessing/0.1'
 ROOT = Path(__file__).resolve().parent
 ID = dict(type='string', pattern=r'^[A-Za-z0-9_.:-]{1,160}$')
+# Existing v0.2 source identities are opaque non-blank strings, not new IDs.
+# Preserve them byte-for-byte; size is bounded by the enclosing 2 MB envelope.
+INPUT_ID = dict(type='string', minLength=1, pattern=r'\S')
 LABEL = dict(type='string', minLength=1, maxLength=512, pattern=r'^[^\u0000-\u001f\u007f]+$')
 POLICY = dict(type='string', pattern=r'^text-policy-v1:[0-9a-f]{64}$')
 ROW_STATES = ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted', 'superseded')
@@ -38,7 +41,7 @@ def bundle():
                      message=LABEL))
     summary = obj({k:dict(type='integer', minimum=0, maximum=1000)
                    for k in ('preserved', 'replaced', 'new_pending', 'unresolved')})
-    row = obj(dict(input_id=ID, state=dict(enum=list(ROW_STATES)), attempted=dict(type='boolean'),
+    row = obj(dict(input_id=INPUT_ID, state=dict(enum=list(ROW_STATES)), attempted=dict(type='boolean'),
         policy_version=nullable(POLICY), previous_available=dict(type='boolean'),
         old_result_retained=dict(type='boolean'), outcome=nullable(dict(enum=['tasks', 'no_tasks'])),
         decision_summary=summary, error=nullable(error)))
@@ -46,12 +49,12 @@ def bundle():
         revision=dict(type='integer', minimum=1), state=dict(enum=['queued', 'running', 'stopping', *sorted(FINAL)]),
         created_at=stamp, updated_at=stamp, records=arr(row, minimum=1),
         counts=obj(dict(total=count, **{k:count for k in ROW_STATES}))))
-    entry = obj(dict(input_id=ID, label=LABEL, course_or_project=nullable(LABEL),
+    entry = obj(dict(input_id=INPUT_ID, label=LABEL, course_or_project=nullable(LABEL),
         result_status=dict(enum=['success', 'no_tasks', 'failed', 'unknown']), policy_version=nullable(POLICY)))
     account = obj(dict(source_account_id=ID, label=LABEL, records=arr(entry)))
     cursor = nullable(dict(type='string', minLength=1, maxLength=512))
     roots = dict(
-        start=envelope(dict(operation_id=ID, source_account_id=ID, input_ids=arr(ID, minimum=1, unique=True))),
+        start=envelope(dict(operation_id=ID, source_account_id=ID, input_ids=arr(INPUT_ID, minimum=1, unique=True))),
         stop=envelope({}), run=run,
         sources=envelope(dict(accounts=arr(account, maximum=50), next_cursor=cursor)),
         runs=envelope(dict(runs=arr(run, maximum=20), next_cursor=cursor)),

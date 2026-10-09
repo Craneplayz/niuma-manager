@@ -37,6 +37,52 @@ class ReprocessingTests(unittest.TestCase):
         retry['source_account_id']='source:other';self.assertFalse(same_operation(first,retry))
         retry=deepcopy(first);retry['input_ids']=['another'];self.assertFalse(same_operation(first,retry))
 
+    def test_legacy_v02_ids_survive_directory_start_run_and_retry_unchanged(self):
+        from server.text_contract import validate_request
+        request=json.loads((ROOT/'source-to-text/text-frontend-v02-request.json').read_text(encoding='utf-8'))
+        for identity in EXAMPLES['legacy_input_ids']:
+            with self.subTest(identity_length=len(identity)):
+                legacy=deepcopy(request);legacy['records'][0]['input_id']=identity
+                validate_request(legacy)
+                data=self.samples();start=data['start'];start['input_ids'][0]=identity
+                directory=data['sources'];directory['accounts'][0]['records'][0]['input_id']=identity
+                run=data['lifecycle'][0]['snapshots'][1];run['records'][0]['input_id']=identity
+                check('sources',directory);check_start_run(start,run)
+                self.assertEqual(directory['accounts'][0]['records'][0]['input_id'],identity)
+                self.assertTrue(may_commit(run,identity,latest_run_id=run['run_id']))
+                retry=deepcopy(start);retry['input_ids'].reverse()
+                self.assertTrue(same_operation(start,retry))
+                retry['input_ids'][0]=identity+'changed'
+                self.assertFalse(same_operation(start,retry))
+                result=deepcopy(run);result['revision']+=1
+                check_transition(run,result)
+                self.assertEqual(result['records'][0]['input_id'],identity)
+
+    def test_legacy_ids_reject_blank_but_do_not_weaken_new_operation_ids(self):
+        for identity in ('', ' ', '\t\n', '\u3000', None, 1):
+            for kind in ('start','sources','run'):
+                with self.subTest(identity=identity,kind=kind):
+                    data=self.samples()
+                    if kind=='start':
+                        value=data[kind];value['input_ids'][0]=identity
+                    elif kind=='sources':
+                        value=data[kind];value['accounts'][0]['records'][0]['input_id']=identity
+                    else:
+                        value=data['lifecycle'][0]['snapshots'][0];value['records'][0]['input_id']=identity
+                    with self.assertRaises(Exception):check(kind,value)
+        for field in ('operation_id','source_account_id'):
+            for identity in ('作业/1', 'a'*161):
+                value=self.samples()['start'];value[field]=identity
+                with self.subTest(field=field,identity=identity),self.assertRaises(Exception):check('start',value)
+
+    def test_legacy_identity_size_is_limited_by_envelope_not_160_characters(self):
+        start=self.samples()['start'];start['input_ids']=['a']
+        base=len(json.dumps(start,ensure_ascii=False,allow_nan=False).encode('utf-8'))
+        start['input_ids']=['a'*(2_000_000-base+1)]
+        check('start',start)
+        start['input_ids'][0]+='a'
+        with self.assertRaisesRegex(ValueError,'envelope too large'):check('start',start)
+
     def test_run_cannot_rewrite_selection_or_source(self):
         data=self.samples();run=data['lifecycle'][0]['snapshots'][0]
         run['source_account_id']='source:other'

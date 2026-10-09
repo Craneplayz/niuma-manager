@@ -26,6 +26,8 @@ contracts/tests/test_reprocessing.py           # 状态、版本、迟到响应�
 
 空 input_ids 不是全量运行；任意原文、user_id、来源信任或策略版本额外字段均拒绝；source_account_id 为服务端账号内不透明 ID，不能直接使用教学网用户名或仅有其 hash 充当授权。
 
+目录、start、run 中的 input_id 继承 v0.2：非空且不全为空白的原始字符串，允许中文、斜杠、空格和超过 160 字符；不 trim、截断、改写或另行分配，比较/幂等使用原值。新分配的 operation_id/run_id/source_account_id 仍限制为 1–160 个 ASCII 字母、数字或 `_.:-`。input_id 长度受整个信封的 2 MB 上限约束，超限应显式报错或减小分页，不能静默遗漏记录；服务端将它作为数据键处理，不拼接文件路径或 SQL。
+
 ## 幂等、运行与停止
 
 - 相同应用账号内，相同 operation_id 且来源/选中 input_id 集合相同返回原运行，列表顺序无关；更改选择返回 409，不同应用账号独立；同一原始提交的显示顺序固定保留，校验用 `same_operation`、`check_start_run`。
