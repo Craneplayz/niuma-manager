@@ -51,7 +51,9 @@ def main():
                     row=db.execute('SELECT request,result FROM recognition_batches WHERE request_id=?',(view['request_id'],)).fetchone()
                 native=json.loads(row['result']);decisions=[d for r in native['record_results'] for d in r['decisions']]
                 actual=[d['recommendation'] for d in decisions]
-                case=dict(input=json.loads(row['request']),output=native,cards=batch['items'],elapsed_seconds=round(time.monotonic()-start,2),expected=expected[index],passed=actual==[expected[index]])
+                expected_dates=['2026-09-29T09:00:00+08:00','2026-10-25T23:59:00+08:00','2026-10-23','2026-10-23',None]
+                actual_dates=[d['pair']['assessment']['deadline']['value'] for d in decisions]
+                case=dict(input=json.loads(row['request']),output=native,cards=batch['items'],elapsed_seconds=round(time.monotonic()-start,2),expected=expected[index],passed=actual==[expected[index]] and actual_dates==[expected_dates[index]])
                 report['cases'].append(case)
                 args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
                 print(json.dumps(dict(index=index+1,seconds=case['elapsed_seconds'],status=native['status'],actual=actual,passed=case['passed']),ensure_ascii=False),flush=True)

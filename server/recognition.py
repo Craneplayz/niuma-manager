@@ -92,6 +92,11 @@ def batches(db,uid):
         if request.get('contract_version')=='0.4':
             import teaching
             output = teaching.result_view(request,output)
+            cards = {c['candidate_id']: c for c in output['tasks']}
+            for item in items:
+                # Refresh the read-only presentation of existing results while
+                # preserving storage IDs, review state and user resolutions.
+                item['candidate'] = cards.get(item['candidate']['candidate_id'], item['candidate'])
             request = teaching.request_view(request)
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items))
     return result

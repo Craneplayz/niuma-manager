@@ -13,11 +13,23 @@ describe("native teaching integration", () => {
     expect(record.body_status).toBe('complete');expect(record.text).not.toContain('附件正文');
     expect(record.references[0].read_state).toBe('unread');expect(record.references[0].text).toBeNull();
   });
-  it("binds only an active native assignment in its observed current term", () => {
+  it("binds an active native assignment in its observed current term", () => {
     const input=source();input.course_term_label='26-27学年第1学期';input.assignment={state:'active',due_raw:'10月23日'};
     expect(toTeachingRequests([input])[0].records[0].record.course_term?.applies_to).toBe('current_assignment');
     input.collected_at='2028-10-09T10:00:00+08:00';
     expect(toTeachingRequests([input])[0].records[0].record.course_term?.applies_to).toBe('course_material');
+  });
+  it("binds current-term assignment-section entries even when submission is by email", () => {
+    const input=source();input.course_term_label='26-27学年第1学期';
+    const term=toTeachingRequests([input])[0].records[0].record.course_term;
+    expect(term?.applies_to).toBe('current_assignment');
+    expect(term?.evidence).toContainEqual({part_id:'source_metadata',quote:'栏目：课程作业'});
+    for(const section of ['教学内容','课程通知','历年作业','课程介绍']) {
+      expect(toTeachingRequests([{...input,section}])[0].records[0].record.course_term?.applies_to).toBe('course_material');
+    }
+    for(const state of ['submitted','unknown'] as const) {
+      expect(toTeachingRequests([{...input,assignment:{state,due_raw:null}}])[0].records[0].record.course_term?.applies_to).toBe('course_material');
+    }
   });
   it("selects only the three requested sections and prioritizes across courses", () => {
     const anchors=['课程作业','课程通知','教学内容','课程介绍'].map((text,i)=>({text,href:`https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?id=${i}`}));

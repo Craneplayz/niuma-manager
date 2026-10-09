@@ -48,7 +48,12 @@ def request_view(request):
 def candidate_view(decision, entry):
     r, source = entry['record'], entry['source']
     a = decision['pair']['assessment']; d = a['deadline']
-    known = d['value'] is not None and not UNRESOLVED_TIME.intersection(decision['review_codes'])
+    # A guessed year can be shown without granting auto-apply. Keep actual
+    # unresolved/contradictory dates hidden, but do not erase a valid proposal
+    # merely because the source's age still needs confirmation.
+    codes = set(decision['review_codes'])
+    known = d['value'] is not None and not (UNRESOLVED_TIME - {'original_age_unknown'}).intersection(codes)
+    inferred = known and 'original_age_unknown' in codes
     evidence = []
     for quotes, supports in [(a['action']['evidence'], ['title','description']), (d['evidence'], ['deadline'])]:
         evidence.extend(dict(input_id=r['input_id'], field=q['part_id'], quote=q['quote'], supports=supports) for q in quotes)
@@ -56,11 +61,11 @@ def candidate_view(decision, entry):
         description=decision['description'], course_or_project=source['course_or_project'],
         course_basis='provided' if source['course_or_project'] else 'unknown',
         notice_type=decision['notice_type'], target_reference=decision['target']['quote'] if decision['target'] else None, prerequisites=[],
-        deadline=dict(kind='deadline', status='explicit' if known else 'not_provided' if d['derivation']=='not_provided' else 'unknown',
+        deadline=dict(kind='deadline', status='inferred' if inferred else 'explicit' if known else 'not_provided' if d['derivation']=='not_provided' else 'unknown',
             value=d['value'] if known else None, precision=d['precision'] if known else 'unknown',
             timezone=r['timezone'], alternatives=[],
             raw=d['evidence'][0]['quote'] if d['evidence'] else None,
-            basis='教学网正文及课程上下文' if known else '请查看原文中的截止要求。'),
+            basis='日期已识别，来源年代待核实。' if inferred else '教学网正文及课程上下文' if known else '请查看原文中的截止要求。'),
         needs_review=decision['recommendation']!='task', review_reasons=decision['review_reasons'],
         evidence=evidence, sources=[dict(input_id=r['input_id'], platform=r['platform'],
             url=source['url'], label=source['label'], source_item_id=r['source_item_id'])])

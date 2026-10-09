@@ -9,6 +9,14 @@ export function teachingPriority(source: CourseSourceRecord): number {
   return 2;
 }
 
+function assignmentScope(source: CourseSourceRecord): boolean {
+  // An email/upload-elsewhere assignment has no native submission page. Its
+  // authenticated assignment-section placement is still an assignment context.
+  // A known native state always takes precedence over the section name.
+  if (source.assignment) return source.assignment.state === "active";
+  return /^(?:课程作业|作业|assignments?|homework)$/i.test(source.section.trim());
+}
+
 /** A native v0.4 projection; successful detail text is already part of teacher_body. */
 export function toTeachingRequests(sources: CourseSourceRecord[], requestId: string = randomUUID()) {
   const entries = [...sources].sort((a, b) => teachingPriority(a) - teachingPriority(b)).map((source) => {
@@ -37,8 +45,9 @@ export function toTeachingRequests(sources: CourseSourceRecord[], requestId: str
         const end = match[3] === "1" ? DateTime.fromISO(`${next}-02-01`).endOf("month").toISODate()! : `${next}-08-31`;
         const current = source.collected_at.slice(0, 10) >= start && source.collected_at.slice(0, 10) <= end;
         term = { term_id: source.course_term_label!, starts_on: start, ends_on: end,
-          applies_to: source.assignment?.state === "active" && current ? "current_assignment" : "course_material",
-          evidence: [{ part_id: "source_metadata", quote: `课程列表学期：${source.course_term_label}` }] };
+          applies_to: assignmentScope(source) && current ? "current_assignment" : "course_material",
+          evidence: [{ part_id: "source_metadata", quote: `课程列表学期：${source.course_term_label}` },
+            { part_id: "source_metadata", quote: `栏目：${source.section}` }] };
       }
     }
     const record = {

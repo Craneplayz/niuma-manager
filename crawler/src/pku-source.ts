@@ -150,7 +150,7 @@ const EXCLUDED_CONTENT = "script, style, input, textarea, button, nav, [role=nav
 
 /** Only the known assignment page wrapper may contain teacher information and private controls. */
 export function cloneTeacherContent($: CheerioAPI, content: Cheerio<AnyNode>, allowAssignmentForm = false): Cheerio<AnyNode> {
-  const excluded = `${EXCLUDED_CONTENT}, ${allowAssignmentForm ? "form:not(#uploadAssignmentForm)" : "form"}`;
+  const excluded = `${EXCLUDED_CONTENT}, ${allowAssignmentForm ? "form:not(#uploadAssignmentForm):not(#uploadAssignmentFormId), #step2, #step3" : "form"}`;
   const safe = content.filter((_i, node) => !$(node).is(excluded) && !$(node).parents(excluded).length).clone();
   safe.find(excluded).remove();
   return safe;

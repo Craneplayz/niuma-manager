@@ -23,6 +23,12 @@ from ddl_text.tests.test_teaching_pipeline import example, RecordClient
 class TeachingIntegrationTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.old_db=app.DB
+        # Crawler execution is mocked below; its availability check must not
+        # depend on a developer's node_modules (the server CI does not install it).
+        crawler=Path(self.tmp.name)/'crawler'
+        (crawler/'node_modules'/'tsx').mkdir(parents=True)
+        self.crawler_patch=patch.object(app.source_sync,'CRAWLER',crawler)
+        self.crawler_patch.start();self.addCleanup(self.crawler_patch.stop)
         app.DB=Path(self.tmp.name)/'test.sqlite3'; app.initialize()
         self.server=app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True);self.thread.start()
@@ -76,6 +82,8 @@ class TeachingIntegrationTests(unittest.TestCase):
                 status,result=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
                 self.assertEqual(status,200,result)
             else:
+                self.assertEqual(card['deadline']['status'],'inferred')
+                self.assertEqual(card['deadline']['value'],'2026-10-23')
                 self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
             with app.connection() as db:
                 row=db.execute('SELECT request,result FROM recognition_batches WHERE request_id=?',(view['request_id'],)).fetchone()
@@ -86,6 +94,19 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertTrue(all(t['due']==dict(date='2026-10-23',precision='date') for t in tasks))
         _,again=self.capture(('unread-supplement','yearless-current-assignment-term','yearless-unknown-age'))
         self.assertEqual(again['summary'],dict(total=3,skipped=3,pending=0))
+
+    def test_stored_unknown_age_card_refreshes_date_without_changing_user_state(self):
+        _,sync=self.capture(('yearless-unknown-age',))
+        batch=self.run_request(sync['requests'][0]); item=batch['items'][0]
+        with app.connection() as db:
+            legacy=deepcopy(item['candidate']);legacy['deadline'].update(status='unknown',value=None,precision='unknown')
+            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(legacy),item['id']))
+        current=self.call('/recognition/batches')[1][0]['items'][0]
+        self.assertEqual(current['id'],item['id'])
+        self.assertEqual((current['state'],current['version']),('pending',1))
+        self.assertEqual(current['candidate']['deadline']['value'],'2026-10-23')
+        self.assertEqual(current['candidate']['deadline']['status'],'inferred')
+        self.assertTrue(current['candidate']['needs_review'])
 
     def test_failed_record_retry_preserves_other_success_and_no_duplicate_cards(self):
         _,sync=self.capture(('explicit-complete','explicit-complete'))

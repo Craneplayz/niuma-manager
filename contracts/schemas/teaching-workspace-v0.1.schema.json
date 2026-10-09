@@ -81,7 +81,7 @@
           "type": "object", "additionalProperties": false,
           "required": ["kind", "status", "value", "precision", "timezone", "raw", "basis", "alternatives"],
           "properties": {
-            "kind": { "const": "deadline" }, "status": { "enum": ["explicit", "not_provided", "unknown"] },
+            "kind": { "const": "deadline" }, "status": { "enum": ["explicit", "inferred", "not_provided", "unknown"] },
             "value": { "type": ["string", "null"] }, "precision": { "enum": ["date", "datetime", "unknown"] },
             "timezone": { "type": "string" }, "raw": { "type": ["string", "null"] },
             "basis": { "type": "string" }, "alternatives": { "type": "array", "maxItems": 0 }
