@@ -208,7 +208,8 @@ assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'
 
     def test_task_completion_invalidates_an_unapplied_planning_proposal(self):
         client=self.client();self.register(client,'completion-stale-plan@test.local')
-        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='22:00',weekdays=list(range(7))),version=0))[0],200)
+        # This tests task versions, not the default Monday-Friday availability.
+        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='23:00',weekdays=list(range(7))),version=0))[0],200)
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
         task=dict(id='finished',title='报告',status='not_started',plans=[],subtasks=[],due=dict(date=day,precision='date'))
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
@@ -308,7 +309,7 @@ assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'
 
     def test_replanning_failure_empty_preview_and_stale_apply_preserve_old_schedule(self):
         client=self.client();self.register(client,'replan-failure@test.local')
-        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='22:00',weekdays=list(range(7))),version=0))[0],200)
+        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='23:00',weekdays=list(range(7))),version=0))[0],200)
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
         task=dict(id='a',title='报告',status='not_started',subtasks=[],due=dict(date=day,precision='date'),plans=[dict(id='old',title='原安排',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')])
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
@@ -336,12 +337,15 @@ assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'
 
     def test_replanning_rejects_conflicts_with_old_blocks_retained_without_a_replacement(self):
         client=self.client();self.register(client,'replan-conflict@test.local')
+        self.assertEqual(self.call(client,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='23:00',weekdays=list(range(7))),version=0))[0],200)
         day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
         base=dict(title='任务',status='not_started',subtasks=[],due=dict(date=day,precision='date'))
         tasks=[dict(base,id='a',plans=[]),dict(base,id='b',plans=[dict(id='keep',title='必须保留',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')])]
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
         with patch.object(app.planning,'plan',return_value=dict(estimates={'a':60,'b':60},blocks=[dict(taskId='a',title='冲突',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])):
-            self.assertEqual(self.call(client,'/planning/proposals','POST',dict(replan=True))[0],502)
+            status,result=self.call(client,'/planning/proposals','POST',dict(replan=True))
+            self.assertEqual(status,502)
+            self.assertIn('时间冲突',result['error'])
         self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'],tasks)
 
     def test_recognition_demo_and_atomic_idempotent_confirmation(self):
