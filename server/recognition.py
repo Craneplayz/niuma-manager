@@ -124,6 +124,20 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
 
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
+    if path=='/api/recognition/task-evidence' and handler.command=='POST':
+        workspace=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+        task=next((t for t in json.loads(workspace['value'] if workspace else '[]') if t.get('id')==body.get('task_id')),None)
+        if task is None: raise ApiError(404,'任务不存在')
+        evidence=[]
+        for history in task.get('recognitionHistory',[]):
+            candidate=db.execute('SELECT candidate,request_id FROM recognition_candidates WHERE id=? AND user_id=?',(history.get('storageId'),uid)).fetchone()
+            if not candidate: continue
+            batch=db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,candidate['request_id'])).fetchone()
+            if not batch: continue
+            item=json.loads(candidate['candidate'])
+            record=next((r for r in json.loads(batch['request']).get('records',[]) if r.get('input_id')==item.get('input_id')),{})
+            evidence.append(dict(action=history.get('action'),quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
+        handler.reply(200,dict(evidence=evidence));return True
     if path=='/api/recognition/imports' and handler.command=='POST':
         ids=body.get('request_ids')
         if not isinstance(ids,list) or not 1<=len(ids)<=1000 or any(not isinstance(r,str) or not 1<=len(r)<=500 for r in ids): raise ApiError(400,'导入批次格式不正确')

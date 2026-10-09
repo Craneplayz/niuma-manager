@@ -105,3 +105,33 @@ html[data-review-dock=visible] .review-dock{opacity:1;visibility:visible;pointer
 .story-ui .journey-complete-action:hover{transform:translateY(-2px);box-shadow:0 5px 14px #202b2418}
 .story-ui .journey-complete-action:active{transform:translateY(0)}
 @media(prefers-reduced-motion:reduce){.story-ui .journey-complete-action{transition:none}.story-ui .journey-complete-action:hover{transform:none}}
+
+/* Keep the working content visible immediately below a compact page header. */
+.story-ui .story-masthead{height:64px}
+.story-ui .story-chapters{padding:14px 0 12px}
+.story-ui .story-chapter small{display:inline;margin:0 0 0 8px}
+.story-ui .story-section-nav{margin:0}
+.story-ui .content{padding-top:22px}
+.story-ui .story-intro{margin-bottom:22px;gap:20px;align-items:center}
+.story-ui .story-kicker{margin-bottom:7px;font-size:10px}
+.story-ui .story-intro h1{font-size:30px;line-height:1.3;letter-spacing:0}
+.story-ui .story-intro p{margin:8px 0 0;font-size:12px;line-height:1.6}
+.story-ui .story-capture .story-intro{margin:0}
+.story-ui .task-evidence-link{font-size:11px;padding:5px 8px;white-space:nowrap;color:var(--story-muted)}
+.story-ui .task-evidence{padding:16px 0 20px;margin-bottom:20px;border-bottom:1px solid var(--story-line)}
+.story-ui .task-evidence h3{font-size:15px;font-weight:500;margin:0 0 12px}
+.story-ui .task-evidence-entry+.task-evidence-entry{margin-top:20px;padding-top:16px;border-top:1px solid var(--story-line)}
+.story-ui .task-evidence blockquote{margin:12px 0;padding:10px 14px;border-left:2px solid var(--story-accent);background:var(--story-soft);font-size:13px;line-height:1.8}
+.story-ui .task-evidence-links,.story-ui .evidence-basis,.story-ui .evidence-empty{font-size:12px;line-height:1.8;color:var(--story-muted)}
+.story-ui .task-evidence summary{font-size:12px;cursor:pointer;margin-top:12px}
+.story-ui .task-evidence pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:12px;line-height:1.8;max-height:260px;overflow:auto}
+@media(max-width:780px){.story-ui .story-chapter small{display:block;margin:3px 0 0}.story-ui .story-intro{flex-direction:row;flex-wrap:wrap;gap:12px}.story-ui .story-intro h1{font-size:26px}.story-ui .task-evidence-link{order:2;margin-left:30px}.story-ui .story-capture-copy{display:block}}
+
+.story-ui .story-intro .story-kicker{display:none}
+.story-ui .story-intro{margin-bottom:16px}
+.story-ui .task-toolbar{margin-bottom:0;padding-bottom:10px}
+.story-ui .task-options{margin:8px 0 4px;padding:6px 0}
+.story-ui .task-row{min-height:76px;padding:12px 8px 12px 0}
+.story-ui .task-main{padding-top:4px;padding-bottom:4px}
+.story-ui .task-main strong{font-size:21px}
+.story-ui .task-main>span{margin-top:5px}

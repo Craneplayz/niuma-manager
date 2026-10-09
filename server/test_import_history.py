@@ -49,3 +49,20 @@ class ImportHistoryTests(unittest.TestCase):
             self.call('/api/recognition/imports/archive', {'request_ids': ['first', 'foreign']})
         self.assertEqual(len(recognition.batches(self.db, 'owner')), 2)
         self.assertEqual(self.db.execute('SELECT state FROM recognition_candidates WHERE id="first"').fetchone()[0], 'pending')
+
+class TaskEvidenceTests(ImportHistoryTests):
+    def test_archived_evidence_remains_available_and_owned(self):
+        task={'id':'task','recognitionHistory':[{'storageId':'first','action':'create'},{'storageId':'foreign','action':'create'}]}
+        candidate={'input_id':'notice','evidence':[{'quote':'周五提交报告'}],'deadline':{'basis':'通知明确日期'},'sources':[]}
+        record={'input_id':'notice','text':'请在周五提交报告。','source_url':'https://course.pku.edu.cn/notice/1','platform':'teaching_web'}
+        self.db.execute('UPDATE workspace SET value=? WHERE user_id="owner"',(json.dumps([task]),))
+        self.db.execute('UPDATE recognition_candidates SET candidate=? WHERE id="first"',(json.dumps(candidate),))
+        self.db.execute('UPDATE recognition_batches SET request=? WHERE user_id="owner" AND request_id="first"',(json.dumps({'records':[record]}),))
+        self.db.commit()
+        self.call('/api/recognition/imports/archive',{'request_ids':['first']})
+        self.call('/api/recognition/task-evidence',{'task_id':'task'})
+        self.assertEqual(len(self.result['evidence']),1)
+        self.assertEqual(self.result['evidence'][0]['original'],record['text'])
+        self.assertEqual(self.result['evidence'][0]['sourceUrl'],record['source_url'])
+        with self.assertRaises(ValueError):
+            self.call('/api/recognition/task-evidence',{'task_id':'foreign-task'})
