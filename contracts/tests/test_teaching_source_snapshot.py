@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 class TeachingSourceSnapshotTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.schema = json.loads((ROOT / 'schemas/teaching-source-snapshot-v0.2.schema.json').read_text())
+        cls.schema = json.loads((ROOT / 'schemas/teaching-source-snapshot-v0.2.schema.json').read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(cls.schema)
         cls.validator = Draft202012Validator(cls.schema)
-        cls.cases = json.loads((ROOT / 'source-to-text/teaching-source-snapshot-v02-cases.json').read_text())['cases']
+        cls.cases = json.loads((ROOT / 'source-to-text/teaching-source-snapshot-v02-cases.json').read_text(encoding="utf-8"))['cases']
 
     def test_emitted_requests_and_reading_metadata(self):
         for case in self.cases:
@@ -73,7 +73,7 @@ class TeachingSourceSnapshotTest(unittest.TestCase):
     def test_teaching_v04_exports(self):
         from contracts.teaching_review_draft import validate_pair
         from contracts.check_v031_examples import check_source_url
-        schema = json.loads((ROOT / 'schemas/teaching-request-v0.4.schema.json').read_text())
+        schema = json.loads((ROOT / 'schemas/teaching-request-v0.4.schema.json').read_text(encoding="utf-8"))
         validator = Draft202012Validator(schema, format_checker=FormatChecker())
         for case in self.cases:
             with self.subTest(case=case['id']):
