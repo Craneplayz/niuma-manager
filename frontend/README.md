@@ -15,6 +15,7 @@ frontend/
 ├── vite.config.ts             配置开发端口与 API 代理。
 ├── src/
 │   ├── app.js                 组织页面、路由与主要交互。
+│   ├── interaction-motion.js / interaction-motion.css 提供列表过渡、操作反馈与 AI 等待状态。
 │   ├── story-layout.js        组织叙事导航与页面标题。
 │   ├── story.css              在原样式之后加载叙事布局、移动端与深色主题。
 │   ├── store.js               导出统一的状态访问接口。

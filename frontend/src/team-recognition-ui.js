@@ -1,3 +1,4 @@
+import {waitingPanel} from './interaction-motion.js';
 import {api,dataVersion,flushStore,session,accountVersion} from './store.js';
 import {icon} from './icons.js';
 import {pageIntro} from './story-layout.js';
@@ -132,6 +133,7 @@ export function assistantPage(){
  <div class="import-mode-panel">${importModePanel(support)}</div>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
  ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section></div><div class="notification-import">
+ ${busy?waitingPanel('正在导入并识别通知','识别结果返回后会更新下方内容；你可以随时停止等待。'):''}
  ${importStarted?`<section class="import-progress ${importProgress.active?'active':''}" aria-label="导入进度"><div><strong>${esc(importProgress.source||'本次导入')}</strong><span>${importProgress.active?`${importProgress.processed} / ${importProgress.total||'…'}`:'导入完成'}</span></div><div class="import-progress-track"><i style="width:${importProgress.active&&importProgress.total?progress:100}%"></i></div><small>已创建 ${importProgress.created} 项${importProgress.failed?` · 失败 ${importProgress.failed} 项`:''}${importProgress.skipped?` · 跳过 ${importProgress.skipped} 项`:''}</small></section>
  `:''}
  ${showReview?`<div class="button-row" role="group" aria-label="候选范围"><button class="btn" data-agent-review-scope="current" aria-pressed="${reviewScope==='current'&&activeRequestIds.size>0}" ${!activeRequestIds.size?'disabled':''}>本次导入</button><button class="btn" data-agent-review-scope="all" aria-pressed="${reviewScope==='all'||!activeRequestIds.size}">账号全部候选 · 待核对 ${allPending} · 已忽略 ${allIgnored}</button></div>

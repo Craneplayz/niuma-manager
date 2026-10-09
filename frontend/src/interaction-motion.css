@@ -1,0 +1,15 @@
+.story-ui :is(.btn,.icon-btn,.checkbox,.bulk-select,.filter-chips button,.tabs button,.import-source-tab,.story-section-nav a,.story-chapter){transition:background-color 160ms,color 160ms,border-color 160ms,box-shadow 160ms,transform 120ms}
+@media(hover:hover){.story-ui :is(.btn,.icon-btn,.filter-chips button,.checkbox):not(:disabled):hover{transform:translateY(-2px);box-shadow:0 3px 9px #263d2412}}
+.story-ui :is(button,.story-section-nav a,.story-chapter):not(:disabled):active{transform:translateY(1px) scale(.98)}
+.story-ui :is(button,a,input,select,summary):focus-visible{outline:2px solid var(--story-soft-ink);outline-offset:4px}
+.story-ui .checkbox.checked{background:var(--story-soft);border-color:var(--story-soft-ink)}
+.story-ui .checkbox .icon{animation:motion-check 220ms ease-out}
+.story-ui .task-subtasks[open]>div{animation:motion-expand 220ms ease-out;transform-origin:top}
+.story-ui :is(.mini-progress i,.course-progress span,.import-progress-track i){transition:width 260ms ease-out}
+.story-ui .motion-waiting{display:flex;align-items:flex-start;gap:20px;margin:24px 0;padding:26px;border:1px solid var(--story-line);border-radius:6px 10px 24px 6px;background:var(--story-sheet);min-height:154px}
+.story-ui .motion-waiting>div{flex:1;min-width:0}.story-ui .motion-waiting strong{font-family:var(--story-serif);font-size:22px;font-weight:500}.story-ui .motion-waiting p{font-size:13px;line-height:1.8;color:var(--story-muted);margin:10px 0 18px}
+.story-ui .motion-waiting-orb{flex:0 0 28px;width:28px;height:28px;border:2px solid var(--story-line);border-top-color:var(--story-soft-ink);border-radius:50%;animation:motion-orbit 1.3s linear infinite}
+.story-ui .motion-skeleton{display:grid;gap:8px;max-width:440px}.story-ui .motion-skeleton i{height:7px;border-radius:8px;background:var(--story-soft);animation:motion-breathe 1.8s ease-in-out infinite}.story-ui .motion-skeleton i:nth-child(2){width:80%;animation-delay:150ms}.story-ui .motion-skeleton i:nth-child(3){width:55%;animation-delay:300ms}
+@keyframes motion-orbit{to{transform:rotate(360deg)}}@keyframes motion-breathe{50%{opacity:.35}}@keyframes motion-check{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}@keyframes motion-expand{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.story-ui *{animation:none!important;transition:none!important}}
+.story-ui .tabs button{position:relative}.story-ui .tabs button.active{border-bottom-color:transparent}.story-ui .tabs button.active::after{content:'';position:absolute;bottom:-1px;left:0;width:100%;height:2px;background:var(--story-accent);transform-origin:left}
