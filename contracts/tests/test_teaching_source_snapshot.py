@@ -54,3 +54,18 @@ class TeachingSourceSnapshotTest(unittest.TestCase):
         self.assertEqual(unknown['upstream_hints']['assignment']['state'], 'unknown')
         self.assertNotIn('SYNTHETIC_PRIVATE', json.dumps(submitted))
         self.assertNotIn('SYNTHETIC_PRIVATE', json.dumps(other_course))
+
+    def test_optional_provenance_requires_version_and_snapshot_but_cannot_grant_scope(self):
+        hints = copy.deepcopy(self.cases[0]['request']['records'][0]['upstream_hints'])
+        hints['provenance'] = dict(version='course-provenance-v1', course_id='synthetic',
+            course_entry_url=None, source_metadata_text='', term_label=None,
+            term_basis='unknown', applies_to='unknown')
+        self.assertTrue(list(self.validator.iter_errors(hints)))
+        hints['snapshot_id'] = 'pku:snapshot:' + 'a' * 64
+        self.validator.validate(hints)
+        for key, value in [('applies_to', 'current_assignment'), ('version', 'unversioned'), ('source_verified', True)]:
+            bad = copy.deepcopy(hints)
+            bad['provenance'][key] = value
+            self.assertTrue(list(self.validator.iter_errors(bad)))
+        hints['snapshot_id'] = 'client-trusted'
+        self.assertTrue(list(self.validator.iter_errors(hints)))

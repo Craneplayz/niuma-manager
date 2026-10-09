@@ -25,3 +25,9 @@
 所有新字段仅是来源事实，不能从 upstream_hints 取得后端 source_verified 授信；v0.3.1 attachment_file/model_reported 强制审核规则保持原样。
 
 支持教师信息区内标签后的相邻日期节点及日期行；读取在下一字段标签（含嵌套的 .label / data-role=label、原生 label / th 及 ARIA 行列头）、行或说明边界停止，父容器查找只穿过纯标签包装，不拼接其他字段的值。表格标签只读取同一行紧邻的一个 td 值单元格，不连续扫描后面的单元格；日期与时间可在该值单元格内拆分。明确存在日期标签但值无法读取或多个值冲突时，保留已读说明与日期证据、将详情标为 failed / detail_unrecognized 并提示人工核对，不标 complete。明确“未设置 / Not set”表示无到期日期。过滤后的“作业信息 / Assignment Information”标题继续作为页面识别入口。教师说明按 DOM 顺序合并，只读取最外层匹配容器，已被祖先覆盖的后代不重复采集；独立容器及其引用仍保留。平台提交区域 #assignmentSubmission 即使没有 submission class 也排除。
+
+## Optional course-provenance-v1 facts
+
+The open v0.2 hints may additionally contain `provenance` and `snapshot_id` together. This explicitly versioned collector extension preserves matching course-list anchor text, the sanitized launcher URL, actual listing `course_id`, and a single observed academic-term label. Unknown or conflicting metadata remains unknown; `applies_to` is always `unknown`. No term dates, current-assignment applicability, or source trust are inferred from a course label or the caller's course filter.
+
+`pku:snapshot:<sha256>` identifies the complete final collector record using recursive sorted-key JSON (undefined properties omitted, arrays kept in order). It is not the Python v0.4 entry digest and must not be passed as a verified digest. The server must verify account ownership and the controlled full source, convert it to a v0.4 entry, and only then calculate the v0.4 digest. A hash supplied by a client does not grant trust. Existing fixtures without provenance remain valid.

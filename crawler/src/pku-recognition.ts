@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { sourceTextFits, type CourseSourceRecord, type PublicationTime } from "./pku-source.js";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 
@@ -25,6 +25,8 @@ export interface RecognitionRecord {
     section: string;
     references: CourseSourceRecord["references"];
     warnings: string[];
+    provenance?: CourseSourceRecord["provenance"];
+    snapshot_id?: string;
     assignment?: CourseSourceRecord["assignment"];
     raw: { title: string; body: string; publication_time: string | null; assignment_due_date?: string | null };
   };
@@ -52,6 +54,7 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
       course_or_project: source.course || null, context: [],
       upstream_hints: {
         source_kind: source.kind, section: source.section,
+        ...(source.provenance ? { provenance: { ...source.provenance }, snapshot_id: sourceSnapshotId(source) } : {}),
         references: source.references.map((reference) => ({ ...reference })), warnings: [...source.warnings],
         ...(source.assignment ? { assignment: { ...source.assignment } } : {}),
         raw: {
@@ -89,4 +92,14 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
   }
   requests.push(batch);
   return requests;
+}
+
+/** Content version only, never an authorization token or #124 verified_snapshot_digests. */
+export function sourceSnapshotId(source: CourseSourceRecord): string {
+  function canonical(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, canonical(v)]));
+    return value;
+  }
+  return `pku:snapshot:${createHash("sha256").update(JSON.stringify(canonical(source))).digest("hex")}`;
 }

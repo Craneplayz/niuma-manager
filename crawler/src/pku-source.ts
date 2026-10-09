@@ -41,8 +41,35 @@ export interface CourseSourceRecord {
   references: SourceReference[];
   assignment?: { state: "active" | "submitted" | "unknown"; due_raw: string | null };
   warnings: string[];
+  provenance?: CourseProvenance;
 }
-export interface SourceContext { course: string; section: string; sourceUrl: string; collectedAt: string; }
+export interface CourseProvenance {
+  version: "course-provenance-v1";
+  course_id: string | null;
+  course_entry_url: string | null;
+  source_metadata_text: string;
+  term_label: string | null;
+  term_basis: "course_entry" | "unknown";
+  applies_to: "unknown";
+}
+export interface SourceContext { course: string; section: string; sourceUrl: string; collectedAt: string; courseEntry?: { text: string; url: string }; }
+
+/** Observed course-list evidence only: a label cannot prove a material is a current assignment. */
+export function collectCourseProvenance(context: SourceContext): CourseProvenance {
+  const pageUrl = cleanSourceUrl(context.sourceUrl);
+  const courseId = pageUrl ? new URL(pageUrl).searchParams.get("course_id") : null;
+  const entryUrl = context.courseEntry ? cleanSourceUrl(context.courseEntry.url) : null;
+  const entry = entryUrl ? new URL(entryUrl) : null;
+  const entryId = entry?.pathname.endsWith("/launcher") ? entry.searchParams.get("id") : null;
+  const matches = Boolean(courseId && entryId === courseId && entry?.origin === new URL(pageUrl!).origin);
+  // Preserve the observed entry text; never use the caller's term filter or current date as evidence.
+  const text = matches && context.courseEntry!.text.length <= 4096 ? context.courseEntry!.text : "";
+  const labels = [...text.matchAll(/(?:20\d{2}|\d{2})\s*[-–]\s*(?:20\d{2}|\d{2})学年第[12]学期/g)].map((m) => m[0]);
+  const unique = [...new Set(labels)];
+  const termLabel = unique.length === 1 ? unique[0] : null;
+  return { version: "course-provenance-v1", course_id: courseId, course_entry_url: matches ? entryUrl : null,
+    source_metadata_text: text, term_label: termLabel, term_basis: termLabel ? "course_entry" : "unknown", applies_to: "unknown" };
+}
 
 /** Only transport metadata is cleaned; source text remains evidence, never instructions. */
 export function cleanSourceUrl(value: string, base?: string): string | null {
@@ -114,6 +141,7 @@ export function extractCourseSourcesFromHtml(html: string, context: SourceContex
       input_id: `pku:source:${sha256(JSON.stringify(identity))}`,
       source_item_id: id ?? null, source_url: url.href, course: context.course, section: context.section,
       kind, title, body, text_quality: textQuality,
+      ...(context.courseEntry ? { provenance: collectCourseProvenance(context) } : {}),
       published_at: parseSourcePublication(publicationRaw), publication_raw: publicationRaw,
       collected_at: context.collectedAt, references,
       warnings: [

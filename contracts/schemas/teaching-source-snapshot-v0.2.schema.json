@@ -5,7 +5,57 @@
   "type": "object",
   "required": ["source_kind", "section", "references", "warnings", "raw"],
   "additionalProperties": false,
+  "dependentRequired": {"provenance": ["snapshot_id"], "snapshot_id": ["provenance"]},
   "properties": {
+    "provenance": {
+      "type": "object",
+      "required": [
+        "version",
+        "course_id",
+        "course_entry_url",
+        "source_metadata_text",
+        "term_label",
+        "term_basis",
+        "applies_to"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": "course-provenance-v1"
+        },
+        "course_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "course_entry_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_metadata_text": {
+          "type": "string"
+        },
+        "term_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "term_basis": {
+          "enum": [
+            "course_entry",
+            "unknown"
+          ]
+        },
+        "applies_to": {
+          "const": "unknown"
+        }
+      }
+    },
+    "snapshot_id": {"type": "string", "pattern": "^pku:snapshot:[0-9a-f]{64}$"},
     "source_kind": {"enum": ["announcement", "assignment", "content"]},
     "section": {"type": "string"},
     "warnings": {"type": "array", "items": {"type": "string"}},

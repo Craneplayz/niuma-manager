@@ -62,6 +62,7 @@ export interface CourseCollectionPlan {
 }
 
 interface CourseLink {
+  entryText: string;
   name: string;
   href: string;
 }
@@ -125,6 +126,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       if (plan.collectAnnouncements) {
         sources.push(...extractCourseSourcesFromHtml(await page.content(), {
           course: course.name,
+          courseEntry: { text: course.entryText, url: course.href },
           section: "课程通知",
           sourceUrl: coursePageUrl,
           collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
@@ -137,6 +139,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
         await page.waitForTimeout(500);
         sources.push(...extractCourseSourcesFromHtml(await page.content(), {
           course: course.name,
+          courseEntry: { text: course.entryText, url: course.href },
           section: section.text,
           sourceUrl: page.url(),
           collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
@@ -315,7 +318,7 @@ function discoverCourses(anchors: AnchorInfo[], term: string | null): CourseLink
     if (url.origin !== PKU_ORIGIN || !url.pathname.endsWith("/launcher") || !url.searchParams.has("id") || !url.searchParams.has("url")) continue;
     if (term && !anchor.text.includes(term)) continue;
     const name = anchor.text.replace(/^[^:]+:\s*/, "");
-    if (name && !courses.has(anchor.href)) courses.set(anchor.href, { name, href: anchor.href });
+    if (name && !courses.has(anchor.href)) courses.set(anchor.href, { name, href: anchor.href, entryText: anchor.text });
   }
   return [...courses.values()];
 }

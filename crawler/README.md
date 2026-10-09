@@ -124,3 +124,13 @@ pnpm pku:homework -- --format=recognition
 教师容器自身或祖先属于私人表单、提交、尝试、成绩或导航区域时排除整块文字及引用；原生作业页允许已知 uploadAssignmentForm 外层表单，先移除私人区域和控件，再读取教师说明、标题与教师信息行中的日期。未找到教师说明时保留列表并标记详情未读，单条追加超限不会影响共享附件缓存；响应式图片的 srcset / picture 候选同样保留未读，PDF 文档级内嵌附件保留 partial_pdf，不递归提取。
 
 日期支持教师信息区内的相邻值节点，遇下一字段标签（包括原生 label / th 和 ARIA 行列头）、行或说明边界即停止，父容器查找只穿过纯标签包装；表格只读取同一行紧邻的一个 td 值单元格。空值保持未读，明确“未设置 / Not set”表示无日期，读取失败或值冲突时提示人工核对。过滤后的“作业信息 / Assignment Information”标题仍可识别页面，嵌套说明只读取最外层匹配容器，独立说明按页面顺序保留。
+
+### Course provenance handoff (#107 / #109 / #124)
+
+Live collection retains `course-provenance-v1` facts in each source's `provenance`, and exports them in v0.2's open `upstream_hints.provenance`. The course ID comes from the actual listing URL. The observed course-list anchor text and sanitized launcher URL are accepted as metadata only when their origin and course ID match the listing. A single observed academic-term label is preserved as `term_label`; missing/conflicting labels remain unknown. The `term` CLI filter and collection date never supply this evidence.
+
+A course label does not establish semester boundaries or prove that a particular notice/material is newly assigned. `applies_to` remains `unknown`; no dates or `current_assignment` authority are inferred. The actual platform must provide further applicability evidence before #109 can use a trusted semester to fill a missing year.
+
+`upstream_hints.snapshot_id` versions the final source record, including body, references, read failures, publication, collection time and course metadata. The hash is a content identifier, not proof of account ownership and not #124's `verified_snapshot_digests`. Server must retain/retrieve the full controlled snapshot under the current application/teaching account, then build and validate the v0.4 entry and calculate its separate digest. No credentials or account identifiers are exported by this addition. Older synthetic/imported records without provenance retain their existing request shape.
+
+This is a collector-fact extension, not a v0.4 request converter. In particular, the existing v0.2 body can include extracted attachment text; consumers must not treat that concatenation as body-only evidence in v0.4. The v0.4 adapter must separate original body and reference evidence, keep unknown course terms null, and validate against #124's request schema. Account trust, automatic admission and UI integration remain downstream responsibilities.
