@@ -16,8 +16,7 @@
         "input_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 160,
-          "pattern": "^[A-Za-z0-9_.:-]+$"
+          "pattern": "\\S"
         },
         "course_id": {
           "type": "string",
@@ -74,6 +73,13 @@
       ],
       "additionalProperties": false
     },
+    "control_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "review_pending": {
+      "type": "boolean"
+    },
     "scope": {
       "enum": [
         "submission_only",
@@ -128,6 +134,9 @@
               "manual",
               "source_submission"
             ]
+          },
+          "source_completion_paused": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -136,7 +145,8 @@
           "relation",
           "link_basis",
           "decision",
-          "completion_origin"
+          "completion_origin",
+          "source_completion_paused"
         ],
         "additionalProperties": false
       },
@@ -146,6 +156,8 @@
   "required": [
     "contract_version",
     "snapshot",
+    "control_revision",
+    "review_pending",
     "scope",
     "actions"
   ],

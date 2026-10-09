@@ -10,6 +10,7 @@ contracts/
 ├── tests/test_teaching_review_draft.py # 草案证据、身份绑定、边界与反例检查
 ├── submission_policy.py              # #110 提交状态、可信来源及精确行动的纯决策校验
 ├── schemas/submission-policy-v0.1.schema.json # 后端内部观察与永久行动映射根 Schema
+├── schemas/submission-control-v0.1.schema.json # 用户重开、恢复自动完成及解除核对的操作根
 ├── examples/submission-policy-v01-cases.json # 首次提交、多行动、状态变化及不可信输入
 ├── tests/test_submission_policy.py    # 同源顺序、精确关联、用户决定和授信边界反例
 ├── docs/submission-policy-v0.1.md     # 已提交作业退出候选与完成状态交接规约
