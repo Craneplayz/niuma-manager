@@ -18,6 +18,12 @@ from ddl_text.teaching_policy import teaching_policy_manifest
 ROOT = Path(__file__).resolve().parents[1]
 VIEW = 'teaching-workspace/0.1'
 RUN = 'teaching-run/0.1'
+SOURCE_INCOMPLETE = '来源待补全：已读部分未发现任务，但正文或附件未完整读取。重试识别不会补抓内容，请查看来源或补全后重新同步。'
+
+
+def needs_source_completion(result):
+    rows = result['record_results']
+    return any(row['status']=='incomplete' for row in rows) and not any(row['status']=='failed' for row in rows)
 
 
 def initialize(db):
@@ -87,7 +93,7 @@ def result_view(request, result):
             task_ids=[c['candidate_id'] for c in cards], warnings=warnings))
         if failed:
             errors.append(dict(input_id=row['input_id'], **(row['error'] or dict(code='incomplete_source',
-                message='已读部分未发现任务，但仍有未读内容，请查看来源。', retryable=True))))
+                message=SOURCE_INCOMPLETE, retryable=False))))
     return dict(contract_version=VIEW, request_id=request['request_id'], status=result['status'],
         record_results=rows, tasks=tasks, errors=errors)
 
@@ -132,7 +138,9 @@ def register(db, uid, username, requests):
                 continue
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                 (uid,request['request_id'])).fetchone()
-            if stored and json.loads(stored['result'])['status'] in ('success','no_tasks') and not has_unapplied_auto_tasks(db,uid,request,stored['demo']):
+            output = json.loads(stored['result']) if stored else None
+            if output and (needs_source_completion(output) or output['status'] in ('success','no_tasks')
+                           and not has_unapplied_auto_tasks(db,uid,request,stored['demo'])):
                 skipped += 1
             else: pending.append(request_view(request))
     return dict(requests=pending, summary=dict(total=total, skipped=skipped, pending=len(pending)))
@@ -170,6 +178,8 @@ def run(db, uid, body, retry, ApiError):
     request = resolve_snapshot(db,uid,body['request_id'],ApiError)
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
     if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')): return
+    if previous and needs_source_completion(json.loads(previous['result'])):
+        raise ApiError(409,SOURCE_INCOMPLETE)
     if not recognition._ACTIVE.acquire(blocking=False): raise ApiError(503,'识别正在处理其他请求，请稍后重试')
     try:
         result, policy = recognize(request,ApiError)

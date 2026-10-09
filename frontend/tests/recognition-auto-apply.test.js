@@ -49,6 +49,70 @@ test('attachment retry opens its persisted job instead of the v0.2 text endpoint
  assert.equal(location.hash,'#settings');
 });
 
+test('incomplete teaching sources show missing content and never resend old snapshots',async()=>{
+ recognition.resetAssistant();session.user={id:'incomplete'};location.hash='#agent';
+ const fixtures=JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json',import.meta.url)));
+ const sample=fixtures.cases[0];
+ const source={...sample.request.records[0],text:'第六讲课件',text_quality:'summary',source_url:'https://course.example.test/item',
+  upstream_hints:{references:[{label:'课堂材料.pptx',read_state:'unsupported'}]}};
+ const batch={request:{...sample.request,records:[source]},result:{status:'failed',record_results:[],
+  errors:[{input_id:source.input_id,code:'incomplete_source',message:'旧版未读提示',retryable:true}]},demo:false,items:[]};
+ recognition.configureAssistant({render(){}});
+ globalThis.fetch=async(path,options)=>{
+  assert.notEqual(options?.method,'POST');
+  return {ok:true,json:async()=>path==='/api/recognition/batches'?[batch]:path==='/api/workspace'?{sources:{value:[],version:1}}:{configured:false}};
+ };
+ recognition.assistantPage();await new Promise(resolve=>setTimeout(resolve,0));
+ await recognition.handleAssistantClick({dataset:{agentReviewScope:'all'}});
+ let html=recognition.assistantPage();
+ assert.match(html,/来源待补全 · 1 条/);assert.match(html,/课堂材料.pptx（暂不支持读取）/);
+ assert.match(html,/href="https:\/\/course.example.test\/item"/);
+ assert.doesNotMatch(html,/data-agent-retry=/);
+ await recognition.handleAssistantClick({dataset:{agentRetry:batch.request.request_id}});
+ assert.match(recognition.assistantPage(),/重试不会补抓网页/);
+ source.source_url='javascript:alert(1)';source.text='<script>private</script>';
+ html=recognition.assistantPage();assert.doesNotMatch(html,/href="javascript:|<script>/);
+});
+
+test('incomplete teaching sources do not hide real model failures',async()=>{
+ recognition.resetAssistant();session.user={id:'mixed-errors'};location.hash='#settings';
+ const fixtures=JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json',import.meta.url)));
+ const sample=fixtures.cases[0];
+ const batch=code=>({request:{...sample.request,request_id:code},result:{status:'failed',record_results:[],
+  errors:[{input_id:sample.request.records[0].input_id,code,message:'测试',retryable:true}]},items:[],demo:false});
+ recognition.configureAssistant({render(){}});
+ globalThis.fetch=async()=>({ok:true,json:async()=>[batch('incomplete_source'),batch('agent_timeout')]});
+ recognition.assistantPage();await new Promise(resolve=>setTimeout(resolve,0));
+ await recognition.handleAssistantClick({dataset:{agentReviewScope:'all'}});
+ const html=recognition.assistantPage();
+ assert.match(html,/data-agent-retry="agent_timeout"/);
+ assert.doesNotMatch(html,/data-agent-retry="incomplete_source"/);
+ assert.match(html,/来源待补全 · 1 条/);
+});
+
+test('sync counts missing source separately from model failure',async()=>{
+ recognition.resetAssistant();session.user={id:'incomplete-sync'};location.hash='#settings';
+ const fixtures=JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json',import.meta.url)));
+ const sample=fixtures.cases[0],batch={request:sample.request,result:{status:'failed',record_results:[],
+  errors:[{input_id:sample.request.records[0].input_id,code:'incomplete_source',message:'来源待补全',retryable:false}]},items:[],demo:false};
+ let attempts=0;
+ recognition.configureAssistant({render(){},getState:()=>({tasks:[]})});
+ globalThis.fetch=async(path,options)=>{
+  if(path==='/api/data/sources')return {ok:true,json:async()=>({version:1})};
+  if(path==='/api/sources/sync')return {ok:true,json:async()=>({requests:[sample.request],summary:{skipped:0}})};
+  if(path==='/api/recognition/retry'){attempts++;assert.deepEqual(JSON.parse(options.body),sample.run);}
+  else assert.equal(path,'/api/recognition/batches');
+  return {ok:true,json:async()=>attempts?[batch]:[]};
+ };
+ recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
+ recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+ await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+ const html=recognition.assistantPage();assert.equal(attempts,1);
+ assert.match(html,/成功 0 条，失败 0 条，来源待补全 1 条/);
+ assert.match(html,/已创建 0 项 · 来源待补全 1 条/);
+ assert.doesNotMatch(html,/data-agent-retry=/);
+});
+
 test('F3 auto-apply accepts clear external actions and rejects uncertain or manual input',async()=>{
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const batch={request:fixture.request,demo:false};

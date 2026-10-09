@@ -8,9 +8,9 @@ import {wechatMediaPanel} from './team-wechat-media-ui.js';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
 const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',manual:'手动输入',unknown:'其他'};
-let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='manual',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};
+let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='manual',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};
 export function configureAssistant(callbacks){host=callbacks;}
-export function resetAssistant(){reviewScope='current';newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,skipped:0};}
+export function resetAssistant(){reviewScope='current';newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
 let candidateRevision=0;
 window.addEventListener('niuma:recognition-changed',()=>{candidateRevision++;batches=[];loaded=false;refresh();});
@@ -26,10 +26,21 @@ export const canAutoApplyCandidate=(c,batch)=>{
   d.status==='not_provided'&&d.value===null));
 };
 let reviewScope='current',newPlanningTaskIds=new Set();
+const needsSourceCompletion=batch=>batch?.request.contract_version==='teaching-workspace/0.1'
+ && batch.result.errors?.length>0 && batch.result.errors.every(error=>error.code==='incomplete_source');
+function sourceCompletionCard(batch){
+ const source=batch.request.records[0];
+ const references=source?.upstream_hints?.references||[];
+ const gaps=[...(source?.text_quality!=='complete'?['正文仅取得标题、摘要或部分内容']:[]),
+  ...references.filter(ref=>ref.read_state!=='complete').map(ref=>`${ref.label||'附件或详情'}（${ref.read_state==='unsupported'?'暂不支持读取':ref.read_state==='failed'?'读取失败':ref.read_state==='partial'?'仅部分读取':'尚未读取'}）`)];
+ let link='';
+ try{const url=new URL(source.source_url);if(['http:','https:'].includes(url.protocol)&&!url.username&&!url.password)link=`<a href="${esc(url.href)}" target="_blank" rel="noreferrer">查看来源</a>`;}catch{}
+ return `<div class="source-incomplete-record"><p><strong>${esc(source?.course_or_project||source?.source_label||'通知')}</strong> · ${esc(source?.text?.split('\n')[0]?.slice(0,120)||'来源待补全')}</p><p>${esc(gaps.join('；')||'来源内容未完整取得')}</p>${link}</div>`;
+}
 const currentBatches=()=>reviewScope==='all'||!activeRequestIds.size?batches:batches.filter(batch=>activeRequestIds.has(batch.request.request_id));
 const currentItems=state=>currentBatches().flatMap(batch=>batch.items.filter(item=>item.state===state));
 const sourceFor=(item)=>{const batch=batches.find(batch=>batch.items.some(candidate=>candidate.id===item.id));return batch?.request.records.find(record=>record.input_id===item.candidate.input_id);};
-function beginImport(requestIds,source,total=requestIds.length,skipped=0){reviewScope='current';activeRequestIds=new Set(requestIds);candidateBusy.clear();importProgress={active:true,source,total,processed:0,created:0,failed:0,skipped};error='';notice='';}
+function beginImport(requestIds,source,total=requestIds.length,skipped=0){reviewScope='current';activeRequestIds=new Set(requestIds);candidateBusy.clear();importProgress={active:true,source,total,processed:0,created:0,failed:0,incomplete:0,skipped};error='';notice='';}
 function queuePlanning(candidateIds){
  for(const task of host.getState?.().tasks||[])if(candidateIds.some(id=>task.recognitionHistory?.some(history=>history.storageId===id)))newPlanningTaskIds.add(task.id);
 }
@@ -133,15 +144,17 @@ export function assistantPage(){
  const review=currentItems('pending'),ignored=currentItems('ignored');
  const importStarted=importProgress.active||activeRequestIds.size>0;
  const allPending=batches.flatMap(batch=>batch.items).filter(item=>item.state==='pending').length,allIgnored=batches.flatMap(batch=>batch.items).filter(item=>item.state==='ignored').length;
- const showReview=importStarted||allPending||allIgnored;
- const failedBatches=batches.filter(batch=>(reviewScope==='all'||activeRequestIds.has(batch.request.request_id))&&!batch.demo&&['failed','partial_success'].includes(batch.result.status));
+ const showReview=importStarted||allPending||allIgnored||reviewScope==='all';
+ const unresolved=batches.filter(batch=>(reviewScope==='all'||activeRequestIds.has(batch.request.request_id))&&!batch.demo&&['failed','partial_success'].includes(batch.result.status));
+ const incompleteBatches=unresolved.filter(needsSourceCompletion),failedBatches=unresolved.filter(batch=>!needsSourceCompletion(batch));
  const progressTotal=Math.max(importProgress.total,1),progress=Math.min(100,Math.round(importProgress.processed/progressTotal*100));
  const modes=importModes();if(!modes.some(([value])=>value===importMode))importMode='manual';
- return `<div class="story-capture"><div class="story-capture-copy">${pageIntro('agent')}<div class="story-capture-note"><span>从哪里开始？</span><p>粘贴一条通知，或选择已连接的教学网、微信导出文件。原文与来源会和任务一起保留。</p><a href="#settings" class="story-link">管理通知来源 ${icon('arrow')}</a></div></div><section class="panel agent-chat import-entry-card"><div class="agent-chat-header import-entry-header"><div class="import-source-tabs" role="tablist" aria-label="导入方式">${modes.map(([value,label])=>`<button type="button" role="tab" aria-selected="${importMode===value}" class="import-source-tab ${importMode===value?'active':''}" data-agent-source-mode="${value}" ${busy&&importMode!==value?'disabled':''}>${label}</button>`).join('')}</div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button></div>
+ return `<div class="story-capture"><div class="story-capture-copy">${pageIntro('agent')}<div class="story-capture-note"><span>从哪里开始？</span><p>粘贴一条通知，或选择已连接的教学网、微信导出文件。原文与来源会和任务一起保留。</p><a href="#settings" class="story-link">管理通知来源 ${icon('arrow')}</a></div></div><section class="panel agent-chat import-entry-card"><div class="agent-chat-header import-entry-header"><div class="import-source-tabs" role="tablist" aria-label="导入方式">${modes.map(([value,label])=>`<button type="button" role="tab" aria-selected="${importMode===value}" class="import-source-tab ${importMode===value?'active':''}" data-agent-source-mode="${value}" ${busy&&importMode!==value?'disabled':''}>${label}</button>`).join('')}</div><button class="btn text-btn" data-agent-action="refresh" ${busy?'disabled':''}>刷新结果</button><button class="btn text-btn" data-agent-review-scope="all">账号全部结果</button></div>
  <div class="import-mode-panel">${importModePanel(support)}</div>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
- ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}</section></div><div class="notification-import">
- ${importStarted?`<section class="import-progress ${importProgress.active?'active':''}" aria-label="导入进度"><div><strong>${esc(importProgress.source||'本次导入')}</strong><span>${importProgress.active?`${importProgress.processed} / ${importProgress.total||'…'}`:'导入完成'}</span></div><div class="import-progress-track"><i style="width:${importProgress.active&&importProgress.total?progress:100}%"></i></div><small>已创建 ${importProgress.created} 项${importProgress.failed?` · 失败 ${importProgress.failed} 项`:''}${importProgress.skipped?` · 跳过 ${importProgress.skipped} 项`:''}</small></section>
+ ${failedBatches.length?`<div class="agent-failures">${failedBatches.map(batch=>`<p class="draft-warning">${batch.result.record_results.some(r=>r.warnings.includes('incomplete_text'))?'来源正文不完整；':''}${batch.result.errors.map(e=>{const source=batch.request.records.find(r=>r.input_id===e.input_id);return esc(source?.course_or_project||source?.source_label||'通知')+'：'+esc(e.code==='agent_timeout'?'识别超时；请稍后重试':e.code==='agent_unavailable'?'模型服务不可用；请检查配置、网络或额度后重试':e.message)}).join('；')}</p><button class="btn" data-agent-retry="${esc(batch.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div>`:''}
+ ${incompleteBatches.length?`<details class="agent-source-incomplete"><summary>来源待补全 · ${incompleteBatches.length} 条</summary><p>已读部分未发现任务，仍有内容未完整读取，尚不能判定为无任务。重试识别不会补抓网页或读取缺失附件；可查看来源，将完整要求粘贴识别，或待采集支持后重新同步。</p>${incompleteBatches.map(sourceCompletionCard).join('')}</details>`:''}</section></div><div class="notification-import">
+ ${importStarted?`<section class="import-progress ${importProgress.active?'active':''}" aria-label="导入进度"><div><strong>${esc(importProgress.source||'本次导入')}</strong><span>${importProgress.active?`${importProgress.processed} / ${importProgress.total||'…'}`:'导入完成'}</span></div><div class="import-progress-track"><i style="width:${importProgress.active&&importProgress.total?progress:100}%"></i></div><small>已创建 ${importProgress.created} 项${importProgress.failed?` · 失败 ${importProgress.failed} 项`:''}${importProgress.incomplete?` · 来源待补全 ${importProgress.incomplete} 条`:''}${importProgress.skipped?` · 跳过 ${importProgress.skipped} 项`:''}</small></section>
  `:''}
  ${showReview?`<div class="button-row" role="group" aria-label="候选范围"><button class="btn" data-agent-review-scope="current" aria-pressed="${reviewScope==='current'&&activeRequestIds.size>0}" ${!activeRequestIds.size?'disabled':''}>本次导入</button><button class="btn" data-agent-review-scope="all" aria-pressed="${reviewScope==='all'||!activeRequestIds.size}">账号全部候选 · 待核对 ${allPending} · 已忽略 ${allIgnored}</button></div>
  <section class="import-review-section"><div class="result-heading"><h2>待核对 <span>${review.length}</span></h2></div>${review.map(candidateCard).join('')}${!review.length?'<div class="result-empty compact"><h3>暂无待核对内容</h3></div>':''}</section>
@@ -222,7 +235,7 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const external=autoApply&&body.records.some(record=>['teaching_web','wechat'].includes(record.platform));
- busy=true;error='';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),100000);refresh();
+ busy=true;error='';if(retry)notice='正在重新识别，请稍候…';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),100000);refresh();
  try{
   const existing=external?await api('/api/recognition/batches',undefined,'GET',{signal:controller.signal,timeoutMs:100000}):batches;
   if(!current())return;
@@ -241,9 +254,9 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   if(activeRequestIds.has(body.request_id))importProgress.created+=applied;
   const remaining=batches.find(b=>b.request.request_id===body.request_id)?.items.filter(item=>item.state==='pending').length||0;
   const filtered=result?.record_results?.filter(r=>r.warnings.some(w=>w.startsWith('history_filtered:')||w.startsWith('no_action:'))).length||0;
-  notice=`${applied?`已自动加入 ${applied} 项任务；`:''}${remaining?`${remaining} 项待处理；`:''}${filtered?`${filtered} 条资讯或历史通知未生成任务；`:''}${failed?`${failed} 项自动加入失败，请再次同步；`:''}${recognized?'识别完成':'部分记录识别失败，可重试'}`;
+  notice=`${applied?`已自动加入 ${applied} 项任务；`:''}${remaining?`${remaining} 项待处理；`:''}${filtered?`${filtered} 条资讯或历史通知未生成任务；`:''}${failed?`${failed} 项自动加入失败，请再次同步；`:''}${recognized?'识别完成':needsSourceCompletion(batch)?'来源待补全，请查看下方缺失内容；无需重复重试。':'部分记录识别失败，可重试'}`;
   if(complete)onSuccess?.();
-  if(activeRequestIds.has(body.request_id)){importProgress.processed++;if(!complete)importProgress.failed++;}
+  if(activeRequestIds.has(body.request_id)){importProgress.processed++;if(needsSourceCompletion(batch))importProgress.incomplete++;else if(!complete)importProgress.failed++;}
   return Boolean(complete);
  }
  catch(e){if(current()){if(activeRequestIds.has(body.request_id)){importProgress.processed++;importProgress.failed++;}error=controller.signal.aborted?'等待已停止；远端可能仍在处理。请刷新候选，必要时再重试。':e.message;}}
@@ -301,6 +314,7 @@ export async function handleAssistantClick(button){
  if(button.dataset.agentAction==='refresh'){await load(true);return;}
  if(button.dataset.agentRetry){
   const batch=batches.find(b=>b.request.request_id===button.dataset.agentRetry);
+  if(needsSourceCompletion(batch)){notice='来源待补全：重试不会补抓网页或读取缺失附件，请查看来源或补全后重新同步。';refresh();return;}
   if(batch?.request.contract_version==='0.3.1'){location.hash='#settings';return;}
   if(batch&&!batch.demo)await submitRecognitionRequest(batch.request,()=>{
    const index=sourceImport?.requests?.findIndex(r=>r.request_id===batch.request.request_id);
@@ -323,23 +337,24 @@ export async function handleAssistantClick(button){
    const result=await api('/api/sources/sync',{sources:[...syncSources]},'POST',{signal:controller.signal,timeoutMs:310000});
    if(!current())return;
    if(!Array.isArray(result.requests))throw new Error('同步结果格式不正确');
-   if(!result.requests.length){sourceImport=null;const skipped=result.summary?.skipped||0;beginImport([],'教学网',0,skipped);importProgress.active=false;notice=`同步完成，暂无待识别内容${skipped?`；${skipped} 条已识别通知没有变化`:''}`;return;}
+   if(!result.requests.length){sourceImport=null;const skipped=result.summary?.skipped||0;beginImport([],'教学网',0,skipped);importProgress.active=false;notice=`同步完成，暂无待识别内容${skipped?`；跳过 ${skipped} 条无需重复识别的来源`:''}。可在“账号全部结果”查看来源待补全记录。`;return;}
    sourceImport={kind:'requests',requests:result.requests,sent:new Set()};sourceName='教学网增量同步（每条独立识别）';sourceConsent=true;
    busy=false;activeController=null;
-   const total=sourceImport.requests.length,skipped=result.summary?.skipped||0,failureMessages=[];let failed=0,attempted=0;
+   const total=sourceImport.requests.length,skipped=result.summary?.skipped||0,failureMessages=[];let failed=0,incomplete=0,attempted=0;
    beginImport(sourceImport.requests.map(request=>request.request_id),'教学网',total,skipped);
    for(let index=0;index<total;index++){
     if(!current())return;
     const batch=sourceImport.requests[index];
-    notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条未变化通知`;refresh();
+    notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条无需重复识别的来源`;refresh();
     const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true,false,true);
     if(!current())return;
     attempted++;
-    if(!complete){failed++;if(error)failureMessages.push(error);}
+    if(complete===false&&needsSourceCompletion(batches.find(item=>item.request.request_id===batch.request_id)))incomplete++;
+    else if(!complete){failed++;if(error)failureMessages.push(error);}
     if(complete===undefined)break;
    }
    await planNewTasks(current);
-   if(current()){if(failureMessages.length)error=[...new Set(failureMessages)].join('；');importProgress.active=false;syncConsent=false;notice=`同步识别${failed||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条未变化通知。${failed?'未完成内容可再次同步，识别失败记录可重试。':''}`;}
+   if(current()){if(failureMessages.length)error=[...new Set(failureMessages)].join('；');importProgress.active=false;syncConsent=false;notice=`同步识别${failed||incomplete||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，来源待补全 ${incomplete} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条无需重复识别的来源。${failed?'未完成内容可再次同步，识别失败记录可重试。':''}${incomplete?'请查看“来源待补全”；重复重试不会补抓内容。':''}`;}
   }catch(e){if(current()){notice='';error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}}
   finally{if(current()){busy=false;activeController=null;importProgress.active=false;refresh();}}
   return;

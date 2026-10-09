@@ -242,6 +242,32 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.call('/sources/credentials/remove',{})
         self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))[0],409)
 
+    def test_incomplete_source_is_preserved_but_does_not_repeat_model_until_capture_changes(self):
+        request,sync=self.capture(('unread-supplement',))
+        view=sync['requests'][0];iid=view['records'][0]['input_id']
+        self.drafts[iid]='{"tasks":[]}'
+        batch=self.run_request(view)
+        self.assertEqual(batch['result']['errors'][0]['code'],'incomplete_source')
+        self.assertFalse(batch['result']['errors'][0]['retryable'])
+        with patch.object(teaching,'recognize') as model:
+            status,result=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
+            self.assertEqual(status,409);self.assertIn('不会补抓',result['error'])
+            # Collection time alone does not make the same missing data retryable.
+            unchanged=deepcopy(request);unchanged['records'][0]['record']['collected_at']='2026-10-11T10:00:00+08:00'
+            with app.connection() as db:
+                again=teaching.register(db,self.uid,'synthetic-course-user',[unchanged])
+            self.assertEqual(again['summary'],dict(total=1,skipped=1,pending=0))
+        model.assert_not_called()
+        self.assertEqual(self.call('/recognition/batches')[1][0],batch)
+        complete=deepcopy(unchanged);record=complete['records'][0]['record']
+        record.update(text=record['text']+'\n补读内容：只是课程资料。',body_status='complete',references=[])
+        with app.connection() as db:
+            refreshed=teaching.register(db,self.uid,'synthetic-course-user',[complete])
+        fresh=refreshed['requests'][0]
+        self.assertNotEqual(fresh['request_id'],view['request_id'])
+        self.assertEqual(self.run_request(fresh)['result']['status'],'no_tasks')
+        self.assertEqual(len(self.call('/recognition/batches')[1]),2)
+
     def test_no_tasks_and_multiple_tasks_are_distinct(self):
         _,sync=self.capture(('explicit-complete','explicit-complete'))
         first,second=sync['requests'];self.drafts[first['records'][0]['input_id']]='{"tasks":[]}'

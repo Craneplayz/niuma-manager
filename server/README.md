@@ -30,6 +30,7 @@ server/
 在 `frontend/` 运行 `npm run dev:api` 启动业务 API，另开终端运行 `npm run dev`；识别和规划默认都由业务 API 直接调用，不必启动 1333/1334。
 Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File server/start-local-test.ps1`；依赖使用根目录 `.venv`，数据库独立保存为 `server/data/teaching-test.sqlite3`，进程和日志见同目录。
 教学网同步使用原生 v0.4：按课程作业、课程通知、教学内容顺序识别，来源账号和快照由后端核验；明确任务自动加入，引用所需材料缺失时保留审核，详见 [运行视图](../contracts/docs/teaching-workspace-v0.1.md)。
+已读部分无任务但内容不完整时标记“来源待补全”，相同快照不重复调用模型；补全正文/附件后重新同步，模型失败仍可重试。
 真实 API 合成验收在仓库根运行 `.venv/Scripts/python.exe server/run_teaching_smoke.py --output local-data/teaching-smoke.json`；只发送合成内容，独立临时数据库，不访问校园网账号。
 原生 submitted 作业来源在调用模型前跳过，撤出同账号已绑定来源的未处理候选并保留审计；已入库任务不据此批量改状态，完整逐行动自动完成仍待 #110，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
 教学网 DeepSeek 调用显式关闭 thinking；真实调用用原文片段编号填回证据，错误区分输出截断、JSON、字段与证据错误，不记录私人模型响应。
