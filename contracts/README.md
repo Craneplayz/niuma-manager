@@ -3,7 +3,14 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
-├── requirements-teaching-dev.txt     # 教学网草案校验依赖，不用于业务运行
+├── requirements-teaching-dev.txt     # 教学网政策校验依赖，由可选教学网入口显式引用
+├── build_teaching_v04.py             # 生成/核对自包含教学网批次请求与结果根 Schema
+├── teaching_io.py                    # 教学网批次身份、状态、来源和基础政策校验
+├── schemas/teaching-request-v0.4.schema.json # 独立教学网批次请求
+├── schemas/teaching-result-v0.4.schema.json # 独立教学网批次结果
+├── examples/teaching-v04-cases.json   # 7 组教学网公开批次边界与多任务样例
+├── tests/test_teaching_io.py          # 教学网批次、信任与非法状态反例
+├── docs/teaching-v0.4.md              # 教学网显式接入、消费复核及重识别规则
 ├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
 ├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
 ├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
@@ -67,7 +74,7 @@ contracts/
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
-教学网 #108/#109 的新增覆盖/学期规则见 [v0.4-draft.1 政策组件](docs/teaching-review-v0.4-draft.md)；仅供审查和离线验证，不是新 API，不改变以下 v0.2 运行契约，也不放宽 PR #98 的 v0.3.1 文件审核规则。
+- 教学网 #108/#109 的 [v0.4 批次契约](docs/teaching-v0.4.md) 复用已审查的 [覆盖/学期政策组件](docs/teaching-review-v0.4-draft.md)；消费端须显式接入并复核，不静默改变以下 v0.2 或微信 v0.3.1 规则。
 
 - #110 [已提交状态决策契约](docs/submission-policy-v0.1.md) 区分来源事实和永久行动对应，提供纯校验与参考决策；后端显式接入后才生效，不凭模型或 imported hints 自动完成。
 
