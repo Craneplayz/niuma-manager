@@ -3,7 +3,7 @@ import copy
 import json
 import unittest
 from pathlib import Path
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from ddl_text.contract_v02 import validate_request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,3 +69,39 @@ class TeachingSourceSnapshotTest(unittest.TestCase):
             self.assertTrue(list(self.validator.iter_errors(bad)))
         hints['snapshot_id'] = 'client-trusted'
         self.assertTrue(list(self.validator.iter_errors(hints)))
+
+    def test_teaching_v04_exports(self):
+        from contracts.teaching_review_draft import validate_pair
+        from contracts.check_v031_examples import check_source_url
+        schema = json.loads((ROOT / 'schemas/teaching-request-v0.4.schema.json').read_text())
+        validator = Draft202012Validator(schema, format_checker=FormatChecker())
+        for case in self.cases:
+            with self.subTest(case=case['id']):
+                export = case['teaching_export']
+                self.assertFalse(export['skipped'])
+                for request in export['requests']:
+                    validator.validate(request)
+                    for entry in request['records']:
+                        check_source_url(entry['source']['url'])
+                        record = entry['record']
+                        assessment = dict(candidate_id='validation-only', input_id=record['input_id'],
+                            action=dict(state='uncertain', evidence=[]),
+                            deadline=dict(value=None, precision='unknown', derivation='unresolved', anchor=None, evidence=[]),
+                            unread_relations=[dict(ref_id=ref['ref_id'], role='unknown', evidence=[])
+                                              for ref in record['references'] if ref['read_state'] != 'complete'],
+                            other_review_reasons=[])
+                        validate_pair(dict(contract_version='0.4-draft.1', record=record, assessment=assessment))
+                        self.assertIsNone(record['course_term'])
+                        self.assertNotIn('source_verified', record)
+        cases = {case['id']: case['teaching_export']['requests'][0]['records'][0]['record'] for case in self.cases}
+        self.assertEqual(cases['supplementary-still-unread']['body_status'], 'complete')
+        self.assertEqual(cases['supplementary-still-unread']['references'][0]['read_state'], 'unread')
+        self.assertNotIn('附件正文：', cases['text-attachment-read']['text'])
+        self.assertIn('请在2026年12月31日18点前提交报告。', cases['text-attachment-read']['references'][0]['text'])
+        self.assertEqual(cases['assignment-unknown']['body_status'], 'partial')
+        self.assertEqual(cases['day-publication']['published_at'], dict(value='2026-10-09', basis='source'))
+        self.assertEqual(cases['empty-body']['text'], '')
+        self.assertEqual(cases['empty-body']['body_status'], 'missing')
+        self.assertIn('2026-10-23', cases['multiple-actions']['text'])
+        self.assertIn('2026-10-25', cases['multiple-actions']['text'])
+        self.assertIsNone(cases['missing-year-course-label']['course_term'])

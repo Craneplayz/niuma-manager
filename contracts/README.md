@@ -5,6 +5,7 @@ contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
 ├── requirements-teaching-dev.txt     # 教学网草案校验依赖，不用于业务运行
 ├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
+├── schemas/teaching-request-v0.4.schema.json # #124 原版正式请求根，用于爬虫独立证据导出
 ├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
 ├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
 ├── tests/test_teaching_review_draft.py # 草案证据、身份绑定、边界与反例检查
@@ -67,6 +68,7 @@ contracts/
 
 ## 交接方式
 
+- 教学网爬虫 `--format=teaching-v04` 按 #124 原版请求 Schema 输出独立正文和逐引用证据；当前学期适用性未知，账号与完整 entry 授信由 server 核验。
 - 教学网采集的 v0.2 开放 hints 扩展见 [来源快照约定](docs/teaching-source-snapshot-v0.2.md)，仅记录读取事实，不改变审核、学期授信或 v0.3.1 文件强制审核规则。
 - #112 [定向重识别业务契约](docs/reprocessing-v0.1.md) 提供选择旧记录、运行/停止、持久进度和用户决定关联的共享校验；供 server/UI 显式实现，不表示路由已开放，也不改变 v0.2 模型信封。
 

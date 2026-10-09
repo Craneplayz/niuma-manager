@@ -69,7 +69,7 @@ describe("Blackboard assignment detail parsing", () => {
 
   it("recognizes submission history without exposing files, grades or attempt times", async () => {
     const detail = parseAssignmentDetailHtml(await fixture("submitted-zh.html"));
-    expect(detail).toEqual({ state: "submitted", title: "人工智能基础 第一次概念题作业", description: "", due_raw: null });
+    expect(detail).toEqual({ state: "submitted", heading_raw: "复查提交历史记录：人工智能基础 第一次概念题作业", title: "人工智能基础 第一次概念题作业", description: "", due_raw: null });
     const original = source();
     const enriched = enrichAssignmentSource(original, detailUrl, detail);
     expect(enriched.input_id).toBe(original.input_id);

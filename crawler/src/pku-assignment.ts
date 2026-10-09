@@ -1,7 +1,7 @@
 import { load, type Cheerio, type CheerioAPI } from "cheerio";
 import type { AnyNode } from "domhandler";
 import type { Page } from "playwright";
-import { cloneTeacherContent, parseTeacherContent, sourceTextFits, makeSourceReference, UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
+import { makeBodyEvidence, cloneTeacherContent, parseTeacherContent, sourceTextFits, makeSourceReference, UNREAD_REFERENCE_WARNING, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const ASSIGNMENT_PATH = /^\/webapps\/assignment\//i;
@@ -19,6 +19,7 @@ export type AssignmentPageState = "active" | "submitted" | "unknown";
 
 export interface AssignmentDetail {
   state: AssignmentPageState;
+  heading_raw?: string;
   title: string | null;
   description: string;
   due_raw: string | null;
@@ -156,6 +157,7 @@ export function parseAssignmentDetailHtml(html: string, baseUrl = PKU_ORIGIN): A
   if (submittedHeading) {
     return {
       state: "submitted",
+      heading_raw: submittedHeading,
       title: normalize(submittedHeading.replace(SUBMITTED_HEADING, "")) || null,
       description: "",
       due_raw: null,
@@ -231,10 +233,11 @@ function appendFact(body: string, fact: string): string {
 /** Keep a whole listing as fallback, with the omitted detail explicitly unread. */
 function retainListingOnOverflow(source: CourseSourceRecord, detailUrl: string, references: SourceReference[], assignment: NonNullable<CourseSourceRecord["assignment"]>): CourseSourceRecord {
   const unread = references.map((ref) => ref.url === detailUrl
-    ? { ...ref, content_read: false, read_status: "failed" as const, reason: "too_large" } : ref);
+    ? { ...ref, text: undefined, content_read: false, read_status: "failed" as const, reason: "too_large" } : ref);
   if (!unread.some((ref) => ref.url === detailUrl)) unread.push({ ...makeSourceReference(source.title, detailUrl, "detail"), read_status: "failed", reason: "too_large" });
   return {
     ...source, references: unread, assignment,
+    ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, status: source.body_evidence.text ? "partial" as const : "missing" as const } } : {}),
     text_quality: source.body ? "partial" : source.title ? "summary" : "missing",
     warnings: warningsAfterRead(source, unread, ["assignment detail exceeds the v0.2 input limit; whole listing text retained for manual review"]),
   };
@@ -244,7 +247,7 @@ function retainListingOnOverflow(source: CourseSourceRecord, detailUrl: string, 
 export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: string, detail: AssignmentDetail): CourseSourceRecord {
   const descriptionMissing = detail.state === "active" && !detail.description && !detail.references?.length;
   const references = detail.state === "submitted"
-    ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, content_read: false, read_status: "partial" as const, reason: "submission_history_only" } : { ...reference })
+    ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, content_read: false, read_status: "partial" as const, reason: "submission_history_only", ...(detail.heading_raw ? { text: detail.heading_raw } : {}) } : { ...reference })
     : detail.state === "unknown" || descriptionMissing || detail.due_unread
       ? source.references.map((reference) => reference.url === detailUrl ? { ...reference, content_read: false, read_status: "failed" as const, reason: "detail_unrecognized" } : { ...reference })
       : markDetailReferenceRead(source, detailUrl);
@@ -256,6 +259,7 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
       ...source,
       references,
       text_quality: source.body ? "partial" : source.text_quality,
+      ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, status: source.body_evidence.text ? "partial" as const : "missing" as const } } : {}),
       assignment: { state: "unknown", due_raw: null },
       warnings: warningsAfterRead(source, references, ["assignment detail page structure was not recognized"]),
     };
@@ -270,6 +274,7 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
       title: detail.title ?? source.title,
       body,
       text_quality: "partial",
+      ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, status: source.body_evidence.text ? "partial" as const : "missing" as const } } : {}),
       references,
       assignment: { state: "submitted", due_raw: null },
       warnings: warningsAfterRead(source, references, ["submission history heading indicates submitted; private submission, file and grading content was not read"]),
@@ -287,6 +292,9 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
     ...source,
     title: detail.title ?? source.title,
     body,
+    ...(source.body_evidence ? { body_evidence: makeBodyEvidence(detail.title ?? source.title, body,
+      descriptionMissing || detail.due_unread ? "partial" : body ? "complete" : (detail.title ?? source.title) ? "summary" : "missing",
+      references.filter((ref) => ref.url === detailUrl && ref.content_read).map((ref) => ref.url)) } : {}),
     text_quality: unread || descriptionMissing || detail.due_unread ? (body ? "partial" : "summary") : body ? "complete" : "summary",
     references,
     assignment: { state: "active", due_raw: detail.due_raw },
@@ -311,6 +319,7 @@ export async function enrichAssignmentSources(page: AssignmentPage, sources: Cou
     } catch {
       enriched.push({
         ...source,
+        ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, status: source.body_evidence.text ? "partial" as const : "missing" as const } } : {}),
         references: source.references.map((item) => item.url === reference.url ? { ...item, read_status: "failed", reason: "detail_failed" } : { ...item } ),
         warnings: [...new Set([...source.warnings, "assignment detail could not be read; listing text was retained"])],
       });

@@ -29,6 +29,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业\n\n请在2026年12月31日18点前提交报告。",
+                "status": "complete",
+                "included_reference_urls": []
+              },
               "references": [],
               "warnings": [],
               "raw": {
@@ -40,7 +46,40 @@
           }
         ]
       },
-      "expected_text_quality": "complete"
+      "expected_text_quality": "complete",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:decorative-icon:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:69d716775db8bea8379a923b15785adab68f05eb0c578c48a41a5346793a0279",
+                  "platform": "teaching_web",
+                  "text": "合成作业\n\n请在2026年12月31日18点前提交报告。",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "supplementary-still-unread",
@@ -70,6 +109,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业\n\n请在2026年12月31日18点前提交报告。补充材料供参考。\nHW.txt",
+                "status": "complete",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "HW.txt",
@@ -92,7 +137,48 @@
           }
         ]
       },
-      "expected_text_quality": "partial"
+      "expected_text_quality": "partial",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:supplementary-still-unread:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:55678f0ff1c329c37d33e353e0516cbe134f79bc2b5a2f99ee2ad1f38745c5c7",
+                  "platform": "teaching_web",
+                  "text": "合成作业\n\n请在2026年12月31日18点前提交报告。补充材料供参考。\nHW.txt",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:d78b3ea4d0558dfa27a3e08c62ce61b176a10294a01dfe247cf509a62714a2cf",
+                      "kind": "attachment",
+                      "label": "HW.txt",
+                      "read_state": "unread",
+                      "text": null
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "due-in-unread-attachment",
@@ -122,6 +208,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业\n\n请提交报告，期限见附件。\nHW.txt",
+                "status": "complete",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "HW.txt",
@@ -144,7 +236,48 @@
           }
         ]
       },
-      "expected_text_quality": "partial"
+      "expected_text_quality": "partial",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:due-in-unread-attachment:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:51bee2c10fe7a0db8f6da40692adc5a2fc4eca8bf9dc1ba952fea57c816a0eaf",
+                  "platform": "teaching_web",
+                  "text": "合成作业\n\n请提交报告，期限见附件。\nHW.txt",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:d78b3ea4d0558dfa27a3e08c62ce61b176a10294a01dfe247cf509a62714a2cf",
+                      "kind": "attachment",
+                      "label": "HW.txt",
+                      "read_state": "unread",
+                      "text": null
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "title-only",
@@ -174,6 +307,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业",
+                "status": "summary",
+                "included_reference_urls": []
+              },
               "references": [],
               "warnings": [
                 "listing body is missing; only the title was collected"
@@ -187,7 +326,40 @@
           }
         ]
       },
-      "expected_text_quality": "summary"
+      "expected_text_quality": "summary",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:title-only:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:aee3202c91844056e2ec2c8598a924786cd19e53825ed5b696e8335a623876dd",
+                  "platform": "teaching_web",
+                  "text": "合成作业",
+                  "body_status": "summary",
+                  "source_metadata_text": "",
+                  "references": [],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "no-deadline",
@@ -217,6 +389,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业\n\n请提交报告。",
+                "status": "complete",
+                "included_reference_urls": []
+              },
               "references": [],
               "warnings": [],
               "raw": {
@@ -228,7 +406,40 @@
           }
         ]
       },
-      "expected_text_quality": "complete"
+      "expected_text_quality": "complete",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:no-deadline:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:3bffe93059eb8ae8304c5ae94e730209d0c6c4c9f43f1a00c0900afc7c7bd50f",
+                  "platform": "teaching_web",
+                  "text": "合成作业\n\n请提交报告。",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "embedded-image",
@@ -258,6 +469,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业\n\n按图中要求提交。",
+                "status": "complete",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "",
@@ -280,7 +497,48 @@
           }
         ]
       },
-      "expected_text_quality": "partial"
+      "expected_text_quality": "partial",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:embedded-image:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:d97036f1522eee336d32774a05437fb370cc8d149d2e9316159e778290c88421",
+                  "platform": "teaching_web",
+                  "text": "合成作业\n\n按图中要求提交。",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:bafde13da9bdcef4dd8488af9c65651f1cf80f6fcf4b9944ada9e7b4db6502dc",
+                      "kind": "content_image",
+                      "label": "image",
+                      "read_state": "unread",
+                      "text": null
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "text-attachment-read",
@@ -310,6 +568,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业\n\n请按附件要求提交。\nHW.txt",
+                "status": "complete",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "HW.txt",
@@ -331,7 +595,48 @@
           }
         ]
       },
-      "expected_text_quality": "complete"
+      "expected_text_quality": "complete",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:text-attachment-read:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:ad0aa7ce4942ac177565211a8d4b1c7963817183c30ef321477c36a20fb9fb3f",
+                  "platform": "teaching_web",
+                  "text": "合成作业\n\n请按附件要求提交。\nHW.txt",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:d78b3ea4d0558dfa27a3e08c62ce61b176a10294a01dfe247cf509a62714a2cf",
+                      "kind": "attachment",
+                      "label": "HW.txt",
+                      "read_state": "complete",
+                      "text": "请在2026年12月31日18点前提交报告。"
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "download-failed",
@@ -361,6 +666,12 @@
             "upstream_hints": {
               "source_kind": "content",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "合成作业\n\n请按附件要求提交。\nHW.txt",
+                "status": "complete",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "HW.txt",
@@ -383,7 +694,48 @@
           }
         ]
       },
-      "expected_text_quality": "partial"
+      "expected_text_quality": "partial",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:download-failed:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:efda9397db352110d8b21363da2d00c32f73f54b8fc4aa0f145a99390fdf1550",
+                  "source_item_id": "synthetic",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:b0e99f9894523904fe35500df377c08e97aa773d2754d0a02d70147996c48cc3",
+                  "platform": "teaching_web",
+                  "text": "合成作业\n\n请按附件要求提交。\nHW.txt",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:d78b3ea4d0558dfa27a3e08c62ce61b176a10294a01dfe247cf509a62714a2cf",
+                      "kind": "attachment",
+                      "label": "HW.txt",
+                      "read_state": "failed",
+                      "text": null
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "合成作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "assignment-active",
@@ -415,6 +767,14 @@
             "upstream_hints": {
               "source_kind": "assignment",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                "status": "complete",
+                "included_reference_urls": [
+                  "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=synthetic-course-one&content_id=synthetic-hw"
+                ]
+              },
               "references": [
                 {
                   "label": "Synthetic homework",
@@ -440,7 +800,40 @@
           }
         ]
       },
-      "expected_text_quality": "complete"
+      "expected_text_quality": "complete",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:110:assignment-active:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:bde4e9bdde066708a39ddda60248c922c1181a3dac8ea83c01a157c18daa100c",
+                  "source_item_id": "synthetic-hw",
+                  "course_id": "synthetic-course-one",
+                  "snapshot_id": "pku:snapshot:0442708d136673425e6bc5adfd161cd95e18630508ab6b7b18cb266fdd211a1d",
+                  "platform": "teaching_web",
+                  "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-one",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "assignment-submitted-zh",
@@ -472,6 +865,12 @@
             "upstream_hints": {
               "source_kind": "assignment",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                "status": "partial",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "Synthetic homework",
@@ -479,7 +878,8 @@
                   "kind": "detail",
                   "content_read": false,
                   "read_status": "partial",
-                  "reason": "submission_history_only"
+                  "reason": "submission_history_only",
+                  "text": "复查提交历史记录：Synthetic homework"
                 }
               ],
               "warnings": [
@@ -500,7 +900,48 @@
           }
         ]
       },
-      "expected_text_quality": "partial"
+      "expected_text_quality": "partial",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:110:assignment-submitted-zh:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:bde4e9bdde066708a39ddda60248c922c1181a3dac8ea83c01a157c18daa100c",
+                  "source_item_id": "synthetic-hw",
+                  "course_id": "synthetic-course-one",
+                  "snapshot_id": "pku:snapshot:b97ca000c6a1d2a4ce009114b5d203a772f63599435ba76262db39f44905f061",
+                  "platform": "teaching_web",
+                  "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                  "body_status": "partial",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:e7d44f4a317b1670d987128602dc8c442d1de40e60632ca2152e925411893a23",
+                      "kind": "linked_detail",
+                      "label": "Synthetic homework",
+                      "read_state": "partial",
+                      "text": "复查提交历史记录：Synthetic homework"
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-one",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "assignment-submitted-en-other-course",
@@ -532,6 +973,12 @@
             "upstream_hints": {
               "source_kind": "assignment",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                "status": "partial",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "Synthetic homework",
@@ -539,7 +986,8 @@
                   "kind": "detail",
                   "content_read": false,
                   "read_status": "partial",
-                  "reason": "submission_history_only"
+                  "reason": "submission_history_only",
+                  "text": "Review Submission History: Synthetic homework"
                 }
               ],
               "warnings": [
@@ -560,7 +1008,48 @@
           }
         ]
       },
-      "expected_text_quality": "partial"
+      "expected_text_quality": "partial",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:110:assignment-submitted-en-other-course:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:46a650bcc58abbbbea00ea137fadfd3808541696bb14a1cceb0c07d5f5362e56",
+                  "source_item_id": "synthetic-hw",
+                  "course_id": "synthetic-course-two",
+                  "snapshot_id": "pku:snapshot:330c26d1cc78a4a58a11546c20f80d29f84a853a2e106c9ab93640925b1da719",
+                  "platform": "teaching_web",
+                  "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                  "body_status": "partial",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:86d7b2924255c2fbdf1eb5e4593f0bd965fc15fed0f843493a3241e6069542ff",
+                      "kind": "linked_detail",
+                      "label": "Synthetic homework",
+                      "read_state": "partial",
+                      "text": "Review Submission History: Synthetic homework"
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-two",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     },
     {
       "id": "assignment-unknown",
@@ -592,6 +1081,12 @@
             "upstream_hints": {
               "source_kind": "assignment",
               "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                "status": "partial",
+                "included_reference_urls": []
+              },
               "references": [
                 {
                   "label": "Synthetic homework",
@@ -620,7 +1115,387 @@
           }
         ]
       },
-      "expected_text_quality": "partial"
+      "expected_text_quality": "partial",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:110:assignment-unknown:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:bde4e9bdde066708a39ddda60248c922c1181a3dac8ea83c01a157c18daa100c",
+                  "source_item_id": "synthetic-hw",
+                  "course_id": "synthetic-course-one",
+                  "snapshot_id": "pku:snapshot:5431ed140840da655c903f0af376c49f9dbad090a814c98d22f1b5f6f6a722ea",
+                  "platform": "teaching_web",
+                  "text": "Synthetic homework\n\nPrepare a report and bring a printed copy.",
+                  "body_status": "partial",
+                  "source_metadata_text": "",
+                  "references": [
+                    {
+                      "ref_id": "pku:ref:e7d44f4a317b1670d987128602dc8c442d1de40e60632ca2152e925411893a23",
+                      "kind": "linked_detail",
+                      "label": "Synthetic homework",
+                      "read_state": "failed",
+                      "text": null
+                    }
+                  ],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "Synthetic homework",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic-course-one",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
+    },
+    {
+      "id": "day-publication",
+      "html": "<ul id=\"announcementList\"><li id=\"day\"><h3>日精度通知</h3><div class=\"details\"><p>发布时间：2026-10-09</p><div class=\"vtbegenerated\">请在2026-10-23交报告。</div></div></li></ul>",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:107:day-publication",
+        "records": [
+          {
+            "input_id": "pku:source:134da8e9909ed64d72a9cfecc0403783a2e8e6b6552f4a842bf0604d05d19cff",
+            "text": "日精度通知\n\n请在2026-10-23交报告。",
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-10-09",
+              "precision": "date",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic#day",
+            "source_label": "日精度通知",
+            "source_item_id": "day",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "announcement",
+              "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "日精度通知\n\n请在2026-10-23交报告。",
+                "status": "complete",
+                "included_reference_urls": []
+              },
+              "references": [],
+              "warnings": [],
+              "raw": {
+                "title": "日精度通知",
+                "body": "请在2026-10-23交报告。",
+                "publication_time": "发布时间：2026-10-09"
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "complete",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:day-publication:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:134da8e9909ed64d72a9cfecc0403783a2e8e6b6552f4a842bf0604d05d19cff",
+                  "source_item_id": "day",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:c81d8b8e69202decae1b57ccd19c872c3169e9a5f65816e49cf34f02e77c9473",
+                  "platform": "teaching_web",
+                  "text": "日精度通知\n\n请在2026-10-23交报告。",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [],
+                  "published_at": {
+                    "value": "2026-10-09",
+                    "basis": "source"
+                  },
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "日精度通知",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
+    },
+    {
+      "id": "multiple-actions",
+      "html": "<ul id=\"content_listContainer\"><li><div class=\"item\" id=\"multi\"><h3>两项任务</h3></div><div class=\"details\">请在2026-10-23提交报告。另请在2026-10-25读完第2章。</div></li></ul>",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:107:multiple-actions",
+        "records": [
+          {
+            "input_id": "pku:source:9db8ea8dd86f358b7466e6b779d15920be68bfbf69462edccc5647d0bc08674a",
+            "text": "两项任务\n\n请在2026-10-23提交报告。另请在2026-10-25读完第2章。",
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+            "source_label": "两项任务",
+            "source_item_id": "multi",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "content",
+              "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "两项任务\n\n请在2026-10-23提交报告。另请在2026-10-25读完第2章。",
+                "status": "complete",
+                "included_reference_urls": []
+              },
+              "references": [],
+              "warnings": [],
+              "raw": {
+                "title": "两项任务",
+                "body": "请在2026-10-23提交报告。另请在2026-10-25读完第2章。",
+                "publication_time": null
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "complete",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:multiple-actions:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:9db8ea8dd86f358b7466e6b779d15920be68bfbf69462edccc5647d0bc08674a",
+                  "source_item_id": "multi",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:75a8f06cdcd8612e92ea0e71b29d7b933d27a7dc468c34fc084efc01794f6c2c",
+                  "platform": "teaching_web",
+                  "text": "两项任务\n\n请在2026-10-23提交报告。另请在2026-10-25读完第2章。",
+                  "body_status": "complete",
+                  "source_metadata_text": "",
+                  "references": [],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "两项任务",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
+    },
+    {
+      "id": "missing-year-course-label",
+      "html": "<ul id=\"content_listContainer\"><li><div class=\"item\" id=\"year\"><h3>省略年份作业</h3></div><div class=\"details\">请在10月23日交报告。</div></li></ul>",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:107:missing-year-course-label",
+        "records": [
+          {
+            "input_id": "pku:source:19cb50722e45c8e34a44fcb0620c6bdc1b9fbaa780850e3d78be05a576c67528",
+            "text": "省略年份作业\n\n请在10月23日交报告。",
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+            "source_label": "省略年份作业",
+            "source_item_id": "year",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "content",
+              "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "省略年份作业\n\n请在10月23日交报告。",
+                "status": "complete",
+                "included_reference_urls": []
+              },
+              "provenance": {
+                "version": "course-provenance-v1",
+                "course_id": "synthetic",
+                "course_entry_url": "https://course.pku.edu.cn/webapps/blackboard/execute/launcher?id=synthetic&url=x",
+                "source_metadata_text": "26-27学年第1学期：Synthetic course",
+                "term_label": "26-27学年第1学期",
+                "term_basis": "course_entry",
+                "applies_to": "unknown"
+              },
+              "snapshot_id": "pku:snapshot:ab99d4dc24e15021d92d2d4695f08e05d92f4a4fc48a757b67075a3fbc02d012",
+              "references": [],
+              "warnings": [],
+              "raw": {
+                "title": "省略年份作业",
+                "body": "请在10月23日交报告。",
+                "publication_time": null
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "complete",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:missing-year-course-label:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:19cb50722e45c8e34a44fcb0620c6bdc1b9fbaa780850e3d78be05a576c67528",
+                  "source_item_id": "year",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:ab99d4dc24e15021d92d2d4695f08e05d92f4a4fc48a757b67075a3fbc02d012",
+                  "platform": "teaching_web",
+                  "text": "省略年份作业\n\n请在10月23日交报告。",
+                  "body_status": "complete",
+                  "source_metadata_text": "26-27学年第1学期：Synthetic course",
+                  "references": [],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": "省略年份作业",
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      },
+      "course_entry": {
+        "text": "26-27学年第1学期：Synthetic course",
+        "url": "https://course.pku.edu.cn/webapps/blackboard/execute/launcher?id=synthetic&url=x"
+      }
+    },
+    {
+      "id": "empty-body",
+      "html": "<ul id=\"content_listContainer\"><li><div class=\"item\" id=\"empty\"><h3></h3></div><div class=\"details\"></div></li></ul>",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "synthetic:107:empty-body",
+        "records": [
+          {
+            "input_id": "pku:source:4410e75ecafe28f950728156597e86b052428c70178b4ffdcb8688a301a322a7",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-07T12:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "caller_default",
+            "source_url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+            "source_label": null,
+            "source_item_id": "empty",
+            "course_or_project": "Synthetic course",
+            "context": [],
+            "upstream_hints": {
+              "source_kind": "content",
+              "section": "作业",
+              "body_evidence": {
+                "version": "teaching-body-v1",
+                "text": "",
+                "status": "missing",
+                "included_reference_urls": []
+              },
+              "references": [],
+              "warnings": [
+                "listing body is missing; only the title was collected"
+              ],
+              "raw": {
+                "title": "",
+                "body": "",
+                "publication_time": null
+              }
+            }
+          }
+        ]
+      },
+      "expected_text_quality": "missing",
+      "teaching_export": {
+        "requests": [
+          {
+            "contract_version": "0.4",
+            "request_id": "synthetic:107:empty-body:1",
+            "records": [
+              {
+                "record": {
+                  "input_id": "pku:source:4410e75ecafe28f950728156597e86b052428c70178b4ffdcb8688a301a322a7",
+                  "source_item_id": "empty",
+                  "course_id": "synthetic",
+                  "snapshot_id": "pku:snapshot:a9ccc7aa7b878004249ead8d987f5f2b65d3c78d461da677885e1b4c6cd300fd",
+                  "platform": "teaching_web",
+                  "text": "",
+                  "body_status": "missing",
+                  "source_metadata_text": "",
+                  "references": [],
+                  "published_at": null,
+                  "collected_at": "2026-10-07T12:00:00+08:00",
+                  "timezone": "Asia/Shanghai",
+                  "course_term": null
+                },
+                "source": {
+                  "label": null,
+                  "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=synthetic",
+                  "course_or_project": "Synthetic course"
+                }
+              }
+            ]
+          }
+        ],
+        "skipped": []
+      }
     }
   ]
 }

@@ -42,6 +42,16 @@ export interface CourseSourceRecord {
   assignment?: { state: "active" | "submitted" | "unknown"; due_raw: string | null };
   warnings: string[];
   provenance?: CourseProvenance;
+  body_evidence?: BodyEvidence;
+}
+export interface BodyEvidence {
+  version: "teaching-body-v1";
+  text: string;
+  status: CourseSourceRecord["text_quality"];
+  included_reference_urls: string[];
+}
+export function makeBodyEvidence(title: string, body: string, status: BodyEvidence["status"], included: string[] = []): BodyEvidence {
+  return { version: "teaching-body-v1", text: [title, body].filter(Boolean).join("\n\n"), status, included_reference_urls: included };
 }
 export interface CourseProvenance {
   version: "course-provenance-v1";
@@ -141,6 +151,7 @@ export function extractCourseSourcesFromHtml(html: string, context: SourceContex
       input_id: `pku:source:${sha256(JSON.stringify(identity))}`,
       source_item_id: id ?? null, source_url: url.href, course: context.course, section: context.section,
       kind, title, body, text_quality: textQuality,
+      body_evidence: makeBodyEvidence(title, body, !body ? (title ? "summary" : "missing") : kind === "assignment" ? "partial" : "complete"),
       ...(context.courseEntry ? { provenance: collectCourseProvenance(context) } : {}),
       published_at: parseSourcePublication(publicationRaw), publication_raw: publicationRaw,
       collected_at: context.collectedAt, references,

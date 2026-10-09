@@ -26,6 +26,7 @@ export interface RecognitionRecord {
     references: CourseSourceRecord["references"];
     warnings: string[];
     provenance?: CourseSourceRecord["provenance"];
+    body_evidence?: CourseSourceRecord["body_evidence"];
     snapshot_id?: string;
     assignment?: CourseSourceRecord["assignment"];
     raw: { title: string; body: string; publication_time: string | null; assignment_due_date?: string | null };
@@ -54,6 +55,7 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
       course_or_project: source.course || null, context: [],
       upstream_hints: {
         source_kind: source.kind, section: source.section,
+        ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, included_reference_urls: [...source.body_evidence.included_reference_urls] } } : {}),
         ...(source.provenance ? { provenance: { ...source.provenance }, snapshot_id: sourceSnapshotId(source) } : {}),
         references: source.references.map((reference) => ({ ...reference })), warnings: [...source.warnings],
         ...(source.assignment ? { assignment: { ...source.assignment } } : {}),

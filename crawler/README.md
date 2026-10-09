@@ -23,6 +23,7 @@ crawler/
 │   ├── pku-homework.ts               登录并采集课程内容
 │   ├── pku-attachments.ts            限定同源教师附件下载，在独立进程提取 PDF / UTF-8 文本
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
+│   ├── pku-teaching.ts               导出 #124 正式 v0.4 请求，隔离无法表达的记录
 │   ├── pku-recognition.ts            转换课程记录为识别请求
 │   ├── pku-source.ts                 解析课程页面和来源记录
 │   ├── adapters/                     各公开来源的发现与解析规则
@@ -57,6 +58,8 @@ crawler/
 │   ├── pku-assignment.test.ts         测试作业详情页的安全只读解析
 │   ├── pku-navigation.test.ts         测试课程页面导航
 │   ├── pku-recognition.test.ts        测试识别请求转换
+│   ├── pku-provenance.test.ts         测试课程入口证据和快照版本
+│   ├── pku-teaching.test.ts           测试独立正文、引用与 v0.4 契约交接
 │   ├── pku-source.test.ts             测试课程来源记录
 │   ├── review-report.test.ts          测试审阅网页生成
 │   ├── time-filter.test.ts            测试未来事件筛选
@@ -133,4 +136,10 @@ A course label does not establish semester boundaries or prove that a particular
 
 `upstream_hints.snapshot_id` versions the final source record, including body, references, read failures, publication, collection time and course metadata. The hash is a content identifier, not proof of account ownership and not #124's `verified_snapshot_digests`. Server must retain/retrieve the full controlled snapshot under the current application/teaching account, then build and validate the v0.4 entry and calculate its separate digest. No credentials or account identifiers are exported by this addition. Older synthetic/imported records without provenance retain their existing request shape.
 
-This is a collector-fact extension, not a v0.4 request converter. In particular, the existing v0.2 body can include extracted attachment text; consumers must not treat that concatenation as body-only evidence in v0.4. The v0.4 adapter must separate original body and reference evidence, keep unknown course terms null, and validate against #124's request schema. Account trust, automatic admission and UI integration remain downstream responsibilities.
+New sources additionally export `teaching-body-v1` body evidence. Native teacher details successfully merged into that body are identified by `included_reference_urls`; they are represented once in v0.4. Attachment text stays in its own reference, and unread/failed native details keep the body incomplete. The legacy v0.2 `text` remains compatible and can still include attachment text.
+
+### Teaching v0.4 export
+
+Run `pnpm pku:homework -- --format=teaching-v04 --all-sections` to collect and export #124's v0.4 JSONL requests without calling a model or saving results. Each request contains at most 20 records and 2,000,000 UTF-8 bytes; each record's combined body/metadata/reference evidence stays within 100,000 characters. Records lacking stable course/item IDs, separate body evidence, or valid read facts are reported as `teaching_export_skipped` on stderr; other records continue and exit code 2 signals an incomplete export. Raw collection remains available with `--format=raw`.
+
+The producer uses `contracts/schemas/teaching-request-v0.4.schema.json`, copied unchanged from #124 head `6312dca`; shared source cases replay both v0.2 and v0.4 output and Python semantic validation. It emits `course_term=null` until platform evidence provides actual semester dates and assignment applicability, and never emits a trust flag. The consumer must verify its account-bound full entry and compute the v0.4 entry digest separately. Old snapshots without separated body evidence are not upgraded by stripping attachment text or relabeling completeness.

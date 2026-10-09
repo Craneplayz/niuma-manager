@@ -7,6 +7,15 @@
   "additionalProperties": false,
   "dependentRequired": {"provenance": ["snapshot_id"], "snapshot_id": ["provenance"]},
   "properties": {
+    "body_evidence": {
+      "type": "object", "required": ["version", "text", "status", "included_reference_urls"], "additionalProperties": false,
+      "properties": {
+        "version": {"const": "teaching-body-v1"},
+        "included_reference_urls": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "text": {"type": "string", "maxLength": 100000},
+        "status": {"enum": ["complete", "partial", "summary", "missing"]}
+      }
+    },
     "provenance": {
       "type": "object",
       "required": [
