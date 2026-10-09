@@ -11,6 +11,9 @@ contracts/
 ├── examples/teaching-v04-cases.json   # 7 组教学网公开批次边界与多任务样例
 ├── tests/test_teaching_io.py          # 教学网批次、信任与非法状态反例
 ├── docs/teaching-v0.4.md              # 教学网显式接入、消费复核及重识别规则
+├── docs/teaching-workspace-v0.1.md    # 教学网快照运行与现有卡片视图的接入规则
+├── schemas/teaching-workspace-v0.1.schema.json # 运行句柄及只读视图的独立根 Schema
+├── examples/teaching-workspace-v01.json # 无任务、无期限、单条多任务等七组卡片样例
 ├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
 ├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
 ├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
@@ -74,10 +77,9 @@ contracts/
 
 ## 交接方式
 
-<<<<<<< HEAD
 - #112 [定向重识别业务契约](docs/reprocessing-v0.1.md) 提供选择旧记录、运行/停止、持久进度和用户决定关联的共享校验；供 server/UI 显式实现，不表示路由已开放，也不改变 v0.2 模型信封。
-=======
-- 教学网采集的 v0.2 开放 hints 扩展见 [来源快照约定](docs/teaching-source-snapshot-v0.2.md)，仅记录读取事实，不改变审核、学期授信或 v0.3.1 文件强制审核规则。
+- 教学网采集的 v0.2 开放 hints 扩展见 [来源快照约定](docs/teaching-source-snapshot-v0.2.md)，仅记录读取事实，不改变审核、学期授信或 v0.3.1 文件强制审核规则。
+
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。

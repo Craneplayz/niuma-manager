@@ -88,7 +88,12 @@ def batches(db,uid):
     result=[]
     for row in db.execute('SELECT * FROM recognition_batches WHERE user_id=? ORDER BY rowid DESC',(uid,)):
         items=[dict(id=c['id'],candidate=json.loads(c['candidate']),state=c['state'],version=c['version']) for c in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,row['request_id']))]
-        result.append(dict(request=json.loads(row['request']),result=json.loads(row['result']),demo=bool(row['demo']),items=items))
+        request, output = json.loads(row['request']), json.loads(row['result'])
+        if request.get('contract_version')=='0.4':
+            import teaching
+            output = teaching.result_view(request,output)
+            request = teaching.request_view(request)
+        result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items))
     return result
 
 def due(value):
@@ -103,6 +108,9 @@ def due(value):
     return dict(date=value['date'],precision='date')
 
 def can_auto_apply(candidate, request, demo=False):
+    if request.get('contract_version')=='0.4':
+        import teaching
+        request=teaching.request_view(request)
     source=next((r for r in request['records'] if r['input_id']==candidate['input_id']),None)
     d=candidate['deadline']
     valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
@@ -122,6 +130,10 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
     if path=='/api/recognition/batches' and handler.command=='GET':
+        handler.reply(200,batches(db,uid));return True
+    if path in ['/api/recognition/batches','/api/recognition/retry'] and handler.command=='POST' and body.get('contract_version')=='teaching-run/0.1':
+        import teaching
+        teaching.run(db,uid,body,path.endswith('/retry'),ApiError)
         handler.reply(200,batches(db,uid));return True
     if path in ['/api/recognition/batches','/api/recognition/retry','/api/recognition/demo'] and handler.command=='POST':
         demo=path.endswith('/demo')
@@ -208,6 +220,9 @@ def route(handler,db,uid,path,body,ApiError):
         if auto:
             d=c['deadline']
             batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+            if json.loads(batch['request']).get('contract_version')=='0.4':
+                import teaching
+                teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
             if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
                 raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':

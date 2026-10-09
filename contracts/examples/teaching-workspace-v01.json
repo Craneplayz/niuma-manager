@@ -1,0 +1,745 @@
+{
+  "description": "合成契约样例；由共享 v0.4 七组边界案例映射，不是真实模型记录。",
+  "cases": [
+    {
+      "name": "date-only",
+      "run": {
+        "contract_version": "teaching-run/0.1",
+        "request_id": "synthetic:date-only"
+      },
+      "request": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:date-only",
+        "records": [
+          {
+            "input_id": "synthetic:homework-2",
+            "platform": "teaching_web",
+            "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。",
+            "text_quality": "complete",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-06T11:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程通知",
+            "source_item_id": "synthetic-assignment-2",
+            "course_or_project": "测试课程",
+            "context": [],
+            "upstream_hints": {
+              "references": [],
+              "course_term": null
+            }
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:date-only",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "status": "success",
+            "task_ids": [
+              "teaching-draft:1e72fd0ee755e016bea3e7c7"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+            "input_id": "synthetic:homework-2",
+            "title": "完成第二次作业",
+            "description": "按通知完成练习。",
+            "course_or_project": "测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "prerequisites": [],
+            "deadline": {
+              "kind": "deadline",
+              "status": "explicit",
+              "value": "2026-10-23",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "alternatives": [],
+              "raw": "2026年10月23日截止",
+              "basis": "教学网正文及课程上下文"
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "evidence": [
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "第二次作业：完成练习1至3",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "2026年10月23日截止",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:homework-2",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成课程通知",
+                "source_item_id": "synthetic-assignment-2"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "supplement",
+      "run": {
+        "contract_version": "teaching-run/0.1",
+        "request_id": "synthetic:supplement"
+      },
+      "request": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:supplement",
+        "records": [
+          {
+            "input_id": "synthetic:homework-2",
+            "platform": "teaching_web",
+            "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。",
+            "text_quality": "complete",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-06T11:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程通知",
+            "source_item_id": "synthetic-assignment-2",
+            "course_or_project": "测试课程",
+            "context": [],
+            "upstream_hints": {
+              "references": [
+                {
+                  "ref_id": "extra",
+                  "kind": "attachment",
+                  "label": "补充练习.pdf",
+                  "read_state": "unread",
+                  "text": null
+                }
+              ],
+              "course_term": null
+            }
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:supplement",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "status": "success",
+            "task_ids": [
+              "teaching-draft:1e72fd0ee755e016bea3e7c7"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+            "input_id": "synthetic:homework-2",
+            "title": "完成第二次作业",
+            "description": "按通知完成练习。",
+            "course_or_project": "测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "prerequisites": [],
+            "deadline": {
+              "kind": "deadline",
+              "status": "explicit",
+              "value": "2026-10-23",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "alternatives": [],
+              "raw": "2026年10月23日截止",
+              "basis": "教学网正文及课程上下文"
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "evidence": [
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "第二次作业：完成练习1至3",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "2026年10月23日截止",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:homework-2",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成课程通知",
+                "source_item_id": "synthetic-assignment-2"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "term-year",
+      "run": {
+        "contract_version": "teaching-run/0.1",
+        "request_id": "synthetic:term-year"
+      },
+      "request": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:term-year",
+        "records": [
+          {
+            "input_id": "synthetic:homework-2",
+            "platform": "teaching_web",
+            "text": "第二次作业：完成练习1至3，10月23日截止。",
+            "text_quality": "complete",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-06T11:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程通知",
+            "source_item_id": "synthetic-assignment-2",
+            "course_or_project": "测试课程",
+            "context": [],
+            "upstream_hints": {
+              "references": [],
+              "course_term": {
+                "term_id": "2026-fall",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-01-31",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:term-year",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "status": "success",
+            "task_ids": [
+              "teaching-draft:1e72fd0ee755e016bea3e7c7"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+            "input_id": "synthetic:homework-2",
+            "title": "完成第二次作业",
+            "description": "按通知完成练习。",
+            "course_or_project": "测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "prerequisites": [],
+            "deadline": {
+              "kind": "deadline",
+              "status": "explicit",
+              "value": "2026-10-23",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "alternatives": [],
+              "raw": "10月23日截止",
+              "basis": "教学网正文及课程上下文"
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "evidence": [
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "第二次作业：完成练习1至3",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "10月23日截止",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:homework-2",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成课程通知",
+                "source_item_id": "synthetic-assignment-2"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "unknown-year",
+      "run": {
+        "contract_version": "teaching-run/0.1",
+        "request_id": "synthetic:unknown-year"
+      },
+      "request": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:unknown-year",
+        "records": [
+          {
+            "input_id": "synthetic:homework-2",
+            "platform": "teaching_web",
+            "text": "第二次作业：完成练习1至3，10月23日截止。",
+            "text_quality": "complete",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-06T11:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程通知",
+            "source_item_id": "synthetic-assignment-2",
+            "course_or_project": "测试课程",
+            "context": [],
+            "upstream_hints": {
+              "references": [],
+              "course_term": null
+            }
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:unknown-year",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "status": "success",
+            "task_ids": [
+              "teaching-draft:1e72fd0ee755e016bea3e7c7"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+            "input_id": "synthetic:homework-2",
+            "title": "完成第二次作业",
+            "description": "按通知完成练习。",
+            "course_or_project": "测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "prerequisites": [],
+            "deadline": {
+              "kind": "deadline",
+              "status": "unknown",
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "alternatives": [],
+              "raw": "10月23日截止",
+              "basis": "请查看原文中的截止要求。"
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "缺少可信发布时间或适用学期，通知新旧待核实。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "第二次作业：完成练习1至3",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "10月23日截止",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:homework-2",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成课程通知",
+                "source_item_id": "synthetic-assignment-2"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "no-deadline",
+      "run": {
+        "contract_version": "teaching-run/0.1",
+        "request_id": "synthetic:no-deadline"
+      },
+      "request": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:no-deadline",
+        "records": [
+          {
+            "input_id": "synthetic:homework-2",
+            "platform": "teaching_web",
+            "text": "请完成课程练习。",
+            "text_quality": "complete",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-06T11:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程通知",
+            "source_item_id": "synthetic-assignment-2",
+            "course_or_project": "测试课程",
+            "context": [],
+            "upstream_hints": {
+              "references": [],
+              "course_term": null
+            }
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:no-deadline",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "status": "success",
+            "task_ids": [
+              "teaching-draft:1e72fd0ee755e016bea3e7c7"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+            "input_id": "synthetic:homework-2",
+            "title": "完成第二次作业",
+            "description": "按通知完成练习。",
+            "course_or_project": "测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "prerequisites": [],
+            "deadline": {
+              "kind": "deadline",
+              "status": "not_provided",
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "alternatives": [],
+              "raw": null,
+              "basis": "请查看原文中的截止要求。"
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "evidence": [
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "请完成课程练习。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:homework-2",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成课程通知",
+                "source_item_id": "synthetic-assignment-2"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    },
+    {
+      "name": "no-action",
+      "run": {
+        "contract_version": "teaching-run/0.1",
+        "request_id": "synthetic:no-action"
+      },
+      "request": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:no-action",
+        "records": [
+          {
+            "input_id": "synthetic:homework-2",
+            "platform": "teaching_web",
+            "text": "本页介绍课程背景，无须提交或完成任何内容。",
+            "text_quality": "complete",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-06T11:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程通知",
+            "source_item_id": "synthetic-assignment-2",
+            "course_or_project": null,
+            "context": [],
+            "upstream_hints": {
+              "references": [],
+              "course_term": null
+            }
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:no-action",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": [
+              "no_action:未发现行动要求"
+            ]
+          }
+        ],
+        "tasks": [],
+        "errors": []
+      }
+    },
+    {
+      "name": "two-tasks",
+      "run": {
+        "contract_version": "teaching-run/0.1",
+        "request_id": "synthetic:two-tasks"
+      },
+      "request": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:two-tasks",
+        "records": [
+          {
+            "input_id": "synthetic:homework-2",
+            "platform": "teaching_web",
+            "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。另请完成本次课程复习，不设截止日期。",
+            "text_quality": "complete",
+            "published_at": {
+              "value": null,
+              "precision": "unknown",
+              "basis": "unknown"
+            },
+            "collected_at": "2026-10-06T11:00:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程通知",
+            "source_item_id": "synthetic-assignment-2",
+            "course_or_project": "测试课程",
+            "context": [],
+            "upstream_hints": {
+              "references": [],
+              "course_term": null
+            }
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "teaching-workspace/0.1",
+        "request_id": "synthetic:two-tasks",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "status": "success",
+            "task_ids": [
+              "teaching-draft:1e72fd0ee755e016bea3e7c7",
+              "teaching-draft:11b64aa033ed286346401cf3"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+            "input_id": "synthetic:homework-2",
+            "title": "完成第二次作业",
+            "description": "按通知完成练习。",
+            "course_or_project": "测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "prerequisites": [],
+            "deadline": {
+              "kind": "deadline",
+              "status": "explicit",
+              "value": "2026-10-23",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "alternatives": [],
+              "raw": "2026年10月23日截止",
+              "basis": "教学网正文及课程上下文"
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "evidence": [
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "第二次作业：完成练习1至3",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "2026年10月23日截止",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:homework-2",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成课程通知",
+                "source_item_id": "synthetic-assignment-2"
+              }
+            ]
+          },
+          {
+            "candidate_id": "teaching-draft:11b64aa033ed286346401cf3",
+            "input_id": "synthetic:homework-2",
+            "title": "复习同次课程",
+            "description": "完成本次课程复习。",
+            "course_or_project": "测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "prerequisites": [],
+            "deadline": {
+              "kind": "deadline",
+              "status": "not_provided",
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "alternatives": [],
+              "raw": null,
+              "basis": "请查看原文中的截止要求。"
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "evidence": [
+              {
+                "input_id": "synthetic:homework-2",
+                "field": "body",
+                "quote": "另请完成本次课程复习，不设截止日期。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:homework-2",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成课程通知",
+                "source_item_id": "synthetic-assignment-2"
+              }
+            ]
+          }
+        ],
+        "errors": []
+      }
+    }
+  ]
+}

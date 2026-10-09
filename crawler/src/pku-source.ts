@@ -34,6 +34,9 @@ export interface CourseSourceRecord {
   kind: "announcement" | "assignment" | "content";
   title: string;
   body: string;
+  /** Original teacher body, kept separate before attachment text is appended for legacy output. */
+  teacher_body?: string;
+  course_term_label?: string;
   text_quality: "complete" | "partial" | "summary" | "missing";
   published_at: PublicationTime;
   publication_raw: string | null;

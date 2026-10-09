@@ -23,6 +23,15 @@ async function run(args: string[]) {
 }
 
 describe("campus source export CLI", () => {
+  it("explicit teaching format selects the integration collection scope", async () => {
+    scrape.mockResolvedValue({source_records:sources,records:[],upcoming:[]});
+    const {log,error}=await run(['--format=teaching','--request-id=teaching-cli']);
+    const result=JSON.parse(log.mock.calls[0][0]);
+    expect(result.contract_version).toBe('0.4');
+    expect(result.records[0].record.text).toContain('请提前阅读');
+    expect(scrape).toHaveBeenCalledWith({term:undefined,allSections:false,teachingSections:true});
+    expect(error).not.toHaveBeenCalled();
+  });
   it("exports all source records, even when the homework views are empty", async () => {
     scrape.mockResolvedValue({ source_records: sources, records: [], upcoming: [] });
     const { log, error } = await run(["--", "--format=recognition", "--request-id=test:cli", "--term=26-27学年第1学期"]);

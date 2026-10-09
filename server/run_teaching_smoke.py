@@ -1,0 +1,65 @@
+"""Opt-in real API smoke with synthetic HTML, isolated DB and real application routes."""
+import argparse
+import json
+import subprocess
+import tempfile
+import threading
+import time
+from pathlib import Path
+from http.cookiejar import CookieJar
+from types import SimpleNamespace
+from unittest.mock import patch
+from urllib.request import Request, build_opener, HTTPCookieProcessor
+from urllib.error import HTTPError
+
+import app
+import teaching
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--output',type=Path,required=True);args=parser.parse_args()
+    root=Path(__file__).resolve().parents[1]
+    export=subprocess.run(['node','--import','tsx','tests/export-teaching-smoke.ts'],cwd=root/'crawler',capture_output=True,text=True,encoding='utf-8',check=True)
+    requests=json.loads(export.stdout)
+    for request in requests:teaching.check_request(request)
+    with tempfile.TemporaryDirectory(prefix='niuma-teaching-smoke-') as folder:
+        app.DB=Path(folder)/'test.sqlite3';app.initialize()
+        server=app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
+        worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+        client=build_opener(HTTPCookieProcessor(CookieJar()))
+        def call(path,body=None):
+            req=Request(f'http://127.0.0.1:{server.server_port}/api'+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'})
+            try:
+                with client.open(req,timeout=120) as response:return json.load(response)
+            except HTTPError as response:
+                raise RuntimeError(f'{path}: {response.code}: {response.read().decode()}') from None
+        try:
+            call('/auth/register',dict(name='合成验收',email='smoke@example.test',password='Synthetic-Smoke-2026!'))
+            call('/sources/credentials',dict(username='synthetic-source',password='synthetic-only'))
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='\n'.join(json.dumps(r) for r in requests))):
+                pending=call('/sources/sync',dict(sources=['teaching_web']))
+            report=dict(synthetic=True,crawler='synthetic HTML through production parsers; campus network not exercised',cases=[])
+            expected=['task','task','task','task','candidate']
+            for index,view in enumerate(pending['requests']):
+                start=time.monotonic()
+                batches=call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
+                batch=next(b for b in batches if b['request']['request_id']==view['request_id'])
+                for item in batch['items']:
+                    if not item['candidate']['needs_review']:
+                        call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=item['version']))
+                with app.connection() as db:
+                    row=db.execute('SELECT request,result FROM recognition_batches WHERE request_id=?',(view['request_id'],)).fetchone()
+                native=json.loads(row['result']);decisions=[d for r in native['record_results'] for d in r['decisions']]
+                actual=[d['recommendation'] for d in decisions]
+                case=dict(input=json.loads(row['request']),output=native,cards=batch['items'],elapsed_seconds=round(time.monotonic()-start,2),expected=expected[index],passed=actual==[expected[index]])
+                report['cases'].append(case)
+                args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+                print(json.dumps(dict(index=index+1,seconds=case['elapsed_seconds'],status=native['status'],actual=actual,passed=case['passed']),ensure_ascii=False),flush=True)
+            report['workspace']=call('/workspace');report['passed']=all(c['passed'] for c in report['cases'])
+            args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+            return 0 if report['passed'] else 1
+        finally:
+            server.shutdown();server.server_close();worker.join()
+
+
+if __name__=='__main__':raise SystemExit(main())

@@ -227,7 +227,8 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
   const existing=external?await api('/api/recognition/batches',undefined,'GET',{signal:controller.signal,timeoutMs:100000}):batches;
   if(!current())return;
   const previousIds=new Set(existing.find(batch=>batch.request.request_id===body.request_id)?.items.map(item=>item.id)||[]);
-  const next=await api(retry?'/api/recognition/retry':'/api/recognition/batches',body,'POST',{signal:controller.signal,timeoutMs:100000});
+  const payload=body.contract_version==='teaching-workspace/0.1'?{contract_version:'teaching-run/0.1',request_id:body.request_id}:body;
+  const next=await api(retry?'/api/recognition/retry':'/api/recognition/batches',payload,'POST',{signal:controller.signal,timeoutMs:100000});
   if(!current())return;
   batches=next;loaded=true;
   const batch=next.find(batch=>batch.request.request_id===body.request_id),result=batch?.result;

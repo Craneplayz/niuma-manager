@@ -6,6 +6,7 @@ crawler/
 ├── .gitignore                        忽略爬取数据、日志和本地凭据
 ├── package.json                      定义命令、依赖和 Node.js 版本
 ├── pnpm-lock.yaml                    锁定 JavaScript 依赖版本
+├── pnpm-workspace.yaml               允许 esbuild 执行必需的依赖安装脚本
 ├── tsconfig.json                     配置 TypeScript 编译
 ├── eslint.config.js                  配置 ESLint 检查
 ├── vitest.config.ts                  配置 Vitest 测试
@@ -24,6 +25,7 @@ crawler/
 │   ├── pku-attachments.ts            限定同源教师附件下载，在独立进程提取 PDF / UTF-8 文本
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
 │   ├── pku-recognition.ts            转换课程记录为识别请求
+│   ├── pku-teaching.ts               转换正文、引用、课程及学期为原生 v0.4 快照
 │   ├── pku-source.ts                 解析课程页面和来源记录
 │   ├── adapters/                     各公开来源的发现与解析规则
 │   │   ├── bio.ts                    解析生命科学学院页面
@@ -57,6 +59,8 @@ crawler/
 │   ├── pku-assignment.test.ts         测试作业详情页的安全只读解析
 │   ├── pku-navigation.test.ts         测试课程页面导航
 │   ├── pku-recognition.test.ts        测试识别请求转换
+│   ├── pku-teaching.test.ts           测试 v0.4 正文完整性、学期与识别顺序
+│   ├── export-teaching-smoke.ts       输出真实 API 验收使用的合成网页转换结果
 │   ├── pku-source.test.ts             测试课程来源记录
 │   ├── review-report.test.ts          测试审阅网页生成
 │   ├── time-filter.test.ts            测试未来事件筛选
@@ -77,6 +81,9 @@ crawler/
         ├── crawler-homework-live-2026-09-25.md  2026-09-25 课程采集验证记录
         └── crawler-source-live-2026-09-26.md    2026-09-26 来源采集验证记录
 ```
+
+教学网整合入口为 `pnpm pku:homework -- --format=teaching`，输出每条独立的 v0.4 JSONL，默认按课程作业、课程通知、教学内容排序；`--format=recognition` 保留旧 v0.2。
+Windows 可设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向已安装的 Edge/Chrome；跨语言测试将 `PYTHON` 指向仓库 `.venv/Scripts/python.exe`。
 
 ## 安装与检查
 

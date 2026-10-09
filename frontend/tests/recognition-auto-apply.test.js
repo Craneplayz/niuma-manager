@@ -10,6 +10,32 @@ const recognition=await import('../src/team-recognition-ui.js');
 const {calendarPage}=await import('../src/team-calendar-ui.js');
 const {dayKey}=await import('../src/data.js');
 
+test('teaching snapshot view runs by opaque ID and auto-applies the returned card',async()=>{
+ recognition.resetAssistant();session.user={id:'teaching-native'};location.hash='#agent';
+ const fixtures=JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json',import.meta.url)));
+ const sample=fixtures.cases.find(c=>c.name==='date-only');
+ const batch={request:sample.request,result:{status:'failed',record_results:[],errors:[]},demo:false,items:[]};
+ let ran=false,resolved=false;
+ recognition.configureAssistant({render(){},refresh:async()=>{},getState:()=>({tasks:[]})});
+ globalThis.fetch=async(path,options)=>{
+  if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
+  if(path==='/api/recognition/retry'){
+   assert.deepEqual(JSON.parse(options.body),sample.run);ran=true;
+   batch.result=sample.result;batch.items=sample.result.tasks.map(candidate=>({id:'teaching-card',candidate,state:'pending',version:1}));
+   return {ok:true,json:async()=>[batch]};
+  }
+  if(path.endsWith('/resolve')){
+   assert.equal(JSON.parse(options.body).auto_apply,true);resolved=true;batch.items[0].state='applied';
+   return {ok:true,json:async()=>({batches:[batch]})};
+  }
+  throw new Error('unexpected route '+path);
+ };
+ recognition.assistantPage();await new Promise(resolve=>setTimeout(resolve,0));
+ await recognition.handleAssistantClick({dataset:{agentRetry:sample.request.request_id}});
+ assert.equal(ran,true);assert.equal(resolved,true);
+ assert.equal(batch.items[0].candidate.course_or_project,sample.request.records[0].course_or_project);
+});
+
 test('attachment retry opens its persisted job instead of the v0.2 text endpoint',async()=>{
  recognition.resetAssistant();session.user={id:'media-retry'};location.hash='#agent';
  const batch={request:{contract_version:'0.3.1',request_id:'media-retry',records:[]},result:{status:'partial_success',record_results:[],errors:[]},demo:false,items:[]};
