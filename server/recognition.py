@@ -81,14 +81,17 @@ def initialize(db):
     db.executescript('''
     CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
+    CREATE TABLE IF NOT EXISTS recognition_import_records(user_id TEXT NOT NULL,request_id TEXT NOT NULL,import_id TEXT NOT NULL,created_at TEXT NOT NULL,source TEXT NOT NULL,archived INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
 
 def batches(db,uid):
     result=[]
     for row in db.execute('SELECT * FROM recognition_batches WHERE user_id=? ORDER BY rowid DESC',(uid,)):
+        metadata=db.execute('SELECT * FROM recognition_import_records WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+        if metadata and metadata['archived']: continue
         items=[dict(id=c['id'],candidate=json.loads(c['candidate']),state=c['state'],version=c['version']) for c in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,row['request_id']))]
-        result.append(dict(request=json.loads(row['request']),result=json.loads(row['result']),demo=bool(row['demo']),items=items))
+        result.append(dict(request=json.loads(row['request']),result=json.loads(row['result']),demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None))
     return result
 
 def due(value):
@@ -121,6 +124,27 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
 
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
+    if path=='/api/recognition/imports' and handler.command=='POST':
+        ids=body.get('request_ids')
+        if not isinstance(ids,list) or not 1<=len(ids)<=1000 or any(not isinstance(r,str) or not 1<=len(r)<=500 for r in ids): raise ApiError(400,'导入批次格式不正确')
+        import_id=body.get('import_id');source=body.get('source');created=body.get('created_at')
+        if not isinstance(import_id,str) or not 1<=len(import_id)<=200 or not isinstance(source,str) or not 1<=len(source)<=100: raise ApiError(400,'导入信息格式不正确')
+        try:
+            if not isinstance(created,str) or len(created)>50 or datetime.fromisoformat(created.replace('Z','+00:00')).tzinfo is None: raise ValueError()
+        except (ValueError,TypeError): raise ApiError(400,'导入时间格式不正确')
+        for request_id in ids:
+            db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET import_id=excluded.import_id,created_at=excluded.created_at,source=excluded.source,archived=0',(uid,request_id,import_id,created,source))
+        handler.reply(200,dict(saved=True));return True
+    if path=='/api/recognition/imports/archive' and handler.command=='POST':
+        ids=body.get('request_ids')
+        if not isinstance(ids,list) or not 1<=len(ids)<=1000 or any(not isinstance(r,str) or not 1<=len(r)<=500 for r in ids): raise ApiError(400,'导入批次格式不正确')
+        db.execute('BEGIN IMMEDIATE')
+        for request_id in ids:
+            if not db.execute('SELECT 1 FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request_id)).fetchone(): raise ApiError(404,'导入记录不存在')
+            # Keep deduplication and created tasks intact; hide the archived batch.
+            db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1) ON CONFLICT(user_id,request_id) DO UPDATE SET archived=1',(uid,request_id,request_id,datetime.now(timezone.utc).isoformat(),''))
+            db.execute('UPDATE recognition_candidates SET state="ignored",version=version+1 WHERE user_id=? AND request_id=? AND state="pending"',(uid,request_id))
+        handler.reply(200,batches(db,uid));return True
     if path=='/api/recognition/batches' and handler.command=='GET':
         handler.reply(200,batches(db,uid));return True
     if path in ['/api/recognition/batches','/api/recognition/retry','/api/recognition/demo'] and handler.command=='POST':
@@ -180,6 +204,7 @@ def route(handler,db,uid,path,body,ApiError):
                     db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
                         (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         else:
+            db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
             for record in request['records']:

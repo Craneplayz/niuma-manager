@@ -18,6 +18,7 @@ const accounts={
 };
 const response=value=>({ok:true,json:async()=>structuredClone(value)});
 globalThis.fetch=async(path,options={})=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
  const body=options.body?JSON.parse(options.body):null;
  requests.push({path,body,account:active,signal:options.signal});
  if(delay?.path===path){const pending=delay;delay=null;pending.started();return pending.promise;}
@@ -279,6 +280,7 @@ test('sync processes more than twenty single records, continues past failure and
  const syncRequests=Array.from({length:25},(_,i)=>({contract_version:'0.2',request_id:'sync:'+i,records:[{input_id:'r:'+i,text:'合成通知 '+i,platform:'teaching_web'}]}));
  let fail=true;
  globalThis.fetch=async(path,options={})=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/sources/sync')return response({requests:syncRequests,summary:{total:65,skipped:40,pending:25}});
   if(path==='/api/recognition/retry'){
    const request=JSON.parse(options.body);seen.push(request);

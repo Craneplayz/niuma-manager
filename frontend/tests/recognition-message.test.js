@@ -6,7 +6,7 @@ globalThis.location={hash:'#agent'};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
 
-test('historical failed batches do not leak into a new import session',async()=>{
+test('historical failed batches stay in collapsible history outside the current import',async()=>{
  session.user={id:'test'};
  const record={input_id:'private-id',text:'通知标题',course_or_project:'数据库课'};
  globalThis.fetch=async path=>({ok:true,json:async()=>path==='/api/recognition/batches'?[{
@@ -19,7 +19,9 @@ test('historical failed batches do not leak into a new import session',async()=>
  await new Promise(resolve=>setImmediate(resolve));
  const html=recognition.assistantPage();
  assert.doesNotMatch(html,/import-review-section|import-ignored-section/);
- assert.doesNotMatch(html,/正文不完整|数据库课|重试失败记录|incomplete_text|private-id|原始错误/);
+ assert.match(html,/import-history-batch/);
+ assert.match(html,/重试失败记录/);
+ assert.doesNotMatch(html,/private-id|原始错误/);
 });
 
 test('notification import only shows teaching web after it is selected as a sync source',async()=>{

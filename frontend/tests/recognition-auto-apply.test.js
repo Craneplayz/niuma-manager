@@ -33,6 +33,7 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  let resolved=0;
  recognition.configureAssistant({render(){}});
  globalThis.fetch=async(path,options)=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches'){
    const body=JSON.parse(options.body);assert.equal(body.records[0].platform,'manual');
    return {ok:true,json:async()=>[{request:{request_id:body.request_id,records:body.records},result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'manual-candidate',version:1,state:'pending',candidate}]}]};
@@ -42,7 +43,7 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  };
  await recognition.submitRecognitionText('10月1日提交报告');
  assert.equal(resolved,0);
- assert.match(recognition.assistantPage(),/待核对 <span>1/);
+ assert.match(recognition.assistantPage(),/本次导入 <span>1/);
  assert.match(recognition.assistantPage(),/data-agent-confirm="manual-candidate"/);
 });
 
@@ -57,6 +58,7 @@ test('review sections appear only after import and dismissed items can be restor
  assert.doesNotMatch(initial,/data-agent-source-mode="teaching_web"/);
  assert.ok(initial.indexOf('data-agent-source-mode="manual"')<initial.indexOf('data-agent-source-mode="wechat"'));
  globalThis.fetch=async(path,options)=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches'){
    const body=JSON.parse(options.body),index=batches.length+1,item={id:'candidate-'+index,version:1,state:'pending',candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id,title:'本次任务 '+index}};
    batches.push({request:{request_id:body.request_id,records:body.records},result:{status:'success',record_results:[],errors:[]},demo:false,items:[item]});
@@ -73,7 +75,8 @@ test('review sections appear only after import and dismissed items can be restor
  assert.match(recognition.assistantPage(),/本次任务 1/);
  await recognition.submitRecognitionText('第二条通知');
  const current=recognition.assistantPage();
- assert.doesNotMatch(current,/本次任务 1/);
+ assert.doesNotMatch(current.split('history-import-section')[0],/本次任务 1/);
+ assert.match(current,/import-history-batch/);
  assert.match(current,/本次任务 2/);
  await recognition.handleAssistantClick({dataset:{agentReviewScope:'all'}});
  assert.match(recognition.assistantPage(),/本次任务 1/);
@@ -81,15 +84,15 @@ test('review sections appear only after import and dismissed items can be restor
  await recognition.handleAssistantClick({dataset:{agentReviewScope:'current'}});
  await recognition.handleAssistantClick({dataset:{agentIgnore:'candidate-2'}});
  const ignored=recognition.assistantPage();
- assert.match(ignored,/<details class="import-ignored-section"><summary>不加入任务 <span>1<\/span>/);
+ assert.match(ignored,/<details class="import-ignored-section"><summary>本次不加入任务 · 1/);
  assert.match(ignored,/import-review-card ignored/);
  assert.match(ignored,/data-agent-restore="candidate-2"[^>]*>撤回<\/button>/);
  await recognition.handleAssistantClick({dataset:{agentRestore:'candidate-2'}});
  assert.deepEqual(resolutions.at(-1),{action:'reopen',version:2});
  const restored=recognition.assistantPage();
- assert.match(restored,/待核对 <span>1/);
+ assert.match(restored,/本次导入 <span>1/);
  assert.match(restored,/data-agent-confirm="candidate-2"/);
- assert.match(restored,/不加入任务 <span>0/);
+ assert.match(restored,/本次不加入任务 · 0/);
 });
 
 test('manual quick confirmation saves without triggering planning',async()=>{
@@ -98,6 +101,7 @@ test('manual quick confirmation saves without triggering planning',async()=>{
  let batch,planned=0,resolution;
  recognition.configureAssistant({render(){},refresh:async()=>{},toast(){},proposeForTasks:async()=>{planned++;}});
  globalThis.fetch=async(path,options)=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches'){
    const body=JSON.parse(options.body),item={id:'quick-candidate',version:2,state:'pending',candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id,title:'快速创建任务'}};
    batch={request:{request_id:body.request_id,records:body.records},result:{status:'success',record_results:[],errors:[]},demo:false,items:[item]};
@@ -113,7 +117,7 @@ test('manual quick confirmation saves without triggering planning',async()=>{
  assert.equal(resolution.target_id,null);
  assert.equal(resolution.draft.title,'快速创建任务');
  assert.equal(planned,0);
- assert.match(recognition.assistantPage(),/待核对 <span>0/);
+ assert.match(recognition.assistantPage(),/本次导入 <span>0/);
 });
 
 test('external F3 output auto-adds dated and undated actions but leaves review candidates pending',async()=>{
@@ -126,6 +130,7 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  await new Promise(resolve=>setTimeout(resolve,0));
  recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
  globalThis.fetch=async(path,options)=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches')return {ok:true,json:async()=>[]};
   if(path==='/api/recognition/retry')return {ok:true,json:async()=>[batch]};
   if(path.includes('/resolve')){
@@ -142,7 +147,7 @@ test('external F3 output auto-adds dated and undated actions but leaves review c
  assert.equal(refreshed,1);
  assert.equal(planned.length,1);
  assert.deepEqual(planned[0].sort(),batch.items.filter(item=>item.state==='applied'&&item.candidate.deadline.value).map(item=>'task-'+item.id).sort());
- assert.match(recognition.assistantPage(),/待核对 <span>6/);
+ assert.match(recognition.assistantPage(),/本次导入 <span>6/);
  assert.match(recognition.assistantPage(),/data-agent-confirm=/);
 });
 
@@ -153,6 +158,7 @@ test('refresh does not auto-apply old unfiltered batches',async()=>{
  let resolved=0;
  recognition.configureAssistant({render(){}});
  globalThis.fetch=async(path)=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
   if(path.includes('/resolve'))resolved++;
   throw new Error('unexpected request '+path);
@@ -160,7 +166,7 @@ test('refresh does not auto-apply old unfiltered batches',async()=>{
  recognition.assistantPage();
  await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(resolved,0);
- assert.match(recognition.assistantPage(),/import-review-section/);
+ assert.match(recognition.assistantPage(),/import-history-batch/);
  assert.match(recognition.assistantPage(),/data-agent-confirm="old-candidate"/);
 });
 
@@ -177,6 +183,7 @@ test('reviewed external creates with a DDL automatically propose; manual, undate
    const calls=[];
    recognition.configureAssistant({render(){},getState:()=>({tasks}),closeDialog(){},toast(){},refresh:async()=>{calls.push('refresh');},proposeForTasks:async ids=>{calls.push(ids);}});
    globalThis.fetch=async path=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
     if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
     if(path.includes('/resolve')){calls.push('save');item.state='applied';return {ok:true,json:async()=>({batches:[batch]})};}
     throw new Error('unexpected request '+path);
@@ -202,6 +209,7 @@ test('retry auto-applies only candidates created by that retry',async()=>{
  const batch={request:fixture.request,result:{status:'partial_success',record_results:[],errors:[{input_id:fresh.candidate.input_id,code:'agent_unavailable',message:'暂时失败'}]},demo:false,items:[old]};
  recognition.configureAssistant({render(){},refresh:async()=>{}});
  globalThis.fetch=async path=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
   if(path==='/api/recognition/retry'){batch.items=[old,fresh];batch.result={status:'success',record_results:[],errors:[]};return {ok:true,json:async()=>[batch]};}
   if(path.includes('/resolve')){assert.match(path,/fresh-candidate/);fresh.state='applied';return {ok:true,json:async()=>({batches:[batch]})};}
@@ -224,6 +232,7 @@ test('source import does not auto-apply a replayed batch before history is loade
  await new Promise(resolve=>setTimeout(resolve,0));
  recognition.handleAssistantInput({target:{id:'agent-import-consent',checked:true}});
  globalThis.fetch=async path=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
   if(path==='/api/recognition/retry')return {ok:true,json:async()=>[batch]};
   if(path.includes('/resolve'))resolved++;
@@ -246,6 +255,7 @@ test('teaching sync resumes cached auto tasks after creation failure without add
  let attempts=0,refreshed=0;
  recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;},getState:()=>({tasks:[]})});
  globalThis.fetch=async(path,options={})=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   const reply=(data,ok=true,status=200)=>({ok,status,json:async()=>structuredClone(data)});
   if(path==='/api/data/sources')return reply({version:1});
   if(path==='/api/sources/sync')return reply({requests:[fixture.request],summary:{skipped:0}});
@@ -317,6 +327,7 @@ test('refresh and two successive imports retain account pending and ignored cand
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const batches=[];
  globalThis.fetch=async(path,options={})=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/sources/credentials')return {ok:true,json:async()=>({configured:false})};
   if(path==='/api/workspace')return {ok:true,json:async()=>({})};
   if(path==='/api/recognition/batches'){
@@ -331,14 +342,14 @@ test('refresh and two successive imports retain account pending and ignored cand
  await recognition.handleAssistantClick({dataset:{agentIgnore:'recover-0'}});
  await recognition.submitRecognitionText('二');
  await recognition.submitRecognitionText('三');
- assert.doesNotMatch(recognition.assistantPage(),/data-agent-confirm="recover-1"/);
+ assert.doesNotMatch(recognition.assistantPage().split('history-import-section')[0],/data-agent-confirm="recover-1"/);
  await recognition.handleAssistantClick({dataset:{agentReviewScope:'all'}});
  assert.match(recognition.assistantPage(),/data-agent-confirm="recover-1"/);
  assert.match(recognition.assistantPage(),/data-agent-confirm="recover-2"/);
  assert.match(recognition.assistantPage(),/data-agent-restore="recover-0"/);
  recognition.resetAssistant();recognition.assistantPage();await new Promise(resolve=>setImmediate(resolve));
  const restored=recognition.assistantPage();
- assert.match(restored,/待核对 <span>2/);
+ assert.match(restored,/history-import-section/);
  assert.match(restored,/data-agent-restore="recover-0"/);
  assert.match(restored,/data-agent-confirm="recover-1"/);
  assert.match(restored,/data-agent-confirm="recover-2"/);
@@ -356,6 +367,7 @@ test('teaching web auto-import opens a real planning preview and writes schedule
  const workspace={tasks:{version:0,value:[]}};let state,opened=0;const calls=[];
  const reply=value=>({ok:true,json:async()=>structuredClone(value)});
  globalThis.fetch=async(path,options={})=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   const body=options.body?JSON.parse(options.body):null;calls.push({path,body});
   if(path==='/api/auth/me')return reply({user:{id:'planning-test'}});
   if(path==='/api/workspace')return reply(workspace);
@@ -394,6 +406,7 @@ test('quick confirmation of an external candidate opens planning only for eligib
  const batch={request:fixture.request,result:fixture.expected,items:[item]};
  let tasks=[];const planned=[];
  globalThis.fetch=async(path)=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
   if(path.endsWith('/resolve')){item.state='applied';return {ok:true,json:async()=>({batches:[batch]})};}
   throw new Error('unexpected '+path);
