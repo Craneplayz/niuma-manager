@@ -1,0 +1,451 @@
+{
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "const": "teaching-capture/0.1"
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "0.4"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "record": {
+                "type": "object",
+                "required": [
+                  "input_id",
+                  "source_item_id",
+                  "course_id",
+                  "snapshot_id",
+                  "platform",
+                  "text",
+                  "body_status",
+                  "source_metadata_text",
+                  "references",
+                  "published_at",
+                  "collected_at",
+                  "timezone",
+                  "course_term"
+                ],
+                "properties": {
+                  "input_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "source_item_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "course_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "snapshot_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "platform": {
+                    "const": "teaching_web"
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 100000
+                  },
+                  "body_status": {
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "summary",
+                      "missing"
+                    ]
+                  },
+                  "source_metadata_text": {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  "references": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/reference"
+                    },
+                    "maxItems": 50
+                  },
+                  "published_at": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/publication"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "collected_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "timezone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "course_term": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/term"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "url": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "course_or_project": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "label",
+                  "url",
+                  "course_or_project"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "record",
+              "source"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1,
+          "minItems": 1
+        }
+      },
+      "required": [
+        "contract_version",
+        "request_id",
+        "records"
+      ],
+      "additionalProperties": false
+    },
+    "assignment": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "course_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "content_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "state": {
+              "enum": [
+                "submitted",
+                "active",
+                "unknown"
+              ]
+            },
+            "basis": {
+              "enum": [
+                "review_submission_history_title",
+                "active_assignment_page",
+                "unknown"
+              ]
+            }
+          },
+          "required": [
+            "course_id",
+            "content_id",
+            "state",
+            "basis"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "contract_version",
+    "request",
+    "assignment"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "quote": {
+      "type": "object",
+      "required": [
+        "part_id",
+        "quote"
+      ],
+      "properties": {
+        "part_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "required": [
+        "ref_id",
+        "kind",
+        "label",
+        "read_state",
+        "text"
+      ],
+      "properties": {
+        "ref_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "kind": {
+          "enum": [
+            "attachment",
+            "content_image",
+            "linked_detail"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "read_state": {
+          "enum": [
+            "complete",
+            "unread",
+            "partial",
+            "failed",
+            "unsupported"
+          ]
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 100000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "term": {
+      "type": "object",
+      "required": [
+        "term_id",
+        "starts_on",
+        "ends_on",
+        "applies_to",
+        "evidence"
+      ],
+      "properties": {
+        "term_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "starts_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "ends_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "applies_to": {
+          "enum": [
+            "current_assignment",
+            "course_material",
+            "unknown"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quote"
+          },
+          "maxItems": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "publication": {
+      "type": "object",
+      "required": [
+        "value",
+        "basis"
+      ],
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        },
+        "basis": {
+          "enum": [
+            "source",
+            "unverified"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "deadline": {
+      "type": "object",
+      "required": [
+        "value",
+        "precision",
+        "derivation",
+        "anchor",
+        "evidence"
+      ],
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "precision": {
+          "enum": [
+            "date",
+            "datetime",
+            "unknown"
+          ]
+        },
+        "derivation": {
+          "enum": [
+            "absolute",
+            "missing_year",
+            "relative",
+            "offset",
+            "unresolved",
+            "not_provided"
+          ]
+        },
+        "anchor": {
+          "enum": [
+            null,
+            "published_at",
+            "collected_at",
+            "course_term"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quote"
+          },
+          "maxItems": 20
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

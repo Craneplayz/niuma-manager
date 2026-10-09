@@ -8,7 +8,7 @@ import time
 from contracts.teaching_io import (MAX_BYTES, aggregate_status, canonical, check_pair,
     check_request, snapshot_digest, verified_set)
 
-from .adapters import AgentError
+from .adapters import AgentError, OUTPUT_DIAGNOSTICS
 from .chat_client import ChatClient
 from .teaching_draft import compile_teaching_draft, process_teaching_draft
 from .teaching_policy import teaching_policy_manifest
@@ -39,10 +39,11 @@ def validate_teaching_result(request,result,*,verified_snapshot_digests=()):
     return result
 
 
-def _failure(entry,code,retryable=False,attempted=False):
+def _failure(entry,code,retryable=False,attempted=False,diagnostic=None):
     return dict(input_id=entry['record']['input_id'],snapshot_id=entry['record']['snapshot_id'],
         source=deepcopy(entry['source']),attempted=attempted,status='failed',decisions=[],warnings=[],
-        error=dict(code=code,message=MESSAGES[code],retryable=retryable))
+        error=dict(code=code,message=(OUTPUT_DIAGNOSTICS.get(diagnostic, MESSAGES[code])
+                   if code=='invalid_agent_output' else MESSAGES[code]),retryable=retryable))
 
 
 def process_teaching_request(request,*,client,settings,verified_snapshot_digests=(),budget_seconds=90):
@@ -97,7 +98,7 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
                                      verified_snapshot_digests=single_trust)
         except AgentError as error:
             code=error.code if error.code in MESSAGES else 'agent_unavailable'
-            row=_failure(entry,code,error.retryable is True,attempted=attempted)
+            row=_failure(entry,code,error.retryable is True,attempted=attempted,diagnostic=error.diagnostic)
         except Exception:
             row=_failure(entry,'invalid_agent_output',attempted=attempted)
         # Reserve exact safe failure envelopes for all later records. A large

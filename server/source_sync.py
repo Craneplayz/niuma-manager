@@ -10,6 +10,7 @@ from pathlib import Path
 from text_contract import validate_request
 from recognition import has_unapplied_auto_tasks
 import teaching
+from contracts.teaching_capture import check_capture
 
 CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
 
@@ -119,7 +120,7 @@ def route(handler, db, uid, path, body, ApiError, key_path):
             with os.fdopen(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
                 file.write(row['username'] + '\n' + password)
             result = subprocess.run(
-                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching'],
+                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching-capture'],
                 cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret)},
                 capture_output=True, text=True, encoding='utf-8', timeout=300, check=False,
             )
@@ -132,7 +133,8 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         if len(requests) > 1000 or any(len(json.dumps(item, ensure_ascii=False).encode()) > 1900000 for item in requests):
             raise ValueError()
         for item in requests:
-            teaching.check_request(item)
+            if item.get('contract_version')=='teaching-capture/0.1': check_capture(item)
+            else: teaching.check_request(item)
     except Exception:
         raise ApiError(502, '教学网采集结果不符合 v0.4 协议或批次数量限制') from None
     if not db.in_transaction: db.execute('BEGIN IMMEDIATE')

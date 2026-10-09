@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from contracts.teaching_review_draft import SCHEMA, review_codes, validate_pair
 
 from .adapters import AgentError
@@ -43,7 +43,25 @@ def _object_schema(properties):
     return dict(type='object', properties=properties, required=list(properties), additionalProperties=False)
 
 
-def teaching_draft_schema(record=None):
+def evidence_catalog(record):
+    """Bounded contiguous source spans: models select IDs rather than recopy PDF text."""
+    parts = [('body', record['text']), ('source_metadata', record['source_metadata_text'])]
+    parts.extend((r['ref_id'], r['text']) for r in record['references'] if r['read_state'] in ('partial', 'complete'))
+    catalog = {}
+    for part_id, text in parts:
+        offset = 0
+        while offset < len(text):
+            end = min(offset + 240, len(text))
+            if end < len(text):
+                boundary = text.rfind('\n', offset + 80, end)
+                if boundary >= 0: end = boundary + 1
+            quote = text[offset:end]
+            if quote.strip(): catalog['q' + str(len(catalog))] = dict(part_id=part_id, quote=quote)
+            offset = end
+    return catalog
+
+
+def teaching_draft_schema(record=None, *, indexed=False):
     """Internal model envelope; policy fields and limits come from #114."""
     assessment = deepcopy(SCHEMA['properties']['assessment'])
     for key in ('candidate_id', 'input_id'):
@@ -69,6 +87,13 @@ def teaching_draft_schema(record=None):
         target=dict(anyOf=[quote, dict(type='null')]), relevance=relevance, assessment=assessment))
     schema = _object_schema(dict(tasks=dict(type='array', items=task, maxItems=50)))
     schema.update({'$schema': SCHEMA['$schema'], '$defs': definitions})
+    if indexed:
+        catalog = evidence_catalog(record)
+        task_ids = [key for key, q in catalog.items() if q['part_id'] != 'source_metadata']
+        def reference(ids):
+            return _object_schema(dict(span_id=dict(type='string', enum=ids))) if ids else {'not': {}}
+        schema['$defs']['quote'] = reference(task_ids)
+        relevance['properties']['evidence']['items'] = reference(list(catalog))
     return schema
 
 
@@ -100,7 +125,7 @@ def _quotes(record, evidence, *, allow_metadata=False):
     for item in evidence:
         if (item['part_id'] not in available or not item['quote'].strip()
                 or item['quote'] not in available[item['part_id']]):
-            raise ValueError('unavailable evidence')
+            raise AgentError('invalid_agent_output', True, 'draft_evidence')
 
 
 def _reasons(codes, record, assessment):
@@ -142,17 +167,30 @@ def _history(draft, pair, codes, reasons, source_verified):
     return ('filtered' if not keep else 'candidate' if reasons or extra else 'task'), [], extra, filtered
 
 
-def compile_teaching_draft(raw, record, *, source_verified=False):
+def compile_teaching_draft(raw, record, *, source_verified=False, indexed=False):
     """Return policy previews with intact pairs, never ready-to-save API tasks."""
     if type(source_verified) is not bool:
         raise AgentError('invalid_input', False)
     validate_teaching_record(record)
+    stage = 'draft_json'
     try:
         if not isinstance(raw, str) or len(raw.encode('utf-8')) > MAX_DRAFT_BYTES:
             raise ValueError('draft budget')
         envelope = json.loads(raw, object_pairs_hook=_object,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite')))
-        Draft202012Validator(teaching_draft_schema(record), format_checker=FormatChecker()).validate(envelope)
+        stage = 'draft_schema'
+        Draft202012Validator(teaching_draft_schema(record, indexed=indexed), format_checker=FormatChecker()).validate(envelope)
+        if indexed:
+            catalog = evidence_catalog(record)
+            def expand(value):
+                if isinstance(value, dict):
+                    if set(value) == {'span_id'}: return deepcopy(catalog[value['span_id']])
+                    return {key: expand(item) for key, item in value.items()}
+                if isinstance(value, list): return [expand(item) for item in value]
+                return value
+            envelope = expand(envelope)
+            Draft202012Validator(teaching_draft_schema(record), format_checker=FormatChecker()).validate(envelope)
+        stage = 'draft_semantics'
         decisions = []
         for index, draft in enumerate(envelope['tasks'], 1):
             if not draft['title'].strip() or not draft['relevance']['reason'].strip():
@@ -166,6 +204,10 @@ def compile_teaching_draft(raw, record, *, source_verified=False):
             if draft['notice_type'] == 'create' and draft['target'] is not None:
                 raise ValueError('create cannot name a change target')
             pair = _pair(record, draft['assessment'], index)
+            assessment = draft['assessment']
+            _quotes(record, assessment['action']['evidence'] + assessment['deadline']['evidence'])
+            for relation in assessment['unread_relations']:
+                _quotes(record, relation['evidence'])
             codes = review_codes(pair, source_verified=source_verified)
             reasons = _reasons(codes, record, pair['assessment'])
             if draft['notice_type'] != 'create' and draft['target'] is None:
@@ -179,13 +221,15 @@ def compile_teaching_draft(raw, record, *, source_verified=False):
         return decisions
     except AgentError:
         raise
+    except ValidationError:
+        raise AgentError('invalid_agent_output', True, 'draft_schema') from None
     except Exception:
-        raise AgentError('invalid_agent_output', False) from None
+        raise AgentError('invalid_agent_output', True, stage) from None
 
 
-def teaching_instructions(record=None):
+def teaching_instructions(record=None, *, indexed=False):
     return SKILL.read_text(encoding='utf-8') + '\n只输出符合此内部草稿 Schema 的 JSON：\n' + json.dumps(
-        teaching_draft_schema(record), ensure_ascii=False)
+        teaching_draft_schema(record, indexed=indexed), ensure_ascii=False)
 
 
 @dataclass
@@ -194,10 +238,20 @@ class TeachingDraftAdapter:
     source_verified: bool = False
 
     def extract(self, record, settings, attempt):
+        if settings.mode != 'real':
+            payload = json.dumps(dict(record=record, source_verified_by_caller=self.source_verified), ensure_ascii=False)
+            raw = self.client.complete_json(teaching_instructions(record), payload, settings)
+            return compile_teaching_draft(raw, record, source_verified=self.source_verified)
         # complete_json avoids the old v0.2 DraftClient.generate schema.
-        payload = json.dumps(dict(record=record, source_verified_by_caller=self.source_verified), ensure_ascii=False)
-        raw = self.client.complete_json(teaching_instructions(record), payload, settings)
-        return compile_teaching_draft(raw, record, source_verified=self.source_verified)
+        # All text appears once in the catalog, with source/read-state metadata
+        # kept separately. Only the server can resolve IDs into exact quotations.
+        metadata = deepcopy(record)
+        metadata.pop('text'); metadata.pop('source_metadata_text')
+        for ref in metadata['references']: ref.pop('text')
+        payload = json.dumps(dict(record_metadata=metadata, evidence_catalog=evidence_catalog(record),
+                                  source_verified_by_caller=self.source_verified), ensure_ascii=False)
+        raw = self.client.complete_json(teaching_instructions(record, indexed=True), payload, settings)
+        return compile_teaching_draft(raw, record, source_verified=self.source_verified, indexed=True)
 
 
 @dataclass(frozen=True)

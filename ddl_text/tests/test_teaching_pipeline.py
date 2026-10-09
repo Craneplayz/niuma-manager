@@ -135,8 +135,17 @@ class TeachingPolicyTests(unittest.TestCase):
             def do_POST(self):
                 payload=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 calls.append((self.path,payload))
-                record=json.loads(payload['messages'][1]['content'])['record']
-                reply=dict(choices=[dict(finish_reason='stop',message=dict(content=drafts[record['input_id']]))])
+                document=json.loads(payload['messages'][1]['content'])
+                record=document['record_metadata']
+                def indexed(value):
+                    if isinstance(value,dict):
+                        if set(value)=={'part_id','quote'}:
+                            return dict(span_id=next(k for k,q in document['evidence_catalog'].items()
+                                if q['part_id']==value['part_id'] and value['quote'] in q['quote']))
+                        return {k:indexed(v) for k,v in value.items()}
+                    if isinstance(value,list):return [indexed(v) for v in value]
+                    return value
+                reply=dict(choices=[dict(finish_reason='stop',message=dict(content=json.dumps(indexed(json.loads(drafts[record['input_id']])))))])
                 self.send_response(200);self.end_headers();self.wfile.write(json.dumps(reply).encode())
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -171,6 +180,7 @@ class TeachingPolicyTests(unittest.TestCase):
         self.assertNotEqual(first['version'],text_policy_manifest(settings,provider='qiniu')['version'])
         self.assertEqual(first,teaching_policy_manifest(replace(settings,credential_env='ANOTHER_KEY')))
         self.assertNotEqual(first['version'],teaching_policy_manifest(replace(settings,model='changed'))['version'])
+        self.assertNotEqual(first['version'],teaching_policy_manifest(replace(settings,thinking_mode='disabled'))['version'])
         self.assertIn('contracts/teaching_io.py',first['components'])
         with patch('ddl_text.teaching_policy.LOADED_COMPONENTS',{}):
             with self.assertRaises(ValueError):teaching_policy_manifest(settings)

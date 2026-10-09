@@ -91,12 +91,13 @@ def batches(db,uid):
         request, output = json.loads(row['request']), json.loads(row['result'])
         if request.get('contract_version')=='0.4':
             import teaching
-            output = teaching.result_view(request,output)
+            output = teaching.submission.project_result(db,uid,row['request_id'],teaching.result_view(request,output))
             cards = {c['candidate_id']: c for c in output['tasks']}
             for item in items:
                 # Refresh the read-only presentation of existing results while
                 # preserving storage IDs, review state and user resolutions.
-                item['candidate'] = cards.get(item['candidate']['candidate_id'], item['candidate'])
+                item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],
+                    cards.get(item['candidate']['candidate_id'], item['candidate']))
             request = teaching.request_view(request)
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items))
     return result
@@ -211,6 +212,8 @@ def route(handler,db,uid,path,body,ApiError):
         canonical=json.dumps(body,sort_keys=True)
         action=body.get('action')
         if action=='reopen':
+            import teaching_submission
+            teaching_submission.guard(db,uid,row['request_id'],ApiError)
             if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
             if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
             db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
@@ -219,6 +222,9 @@ def route(handler,db,uid,path,body,ApiError):
             if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
             handler.reply(200,dict(batches=batches(db,uid)));return True
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
+        if action!='ignore':
+            import teaching_submission
+            teaching_submission.guard(db,uid,row['request_id'],ApiError)
         c=json.loads(row['candidate'])
         if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
         auto=body.get('auto_apply') is True

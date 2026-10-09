@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DateTime } from "luxon";
 import type { CourseSourceRecord } from "./pku-source.js";
+import { isPkuAssignmentUrl } from "./pku-assignment.js";
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export function teachingPriority(source: CourseSourceRecord): number {
@@ -62,4 +63,22 @@ export function toTeachingRequests(sources: CourseSourceRecord[], requestId: str
   });
   // One bounded item per request: a slow record never spends the next record's budget.
   return entries.map((entry, index) => ({ contract_version: "0.4", request_id: `${requestId}:${index}`, records: [entry] }));
+}
+
+/** Trusted process output only: the public v0.4 model request stays unchanged. */
+export function toTeachingCaptures(sources: CourseSourceRecord[], requestId?: string) {
+  const ordered = [...sources].sort((a, b) => teachingPriority(a) - teachingPriority(b));
+  return toTeachingRequests(ordered, requestId).map((request, index) => {
+    const record = request.records[0].record;
+    const source = ordered[index];
+    const native = source.references.find(ref => ref.kind === 'detail' && isPkuAssignmentUrl(ref.url));
+    const url = native ? new URL(native.url) : null;
+    const bound = source.kind === 'assignment' && source.assignment && url
+      && url.searchParams.get('course_id') === record.course_id
+      && url.searchParams.get('content_id') === record.source_item_id;
+    const state = source.assignment?.state;
+    const basis = state === 'submitted' ? 'review_submission_history_title' : state === 'active' ? 'active_assignment_page' : 'unknown';
+    return { contract_version: 'teaching-capture/0.1', request, assignment: bound
+      ? { course_id: record.course_id, content_id: record.source_item_id, state, basis } : null };
+  });
 }

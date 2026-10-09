@@ -66,7 +66,7 @@ class SourceSyncTests(unittest.TestCase):
         (crawler / 'node_modules' / 'tsx').mkdir(parents=True)
         secrets = []
         def run(_command, **kwargs):
-            self.assertIn('--format=teaching',_command)
+            self.assertIn('--format=teaching-capture',_command)
             secret = Path(kwargs['env']['PKU_SECRET_PATH'])
             secrets.append(secret)
             self.assertEqual(secret.read_text(encoding='utf-8'), '中文账号\n密码€')

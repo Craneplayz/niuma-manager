@@ -83,6 +83,7 @@ crawler/
 ```
 
 教学网整合入口为 `pnpm pku:homework -- --format=teaching`，输出每条独立的 v0.4 JSONL，默认按课程作业、课程通知、教学内容排序；`--format=recognition` 保留旧 v0.2。
+业务后端使用 `--format=teaching-capture`，输出受控的 `teaching-capture/0.1` 信封，将原生作业提交状态与 v0.4 正文一起交接；普通通知正文不能取得提交状态权限。
 Windows 可设置 `PLAYWRIGHT_EXECUTABLE_PATH` 指向已安装的 Edge/Chrome；跨语言测试将 `PYTHON` 指向仓库 `.venv/Scripts/python.exe`。
 
 ## 安装与检查

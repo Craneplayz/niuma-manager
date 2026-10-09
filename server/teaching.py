@@ -4,8 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 import secrets
+import teaching_submission as submission
 
 from contracts.teaching_io import canonical, check_request, snapshot_digest
+from contracts.teaching_capture import check_capture
 from ddl_text.chat_client import ChatClient
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings
@@ -19,6 +21,7 @@ RUN = 'teaching-run/0.1'
 
 
 def initialize(db):
+    submission.initialize(db)
     db.execute('''CREATE TABLE IF NOT EXISTS teaching_sources(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
         digest TEXT NOT NULL, request_id TEXT NOT NULL, request TEXT NOT NULL,
@@ -95,14 +98,24 @@ def register(db, uid, username, requests):
     pending, seen = [], set(); total = skipped = 0
     if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
     for batch in requests:
-        check_request(batch)
+        assignment = None
+        captured_state = batch.get('contract_version')=='teaching-capture/0.1'
+        if captured_state:
+            check_capture(batch)
+            assignment = batch['assignment']; batch = batch['request']
+        else: check_request(batch)
         for entry in batch['records']:
             entry = deepcopy(entry); r = entry['record']
             if r['input_id'] in seen: continue
             seen.add(r['input_id']); total += 1
+            previous_state = submission.source_state(db,uid,account(username),r['input_id'])
+            observation = assignment if assignment is not None else {'state':'unknown'} if captured_state else None
+            if submission.stale(previous_state,r,observation):
+                skipped += 1
+                continue
             stable = deepcopy(entry)
             for key in ('collected_at','snapshot_id'): stable['record'].pop(key)
-            digest = hashlib.sha256(canonical(stable)).hexdigest()
+            digest = hashlib.sha256(canonical(dict(entry=stable,assignment=assignment) if assignment else stable)).hexdigest()
             row = db.execute('SELECT * FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
                 (uid, account(username), r['input_id'])).fetchone()
             if row and row['digest']==digest:
@@ -112,6 +125,11 @@ def register(db, uid, username, requests):
                 request = dict(contract_version='0.4', request_id='teaching:'+secrets.token_hex(16), records=[entry])
                 db.execute('INSERT INTO teaching_sources VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,account,input_id) DO UPDATE SET digest=excluded.digest,request_id=excluded.request_id,request=excluded.request',
                     (uid, account(username), r['input_id'], digest, request['request_id'], json.dumps(request)))
+            state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
+                                       old_request_id=row['request_id'] if row else None)
+            if state and state['state']=='submitted':
+                skipped += 1
+                continue
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                 (uid,request['request_id'])).fetchone()
             if stored and json.loads(stored['result'])['status'] in ('success','no_tasks') and not has_unapplied_auto_tasks(db,uid,request,stored['demo']):
@@ -125,6 +143,7 @@ def resolve_snapshot(db, uid, request_id, ApiError):
     row = db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND account=? AND request_id=?',
         (uid, account(cred['username']), request_id)).fetchone() if cred else None
     if not row: raise ApiError(409,'教学网来源已变化或凭据已移除，请重新同步')
+    submission.guard(db,uid,request_id,ApiError)
     return json.loads(row['request'])
 
 
@@ -132,7 +151,10 @@ def recognize(request, ApiError):
     try:
         options = live_options(ROOT/'.env')
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
-        settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'], timeout_seconds=90, max_retries=0)
+        # Qiniu's DeepSeek defaults to thinking; it can exhaust all 8192 tokens
+        # before producing JSON. Keep the bounded extraction call non-thinking.
+        settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'], timeout_seconds=90, max_retries=0,
+                            thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
         policy = teaching_policy_manifest(settings)
     except (OSError,ValueError,KeyError,TypeError):
         raise ApiError(503,'教学网识别配置不可用，请检查 .env 中七牛云模型配置并重启后端') from None
@@ -166,6 +188,7 @@ def run(db, uid, body, retry, ApiError):
         else:
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result)))
         for card in result_view(request,result)['tasks']:
+            card = submission.decorate(db,uid,request['request_id'],card)
             db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                 (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
         db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',

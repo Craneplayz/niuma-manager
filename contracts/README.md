@@ -6,6 +6,10 @@ contracts/
 ├── requirements-teaching-dev.txt     # 教学网政策校验依赖，由可选教学网入口显式引用
 ├── build_teaching_v04.py             # 生成/核对自包含教学网批次请求与结果根 Schema
 ├── teaching_io.py                    # 教学网批次身份、状态、来源和基础政策校验
+├── teaching_capture.py               # 受控原生作业状态信封的身份和状态校验
+├── tests/test_teaching_capture.py     # 采集信封独立根、原生身份与伪造状态反例
+├── schemas/teaching-capture-v0.1.schema.json # 自包含采集状态与 v0.4 请求根
+├── docs/teaching-capture-v0.1.md       # 已提交作业来源跳过及逐行动完成的边界
 ├── schemas/teaching-request-v0.4.schema.json # 独立教学网批次请求
 ├── schemas/teaching-result-v0.4.schema.json # 独立教学网批次结果
 ├── examples/teaching-v04-cases.json   # 7 组教学网公开批次边界与多任务样例

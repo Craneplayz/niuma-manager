@@ -11,7 +11,7 @@ from ddl_text.teaching_policy import teaching_policy_manifest
 # request 和 verified_digests 由后端从当前账号的受控采集快照恢复。
 # 不得直接对客户端提交的任意 JSON 计算 digest 并授予信任。
 settings = Settings(mode="real", model=model, endpoint=endpoint,
-                    timeout_seconds=45, max_retries=0)
+                    timeout_seconds=45, max_retries=0, thinking_mode="disabled")
 manifest = teaching_policy_manifest(settings)  # 与实际作业配置一致，保存到后端运行记录
 result = process_teaching_request(
     request, client=ChatClient(key), settings=settings,
@@ -25,6 +25,10 @@ validate_teaching_result(request, result, verified_snapshot_digests=verified_dig
 每条记录只尝试一次，限时子进程负责终止卡住的调用；批次默认预算 90 秒、最多 180 秒，每次调用上限为配置超时与剩余预算的较小值；失败保留该记录错误，其他成功结果照常返回，未开始记录标记 `attempted=false`。
 
 真实运行使用内置 `ChatClient`；离线回放允许模型替身但 `policy_version=null`，不能冒充真实运行入库；输入不合法抛 `AgentError(invalid_input)`，部署配置或文件变更在执行前拒绝，记录级失败只输出固定错误码和安全消息。
+
+教学网的七牛 DeepSeek 提取显式使用 `thinking.type=disabled`，避免推理耗尽输出预算而未生成 JSON；[七牛请求结构](https://apidocs.qnaigc.com/233004161d0)提供该参数，其他模型应按其接口能力设置。输出截断、无效 JSON、Schema 字段错误、证据不匹配和语义矛盾保留独立的安全提示；不外泄原始响应或异常文本，不自动重复计费。
+
+真实模型只选 `evidence_catalog` 中的连续原文片段编号；程序填回 `part_id + quote` 后照常执行全部校验。元数据编号只能作为适用范围证据，未知编号和未读内容仍拒绝；日期与任务语义仍由模型判断。旧离线草稿继续使用原逐字引用格式，对外 v0.4 不变。
 
 模型判断行动、逐任务附件依赖、期限与历史语义；程序验证引文、完整性、可信学期、日期和 F3 30 天历史规则；明确正文中的任务可以不受补充资料未读影响，缺少关键资料仍待审核。
 

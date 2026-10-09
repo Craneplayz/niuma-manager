@@ -1,6 +1,6 @@
 import { scrapePkuHomeworks } from "./pku-homework.js";
 import { toRecognitionRequests } from "./pku-recognition.js";
-import { toTeachingRequests } from "./pku-teaching.js";
+import { toTeachingRequests, toTeachingCaptures } from "./pku-teaching.js";
 
 try {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -12,11 +12,12 @@ try {
     if (termArg && args.includes("--all-terms")) throw new Error("--term and --all-terms cannot be combined");
     const term = args.includes("--all-terms") ? null : termArg?.slice("--term=".length);
     const format = args.find((arg) => arg.startsWith("--format="))?.slice("--format=".length) ?? "raw";
-    if (!["raw", "recognition", "teaching"].includes(format)) throw new Error("format must be raw, recognition or teaching");
+    if (!["raw", "recognition", "teaching", "teaching-capture"].includes(format)) throw new Error("format must be raw, recognition, teaching or teaching-capture");
     const requestId = args.find((arg) => arg.startsWith("--request-id="))?.slice("--request-id=".length);
-    const result = await scrapePkuHomeworks({ term, allSections: args.includes("--all-sections"), ...(format === "teaching" ? { teachingSections: true } : {}) });
-    if (format === "recognition" || format === "teaching") {
-      const requests = format === "teaching" ? toTeachingRequests(result.source_records, requestId) : toRecognitionRequests(result.source_records, requestId);
+    const result = await scrapePkuHomeworks({ term, allSections: args.includes("--all-sections"), ...(format.startsWith("teaching") ? { teachingSections: true } : {}) });
+    if (format !== "raw") {
+      const requests = format === "teaching-capture" ? toTeachingCaptures(result.source_records, requestId)
+        : format === "teaching" ? toTeachingRequests(result.source_records, requestId) : toRecognitionRequests(result.source_records, requestId);
       // Convert the entire run before writing anything, so a conversion error is explicit.
       console.log(requests.map((request) => JSON.stringify(request)).join("\n"));
     } else {

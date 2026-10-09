@@ -10,7 +10,7 @@ from contracts.teaching_review_draft import validate_pair
 from ddl_text.adapters import AgentError
 from ddl_text.config import Settings
 from ddl_text.teaching_draft import (compile_teaching_draft, process_teaching_draft,
-                                    teaching_draft_schema, validate_teaching_record)
+                                    teaching_draft_schema, validate_teaching_record, evidence_catalog)
 from ddl_text.tests.teaching_cases import POLICY_CASES, model_task, policy_case, raw_task
 
 
@@ -25,6 +25,40 @@ class SyntheticClient:
 
 
 class TeachingDraftTests(unittest.TestCase):
+    def test_indexed_evidence_resolves_exact_source_without_recopying_pdf(self):
+        pair=policy_case('explicit-complete')['pair'];record=pair['record']
+        record['text']='请交作业。\nPDF提取有\t空格\n与换行。\n2026年10月23日前提交。'
+        catalog=evidence_catalog(record);task=model_task(pair)
+        body_id=next(k for k,q in catalog.items() if q['part_id']=='body')
+        task['assessment']['action']['evidence']=[dict(span_id=body_id)]
+        task['assessment']['deadline']['evidence']=[dict(span_id=body_id)]
+        decisions=compile_teaching_draft(json.dumps(dict(tasks=[task])),record,source_verified=True,indexed=True)
+        self.assertEqual(decisions[0]['pair']['assessment']['action']['evidence'],[catalog[body_id]])
+        for bad in ('invented', next(k for k,q in catalog.items() if q['part_id']=='source_metadata')):
+            task['assessment']['action']['evidence']=[dict(span_id=bad)]
+            with self.assertRaises(AgentError):
+                compile_teaching_draft(json.dumps(dict(tasks=[task])),record,source_verified=True,indexed=True)
+
+    def test_catalog_covers_all_read_text_and_no_unread_text(self):
+        record=policy_case('unread-supplement')['pair']['record']
+        record['text']='行一\n'+'PDF字符\t与空格。'*100
+        catalog=evidence_catalog(record)
+        self.assertEqual(''.join(q['quote'] for q in catalog.values() if q['part_id']=='body'),record['text'])
+        self.assertTrue(all(len(q['quote'])<=240 for q in catalog.values()))
+        self.assertFalse(any(q['part_id'].startswith('ref:') for q in catalog.values()))
+
+    def test_safe_diagnostics_survive_worker_and_distinguish_validation_stages(self):
+        record=policy_case()['pair']['record']
+        cases=[('not JSON','draft_json'),('{"tasks":[{}]}','draft_schema')]
+        task=model_task(policy_case()['pair']);task['assessment']['action']['evidence']=[dict(part_id='body',quote='private invented quote')]
+        cases.append((json.dumps(dict(tasks=[task])),'draft_evidence'))
+        for raw,reason in cases:
+            with self.subTest(reason=reason),self.assertRaises(AgentError) as error:
+                process_teaching_draft(record,client=SyntheticClient(raw),settings=Settings(timeout_seconds=10))
+            self.assertEqual(error.exception.diagnostic,reason)
+            self.assertNotIn('private',str(error.exception))
+        self.assertIsNone(AgentError(diagnostic='private arbitrary exception').diagnostic)
+
     def compile(self, case_name='unread-supplement', change=None, verified=None):
         case = policy_case(case_name)
         record, task = case['pair']['record'], model_task(case['pair'])

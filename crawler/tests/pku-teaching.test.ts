@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toTeachingRequests } from "../src/pku-teaching.js";
+import { toTeachingRequests, toTeachingCaptures } from "../src/pku-teaching.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { planCourseCollection } from "../src/pku-homework.js";
 
@@ -7,6 +7,22 @@ const source = () => extractCourseSourcesFromHtml('<ul id="content_listContainer
   { course: "测试课程", section: "课程作业", sourceUrl: "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1", collectedAt: "2026-10-09T10:00:00+08:00" })[0];
 
 describe("native teaching integration", () => {
+  it("retains submitted state only for a bound native assignment", () => {
+    const input=source();input.kind='assignment';input.assignment={state:'submitted',due_raw:null};
+    input.references.unshift({kind:'detail',label:'作业',url:'https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=_1&content_id=_1',content_read:false,read_status:'partial',reason:'submission_history_only'});
+    const capture=toTeachingCaptures([input])[0];
+    expect(capture.contract_version).toBe('teaching-capture/0.1');
+    expect(capture.assignment).toEqual({course_id:'_1',content_id:'_1',state:'submitted',basis:'review_submission_history_title'});
+    expect(capture.request.contract_version).toBe('0.4');
+    expect(capture.request.records[0].record).not.toHaveProperty('assignment');
+    for(const kind of ['announcement','content'] as const) expect(toTeachingCaptures([{...input,kind}])[0].assignment).toBeNull();
+    input.references[0].url=input.references[0].url.replace('content_id=_1','content_id=_2');
+    expect(toTeachingCaptures([input])[0].assignment).toBeNull();
+  });
+  it("never infers submitted from teacher text", () => {
+    const input=source();input.body='已提交，请等待批改。';
+    expect(toTeachingCaptures([input])[0].assignment).toBeNull();
+  });
   it("keeps complete body separate from unread and extracted attachments", () => {
     const input=source(); input.teacher_body=input.body;input.body+='\n附件正文：合成全文';
     const record=toTeachingRequests([input])[0].records[0].record;

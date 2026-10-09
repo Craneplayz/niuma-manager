@@ -9,6 +9,7 @@ server/
 ├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
 ├── source_sync.py            调用教学网采集并保存 v0.4 来源快照。
 ├── teaching.py               核验当前账号快照、调用 v0.4 并适配现有任务卡片。
+├── teaching_submission.py   可信原生作业状态、来源跳过与旧候选撤出的持久化。
 ├── test_teaching.py          教学网同步、自动入库、重试和来源变化的 HTTP 回归。
 ├── run_teaching_smoke.py     合成网页经真实 API 到任务入库的手动验收脚本。
 ├── start-local-test.ps1      启动独立测试数据库、后端和网页，复用本机浏览器。
@@ -30,7 +31,9 @@ server/
 Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File server/start-local-test.ps1`；依赖使用根目录 `.venv`，数据库独立保存为 `server/data/teaching-test.sqlite3`，进程和日志见同目录。
 教学网同步使用原生 v0.4：按课程作业、课程通知、教学内容顺序识别，来源账号和快照由后端核验；明确任务自动加入，引用所需材料缺失时保留审核，详见 [运行视图](../contracts/docs/teaching-workspace-v0.1.md)。
 真实 API 合成验收在仓库根运行 `.venv/Scripts/python.exe server/run_teaching_smoke.py --output local-data/teaching-smoke.json`；只发送合成内容，独立临时数据库，不访问校园网账号。
-此测试版尚未接入 submitted 自动完成、定向重新识别、教学网图片或 DOCX 原件阅读；PDF/TXT 沿用采集器已有能力，网页结构变化和没有来源时间的普通旧材料仍可能需要核查。
+原生 submitted 作业来源在调用模型前跳过，撤出同账号已绑定来源的未处理候选并保留审计；已入库任务不据此批量改状态，完整逐行动自动完成仍待 #110，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
+教学网 DeepSeek 调用显式关闭 thinking；真实调用用原文片段编号填回证据，错误区分输出截断、JSON、字段与证据错误，不记录私人模型响应。
+此测试版尚未接入定向重新识别、教学网图片或 DOCX 原件阅读；PDF/TXT 沿用采集器已有能力，网页结构变化和没有来源时间的普通旧材料仍可能需要核查。
 文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取仓库根目录 `.env` 的模型配置，无需启动 1333；已有环境变量优先于 `.env`。
 在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
 后端同一进程只允许一个识别请求执行，跨账号和两种调用方式共用锁，忙碌返回 503；模型配置缺失返回 503，不影响登录、工作区和协议演示。
