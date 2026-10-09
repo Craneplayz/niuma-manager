@@ -18,6 +18,7 @@ from .adapters import AgentError
 from .config import Settings
 from .image_reader import IMAGE_MIMES, READER_VERSION, ImageLimits, MetadataMismatch, read_image
 from .pdf_reader import PDF_MIME, READER_VERSION as PDF_READER_VERSION, PdfLimits, read_pdf
+from .docx_reader import DOCX_MIME, READER_VERSION as DOCX_READER_VERSION, DocxLimits, read_docx
 from .media_schema import parse_draft, prompt_schema
 from .media_worker import bounded
 from .time_validation import _nearest_year
@@ -42,6 +43,7 @@ class MediaInputError(ValueError):
 class MediaLimits:
     images: ImageLimits = field(default_factory=ImageLimits)
     pdf: PdfLimits = field(default_factory=PdfLimits)
+    docx: DocxLimits = field(default_factory=DocxLimits)
     record_seconds: float = 70
     batch_seconds: float = 180
     model_input_bytes: int = 16 * 1024 * 1024
@@ -54,8 +56,16 @@ class MediaLimits:
             raise ValueError('invalid_model_input_limit')
 
 
+@dataclass(frozen=True)
+class PreparedImage:
+    asset_id: str
+    encoded: str
+    page: int = None
+    paragraph: int = None
+
+
 MESSAGES = {
-    'reader_unsupported': '仅支持静态 JPG/PNG 和普通 PDF 页面；其他格式、PDF 表单、脚本、加密或内嵌文件尚未开放。',
+    'reader_unsupported': '文件格式或部分组件暂不支持，请查看原件及读取缺口。',
     'file_ref_unavailable': '附件不可读取，请恢复文件或重新上传。',
     'file_read_failed': '附件读取未完成，请检查文件后重试。',
     'limit_exceeded': '附件或本次处理超过限制，请拆分或减小输入。',
@@ -75,13 +85,13 @@ def _error(record, code, stage, asset_id=None, retryable=False):
 
 def _file_summary(asset, status='failed'):
     return dict(asset_id=asset['asset_id'], content_mode='file', status=status,
-                reader_version=PDF_READER_VERSION if asset['mime_type'] == PDF_MIME else READER_VERSION, coverage_basis='unverified',
+                reader_version={PDF_MIME: PDF_READER_VERSION, DOCX_MIME: DOCX_READER_VERSION}.get(asset['mime_type'], READER_VERSION), coverage_basis='unverified',
                 coverage=dict(complete=False, unread_locations=['整张图片或文件尚未读取'], truncated=False),
                 quality='normal', quality_notes=[])
 
 
 def _mark_complete(summary):
-    if summary['reader_version'] == PDF_READER_VERSION:
+    if summary['reader_version'] in (PDF_READER_VERSION, DOCX_READER_VERSION):
         summary.update(status='complete' if summary['coverage']['complete'] else 'partial',
                        coverage_basis='adapter_confirmed')
         return
@@ -99,7 +109,7 @@ def _instructions():
 
 
 def _prepare(record, loader, limits, expires):
-    summaries, errors, pictures = [], [], []
+    summaries, errors, pictures, documents = [], [], [], {}
     size = 0
     for asset in record['attachments']:
         if asset.get('content_mode') != 'file':
@@ -114,14 +124,15 @@ def _prepare(record, loader, limits, expires):
             continue
         try:
             is_pdf = asset['mime_type'] == PDF_MIME
-            if asset['mime_type'] not in IMAGE_MIMES and not is_pdf:
+            is_docx = asset['mime_type'] == DOCX_MIME
+            if asset['mime_type'] not in IMAGE_MIMES and not is_pdf and not is_docx:
                 summary['status'] = 'unsupported'
                 raise AgentError('reader_unsupported', False)
             remaining = expires - time.monotonic()
             if remaining <= 0:
                 raise AgentError('file_read_failed', True)
-            read_limits = limits.pdf if is_pdf else limits.images
-            read_seconds = read_limits.render_seconds if is_pdf else read_limits.decode_seconds
+            read_limits = limits.pdf if is_pdf else limits.docx if is_docx else limits.images
+            read_seconds = read_limits.render_seconds if is_pdf else read_limits.read_seconds if is_docx else read_limits.decode_seconds
             if asset['size_bytes'] > read_limits.max_bytes:
                 raise AgentError('limit_exceeded', False)
             try:
@@ -140,12 +151,18 @@ def _prepare(record, loader, limits, expires):
                 raise AgentError('file_read_failed', True)
             if is_pdf:
                 rendered = read_pdf(data, asset, replace(limits.pdf, render_seconds=min(remaining, read_seconds)))
-                prepared = [(asset['asset_id'], base64.b64encode(png).decode('ascii'), index)
+                prepared = [PreparedImage(asset['asset_id'], base64.b64encode(png).decode('ascii'), page=index)
                             for index, png in enumerate(rendered['pages'], 1)]
+            elif is_docx:
+                rendered = read_docx(data, asset, replace(limits.docx, read_seconds=min(remaining, read_seconds)), limits.images)
+                prepared = [PreparedImage(asset['asset_id'], base64.b64encode(item['png']).decode('ascii'), paragraph=item['paragraph'])
+                            for item in rendered['images']]
             else:
                 png = read_image(data, asset, replace(limits.images, decode_seconds=min(remaining, read_seconds)))
-                prepared = [(asset['asset_id'], base64.b64encode(png).decode('ascii'), None)]
-            added_size = sum(len(item[1]) for item in prepared)
+                prepared = [PreparedImage(asset['asset_id'], base64.b64encode(png).decode('ascii'))]
+            added_size = sum(len(item.encoded) for item in prepared)
+            if is_docx:
+                added_size += len(json.dumps(rendered['blocks'], ensure_ascii=False).encode('utf-8'))
             if size + added_size > limits.model_input_bytes:
                 raise AgentError('limit_exceeded', False)
             size += added_size
@@ -156,6 +173,11 @@ def _prepare(record, loader, limits, expires):
                     unread_locations=[f"第 {len(prepared) + 1}–{rendered['total_pages']} 页未读取"] if unread else [])
                 if rendered['error']:
                     errors.append(_error(record, rendered['error'], 'read', asset['asset_id']))
+            elif is_docx:
+                documents[asset['asset_id']] = rendered['blocks']
+                summary['coverage'] = rendered['coverage']
+                if rendered['error']:
+                    errors.append(_error(record, rendered['error'], 'read', asset['asset_id']))
         except MetadataMismatch:
             raise  # An immutable stored file did not match its authorized receipt.
         except AgentError as error:
@@ -163,10 +185,11 @@ def _prepare(record, loader, limits, expires):
             if code == 'reader_unsupported':
                 summary['status'] = 'unsupported'
             errors.append(_error(record, code, 'read', asset['asset_id'], error.retryable))
-    return summaries, errors, pictures
+    return summaries, errors, pictures, documents
 
 
-def _parts(record, summaries, pictures, errors):
+def _parts(record, summaries, pictures, errors, documents=None):
+    documents = documents or {}
     source = copy.deepcopy(record)
     # Only the consumer may resolve references; neither model nor output sees a storage handle.
     for asset in source['attachments']:
@@ -174,17 +197,21 @@ def _parts(record, summaries, pictures, errors):
             asset.pop(key, None)
     # Final summaries stay failed until the model call returns. The prompt instead
     # describes pages that are actually in this request, not that provisional state.
-    sent_ids = list(dict.fromkeys(p[0] for p in pictures))
+    sent_ids = list(dict.fromkeys([p.asset_id for p in pictures] + list(documents)))
     prepared = copy.deepcopy(summaries)
     for summary in prepared:
         if summary['asset_id'] in sent_ids:
             _mark_complete(summary)
     payload = dict(record=source, reader=dict(sent_image_ids=sent_ids,
-        sent_pages=[dict(asset_id=p[0], page=p[2]) for p in pictures], attachments=prepared, errors=errors))
+        sent_pages=[dict(asset_id=p.asset_id, page=p.page, paragraph=p.paragraph) for p in pictures],
+        documents=[dict(asset_id=aid, paragraphs=blocks) for aid, blocks in documents.items()], attachments=prepared, errors=errors))
     parts = [dict(type='text', text=json.dumps(payload, ensure_ascii=False))]
-    for asset_id, encoded, page in pictures:
-        parts.extend([dict(type='text', text=json.dumps(dict(asset_id=asset_id, page=page))),
-                      dict(type='image_url', image_url=dict(url='data:image/png;base64,' + encoded))])
+    for picture in pictures:
+        label = dict(asset_id=picture.asset_id, page=picture.page)
+        if picture.paragraph is not None:
+            label['paragraph'] = picture.paragraph
+        parts.extend([dict(type='text', text=json.dumps(label)),
+                      dict(type='image_url', image_url=dict(url='data:image/png;base64,' + picture.encoded))])
     return parts
 
 
@@ -251,7 +278,9 @@ def _compile(request_id, record, draft, cov):
         reasons = [r['message'] for r in task['review_reasons']
                    if not (routine_year and r['code'] == 'year_completion')]
         if any(e['field'] == 'attachment_file' for e in task['evidence']):
-            reasons.append('图片引文由模型读取，尚未经原文逐字核对，请确认。')
+            docx_ids = {a['asset_id'] for a in record['attachments'] if a.get('mime_type') == DOCX_MIME}
+            reasons.append('附件引文及定位需核对原件，请确认。' if any(e.get('asset_id') in docx_ids for e in task['evidence'])
+                           else '图片引文由模型读取，尚未经原文逐字核对，请确认。')
         if not cov['complete'] or cov['uncertain']:
             reasons.append('部分内容缺失或可读性不确定，请核对原件。')
             if task['deadline']['status'] == 'not_provided':
@@ -278,11 +307,11 @@ def _finish(record, summaries, tasks, errors):
 
 
 def _record(request_id, record, loader, client, settings, limits, expires):
-    summaries, errors, pictures = _prepare(record, loader, limits, expires)
+    summaries, errors, pictures, documents = _prepare(record, loader, limits, expires)
     tasks = []
-    prepared_ids = {picture[0] for picture in pictures}
+    prepared_ids = {picture.asset_id for picture in pictures} | documents.keys()
     # Failed files must not suppress an otherwise readable message or attachment.
-    readable = pictures or record['text'].strip() or any(c['text'].strip() for c in record['context']) or any(
+    readable = pictures or documents or record['text'].strip() or any(c['text'].strip() for c in record['context']) or any(
         a.get('blocks') for a in record['attachments'])
     if readable:
         model_completed = False
@@ -291,26 +320,34 @@ def _record(request_id, record, loader, client, settings, limits, expires):
             remaining = expires - time.monotonic()
             if remaining <= 0:
                 raise AgentError('agent_timeout', True)
-            parts = _parts(record, summaries, pictures, errors)
+            parts = _parts(record, summaries, pictures, errors, documents)
             instructions = _instructions()
             if len(json.dumps(parts, ensure_ascii=False).encode('utf-8')) + len(instructions.encode('utf-8')) > limits.model_input_bytes:
                 raise AgentError('limit_exceeded', False)
             attempt = replace(settings, timeout_seconds=min(settings.timeout_seconds, remaining))
             raw = bounded(_model_call, (client, instructions, parts, attempt), attempt.timeout_seconds)
             model_completed = True
-            # Complete means all pixels were provided to a normally finished model call.
-            # It never means its quotations or visual interpretation are independently verified.
+            # Delivery of prepared content is distinct from correctness of model
+            # interpretation; each reader retains its own coverage gaps.
             for summary in summaries:
                 if summary['asset_id'] in prepared_ids:
                     _mark_complete(summary)
             draft = parse_draft(raw, prepared_ids)
-            pdf_pages = {(asset_id, page) for asset_id, _, page in pictures if page is not None}
+            pdf_pages = {(p.asset_id, p.page) for p in pictures if p.page is not None}
+            image_paragraphs = {(p.asset_id, p.paragraph) for p in pictures if p.paragraph is not None}
             pdf_ids = {a['asset_id'] for a in record['attachments'] if a.get('mime_type') == PDF_MIME}
             for task in draft['tasks']:
                 for evidence in task['evidence']:
                     if evidence['field'] == 'attachment_file' and evidence['asset_id'] in pdf_ids:
                         if (evidence['asset_id'], evidence['locator']['page']) not in pdf_pages:
                             raise ValueError('unread_pdf_page')
+                    if evidence['field'] == 'attachment_file' and evidence['asset_id'] in documents:
+                        asset_id, loc = evidence['asset_id'], evidence['locator']
+                        paragraphs = {b['paragraph']: b['text'] for b in documents[asset_id]}
+                        from_image = (asset_id, loc['paragraph']) in image_paragraphs
+                        if (loc['page'] is not None or loc['paragraph'] not in paragraphs and not from_image
+                                or not from_image and (loc['bbox'] is not None or evidence['quote'] not in paragraphs[loc['paragraph']])):
+                            raise ValueError('unread_docx_paragraph_or_fabricated_quote')
             qualities = {q['asset_id']: q for q in draft['image_quality']}
             for summary in summaries:
                 if summary['asset_id'] in qualities:

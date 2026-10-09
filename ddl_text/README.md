@@ -13,16 +13,17 @@ ddl_text/
 ├── contract_v02.py       # 前后端 v0.2 契约转换和校验
 ├── contracts.py          # 输入及候选任务的基础校验
 ├── dates.py              # 合并时间提案、催促语和冲突处理
+├── docx_reader.py        # DOCX 受限解包、段落/表格/附属文字和内嵌图片读取
 ├── draft_schema.py       # 模型草稿的 JSON Schema
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
 ├── image_reader.py       # JPG/PNG 字节核对、解码与元数据清理
 ├── pdf_reader.py         # PDF 可见页面的限时渲染与页数/像素预算
-├── media_pipeline.py     # 供后端显式调用的 v0.3.1 图片、PDF 与文字块识别入口
+├── media_pipeline.py     # 供后端显式调用的 v0.3.1 图片、PDF、DOCX 与文字块入口
 ├── media_schema.py       # 从共享契约派生模型草稿并校验
-├── media_worker.py       # 图片解码、PDF 渲染与模型调用的限时子进程
+├── media_worker.py       # 图片解码、文档读取与模型调用的限时子进程
 ├── media_requirements.txt # 可选附件读取、识别及契约校验依赖
-├── media_test_requirements.txt # 合成 PDF 构造及异常文件测试依赖
+├── media_test_requirements.txt # 合成 PDF/DOCX 构造及异常文件测试依赖
 ├── pipeline.py           # 批量输入处理和结果汇总
 ├── policy_version.py     # 文本规则与实际模型配置的可追溯版本清单
 ├── provider.py           # 选择模型客户端
@@ -50,6 +51,9 @@ ddl_text/
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
 │   ├── media_cases.py    # 共享附件样例、合成图片与模型替身
 │   ├── pdf_cases.py      # 合成文字/扫描 PDF 及共享契约请求
+│   ├── docx_cases.py     # 合成 OOXML 文件、关系与共享契约请求
+│   ├── test_docx_reader.py # DOCX 内容、定位、缺口、边界与真实草稿回放
+│   ├── run_docx_smoke.py # 生成 DOCX 样例并显式调用真实模型验证
 │   ├── test_pdf_reader.py # PDF 页码、截断、超时及不支持特性的回归
 │   ├── run_pdf_smoke.py  # 中文跨页和部分 PDF 的真实模型验证
 │   ├── test_media_pipeline.py # 文件/证据/质量/超时与兼容验证
@@ -81,12 +85,13 @@ ddl_text/
         ├── 2026-10-06-issue94-images.json # 最初五组生成图片的真实模型输入、草稿与输出
         ├── 2026-10-06-issue94-chinese-images.json # 五组中文合成图片的真实输入、草稿与输出
         ├── 2026-10-06-issue94-pdf.json # PDF 合成测试的真实输入、草稿与输出
+        ├── 2026-10-06-issue94-docx.json # 四组 DOCX 合成测试的真实输入、草稿与输出
         └── 2026-10-06-issue118-year-review.json # 修复多余补年理由后的同图真实模型验证
 ```
 
 接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
 
-新增可选 [v0.3.1 附件识别入口](docs/image-input.md)：支持静态 JPG/PNG、普通 PDF 可见页面和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，DOCX 尚未开放，页面图片证据依正式契约保留待审核。
+新增可选 [v0.3.1 附件识别入口](docs/image-input.md)：支持静态 JPG/PNG、普通 PDF 可见页面、DOCX 正文/表格/内嵌图片和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，文件证据依正式契约保留待审核。
 
 ## 输入输出与规则
 
