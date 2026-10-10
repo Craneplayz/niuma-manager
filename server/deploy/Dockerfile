@@ -22,7 +22,9 @@ COPY contracts/ contracts/
 COPY ddl_text/ ddl_text/
 COPY task_planning/ task_planning/
 COPY server/ server/
-RUN pip install --no-cache-dir -r server/requirements.txt \
+ARG UV_INDEX_URL=https://pypi.org/simple
+RUN --mount=from=ghcr.io/astral-sh/uv:0.13.0,source=/uv,target=/bin/uv \
+    uv pip install --system --no-cache -r server/requirements.txt \
     -r ddl_text/media_requirements.txt -r ddl_text/teaching_requirements.txt
 COPY crawler/ crawler/
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
@@ -32,6 +34,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     NIUMA_DB=/data/niuma.sqlite3
 RUN cd crawler && pnpm install --frozen-lockfile \
     && pnpm exec playwright install --with-deps chromium \
+    && sed -i "s|${DEBIAN_MIRROR}|https://deb.debian.org|g" /etc/apt/sources.list.d/debian.sources \
+    && rm -rf /var/lib/apt/lists/* \
     && useradd --uid 10001 --create-home niuma \
     && mkdir -p /data /app/crawler/data \
     && chown -R niuma:niuma /data /app/crawler/data

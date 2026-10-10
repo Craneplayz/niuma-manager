@@ -29,6 +29,9 @@ docker compose ps
 
 `.env.model` 仅提供运行时模型环境变量，密钥不得写入 Dockerfile、构建参数、前端或 Git；不设置 `HARNESS_URL`、`TEXT_HARNESS_URL` 时使用直调模型。
 Debian 下载默认使用官方 HTTPS 源；在阿里云网络构建缓慢时可运行 `docker compose build --build-arg DEBIAN_MIRROR=https://mirrors.aliyun.com`，仍保留 Debian 签名验证。
+临时构建镜像源在安装完成后恢复为官方 HTTPS 地址，不将本机下载中转地址留在运行配置中。
+Python 依赖安装临时使用官方 uv 0.13.0 镜像，沿用模块 requirements，不在运行镜像中保留安装器。
+Python 下载默认使用 PyPI；需要阿里云镜像时可传构建参数 `UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/`，不修改模块依赖清单。
 网站默认不生成共享测试账号，用户自行注册；模型缺少配置时登录和持久化仍可用，识别与规划返回配置错误。
 公开注册可触发付费模型调用，发布前配置模型供应商预算与额度告警，未确认额度不进行真实模型压测。
 教学网采集从服务器网络访问校园系统，公网服务器不因此获得校园网权限，连接失败时需校方允许的网络环境。
@@ -50,5 +53,5 @@ docker compose logs --tail=50 api
 
 ## 本机容器验证
 
-仅在隔离测试目录将 `.env` 设为 `SITE_ADDRESS=:80`、`APP_ORIGIN=http://localhost:18080`、`COOKIE_SECURE=0`、`HTTP_PORT=18080`、`HTTPS_PORT=18443`，模型文件可留空。
+仅在隔离测试目录将 `.env` 设为 `SITE_ADDRESS=:80`、`APP_ORIGIN=http://localhost:18080`、`COOKIE_SECURE=0`、`HTTP_PORT=127.0.0.1:18080`、`HTTPS_PORT=127.0.0.1:18443`，模型文件可留空。
 HTTP 测试配置不用于公网发布，既有 Vite 的 localhost:1331 启动方式不变。
