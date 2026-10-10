@@ -53,7 +53,8 @@ class SourceSyncTests(unittest.TestCase):
         self.assertIsNone(self.db.execute('SELECT * FROM source_credentials').fetchone())
 
     def test_sync_uses_temporary_secret_and_stable_request_id(self):
-        request = json.loads((Path(__file__).resolve().parent.parent / 'contracts' / 'source-to-text' / 'text-frontend-v02-request.json').read_text(encoding='utf-8'))
+        from ddl_text.tests.test_teaching_pipeline import example
+        request, _ = example()
         self.save('中文账号', '密码€')
         with self.assertRaises(app.ApiError) as unsupported:
             self.call('/api/sources/sync', {'sources': ['wechat']})
@@ -65,6 +66,7 @@ class SourceSyncTests(unittest.TestCase):
         (crawler / 'node_modules' / 'tsx').mkdir(parents=True)
         secrets = []
         def run(_command, **kwargs):
+            self.assertIn('--format=teaching-capture',_command)
             secret = Path(kwargs['env']['PKU_SECRET_PATH'])
             secrets.append(secret)
             self.assertEqual(secret.read_text(encoding='utf-8'), '中文账号\n密码€')
@@ -77,7 +79,8 @@ class SourceSyncTests(unittest.TestCase):
             self.call('/api/sources/sync', {'sources': ['teaching_web']})
             self.call('/api/sources/sync', {'sources': ['teaching_web']})
         self.assertFalse(any(secret.exists() for secret in secrets))
-        self.assertEqual([r['records'][0] for r in self.responses[-2][1]['requests']], request['records'])
+        self.assertEqual(self.responses[-2][1]['requests'][0]['records'][0]['text'], request['records'][0]['record']['text'])
+        self.assertEqual(self.responses[-2][1]['requests'][0]['contract_version'],'teaching-workspace/0.1')
         self.assertTrue(all(len(r['records']) == 1 for r in self.responses[-2][1]['requests']))
         self.assertEqual(self.responses[-2][1]['requests'][0]['request_id'], self.responses[-1][1]['requests'][0]['request_id'])
 

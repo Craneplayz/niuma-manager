@@ -48,6 +48,7 @@ export interface ScrapeOptions {
   asOf?: DateTime;
   executablePath?: string;
   allSections?: boolean;
+  teachingSections?: boolean;
 }
 
 export interface AnchorInfo {
@@ -65,6 +66,7 @@ interface CourseLink {
   entryText: string;
   name: string;
   href: string;
+  termLabel?: string;
 }
 
 /**
@@ -121,16 +123,18 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       await navigateCoursePage(page, course.href);
       await page.waitForTimeout(700);
       const coursePageUrl = page.url();
-      const plan = planCourseCollection(course.name, await collectAnchors(page), options.allSections ?? false);
+      const firstSource = sources.length;
+      const plan = planCourseCollection(course.name, await collectAnchors(page), options.allSections ?? false, options.teachingSections ?? false);
       coverageWarnings.push(...plan.warnings);
       if (plan.collectAnnouncements) {
-        sources.push(...extractCourseSourcesFromHtml(await page.content(), {
+        const landingSources = extractCourseSourcesFromHtml(await page.content(), {
           course: course.name,
           courseEntry: { text: course.entryText, url: course.href },
           section: "课程通知",
           sourceUrl: coursePageUrl,
           collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
-        }));
+        });
+        sources.push(...(options.teachingSections ? landingSources.filter(source => source.kind === "announcement") : landingSources));
       }
 
       for (const section of plan.sections) {
@@ -145,6 +149,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
           collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
         }));
       }
+      for (const source of sources.slice(firstSource)) source.course_term_label = course.termLabel;
     }
 
     const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
@@ -318,16 +323,18 @@ function discoverCourses(anchors: AnchorInfo[], term: string | null): CourseLink
     if (url.origin !== PKU_ORIGIN || !url.pathname.endsWith("/launcher") || !url.searchParams.has("id") || !url.searchParams.has("url")) continue;
     if (term && !anchor.text.includes(term)) continue;
     const name = anchor.text.replace(/^[^:]+:\s*/, "");
-    if (name && !courses.has(anchor.href)) courses.set(anchor.href, { name, href: anchor.href, entryText: anchor.text });
+    if (name && !courses.has(anchor.href)) courses.set(anchor.href, { name, href: anchor.href, entryText: anchor.text, termLabel: anchor.text.match(/\d{2}(?:\d{2})?-\d{2}(?:\d{2})?学年第[12]学期/)?.[0] });
   }
   return [...courses.values()];
 }
 
-function discoverSections(anchors: AnchorInfo[]): AnchorInfo[] {
+function discoverSections(anchors: AnchorInfo[], includeAnnouncements = false): AnchorInfo[] {
   const sections = new Map<string, AnchorInfo>();
   for (const anchor of anchors) {
     const url = new URL(anchor.href, PKU_ORIGIN);
-    if (url.origin !== PKU_ORIGIN || !SECTION_PATH_PATTERN.test(url.pathname)) continue;
+    const announcement = includeAnnouncements && /通知|公告|\bannouncements?\b/i.test(anchor.text)
+      && /\/webapps\/(?:blackboard|announcement)\/execute\/announcement$/i.test(url.pathname);
+    if (url.origin !== PKU_ORIGIN || !(SECTION_PATH_PATTERN.test(url.pathname) || announcement)) continue;
     if (!sections.has(anchor.href)) sections.set(anchor.href, anchor);
   }
   return [...sections.values()];
@@ -338,12 +345,12 @@ function isAssignmentSection(text: string): boolean {
 }
 
 /** Decide which pages a course crawl may open before any section navigation occurs. */
-export function planCourseCollection(courseName: string, anchors: AnchorInfo[], allSections = false): CourseCollectionPlan {
-  const available = discoverSections(anchors);
+export function planCourseCollection(courseName: string, anchors: AnchorInfo[], allSections = false, teachingSections = false): CourseCollectionPlan {
+  const available = discoverSections(anchors, teachingSections);
   const assignments = available.filter((section) => isAssignmentSection(section.text));
   return {
-    collectAnnouncements: allSections,
-    sections: allSections ? available : assignments,
+    collectAnnouncements: allSections || teachingSections,
+    sections: allSections ? available : teachingSections ? available.filter((section) => isAssignmentSection(section.text) || /教学内容|课程通知|公告|\bannouncements?\b|\bcourse content\b/i.test(section.text)) : assignments,
     warnings: assignments.length ? [] : [`No assignment section was found for course "${courseName}".`],
   };
 }

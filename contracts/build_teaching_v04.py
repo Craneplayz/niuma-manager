@@ -56,8 +56,18 @@ def schemas():
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--check',action='store_true')
     args=parser.parse_args()
-    for name,value in schemas().items():
-        path=ROOT/f'schemas/teaching-{name}-v0.4.schema.json'
+    outputs = {f'teaching-{name}-v0.4.schema.json': value for name,value in schemas().items()}
+    request = deepcopy(schemas()['request']); defs = request.pop('$defs'); request.pop('$schema')
+    request['properties']['records'].update(minItems=1, maxItems=1)
+    ident = deepcopy(POLICY['properties']['record']['properties']['input_id'])
+    assignment = obj(dict(course_id=ident, content_id=ident,
+        state=dict(enum=['submitted','active','unknown']),
+        basis=dict(enum=['review_submission_history_title','active_assignment_page','unknown'])))
+    outputs['teaching-capture-v0.1.schema.json'] = dict(obj(dict(
+        contract_version=dict(const='teaching-capture/0.1'), request=request, assignment=nullable(assignment))),
+        **{'$schema': POLICY['$schema'], '$defs': defs})
+    for name,value in outputs.items():
+        path=ROOT/'schemas'/name
         text=json.dumps(value,ensure_ascii=False,indent=2)+'\n'
         if args.check:
             if path.read_text(encoding='utf-8')!=text:raise SystemExit('Schema needs regeneration: '+str(path))

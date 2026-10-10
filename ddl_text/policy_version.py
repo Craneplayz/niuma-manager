@@ -78,5 +78,7 @@ def text_policy_manifest(settings: Settings, *, provider: str, contract_version=
                        timeout_seconds=float(settings.timeout_seconds), max_retries=settings.max_retries,
                        deployment_revision=_label(deployment_revision) if deployment_revision is not None else None),
         runtime=dict(python=platform.python_version(), system=platform.system(), tzdata=timezone_version))
+    if settings.thinking_mode is not None:
+        manifest['execution']['thinking_mode'] = settings.thinking_mode
     digest = hashlib.sha256(_canonical(manifest)).hexdigest()
     return dict(version='text-policy-v1:' + digest, **manifest)

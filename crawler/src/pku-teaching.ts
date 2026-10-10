@@ -105,3 +105,23 @@ export function toTeachingRequests(sources: CourseSourceRecord[], requestId = `p
   if (batch.records.length) requests.push(batch);
   return { requests, skipped };
 }
+
+
+/** Acceptance adapter: preserve #127 separated evidence in the controlled #139 envelope. */
+export function toTeachingCaptures(sources: CourseSourceRecord[], requestId = `pku:${randomUUID()}`) {
+  return sources.map((source, index) => {
+    const output = toTeachingRequests([source], `${requestId}:${index}`);
+    if (output.skipped.length || output.requests.length !== 1) throw new Error("teaching capture export rejected");
+    const request = output.requests[0];
+    const record = request.records[0].record;
+    const native = source.references.find(ref => ref.kind === "detail" && ref.url.includes("/webapps/assignment/"));
+    const url = native ? new URL(native.url) : null;
+    const bound = source.kind === "assignment" && source.assignment && url
+      && url.searchParams.get("course_id") === record.course_id
+      && url.searchParams.get("content_id") === record.source_item_id;
+    const state = source.assignment?.state;
+    const basis = state === "submitted" ? "review_submission_history_title" : state === "active" ? "active_assignment_page" : "unknown";
+    return { contract_version: "teaching-capture/0.1", request, assignment: bound
+      ? { course_id: record.course_id, content_id: record.source_item_id, state, basis } : null };
+  });
+}

@@ -40,6 +40,31 @@ function page(html: string, destination = detailUrl) {
 }
 
 describe("Blackboard assignment detail parsing", () => {
+  it("reads the Learn uploadAssignmentFormId teacher step and aria-bound date without private steps", () => {
+    const html = `<span id="pageTitleText">上载作业： 合成书面作业</span>
+      <form id="uploadAssignmentFormId"><input value="SYNTHETIC_PRIVATE_TOKEN"><div id="dataCollectionContainer">
+      <div id="step1"><h3>作业信息</h3><div class="metaSection">
+        <div class="metaLabel" id="assignMeta2">到期日期</div>
+        <div class="metaField" aria-describedby="assignMeta2">2026年10月25日 星期日<span class="metaSubInfo">下午11:59</span></div>
+      </div><div class="metaSection"><div class="metaLabel">满分</div><div class="metaField">100</div></div>
+      <div id="stepcontent1"><ol><li id="instructions"><div class="field"><div class="vtbegenerated">请提交合成练习 PDF。</div></div></li></ol></div></div>
+      <div id="step2"><div class="vtbegenerated">SYNTHETIC_PRIVATE_DRAFT</div><a href="/private.txt">私人文件</a></div>
+      <div id="step3">SYNTHETIC_PRIVATE_COMMENT</div></div></form>`;
+    const parsed = parseAssignmentDetailHtml(html, detailUrl);
+    expect(parsed).toEqual({state: "active", title: "合成书面作业", description: "请提交合成练习 PDF。", due_raw: "2026年10月25日 星期日 下午11:59"});
+    expect(JSON.stringify(parsed)).not.toContain("SYNTHETIC_PRIVATE");
+    const enriched = enrichAssignmentSource(source(), detailUrl, parsed);
+    expect(enriched.body).toContain("到期日期：2026年10月25日 星期日 下午11:59");
+    expect(enriched.references[0].read_status).toBe("complete");
+  });
+
+  it("does not read an aria-bound value for a different metadata label", () => {
+    const html = `<h1>Upload Assignment: synthetic</h1><div id="assignmentInfo"><div class="metaSection">
+      <div class="metaLabel" id="due">Due Date</div><div class="metaField" aria-describedby="points">100</div></div></div>`;
+    expect(parseAssignmentDetailHtml(html).due_raw).toBeNull();
+    expect(parseAssignmentDetailHtml(html).due_unread).toBe(true);
+  });
+
   it("reads the Chinese assignment-information block but not the submission form", async () => {
     const detail = parseAssignmentDetailHtml(await fixture("active-zh.html"));
     expect(detail).toEqual({

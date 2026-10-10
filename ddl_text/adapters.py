@@ -7,10 +7,22 @@ from typing import Protocol
 from .config import Settings
 
 
+# Only fixed labels may cross the worker boundary, never provider/validator text.
+OUTPUT_DIAGNOSTICS = {
+    'output_truncated': '模型输出达到长度上限，尚未生成完整结果，请重试。',
+    'provider_response': '模型服务返回的响应不完整或格式异常，请重试。',
+    'draft_json': '模型没有返回有效的任务 JSON，请重试。',
+    'draft_schema': '模型返回的任务字段或日期格式不符合约定，请重试。',
+    'draft_evidence': '模型引用未能在已读取原文中找到，结果未采纳，请重试。',
+    'draft_semantics': '模型返回的日期、引用关系或字段相互矛盾，请重试。',
+}
+
+
 class AgentError(Exception):
-    def __init__(self, code="agent_unavailable", retryable=False):
+    def __init__(self, code="agent_unavailable", retryable=False, diagnostic=None):
         self.code = code
         self.retryable = retryable
+        self.diagnostic = diagnostic if isinstance(diagnostic, str) and diagnostic in OUTPUT_DIAGNOSTICS else None
         super().__init__(code)
 
 

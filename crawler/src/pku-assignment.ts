@@ -100,6 +100,14 @@ function readDueNodes($: CheerioAPI, nodes: AnyNode[], tableCell = false) {
 }
 
 function dueValueFromLabel($: CheerioAPI, label: Cheerio<AnyNode>): string | null {
+  // Blackboard Learn binds this sibling value to its label via aria-describedby.
+  // .metaField is a value here, whereas older layouts use it as the whole row.
+  const boundValue = label.next();
+  const labelId = label.attr("id");
+  if (label.is(".metaLabel") && label.parent().is(".metaSection") && labelId
+    && boundValue.is(".metaField") && boundValue.attr("aria-describedby")?.split(/\s+/).includes(labelId)) {
+    return readDueNodes($, boundValue.contents().toArray()).value;
+  }
   // An exact own-text label may also contain its value, e.g. <td>Due Date<span>...</span></td>.
   const contents = label.contents().toArray();
   const lastLabelText = contents.reduce((last, node, index) => node.type === "text" && normalize($(node).text()) ? index : last, -1);
@@ -150,7 +158,8 @@ function assignmentDescription($: CheerioAPI, baseUrl: string) {
 export function parseAssignmentDetailHtml(html: string, baseUrl = PKU_ORIGIN): AssignmentDetail {
   const raw = load(html);
   const $ = load(cloneTeacherContent(raw, raw("body"), true).html() ?? "");
-  $("form#uploadAssignmentForm").each((_i, node) => { $(node).replaceWith($(node).contents()); });
+  $("form#uploadAssignmentForm #step1, form#uploadAssignmentFormId #step1").attr("data-role", "assignment-info");
+  $("form#uploadAssignmentForm, form#uploadAssignmentFormId").each((_i, node) => { $(node).replaceWith($(node).contents()); });
   const headings = headingTexts($);
   const submittedHeading = headingTexts($, `${DESCRIPTION_SELECTORS}, ${ASSIGNMENT_INFO}, #content_listContainer, #announcementList`)
     .find((heading) => SUBMITTED_HEADING.test(heading));

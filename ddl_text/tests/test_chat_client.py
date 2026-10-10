@@ -126,6 +126,18 @@ class ChatClientTests(unittest.TestCase):
                 self.generate()
             self.assertEqual(caught.exception.code, 'invalid_agent_output')
 
+    def test_thinking_is_explicit_opt_in_and_truncation_is_diagnosable(self):
+        from dataclasses import replace
+        self.client.complete_json('rules','{}',replace(self.settings,thinking_mode='disabled'))
+        self.assertEqual(self.calls[-1][2]['thinking'],{'type':'disabled'})
+        self.generate()
+        self.assertNotIn('thinking',self.calls[-1][2])
+        self.reply={'choices':[{'finish_reason':'length','message':{'content':'','reasoning_content':'private reasoning'}}]}
+        with self.assertRaises(AgentError) as caught:self.generate()
+        self.assertEqual(caught.exception.diagnostic,'output_truncated')
+        self.assertTrue(caught.exception.retryable)
+        self.assertNotIn('private',str(caught.exception))
+
     def test_missing_key_never_calls_network_and_timeout_is_classified(self):
         with patch('ddl_text.chat_client.build_opener') as opener:
             with self.assertRaises(AgentError):
