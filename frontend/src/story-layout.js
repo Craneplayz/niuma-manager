@@ -2,8 +2,8 @@ import {icon} from './icons.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const chapters=[
- {title:'接住信息',hint:'通知导入',route:'agent',pages:['agent']},
  {title:'看清事情',hint:'任务 · AI 拆解',route:'tasks',pages:['tasks','decompose','trash','book']},
+ {title:'接住信息',hint:'通知导入',route:'agent',pages:['agent']},
  {title:'腾出时间',hint:'规划 · 日历',route:'plan',pages:['plan','calendar']},
 ];
 const sections={
@@ -22,17 +22,18 @@ const stories={
 };
 
 export function pageIntro(page,actions=''){
- const story=stories[page]||stories.agent;
- return `<header class="story-intro"><div class="story-intro-copy"><span class="story-kicker">${story.kicker}</span><h1>${story.title.map(esc).join('<br>')}</h1><p>${esc(story.lead)}</p></div>${actions?`<div class="story-intro-actions">${actions}</div>`:''}</header>`;
+ const story=stories[page]||stories.tasks;
+ const titles={tasks:'任务中心',agent:'通知导入',decompose:'AI 任务拆解',plan:'智能规划',calendar:'学习日程',book:'课程与资料',trash:'回收站',settings:'账号与设置'};
+ return `<header class="story-intro"><div class="story-intro-copy"><span class="story-kicker">${story.kicker}</span><h1>${esc(titles[page]||'任务中心')}</h1><p>${esc(story.lead)}</p></div>${actions?`<div class="story-intro-actions">${actions}</div>`:''}</header>`;
 }
 
 export function storyShell({page,user,saveLabel,saveAlert,content,focus=''}){
  const chapter=chapters.find(item=>item.pages.includes(page));
  const local=chapter?.route==='tasks'?sections.tasks:chapter?.route==='plan'?sections.plan:[];
  const day=new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'long',day:'numeric',weekday:'long'}).format(new Date());
- return `<div class="story-shell" data-page="${esc(page)}"><header class="topbar story-masthead"><a href="#agent" class="story-brand" aria-label="牛马管理器，通知导入">牛马<span>管理器</span><i aria-hidden="true"></i></a><div class="story-tools"><button class="icon-btn" data-experience="search" aria-label="搜索任务与页面">${icon('search')}</button><button class="icon-btn" data-experience="focus" aria-label="打开专注计时">${icon('clock')}</button><button class="icon-btn notification" data-action="notifications" aria-label="查看到期提醒">${icon('bell')}</button>${user?`<a class="story-account" href="#settings" aria-label="${esc(user.display_name)}，账号与数据"><span class="avatar">${esc(user.display_name?.slice(0,1)||'我')}</span><span>${esc(user.display_name)}</span></a>`:'<button class="btn" data-action="login">登录 / 注册</button>'}<a class="icon-btn" href="#settings" aria-label="账号、通知来源与数据设置">${icon('settings')}</a></div></header>
- <nav class="story-chapters" aria-label="学习旅程">${chapters.map(item=>`<a href="#${item.route}" class="story-chapter ${chapter===item?'selected':''}" ${chapter===item?'aria-current="true"':''}><span>${item.title}<small>${item.hint}</small></span></a>`).join('<span class="story-chapter-line" aria-hidden="true"></span>')}<div class="story-day">${esc(day)}<span id="save-status">${esc(saveLabel)}</span></div></nav>
+ return `<div class="story-shell" data-page="${esc(page)}"><div class="story-header"><header class="topbar story-masthead"><a href="#tasks" class="story-brand" aria-label="牛马管理器，任务中心">牛马<span>管理器</span><i aria-hidden="true"></i></a><div class="story-tools"><button class="icon-btn" data-experience="search" aria-label="搜索任务与页面">${icon('search')}</button><button class="icon-btn" data-experience="focus" aria-label="打开专注计时">${icon('clock')}</button><button class="icon-btn notification" data-action="notifications" aria-label="查看到期提醒">${icon('bell')}</button>${user?`<a class="story-account" href="#settings" aria-label="${esc(user.display_name)}，账号与数据"><span class="avatar">${esc(user.display_name?.slice(0,1)||'我')}</span><span>${esc(user.display_name)}</span></a>`:'<button class="btn" data-action="login">登录 / 注册</button>'}<a class="icon-btn" href="#settings" aria-label="账号、通知来源与数据设置">${icon('settings')}</a></div></header>
+ <nav class="story-chapters" aria-label="学习旅程">${chapters.map(item=>`<a href="#${item.route}" class="story-chapter ${chapter===item?'selected':''}" ${chapter===item?'aria-current="true"':''}>${chapter===item?'<i class="story-nav-marker" aria-hidden="true"></i>':''}<span>${item.title}<small>${item.hint}</small></span></a>`).join('<span class="story-chapter-line" aria-hidden="true"></span>')}<div class="story-day">${esc(day)}<span id="save-status">${esc(saveLabel)}</span></div></nav>
  ${local.length?`<nav class="story-section-nav" aria-label="本章节功能">${local.map(([id,label])=>`<a href="#${id}" ${page===id?'class="selected" aria-current="page"':''}>${label}</a>`).join('')}</nav>`:''}
- <main class="story-main"><div class="content"><div id="save-alert">${saveAlert}</div>${content}</div></main>
- <footer class="story-footer"><span>${chapter?['散落的信息 → 一件清楚的事','一件清楚的事 → 几个能开始的步骤','几个小步骤 → 日历里的真实时间'][chapters.indexOf(chapter)]:'照顾好今天，也留一点时间给自己。'}</span><div><a href="#book">课程与资料</a><a href="#settings">账号与来源</a><button data-action="notifications">到期提醒</button><button data-action="calendar-export">导出日历</button><button data-action="export">数据备份</button></div></footer>${focus}</div>`;
+ </div><main class="story-main"><div class="content"><div id="save-alert">${saveAlert}</div>${content}</div></main>
+ <footer class="story-footer"><span>${chapter?({agent:'散落的信息 → 一件清楚的事',tasks:'一件清楚的事 → 几个能开始的步骤',plan:'几个小步骤 → 日历里的真实时间'})[chapter.route]:'照顾好今天，也留一点时间给自己。'}</span><div><a href="#book">课程与资料</a><a href="#settings">账号与来源</a><button data-action="notifications">到期提醒</button><button data-action="calendar-export">导出日历</button><button data-action="export">数据备份</button></div></footer>${focus}</div>`;
 }

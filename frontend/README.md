@@ -17,6 +17,11 @@ frontend/
 ├── vite.config.ts             配置开发端口与 API 代理。
 ├── src/
 │   ├── app.js                 组织页面、路由与主要交互。
+│   ├── import-journey.js      追踪本次导入、历史批次分组、上下滑动吸附与任务高亮交接。
+│   ├── review-motion.js       在审核创建成功后将候选信封送往任务章节。
+│   ├── task-drawer.js         管理任务抽屉、返回焦点与保存提示。
+│   ├── view-motion.js         提供页面、导入和日历切换过渡。
+│   ├── interaction-motion.js / interaction-motion.css 提供列表过渡、操作反馈与 AI 等待状态。
 │   ├── story-layout.js        组织叙事导航与页面标题。
 │   ├── story.css              在原样式之后加载叙事布局、移动端与深色主题。
 │   ├── store.js               导出统一的状态访问接口。
