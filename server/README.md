@@ -14,6 +14,8 @@ server/
 ├── requirements-test.txt     安装完整业务测试及共享附件读取依赖。
 ├── text_contract.py          文本识别结果的服务端契约校验。
 ├── test_api.py               账号与业务 API 测试。
+├── test_deployment.py        公网来源、HTTPS Cookie、健康检查与本机兼容测试。
+├── deploy/                   Docker 全栈、HTTPS 代理与持久数据部署配置。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。
 ├── test_recognition_runtime.py  直调识别、Windows 子进程、HTTP 回退与并发限制测试。
@@ -25,6 +27,7 @@ server/
 ```
 
 在 `frontend/` 运行 `npm run dev:api` 启动业务 API，另开终端运行 `npm run dev`；识别和规划默认都由业务 API 直接调用，不必启动 1333/1334。
+Docker 公网部署使用 [部署说明](deploy/README.md)，`NIUMA_HOST` 设置容器监听地址，`NIUMA_ALLOWED_ORIGINS` 指定允许的完整来源，`NIUMA_COOKIE_SECURE=1` 仅经 HTTPS 发送会话；未设置时保留 localhost:1331 的本机行为。
 文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取仓库根目录 `.env` 的模型配置，无需启动 1333；已有环境变量优先于 `.env`。
 在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
 后端同一进程只允许一个识别请求执行，跨账号和两种调用方式共用锁，忙碌返回 503；模型配置缺失返回 503，不影响登录、工作区和协议演示。

@@ -77,6 +77,14 @@ class ApiError(Exception):
     def __init__(self, status, message):
         self.status, self.message = status, message
 
+def allowed_origins():
+    configured=os.environ.get('NIUMA_ALLOWED_ORIGINS')
+    return configured.split() if configured is not None else ['http://localhost:1331','http://127.0.0.1:1331']
+
+def session_cookie(token, max_age):
+    secure='; Secure' if os.environ.get('NIUMA_COOKIE_SECURE')=='1' else ''
+    return 'niuma_session='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age='+str(max_age)+secure
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, value, cookie=None):
         data=b'' if status==204 else json.dumps(value,ensure_ascii=False).encode()
@@ -118,13 +126,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def route(self):
         origin=self.headers.get('Origin')
-        if self.command!='GET' and origin and origin not in ['http://localhost:1331','http://127.0.0.1:1331']:
+        if self.command!='GET' and origin and origin not in allowed_origins():
             raise ApiError(403,'不允许的请求来源')
         path=self.path.split('?')[0]
         body=self.body() if self.command in ['POST','PUT','DELETE'] and not (path=='/api/sources/wechat/assets' and self.headers.get('Content-Type','').startswith('multipart/form-data;')) else {}
         with connection() as db:
             self.db=db
             self.media_db_path=DB
+            if path=='/api/health' and self.command=='GET':
+                db.execute('SELECT 1')
+                return self.reply(200,dict(status='ok'))
             if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
@@ -142,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
                 token=secrets.token_urlsafe(32)
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
-                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),'niuma_session='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age=86400')
+                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400))
             bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
             if bearer:
                 uid,token,user=bearer,None,None
@@ -157,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
-                return self.reply(200,{},'niuma_session=; HttpOnly; SameSite=Strict; Path=/api; Max-Age=0')
+                return self.reply(200,{},session_cookie('',0))
             if path=='/api/auth/profile' and self.command=='POST':
                 name=str(body.get('name','')).strip()
                 if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
@@ -361,7 +372,8 @@ if __name__=='__main__':
     import sys
     if '--seed' in sys.argv: seed()
     else:
-        with ThreadingHTTPServer(('127.0.0.1',1332),Handler) as server:
+        host=os.environ.get('NIUMA_HOST','127.0.0.1')
+        with ThreadingHTTPServer((host,1332),Handler) as server:
             initialize()
-            print('牛马管理器 API: http://127.0.0.1:1332',flush=True)
+            print('牛马管理器 API: http://'+host+':1332',flush=True)
             server.serve_forever()
