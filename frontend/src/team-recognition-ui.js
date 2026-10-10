@@ -21,7 +21,7 @@ window.addEventListener('niuma:account-reset',resetAssistant);
 let candidateRevision=0;
 window.addEventListener('niuma:recognition-changed',()=>{candidateRevision++;batches=[];loaded=false;refresh();});
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
-const refresh=()=>{enterReviewOnResult();if(['#agent','#settings','#sources'].includes(location.hash))host.render();if(location.hash==='#agent')queueMicrotask(advanceJourney);};
+const refresh=()=>{if(journey.phase==='done'&&journey.snapshot(batches).pending)journey.phase='review';enterReviewOnResult();if(['#agent','#settings','#sources'].includes(location.hash))host.render();if(location.hash==='#agent')queueMicrotask(advanceJourney);};
 function enterReviewOnResult(){
  if(reviewEntered||journey.phase!=='importing'||location.hash!=='#agent'||!journey.items(batches).length)return;
  reviewEntered=true;queueMicrotask(scrollToReview);

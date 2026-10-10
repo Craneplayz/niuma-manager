@@ -549,3 +549,33 @@ test('quick confirmation of an external candidate opens planning only for eligib
  await recognition.handleAssistantClick({dataset:{agentConfirm:item.id}});
  assert.deepEqual(planned,[['eligible']]);
 });
+
+
+test('reopening an ignored candidate after completion restores current review controls',async()=>{
+ recognition.resetAssistant();session.user={id:'completed-restore'};location.hash='#agent';
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ let batch;
+ recognition.configureAssistant({render(){},getState:()=>({tasks:[]}),showImportedTasks(){}});
+ globalThis.fetch=async(path,options={})=>{
+  const reply=value=>({ok:true,json:async()=>structuredClone(value)});
+  if(path==='/api/recognition/imports')return reply({saved:true});
+  if(path==='/api/recognition/batches'){
+   const body=JSON.parse(options.body);
+   batch={request:body,result:{status:'success',record_results:[],errors:[]},items:[{id:'restore-after-done',state:'pending',version:1,candidate:{...fixture.expected.tasks[0],input_id:body.records[0].input_id}}]};
+   return reply([batch]);
+  }
+  assert.equal(path,'/api/recognition/candidates/restore-after-done/resolve');
+  const body=JSON.parse(options.body);assert.equal(body.version,batch.items[0].version);
+  batch.items[0].state=body.action==='ignore'?'ignored':'pending';batch.items[0].version++;
+  return reply({batches:[batch]});
+ };
+ await recognition.submitRecognitionText('提交实验报告');await new Promise(resolve=>setImmediate(resolve));
+ for(let cycle=0;cycle<2;cycle++){
+  await recognition.handleAssistantClick({dataset:{agentIgnore:'restore-after-done'}});await new Promise(resolve=>setImmediate(resolve));
+  assert.match(recognition.assistantPage(),/本次核对已完成/);
+  await recognition.handleAssistantClick({dataset:{agentRestore:'restore-after-done'}});await new Promise(resolve=>setImmediate(resolve));
+  const html=recognition.assistantPage();
+  assert.match(html,/data-agent-confirm="restore-after-done"/);
+  assert.match(html,/本次导入 <span>1/);assert.doesNotMatch(html,/本次核对已完成/);
+ }
+});
