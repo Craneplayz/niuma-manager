@@ -201,7 +201,7 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
       const missing = warnings.indexOf("listing body is missing; only the title was collected");
       if (missing >= 0) warnings.splice(missing, 1);
     }
-    results.push({ ...source, teacher_body: source.teacher_body ?? source.body, body, references, warnings, text_quality: !body ? source.text_quality : unread || (source.text_quality === "partial" && !source.references.some((ref) => !ref.content_read)) ? "partial" : "complete" });
+    results.push({ ...source, body, references, warnings, text_quality: !body ? source.text_quality : unread || (source.text_quality === "partial" && !source.references.some((ref) => !ref.content_read)) ? "partial" : "complete" });
   }
   return results;
 }

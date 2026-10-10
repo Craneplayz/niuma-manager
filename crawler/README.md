@@ -23,7 +23,8 @@ crawler/
 │   ├── pku-homework.ts               登录并采集课程内容
 │   ├── pku-attachments.ts            限定同源教师附件下载，在独立进程提取 PDF / UTF-8 文本
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
-│   ├── pku-teaching.ts               导出 #124 正式 v0.4 请求，隔离无法表达的记录
+│   ├── pku-teaching-evidence.ts      严格导出独立正文与附件证据，报告无法表达的记录
+│   ├── pku-teaching.ts               为受控同步包装 v0.4 证据、学期上下文与原生提交状态
 │   ├── pku-recognition.ts            转换课程记录为识别请求
 │   ├── pku-source.ts                 解析课程页面和来源记录
 │   ├── adapters/                     各公开来源的发现与解析规则
@@ -59,7 +60,8 @@ crawler/
 │   ├── pku-navigation.test.ts         测试课程页面导航
 │   ├── pku-recognition.test.ts        测试识别请求转换
 │   ├── pku-provenance.test.ts         测试课程入口证据和快照版本
-│   ├── pku-teaching.test.ts           测试独立正文、引用与 v0.4 契约交接
+│   ├── pku-teaching-evidence.test.ts 测试独立正文、引用与 v0.4 契约交接
+│   ├── pku-teaching.test.ts           测试受控同步、学期与原生提交状态交接
 │   ├── pku-source.test.ts             测试课程来源记录
 │   ├── review-report.test.ts          测试审阅网页生成
 │   ├── time-filter.test.ts            测试未来事件筛选
@@ -143,3 +145,5 @@ New sources additionally export `teaching-body-v1` body evidence. Native teacher
 Run `pnpm pku:homework -- --format=teaching-v04 --all-sections` to collect and export #124's v0.4 JSONL requests without calling a model or saving results. Each request contains at most 20 records and 2,000,000 UTF-8 bytes; each record's combined body/metadata/reference evidence stays within 100,000 characters. Records lacking stable course/item IDs, separate body evidence, or valid read facts are reported as `teaching_export_skipped` on stderr; other records continue and exit code 2 signals an incomplete export. Raw collection remains available with `--format=raw`.
 
 The producer uses `contracts/schemas/teaching-request-v0.4.schema.json`, copied unchanged from #124 head `6312dca`; shared source cases replay both v0.2 and v0.4 output and Python semantic validation. It emits `course_term=null` until platform evidence provides actual semester dates and assignment applicability, and never emits a trust flag. The consumer must verify its account-bound full entry and compute the v0.4 entry digest separately. Old snapshots without separated body evidence are not upgraded by stripping attachment text or relabeling completeness.
+
+`--format=teaching-v04` keeps the strict #127 evidence export and partial-export exit 2 behavior. `--format=teaching` selects teaching sections and emits one v0.4 request per source; `--format=teaching-capture` wraps the same verified evidence with bound native assignment state for the server. Both integration formats fail explicitly on invalid evidence or duplicate identities; course labels never replace body/attachment evidence.

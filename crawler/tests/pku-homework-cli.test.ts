@@ -24,7 +24,8 @@ async function run(args: string[]) {
 
 describe("campus source export CLI", () => {
   it("explicit teaching format selects the integration collection scope", async () => {
-    scrape.mockResolvedValue({source_records:sources,records:[],upcoming:[]});
+    const teachingSources = extractCourseSourcesFromHtml('<ul id="content_listContainer"><li id="a"><div class="item"><h3>教材</h3></div><div class="details">请提前阅读</div></li></ul>', { course: "Synthetic", section: "资料", sourceUrl: "https://course.pku.edu.cn/list?course_id=c1", collectedAt: "2026-09-26T09:00:00+08:00" });
+    scrape.mockResolvedValue({source_records:teachingSources,records:[],upcoming:[]});
     const {log,error}=await run(['--format=teaching','--request-id=teaching-cli']);
     const result=JSON.parse(log.mock.calls[0][0]);
     expect(result.contract_version).toBe('0.4');

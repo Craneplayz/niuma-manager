@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { enrichSourceAttachments, extractAttachmentText, isTeacherAttachmentUrl, MAX_ATTACHMENT_BYTES } from "../src/pku-attachments.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { enrichAssignmentSource, parseAssignmentDetailHtml } from "../src/pku-assignment.js";
-import { toTeachingRequests } from "../src/pku-teaching.js";
+import { toTeachingRequests } from "../src/pku-teaching-evidence.js";
 import { toRecognitionRequests } from "../src/pku-recognition.js";
 
 const url = "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-content-rid-2/HW1.txt";

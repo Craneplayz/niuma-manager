@@ -1,108 +1,95 @@
-import { describe, expect, it, vi } from "vitest";
-import { readFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { toTeachingRequests, toTeachingCaptures } from "../src/pku-teaching.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
-import { enrichAssignmentSource, enrichAssignmentSources, parseAssignmentDetailHtml } from "../src/pku-assignment.js";
-import { enrichSourceAttachments } from "../src/pku-attachments.js";
-import { toTeachingRequests } from "../src/pku-teaching.js";
-const base = "https://course.pku.edu.cn";
-const detailUrl = `${base}/webapps/assignment/uploadAssignment?course_id=c1&content_id=hw`;
-const txtUrl = `${base}/bbcswebdav/pid-1-dt-content-rid-2/HW.txt`;
-function source(body = "请交报告，截止2026年12月31日。", assignment = false, id = "hw") {
-  return extractCourseSourcesFromHtml(`<ul id="content_listContainer"><li><div class="item" id="${id}"><h3>${assignment ? `<a href="${detailUrl}">作业</a>` : "作业"}</h3></div><div class="details">${body}</div></li></ul>`, {
-    course: "课程", section: "作业", sourceUrl: `${base}/list?course_id=c1`, collectedAt: "2026-10-09T12:00:00+08:00",
-    courseEntry: { text: "26-27学年第1学期：课程", url: `${base}/webapps/blackboard/execute/launcher?id=c1&url=x` },
-  })[0];
-}
-const record = (s: ReturnType<typeof source>) => toTeachingRequests([s]).requests[0].records[0].record;
+import { planCourseCollection } from "../src/pku-homework.js";
 
-describe("teaching v0.4 producer", () => {
-  it("keeps body complete with an unread supplementary attachment and preserves the unknown term", () => {
-    const s = source(`请交报告，截止2026年12月31日。附件供参考。<a href="${txtUrl}">HW.txt</a>`);
-    expect(s.text_quality).toBe("partial");
-    const r = record(s);
-    expect(r.body_status).toBe("complete");
-    expect(r.references[0]).toMatchObject({ read_state: "unread", text: null });
-    expect(r.course_term).toBeNull(); expect(r.published_at).toBeNull();
-    expect(r.source_metadata_text).toBe("26-27学年第1学期：课程");
-    expect(JSON.stringify(r)).not.toContain("source_verified");
+const source = () => extractCourseSourcesFromHtml('<ul id="content_listContainer"><li id="item"><div class="item" id="_1"><h3>作业 2</h3></div><div class="details">10月23日前提交作业。参考资料见附件。<a href="/bbcswebdav/courses/test/extra.pdf">参考.pdf</a></div></li></ul>',
+  { course: "测试课程", section: "课程作业", sourceUrl: "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1", collectedAt: "2026-10-09T10:00:00+08:00" })[0];
+
+describe("native teaching integration", () => {
+  it("uses separated evidence and preserves extracted attachment text only in references", () => {
+    const input=source();input.body+='\n附件：2026年12月20日前提交';
+    input.references[0]={...input.references[0],read_status:'partial',text:'2026年12月20日前提交',reason:'partial_pdf'};
+    const record=toTeachingCaptures([input])[0].request.records[0].record;
+    expect(record.text).not.toContain('2026年12月20日前提交');
+    expect(record.references[0]).toMatchObject({read_state:'partial',text:'2026年12月20日前提交'});
+    expect(record.body_status).toBe('complete');
   });
-  it("does not let attachment text become body evidence or complete a title-only source", async () => {
-    const s = source(`<a href="${txtUrl}">HW.txt</a>`);
-    const original = s.body_evidence!.text;
-    const [enriched] = await enrichSourceAttachments([s], async () => ({ bytes: new TextEncoder().encode("ATTACHMENT_ONLY_ACTION: hand in by 2026-12-31"), contentType: "text/plain" }));
-    const r = record(enriched);
-    expect(enriched.body).toContain("ATTACHMENT_ONLY_ACTION");
-    expect(r.text).toBe(original); expect(r.text).not.toContain("ATTACHMENT_ONLY_ACTION");
-    expect(r.references[0].text).toContain("ATTACHMENT_ONLY_ACTION");
+  it("rejects old or duplicate source identities rather than silently granting trust", () => {
+    const input=source();
+    expect(()=>toTeachingCaptures([input,input])).toThrow(/duplicate_input_id/);
+    const legacy={...input};delete legacy.body_evidence;
+    expect(()=>toTeachingCaptures([legacy])).toThrow(/separated_body_evidence_missing/);
   });
-  it("retains the body gap when only an image or attachment supplied task content", async () => {
-    const s = source(`<img src="/notice.png"><a href="${txtUrl}"></a>`);
-    expect(s.body_evidence!.status).toBe("summary");
-    const [enriched] = await enrichSourceAttachments([s], async () => ({ bytes: new TextEncoder().encode("Submit by 2026-12-31"), contentType: "text/plain" }));
-    expect(record(enriched).body_status).toBe("summary");
+  it("retains sanitized navigation links and rejects metadata beyond the shared budget", () => {
+    const input=source();input.source_url+='&session_token=private#fragment';
+    const url=toTeachingCaptures([input])[0].request.records[0].source.url!;
+    expect(url).not.toContain('session_token');expect(url).not.toContain('#fragment');
+    input.provenance={version:'course-provenance-v1',course_id:'_1',course_entry_url:null,source_metadata_text:'中'.repeat(4096),term_label:null,term_basis:'unknown',applies_to:'unknown'};
+    expect(()=>toTeachingCaptures([input])).toThrow(/aggregate_evidence_too_large/);
   });
-  it("absorbs successfully read native teacher details once, leaving real attachments independent", () => {
-    const s = source("列表摘要", true);
-    const d = parseAssignmentDetailHtml(`<h1>上载作业：报告</h1><div data-assignment-description>DETAIL_ACTION: 请提交报告。<a href="${txtUrl}">补充.txt</a></div><div id="assignmentInfo"><div class="metaField"><span class="label">到期日期</span><span>2026-12-31</span></div></div>`, detailUrl);
-    const r = record(enrichAssignmentSource(s, detailUrl, d));
-    expect(r.text).toContain("DETAIL_ACTION"); expect(r.text).toContain("2026-12-31");
-    expect(r.body_status).toBe("complete");
-    expect(r.references).toHaveLength(1); expect(r.references[0].kind).toBe("attachment");
+  it("projects announcementForm teacher text as complete instead of a heading-only summary", () => {
+    const html='<form id="announcementForm"><ul id="announcementList"><li id="notice"><h3>作业已发布，截止时间为2026-11-17 23:30</h3><div class="details"><div class="vtbegenerated"><p>请同学们按时完成。</p></div></div></li></ul></form>';
+    const input=extractCourseSourcesFromHtml(html, {course:'测试课程',section:'课程通知',sourceUrl:'https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1',collectedAt:'2026-10-09T10:00:00+08:00'})[0];
+    const record=toTeachingRequests([input])[0].records[0].record;
+    expect(record.body_status).toBe('complete');
+    expect(record.text).toContain('请同学们按时完成。');
+    expect(record.text).toContain('2026-11-17 23:30');
+    expect(record.references).toEqual([]);
   });
-  it.each(["unknown", "missing", "bad-date", "overflow"])("preserves incomplete detail %s", (kind) => {
-    const s = source("列表文字", true);
-    const d = kind === "unknown" ? { state: "unknown" as const, title: null, description: "", due_raw: null }
-      : { state: "active" as const, title: "作业", description: kind === "missing" ? "" : kind === "overflow" ? "x".repeat(100_000) : "请提交报告", due_raw: null, ...(kind === "bad-date" ? { due_unread: true } : {}) };
-    const r = record(enrichAssignmentSource(s, detailUrl, d));
-    expect(r.body_status).toBe("partial"); expect(r.references[0].read_state).toBe("failed");
-    expect(r.references[0].text).toBeNull();
+  it("retains submitted state only for a bound native assignment", () => {
+    const input=source();input.kind='assignment';input.assignment={state:'submitted',due_raw:null};
+    input.references.unshift({kind:'detail',label:'作业',url:'https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=_1&content_id=_1',content_read:false,read_status:'partial',reason:'submission_history_only',text:'Review Submission History'});
+    const capture=toTeachingCaptures([input])[0];
+    expect(capture.contract_version).toBe('teaching-capture/0.1');
+    expect(capture.assignment).toEqual({course_id:'_1',content_id:'_1',state:'submitted',basis:'review_submission_history_title'});
+    expect(capture.request.contract_version).toBe('0.4');
+    expect(capture.request.records[0].record).not.toHaveProperty('assignment');
+    for(const kind of ['announcement','content'] as const) expect(toTeachingCaptures([{...input,kind}])[0].assignment).toBeNull();
+    input.references[0].url=input.references[0].url.replace('content_id=_1','content_id=_2');
+    expect(toTeachingCaptures([input])[0].assignment).toBeNull();
   });
-  it("retains failed native detail when the request throws", async () => {
-    const [s] = await enrichAssignmentSources({ goto: vi.fn().mockRejectedValue(new Error("offline")), url: vi.fn(), locator: vi.fn(), content: vi.fn() }, [source("列表文字", true)]);
-    expect(record(s).body_status).toBe("partial"); expect(record(s).references[0].read_state).toBe("failed");
+  it("never infers submitted from teacher text", () => {
+    const input=source();input.body='已提交，请等待批改。';
+    expect(toTeachingCaptures([input])[0].assignment).toBeNull();
   });
-  it("preserves only the safe submission heading as partial reference text", () => {
-    const s = source("列表文字", true);
-    const d = parseAssignmentDetailHtml('<h1>Review Submission History: HW</h1><div class="grade">PRIVATE_GRADE</div><div class="attempt">PRIVATE_ANSWER</div>', detailUrl);
-    const r = record(enrichAssignmentSource(s, detailUrl, d));
-    expect(r.references[0]).toMatchObject({ read_state: "partial", text: "Review Submission History: HW" });
-    expect(r.text).not.toContain("提交状态：已提交"); expect(JSON.stringify(r)).not.toContain("PRIVATE");
+  it("keeps complete body separate from unread and extracted attachments", () => {
+    const input=source(); input.teacher_body=input.body;input.body+='\n附件正文：合成全文';
+    const record=toTeachingRequests([input])[0].records[0].record;
+    expect(record.body_status).toBe('complete');expect(record.text).not.toContain('附件正文');
+    expect(record.references[0].read_state).toBe('unread');expect(record.references[0].text).toBeNull();
   });
-  it("cleans only the display URL while preserving the source snapshot identity", () => {
-    const s = { ...source(), source_url: `${base}/list?course_id=c1&signature=PRIVATE#item` };
-    const output = toTeachingRequests([s]);
-    expect(output.requests[0].records[0].source.url).toBe(`${base}/list?course_id=c1`);
-    expect(output.requests[0].records[0].record.source_item_id).toBe(s.source_item_id);
-    expect(output.requests[0].records[0].record.snapshot_id).not.toBe(record(source()).snapshot_id);
+  it("binds an active native assignment in its observed current term", () => {
+    const input=source();input.course_term_label='26-27学年第1学期';input.assignment={state:'active',due_raw:'10月23日'};
+    expect(toTeachingRequests([input])[0].records[0].record.course_term?.applies_to).toBe('current_assignment');
+    input.collected_at='2028-10-09T10:00:00+08:00';
+    expect(toTeachingRequests([input])[0].records[0].record.course_term?.applies_to).toBe('course_material');
   });
-  it("isolates absent evidence/identity, unread text inconsistency and oversized evidence", () => {
-    const good = source();
-    const bad = [ { ...source("old", false, "old"), body_evidence: undefined }, { ...source("id", false, "id"), source_item_id: null },
-      { ...source("course", false, "course"), source_url: `${base}/list` },
-      { ...source("large", false, "large"), body_evidence: { ...good.body_evidence!, text: "x".repeat(100_001) } },
-      { ...source("ref", false, "ref"), references: [{ label: "ref", url: txtUrl, kind: "attachment" as const, content_read: true, read_status: "complete" as const, reason: null }] } ];
-    const output = toTeachingRequests([...bad, good]);
-    expect(output.skipped).toHaveLength(bad.length); expect(output.requests[0].records).toHaveLength(1);
-    expect(output.requests[0].records[0].record.input_id).toBe(good.input_id);
+  it("binds current-term assignment-section entries even when submission is by email", () => {
+    const input=source();input.course_term_label='26-27学年第1学期';
+    const term=toTeachingRequests([input])[0].records[0].record.course_term;
+    expect(term?.applies_to).toBe('current_assignment');
+    expect(term?.evidence).toContainEqual({part_id:'source_metadata',quote:'栏目：课程作业'});
+    for(const section of ['教学内容','课程通知','历年作业','课程介绍']) {
+      expect(toTeachingRequests([{...input,section}])[0].records[0].record.course_term?.applies_to).toBe('course_material');
+    }
+    for(const state of ['submitted','unknown'] as const) {
+      expect(toTeachingRequests([{...input,assignment:{state,due_raw:null}}])[0].records[0].record.course_term?.applies_to).toBe('course_material');
+    }
   });
-  it("rejects duplicate identities without choosing which snapshot to trust", () => {
-    const a = source(); const output = toTeachingRequests([a, { ...a, body: "different" }]);
-    expect(output.requests).toEqual([]); expect(output.skipped.map((s) => s.reason)).toEqual(["duplicate_input_id", "duplicate_input_id"]);
+  it("selects only the three requested sections and prioritizes across courses", () => {
+    const anchors=['课程作业','课程通知','教学内容','课程介绍'].map((text,i)=>({text,href:`https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?id=${i}`}));
+    expect(planCourseCollection('课程',anchors,false,true).sections.map(s=>s.text)).toEqual(['课程作业','课程通知','教学内容']);
+    const records=['教学内容','课程通知','课程作业'].map((section,index)=>({...source(),input_id:`source:${index}`,section}));
+    expect(toTeachingRequests(records).map(r=>r.records[0].record.source_metadata_text.split("\n")[1])).toEqual(['栏目：课程作业','栏目：课程通知','栏目：教学内容']);
   });
-  it("batches at twenty records and keeps the two-megabyte UTF-8 envelope bound", () => {
-    const many = Array.from({ length: 41 }, (_, i) => source("x", false, `hw${i}`));
-    expect(toTeachingRequests(many, "batch").requests.map((r) => r.records.length)).toEqual([20, 20, 1]);
-    const large = many.slice(0, 10).map((s) => ({ ...s, body_evidence: { ...s.body_evidence!, text: "中".repeat(99_000) } }));
-    const output = toTeachingRequests(large, "bytes");
-    expect(output.skipped).toEqual([]); expect(output.requests.length).toBeGreaterThan(1);
-    expect(output.requests.every((r) => Buffer.byteLength(JSON.stringify(r)) <= 2_000_000)).toBe(true);
+  it("unread native detail remains incomplete even with listing text", () => {
+    const input=source();input.references[0].kind='detail';
+    expect(toTeachingRequests([input])[0].records[0].record.body_status).toBe('partial');
   });
-  it("validates the shared producer examples with the actual Python v0.4 schema and semantic checker", async () => {
-    const fixture = JSON.parse(await readFile(new URL("../../contracts/source-to-text/teaching-source-snapshot-v02-cases.json", import.meta.url), "utf8"));
-    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../../scripts/run-python.mjs", import.meta.url)), "-m", "unittest", "contracts.tests.test_teaching_source_snapshot.TeachingSourceSnapshotTest.test_teaching_v04_exports"], { cwd: new URL("../../", import.meta.url), encoding: "utf8" });
-    expect(result.status, result.stderr).toBe(0);
-    expect(fixture.cases.every((c: { teaching_export: unknown }) => Boolean(c.teaching_export))).toBe(true);
+  it("opens the dedicated announcements route even when it is not the course landing page", () => {
+    const url='https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1&method=search';
+    const plan=planCourseCollection('课程',[{text:'课程通知',href:url},{text:'无关页面',href:'https://example.test/content/listContent.jsp'}],false,true);
+    expect(plan.sections).toEqual([{text:'课程通知',href:url}]);
   });
 });
