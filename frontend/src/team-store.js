@@ -29,7 +29,7 @@ export async function api(path,body,method='POST',options={}){
     ...fetchOptions,signal:controller.signal});
   const data=await response.json();
   if(epoch!==accountEpoch)throw new Error('账号已切换，请重新操作');
-  if(!response.ok){const error=new Error(data.error||'请求失败');error.status=response.status;throw error;}
+  if(!response.ok){const error=new Error(data.error&&typeof data.error==='object'?data.error.message:data.error||data.message||'请求失败');error.status=response.status;throw error;}
   return data;
  }catch(error){
   if(error.name==='AbortError')throw new Error('请求超时，请重试');

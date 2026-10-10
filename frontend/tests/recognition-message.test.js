@@ -46,3 +46,35 @@ test('notification import only shows teaching web after it is selected as a sync
  html=recognition.assistantPage();
  assert.match(html,/data-agent-source-mode="teaching_web"/);
 });
+
+test('source management retains attachment sync and targeted reprocessing',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'integration'};location.hash='#settings';
+ globalThis.fetch=async path=>({ok:true,json:async()=>{
+  if(path==='/api/workspace')return {sources:{value:[],version:1}};
+  if(path.includes('/reprocessing/sources'))return {accounts:[],next_cursor:null};
+  if(path.includes('/reprocessing/runs'))return {runs:[],next_cursor:null};
+  if(path.endsWith('/imports'))return {jobs:[]};
+  return {configured:false};
+ }});
+ recognition.configureAssistant({render(){},refresh:async()=>{}});
+ const html=recognition.sourceManagementPage(true);
+ assert.match(html,/微信附件同步/);
+ assert.match(html,/重新识别已有通知/);
+ assert.match(html,/导入来源文件/);
+ await new Promise(resolve=>setImmediate(resolve));location.hash='#agent';
+});
+
+test('attachment failures retry through attachment management',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'integration'};location.hash='#agent';
+ const paths=[];
+ globalThis.fetch=async path=>{paths.push(path);return {ok:true,json:async()=>{
+  if(path==='/api/recognition/batches')return [{request:{request_id:'attachment-failure',contract_version:'0.3.1',records:[]},result:{status:'failed',record_results:[],errors:[]},items:[],demo:false}];
+  if(path==='/api/workspace')return {sources:{value:[],version:1}};
+  return {configured:false};
+ }};};
+ recognition.configureAssistant({render(){}});recognition.assistantPage();
+ await new Promise(resolve=>setImmediate(resolve));
+ const before=paths.length;
+ await recognition.handleAssistantClick({dataset:{agentRetry:'attachment-failure'}});
+ assert.equal(location.hash,'#settings');assert.equal(paths.length,before);location.hash='#agent';
+});

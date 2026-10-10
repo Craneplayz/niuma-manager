@@ -6,6 +6,16 @@ globalThis.document=new EventTarget();
 globalThis.CustomEvent ||= class extends Event {constructor(type){super(type);}};
 globalThis.location={hash:'#settings'};
 const store=await import('../src/team-store.js');
+test('API errors retain both attachment envelopes and reprocessing messages',async()=>{
+ const originalFetch=globalThis.fetch;
+ try{
+  for(const body of [{error:{message:'附件已撤销'}},{message:'来源快照已更新'},{error:null,message:'来源快照已更新'},{error:'请求无效'}]){
+   globalThis.fetch=async()=>({ok:false,status:409,json:async()=>body});
+   const expected=body.error&&typeof body.error==='object'?body.error.message:body.error||body.message;
+   await assert.rejects(store.api('/api/test'),error=>error.status===409&&error.message===expected);
+  }
+ }finally{globalThis.fetch=originalFetch;}
+});
 const planner=await import('../src/team-planner-ui.js');
 const feedback=await import('../src/team-personalization-ui.js');
 const recognition=await import('../src/team-recognition-ui.js');

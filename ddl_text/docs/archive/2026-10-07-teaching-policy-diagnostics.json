@@ -1,0 +1,314 @@
+{
+  "synthetic_only": true,
+  "scope": "Development failures and test expectation corrections; not final acceptance",
+  "cases": [
+    {
+      "attempt": "initial",
+      "name": "old-publication-keeps-old-year",
+      "record": {
+        "input_id": "synthetic:homework-2",
+        "source_item_id": "synthetic-assignment-2",
+        "course_id": "synthetic-course-1",
+        "snapshot_id": "synthetic-capture-1",
+        "platform": "teaching_web",
+        "text": "第二次作业：完成练习1至3，10月23日截止。",
+        "body_status": "complete",
+        "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+        "references": [],
+        "published_at": {
+          "value": "2023-10-01",
+          "basis": "source"
+        },
+        "collected_at": "2026-10-06T11:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "course_term": null
+      },
+      "source_verified": true,
+      "expected": {
+        "recommendation": "filtered",
+        "value": "2023-10-23"
+      },
+      "passed": false,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成第二次作业（练习1至3）\",\"description\":\"完成练习1至3，10月23日截止。\",\"notice_type\":\"create\",\"target\":null,\"relevance\":{\"state\":\"uncertain\",\"reason\":\"正文明确布置第二次作业，但来源发布时间为2023-10-01，且元数据称2026秋季学期当前布置的作业，时效归属存在冲突。\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"}]},\"assessment\":{\"action\":{\"state\":\"supported\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"}]},\"deadline\":{\"value\":\"2023-10-23\",\"precision\":\"date\",\"derivation\":\"missing_year\",\"anchor\":\"published_at\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"10月23日截止\"}]},\"unread_relations\":[],\"other_review_reasons\":[\"发布时间2023-10-01与元数据标注的2026秋季学期当前作业存在年份/时效冲突。\"]}}]}",
+      "decisions": [
+        {
+          "title": "完成第二次作业（练习1至3）",
+          "description": "完成练习1至3，10月23日截止。",
+          "notice_type": "create",
+          "target": null,
+          "relevance": {
+            "state": "uncertain",
+            "reason": "正文明确布置第二次作业，但来源发布时间为2023-10-01，且元数据称2026秋季学期当前布置的作业，时效归属存在冲突。",
+            "evidence": [
+              {
+                "part_id": "body",
+                "quote": "第二次作业：完成练习1至3，10月23日截止。"
+              }
+            ]
+          },
+          "pair": {
+            "contract_version": "0.4-draft.1",
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "第二次作业：完成练习1至3，10月23日截止。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": {
+                "value": "2023-10-01",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "第二次作业：完成练习1至3，10月23日截止。"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": "2023-10-23",
+                "precision": "date",
+                "derivation": "missing_year",
+                "anchor": "published_at",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "10月23日截止"
+                  }
+                ]
+              },
+              "unread_relations": [],
+              "other_review_reasons": [
+                "发布时间2023-10-01与元数据标注的2026秋季学期当前作业存在年份/时效冲突。"
+              ],
+              "input_id": "synthetic:homework-2",
+              "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7"
+            }
+          },
+          "recommendation": "candidate",
+          "review_codes": [
+            "other_review"
+          ],
+          "review_reasons": [
+            "发布时间2023-10-01与元数据标注的2026秋季学期当前作业存在年份/时效冲突。",
+            "正文明确布置第二次作业，但来源发布时间为2023-10-01，且元数据称2026秋季学期当前布置的作业，时效归属存在冲突。"
+          ],
+          "filter_reason": null
+        }
+      ],
+      "elapsed_seconds": 26.66
+    },
+    {
+      "attempt": "history",
+      "name": "old-publication-keeps-old-year",
+      "record": {
+        "input_id": "synthetic:homework-2",
+        "source_item_id": "synthetic-assignment-2",
+        "course_id": "synthetic-course-1",
+        "snapshot_id": "synthetic-capture-1",
+        "platform": "teaching_web",
+        "text": "第二次作业：完成练习1至3，10月23日截止。",
+        "body_status": "complete",
+        "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+        "references": [],
+        "published_at": {
+          "value": "2023-10-01",
+          "basis": "source"
+        },
+        "collected_at": "2026-10-06T11:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "course_term": null
+      },
+      "source_verified": true,
+      "expected": {
+        "recommendation": "candidate",
+        "value": "2023-10-23"
+      },
+      "passed": false,
+      "model_draft": "{\"tasks\":[{\"title\":\"第二次作业：完成练习1至3\",\"description\":\"完成练习1至3，10月23日截止。\",\"notice_type\":\"create\",\"target\":null,\"relevance\":{\"state\":\"current\",\"reason\":\"正文为第二次作业布置，要求完成练习1至3。\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3\"}]},\"assessment\":{\"action\":{\"state\":\"supported\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3\"}]},\"deadline\":{\"value\":\"2023-10-23\",\"precision\":\"date\",\"derivation\":\"missing_year\",\"anchor\":\"published_at\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"10月23日截止。\"}]},\"unread_relations\":[],\"other_review_reasons\":[]}}]}",
+      "decisions": [
+        {
+          "title": "第二次作业：完成练习1至3",
+          "description": "完成练习1至3，10月23日截止。",
+          "notice_type": "create",
+          "target": null,
+          "relevance": {
+            "state": "current",
+            "reason": "正文为第二次作业布置，要求完成练习1至3。",
+            "evidence": [
+              {
+                "part_id": "body",
+                "quote": "第二次作业：完成练习1至3"
+              }
+            ]
+          },
+          "pair": {
+            "contract_version": "0.4-draft.1",
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "第二次作业：完成练习1至3，10月23日截止。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": {
+                "value": "2023-10-01",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "第二次作业：完成练习1至3"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": "2023-10-23",
+                "precision": "date",
+                "derivation": "missing_year",
+                "anchor": "published_at",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "10月23日截止。"
+                  }
+                ]
+              },
+              "unread_relations": [],
+              "other_review_reasons": [],
+              "input_id": "synthetic:homework-2",
+              "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7"
+            }
+          },
+          "recommendation": "filtered",
+          "review_codes": [],
+          "review_reasons": [],
+          "filter_reason": "截止 2023-10-23 距采集时点已超过 30 天，未见继续执行要求。"
+        }
+      ],
+      "elapsed_seconds": 37.33
+    },
+    {
+      "attempt": "history",
+      "name": "old-publication-without-conflict",
+      "record": {
+        "input_id": "synthetic:homework-2",
+        "source_item_id": "synthetic-assignment-2",
+        "course_id": "synthetic-course-1",
+        "snapshot_id": "synthetic-capture-1",
+        "platform": "teaching_web",
+        "text": "第二次作业：完成练习1至3，10月23日截止。",
+        "body_status": "complete",
+        "source_metadata_text": "2023秋季学期，2023-09-01至2024-01-31；该学期布置的作业。",
+        "references": [],
+        "published_at": {
+          "value": "2023-10-01",
+          "basis": "source"
+        },
+        "collected_at": "2026-10-06T11:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "course_term": null
+      },
+      "source_verified": true,
+      "expected": {
+        "recommendation": "filtered",
+        "value": "2023-10-23"
+      },
+      "passed": false,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成第二次作业（练习1至3）\",\"description\":\"完成第二次作业的练习1至3，截止日期为2023年10月23日。\",\"notice_type\":\"create\",\"target\":null,\"relevance\":{\"state\":\"historical\",\"reason\":\"该作业属于2023秋季学期，截止日期2023-10-23已过去。\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"},{\"part_id\":\"source_metadata_text\",\"quote\":\"2023秋季学期，2023-09-01至2024-01-31；该学期布置的作业。\"}]},\"assessment\":{\"action\":{\"state\":\"supported\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"}]},\"deadline\":{\"value\":\"2023-10-23\",\"precision\":\"date\",\"derivation\":\"missing_year\",\"anchor\":\"published_at\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"10月23日截止\"}]},\"unread_relations\":[],\"other_review_reasons\":[]}}]}",
+      "error_code": "invalid_agent_output",
+      "elapsed_seconds": 17.97
+    },
+    {
+      "attempt": "final",
+      "name": "yearless-current-assignment-term",
+      "record": {
+        "input_id": "synthetic:homework-2",
+        "source_item_id": "synthetic-assignment-2",
+        "course_id": "synthetic-course-1",
+        "snapshot_id": "synthetic-capture-1",
+        "platform": "teaching_web",
+        "text": "第二次作业：完成练习1至3，10月23日截止。",
+        "body_status": "complete",
+        "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+        "references": [],
+        "published_at": null,
+        "collected_at": "2026-10-06T11:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "course_term": {
+          "term_id": "2026-fall",
+          "starts_on": "2026-09-01",
+          "ends_on": "2027-01-31",
+          "applies_to": "current_assignment",
+          "evidence": [
+            {
+              "part_id": "source_metadata",
+              "quote": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。"
+            }
+          ]
+        }
+      },
+      "source_verified": true,
+      "expected": {
+        "recommendation": "task",
+        "value": "2026-10-23"
+      },
+      "passed": false,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成第二次作业（练习1至3）\",\"description\":\"完成练习1至3；截止日期为2026年10月23日。\",\"notice_type\":\"create\",\"target\":null,\"relevance\":{\"state\":\"current\",\"reason\":\"当前学期新布置的第二次作业，截止日期在学期内且未过期。\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"},{\"part_id\":\"source_metadata\",\"quote\":\"当前布置的作业。\"}]},\"assessment\":{\"action\":{\"state\":\"supported\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"}]},\"deadline\":{\"value\":\"2026-10-23\",\"precision\":\"date\",\"derivation\":\"missing_year\",\"anchor\":\"course_term\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"10月23日截止\"}]},\"unread_relations\":[],\"other_review_reasons\":[]}}]}",
+      "error_code": "invalid_agent_output",
+      "elapsed_seconds": 11.94
+    },
+    {
+      "attempt": "final",
+      "name": "old-publication-keeps-old-year",
+      "record": {
+        "input_id": "synthetic:homework-2",
+        "source_item_id": "synthetic-assignment-2",
+        "course_id": "synthetic-course-1",
+        "snapshot_id": "synthetic-capture-1",
+        "platform": "teaching_web",
+        "text": "第二次作业：完成练习1至3，10月23日截止。",
+        "body_status": "complete",
+        "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+        "references": [],
+        "published_at": {
+          "value": "2023-10-01",
+          "basis": "source"
+        },
+        "collected_at": "2026-10-06T11:00:00+08:00",
+        "timezone": "Asia/Shanghai",
+        "course_term": null
+      },
+      "source_verified": true,
+      "expected": {
+        "recommendation": "candidate",
+        "value": "2023-10-23"
+      },
+      "passed": false,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成第二次作业（练习1至3）\",\"description\":\"完成第二次作业练习1至3，原文标注10月23日截止。\",\"notice_type\":\"create\",\"target\":null,\"relevance\":{\"state\":\"uncertain\",\"reason\":\"原发布时间为2023年，但来源元数据明确声称这是2026秋季学期当前布置的作业，适用范围存在冲突。\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"},{\"part_id\":\"source_metadata_text\",\"quote\":\"2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。\"}]},\"assessment\":{\"action\":{\"state\":\"supported\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"第二次作业：完成练习1至3，10月23日截止。\"}]},\"deadline\":{\"value\":\"2023-10-23\",\"precision\":\"date\",\"derivation\":\"missing_year\",\"anchor\":\"published_at\",\"evidence\":[{\"part_id\":\"body\",\"quote\":\"10月23日截止\"}]},\"unread_relations\":[],\"other_review_reasons\":[\"原发布时间为2023年，但来源元数据明确声称这是2026秋季学期当前布置的作业，适用范围存在冲突。\"]}}]}",
+      "error_code": "invalid_agent_output",
+      "elapsed_seconds": 9.77
+    }
+  ]
+}

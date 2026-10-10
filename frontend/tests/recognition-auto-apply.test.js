@@ -10,6 +10,19 @@ const recognition=await import('../src/team-recognition-ui.js');
 const {calendarPage}=await import('../src/team-calendar-ui.js');
 const {dayKey}=await import('../src/data.js');
 
+test('attachment retry opens its persisted job instead of the v0.2 text endpoint',async()=>{
+ recognition.resetAssistant();session.user={id:'media-retry'};location.hash='#agent';
+ const batch={request:{contract_version:'0.3.1',request_id:'media-retry',records:[]},result:{status:'partial_success',record_results:[],errors:[]},demo:false,items:[]};
+ recognition.configureAssistant({render(){}});
+ globalThis.fetch=async path=>{
+  assert.equal(path,'/api/recognition/batches');
+  return {ok:true,json:async()=>[batch]};
+ };
+ recognition.assistantPage();await new Promise(resolve=>setTimeout(resolve,0));
+ await recognition.handleAssistantClick({dataset:{agentRetry:'media-retry'}});
+ assert.equal(location.hash,'#settings');
+});
+
 test('F3 auto-apply accepts clear external actions and rejects uncertain or manual input',async()=>{
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
  const batch={request:fixture.request,demo:false};
@@ -45,6 +58,29 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  assert.equal(resolved,0);
  assert.match(recognition.assistantPage(),/本次导入 <span>1/);
  assert.match(recognition.assistantPage(),/data-agent-confirm="manual-candidate"/);
+});
+
+test('candidate removal invalidates a late ignore response without restoring deleted results',async()=>{
+ recognition.resetAssistant();session.user={id:'candidate-removal'};location.hash='#agent';
+ recognition.configureAssistant({render(){}});
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
+ const candidate={...fixture.expected.tasks[0],input_id:'manual:removed',title:'已删除来源的旧候选'};
+ let stored,finishIgnore;
+ globalThis.fetch=async(path,options)=>{
+  if(path.includes('/resolve'))return new Promise(resolve=>{finishIgnore=()=>resolve({ok:true,json:async()=>({batches:[{...stored,items:[{...stored.items[0],state:'ignored'}]}]})});});
+  if(path==='/api/recognition/batches'&&options?.body){
+   const body=JSON.parse(options.body);
+   stored={request:body,result:{status:'success',record_results:[],errors:[]},demo:false,items:[{id:'deleted-candidate',version:1,state:'pending',candidate}]};
+   return {ok:true,json:async()=>[stored]};
+  }
+  return {ok:true,json:async()=>[]};
+ };
+ await recognition.submitRecognitionText('10月9日交作业');
+ const ignore=recognition.handleAssistantClick({dataset:{agentIgnore:'deleted-candidate'}});
+ assert.equal(typeof finishIgnore,'function');
+ window.dispatchEvent(new Event('niuma:recognition-changed'));
+ finishIgnore();await ignore;
+ assert.doesNotMatch(recognition.assistantPage(),/已删除来源的旧候选|data-agent-restore="deleted-candidate"/);
 });
 
 test('review sections appear only after import and dismissed items can be restored',async()=>{

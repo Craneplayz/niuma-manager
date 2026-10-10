@@ -3,7 +3,14 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
-├── requirements-teaching-dev.txt     # 教学网草案校验依赖，不用于业务运行
+├── requirements-teaching-dev.txt     # 教学网政策校验依赖，由可选教学网入口显式引用
+├── build_teaching_v04.py             # 生成/核对自包含教学网批次请求与结果根 Schema
+├── teaching_io.py                    # 教学网批次身份、状态、来源和基础政策校验
+├── schemas/teaching-request-v0.4.schema.json # 独立教学网批次请求
+├── schemas/teaching-result-v0.4.schema.json # 独立教学网批次结果
+├── examples/teaching-v04-cases.json   # 7 组教学网公开批次边界与多任务样例
+├── tests/test_teaching_io.py          # 教学网批次、信任与非法状态反例
+├── docs/teaching-v0.4.md              # 教学网显式接入、消费复核及重识别规则
 ├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
 ├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
 ├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
@@ -14,6 +21,11 @@ contracts/
 ├── examples/submission-policy-v01-cases.json # 首次提交、多行动、状态变化及不可信输入
 ├── tests/test_submission_policy.py    # 同源顺序、精确关联、用户决定和授信边界反例
 ├── docs/submission-policy-v0.1.md     # 已提交作业退出候选与完成状态交接规约
+├── submission_operations.py          # #110 公开查询/操作根及复用内部控制的纯计划
+├── schemas/submission-operations-v0.1.schema.json # 无外部引用的五类业务信封
+├── examples/submission-operations-v01-cases.json # 关联、重开、恢复及确认的共享期望
+├── tests/test_submission_operations.py # 请求边界、并发版本与控制状态保留反例
+├── docs/submission-operations-v0.1.md  # 登录用户操作、回执和持久幂等接入约定
 ├── docs/teaching-review-v0.4-draft.md  # #108/#109 阶段 A 的字段及接入边界
 ├── task-planning/                   # 业务排程及重新规划的请求、回应和确认语义
 ├── task-decomposition/              # AI 拆解公开 v0.1 请求、回应 Schema 及合成样例
@@ -67,9 +79,10 @@ contracts/
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
-教学网 #108/#109 的新增覆盖/学期规则见 [v0.4-draft.1 政策组件](docs/teaching-review-v0.4-draft.md)；仅供审查和离线验证，不是新 API，不改变以下 v0.2 运行契约，也不放宽 PR #98 的 v0.3.1 文件审核规则。
+- 教学网 #108/#109 的 [v0.4 批次契约](docs/teaching-v0.4.md) 复用已审查的 [覆盖/学期政策组件](docs/teaching-review-v0.4-draft.md)；消费端须显式接入并复核，不静默改变以下 v0.2 或微信 v0.3.1 规则。
 
 - #110 [已提交状态决策契约](docs/submission-policy-v0.1.md) 区分来源事实和永久行动对应，提供纯校验与参考决策；后端显式接入后才生效，不凭模型或 imported hints 自动完成。
+- #110 [公开操作契约](docs/submission-operations-v0.1.md) 提供来源查询、人工关联、重开、恢复自动完成和来源确认的独立根；运行端仍须实现登录鉴权、持久幂等和事务。
 
 - 来源模块按 [输入样例](source-to-text/text-frontend-v02-request.json) 提供原文及元数据，文本模块接收完整 v0.2 请求。
 - `platform` 标明来源：教学网 `teaching_web`、微信 `wechat` 的结果可直接进日历；对话框手动输入一律填 `manual`，结果须用户确认。`unknown` 已停用，新代码不得再送；旧数据中的 `unknown` 按 `manual` 处理。
