@@ -18,6 +18,7 @@ test('teaching snapshot view runs by opaque ID and auto-applies the returned car
  let ran=false,resolved=false;
  recognition.configureAssistant({render(){},refresh:async()=>{},getState:()=>({tasks:[]})});
  globalThis.fetch=async(path,options)=>{
+  if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/recognition/batches')return {ok:true,json:async()=>[batch]};
   if(path==='/api/recognition/retry'){
    assert.deepEqual(JSON.parse(options.body),sample.run);ran=true;
@@ -99,6 +100,7 @@ test('sync counts missing source separately from model failure',async()=>{
  recognition.configureAssistant({render(){},getState:()=>({tasks:[]})});
  globalThis.fetch=async(path,options)=>{
   if(path==='/api/data/sources')return {ok:true,json:async()=>({version:1})};
+  if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/sources/sync')return {ok:true,json:async()=>({requests:[sample.request],summary:{skipped:0}})};
   if(path==='/api/recognition/retry'){attempts++;assert.deepEqual(JSON.parse(options.body),sample.run);}
   else assert.equal(path,'/api/recognition/batches');

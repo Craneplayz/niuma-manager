@@ -21,6 +21,23 @@ from ddl_text.tests.test_teaching_pipeline import example, RecordClient
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_teaching_task_evidence_survives_import_grouping_and_archive(self):
+        capture=self.native_capture('active')
+        view=self.sync_native(capture)['requests'][0]
+        item=self.run_request(view)['items'][0]
+        self.assertEqual(self.call('/recognition/imports',dict(import_id='teaching-import',created_at='2026-10-10T02:00:00Z',source='教学网',request_ids=[view['request_id']]))[0],200)
+        self.assertEqual(self.call('/recognition/batches')[1][0]['importId'],'teaching-import')
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        task=self.call('/workspace')[1]['tasks']['value'][0]
+        self.assertEqual(self.call('/recognition/imports/archive',dict(request_ids=[view['request_id']]))[0],200)
+        status,out=self.call('/recognition/task-evidence',dict(task_id=task['id']))
+        self.assertEqual(status,200)
+        evidence=out['evidence'][0]
+        entry=capture['request']['records'][0]
+        self.assertEqual(evidence['original'],entry['record']['text'])
+        self.assertEqual(evidence['sourceUrl'],entry['source']['url'])
+        self.assertEqual(evidence['platform'],'teaching_web')
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.old_db=app.DB
         # Crawler execution is mocked below; its availability check must not

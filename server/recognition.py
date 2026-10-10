@@ -156,7 +156,11 @@ def route(handler,db,uid,path,body,ApiError):
             batch=db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,candidate['request_id'])).fetchone()
             if not batch: continue
             item=json.loads(candidate['candidate'])
-            record=next((r for r in json.loads(batch['request']).get('records',[]) if r.get('input_id')==item.get('input_id')),{})
+            request=json.loads(batch['request'])
+            if request.get('contract_version')=='0.4':
+                import teaching
+                request=teaching.request_view(request)
+            record=next((r for r in request.get('records',[]) if r.get('input_id')==item.get('input_id')),{})
             evidence.append(dict(action=history.get('action'),quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
         handler.reply(200,dict(evidence=evidence));return True
     if path=='/api/recognition/imports' and handler.command=='POST':
