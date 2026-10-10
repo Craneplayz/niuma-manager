@@ -11,7 +11,8 @@ server/
 ├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
 ├── source_sync.py            调用教学网采集并保存 v0.4 来源快照。
 ├── teaching.py               核验当前账号快照、调用 v0.4 并适配现有任务卡片。
-├── teaching_submission.py   可信原生作业状态、来源跳过与旧候选撤出的持久化。
+├── teaching_submission.py   可信原生状态、未知行动关联保护及持续来源核对。
+├── test_teaching_submission.py  共享提交策略一致性和旧自动撤出记录恢复测试。
 ├── test_teaching.py          教学网同步、自动入库、重试和来源变化的 HTTP 回归。
 ├── run_teaching_smoke.py     合成网页经真实 API 到任务入库的手动验收脚本。
 ├── start-local-test.ps1      启动独立测试数据库、后端和网页，复用本机浏览器。
@@ -34,7 +35,7 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 教学网同步使用原生 v0.4：按课程作业、课程通知、教学内容顺序识别，来源账号和快照由后端核验；明确任务自动加入，引用所需材料缺失时保留审核，详见 [运行视图](../contracts/docs/teaching-workspace-v0.1.md)。
 已读部分无任务但内容不完整时标记“来源待补全”，相同快照不重复调用模型；补全正文/附件后重新同步，模型失败仍可重试。
 真实 API 合成验收在仓库根运行 `.venv/Scripts/python.exe server/run_teaching_smoke.py --output local-data/teaching-smoke.json`；只发送合成内容，独立临时数据库，不访问校园网账号。
-原生 submitted 作业来源在调用模型前跳过，撤出同账号已绑定来源的未处理候选并保留审计；已入库任务不据此批量改状态，完整逐行动自动完成仍待 #110，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
+原生 submitted 来源尚无永久行动映射时继续识别并保留候选，提交范围待核对，不能整条跳过或自动入库；submitted 后状态变化会持久暂停模型及自动入库，再次 submitted/重启不解除，已有候选仍可人工处理。逐行动映射与显式解除来源核对仍待 #110，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
 教学网 DeepSeek 调用显式关闭 thinking；真实调用用原文片段编号填回证据，错误区分输出截断、JSON、字段与证据错误，不记录私人模型响应。
 此测试版尚未接入定向重新识别、教学网图片或 DOCX 原件阅读；PDF/TXT 沿用采集器已有能力，网页结构变化和没有来源时间的普通旧材料仍可能需要核查。
 文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取仓库根目录 `.env` 的模型配置，无需启动 1333；已有环境变量优先于 `.env`。

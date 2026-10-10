@@ -157,7 +157,7 @@ def register(db, uid, username, requests):
                     (uid, account(username), r['input_id'], digest, request['request_id'], json.dumps(request)))
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
                                        old_request_id=row['request_id'] if row else None)
-            if state and state['state']=='submitted':
+            if submission.skip_model(state):
                 skipped += 1
                 continue
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
@@ -175,7 +175,7 @@ def resolve_snapshot(db, uid, request_id, ApiError):
     row = db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND account=? AND request_id=?',
         (uid, account(cred['username']), request_id)).fetchone() if cred else None
     if not row: raise ApiError(409,'教学网来源已变化或凭据已移除，请重新同步')
-    submission.guard(db,uid,request_id,ApiError)
+    submission.guard_model(db,uid,request_id,ApiError)
     return json.loads(row['request'])
 
 

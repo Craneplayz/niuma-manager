@@ -74,32 +74,53 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertEqual(status,200,result)
         return result
 
-    def test_submitted_first_capture_skips_without_model_and_retains_snapshot(self):
-        capture=self.native_capture('submitted')
-        with patch.object(teaching,'recognize') as model:
-            result=self.sync_native(capture)
-            self.assertEqual(result,dict(requests=[],summary=dict(total=1,skipped=1,pending=0)))
-            with app.connection() as db:
-                rid=db.execute('SELECT request_id FROM teaching_sources').fetchone()['request_id']
-            self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=rid))[0],409)
-            self.assertEqual(self.sync_native(capture),result)
-        model.assert_not_called()
-        self.assertEqual(self.call('/recognition/batches')[1],[])
+    def mixed_capture(self,state,when='2026-10-10T10:00:00+08:00'):
+        capture=self.native_capture(state,when)
+        record=capture['request']['records'][0]['record']
+        record['text']='第二次作业：提交练习1至3，2026年10月23日截止。提交后另需阅读补充材料，2026年10月23日截止。'
+        first=json.loads(self.drafts[record['input_id']])['tasks'][0]
+        first['title']='提交第二次作业';first['description']='提交练习1至3。'
+        first['assessment']['action']['evidence'][0]['quote']='第二次作业：提交练习1至3'
+        second=deepcopy(first);second.update(title='阅读补充材料',description='提交后阅读补充材料。')
+        second['assessment']['action']['evidence'][0]['quote']='提交后另需阅读补充材料'
+        self.drafts[record['input_id']]=json.dumps(dict(tasks=[first,second]))
+        return capture
 
-    def test_submitted_withdraws_only_bound_pending_candidates_and_retains_raw_results(self):
-        sync=self.sync_native(self.native_capture('active'))
-        batch=self.run_request(sync['requests'][0]);item=batch['items'][0]
-        self.sync_native(self.native_capture('submitted','2026-10-10T11:00:00+08:00'))
-        stored=self.call('/recognition/batches')[1][0]
-        self.assertEqual(stored['items'][0]['state'],'ignored')
-        self.assertEqual(stored['result']['status'],'no_tasks')
-        self.assertEqual(stored['items'][0]['version'],item['version']+1)
+    def test_submitted_unknown_scope_is_recognized_but_needs_manual_review(self):
+        capture=self.native_capture('submitted')
+        result=self.sync_native(capture)
+        self.assertEqual(result['summary'],dict(total=1,skipped=0,pending=1))
+        item=self.run_request(result['requests'][0])['items'][0]
+        self.assertTrue(item['candidate']['needs_review'])
+        self.assertIn('尚未明确对应哪些行动',' '.join(item['candidate']['review_reasons']))
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+        self.assertEqual(self.sync_native(capture)['requests'],[])
+        # Explicit candidate review remains usable; it does not resolve a source latch.
+        version=self.call('/workspace')[1].get('tasks',dict(version=0))['version']
+        status,_=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(
+            action='create',reviewed=True,version=1,tasks_version=version,
+            draft=dict(title='用户确认的行动',description='人工核对后保留',due=None)))
+        self.assertEqual(status,200)
+
+    def test_submitted_preserves_submission_and_independent_reading_candidates(self):
+        sync=self.sync_native(self.mixed_capture('active'))
+        batch=self.run_request(sync['requests'][0])
+        self.assertEqual({i['candidate']['title'] for i in batch['items']},{'提交第二次作业','阅读补充材料'})
         with app.connection() as db:
-            row=db.execute('SELECT resolution FROM recognition_candidates WHERE id=?',(item['id'],)).fetchone()
-            self.assertEqual(json.loads(row['resolution'])['action'],'source_submitted')
-            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],1)
-        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='reopen',version=2))[0],409)
-        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],409)
+            before=[tuple(r) for r in db.execute('SELECT id,candidate,state,version,resolution FROM recognition_candidates ORDER BY id')]
+            original=db.execute('SELECT result FROM recognition_batches').fetchone()[0]
+        self.sync_native(self.mixed_capture('submitted','2026-10-10T11:00:00+08:00'))
+        stored=self.call('/recognition/batches')[1][0]
+        self.assertEqual([i['state'] for i in stored['items']],['pending','pending'])
+        self.assertTrue(all(i['candidate']['needs_review'] for i in stored['items']))
+        self.assertEqual(stored['result']['status'],'success')
+        self.assertEqual(len(stored['result']['tasks']),2)
+        self.assertTrue(all(c['needs_review'] for c in stored['result']['tasks']))
+        with app.connection() as db:
+            self.assertEqual([tuple(r) for r in db.execute('SELECT id,candidate,state,version,resolution FROM recognition_candidates ORDER BY id')],before)
+            self.assertEqual(db.execute('SELECT result FROM recognition_batches').fetchone()[0],original)
+        for item in stored['items']:
+            self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
 
     def test_submitted_preserves_applied_tasks_and_user_ignored_decisions(self):
         sync=self.sync_native(self.native_capture('active'));view=sync['requests'][0]
@@ -128,36 +149,66 @@ class TeachingIntegrationTests(unittest.TestCase):
         with app.connection() as db:
             self.assertEqual(db.execute('SELECT state FROM teaching_submission_sources').fetchone()[0],'submitted')
 
-    def test_submitted_then_active_requires_review_even_after_restart(self):
-        self.sync_native(self.native_capture('submitted'))
-        with app.connection() as db:teaching.initialize(db)
-        view=self.sync_native(self.native_capture('active','2026-10-10T11:00:00+08:00'))['requests'][0]
-        item=self.run_request(view)['items'][0]
-        self.assertTrue(item['candidate']['needs_review'])
-        self.assertIn('曾显示已提交',''.join(item['candidate']['review_reasons']))
-        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+    def test_submitted_active_submitted_keeps_candidates_and_pauses_model_after_restart(self):
+        view=self.sync_native(self.mixed_capture('submitted'))['requests'][0]
+        items=self.run_request(view)['items']
+        for state,when in [('active','2026-10-10T11:00:00+08:00'),('submitted','2026-10-10T12:00:00+08:00')]:
+            with patch.object(teaching,'recognize') as model:
+                self.assertEqual(self.sync_native(self.mixed_capture(state,when))['requests'],[])
+                with app.connection() as db:
+                    teaching.initialize(db)
+                    source=db.execute('SELECT * FROM teaching_submission_sources').fetchone()
+                    self.assertEqual((source['state'],source['review_pending']),(state,1))
+                    rid=db.execute('SELECT request_id FROM teaching_sources').fetchone()[0]
+                self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=rid))[0],409)
+            model.assert_not_called()
+            current=self.call('/recognition/batches')[1][0]['items']
+            self.assertEqual([(i['id'],i['state'],i['version']) for i in current],[(i['id'],'pending',1) for i in items])
+            self.assertTrue(all('来源核对状态尚未明确解除' in ' '.join(i['candidate']['review_reasons']) for i in current))
+            for item in current:
+                self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+        # A user decision on one candidate must not clear the source review latch.
+        item=items[0]
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='ignore',version=1))[0],200)
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='reopen',version=2))[0],200)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT review_pending FROM teaching_submission_sources').fetchone()[0],1)
 
     def test_missing_native_state_after_submitted_does_not_falsely_keep_completion(self):
-        self.sync_native(self.native_capture('submitted'))
+        view=self.sync_native(self.native_capture('submitted'))['requests'][0]
+        self.run_request(view)
         capture=self.native_capture('unknown','2026-10-10T11:00:00+08:00');capture['assignment']=None
-        view=self.sync_native(capture)['requests'][0]
-        item=self.run_request(view)['items'][0]
+        self.assertEqual(self.sync_native(capture)['requests'],[])
+        item=self.call('/recognition/batches')[1][0]['items'][0]
+        self.assertEqual(item['state'],'pending')
         self.assertTrue(item['candidate']['needs_review'])
         with app.connection() as db:
             row=db.execute('SELECT state,review_pending FROM teaching_submission_sources').fetchone()
             self.assertEqual(tuple(row),('unknown',1))
 
-    def test_completed_source_hides_obsolete_failure_but_keeps_original_error(self):
+    def test_unknown_scope_submitted_does_not_hide_saved_failure_or_error(self):
         view=self.sync_native(self.native_capture('active'))['requests'][0]
         self.drafts[view['records'][0]['input_id']]='not json'
         self.assertEqual(self.run_request(view)['result']['status'],'failed')
         self.sync_native(self.native_capture('submitted','2026-10-10T11:00:00+08:00'))
         result=self.call('/recognition/batches')[1][0]['result']
-        self.assertEqual(result['status'],'no_tasks');self.assertEqual(result['errors'],[])
-        self.assertIn('source_submitted',result['record_results'][0]['warnings'][0])
+        self.assertEqual(result['status'],'failed');self.assertTrue(result['errors'])
+        self.assertIn('submission_scope_unknown',' '.join(result['record_results'][0]['warnings']))
         with app.connection() as db:
             original=json.loads(db.execute('SELECT result FROM recognition_batches').fetchone()[0])
             self.assertEqual(original['status'],'failed')
+
+    def test_late_model_cannot_bypass_reopened_source_review_latch(self):
+        view=self.sync_native(self.native_capture('submitted'))['requests'][0]
+        def state_changes_during_model(request,ApiError):
+            output=self.model(request,ApiError)
+            with app.connection() as db:
+                teaching.register(db,self.uid,'synthetic-course-user',[self.native_capture('active','2026-10-10T11:00:00+08:00')])
+                teaching.register(db,self.uid,'synthetic-course-user',[self.native_capture('submitted','2026-10-10T12:00:00+08:00')])
+            return output
+        with patch.object(teaching,'recognize',side_effect=state_changes_during_model):
+            self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))[0],409)
+        self.assertEqual(self.call('/recognition/batches')[1],[])
 
     def test_assignment_identity_and_browser_supplied_state_are_rejected(self):
         capture=self.native_capture('submitted');capture['assignment']['content_id']='other'

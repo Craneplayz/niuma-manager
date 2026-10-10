@@ -132,6 +132,10 @@ def can_auto_apply(candidate, request, demo=False):
 
 def has_unapplied_auto_tasks(db, uid, request, demo=False):
     # Reopened candidates have already been handled by the user and stay manual.
+    if request.get('contract_version')=='0.4':
+        import teaching_submission
+        if teaching_submission.review_reason(teaching_submission.for_request(db,uid,request['request_id'])):
+            return False
     return any(can_auto_apply(json.loads(row['candidate']),request,demo)
                for row in db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1',
                                      (uid,request['request_id'])))
@@ -215,8 +219,6 @@ def route(handler,db,uid,path,body,ApiError):
         canonical=json.dumps(body,sort_keys=True)
         action=body.get('action')
         if action=='reopen':
-            import teaching_submission
-            teaching_submission.guard(db,uid,row['request_id'],ApiError)
             if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
             if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
             db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
@@ -225,9 +227,6 @@ def route(handler,db,uid,path,body,ApiError):
             if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
             handler.reply(200,dict(batches=batches(db,uid)));return True
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
-        if action!='ignore':
-            import teaching_submission
-            teaching_submission.guard(db,uid,row['request_id'],ApiError)
         c=json.loads(row['candidate'])
         if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
         auto=body.get('auto_apply') is True
@@ -236,6 +235,7 @@ def route(handler,db,uid,path,body,ApiError):
             batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
             if json.loads(batch['request']).get('contract_version')=='0.4':
                 import teaching
+                teaching.submission.guard_auto_apply(db,uid,row['request_id'],ApiError)
                 teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
             if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
                 raise ApiError(400,'此候选需要人工处理，不能自动加入日程')

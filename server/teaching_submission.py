@@ -1,6 +1,14 @@
-"""Account-bound native assignment source exclusions; no model-derived completion."""
+"""Account-bound native status with submission-policy/0.1 unknown-scope protection.
+
+This runtime has no verified permanent action mapping yet. All captured sources
+therefore have unknown scope: a submitted page cannot withdraw any action or
+skip recognition. The persistent reopened-review latch takes precedence.
+"""
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+
+SCOPE_REVIEW = '原生作业显示已提交，但尚未明确对应哪些行动，请核对后决定是否保留。'
+STATUS_REVIEW = '该作业曾显示已提交，提交状态发生变化；来源核对状态尚未明确解除。'
 
 
 def initialize(db):
@@ -12,7 +20,28 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS teaching_submission_requests(
         user_id TEXT NOT NULL, account TEXT NOT NULL, request_id TEXT NOT NULL, input_id TEXT NOT NULL,
         PRIMARY KEY(user_id,account,request_id));
+    CREATE TABLE IF NOT EXISTS teaching_submission_recoveries(
+        candidate_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,
+        previous_resolution TEXT NOT NULL,recovered_at TEXT NOT NULL);
     ''')
+    # Recover only this draft's automatic whole-source withdrawals. Keep the
+    # original reason in an audit row and never reopen a user's ignore/delete.
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recognition_candidates'").fetchone():
+        return
+    for row in db.execute('''SELECT c.* FROM recognition_candidates c
+        WHERE c.state='ignored' AND c.resolution IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM teaching_submission_recoveries a WHERE a.candidate_id=c.id)''').fetchall():
+        try: reason = json.loads(row['resolution'])
+        except (ValueError,TypeError): continue
+        if not isinstance(reason,dict) or reason.get('action')!='source_submitted': continue
+        bound = db.execute('''SELECT 1 FROM teaching_submission_requests
+            WHERE user_id=? AND request_id=? AND input_id=?''',
+            (row['user_id'],row['request_id'],reason.get('input_id'))).fetchone()
+        if not bound: continue
+        db.execute('INSERT INTO teaching_submission_recoveries VALUES(?,?,?,?)',
+            (row['id'],row['user_id'],row['resolution'],datetime.now(timezone.utc).isoformat()))
+        db.execute("UPDATE recognition_candidates SET state='pending',version=version+1,resolution=NULL WHERE id=?",
+                   (row['id'],))
 
 
 def source_state(db, uid, account, input_id):
@@ -42,14 +71,8 @@ def observe(db, uid, account, record, request_id, assignment, old_request_id=Non
             ON CONFLICT(user_id,account,input_id) DO UPDATE SET state=excluded.state,
             observed_at=excluded.observed_at,review_pending=excluded.review_pending''',
             (uid,account,record['input_id'],assignment['state'],record['collected_at'],int(review)))
-    current = source_state(db,uid,account,record['input_id'])
-    if current and current['state']=='submitted':
-        reason=json.dumps(dict(action='source_submitted',input_id=record['input_id'],request_id=request_id))
-        db.execute('''UPDATE recognition_candidates SET state='ignored',version=version+1,resolution=?
-            WHERE user_id=? AND state='pending' AND request_id IN
-              (SELECT request_id FROM teaching_submission_requests WHERE user_id=? AND account=? AND input_id=?)''',
-            (reason,uid,uid,account,record['input_id']))
-    return current
+    # Unknown action relations must remain intact, even on a submitted page.
+    return source_state(db,uid,account,record['input_id'])
 
 
 def for_request(db, uid, request_id):
@@ -64,27 +87,50 @@ def for_request(db, uid, request_id):
         (uid,account(cred['username']),request_id)).fetchone()
 
 
-def guard(db, uid, request_id, ApiError):
+def skip_model(state):
+    # submission-policy/0.1: unknown scope is not enough to skip a model call;
+    # review_pending, however, pauses all later calls until explicit resolution.
+    return bool(state and state['review_pending'])
+
+
+def review_reason(state):
+    if skip_model(state): return STATUS_REVIEW
+    if state and state['state']=='submitted': return SCOPE_REVIEW
+    return None
+
+
+def guard_model(db, uid, request_id, ApiError):
     state=for_request(db,uid,request_id)
-    if state and state['state']=='submitted':
-        raise ApiError(409,'该原生作业已提交，已退出识别及待审核队列；原记录已保留')
+    if skip_model(state):
+        raise ApiError(409,STATUS_REVIEW)
+    return state
+
+
+def guard_auto_apply(db, uid, request_id, ApiError):
+    state=for_request(db,uid,request_id)
+    reason=review_reason(state)
+    if reason: raise ApiError(400,reason)
     return state
 
 
 def decorate(db, uid, request_id, card):
     state=for_request(db,uid,request_id)
-    if state and state['review_pending']:
+    reason=review_reason(state)
+    if reason:
         card['needs_review']=True
-        reason='该作业曾显示已提交，当前提交状态发生变化，请人工确认是否需要重新完成。'
         card['review_reasons']=list(dict.fromkeys(card['review_reasons']+[reason]))
     return card
 
 
 def project_result(db, uid, request_id, result):
-    """Hide obsolete retry buttons too, without rewriting the stored model run."""
+    """Keep unknown/independent actions and failures visible; never erase a run."""
     state=for_request(db,uid,request_id)
-    if state and state['state']=='submitted':
-        result.update(status='no_tasks',tasks=[],errors=[])
+    reason=review_reason(state)
+    if reason:
+        code='submission_status_changed' if skip_model(state) else 'submission_scope_unknown'
+        for card in result['tasks']:
+            card['needs_review']=True
+            card['review_reasons']=list(dict.fromkeys(card['review_reasons']+[reason]))
         for row in result['record_results']:
-            row.update(status='no_tasks',task_ids=[],warnings=['source_submitted:原生作业已提交，已退出识别与审核队列。'])
+            row['warnings']=list(dict.fromkeys(row['warnings']+[code+':'+reason]))
     return result
