@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { enrichAssignmentSource, enrichAssignmentSources, parseAssignmentDetailHtml } from "../src/pku-assignment.js";
 import { enrichSourceAttachments } from "../src/pku-attachments.js";
@@ -100,7 +101,7 @@ describe("teaching v0.4 producer", () => {
   });
   it("validates the shared producer examples with the actual Python v0.4 schema and semantic checker", async () => {
     const fixture = JSON.parse(await readFile(new URL("../../contracts/source-to-text/teaching-source-snapshot-v02-cases.json", import.meta.url), "utf8"));
-    const result = spawnSync(process.env.PYTHON ?? "python3", ["-m", "unittest", "contracts.tests.test_teaching_source_snapshot.TeachingSourceSnapshotTest.test_teaching_v04_exports"], { cwd: new URL("../../", import.meta.url), encoding: "utf8" });
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../../scripts/run-python.mjs", import.meta.url)), "-m", "unittest", "contracts.tests.test_teaching_source_snapshot.TeachingSourceSnapshotTest.test_teaching_v04_exports"], { cwd: new URL("../../", import.meta.url), encoding: "utf8" });
     expect(result.status, result.stderr).toBe(0);
     expect(fixture.cases.every((c: { teaching_export: unknown }) => Boolean(c.teaching_export))).toBe(true);
   });
