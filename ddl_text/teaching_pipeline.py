@@ -1,0 +1,111 @@
+"""Opt-in v0.4 batch entry. Authentication, persistence and HTTP remain server-owned."""
+from copy import deepcopy
+from dataclasses import replace
+import json
+import math
+import time
+
+from contracts.teaching_io import (MAX_BYTES, aggregate_status, canonical, check_pair,
+    check_request, snapshot_digest, verified_set)
+
+from .adapters import AgentError
+from .chat_client import ChatClient
+from .teaching_draft import compile_teaching_draft, process_teaching_draft
+from .teaching_policy import teaching_policy_manifest
+
+MESSAGES={
+    'agent_timeout':'识别超时，保留其他记录的结果。',
+    'agent_unavailable':'识别服务暂不可用。',
+    'invalid_agent_output':'识别结果未通过结构或证据校验。',
+    'limit_exceeded':'单条结果超过批次容量，请拆分输入后重试。',
+}
+
+
+def validate_teaching_result(request,result,*,verified_snapshot_digests=()):
+    """Consumer check: replay evidence/policy/history gates, without calling a model."""
+    check_pair(request,result,verified_snapshot_digests=verified_snapshot_digests)
+    trusted=verified_set(request,verified_snapshot_digests)
+    for entry,row in zip(request['records'],result['record_results']):
+        if not row['decisions']:continue
+        drafts=[]
+        for decision in row['decisions']:
+            draft={key:deepcopy(decision[key]) for key in ('title','description','notice_type','target','relevance')}
+            draft['assessment']=deepcopy(decision['pair']['assessment'])
+            for key in ('input_id','candidate_id'):draft['assessment'].pop(key)
+            drafts.append(draft)
+        expected=compile_teaching_draft(json.dumps(dict(tasks=drafts),ensure_ascii=False),entry['record'],
+                                        source_verified=snapshot_digest(entry) in trusted)
+        if expected!=row['decisions']:raise ValueError('teaching decision gates do not match')
+    return result
+
+
+def _failure(entry,code,retryable=False,attempted=False):
+    return dict(input_id=entry['record']['input_id'],snapshot_id=entry['record']['snapshot_id'],
+        source=deepcopy(entry['source']),attempted=attempted,status='failed',decisions=[],warnings=[],
+        error=dict(code=code,message=MESSAGES[code],retryable=retryable))
+
+
+def process_teaching_request(request,*,client,settings,verified_snapshot_digests=(),budget_seconds=90):
+    """Return v0.4 JSON for a bounded batch; JSON itself never grants source trust.
+
+    The server computes verified_snapshot_digests only after resolving the exact
+    entries from this authenticated user's captured source. No retries, fetching,
+    writes, scheduling, auto-completion or action-identity matching happen here.
+    """
+    try:
+        check_request(request)
+        request=deepcopy(request)
+        trusted=verified_set(request,verified_snapshot_digests)
+        if (isinstance(budget_seconds,bool) or not isinstance(budget_seconds,(int,float))
+                or not math.isfinite(budget_seconds) or not 0<budget_seconds<=180 or settings.max_retries!=0):
+            raise ValueError('invalid teaching budget')
+        if settings.mode=='real' and type(client) is not ChatClient:
+            raise ValueError('unsupported teaching provider')
+    except Exception:
+        raise AgentError('invalid_input',False) from None
+    # Fail before any execution if deployed files no longer match loaded code.
+    policy=teaching_policy_manifest(settings) if settings.mode=='real' else None
+    result=dict(contract_version='0.4',request_id=request['request_id'],
+        policy_version=policy['version'] if policy else None,status='failed',record_results=[])
+    expires=time.monotonic()+budget_seconds
+    def unchanged_policy():
+        if policy is None:return
+        try:
+            if teaching_policy_manifest(settings)==policy:return
+        except Exception:
+            pass
+        raise AgentError('agent_unavailable',False)
+
+    for i,entry in enumerate(request['records']):
+        attempted=False
+        try:
+            remaining=expires-time.monotonic()
+            if remaining<=0:raise AgentError('agent_timeout',True)
+            unchanged_policy()
+            attempted=True
+            preview=process_teaching_draft(entry['record'],client=client,
+                settings=replace(settings,timeout_seconds=min(settings.timeout_seconds,remaining)),
+                source_verified=snapshot_digest(entry) in trusted)
+            unchanged_policy()
+            row=dict(input_id=entry['record']['input_id'],snapshot_id=entry['record']['snapshot_id'],
+                source=deepcopy(entry['source']),attempted=True,status='success' if preview.decisions else
+                'no_tasks' if preview.no_action_complete else 'incomplete',
+                decisions=list(preview.decisions),warnings=list(preview.warnings),error=None)
+            single=dict(request,records=[entry])
+            single_trust={snapshot_digest(entry)} if snapshot_digest(entry) in trusted else set()
+            validate_teaching_result(single,dict(result,record_results=[row],status=aggregate_status([row])),
+                                     verified_snapshot_digests=single_trust)
+        except AgentError as error:
+            code=error.code if error.code in MESSAGES else 'agent_unavailable'
+            row=_failure(entry,code,error.retryable is True,attempted=attempted)
+        except Exception:
+            row=_failure(entry,'invalid_agent_output',attempted=attempted)
+        # Reserve exact safe failure envelopes for all later records. A large
+        # earlier result must not swallow normal later records or truncate proof.
+        reserve=[_failure(e,'limit_exceeded') for e in request['records'][i+1:]]
+        # Reserve the longest aggregate status as well as later row envelopes.
+        proposal=dict(result,status='partial_success',record_results=result['record_results']+[row]+reserve)
+        if len(canonical(proposal))>MAX_BYTES:row=_failure(entry,'limit_exceeded',attempted=attempted)
+        result['record_results'].append(row)
+    result['status']=aggregate_status(result['record_results'])
+    return validate_teaching_result(request,result,verified_snapshot_digests=trusted)

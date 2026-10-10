@@ -29,8 +29,14 @@ ddl_text/
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
+├── teaching_draft.py     # 教学网内部模型草稿、逐任务证据和历史规则编译
+├── teaching_pipeline.py  # 显式 v0.4 批次调用、逐条失败和消费端复核
+├── teaching_policy.py    # 教学网实际运行规则和模型配置的独立版本
+├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
+│   ├── teaching-task-extraction/
+│   │   └── SKILL.md      # 教学网逐任务附件依赖、可信学期和历史语义
 │   ├── image-task-extraction/
 │   │   └── SKILL.md      # 图片行动、日期、证据和质量判断规则
 │   └── text-task-extraction/
@@ -62,6 +68,10 @@ ddl_text/
 │   ├── run_chinese_media_smoke.py # 本机字体生成中文长图、多任务及模糊图实测
 │   ├── reprocessing_cases.py # #112 旧/新结果及用户决定的合成交接案例
 │   ├── test_policy_version.py # 版本稳定性、变更与回归输入校验
+│   ├── teaching_cases.py  # 从共享政策样例派生的内部/真实合成测试输入
+│   ├── test_teaching_draft.py # 覆盖、学期、历史、信任及超时回归
+│   ├── test_teaching_pipeline.py # 共享批次样例、失败隔离、消费复核与版本回归
+│   ├── run_teaching_smoke.py # 显式调用当前模型的合成教学网政策预览
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
 │   ├── homework_cases.py # 作业语境、参考资料和可选行动的合成验证输入
@@ -81,15 +91,20 @@ ddl_text/
     ├── api-setup.md      # 供应商配置及故障定位
     ├── image-input.md    # v0.3.1 图片入口、受限读取回调和预算说明
     ├── policy-version.md # #112 规则版本使用方式与后端重识别交接
+    ├── teaching-draft.md # 教学网 v0.4 调用、信任边界、策略版本和接入依赖
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
         ├── 2026-10-06-issue94-images.json # 最初五组生成图片的真实模型输入、草稿与输出
         ├── 2026-10-06-issue94-chinese-images.json # 五组中文合成图片的真实输入、草稿与输出
         ├── 2026-10-06-issue94-pdf.json # PDF 合成测试的真实输入、草稿与输出
         ├── 2026-10-06-issue94-docx.json # 四组 DOCX 合成测试的真实输入、草稿与输出
-        └── 2026-10-06-issue118-year-review.json # 修复多余补年理由后的同图真实模型验证
+        ├── 2026-10-06-issue118-year-review.json # 修复多余补年理由后的同图真实模型验证
+        ├── 2026-10-07-teaching-policy-live.json # 教学网政策合成通知的真实模型输入与输出
+        └── 2026-10-07-teaching-policy-diagnostics.json # 教学网政策实测失败与修正诊断
 ```
 
 接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
+
+教学网 #108/#109 的 [政策识别组件](docs/teaching-draft.md) 使用已合入 #114 的覆盖与学期规则；采集、账号核验、HTTP 和入库由消费方接入。
 
 新增可选 [v0.3.1 附件识别入口](docs/image-input.md)：支持静态 JPG/PNG、普通 PDF 可见页面、DOCX 正文/表格/内嵌图片和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，文件证据依正式契约保留待审核。
 
