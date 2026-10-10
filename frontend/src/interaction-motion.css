@@ -135,3 +135,5 @@ html[data-review-dock=visible] .review-dock{opacity:1;visibility:visible;pointer
 .story-ui .task-main{padding-top:4px;padding-bottom:4px}
 .story-ui .task-main strong{font-size:21px}
 .story-ui .task-main>span{margin-top:5px}
+
+.story-ui .task-evidence blockquote small{display:block;color:var(--story-muted);font-size:11px;overflow-wrap:anywhere}

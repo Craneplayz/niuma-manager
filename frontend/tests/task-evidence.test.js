@@ -20,11 +20,22 @@ test('attachment-only WeChat tasks retain every saved evidence quote',async()=>{
  assert.equal(record.text,'');assert.equal(candidate.evidence.length,2);
  const html=evidenceMarkup([{original:record.text,quotes:candidate.evidence,sources:candidate.sources,sourceLabel:record.source_label,platform:record.platform}]);
  for(const evidence of candidate.evidence)assert.ok(html.includes(evidence.quote));
- assert.match(html,/blockquote/);assert.doesNotMatch(html,/查看完整通知原文/);
+ assert.match(html,/附件 asset-001/);assert.match(html,/第 1 页/);assert.match(html,/模型报告（model_reported），未经逐字核验/);assert.doesNotMatch(html,/查看完整通知原文/);
 });
 
 test('attachment evidence supplements message text, deduplicates and escapes quotes',()=>{
  const html=evidenceMarkup([{original:'群消息：请看附件',quotes:[{quote:'请看附件'},{quote:'附件 <img> 内容'},{quote:'附件 <img> 内容'}]}]);
  assert.match(html,/查看完整通知原文/);assert.match(html,/附件 &lt;img&gt; 内容/);
  assert.equal((html.match(/<blockquote>/g)||[]).length,1);assert.doesNotMatch(html,/<img>/);
+});
+
+
+test('identical attachment quotes retain distinct locations even when present in message text',()=>{
+ const quote='提交报告',evidence={quote,field:'attachment_file',asset_id:'<asset>',verification:'model_reported'};
+ const first={...evidence,locator:{page:1,paragraph:2,bbox:[0,0,1,1]}};
+ const second={...evidence,locator:{page:2,paragraph:null,bbox:null}};
+ const html=evidenceMarkup([{original:quote,quotes:[first,structuredClone(first),second]}]);
+ assert.equal((html.match(/<blockquote>/g)||[]).length,2);
+ assert.match(html,/第 1 页 · 第 2 段 · 区域 \[0, 0, 1, 1\]/);assert.match(html,/第 2 页/);
+ assert.match(html,/附件 &lt;asset&gt;/);assert.doesNotMatch(html,/<asset>/);
 });
