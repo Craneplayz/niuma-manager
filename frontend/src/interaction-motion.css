@@ -140,3 +140,9 @@ html[data-review-dock=visible] .review-dock{opacity:1;visibility:visible;pointer
 .story-ui .candidate-evidence.task-evidence{padding:0;margin:12px 0 0;border:0;color:var(--story-ink);overflow-wrap:anywhere}
 .story-ui .candidate-evidence blockquote{padding:0;margin:12px 0;border:0;background:none;color:var(--story-ink);white-space:pre-wrap}
 .story-ui .candidate-review-notes p{font-weight:400;color:var(--story-muted)}
+
+.story-ui .task-pagination{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:16px;margin-top:20px;padding-top:20px;border-top:1px solid var(--story-line);font-size:13px;color:var(--story-muted)}
+.story-ui .task-page-controls{display:flex;align-items:center;gap:14px}.story-ui .task-page-position{white-space:nowrap}.story-ui .task-page-position:focus-visible{outline:2px solid var(--story-accent);outline-offset:4px}.story-ui .task-panel{scroll-margin-top:24px}
+@media(max-width:600px){.story-ui .task-pagination{flex-direction:column;align-items:stretch;gap:12px}.story-ui .task-page-range{text-align:center}.story-ui .task-page-controls{justify-content:center;gap:10px}.story-ui .task-page-controls .btn{padding:9px 12px}}
+
+@media(max-width:600px){.story-ui .task-row .due{flex:1 1 110px;min-width:110px}.story-ui .task-row>.task-evidence-link{order:4;margin-left:30px;flex:0 0 auto}}
