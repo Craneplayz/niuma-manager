@@ -15,3 +15,8 @@ test('retained task animates from its old position after sorting; update is sync
 test('waiting state announces real waiting without a fabricated percentage',()=>{
  const html=waitingPanel('正在规划','等待服务返回');assert.match(html,/role="status"/);assert.match(html,/aria-hidden="true"/);assert.doesNotMatch(html,/%/);
 });
+
+test('background imports update synchronously without reading layout or animating cards',()=>{
+ const previousDocument=globalThis.document;globalThis.document={querySelectorAll(){assert.fail('background imports must not run FLIP');}};
+ try{let updated=false;motionUpdate(()=>{updated=true;},{animate:false});assert.equal(updated,true);}finally{globalThis.document=previousDocument;}
+});

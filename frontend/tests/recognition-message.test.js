@@ -27,7 +27,7 @@ test('pending review uses the saved full original and preserves attachment locat
  assert.doesNotMatch(html,/不重复展示的模型摘要|不重复展示的日期分析|draft-warning|<strong>/);
  assert.equal((html.match(/请提交报告。/g)||[]).length,1);
  assert.match(html,/附件 attachment-1 · 第 2 页 · 模型报告（model_reported），未经逐字核验/);
- assert.match(html,/<details class="task-evidence-quotes"><summary>查看补充证据<\/summary>/);
+ assert.match(html,/<details class="task-evidence-quotes" data-import-part="quotes"><summary>查看补充证据<\/summary>/);
  assert.match(html,/核对说明/);assert.match(html,/附件尚未完整读取/);
  recognition.resetAssistant();
 });

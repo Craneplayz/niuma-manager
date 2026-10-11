@@ -1,4 +1,4 @@
-import {ImportJourney,scrollToReview,rewriteReview,groupImportBatches,slideToImportPage} from './import-journey.js';
+import {ImportJourney,CandidateOrder,scrollToReview,rewriteReview,groupImportBatches,slideToImportPage} from './import-journey.js';
 import {animateReviewedCandidate,isReviewFlying} from './review-motion.js';
 import {transitionView} from './view-motion.js';
 import {waitingPanel} from './interaction-motion.js';
@@ -17,17 +17,21 @@ const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',ma
 let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='manual',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};
 export function configureAssistant(callbacks){host=callbacks;configureReprocessing({render:callbacks.render,finished:async()=>{loaded=false;await callbacks.refresh?.();}});}
 const journey=new ImportJourney();let journeyTransition=false,reviewEntered=false,importId='',importTime='',openHistory=new Set();
-export function resetAssistant(){reviewEntered=false;importId='';openHistory.clear();journey.reset();journeyTransition=false;newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};}
+const candidateOrder=new CandidateOrder();
+export function resetAssistant(){candidateOrder.reset();reviewEntered=false;importId='';openHistory.clear();journey.reset();journeyTransition=false;newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
 let candidateRevision=0;
 window.addEventListener('niuma:recognition-changed',()=>{candidateRevision++;batches=[];loaded=false;refresh();});
 export function leaveAssistant(){cancelVoice();voiceState='idle';}
 const refresh=()=>{if(journey.phase==='done'&&journey.snapshot(batches).pending)journey.phase='review';enterReviewOnResult();if(['#agent','#settings','#sources'].includes(location.hash))host.render();if(location.hash==='#agent')queueMicrotask(advanceJourney);};
 function enterReviewOnResult(){
- if(reviewEntered||journey.phase!=='importing'||location.hash!=='#agent'||!journey.items(batches).length)return;
- reviewEntered=true;queueMicrotask(scrollToReview);
+ if(reviewEntered||journey.phase!=='importing'||location.hash!=='#agent'||!journey.items(batches).some(item=>item.state==='pending'))return;
+ reviewEntered=true;
+ const review=globalThis.document?.querySelector?.('#import-review');
+ if(review&&review.getBoundingClientRect().top<(globalThis.innerHeight||800)/2)return;
+ const epoch=accountVersion();queueMicrotask(()=>{if(epoch===accountVersion()&&location.hash==='#agent')scrollToReview();});
 }
-globalThis.document?.addEventListener?.('toggle',event=>{const id=event.target.dataset?.importHistory;if(!id)return;if(event.target.open)openHistory.add(id);else openHistory.delete(id);},true);
+globalThis.document?.addEventListener?.('toggle',event=>{const id=event.target.dataset?.importHistory;if(!id)return;if(!event.target.isConnected)return;if(event.target.open)openHistory.add(id);else openHistory.delete(id);},true);
 async function advanceJourney(){
  if(!host.showImportedTasks||!journey.active||journeyTransition||busy||importProgress.active||candidateBusy.size||location.hash!=='#agent')return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion()&&location.hash==='#agent';
@@ -159,6 +163,8 @@ export function assistantPage(){if(journey.active&&host.showImportedTasks)queueM
  if(!loaded&&session.user){loaded=true;queueMicrotask(load);}
  if(session.user&&location.hash==='#agent'&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
  const support=voiceSupport();
+ candidateOrder.items(batches.flatMap(batch=>batch.items));
+ const currentPending=journey.items(batches).filter(item=>item.state==='pending');
  const incompleteBatches=batches.filter(needsSourceCompletion);
  const failedBatches=batches.filter(batch=>activeRequestIds.has(batch.request.request_id)&&!batch.demo&&!needsSourceCompletion(batch)&&['failed','partial_success'].includes(batch.result.status));
  const modes=importModes();if(!modes.some(([value])=>value===importMode))importMode='manual';
@@ -170,19 +176,19 @@ export function assistantPage(){if(journey.active&&host.showImportedTasks)queueM
  <header class="capture-review-heading"><h1>待核对</h1><div class="review-dock"><button class="btn text-btn" data-agent-scroll="entry">↑ 返回通知导入</button><button class="btn review-task-center" data-agent-action="open-import-tasks" data-review-task-center>${envelopeIcon()}<span>任务中心</span></button></div></header>
  ${importProgress.active?`<div class="review-live-progress" role="status"><span class="motion-waiting-orb" aria-hidden="true"></span><span>正在导入并识别通知 · ${importProgress.processed} / ${importProgress.total||'…'}<small>新的识别结果会继续出现在下方。</small></span></div>`:''}
  ${activeRequestIds.size&&(!["review","done"].includes(journey.phase)||importProgress.failed||importProgress.skipped)?`<p class="import-counts">已创建 ${importProgress.created} 项${importProgress.failed?` · 失败 ${importProgress.failed} 项`:""}${importProgress.incomplete?` · 来源待补全 ${importProgress.incomplete} 条`:""}${importProgress.skipped?` · 跳过 ${importProgress.skipped} 项`:""}</p>`:""}${error?`<p class="error" role="alert">${esc(error)}</p>`:''}
- <section class="current-import-section"><div class="result-heading"><h2>本次导入 <span>${batches.filter(b=>activeRequestIds.has(b.request.request_id)).flatMap(b=>b.items).filter(i=>i.state==='pending').length}</span></h2>${journeySummary()}</div>
- ${journey.phase==='done'?completionNote():batches.filter(b=>activeRequestIds.has(b.request.request_id)).flatMap(b=>b.items).filter(i=>i.state==='pending').map(candidateCard).join('')||`<div class="result-empty compact"><p>${importProgress.active?'识别结果返回后会出现在这里。':activeRequestIds.size?'本次暂无待核对内容。':'开始一次导入，新的待核对内容会出现在这里。'}</p></div>`}
- ${activeRequestIds.size?`<details class="import-ignored-section"><summary>本次不加入任务 · ${journey.snapshot(batches).ignored}</summary>${journey.items(batches).filter(i=>i.state==='ignored').map(candidateCard).join('')}</details>`:''}</section>
+ <section class="current-import-section"><div class="result-heading"><h2>本次导入 <span>${currentPending.length}</span></h2>${journeySummary()}</div>
+ ${journey.phase==='done'?completionNote():currentPending.map(candidateCard).join('')||`<div class="result-empty compact"><p>${importProgress.active?'识别结果返回后会出现在这里。':activeRequestIds.size?'本次暂无待核对内容。':'开始一次导入，新的待核对内容会出现在这里。'}</p></div>`}
+ ${activeRequestIds.size?`<details class="import-ignored-section" data-import-part="ignored"><summary>本次不加入任务 · ${journey.snapshot(batches).ignored}</summary>${journey.items(batches).filter(i=>i.state==='ignored').map(candidateCard).join('')}</details>`:''}</section>
  <section class="history-import-section"><div class="result-heading"><h2>历史导入 <span>${groupImportBatches(batches.filter(b=>!activeRequestIds.has(b.request.request_id))).length}</span></h2><p>按导入批次保留，随时展开继续核对。</p></div>${historyImports()}</section>
  </section></div>`;
 }
-function importWaiting(){return busy?waitingPanel(importProgress.total?'正在导入并识别通知':'正在读取教学网通知',importProgress.total?`已处理 ${importProgress.processed} / ${importProgress.total} 条。${reviewEntered?'新的结果会继续追加到待核对页。':'第一条结果返回后会进入待核对页。'}`:'正在读取课程与通知，识别结果出现后会进入待核对页。'):'';}
+function importWaiting(){return busy?waitingPanel(importProgress.total?'正在导入并识别通知':'正在读取教学网通知',importProgress.total?`已处理 ${importProgress.processed} / ${importProgress.total} 条。${reviewEntered?'新的结果会继续追加到待核对页。':'第一项待核对内容出现后会进入待核对页。'}`:'正在读取课程与通知，识别结果出现后会进入待核对页。'):'';}
 function historyImports(){
  const groups=groupImportBatches(batches.filter(batch=>!activeRequestIds.has(batch.request.request_id)));
  return groups.map(group=>{
-  const items=group.batches.flatMap(batch=>batch.items),pending=items.filter(item=>item.state==='pending'),ignored=items.filter(item=>item.state==='ignored');
+  const items=candidateOrder.items(group.batches.flatMap(batch=>batch.items)),pending=items.filter(item=>item.state==='pending'),ignored=items.filter(item=>item.state==='ignored');
   const time=group.createdAt?new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(group.createdAt)):'导入时间未记录';
-  return `<details class="import-history-batch" data-import-history="${esc(group.id)}" ${openHistory.has(group.id)?'open':''}><summary><span><strong>${esc(group.source)}</strong><small>${esc(time)} · ${group.batches.reduce((n,b)=>n+b.request.records.length,0)} 条通知</small></span><span class="history-pending">${pending.length?'待核对 '+pending.length:'已处理'}</span></summary><div class="history-batch-content"><div class="history-batch-actions"><p>待核对 ${pending.length} · 不加入 ${ignored.length} · 已处理 ${items.length-pending.length-ignored.length}</p><button class="btn text-btn" data-agent-delete-import="${esc(group.id)}" ${busy?'disabled':''}>删除此批记录</button></div>${pending.map(candidateCard).join('')}${!pending.length?'<p class="panel-note">这批通知没有待核对内容。</p>':''}${ignored.length?`<details class="import-ignored-section"><summary>不加入任务 · ${ignored.length}</summary>${ignored.map(candidateCard).join('')}</details>`:''}${group.batches.filter(b=>!needsSourceCompletion(b)&&['failed','partial_success'].includes(b.result.status)).map(b=>`<p class="error">部分通知识别失败</p><button class="btn" data-agent-retry="${esc(b.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div></details>`;
+  return `<details class="import-history-batch" data-import-history="${esc(group.id)}" ${openHistory.has(group.id)?'open':''}><summary><span><strong>${esc(group.source)}</strong><small>${esc(time)} · ${group.batches.reduce((n,b)=>n+b.request.records.length,0)} 条通知</small></span><span class="history-pending">${pending.length?'待核对 '+pending.length:'已处理'}</span></summary><div class="history-batch-content"><div class="history-batch-actions"><p>待核对 ${pending.length} · 不加入 ${ignored.length} · 已处理 ${items.length-pending.length-ignored.length}</p><button class="btn text-btn" data-agent-delete-import="${esc(group.id)}" ${busy?'disabled':''}>删除此批记录</button></div>${pending.map(candidateCard).join('')}${!pending.length?'<p class="panel-note">这批通知没有待核对内容。</p>':''}${ignored.length?`<details class="import-ignored-section" data-import-part="ignored"><summary>不加入任务 · ${ignored.length}</summary>${ignored.map(candidateCard).join('')}</details>`:''}${group.batches.filter(b=>!needsSourceCompletion(b)&&['failed','partial_success'].includes(b.result.status)).map(b=>`<p class="error">部分通知识别失败</p><button class="btn" data-agent-retry="${esc(b.request.request_id)}" ${busy?'disabled':''}>重试失败记录</button>`).join('')}</div></details>`;
  }).join('')||'<p class="panel-note">还没有历史导入记录。</p>';
 }
 function envelopeIcon(){return '<svg viewBox="0 0 32 24" fill="none" aria-hidden="true"><rect x="2" y="3" width="28" height="19" rx="3"/><path d="m3 5 13 10L29 5M3 21l9-9m17 9-9-9"/></svg>';}
@@ -200,7 +206,7 @@ export function candidateCard(item){
  ${item.state==='pending'?`<div class="candidate-actions" role="group" aria-label="候选操作"><button class="candidate-create-button" data-agent-confirm="${esc(item.id)}" aria-label="创建任务" title="加入任务" ${working?'disabled':''}>${working?'…':icon('check')}</button><button class="candidate-dismiss-button" data-agent-ignore="${esc(item.id)}" aria-label="不加入任务" title="不加入任务" ${working?'disabled':''}>${icon('close')}</button></div>`:''}
  ${item.state==='ignored'?`<div class="candidate-actions"><button class="candidate-restore-button" data-agent-restore="${esc(item.id)}" ${working?'disabled':''}>${working?'撤回中…':'撤回'}</button></div>`:''}
  <div class="candidate-content"><div class="candidate-type">${esc(labels[c.notice_type])}</div><h3>${esc(c.title)}</h3><div class="candidate-meta"><span>${icon('clock')}${esc(deadlineLabel(c.deadline))}</span>${c.course_or_project?`<span>${icon('book')}${esc(c.course_or_project)}</span>`:''}</div>
- <div class="candidate-evidence task-evidence">${evidence}${reviewReasons.length?`<details class="candidate-review-notes"><summary>核对说明</summary>${reviewReasons.map(reason=>`<p>${esc(reason)}</p>`).join('')}</details>`:''}</div></div></article>`;
+ <div class="candidate-evidence task-evidence">${evidence}${reviewReasons.length?`<details class="candidate-review-notes" data-import-part="review-notes"><summary>核对说明</summary>${reviewReasons.map(reason=>`<p>${esc(reason)}</p>`).join('')}</details>`:''}</div></div></article>`;
 }
 function review(item,selectedAction=''){
  const c=item.candidate,d=suggestedDue(c.deadline),tasks=host.getState().tasks;

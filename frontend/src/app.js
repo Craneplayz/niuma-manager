@@ -1,5 +1,6 @@
 import {loadTaskEvidence} from './task-evidence.js';
 import {syncImportPageSize} from './import-journey.js';
+import {updateImportView} from './import-view.js';
 import {syncReviewDestination} from './review-motion.js';
 import {transitionView} from './view-motion.js';
 import {prepareDialog,highlightTask} from './task-drawer.js';
@@ -44,7 +45,7 @@ window.addEventListener('niuma:account-reset',()=>{
  switchFocusAccount(null);clearTimeout(window.toastTimer);
  document.querySelector('#toast').replaceChildren();document.querySelector('#toast').classList.remove('visible');
  if(!dialog.querySelector('#auth-form')){clearTimeout(dialog.closeTimer);dialog.close();dialog.replaceChildren();}
- render();
+ render({reset:true});
 });
 function toast(message,undo=null){const t=document.querySelector('#toast');undoAction=undo;t.replaceChildren();const text=document.createElement('span');text.textContent=message;t.append(text);if(undo){const btn=document.createElement('button');btn.textContent='撤销';btn.dataset.action='undo';t.append(btn);}t.classList.add('visible');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>{t.classList.remove('visible');undoAction=null;},undo?9000:4000);}
 function celebrate(rect,message,big=false,undo=null){toast(message,undo);if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;const layer=document.createElement('div');layer.className=`celebration ${big?'big':''}`;layer.setAttribute('aria-hidden','true');const x=rect?.left+rect?.width/2||innerWidth/2,y=rect?.top+rect?.height/2||innerHeight/2;layer.style.setProperty('--x',x+'px');layer.style.setProperty('--y',y+'px');for(let i=0;i<(big?22:12);i++){const dot=document.createElement('i');dot.style.setProperty('--angle',`${i/(big?22:12)*360}deg`);dot.style.setProperty('--distance',`${big?70+Math.random()*70:35+Math.random()*45}px`);dot.style.setProperty('--delay',`${Math.random()*90}ms`);layer.append(dot);}document.body.append(layer);setTimeout(()=>layer.remove(),1100);}
@@ -66,12 +67,16 @@ function courses(){return `${header('book',button('添加课程','add-course','p
 function accountManagement(){return `<hr><div class="account-management"><div><h2>账号管理</h2><p>管理昵称和登录密码。登录邮箱暂不支持修改。</p></div><div class="button-row">${button('修改昵称','account-profile')}${button('修改密码','account-password')}</div></div>`;}
 function settings(){return `${header('settings','')}<section class="panel settings-panel"><div class="account-summary"><span class="avatar">${esc(session.user?.display_name?.slice(0,1)||'我')}</span><div><h2>${esc(session.user?.display_name||'还没有登录')}</h2><p>${session.user?'邮箱：'+esc(session.user.email):'注册或登录后开始使用。'}</p></div>${session.user?button('退出登录','logout'):button('登录 / 注册','login','primary')}</div>${session.user?accountManagement()+personalizationSettings():''}<hr><h2>数据备份</h2>${button('导出 JSON 备份','export','','download')}${sourceManagementPage(true)}</section>`;}
 
-function render(){
+function render({reset=false}={}){
  if(page==='sources'){page='settings';history.replaceState(null,'','#settings');}
  const pages={agent:assistantPage,tasks,trash:trashPage,decompose:decompositionPage,plan:plannerPage,calendar,book:courses,settings};
  if(!Object.hasOwn(pages,page)){page='agent';history.replaceState(null,'','#agent');}
  document.title=({agent:'通知导入',tasks:'任务中心',trash:'回收站',decompose:'AI 拆解',plan:'智能规划',calendar:'学习日程',book:'课程与资料',settings:'账号与数据'})[page]+' · 牛马管理器';
- motionUpdate(()=>{app.innerHTML=storyShell({page,user:session.user,saveLabel:saveLabel(),saveAlert:saveAlert(),content:pages[page](),focus:focusPill()});});syncImportPageSize();syncReviewDestination();
+ motionUpdate(()=>{
+  const markup=storyShell({page,user:session.user,saveLabel:saveLabel(),saveAlert:saveAlert(),content:pages[page](),focus:focusPill()});
+  if(page==='agent'&&!reset&&app.querySelector('#import-review'))updateImportView(app,markup,syncImportPageSize);
+  else{app.innerHTML=markup;syncImportPageSize();}
+ },{animate:page!=='agent'});syncReviewDestination();
 }
 
 function enhanceThemeUI(){

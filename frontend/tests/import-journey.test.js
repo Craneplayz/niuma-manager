@@ -39,3 +39,14 @@ test('a tall import form remains readable in a short viewport',()=>{
  assert.equal(boundarySnapTarget(200,150,910,650),null);
  assert.equal(boundarySnapTarget(400,350,910,650),'#import-review');
 });
+
+test('new candidates append in first-seen order even when the API returns newest batches first',()=>{
+ const journey=new ImportJourney();journey.begin(['one','two']);
+ const a={id:'a',state:'pending'},b={id:'b',state:'pending'};
+ const one={request:{request_id:'one'},items:[a]},two={request:{request_id:'two'},items:[b]};
+ assert.deepEqual(journey.items([one]).map(item=>item.id),['a']);
+ assert.deepEqual(journey.items([two,one]).map(item=>item.id),['a','b']);
+ a.state='applied';assert.deepEqual(journey.items([two,one]).filter(item=>item.state==='pending').map(item=>item.id),['b']);
+ a.state='pending';assert.deepEqual(journey.items([two,one]).map(item=>item.id),['a','b']);
+ journey.reset();journey.begin(['one','two']);assert.deepEqual(journey.items([two,one]).map(item=>item.id),['b','a']);
+});

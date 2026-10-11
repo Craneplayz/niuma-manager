@@ -28,7 +28,7 @@ export function evidenceMarkup(entries,{foldQuotes=false}={}){
  });
  const sources=[...(entry.sources||[])];if(entry.sourceUrl&&!sources.some(s=>s.url===entry.sourceUrl))sources.unshift({url:entry.sourceUrl,label:entry.sourceLabel,platform:entry.platform});
  const quoteMarkup=quotes.map(evidence=>evidenceQuote(evidence,entry)).join('');
- return `<article class="task-evidence-entry"><div class="task-evidence-links">${sources.map(s=>`${esc(s.label||entry.sourceLabel||'通知来源')} ${sourceLink(s.url,(s.platform||entry.platform)==='teaching_web'?'打开教学网原页面':'打开来源页面')}`).join('<br>')}</div>${original?`<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>`:''}${quotes.length?(foldQuotes?`<details class="task-evidence-quotes"><summary>查看补充证据</summary>${quoteMarkup}</details>`:`<section class="task-evidence-quotes"><h4>来源证据摘录</h4>${quoteMarkup}</section>`):''}</article>`;
+ return `<article class="task-evidence-entry"><div class="task-evidence-links">${sources.map(s=>`${esc(s.label||entry.sourceLabel||'通知来源')} ${sourceLink(s.url,(s.platform||entry.platform)==='teaching_web'?'打开教学网原页面':'打开来源页面')}`).join('<br>')}</div>${original?`<details data-import-part="original"><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>`:''}${quotes.length?(foldQuotes?`<details class="task-evidence-quotes" data-import-part="quotes"><summary>查看补充证据</summary>${quoteMarkup}</details>`:`<section class="task-evidence-quotes"><h4>来源证据摘录</h4>${quoteMarkup}</section>`):''}</article>`;
  }).join('');
 }
 export async function loadTaskEvidence(taskId,container,request){

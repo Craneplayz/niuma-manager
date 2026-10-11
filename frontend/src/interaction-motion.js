@@ -3,7 +3,8 @@ const selector='[data-motion-task]:not([data-motion-ghost]), [data-candidate-car
 const reduced=()=>globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 let animations=[];
 function key(node,index){return node.dataset.motionTask?`task:${node.dataset.motionTask}`:node.dataset.candidateCard?`candidate:${node.dataset.candidateCard}`:`${node.className}:${index}:${node.textContent}`;}
-export function motionUpdate(update){
+export function motionUpdate(update,{animate=true}={}){
+ if(!animate){for(const animation of animations)animation.cancel();animations=[];update();return;}
  if(reduced()||document.documentElement?.dataset.motionScope){update();return;}
  for(const animation of animations)animation.cancel();animations=[];
  const before=new Map([...document.querySelectorAll(selector)].map((node,index)=>[key(node,index),{node,rect:node.getBoundingClientRect(),done:node.dataset.motionDone}]));

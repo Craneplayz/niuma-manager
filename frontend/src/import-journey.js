@@ -1,10 +1,18 @@
 // Tracks only the current import; older pending candidates never block its handoff.
+export class CandidateOrder{
+ constructor(){this.reset();}
+ reset(){this.positions=new Map();}
+ items(items){
+  for(const item of items)if(!this.positions.has(item.id))this.positions.set(item.id,this.positions.size);
+  return [...items].sort((a,b)=>this.positions.get(a.id)-this.positions.get(b.id));
+ }
+}
 export class ImportJourney{
  constructor(){this.reset();}
- reset(){this.phase='idle';this.requestIds=new Set();this.originalTaskIds=new Set();this.seen=0;this.source='';}
+ reset(){this.phase='idle';this.requestIds=new Set();this.originalTaskIds=new Set();this.seen=0;this.source='';this.order=new CandidateOrder();}
  begin(ids,tasks=[],source=''){this.reset();this.phase='importing';this.requestIds=new Set(ids);this.originalTaskIds=new Set(tasks.map(task=>task.id));this.source=source;}
  get active(){return ['importing','review','failed'].includes(this.phase);}
- items(batches){return batches.filter(batch=>this.requestIds.has(batch.request.request_id)).flatMap(batch=>batch.items);}
+ items(batches){return this.order.items(batches.filter(batch=>this.requestIds.has(batch.request.request_id)).flatMap(batch=>batch.items));}
  snapshot(batches,tasks=[]){const items=this.items(batches);this.seen=Math.max(this.seen,items.length);return {pending:items.filter(item=>item.state==='pending').length,ignored:items.filter(item=>item.state==='ignored').length,added:tasks.filter(task=>!this.originalTaskIds.has(task.id)&&task.recognitionHistory?.some(history=>this.requestIds.has(history.requestId))).map(task=>task.id)};}
  finish(failed=false){this.phase=failed?'failed':'review';}
 }
@@ -45,7 +53,7 @@ export function syncImportPageSize(){
  const top=entry.getBoundingClientRect().top+(globalThis.scrollY||0);
  entry.style.setProperty('--capture-entry-space',`${Math.max(240,(globalThis.innerHeight||800)-top)}px`);
 }
-let boundaryTimer,scrollIntent=false,scrollStart=0,lastScrollY=0,touchActive=false;
+let boundaryTimer,scrollIntent=false,scrollStart=0,touchActive=false;
 function scheduleBoundary(){clearTimeout(boundaryTimer);boundaryTimer=setTimeout(settleBoundary,180);}
 function beginUserScroll(){cancelSlide();if(!scrollIntent)scrollStart=globalThis.scrollY||0;scrollIntent=true;scheduleBoundary();}
 function settleBoundary(){
@@ -62,10 +70,10 @@ globalThis.window?.addEventListener?.('touchend',()=>{touchActive=false;schedule
 globalThis.window?.addEventListener?.('touchcancel',()=>{touchActive=false;scheduleBoundary();},{passive:true});
 globalThis.window?.addEventListener?.('keydown',event=>{if(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key)&&!event.target?.closest?.('input,textarea,select,[contenteditable=true]'))beginUserScroll();});
 globalThis.window?.addEventListener?.('scroll',()=>{
- const y=globalThis.scrollY||0;
- if(!slideFrame){if(!scrollIntent){scrollStart=lastScrollY;scrollIntent=true;}scheduleBoundary();}
- lastScrollY=y;
+ if(!slideFrame&&scrollIntent)scheduleBoundary();
 },{passive:true});
+globalThis.window?.addEventListener?.('hashchange',()=>{scrollIntent=false;clearTimeout(boundaryTimer);});
+globalThis.window?.addEventListener?.('niuma:account-reset',()=>{scrollIntent=false;clearTimeout(boundaryTimer);});
 globalThis.window?.addEventListener?.('resize',syncImportPageSize);
 export async function rewriteReview(){
  const doc=globalThis.document;if(typeof doc?.querySelector!=='function'||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;

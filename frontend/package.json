@@ -17,6 +17,7 @@
     "test": "node ../scripts/run-python.mjs -m pip install -r ../server/requirements-test.txt && node --test tests/*.test.js && cd .. && node scripts/run-python.mjs -m unittest discover -s server -p test_*.py"
   },
   "devDependencies": {
+    "jsdom": "^26.1.0",
     "vite": "^6.0.0"
   }
 }

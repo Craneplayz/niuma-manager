@@ -212,7 +212,7 @@ test('review sections appear only after import and dismissed items can be restor
  await recognition.handleAssistantClick({dataset:{agentReviewScope:'current'}});
  await recognition.handleAssistantClick({dataset:{agentIgnore:'candidate-2'}});
  const ignored=recognition.assistantPage();
- assert.match(ignored,/<details class="import-ignored-section"><summary>本次不加入任务 · 1/);
+ assert.match(ignored,/<details class="import-ignored-section" data-import-part="ignored"><summary>本次不加入任务 · 1/);
  assert.match(ignored,/import-review-card ignored/);
  assert.match(ignored,/data-agent-restore="candidate-2"[^>]*>撤回<\/button>/);
  await recognition.handleAssistantClick({dataset:{agentRestore:'candidate-2'}});
