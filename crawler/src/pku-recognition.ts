@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import type { CourseSourceRecord, PublicationTime } from "./pku-source.js";
+import { createHash, randomUUID } from "node:crypto";
+import { sourceTextFits, type CourseSourceRecord, type PublicationTime } from "./pku-source.js";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 
 // Both the business API and recognition HTTP bridge cap request bodies at this size.
@@ -25,6 +25,9 @@ export interface RecognitionRecord {
     section: string;
     references: CourseSourceRecord["references"];
     warnings: string[];
+    provenance?: CourseSourceRecord["provenance"];
+    body_evidence?: CourseSourceRecord["body_evidence"];
+    snapshot_id?: string;
     assignment?: CourseSourceRecord["assignment"];
     raw: { title: string; body: string; publication_time: string | null; assignment_due_date?: string | null };
   };
@@ -43,7 +46,7 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
     if (!source.input_id.trim() || ids.has(source.input_id)) throw new Error("source input_id must be nonempty and unique");
     ids.add(source.input_id);
     const text = [source.title, source.body].filter(Boolean).join("\n\n");
-    if (text.length > 100_000) throw new Error(`source ${source.input_id} exceeds the v0.2 text limit; text was not truncated`);
+    if (!sourceTextFits(source.title, source.body)) throw new Error(`source ${source.input_id} exceeds the v0.2 text limit; text was not truncated`);
     return {
       input_id: source.input_id, text, text_quality: source.text_quality,
       platform: "teaching_web", published_at: { ...source.published_at }, collected_at: source.collected_at,
@@ -52,6 +55,8 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
       course_or_project: source.course || null, context: [],
       upstream_hints: {
         source_kind: source.kind, section: source.section,
+        ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, included_reference_urls: [...source.body_evidence.included_reference_urls] } } : {}),
+        ...(source.provenance ? { provenance: { ...source.provenance }, snapshot_id: sourceSnapshotId(source) } : {}),
         references: source.references.map((reference) => ({ ...reference })), warnings: [...source.warnings],
         ...(source.assignment ? { assignment: { ...source.assignment } } : {}),
         raw: {
@@ -89,4 +94,14 @@ export function toRecognitionRequests(sources: CourseSourceRecord[], requestId =
   }
   requests.push(batch);
   return requests;
+}
+
+/** Content version only, never an authorization token or #124 verified_snapshot_digests. */
+export function sourceSnapshotId(source: CourseSourceRecord): string {
+  function canonical(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, canonical(v)]));
+    return value;
+  }
+  return `pku:snapshot:${createHash("sha256").update(JSON.stringify(canonical(source))).digest("hex")}`;
 }

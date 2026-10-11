@@ -304,7 +304,7 @@ test('sync processes more than twenty single records, continues past failure and
   await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
   assert.equal(seen.length,25);
   const page=recognition.assistantPage();
-  assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，未处理 0 条，跳过 40 条/);
+  assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，来源待补全 0 条，未处理 0 条，跳过 40 条/);
   assert.match(page,/已创建 0 项 · 失败 1 项 · 跳过 40 项/);
   assert.doesNotMatch(page,/有日期任务进入日历/);
   assert.doesNotMatch(page,/新任务已加入日历/);
