@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { enrichSourceAttachments, extractAttachmentText, isTeacherAttachmentUrl, MAX_ATTACHMENT_BYTES } from "../src/pku-attachments.js";
+import { enrichSourceAttachments, extractAttachmentText, isTeacherAttachmentUrl, MAX_ATTACHMENT_BYTES, MAX_PDF_PAGES } from "../src/pku-attachments.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { enrichAssignmentSource, parseAssignmentDetailHtml } from "../src/pku-assignment.js";
 import { toTeachingRequests } from "../src/pku-teaching-evidence.js";
@@ -32,7 +33,49 @@ function pdf(text: string, blankPage = false, visual?: "stencil" | "bad-image" |
   return { bytes: new TextEncoder().encode(document), contentType: "application/pdf" };
 }
 
+/** Real multi-page PDF with independently observable text on every page. */
+function multiPagePdf(texts: string[], padding = 0) {
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${texts.map((_text, i) => `${4 + 2 * i} 0 R`).join(" ")}] /Count ${texts.length} >>`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
+  for (const [i, text] of texts.entries()) {
+    const stream = `BT /F1 12 Tf 50 700 Td (${text}) Tj ET`;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + 2 * i} 0 R >>`, `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  }
+  let document = `%PDF-1.4\n${padding ? `%${" ".repeat(padding)}\n` : ""}`;
+  const offsets = [0];
+  objects.forEach((object, i) => { offsets.push(document.length); document += `${i + 1} 0 obj\n${object}\nendobj\n`; });
+  const start = document.length;
+  document += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${start}\n%%EOF`;
+  return { bytes: new TextEncoder().encode(document), contentType: "application/pdf" };
+}
+
 describe("teacher attachment acquisition", () => {
+  it("aligns transferable PDF defaults with the actual ddl_text reader", () => {
+    const script = "import json; from ddl_text.pdf_reader import PdfLimits; p=PdfLimits(); print(json.dumps(dict(bytes=p.max_bytes,pages=p.max_pages,seconds=p.render_seconds)))";
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL("../../scripts/run-python.mjs", import.meta.url)), "-c", script], { cwd: new URL("../../", import.meta.url), encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ bytes: MAX_ATTACHMENT_BYTES, pages: MAX_PDF_PAGES, seconds: 15 });
+  });
+  it("reads PDFs above the former 5 MiB cap within the aligned byte budget", async () => {
+    const file = multiPagePdf(["Submit report."], 6 * 1024 * 1024);
+    expect(await extractAttachmentText(file, "pdf")).toEqual({ text: "Submit report.", partial: false });
+  }, 20_000);
+  it("reads six pages completely but retains only the first six of a longer PDF as partial evidence", async () => {
+    const first = Array.from({ length: 6 }, (_value, i) => `Page ${i + 1} teacher text.`);
+    const complete = await extractAttachmentText(multiPagePdf(first), "pdf");
+    expect(complete).toEqual({ text: first.join("\n\n"), partial: false });
+    const original = source("Homework.pdf", url.replace("txt", "pdf"));
+    const file = multiPagePdf([...first, "UNREAD_PAGE_7_DEADLINE_2026_12_31"]);
+    const [result] = await enrichSourceAttachments([original], async () => file);
+    expect(result.references[0]).toMatchObject({ text: first.join("\n\n"), read_status: "partial", content_read: false, reason: "pdf_page_limit" });
+    expect(result.body_evidence).toEqual(original.body_evidence);
+    const record = toTeachingRequests([result]).requests[0].records[0].record;
+    expect(record.references[0]).toMatchObject({ read_state: "partial", text: first.join("\n\n") });
+    expect(JSON.stringify(result)).not.toContain("UNREAD_PAGE_7");
+    expect(JSON.stringify(record)).not.toContain("UNREAD_PAGE_7");
+  }, 35_000);
+  it("does not infer text from unread pages when the first six are blank", async () => {
+    await expect(extractAttachmentText(multiPagePdf([...Array<string>(6).fill(""), "UNREAD_REQUIRED_ACTION"]), "pdf")).rejects.toThrow("empty_text");
+  }, 20_000);
   it.each(["https://evil.test/bbcswebdav/pid-1-dt-content-rid-2/a.pdf", "https://course.pku.edu.cn/webapps/assignment/download?file=private", "https://course.pku.edu.cn/bbcswebdav/users/a/a.pdf", "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-attachment-rid-2/a.pdf", "https://course.pku.edu.cn/bbcswebdav/courses/c1/submissions/a.pdf"])("rejects unsafe/private attachment %s", (href) => {
     expect(isTeacherAttachmentUrl(href)).toBe(false);
   });

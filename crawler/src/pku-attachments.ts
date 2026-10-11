@@ -7,9 +7,10 @@ import { UNREAD_REFERENCE_WARNING, sourceTextFits, type CourseSourceRecord, type
 import { embeddedTeacherAttachment, isTeacherAttachmentUrl, isTeacherFilePreviewUrl } from "./pku-attachment-url.js";
 export { isTeacherAttachmentUrl } from "./pku-attachment-url.js";
 
-export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+// Keep transferable defaults aligned with ddl_text.pdf_reader.PdfLimits.
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export const MAX_PDF_PAGES = 6;
 const MAX_TEXT = 50_000;
-const MAX_PAGES = 50;
 class ReadFailure extends Error {}
 export interface AttachmentFile { bytes: Uint8Array; contentType: string; }
 export type AttachmentReader = (url: string) => Promise<AttachmentFile>;
@@ -79,7 +80,7 @@ function detectedFormat(file: AttachmentFile): "pdf" | "txt" {
   throw new ReadFailure("unsupported_format");
 }
 
-export async function extractAttachmentText(file: AttachmentFile, format: "pdf" | "txt"): Promise<{ text: string; partial: boolean }> {
+export async function extractAttachmentText(file: AttachmentFile, format: "pdf" | "txt"): Promise<{ text: string; partial: boolean; partialReason?: string }> {
   if (file.bytes.length > MAX_ATTACHMENT_BYTES) throw new ReadFailure("too_large");
   if (/text\/html|application\/xhtml/i.test(file.contentType)) throw new ReadFailure("authentication_required");
   if (format === "txt") {
@@ -117,11 +118,11 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
         ].map((name) => OPS[name]));
         try {
           const pdf = await loading.promise;
-          if (pdf.numPages > ${MAX_PAGES}) throw new Error("too_large");
+          const pageLimited = pdf.numPages > ${MAX_PDF_PAGES};
           const pages = [];
           // Embedded files are outside page text; discard their bytes without recursive extraction.
-          let partial = Object.keys(await pdf.getAttachments() || {}).length > 0;
-          for (let i = 1; i <= pdf.numPages; i++) {
+          let partial = pageLimited || Object.keys(await pdf.getAttachments() || {}).length > 0;
+          for (let i = 1; i <= Math.min(pdf.numPages, ${MAX_PDF_PAGES}); i++) {
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
             const text = content.items.map((item) => "str" in item ? item.str + (item.hasEOL ? "\\n" : " ") : "").join("").trim();
@@ -134,7 +135,7 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
           }
           const text = pages.join("\\n\\n").trim();
           if (!text) throw new Error("empty_text");
-          return { text, partial: partial || degraded };
+          return { text, partial: partial || degraded, ...(pageLimited ? { partialReason: "pdf_page_limit" } : {}) };
         } finally { await loading.destroy(); }
       })().catch((error) => ({ reason: ["too_large", "empty_text"].includes(error.message) ? error.message : "parse_failed" }))
         .then((result) => process.send(result, (error) => {
@@ -145,7 +146,7 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
       stdio: ["pipe", "ignore", "ignore", "ipc"],
       windowsHide: true,
     });
-    let result: { text: string; partial: boolean; reason?: string } | undefined;
+    let result: { text: string; partial: boolean; partialReason?: string; reason?: string } | undefined;
     let timedOut = false;
     // The deadline must also stop a parser that ignores graceful termination.
     const timer = setTimeout(() => { timedOut = true; parser.kill("SIGKILL"); }, 15_000);
@@ -182,8 +183,8 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
             if (format === "unsupported") throw new ReadFailure("unsupported_format");
             if (!isTeacherAttachmentUrl(ref.url) && !isTeacherFilePreviewUrl(ref.url)) throw new ReadFailure("untrusted_attachment_url");
             const file = await read(ref.url).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
-            const { text, partial } = await extractAttachmentText(file, format ?? detectedFormat(file));
-            ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? "partial_pdf" : null };
+            const { text, partial, partialReason } = await extractAttachmentText(file, format ?? detectedFormat(file));
+            ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? partialReason ?? "partial_pdf" : null };
           } catch (error) {
             const reason = error instanceof ReadFailure ? error.message : "parse_failed";
             ref = { ...ref, content_read: false, read_status: ["unsupported_format", "untrusted_attachment_url"].includes(reason) ? "unsupported" : "failed", reason };
