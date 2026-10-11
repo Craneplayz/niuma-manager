@@ -37,11 +37,11 @@ def _past(value, precision, as_of, days=0):
     return datetime.fromisoformat(value.replace("Z", "+00:00")) < as_of - timedelta(days=days)
 
 
-def classify(task, draft, record):
+def classify(task, draft, record, *, history_grace_days=HISTORY_GRACE_DAYS):
     """Return (keep, extra review reasons, filter reason), without side effects.
 
-    Historical filtering is confined to v0.2 imported sources. F1 manual input
-    and legacy CLI output keep their existing confirmation behavior.
+    v0.2 imports retain the default grace period; the native teaching projection
+    supplies zero for expired-task filtering. Manual/legacy behavior is unchanged.
     """
     if record.get("contract_version") != "0.2" or record["platform"] not in SOURCE_PLATFORMS:
         return True, [], None
@@ -81,9 +81,11 @@ def classify(task, draft, record):
         # to confirm every omitted year. Trusted publication anchors still pass.
         reasons.append("原通知发布时间缺失，无法判断是否为历史内容；请核对来源。")
     if past:
-        old = _past(d["value"], d["precision"], as_of, HISTORY_GRACE_DAYS)
+        old = _past(d["value"], d["precision"], as_of, history_grace_days)
         if old and not collection_year and record["text_quality"] == "complete" and not task["needs_review"]:
-            return False, [], "截止 %s 距采集时点已超过 %d 天，未见继续执行要求。" % (d["value"], HISTORY_GRACE_DAYS)
+            reason = ("截止 %s 距采集时点已超过 %d 天，未见继续执行要求。" % (d["value"], history_grace_days)
+                      if history_grace_days else "截止 %s 在采集时已过，未见继续执行要求。" % d["value"])
+            return False, [], reason
         reasons.append("截止已过，是否仍需执行请核对原通知。")
     if not dated:
         publication = record["published_at"]

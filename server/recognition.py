@@ -81,14 +81,31 @@ def initialize(db):
     db.executescript('''
     CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
+    CREATE TABLE IF NOT EXISTS recognition_import_records(user_id TEXT NOT NULL,request_id TEXT NOT NULL,import_id TEXT NOT NULL,created_at TEXT NOT NULL,source TEXT NOT NULL,archived INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
 
 def batches(db,uid):
     result=[]
     for row in db.execute('SELECT * FROM recognition_batches WHERE user_id=? ORDER BY rowid DESC',(uid,)):
+        metadata=db.execute('SELECT * FROM recognition_import_records WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+        if metadata and metadata['archived']: continue
         items=[dict(id=c['id'],candidate=json.loads(c['candidate']),state=c['state'],version=c['version']) for c in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,row['request_id']))]
-        result.append(dict(request=json.loads(row['request']),result=json.loads(row['result']),demo=bool(row['demo']),items=items))
+        request, output = json.loads(row['request']), json.loads(row['result'])
+        if request.get('contract_version')=='0.4':
+            import teaching
+            output = teaching.submission.project_result(db,uid,row['request_id'],teaching.result_view(request,output))
+            cards = {c['candidate_id']: c for c in output['tasks']}
+            # History-filtered pending proposals leave the active review view;
+            # saved model runs and already applied/ignored user decisions remain.
+            items=[item for item in items if item['state']!='pending' or item['candidate']['candidate_id'] in cards]
+            for item in items:
+                # Refresh the read-only presentation of existing results while
+                # preserving storage IDs, review state and user resolutions.
+                item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],
+                    cards.get(item['candidate']['candidate_id'], item['candidate']))
+            request = teaching.request_view(request)
+        result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None))
     return result
 
 def due(value):
@@ -103,6 +120,9 @@ def due(value):
     return dict(date=value['date'],precision='date')
 
 def can_auto_apply(candidate, request, demo=False):
+    if request.get('contract_version')=='0.4':
+        import teaching
+        request=teaching.request_view(request)
     source=next((r for r in request['records'] if r['input_id']==candidate['input_id']),None)
     d=candidate['deadline']
     valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
@@ -115,13 +135,60 @@ def can_auto_apply(candidate, request, demo=False):
 
 def has_unapplied_auto_tasks(db, uid, request, demo=False):
     # Reopened candidates have already been handled by the user and stay manual.
+    if request.get('contract_version')=='0.4':
+        import teaching_submission
+        if teaching_submission.review_reason(teaching_submission.for_request(db,uid,request['request_id'])):
+            return False
     return any(can_auto_apply(json.loads(row['candidate']),request,demo)
                for row in db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1',
                                      (uid,request['request_id'])))
 
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
+    if path=='/api/recognition/task-evidence' and handler.command=='POST':
+        workspace=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+        task=next((t for t in json.loads(workspace['value'] if workspace else '[]') if t.get('id')==body.get('task_id')),None)
+        if task is None: raise ApiError(404,'任务不存在')
+        evidence=[]
+        for history in task.get('recognitionHistory',[]):
+            candidate=db.execute('SELECT candidate,request_id FROM recognition_candidates WHERE id=? AND user_id=?',(history.get('storageId'),uid)).fetchone()
+            if not candidate: continue
+            batch=db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,candidate['request_id'])).fetchone()
+            if not batch: continue
+            item=json.loads(candidate['candidate'])
+            request=json.loads(batch['request'])
+            if request.get('contract_version')=='0.4':
+                import teaching
+                request=teaching.request_view(request)
+            record=next((r for r in request.get('records',[]) if r.get('input_id')==item.get('input_id')),{})
+            evidence.append(dict(action=history.get('action'),quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
+        handler.reply(200,dict(evidence=evidence));return True
+    if path=='/api/recognition/imports' and handler.command=='POST':
+        ids=body.get('request_ids')
+        if not isinstance(ids,list) or not 1<=len(ids)<=1000 or any(not isinstance(r,str) or not 1<=len(r)<=500 for r in ids): raise ApiError(400,'导入批次格式不正确')
+        import_id=body.get('import_id');source=body.get('source');created=body.get('created_at')
+        if not isinstance(import_id,str) or not 1<=len(import_id)<=200 or not isinstance(source,str) or not 1<=len(source)<=100: raise ApiError(400,'导入信息格式不正确')
+        try:
+            if not isinstance(created,str) or len(created)>50 or datetime.fromisoformat(created.replace('Z','+00:00')).tzinfo is None: raise ValueError()
+        except (ValueError,TypeError): raise ApiError(400,'导入时间格式不正确')
+        for request_id in ids:
+            db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET import_id=excluded.import_id,created_at=excluded.created_at,source=excluded.source,archived=0',(uid,request_id,import_id,created,source))
+        handler.reply(200,dict(saved=True));return True
+    if path=='/api/recognition/imports/archive' and handler.command=='POST':
+        ids=body.get('request_ids')
+        if not isinstance(ids,list) or not 1<=len(ids)<=1000 or any(not isinstance(r,str) or not 1<=len(r)<=500 for r in ids): raise ApiError(400,'导入批次格式不正确')
+        db.execute('BEGIN IMMEDIATE')
+        for request_id in ids:
+            if not db.execute('SELECT 1 FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request_id)).fetchone(): raise ApiError(404,'导入记录不存在')
+            # Keep deduplication and created tasks intact; hide the archived batch.
+            db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1) ON CONFLICT(user_id,request_id) DO UPDATE SET archived=1',(uid,request_id,request_id,datetime.now(timezone.utc).isoformat(),''))
+            db.execute('UPDATE recognition_candidates SET state="ignored",version=version+1 WHERE user_id=? AND request_id=? AND state="pending"',(uid,request_id))
+        handler.reply(200,batches(db,uid));return True
     if path=='/api/recognition/batches' and handler.command=='GET':
+        handler.reply(200,batches(db,uid));return True
+    if path in ['/api/recognition/batches','/api/recognition/retry'] and handler.command=='POST' and body.get('contract_version')=='teaching-run/0.1':
+        import teaching
+        teaching.run(db,uid,body,path.endswith('/retry'),ApiError)
         handler.reply(200,batches(db,uid));return True
     if path in ['/api/recognition/batches','/api/recognition/retry','/api/recognition/demo'] and handler.command=='POST':
         demo=path.endswith('/demo')
@@ -180,6 +247,7 @@ def route(handler,db,uid,path,body,ApiError):
                     db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
                         (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         else:
+            db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
             for record in request['records']:
@@ -208,6 +276,10 @@ def route(handler,db,uid,path,body,ApiError):
         if auto:
             d=c['deadline']
             batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+            if json.loads(batch['request']).get('contract_version')=='0.4':
+                import teaching
+                teaching.submission.guard_auto_apply(db,uid,row['request_id'],ApiError)
+                teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
             if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
                 raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
         if action!='ignore':

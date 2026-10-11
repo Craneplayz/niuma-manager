@@ -40,6 +40,8 @@ class ChatClient:
             "stream": False, "max_tokens": 8192,
             "response_format": {"type": "json_object"},
         }
+        if settings.thinking_mode is not None:
+            payload['thinking'] = {'type': settings.thinking_mode}
         request = Request(settings.endpoint.rstrip("/") + "/chat/completions",
                           data=json.dumps(payload).encode("utf-8"),
                           headers={"Authorization": "Bearer " + self._key,
@@ -67,6 +69,8 @@ class ChatClient:
             if not isinstance(choices, list) or len(choices) != 1:
                 raise ValueError("one complete choice required")
             choice = choices[0]
+            if choice.get('finish_reason') == 'length':
+                raise AgentError('invalid_agent_output', True, 'output_truncated')
             message = choice["message"]
             if choice.get("finish_reason") != "stop" or message.get("tool_calls") or message.get("refusal"):
                 raise ValueError("incomplete or unsupported answer")
@@ -76,4 +80,4 @@ class ChatClient:
             # ExtractionAdapter validates the JSON draft and all source evidence.
             return text
         except (ValueError, TypeError, KeyError, AttributeError, UnicodeError):
-            raise AgentError("invalid_agent_output", False) from None
+            raise AgentError("invalid_agent_output", True, 'provider_response') from None

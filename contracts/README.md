@@ -12,6 +12,7 @@ contracts/
 ├── tests/test_teaching_io.py          # 教学网批次、信任与非法状态反例
 ├── docs/teaching-v0.4.md              # 教学网显式接入、消费复核及重识别规则
 ├── teaching_review_draft.py          # 教学网字段证据及学期门禁的离线参考校验
+├── schemas/teaching-request-v0.4.schema.json # #124 原版正式请求根，用于爬虫独立证据导出
 ├── schemas/teaching-review-pair-v0.4-draft.schema.json # 自包含配对草案，不是 API 请求
 ├── examples/teaching-review-v0.4-draft-cases.json # 23 个教学网审核与年份判断样例
 ├── tests/test_teaching_review_draft.py # 草案证据、身份绑定、边界与反例检查
@@ -40,9 +41,13 @@ contracts/
 ├── check_v031_examples.py            # v0.3.1 独立根入口、边界、审核及状态机校验
 ├── tests/test_v03_contract.py        # 合成正例及非法输入/输出、部分失败回归
 ├── tests/test_v031_contract.py       # v0.3.1 审查意见对应的结构与语义反例
+├── docs/teaching-source-snapshot-v0.2.md # 教学网来源引用、读取状态及支持边界
 ├── docs/text-attachments-v0.3.md     # 微信图片/文件、异步导入和兼容规则
 ├── docs/text-attachments-v0.3.1.md   # 当前契约：安全边界、强制审核、幂等与生命周期
 ├── docs/archive/2026-10-01-file-input-probe.json # 当前模型合成附件试探及限制
+├── schemas/teaching-source-snapshot-v0.2.schema.json # 教学网采集 hints 独立校验
+├── tests/test_teaching_source_snapshot.py # 教学网采集样例与读取状态反例
+├── source-to-text/teaching-source-snapshot-v02-cases.json # 合成 HTML 与采集输出
 ├── schemas/common-v0.3.schema.json   # v0.3 记录、附件、证据、候选等共享定义
 ├── schemas/common-v0.3.1.schema.json # v0.3.1 收紧字段边界与审核规则的共享定义
 ├── schemas/bundle-v0.3.1.schema.json # 七种信封的自包含 Schema 包（生成文件）
@@ -75,6 +80,8 @@ contracts/
 
 ## 交接方式
 
+- 教学网爬虫 `--format=teaching-v04` 按 #124 原版请求 Schema 输出独立正文和逐引用证据；当前学期适用性未知，账号与完整 entry 授信由 server 核验。
+- 教学网采集的 v0.2 开放 hints 扩展见 [来源快照约定](docs/teaching-source-snapshot-v0.2.md)，仅记录读取事实，不改变审核、学期授信或 v0.3.1 文件强制审核规则。
 - #112 [定向重识别业务契约](docs/reprocessing-v0.1.md) 提供选择旧记录、运行/停止、持久进度和用户决定关联的共享校验；供 server/UI 显式实现，不表示路由已开放，也不改变 v0.2 模型信封。
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。

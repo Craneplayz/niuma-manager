@@ -9,11 +9,14 @@ from pathlib import Path
 
 from text_contract import validate_request
 from recognition import has_unapplied_auto_tasks
+import teaching
+from contracts.teaching_capture import check_capture
 
 CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
 
 
 def initialize(db):
+    teaching.initialize(db)
     db.execute('CREATE TABLE IF NOT EXISTS source_credentials(user_id TEXT PRIMARY KEY, username TEXT NOT NULL, secret BLOB NOT NULL)')
     db.execute('''CREATE TABLE IF NOT EXISTS source_versions(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
@@ -117,7 +120,7 @@ def route(handler, db, uid, path, body, ApiError, key_path):
             with os.fdopen(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
                 file.write(row['username'] + '\n' + password)
             result = subprocess.run(
-                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=recognition'],
+                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching-capture'],
                 cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret)},
                 capture_output=True, text=True, encoding='utf-8', timeout=300, check=False,
             )
@@ -127,11 +130,16 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         raise ApiError(502, '教学网采集失败；请检查账号、密码、浏览器及校园网连接')
     try:
         requests = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-        if len(requests) > 20 or any(len(json.dumps(item, ensure_ascii=False).encode()) > 1900000 for item in requests):
+        if len(requests) > 1000 or any(len(json.dumps(item, ensure_ascii=False).encode()) > 1900000 for item in requests):
             raise ValueError()
         for item in requests:
-            validate_request(item)
-    except (ValueError, TypeError, KeyError):
-        raise ApiError(502, '教学网采集结果不符合 v0.2 协议或批次数量限制')
-    handler.reply(200, incremental_requests(db, uid, row['username'], requests))
+            if item.get('contract_version')=='teaching-capture/0.1': check_capture(item)
+            else: teaching.check_request(item)
+    except Exception:
+        raise ApiError(502, '教学网采集结果不符合 v0.4 协议或批次数量限制') from None
+    if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
+    current = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+    if not current or dict(current)!=dict(row):
+        raise ApiError(409, '教学网账号在采集期间发生变化，请重新同步')
+    handler.reply(200, teaching.register(db, uid, row['username'], requests))
     return True

@@ -6,7 +6,7 @@ globalThis.location={hash:'#agent'};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
 
-test('historical failed batches do not leak into a new import session',async()=>{
+test('historical failed batches stay in collapsible history outside the current import',async()=>{
  session.user={id:'test'};
  const record={input_id:'private-id',text:'通知标题',course_or_project:'数据库课'};
  globalThis.fetch=async path=>({ok:true,json:async()=>path==='/api/recognition/batches'?[{
@@ -19,7 +19,9 @@ test('historical failed batches do not leak into a new import session',async()=>
  await new Promise(resolve=>setImmediate(resolve));
  const html=recognition.assistantPage();
  assert.doesNotMatch(html,/import-review-section|import-ignored-section/);
- assert.doesNotMatch(html,/正文不完整|数据库课|重试失败记录|incomplete_text|private-id|原始错误/);
+ assert.match(html,/import-history-batch/);
+ assert.match(html,/重试失败记录/);
+ assert.doesNotMatch(html,/private-id|原始错误/);
 });
 
 test('notification import only shows teaching web after it is selected as a sync source',async()=>{
@@ -43,4 +45,36 @@ test('notification import only shows teaching web after it is selected as a sync
  await new Promise(resolve=>setImmediate(resolve));
  html=recognition.assistantPage();
  assert.match(html,/data-agent-source-mode="teaching_web"/);
+});
+
+test('source management retains attachment sync and targeted reprocessing',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'integration'};location.hash='#settings';
+ globalThis.fetch=async path=>({ok:true,json:async()=>{
+  if(path==='/api/workspace')return {sources:{value:[],version:1}};
+  if(path.includes('/reprocessing/sources'))return {accounts:[],next_cursor:null};
+  if(path.includes('/reprocessing/runs'))return {runs:[],next_cursor:null};
+  if(path.endsWith('/imports'))return {jobs:[]};
+  return {configured:false};
+ }});
+ recognition.configureAssistant({render(){},refresh:async()=>{}});
+ const html=recognition.sourceManagementPage(true);
+ assert.match(html,/微信附件同步/);
+ assert.match(html,/重新识别已有通知/);
+ assert.match(html,/导入来源文件/);
+ await new Promise(resolve=>setImmediate(resolve));location.hash='#agent';
+});
+
+test('attachment failures retry through attachment management',async()=>{
+ window.dispatchEvent(new Event('niuma:account-reset'));session.user={id:'integration'};location.hash='#agent';
+ const paths=[];
+ globalThis.fetch=async path=>{paths.push(path);return {ok:true,json:async()=>{
+  if(path==='/api/recognition/batches')return [{request:{request_id:'attachment-failure',contract_version:'0.3.1',records:[]},result:{status:'failed',record_results:[],errors:[]},items:[],demo:false}];
+  if(path==='/api/workspace')return {sources:{value:[],version:1}};
+  return {configured:false};
+ }};};
+ recognition.configureAssistant({render(){}});recognition.assistantPage();
+ await new Promise(resolve=>setImmediate(resolve));
+ const before=paths.length;
+ await recognition.handleAssistantClick({dataset:{agentRetry:'attachment-failure'}});
+ assert.equal(location.hash,'#settings');assert.equal(paths.length,before);location.hash='#agent';
 });

@@ -23,6 +23,16 @@ async function run(args: string[]) {
 }
 
 describe("campus source export CLI", () => {
+  it("explicit teaching format selects the integration collection scope", async () => {
+    const teachingSources = extractCourseSourcesFromHtml('<ul id="content_listContainer"><li id="a"><div class="item"><h3>教材</h3></div><div class="details">请提前阅读</div></li></ul>', { course: "Synthetic", section: "资料", sourceUrl: "https://course.pku.edu.cn/list?course_id=c1", collectedAt: "2026-09-26T09:00:00+08:00" });
+    scrape.mockResolvedValue({source_records:teachingSources,records:[],upcoming:[]});
+    const {log,error}=await run(['--format=teaching','--request-id=teaching-cli']);
+    const result=JSON.parse(log.mock.calls[0][0]);
+    expect(result.contract_version).toBe('0.4');
+    expect(result.records[0].record.text).toContain('请提前阅读');
+    expect(scrape).toHaveBeenCalledWith({term:undefined,allSections:false,teachingSections:true});
+    expect(error).not.toHaveBeenCalled();
+  });
   it("exports all source records, even when the homework views are empty", async () => {
     scrape.mockResolvedValue({ source_records: sources, records: [], upcoming: [] });
     const { log, error } = await run(["--", "--format=recognition", "--request-id=test:cli", "--term=26-27学年第1学期"]);
@@ -32,6 +42,20 @@ describe("campus source export CLI", () => {
     expect(result.request_id).toBe("test:cli");
     expect(scrape).toHaveBeenCalledWith({ term: "26-27学年第1学期", allSections: false });
     expect(error).not.toHaveBeenCalled();
+  });
+  it("exports v0.4 and reports unrepresentable sources without dropping valid records", async () => {
+    const valid = extractCourseSourcesFromHtml('<ul id="content_listContainer"><li><div class="item" id="v"><h3>作业</h3></div><div class="details">请交报告</div></li></ul>', { course: "Synthetic", section: "作业", sourceUrl: "https://course.pku.edu.cn/list?course_id=c1", collectedAt: "2026-10-09T09:00:00+08:00" });
+    scrape.mockResolvedValue({ source_records: [...sources, ...valid] });
+    const { log, error } = await run(["--format=teaching-v04", "--request-id=v04"]);
+    expect(JSON.parse(log.mock.calls[0][0])).toMatchObject({ contract_version: "0.4", request_id: "v04:1" });
+    expect(JSON.parse(log.mock.calls[0][0]).records).toHaveLength(1);
+    expect(JSON.parse(error.mock.calls[0][0])).toMatchObject({ type: "teaching_export_skipped", reason: "stable_course_identity_missing" });
+    expect(process.exitCode).toBe(2);
+  });
+  it("does not emit a successful empty batch when all source identities are missing", async () => {
+    scrape.mockResolvedValue({ source_records: sources });
+    const { log, error } = await run(["--format=teaching-v04"]);
+    expect(log).not.toHaveBeenCalled(); expect(error).toHaveBeenCalled(); expect(process.exitCode).toBe(2);
   });
   it("retains raw JSON as the default", async () => {
     const result = { source_records: sources, records: [], upcoming: [] };

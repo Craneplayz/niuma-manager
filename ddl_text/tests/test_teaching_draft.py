@@ -10,7 +10,7 @@ from contracts.teaching_review_draft import validate_pair
 from ddl_text.adapters import AgentError
 from ddl_text.config import Settings
 from ddl_text.teaching_draft import (compile_teaching_draft, process_teaching_draft,
-                                    teaching_draft_schema, validate_teaching_record)
+                                    teaching_draft_schema, validate_teaching_record, evidence_catalog)
 from ddl_text.tests.teaching_cases import POLICY_CASES, model_task, policy_case, raw_task
 
 
@@ -25,6 +25,40 @@ class SyntheticClient:
 
 
 class TeachingDraftTests(unittest.TestCase):
+    def test_indexed_evidence_resolves_exact_source_without_recopying_pdf(self):
+        pair=policy_case('explicit-complete')['pair'];record=pair['record']
+        record['text']='请交作业。\nPDF提取有\t空格\n与换行。\n2026年10月23日前提交。'
+        catalog=evidence_catalog(record);task=model_task(pair)
+        body_id=next(k for k,q in catalog.items() if q['part_id']=='body')
+        task['assessment']['action']['evidence']=[dict(span_id=body_id)]
+        task['assessment']['deadline']['evidence']=[dict(span_id=body_id)]
+        decisions=compile_teaching_draft(json.dumps(dict(tasks=[task])),record,source_verified=True,indexed=True)
+        self.assertEqual(decisions[0]['pair']['assessment']['action']['evidence'],[catalog[body_id]])
+        for bad in ('invented', next(k for k,q in catalog.items() if q['part_id']=='source_metadata')):
+            task['assessment']['action']['evidence']=[dict(span_id=bad)]
+            with self.assertRaises(AgentError):
+                compile_teaching_draft(json.dumps(dict(tasks=[task])),record,source_verified=True,indexed=True)
+
+    def test_catalog_covers_all_read_text_and_no_unread_text(self):
+        record=policy_case('unread-supplement')['pair']['record']
+        record['text']='行一\n'+'PDF字符\t与空格。'*100
+        catalog=evidence_catalog(record)
+        self.assertEqual(''.join(q['quote'] for q in catalog.values() if q['part_id']=='body'),record['text'])
+        self.assertTrue(all(len(q['quote'])<=240 for q in catalog.values()))
+        self.assertFalse(any(q['part_id'].startswith('ref:') for q in catalog.values()))
+
+    def test_safe_diagnostics_survive_worker_and_distinguish_validation_stages(self):
+        record=policy_case()['pair']['record']
+        cases=[('not JSON','draft_json'),('{"tasks":[{}]}','draft_schema')]
+        task=model_task(policy_case()['pair']);task['assessment']['action']['evidence']=[dict(part_id='body',quote='private invented quote')]
+        cases.append((json.dumps(dict(tasks=[task])),'draft_evidence'))
+        for raw,reason in cases:
+            with self.subTest(reason=reason),self.assertRaises(AgentError) as error:
+                process_teaching_draft(record,client=SyntheticClient(raw),settings=Settings(timeout_seconds=10))
+            self.assertEqual(error.exception.diagnostic,reason)
+            self.assertNotIn('private',str(error.exception))
+        self.assertIsNone(AgentError(diagnostic='private arbitrary exception').diagnostic)
+
     def compile(self, case_name='unread-supplement', change=None, verified=None):
         case = policy_case(case_name)
         record, task = case['pair']['record'], model_task(case['pair'])
@@ -155,9 +189,41 @@ class TeachingDraftTests(unittest.TestCase):
             task['assessment']['deadline'].update(value='2023-10-23', derivation='absolute', anchor=None, evidence=quote)
         self.assertEqual(self.compile('yearless-current-assignment-term', change)[0]['recommendation'], 'filtered')
 
-    def test_recently_overdue_stays_reviewable(self):
+    def test_recently_overdue_is_filtered_without_thirty_day_grace(self):
         def change(record, task): record['collected_at'] = '2026-10-24T12:00:00+08:00'
-        self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], 'candidate')
+        decision = self.compile('explicit-complete', change)[0]
+        self.assertEqual(decision['recommendation'], 'filtered')
+        self.assertEqual(decision['review_reasons'], [])
+        self.assertIn('在采集时已过', decision['filter_reason'])
+
+    def test_date_only_deadline_survives_entire_source_local_day(self):
+        for collected, expected in [('2026-10-23T15:59:59Z', 'task'),
+                                    ('2026-10-23T16:00:00Z', 'filtered')]:
+            def change(record, task): record['collected_at'] = collected
+            with self.subTest(collected=collected):
+                self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], expected)
+
+    def test_datetime_expires_only_after_its_instant(self):
+        for collected, expected in [('2026-10-23T09:59:59Z', 'task'),
+                                    ('2026-10-23T10:00:00Z', 'task'),
+                                    ('2026-10-23T10:00:01Z', 'filtered')]:
+            def change(record, task):
+                record.update(text='请于2026年10月23日18点交作业。', collected_at=collected)
+                evidence = [dict(part_id='body', quote=record['text'])]
+                task['assessment']['action']['evidence'] = evidence
+                task['assessment']['deadline'].update(value='2026-10-23T18:00:00+08:00',
+                    precision='datetime', evidence=evidence)
+            with self.subTest(collected=collected):
+                self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], expected)
+
+    def test_recent_overdue_does_not_override_real_uncertainty(self):
+        for case in ('yearless-unknown-age', 'unread-authority'):
+            def change(record, task): record['collected_at'] = '2026-10-24T12:00:00+08:00'
+            with self.subTest(case=case):
+                self.assertEqual(self.compile(case, change)[0]['recommendation'], 'candidate')
+        def incomplete(record, task):
+            record.update(collected_at='2026-10-24T12:00:00+08:00', body_status='partial')
+        self.assertEqual(self.compile('explicit-complete', incomplete)[0]['recommendation'], 'candidate')
 
     def test_invalid_model_json_and_dates_are_errors_not_no_tasks(self):
         record = policy_case()['pair']['record']
