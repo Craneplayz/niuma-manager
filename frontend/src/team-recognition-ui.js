@@ -200,7 +200,7 @@ function journeySummary(){
 export function candidateCard(item){
  const c=item.candidate,source=sourceFor(item),working=candidateBusy.has(item.id);
  const sourceLabel=c.sources?.[0]?.label||source?.course_or_project||source?.source_label||platformLabels[source?.platform]||'通知来源';
- const evidence=evidenceMarkup([{original:source?.text||'',quotes:c.evidence||[],sources:c.sources?.length?c.sources:[{label:sourceLabel,url:source?.source_url,platform:source?.platform}],sourceLabel,platform:source?.platform}],{foldQuotes:true});
+ const evidence=evidenceMarkup([{original:source?.text||'',quotes:c.evidence||[],sources:c.sources?.length?c.sources:[{label:sourceLabel,url:source?.source_url,platform:source?.platform}],sourceLabel,platform:source?.platform}]);
  const reviewReasons=[...new Set(c.review_reasons||[])].filter(Boolean);
  return `<article class="import-review-card ${item.state==='ignored'?'ignored':''}" data-candidate-card="${esc(item.id)}"${isReviewFlying(item.id)?' data-review-flying="true"':''}>
  ${item.state==='pending'?`<div class="candidate-actions" role="group" aria-label="候选操作"><button class="candidate-create-button" data-agent-confirm="${esc(item.id)}" aria-label="创建任务" title="加入任务" ${working?'disabled':''}>${working?'…':icon('check')}</button><button class="candidate-dismiss-button" data-agent-ignore="${esc(item.id)}" aria-label="不加入任务" title="不加入任务" ${working?'disabled':''}>${icon('close')}</button></div>`:''}
