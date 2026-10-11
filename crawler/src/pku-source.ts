@@ -3,6 +3,7 @@ import type { AnyNode } from "domhandler";
 import { DateTime } from "luxon";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 import { sha256 } from "./core/utils.js";
+import { isTeacherFilePreviewUrl } from "./pku-attachment-url.js";
 
 export interface PublicationTime {
   value: string | null;
@@ -178,7 +179,7 @@ export function deduplicateCourseSources(records: CourseSourceRecord[]): CourseS
 }
 
 export function referenceKind(url: string): SourceReference["kind"] {
-  return /\/bbcswebdav\/|\.(?:pdf|txt|zip|docx?|pptx?|xlsx?)(?:[?#]|$)/i.test(url) ? "attachment" : "link";
+  return isTeacherFilePreviewUrl(url) || /\/bbcswebdav\/|\.(?:pdf|txt|zip|docx?|pptx?|xlsx?)(?:[?#]|$)/i.test(url) ? "attachment" : "link";
 }
 
 export function makeSourceReference(label: string, url: string, kind: SourceReference["kind"]): SourceReference {

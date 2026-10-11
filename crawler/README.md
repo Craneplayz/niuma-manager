@@ -22,6 +22,7 @@ crawler/
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
 │   ├── pku-homework.ts               登录并采集课程内容
 │   ├── pku-attachments.ts            限定同源教师附件下载，在独立进程提取 PDF / UTF-8 文本
+│   ├── pku-attachment-url.ts         验证教师文件与只读预览地址，解析唯一同源嵌入附件
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
 │   ├── pku-teaching-evidence.ts      严格导出独立正文与附件证据，报告无法表达的记录
 │   ├── pku-teaching.ts               为受控同步包装 v0.4 证据、学期上下文与原生提交状态
@@ -124,7 +125,7 @@ pnpm pku:homework -- --format=recognition
 
 课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。按“已提交视为完成”规则，原生页面的“复查提交历史记录 / Review Submission History”标题记录 submitted；提交历史详情仍标 partial / submission_history_only，不读取提交文件、作答、成绩或尝试时间，不推断是否需要重交；采集过程不会点击、填写或提交作业控件。列表 input_id / source_item_id 保持不变，课程 / 作业 ID 分别取自来源与原生详情链接，供 #110 后端在受控采集入口按账号匹配，不按标题匹配。
 
-正文和作业详情中的同源教师 PDF / UTF-8 txt 附件会下载提取，引用逐项记录读取状态、原因和提取文字；仅页面装饰图标与菜单不影响完整性，真实图片和未读链接仍保留 partial。下载上限 5 MiB、15 秒、3 次同源重定向，PDF 在独立 Node 子进程解析，等待清理与退出后返回；解析超过 15 秒强制结束子进程、旧生代堆上限 128 MiB，子进程崩溃只将当前附件标 parse_failed。PDF 上限 50 页、提取文字上限 50,000 字符；图片、stencil mask、矢量图、注释、未知绘制操作、空白页或解析退化警告保留 partial，ZIP / Office / OCR / 外链与嵌套目录暂不支持。列表与详情合并超限时保留完整列表正文及详情 too_large 核对原因，其他记录继续导出；空占位容器不阻断后续教师正文，附件缓存按 URL 与格式区分。交接字段及下游边界见 [采集快照约定](../contracts/docs/teaching-source-snapshot-v0.2.md)。
+正文和作业详情中的同源教师 PDF / UTF-8 txt 附件会下载提取，支持无文件后缀的教师链接及 Blackboard 只读文件预览页：仅解析唯一同源教师 iframe / embed / object 附件，按 PDF 文件头或响应类型识别格式，不跟随脚本、菜单或嵌套预览。引用保留原始地址、读取状态、原因和提取文字，附件读取不改变独立教师正文证据的完整性；真实图片和未读链接仍保留 partial。每次下载上限 5 MiB、15 秒，重定向与预览解析共用 3 次跳转上限，PDF 在独立 Node 子进程解析，等待清理与退出后返回；解析超过 15 秒强制结束子进程、旧生代堆上限 128 MiB，子进程崩溃只将当前附件标 parse_failed。PDF 上限 50 页、提取文字上限 50,000 字符；图片、stencil mask、矢量图、注释、未知绘制操作、空白页或解析退化警告保留 partial，ZIP / Office / OCR / 外链与嵌套目录暂不支持。列表与详情合并超限时保留完整列表正文及详情 too_large 核对原因，其他记录继续导出；空占位容器不阻断后续教师正文，附件缓存按 URL 与格式区分。交接字段及下游边界见 [采集快照约定](../contracts/docs/teaching-source-snapshot-v0.2.md)。
 
 教师容器自身或祖先属于私人表单、提交、尝试、成绩或导航区域时排除整块文字及引用；原生作业页允许已知 uploadAssignmentForm 外层表单，先移除私人区域和控件，再读取教师说明、标题与教师信息行中的日期。未找到教师说明时保留列表并标记详情未读，单条追加超限不会影响共享附件缓存；响应式图片的 srcset / picture 候选同样保留未读，PDF 文档级内嵌附件保留 partial_pdf，不递归提取。
 

@@ -4,8 +4,9 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import type { BrowserContext } from "playwright";
 import { UNREAD_REFERENCE_WARNING, sourceTextFits, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
+import { embeddedTeacherAttachment, isTeacherAttachmentUrl, isTeacherFilePreviewUrl } from "./pku-attachment-url.js";
+export { isTeacherAttachmentUrl } from "./pku-attachment-url.js";
 
-const ORIGIN = "https://course.pku.edu.cn";
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MAX_TEXT = 50_000;
 const MAX_PAGES = 50;
@@ -13,22 +14,10 @@ class ReadFailure extends Error {}
 export interface AttachmentFile { bytes: Uint8Array; contentType: string; }
 export type AttachmentReader = (url: string) => Promise<AttachmentFile>;
 
-/** Only teacher content; never send session cookies to arbitrary body links. */
-export function isTeacherAttachmentUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    const path = decodeURIComponent(url.pathname);
-    return url.origin === ORIGIN && !url.username && !url.password
-      && !/\/(?:users?|students?|submissions?|attempts?|grades?)(?:\/|$)/i.test(path)
-      && (/^\/bbcswebdav\/pid-[\w]+-dt-content-rid-[\w]+(?:\/|$)/i.test(path)
-        || /^\/bbcswebdav\/courses\/[^/]+\//i.test(path));
-  } catch { return false; }
-}
-
 /** Enforce size while streaming, and revalidate every redirect before attaching cookies. */
 export function authenticatedAttachmentReader(context: Pick<BrowserContext, "cookies">): AttachmentReader {
   return async function download(url: string, redirects = 0): Promise<AttachmentFile> {
-    if (!isTeacherAttachmentUrl(url)) throw new ReadFailure("untrusted_attachment_url");
+    if (!isTeacherAttachmentUrl(url) && !isTeacherFilePreviewUrl(url)) throw new ReadFailure("untrusted_attachment_url");
     const cookies = await context.cookies(url);
     return new Promise((resolve, reject) => {
       const req = request(url, { headers: { Cookie: cookies.map((c) => `${c.name}=${c.value}`).join("; ") } }, (res) => {
@@ -38,7 +27,7 @@ export function authenticatedAttachmentReader(context: Pick<BrowserContext, "coo
           let next = "";
           try { next = res.headers.location ? new URL(res.headers.location, url).href : ""; } catch { /* Invalid redirects stay unread. */ }
           res.destroy();
-          if (redirects >= 3 || !isTeacherAttachmentUrl(next)) reject(new ReadFailure("authentication_required"));
+          if (redirects >= 3 || (!isTeacherAttachmentUrl(next) && !isTeacherFilePreviewUrl(next))) reject(new ReadFailure("authentication_required"));
           else download(next, redirects + 1).then(resolve, reject);
           return;
         }
@@ -53,7 +42,16 @@ export function authenticatedAttachmentReader(context: Pick<BrowserContext, "coo
           if (size > MAX_ATTACHMENT_BYTES) { reject(new ReadFailure("too_large")); res.destroy(); }
           else chunks.push(chunk);
         });
-        res.on("end", () => resolve({ bytes: new Uint8Array(Buffer.concat(chunks)), contentType: String(res.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase() }));
+        res.on("end", () => {
+          if (size > MAX_ATTACHMENT_BYTES) return;
+          const bytes = new Uint8Array(Buffer.concat(chunks));
+          const contentType = String(res.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+          if (isTeacherFilePreviewUrl(url) && /^(?:text\/html|application\/xhtml\+xml)$/.test(contentType)) {
+            const next = embeddedTeacherAttachment(new TextDecoder().decode(bytes), url);
+            if (!next || redirects >= 3) reject(new ReadFailure("authentication_required"));
+            else download(next, redirects + 1).then(resolve, reject);
+          } else resolve({ bytes, contentType });
+        });
         res.on("error", () => reject(new ReadFailure("download_failed")));
       });
       const timer = setTimeout(() => req.destroy(new ReadFailure("download_failed")), 15_000);
@@ -64,13 +62,21 @@ export function authenticatedAttachmentReader(context: Pick<BrowserContext, "coo
   };
 }
 
-function formatOf(reference: SourceReference): "pdf" | "txt" | null {
+function formatOf(reference: SourceReference): "pdf" | "txt" | "unsupported" | null {
   let path = "";
   try { path = decodeURIComponent(new URL(reference.url).pathname); } catch { /* Invalid URLs are rejected before any download. */ }
   const name = `${reference.label} ${path}`;
   if (/\.pdf(?:\s|$)/i.test(name)) return "pdf";
   if (/\.txt(?:\s|$)/i.test(name)) return "txt";
+  if (/\.(?:zip|docx?|pptx?|xlsx?|png|jpe?g|gif|svg|rar|7z)(?:\s|$)/i.test(name)) return "unsupported";
   return null;
+}
+
+function detectedFormat(file: AttachmentFile): "pdf" | "txt" {
+  if (/text\/html|application\/xhtml/i.test(file.contentType)) throw new ReadFailure("authentication_required");
+  if (file.contentType === "application/pdf" || new TextDecoder().decode(file.bytes.slice(0, 5)) === "%PDF-") return "pdf";
+  if (file.contentType === "text/plain") return "txt";
+  throw new ReadFailure("unsupported_format");
 }
 
 export async function extractAttachmentText(file: AttachmentFile, format: "pdf" | "txt"): Promise<{ text: string; partial: boolean }> {
@@ -169,20 +175,20 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
       if (ref.kind === "attachment" && !ref.content_read) {
         const format = formatOf(ref);
         const cacheKey = `${ref.url}\n${format}`;
-        const cached = format ? cache.get(cacheKey) : undefined;
+        const cached = cache.get(cacheKey);
         if (cached) ref = { ...cached, label: ref.label };
         else {
           try {
-            if (!format) throw new ReadFailure("unsupported_format");
-            if (!isTeacherAttachmentUrl(ref.url)) throw new ReadFailure("untrusted_attachment_url");
+            if (format === "unsupported") throw new ReadFailure("unsupported_format");
+            if (!isTeacherAttachmentUrl(ref.url) && !isTeacherFilePreviewUrl(ref.url)) throw new ReadFailure("untrusted_attachment_url");
             const file = await read(ref.url).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
-            const { text, partial } = await extractAttachmentText(file, format);
+            const { text, partial } = await extractAttachmentText(file, format ?? detectedFormat(file));
             ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? "partial_pdf" : null };
           } catch (error) {
             const reason = error instanceof ReadFailure ? error.message : "parse_failed";
             ref = { ...ref, content_read: false, read_status: ["unsupported_format", "untrusted_attachment_url"].includes(reason) ? "unsupported" : "failed", reason };
           }
-          if (format) cache.set(cacheKey, { ...ref });
+          cache.set(cacheKey, { ...ref });
         }
         if (ref.text) {
           const addition = `${body ? "\n\n" : ""}附件正文：${ref.label || "未命名附件"}\n${ref.text}`;

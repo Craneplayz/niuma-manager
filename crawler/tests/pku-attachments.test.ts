@@ -122,14 +122,37 @@ describe("teacher attachment acquisition", () => {
     expect(result.references[0]).toMatchObject({ content_read: false, read_status: "partial", reason: "partial_pdf" });
     expect(toRecognitionRequests([result])[0].records[0].text_quality).toBe("partial");
   }, 35_000);
-  it("does not let an ambiguous label poison a later known format on the same URL", async () => {
+  it("detects PDF behind an opaque URL without a filename, caches it and preserves exported evidence", async () => {
     const href = "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-content-rid-2/xid-2_1";
-    const read = vi.fn().mockResolvedValue(pdf("Submit report."));
-    const [unknown, known] = await enrichSourceAttachments([source("下载附件", href), source("Homework.pdf", href)], read);
-    expect(unknown.references[0].reason).toBe("unsupported_format");
-    expect(known.references[0]).toMatchObject({ read_status: "complete", content_read: true });
-    expect(known.body).toContain("Submit report.");
+    const original = extractCourseSourcesFromHtml(`<ul id="content_listContainer"><li id="material"><div class="item"><h3><a href="${href}">下载附件</a></h3></div><div class="details"></div></li></ul>`, { course: "Synthetic", section: "教学内容", sourceUrl: "https://course.pku.edu.cn/course?course_id=c1", collectedAt: "2026-10-07T12:00:00+08:00" })[0];
+    const read = vi.fn().mockResolvedValue(pdf("Submit report.", false, "image"));
+    const [result, repeated] = await enrichSourceAttachments([original, source("另一标题", href)], read);
+    expect(result.input_id).toBe(original.input_id);
+    expect(result.references[0]).toMatchObject({ url: href, read_status: "partial", content_read: false, reason: "partial_pdf" });
+    expect(repeated.references[0].label).toBe("另一标题");
+    expect(result.body).toContain("Submit report.");
+    expect(result.body_evidence).toEqual(original.body_evidence);
+    const record = toTeachingRequests([result]).requests[0].records[0].record;
+    expect(record.body_status).toBe("summary");
+    expect(record.references[0]).toMatchObject({ read_state: "partial", text: "Submit report." });
     expect(read).toHaveBeenCalledOnce();
+  }, 20_000);
+  it("reads a direct file preview reference without an extension", async () => {
+    const href = "https://course.pku.edu.cn/webapps/blackboard/execute/content/file?cmd=view&content_id=_1_1&course_id=_2_1";
+    const original = source("教师材料", href);
+    expect(original.references[0].kind).toBe("attachment");
+    const [result] = await enrichSourceAttachments([original], async () => textFile("Submit report."));
+    expect(result.references[0]).toMatchObject({ url: href, read_status: "complete", text: "Submit report." });
+  });
+  it("recognizes PDF bytes with a generic MIME but leaves unknown binary formats unsupported", async () => {
+    const href = url.replace("HW1.txt", "xid-2_1");
+    const file = { ...pdf("Submit report."), contentType: "application/octet-stream" };
+    const [result] = await enrichSourceAttachments([source("教师材料", href)], async () => file);
+    expect(result.references[0].read_status).toBe("complete");
+    for (const contentType of ["application/octet-stream", "application/zip"]) {
+      const [unsupported] = await enrichSourceAttachments([source("教师材料", href)], async () => ({ bytes: new TextEncoder().encode("binary"), contentType }));
+      expect(unsupported.references[0]).toMatchObject({ read_status: "unsupported", reason: "unsupported_format" });
+    }
   }, 20_000);
   it("does not reuse a format-specific failure for a different format", async () => {
     const href = "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-content-rid-2/xid-2_1";
