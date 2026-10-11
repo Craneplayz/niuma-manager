@@ -137,3 +137,6 @@ html[data-review-dock=visible] .review-dock{opacity:1;visibility:visible;pointer
 .story-ui .task-main>span{margin-top:5px}
 
 .story-ui .task-evidence blockquote small{display:block;color:var(--story-muted);font-size:11px;overflow-wrap:anywhere}
+.story-ui .candidate-evidence.task-evidence{padding:0;margin:12px 0 0;border:0;color:var(--story-ink);overflow-wrap:anywhere}
+.story-ui .candidate-evidence blockquote{padding:0;margin:12px 0;border:0;background:none;color:var(--story-ink);white-space:pre-wrap}
+.story-ui .candidate-review-notes p{font-weight:400;color:var(--story-muted)}

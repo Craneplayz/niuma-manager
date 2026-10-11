@@ -14,7 +14,7 @@ function evidenceQuote(evidence,entry){
  else if(evidence.verification)labels.push(evidence.verification);
  return `<blockquote>${labels.filter(Boolean).length?`<small>${labels.filter(Boolean).map(esc).join(' · ')}</small>`:''}${esc(evidence.quote)}</blockquote>`;
 }
-export function evidenceMarkup(entries){
+export function evidenceMarkup(entries,{foldQuotes=false}={}){
  if(!entries.length)return '<p class="evidence-empty">这项任务没有保存识别证据，可能是手动创建或旧记录。</p>';
  return entries.map(entry=>{
  const original=entry.original||'';
@@ -27,7 +27,8 @@ export function evidenceMarkup(entries){
   if(seen.has(key))return false;seen.add(key);return true;
  });
  const sources=[...(entry.sources||[])];if(entry.sourceUrl&&!sources.some(s=>s.url===entry.sourceUrl))sources.unshift({url:entry.sourceUrl,label:entry.sourceLabel,platform:entry.platform});
- return `<article class="task-evidence-entry"><div class="task-evidence-links">${sources.map(s=>`${esc(s.label||entry.sourceLabel||'通知来源')} ${sourceLink(s.url,(s.platform||entry.platform)==='teaching_web'?'打开教学网原页面':'打开来源页面')}`).join('<br>')}</div>${original?`<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>`:''}${quotes.length?`<section class="task-evidence-quotes"><h4>来源证据摘录</h4>${quotes.map(evidence=>evidenceQuote(evidence,entry)).join('')}</section>`:''}</article>`;
+ const quoteMarkup=quotes.map(evidence=>evidenceQuote(evidence,entry)).join('');
+ return `<article class="task-evidence-entry"><div class="task-evidence-links">${sources.map(s=>`${esc(s.label||entry.sourceLabel||'通知来源')} ${sourceLink(s.url,(s.platform||entry.platform)==='teaching_web'?'打开教学网原页面':'打开来源页面')}`).join('<br>')}</div>${original?`<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>`:''}${quotes.length?(foldQuotes?`<details class="task-evidence-quotes"><summary>查看补充证据</summary>${quoteMarkup}</details>`:`<section class="task-evidence-quotes"><h4>来源证据摘录</h4>${quoteMarkup}</section>`):''}</article>`;
  }).join('');
 }
 export async function loadTaskEvidence(taskId,container,request){

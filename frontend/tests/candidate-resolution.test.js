@@ -16,8 +16,9 @@ test('deadline display is concise and inferred dates remain reviewable',()=>{
  assert.deepEqual(suggestedDue({...d,value:'2026-09-29T09:00:30+08:00'}),{date:'2026-09-29',time:''});
  const html=candidateCard({id:'sample',state:'pending',candidate:{title:'交报告',description:'报告',notice_type:'create',deadline:d,review_reasons:[d.basis,'正文不完整'],prerequisites:[],evidence:[],sources:[]}});
  assert.equal(html.split(d.basis).length-1,1);
- assert.ok(html.indexOf(d.basis)>html.indexOf('<summary>查看证据</summary>'));
- assert.match(html,/<p class="draft-warning">正文不完整<\/p>/);
+ assert.ok(html.indexOf(d.basis)>html.indexOf('<summary>核对说明</summary>'));
+ assert.match(html,/<p>正文不完整<\/p>/);
+ assert.doesNotMatch(html,/draft-warning/);
  assert.match(html,/data-agent-confirm="sample"/);
 });
 test('quick confirmation creates the reviewed task draft directly',()=>{

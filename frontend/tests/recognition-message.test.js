@@ -6,6 +6,32 @@ globalThis.location={hash:'#agent'};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
 
+test('pending review uses the saved full original and preserves attachment locations',async()=>{
+ recognition.resetAssistant();session.user={id:'evidence-review'};location.hash='#agent';
+ const original='作业通知\n完整要求 <script>\n请提交报告。\n末尾补充说明';
+ const candidate={input_id:'source-1',notice_type:'create',title:'提交报告',description:'不重复展示的模型摘要',
+  deadline:{status:'not_provided',value:null,basis:'不重复展示的日期分析'},review_reasons:['附件尚未完整读取'],
+  sources:[{input_id:'source-1',platform:'teaching_web',label:'作业通知',url:'https://course.example.test/notice'}],
+  evidence:[{input_id:'source-1',quote:'请提交报告。'},
+   {input_id:'source-1',quote:'附件中的补充要求',asset_id:'attachment-1',locator:{page:2},verification:'model_reported'}]};
+ const item={id:'review-1',state:'pending',candidate};
+ globalThis.fetch=async path=>({ok:true,json:async()=>path==='/api/recognition/batches'?[{
+  request:{request_id:'batch-1',records:[{input_id:'source-1',text:original,platform:'teaching_web'}]},
+  result:{status:'success',record_results:[],errors:[]},items:[item],demo:false,
+ }]:path==='/api/workspace'?{sources:{value:[],version:1}}:{configured:false}});
+ recognition.configureAssistant({render(){}});recognition.assistantPage();
+ await new Promise(resolve=>setImmediate(resolve));
+ const html=recognition.candidateCard(item);
+ assert.match(html,/打开教学网原页面/);assert.match(html,/查看完整通知原文/);
+ assert.match(html,/完整要求 &lt;script&gt;[\s\S]*末尾补充说明/);assert.doesNotMatch(html,/<script>/);
+ assert.doesNotMatch(html,/不重复展示的模型摘要|不重复展示的日期分析|draft-warning|<strong>/);
+ assert.equal((html.match(/请提交报告。/g)||[]).length,1);
+ assert.match(html,/附件 attachment-1 · 第 2 页 · 模型报告（model_reported），未经逐字核验/);
+ assert.match(html,/<details class="task-evidence-quotes"><summary>查看补充证据<\/summary>/);
+ assert.match(html,/核对说明/);assert.match(html,/附件尚未完整读取/);
+ recognition.resetAssistant();
+});
+
 test('historical failed batches stay in collapsible history outside the current import',async()=>{
  session.user={id:'test'};
  const record={input_id:'private-id',text:'通知标题',course_or_project:'数据库课'};

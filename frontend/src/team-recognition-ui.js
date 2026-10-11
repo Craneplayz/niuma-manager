@@ -9,6 +9,7 @@ import {startVoice,cancelVoice,voiceSupport} from './voice.js';
 import {parseSourceFile,wechatRequest} from './source-import.js';
 import {configureReprocessing,reprocessingPanel} from './reprocessing-ui.js';
 import {wechatMediaPanel} from './team-wechat-media-ui.js';
+import {evidenceMarkup} from './task-evidence.js';
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
@@ -193,11 +194,13 @@ function journeySummary(){
 export function candidateCard(item){
  const c=item.candidate,source=sourceFor(item),working=candidateBusy.has(item.id);
  const sourceLabel=c.sources?.[0]?.label||source?.course_or_project||source?.source_label||platformLabels[source?.platform]||'通知来源';
+ const evidence=evidenceMarkup([{original:source?.text||'',quotes:c.evidence||[],sources:c.sources?.length?c.sources:[{label:sourceLabel,url:source?.source_url,platform:source?.platform}],sourceLabel,platform:source?.platform}],{foldQuotes:true});
+ const reviewReasons=[...new Set(c.review_reasons||[])].filter(Boolean);
  return `<article class="import-review-card ${item.state==='ignored'?'ignored':''}" data-candidate-card="${esc(item.id)}"${isReviewFlying(item.id)?' data-review-flying="true"':''}>
  ${item.state==='pending'?`<div class="candidate-actions" role="group" aria-label="候选操作"><button class="candidate-create-button" data-agent-confirm="${esc(item.id)}" aria-label="创建任务" title="加入任务" ${working?'disabled':''}>${working?'…':icon('check')}</button><button class="candidate-dismiss-button" data-agent-ignore="${esc(item.id)}" aria-label="不加入任务" title="不加入任务" ${working?'disabled':''}>${icon('close')}</button></div>`:''}
  ${item.state==='ignored'?`<div class="candidate-actions"><button class="candidate-restore-button" data-agent-restore="${esc(item.id)}" ${working?'disabled':''}>${working?'撤回中…':'撤回'}</button></div>`:''}
- <div class="candidate-content"><div class="candidate-type">${esc(labels[c.notice_type])}</div><h3>${esc(c.title)}</h3><div class="candidate-meta"><span>${icon('clock')}${esc(deadlineLabel(c.deadline))}</span>${c.course_or_project?`<span>${icon('book')}${esc(c.course_or_project)}</span>`:''}</div><p class="candidate-source">来源：${esc(sourceLabel)}</p>
- <details class="candidate-evidence"><summary>查看证据</summary>${c.description?`<p>${esc(c.description)}</p>`:''}${c.deadline.basis?`<p>${esc(c.deadline.basis)}</p>`:''}${(c.review_reasons||[]).filter(reason=>reason!==c.deadline.basis).map(reason=>`<p class="draft-warning">${esc(reason)}</p>`).join('')}${(c.evidence||[]).map(e=>`<blockquote>${esc(e.quote)}</blockquote>`).join('')}${(c.sources||[]).map(s=>{let link='';try{const u=new URL(s.url);if(['http:','https:'].includes(u.protocol)&&!u.username&&!u.password)link=`<a href="${esc(u.href)}" target="_blank" rel="noreferrer">打开来源</a>`;}catch{}return `<p>${esc(s.label||platformLabels[s.platform]||'来源')} ${link}</p>`}).join('')}</details></div></article>`;
+ <div class="candidate-content"><div class="candidate-type">${esc(labels[c.notice_type])}</div><h3>${esc(c.title)}</h3><div class="candidate-meta"><span>${icon('clock')}${esc(deadlineLabel(c.deadline))}</span>${c.course_or_project?`<span>${icon('book')}${esc(c.course_or_project)}</span>`:''}</div>
+ <div class="candidate-evidence task-evidence">${evidence}${reviewReasons.length?`<details class="candidate-review-notes"><summary>核对说明</summary>${reviewReasons.map(reason=>`<p>${esc(reason)}</p>`).join('')}</details>`:''}</div></div></article>`;
 }
 function review(item,selectedAction=''){
  const c=item.candidate,d=suggestedDue(c.deadline),tasks=host.getState().tasks;
