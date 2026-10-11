@@ -6,11 +6,11 @@ globalThis.window=new EventTarget();globalThis.document=new EventTarget();
 globalThis.CustomEvent ||= class extends Event{constructor(type){super(type);}};
 const store=await import('../src/team-store.js');
 const planner=await import('../src/team-planner-ui.js');
-let workspace,state,calls,waiter;
+let workspace,state,calls,waiter,calendarArrivals;
 const reply=value=>({ok:true,json:async()=>structuredClone(value)});
 async function setup(){
  workspace={tasks:{version:1,value:[{id:'scheduled',title:'已有安排',status:'not_started',subtasks:[],due:{date:'2026-10-10'},plans:[{id:'old',title:'学习',startAt:'2026-10-08T19:00:00+08:00',endAt:'2026-10-08T20:00:00+08:00'}]},{id:'new',title:'新任务',status:'not_started',subtasks:[],due:{date:'2026-10-10'},plans:[]}]}};
- calls=[];waiter=null;
+ calls=[];waiter=null;calendarArrivals=[];
  globalThis.fetch=async(path,options={})=>{
   const body=options.body?JSON.parse(options.body):null;calls.push({path,body});
   if(path==='/api/auth/me')return reply({user:{id:'u',name:'测试'}});
@@ -21,7 +21,7 @@ async function setup(){
   throw new Error('unexpected '+path);
  };
  state=await store.initSession();window.dispatchEvent(new CustomEvent('niuma:account-reset'));
- planner.configurePlanner({getState:()=>state,render(){},openPreview(){},toast(){},refresh:async()=>{state=await store.refreshStore();}});
+ planner.configurePlanner({showCalendar:(date,ids)=>calendarArrivals.push({date,ids}),getState:()=>state,render(){},openPreview(){},toast(){},refresh:async()=>{state=await store.refreshStore();}});
 }
 test('replanning one scheduled task previews replacement, keeps its old block until apply, and cancels without writing',async()=>{
  await setup();
@@ -32,10 +32,10 @@ test('replanning one scheduled task previews replacement, keeps its old block un
  assert.match(planner.plannerPage(),/只重新规划：已有安排/);
  assert.match(planner.plannerPage(),/确认后将替换以下任务/);
  await planner.plannerClick({dataset:{planAction:'discard'}});
- assert.equal(state.schedule[0].id,'old');assert.equal(calls.some(call=>call.path==='/api/planning/apply'),false);
+ assert.equal(calendarArrivals.length,0);assert.equal(state.schedule[0].id,'old');assert.equal(calls.some(call=>call.path==='/api/planning/apply'),false);
  await planner.replanTasks(['scheduled']);
  await planner.plannerClick({dataset:{planAction:'apply'}});
- assert.equal(state.schedule[0].id,'new-plan');assert.equal(state.tasks.length,2);
+ assert.equal(state.schedule[0].id,'new-plan');assert.equal(state.tasks.length,2);assert.deepEqual(calendarArrivals,[{date:'2026-10-09',ids:['new-plan']}]);
 });
 test('an empty planning range explains whether tasks are missing, scheduled or excluded',async()=>{
  await setup();
@@ -73,4 +73,11 @@ test('automatic planning after a targeted replan resets the range to newly impor
  assert.deepEqual(calls.filter(call=>call.path==='/api/planning/proposals').at(-1).body,examples.newTasksRequest);
  assert.doesNotMatch(planner.plannerPage(),/只重新规划|确认后将替换以下任务/);
  assert.match(planner.plannerPage(),/1 项待规划/);
+});
+
+test('selecting a proposal task highlights its matching blocks without applying anything',async()=>{
+ await setup();await planner.replanTasks(['scheduled']);
+ await planner.plannerClick({dataset:{planFocus:'scheduled'}});
+ let html=planner.plannerPage();assert.match(html,/class="plan-block" data-plan-selected="true"/);assert.match(html,/data-plan-focus="scheduled" aria-pressed="true"/);assert.equal(calls.some(call=>call.path==='/api/planning/apply'),false);
+ await planner.plannerClick({dataset:{planFocus:'scheduled'}});html=planner.plannerPage();assert.doesNotMatch(html,/data-plan-selected="true"/);
 });

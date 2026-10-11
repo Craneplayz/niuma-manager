@@ -28,6 +28,7 @@ const accounts={
 };
 const response=value=>({ok:true,json:async()=>structuredClone(value)});
 globalThis.fetch=async(path,options={})=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
  const body=options.body?JSON.parse(options.body):null;
  requests.push({path,body,account:active,signal:options.signal});
  if(delay?.path===path){const pending=delay;delay=null;pending.started();return pending.promise;}
@@ -47,7 +48,8 @@ globalThis.fetch=async(path,options={})=>{
 const host={getState:()=>state,render(){},persist(){store.saveStore(state);},refresh:async()=>{state=await store.refreshStore();},toast(){}};
 planner.configurePlanner(host);feedback.configurePersonalization(host);recognition.configureAssistant(host);
 test('planning cards show concise reasons beside each task and collapse duplicate warnings',()=>{
- const html=planner.proposalSummaryHtml({estimates:{a:90,b:60,c:20},blocks:[{taskId:'b',startAt:'2026-10-06T19:00:00+08:00',endAt:'2026-10-06T20:00:00+08:00'}],priorityOrder:[{taskId:'a',rank:1,level:0,availableMinutes:0,estimatedMinutes:90,slackMinutes:-90},{taskId:'b',rank:2,level:2,availableMinutes:180,estimatedMinutes:60,slackMinutes:120}],warnings:['报告 <草稿>：P0，DDL 前尚缺 90 分钟','报告 <草稿>：未全部安排，请检查约束或截止时间']},[{id:'a',title:'报告 <草稿>',priority:'high',due:'2026-10-05',dueTime:'23:00'},{id:'b',title:'练习',priority:'medium',due:'2026-10-07',dueTime:'18:00'},{id:'c',title:'无日期',priority:'low',due:''}],Date.parse('2026-10-06T10:00:00+08:00'));
+ const proposalArgs=[{estimates:{a:90,b:60,c:20},blocks:[{taskId:'b',startAt:'2026-10-06T19:00:00+08:00',endAt:'2026-10-06T20:00:00+08:00'}],priorityOrder:[{taskId:'a',rank:1,level:0,availableMinutes:0,estimatedMinutes:90,slackMinutes:-90},{taskId:'b',rank:2,level:2,availableMinutes:180,estimatedMinutes:60,slackMinutes:120}],warnings:['报告 <草稿>：P0，DDL 前尚缺 90 分钟','报告 <草稿>：未全部安排，请检查约束或截止时间']},[{id:'a',title:'报告 <草稿>',priority:'high',due:'2026-10-05',dueTime:'23:00'},{id:'b',title:'练习',priority:'medium',due:'2026-10-07',dueTime:'18:00'},{id:'c',title:'无日期',priority:'low',due:''}],Date.parse('2026-10-06T10:00:00+08:00')];
+ const html=planner.proposalSummaryHtml(...proposalArgs)+planner.proposalBlocksHtml(proposalArgs[0],proposalArgs[1]);
  assert.match(html,/报告 &lt;草稿&gt;/);
  assert.match(html,/已过截止时间/);
  assert.match(html,/截止时间已过，无法安排/);
@@ -59,6 +61,8 @@ test('planning cards show concise reasons beside each task and collapse duplicat
  assert.match(html,/排程优先第 1 位/);
  assert.doesNotMatch(html,/排程优先第 2 位/);
  assert.match(html,/1 项可安排 · 2 项需要处理/);
+ assert.doesNotMatch(html,/本次建议安排/);
+ assert.match(html,/截止 2026-10-07 18:00 · 任务预计 60 分钟/);
  assert.equal((html.match(/class="proposal-risk/g)||[]).length,2);
  assert.doesNotMatch(html,/P0，DDL|未全部安排|为什么这样排序/);
 });
@@ -286,6 +290,7 @@ test('sync processes more than twenty single records, continues past failure and
  const syncRequests=Array.from({length:25},(_,i)=>({contract_version:'0.2',request_id:'sync:'+i,records:[{input_id:'r:'+i,text:'合成通知 '+i,platform:'teaching_web'}]}));
  let fail=true;
  globalThis.fetch=async(path,options={})=>{
+ if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
   if(path==='/api/sources/sync')return response({requests:syncRequests,summary:{total:65,skipped:40,pending:25}});
   if(path==='/api/recognition/retry'){
    const request=JSON.parse(options.body);seen.push(request);

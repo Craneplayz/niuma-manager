@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {calendarClick,calendarStep,calendarPage,calendarToday} from '../src/team-calendar-ui.js';
+import {calendarClick,calendarStep,calendarPage,calendarToday,focusCalendar,resetCalendarFocus} from '../src/team-calendar-ui.js';
 import {dayKey} from '../src/data.js';
 
 test('completed future plans leave the calendar while history and active tasks remain',()=>{
@@ -68,4 +68,16 @@ test('calendar dates open the day view; plans open their own editor and deadline
  assert.match(html,new RegExp(`<h2>${date}</h2>`));
  assert.match(html,/calendar-time-grid single/);
  }finally{globalThis.requestAnimationFrame=originalAnimationFrame;}
+});
+
+
+test('new plans open their own date, highlight only the applied ids and clear on navigation',()=>{
+ const originalAnimationFrame=globalThis.requestAnimationFrame;globalThis.requestAnimationFrame=()=>0;
+ try{
+  const date='2026-11-16';
+  const state={tasks:[{id:'a',status:'todo'}],schedule:[{id:'new',taskId:'a',date,start:19,hours:1},{id:'old',taskId:'a',date,start:21,hours:1}]};
+  const week=focusCalendar(date,['new']);
+  let html=calendarPage(state,week);assert.match(html,/<h2>2026-11-16<\/h2>/);assert.match(html,/data-schedule-id="new"[^>]*data-schedule-highlight="true"/);assert.doesNotMatch(html,/data-schedule-id="old"[^>]*data-schedule-highlight/);
+  calendarStep(1,week);html=calendarPage(state,week);assert.doesNotMatch(html,/data-schedule-highlight/);
+ }finally{resetCalendarFocus();calendarToday();globalThis.requestAnimationFrame=originalAnimationFrame;}
 });
