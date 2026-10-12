@@ -1,4 +1,5 @@
 // Adapts the collaborator's page state to the shared team workspace API.
+import {newId} from './id.js';
 import {dayKey} from './data.js';
 export const session={user:null,backend:true,aiConfigured:false,sync:'saved',error:'',conflict:false,changing:false};
 const empty=()=>({version:1,tasks:[],trash:[],courses:[],schedule:[],materials:[]});
@@ -61,7 +62,7 @@ function toCanonical(task,previous){
   source:old.source||(task.id.startsWith('example-')?'模拟数据':'手动创建'),createdAt:old.createdAt||new Date().toISOString(),
   ...(task.id.startsWith('example-')&&Number.isFinite(task.hours)?{estimatedMinutes:task.hours*60}:{}),
   location:task.location||'',owner:task.owner||'',dependsOn:task.dependsOn||'',
-  subtasks:(task.subtasks||[]).map(s=>{const previous=stepsById.get(s.id)||oldSteps.get(s.title)||{};return {...previous,id:s.id||previous.id||crypto.randomUUID(),title:s.title,status:s.done?'completed':'pending'};}),
+  subtasks:(task.subtasks||[]).map(s=>{const previous=stepsById.get(s.id)||oldSteps.get(s.title)||{};return {...previous,id:s.id||previous.id||newId(),title:s.title,status:s.done?'completed':'pending'};}),
   plans:[]};
 }
 function view(){
@@ -106,7 +107,7 @@ function payload(data){
   const endAt=new Date(Date.parse(startAt)+Number(item.hours)*3600000).toISOString();
   const unchanged=previous.startAt&&Date.parse(previous.startAt)===Date.parse(startAt)&&
    (!previous.endAt||Date.parse(previous.endAt)===Date.parse(endAt))&&previous.title===(item.label||task.title);
-  task.plans.push(unchanged?previous:{...previous,id:item.id||crypto.randomUUID(),title:item.label||task.title,startAt,
+  task.plans.push(unchanged?previous:{...previous,id:item.id||newId(),title:item.label||task.title,startAt,
    endAt,origin:'manual'});
  }
  const courses=data.courses.map(c=>{const old=canonicalCourses.find(x=>x.id===c.id)||{};return {...old,id:c.id,name:c.name,

@@ -8,6 +8,8 @@ server/
 ├── test_reprocessing.py      来源分页、幂等、账号隔离、停止与旧结果保留测试。
 ├── planning.py               规划直调/HTTP 切换、配置读取及并发保护。
 ├── wechat_media.py           微信附件上传、账号凭证、异步导入与结果查询。
+├── manual_materials.py       登录用户主动上传材料的隔离入口，不接受采集器凭证。
+├── test_manual_materials.py  主动上传、加密拒绝、会话鉴权与旧作业隔离测试。
 ├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
 ├── source_sync.py            调用教学网采集并保存 v0.4 来源快照。
 ├── teaching.py               核验当前账号快照、调用 v0.4 并适配现有任务卡片。
@@ -68,6 +70,9 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。
 
 ## 微信材料处理边界
+
+Docker 部署禁用 `/api/sources/wechat/`；`NIUMA_ENABLE_MANUAL_MATERIALS=1` 仅开放 `/api/materials/` 登录会话入口，允许用户主动提交未加密 JSON 和附件，不获取微信内容、不解密、不恢复旧采集任务。
+主动上传回执使用业务版本 `manual-materials/0.1`，识别请求和结果沿用共享 v0.3.1；原件类型、大小和哈希由服务器核验，未支持格式明确标为无法读取。
 
 本业务 API 接收材料并进行账号鉴权、存储、识别调用和候选管理，不启动或登录微信客户端，不读取微信聊天数据库、不提取客户端密钥；独立来源采集模块为 `wechat/`，模型识别模块为 `ddl_text/`。
 业务导入凭证仅授权本项目接口，不证明上传材料的来源合法、第三方已同意或腾讯已许可相应采集方式。

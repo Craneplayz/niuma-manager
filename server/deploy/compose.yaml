@@ -1,5 +1,6 @@
 services:
   api:
+    image: ${API_IMAGE:-niuma-manager-api:local}
     build:
       context: ../..
       dockerfile: server/deploy/Dockerfile
@@ -9,6 +10,8 @@ services:
     env_file:
       - .env.model
     environment:
+      NIUMA_ENABLE_WECHAT: '0'
+      NIUMA_ENABLE_MANUAL_MATERIALS: '1'
       NIUMA_ALLOWED_ORIGINS: ${APP_ORIGIN:?Set the public HTTPS origin}
       NIUMA_COOKIE_SECURE: ${COOKIE_SECURE:-1}
     volumes:
@@ -29,6 +32,7 @@ services:
       retries: 5
       start_period: 20s
   web:
+    image: ${WEB_IMAGE:-niuma-manager-web:local}
     build:
       context: ../..
       dockerfile: server/deploy/Dockerfile
@@ -52,5 +56,6 @@ services:
         max-file: '3'
 volumes:
   app-data:
+    name: ${NIUMA_DATA_VOLUME:-niuma-app-data}
   tls-data:
   tls-config:

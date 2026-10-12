@@ -17,6 +17,7 @@ frontend/
 ├── vite.config.ts             配置开发端口与 API 代理。
 ├── src/
 │   ├── app.js                 组织页面、路由与主要交互。
+│   ├── id.js                  在 HTTPS、localhost 和 HTTP IP 环境生成随机 UUID。
 │   ├── import-journey.js      追踪本次导入、历史批次分组、上下滑动吸附与任务高亮交接。
 │   ├── review-motion.js       在审核创建成功后将候选信封送往任务章节。
 │   ├── task-drawer.js         管理任务抽屉、返回焦点与保存提示。
@@ -29,8 +30,8 @@ frontend/
 │   ├── team-recognition-ui.js 展示通知导入、账号候选与来源证据。
 │   ├── reprocessing-ui.js     选择已保存通知并查询、停止持久化重识别运行。
 │   ├── task-trash-ui.js       展示任务回收站、恢复与彻底删除操作。
-│   ├── source-import.js        解析课程网 v0.2 文件与用户选择的微信文本。
-│   ├── team-wechat-media-ui.js 展示微信附件导入进度、证据和本机导入凭证。
+│   ├── source-import.js        本机预览用户选择的文字、JSON 和教学网批次。
+│   ├── team-wechat-media-ui.js 展示主动上传材料的进度、证据及开发版来源凭证。
 │   ├── team-planner-ui.js     展示规划与重新规划的预览和确认流程。
 │   ├── team-calendar-ui.js    渲染日、周、月日历与 DDL。
 │   ├── schedule-editor.js     调整或移除学习时段，并发起任务重新规划。
@@ -39,9 +40,13 @@ frontend/
 │   ├── styles.css / polish.css / team-integration.css 维护界面样式。
 │   └── 其他工具模块           提供示例、搜索、计时、语音、主题和图标。
 ├── docs/screenshots/          保存不含私人数据的桌面和移动端来源页验证截图。
+│   ├── 2026-10-12-deployment-materials-desktop.png 展示 HTTP 部署版主动上传与采集关闭说明。
+│   ├── 2026-10-12-deployment-materials-mobile.png  展示 390px 部署版材料入口与隐私说明。
 │   ├── 2026-10-09-reprocessing-desktop.png  展示旧通知选择与规则版本入口。
 │   └── 2026-10-09-reprocessing-mobile.png   展示 390px 窗口下的来源管理布局。
 ├── tests/                     覆盖前端行为与团队接口适配。
+│   ├── id-http.test.js        验证 HTTP UUID 兼容及识别按钮实际发起请求。
+│   ├── manual-materials.test.js  验证主动上传同意、登录会话与账号切换取消。
 │   └── reprocessing.test.js   验证显式记录选择、停止调用、分页与账号状态清理。
 └── docs/
     ├── maintenance.md         说明模块边界和验证要求。
@@ -75,7 +80,14 @@ frontend/
 课程演示、非商业用途和本说明均不构成腾讯授权或免责保证；真实采集方式未完成平台协议核对前不启用真实采集，禁止未经授权的客户端修改、数据库解密和访问限制绕过。
 平台规则入口：[腾讯微信软件许可及服务协议](https://weixin.qq.com/cgi-bin/readtemplate?t=weixin_agreement&s=default&lang=zh_CN)，以使用时官方公布的适用文本为准。
 
+Docker 部署版展示平台与隐私说明，关闭微信采集、客户端/数据库读取、自动同步和采集器上传；不恢复旧采集作业。
+“通知导入”允许本机预览、编辑未加密的文字与 JSON，再主动提交识别；“来源管理 → 主动上传材料”允许选择未加密附件并明确同意后提交服务端与模型。
+主动上传只使用登录会话，不签发或接受采集器凭证；检测到加密数据时拒绝处理，未支持的格式标明无法读取，不报告为无任务。
+只提供有权使用的材料；声明不等于平台授权或免责保证，更换部署主体也不自动满足授权要求。
+
 ## 启动
+
+阿里云 Docker 部署、模型配置及 HTTP IP / HTTPS 访问见 [部署指南](../server/deploy/README.md)；实名认证仅是云账号开通条件，不是应用注册要求。
 
 需要 Node.js 20.19+、Python 3.9+。从 `frontend/` 目录执行：
 

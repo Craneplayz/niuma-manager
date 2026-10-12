@@ -16,11 +16,15 @@ import recognition
 import planning
 import source_sync
 import wechat_media
+import manual_materials
 import task_decomposition
 import reprocessing
 
 DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
 TZ = timezone(timedelta(hours=8))
+
+def wechat_enabled():
+    return os.environ.get('NIUMA_ENABLE_WECHAT', '1') == '1'
 
 @contextmanager
 def connection():
@@ -47,9 +51,12 @@ def initialize(recover=True):
         recognition.initialize(db)
         source_sync.initialize(db)
         reprocessing.initialize(db,recover=recover)
-        wechat_media.initialize(db,recover=recover)
+        if wechat_enabled() or manual_materials.enabled():
+            wechat_media.initialize(db,recover=recover and wechat_enabled())
+        if manual_materials.enabled():
+            manual_materials.initialize(db,recover=recover and not wechat_enabled())
         task_decomposition.initialize(db)
-    if recover:
+    if recover and wechat_enabled():
         wechat_media.resume(DB)
 
 def seed():
@@ -99,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def body(self):
-        if self.path.startswith('/api/sources/wechat/'):
+        if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
             try:
                 value=json.loads(wechat_media.read_body(self,2000000) or b'{}')
             except (ValueError,UnicodeError):
@@ -129,7 +136,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='GET' and origin and origin not in allowed_origins():
             raise ApiError(403,'不允许的请求来源')
         path=self.path.split('?')[0]
-        body=self.body() if self.command in ['POST','PUT','DELETE'] and not (path=='/api/sources/wechat/assets' and self.headers.get('Content-Type','').startswith('multipart/form-data;')) else {}
+        if path.startswith('/api/materials/') and (not manual_materials.enabled() or self.headers.get('Authorization')):
+            self.close_connection=True
+            raise wechat_media.MediaError(403,'forbidden','此入口仅接受已登录用户主动上传的材料')
+        if path.startswith('/api/sources/wechat') and not wechat_enabled():
+            self.close_connection=True
+            raise ApiError(403,'此部署未开放微信接入')
+        body=self.body() if self.command in ['POST','PUT','DELETE'] and not (path in ('/api/sources/wechat/assets','/api/materials/assets') and self.headers.get('Content-Type','').startswith('multipart/form-data;')) else {}
+        if path.startswith('/api/recognition/') and manual_materials.enabled() and isinstance(body.get('records'),list):
+            for record in body['records']:
+                if isinstance(record,dict) and record.get('platform')=='manual' and isinstance(record.get('text'),str):
+                    wechat_media._reject_encrypted(record['text'].encode('utf-8'))
+        if path.startswith('/api/recognition/') and not wechat_enabled() and isinstance(body.get('records'),list) and any(
+                isinstance(record,dict) and record.get('platform')=='wechat'
+                for record in body['records']):
+            raise ApiError(403,'此部署未开放微信接入')
         with connection() as db:
             self.db=db
             self.media_db_path=DB
@@ -160,7 +181,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 user,token=self.user(db)
                 uid=user['id']
-            if wechat_media.route(self,db,uid,path,body,DB.parent): return
+            if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
+            if manual_materials.route(self,db,uid,path,body,DB.parent): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return
@@ -323,16 +345,16 @@ class Handler(BaseHTTPRequestHandler):
         try: self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
         except ApiError as e:
-            if self.path.startswith('/api/sources/wechat/'):
+            if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 code={401:'unauthorized',403:'forbidden',404:'not_found',413:'limit_exceeded',503:'queue_busy'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
             else: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError):
-            if self.path.startswith('/api/sources/wechat/'):
+            if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 self.reply(400,dict(error=dict(code='invalid_request',message='数据格式不正确',retryable=False)))
             else: self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
-            if self.path.startswith('/api/sources/wechat/'):
+            if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 print(type(e).__name__,flush=True)
                 self.reply(503,dict(error=dict(code='queue_busy',message='附件服务暂不可用，请稍后重试',retryable=True)))
             else:

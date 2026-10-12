@@ -10,6 +10,40 @@ from unittest.mock import patch
 import app
 
 
+class DeploymentConfigTests(unittest.TestCase):
+    root=Path(__file__).parent/'deploy'
+
+    def test_public_templates_have_no_model_key_or_identity_requirement(self):
+        values=dict(line.split('=',1) for line in (self.root/'.env.model.example').read_text(encoding='utf-8').splitlines() if line and not line.startswith('#'))
+        self.assertEqual(values['QINIU_API_KEY'],'')
+        self.assertEqual(values['DDL_PROVIDER'],'qiniu')
+        self.assertIn('注册不收集真实姓名、身份证或实名信息',(self.root/'README.md').read_text(encoding='utf-8'))
+
+    def test_both_modes_preserve_explicit_data_volume_and_disable_collectors(self):
+        for name in ('compose.yaml','compose.ip.yaml'):
+            value=(self.root/name).read_text(encoding='utf-8')
+            self.assertIn("NIUMA_ENABLE_WECHAT: '0'",value)
+            self.assertIn("NIUMA_ENABLE_MANUAL_MATERIALS: '1'",value)
+            self.assertIn('name: ${NIUMA_DATA_VOLUME:-niuma-app-data}',value)
+            self.assertIn('- .env.model',value)
+
+    def test_http_mode_uses_loopback_api_and_non_root_web(self):
+        compose=(self.root/'compose.ip.yaml').read_text(encoding='utf-8')
+        self.assertIn('NIUMA_HOST: 127.0.0.1',compose)
+        self.assertIn('network_mode: service:api',compose)
+        self.assertIn('target: web-eci',compose)
+        self.assertIn('reverse_proxy 127.0.0.1:1332',(self.root/'Caddyfile.eci').read_text(encoding='utf-8'))
+        dockerfile=(self.root/'Dockerfile').read_text(encoding='utf-8').split('FROM web AS web-eci')[1]
+        self.assertIn('USER 10001:10001',dockerfile)
+        self.assertIn('mv /tmp/caddy /usr/bin/caddy',dockerfile)
+
+    def test_build_context_excludes_private_configuration_and_data(self):
+        rules=(self.root/'Dockerfile.dockerignore').read_text(encoding='utf-8').splitlines()
+        for rule in ('**/.env','**/.env.*','**/*.key','**/*.sqlite*','server/data','crawler/data'):
+            self.assertIn(rule,rules)
+        self.assertNotIn('!wechat/',rules)
+
+
 class DeploymentTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
@@ -42,6 +76,30 @@ class DeploymentTests(unittest.TestCase):
             self.assertEqual(json.load(response),{'status':'ok'})
         with self.request('/api/workspace') as response:
             self.assertEqual(response.status,401)
+
+    def test_disabled_wechat_rejects_routes_before_reading_or_authentication(self):
+        with patch.dict(app.os.environ,NIUMA_ENABLE_WECHAT='0'), patch.object(app.Handler,'body',side_effect=AssertionError('body read')):
+            for path in ['/api/sources/wechat/credential','/api/sources/wechat/assets','/api/sources/wechat/imports','/api/sources/wechat/imports/job/retry']:
+                with self.request(path,{'synthetic':True}) as response:
+                    self.assertEqual(response.status,403)
+
+    def test_disabled_wechat_blocks_text_import_and_retry_before_model(self):
+        with patch.dict(app.os.environ,NIUMA_ENABLE_WECHAT='0'), patch.object(app.recognition,'recognize',side_effect=AssertionError('model called')):
+            for path in ['/api/recognition/batches','/api/recognition/retry']:
+                with self.request(path,{'records':[{'platform':'wechat','text':'synthetic'}]}) as response:
+                    self.assertEqual(response.status,403)
+
+    def test_disabled_wechat_does_not_recover_background_jobs(self):
+        with patch.dict(app.os.environ,NIUMA_ENABLE_WECHAT='0',NIUMA_ENABLE_MANUAL_MATERIALS='0'), patch.object(app.wechat_media,'initialize') as initialize, patch.object(app.wechat_media,'resume') as resume:
+            app.initialize()
+            initialize.assert_not_called()
+            resume.assert_not_called()
+
+    def test_manual_upload_mode_never_resumes_collector_jobs(self):
+        with patch.dict(app.os.environ,NIUMA_ENABLE_WECHAT='0',NIUMA_ENABLE_MANUAL_MATERIALS='1'), patch.object(app.wechat_media,'initialize') as initialize, patch.object(app.wechat_media,'resume') as resume:
+            app.initialize()
+            self.assertFalse(initialize.call_args.kwargs['recover'])
+            resume.assert_not_called()
 
     def test_public_origin_cookie_and_logout(self):
         account=dict(name='部署测试',email='deployment@test.local',password='Synthetic-Test-2026!')

@@ -32,3 +32,15 @@ test('directory pages are combined without losing one source records',async()=>{
  reset();globalThis.fetch=async path=>({ok:true,json:async()=>path.includes('/sources')?path.includes('cursor=next')?{accounts:[{...directory.accounts[0],records:[{...records[0],input_id:'second',label:'第二条通知'}]}],next_cursor:null}:{...directory,next_cursor:'next'}:{runs:[],next_cursor:null}});
  await ui.reprocessingClick(click('load'));assert.match(ui.reprocessingPanel(),/课程通知/);assert.match(ui.reprocessingPanel(),/第二条通知/);
 });
+
+test('an unavailable API does not trigger repeated requests on each render',async()=>{
+ reset();let requests=0;
+ ui.configureReprocessing({render(){ui.reprocessingPanel();}});
+ globalThis.fetch=async()=>{requests++;throw new Error('offline');};
+ await ui.reprocessingClick(click('load'));
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(requests,1);assert.match(ui.reprocessingPanel(),/offline/);
+ globalThis.fetch=async path=>{requests++;return {ok:true,json:async()=>path.includes('/sources')?directory:{runs:[],next_cursor:null}};};
+ await ui.reprocessingClick(click('load'));
+ assert.equal(requests,3);assert.match(ui.reprocessingPanel(),/课程通知/);
+});
