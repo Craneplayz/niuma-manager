@@ -10,6 +10,8 @@
 
 配置在 `server/deploy/environments/<环境>/config.json`，模型配置在同目录 `.env.model`，二者均不入 Git / 镜像；开发和测试不继承仓库根 `.env` 或终端遗留的模型、Compose 配置。
 
+模型配置沿用本地识别器的字面量格式，不展开 `$变量`、反斜杠或行内注释；注释单独成行。容器入口自动生成同目录私有 `.env.model.compose` 和 `.env.compose`，不要手工编辑或提交它们。[Compose 变量展开规则](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)
+
 本地数据在 `server/data/<环境>/`，容器数据在独立卷的 `/data`，包括 SQLite、凭据加密密钥、附件及作业记录；不得跨环境共享或复制生产数据来初始化测试。
 
 ## 1. 一次准备三个环境
@@ -28,6 +30,10 @@ python server/manage_environment.py check production
 `check` 只检查配置边界，不证明服务器已启动、密钥有额度或模型可调用；环境目录权限应限制为部署者可访问。
 
 `config.json` 可设置 origin、监听地址和端口、HTTP/HTTPS、镜像及后台恢复；测试数据卷名称固定，生产可明确指定旧卷，多个配置指向同卷会被拒绝。
+
+`origin` 的端口须与该协议发布端口一致；HTTPS 的 `port` 是 HTTP 跳转入口，`https_port` 是 HTTPS 入口，二者不能相同。比如 `https://test.example.com:1543` 对应 `site_address=test.example.com:1543`、`https_port=1543`；容器目标端口也跟随站点端口，避免代理在 1543 监听却转发到 443。[Caddy 站点地址规则](https://caddyserver.com/docs/caddyfile/concepts#addresses)
+
+入口会按浏览器规则将域名转为小写并省略默认 `:80` / `:443`，避免登录请求因 Origin 表示不同而被拒绝。
 
 ## 2. 本地开发与测试
 
@@ -57,6 +63,8 @@ python server/manage_environment.py status test
 
 命令固定项目名并显式选择环境文件，不受终端残留的生产配置覆盖；默认只监听服务器回环地址，测试通过 SSH 隧道访问，或由维护者配置独立测试域名和 HTTPS。
 
+`build production` 被禁止；构建时 development/test 的 `api_image`、`web_image` 必须留空，以提交号生成新标签，不能覆盖已填写的发布镜像。`up` 仍可使用明确指定的已构建镜像。
+
 例如已有 SSH 连接名 `niuma-server` 时，本机执行 `ssh -N -L 1531:127.0.0.1:1531 niuma-server` 后访问本机 1531；实际连接名由部署者提供。
 
 测试与生产优先使用不同主机名；仅换端口不隔离 Cookie，因此服务另使用 `niuma_session_development/test/production` 三个名称，且数据和会话表也独立。[Cookie 作用域说明](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)
@@ -77,6 +85,8 @@ python server/manage_environment.py status test
 
 存储目录的 `.niuma-environment.json` 会拒绝跨环境打开，即使传入接管开关也不能把已标记的生产卷当作测试卷；不要删除该标记来绕过检查。
 
+已标记的目录也拒绝未设置 `NIUMA_ENVIRONMENT` 的旧启动入口；兼容入口仅能继续使用未标记的旧本地目录。生产必须使用显式存在的外部卷，不允许自动创建或使用开发/测试卷名。
+
 生产不允许 seed 示例账号；不提供清空生产数据或 `down -v` 的快捷命令。HTTP/HTTPS 选择沿用现有部署指南，本次隔离不自动迁移域名或证书。
 
 ## 5. 后续发布、停止与回滚
@@ -85,11 +95,15 @@ python server/manage_environment.py status test
 
 `python server/manage_environment.py stop test` 只停止测试项目，不删除数据；任何环境的重新创建都保留数据卷。
 
+`stop`、`status` 根据固定项目标签定位容器，不依赖当前配置或密钥文件仍然有效；即使配置误改，仍能停止该环境，不影响其他项目。
+
 回滚先停止新生产项目并保存故障现场；确认数据库兼容时恢复原镜像和启动配置，涉及迁移则在独立卷恢复完整备份验证后切换，避免两个 API 同时写一份数据库。
 
 ## 6. 验证范围
 
 `python -m unittest discover -s server -p test_environment_isolation.py -v` 启动两个使用临时数据库的真实 API，验证账号、Cookie、写入、版本、配置隔离和旧数据接管保护，不调用模型。
+
+安装 Compose CLI 时，同一组测试还校验三个环境的 HTTP/HTTPS 配置、特殊字符模型配置和端口；独立 Compose 可通过 `NIUMA_COMPOSE_TEST_BIN` 指定，无须 Docker 引擎。未安装 CLI 时仅此集成检查跳过。
 
 本次只隔离已有的后台作业恢复；系统尚无完整定时同步调度器，`scheduled_sync_available=false` 如实表示未实现，不能把恢复开关当作定时同步功能。
 

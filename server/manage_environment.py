@@ -7,11 +7,16 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from runtime_environment import ENVIRONMENTS, ROOT
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from ddl_text.codex_client import load_env
 
 DEPLOY = ROOT / 'server' / 'deploy'
 PROFILES = DEPLOY / 'environments'
@@ -47,7 +52,7 @@ def initialize(name, root=PROFILES):
 def read_config(name, root=PROFILES):
     folder = (root / name).resolve()
     config = json.loads((folder / 'config.json').read_text(encoding='utf-8'))
-    if set(config) != FIELDS or config['environment'] != name:
+    if not isinstance(config, dict) or set(config) != FIELDS or config['environment'] != name:
         raise ValueError('Invalid environment configuration or mismatched environment name')
     if config['transport'] not in ('http', 'https'):
         raise ValueError('transport must be http or https')
@@ -58,12 +63,29 @@ def read_config(name, root=PROFILES):
         raise ValueError('API and web ports must differ')
     if config['listen'] not in ('127.0.0.1', '0.0.0.0'):
         raise ValueError('listen must be 127.0.0.1 or 0.0.0.0')
+    if not isinstance(config['origin'], str) or not re.fullmatch(r'https?://(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:]+\])(?::[0-9]+)?', config['origin']):
+        raise ValueError('origin must be one HTTP(S) origin with an ASCII host and optional port')
     origin = urlsplit(config['origin'])
     if (origin.scheme != config['transport'] or not origin.hostname or origin.username or origin.password
             or origin.path or origin.query or origin.fragment or any(c.isspace() for c in config['origin'])):
         raise ValueError('origin must be one complete HTTP(S) origin without credentials or a path')
     if config['transport'] == 'https' and config['site_address'] != origin.netloc:
         raise ValueError('site_address must match the HTTPS origin host and port')
+    default_port = 443 if origin.scheme == 'https' else 80
+    public_port = origin.port if origin.port is not None else default_port
+    if public_port == 0:
+        raise ValueError('origin port must be between 1 and 65535')
+    if public_port != config['https_port' if origin.scheme == 'https' else 'port']:
+        raise ValueError('origin port must match the published HTTP or HTTPS port')
+    if config['transport'] == 'https' and config['port'] == config['https_port']:
+        raise ValueError('HTTP redirect and HTTPS ports must differ')
+    # Browsers lowercase hosts and omit :80/:443 in Origin. Match what they send
+    # so a valid configured URL does not result in rejected login/write requests.
+    host = '[' + origin.hostname + ']' if ':' in origin.hostname else origin.hostname
+    authority = host + (':' + str(public_port) if public_port != default_port else '')
+    config['origin'] = origin.scheme + '://' + authority
+    if config['transport'] == 'https':
+        config['site_address'] = authority
     for key in ('external_data_volume', 'adopt_existing_data', 'background_recovery'):
         if type(config[key]) is not bool:
             raise ValueError(f'{key} must be boolean')
@@ -72,21 +94,13 @@ def read_config(name, root=PROFILES):
     if name != 'production' and (config['data_volume'] != f'niuma-{name}-data'
                                  or config['external_data_volume'] or config['adopt_existing_data']):
         raise ValueError('Development/test must use their own new volume; production volume adoption is forbidden')
+    if name == 'production' and (not config['external_data_volume'] or config['data_volume'] in {'niuma-development-data', 'niuma-test-data'}):
+        raise ValueError('Production requires an existing external volume separate from development/test')
     for key in ('api_image', 'web_image'):
         value = config[key]
         if not isinstance(value, str) or (value and not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_./:@-]{0,250}', value)):
             raise ValueError('Invalid image reference')
-    # Only provider keys may enter the model file, never storage or routing overrides.
-    model = folder / '.env.model'
-    seen = set()
-    for line in model.read_text(encoding='utf-8-sig').splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        key, separator, value = line.partition('=')
-        if not separator or key not in MODEL_KEYS or key in seen or '${' in value:
-            raise ValueError('Model file must contain unique literal provider settings only')
-        seen.add(key)
+    read_model_config(folder / '.env.model')
     # A configuration typo must not point two profiles at the same persistent volume.
     for other in ENVIRONMENTS:
         path = root / other / 'config.json'
@@ -95,6 +109,37 @@ def read_config(name, root=PROFILES):
             if sibling.get('data_volume') == config['data_volume']:
                 raise ValueError('Two environments reference the same data volume')
     return folder, config
+
+
+def read_model_config(path):
+    # Use exactly the same literal syntax as the native model client. Never let
+    # Compose expand a provider value using an unrelated variable in the shell.
+    lines = path.read_text(encoding='utf-8-sig').splitlines()
+    if any(line.strip() and not line.lstrip().startswith('#')
+           and line.partition('=')[0].strip() not in MODEL_KEYS for line in lines):
+        raise ValueError('Model file must contain unique literal provider settings only')
+    try:
+        values = load_env(path)
+    except ValueError:
+        raise ValueError('Model file must contain unique literal provider settings only') from None
+    if any(any(ord(c) < 32 for c in value) for value in values.values()):
+        raise ValueError('Model settings must not contain control characters')
+    return values
+
+
+def write_compose_env(path, values):
+    # Double quotes preserve spaces/#/backslashes; $$ prevents interpolation.
+    # Atomically replace a private file, including when a value ends in a slash.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as file:
+            temporary = Path(file.name)
+            for key, value in values.items():
+                file.write(key + '=' + json.dumps(value, ensure_ascii=False).replace('$', '$$') + '\n')
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def clean_environment():
@@ -118,12 +163,14 @@ def compose_command(name, folder, config, docker='docker'):
                   WEB_IMAGE=config['web_image'] or f'niuma-manager-web-{mode}:{revision[:12]}',
                   NIUMA_ENVIRONMENT=name, NIUMA_DATA_VOLUME=config['data_volume'],
                   NIUMA_DATA_VOLUME_EXTERNAL=str(config['external_data_volume']).lower(),
-                  NIUMA_MODEL_ENV_FILE=(folder / '.env.model').as_posix(),
+                  NIUMA_MODEL_ENV_FILE=(folder / '.env.model.compose').as_posix(),
+                  NIUMA_HTTPS_TARGET_PORT=str(urlsplit(config['origin']).port or 443),
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
                   NIUMA_ADOPT_EXISTING_DATA='1' if config['adopt_existing_data'] else '0',
                   NIUMA_BUILD_REVISION=revision, COOKIE_SECURE='1' if config['transport'] == 'https' else '0')
     env_file = folder / '.env.compose'
-    env_file.write_text(''.join(f'{key}={value}\n' for key, value in values.items()), encoding='utf-8')
+    write_compose_env(folder / '.env.model.compose', read_model_config(folder / '.env.model'))
+    write_compose_env(env_file, values)
     compose = DEPLOY / ('compose.ip.yaml' if mode == 'ip' else 'compose.yaml')
     return [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
 
@@ -131,6 +178,8 @@ def compose_command(name, folder, config, docker='docker'):
 def local_environment(name, folder, config):
     if name == 'production' or config['transport'] != 'http' or config['listen'] != '127.0.0.1':
         raise ValueError('Native development servers are restricted to local development/test; deploy production with Compose')
+    if urlsplit(config['origin']).hostname not in ('127.0.0.1', 'localhost'):
+        raise ValueError('Native origin must use localhost or 127.0.0.1')
     values = clean_environment()
     data = ROOT / 'server' / 'data' / name
     values.update(NIUMA_ENVIRONMENT=name, NIUMA_DB=str(data / 'niuma.sqlite3'),
@@ -184,6 +233,10 @@ def main(argv=None):
         return 0
     if name == 'all':
         parser.error('all is allowed only with init')
+    if args.command == 'build' and name == 'production':
+        raise ValueError('Build in development/test, then promote the same verified images to production')
+    if args.command in ('stop', 'status'):
+        return existing_project(args.command, name)
     folder, config = read_config(name)
     if args.command == 'local':
         return local_servers(name, folder, config)
@@ -203,6 +256,8 @@ def main(argv=None):
                 raise ValueError('Install Node and run npm ci in frontend first')
             command, cwd = [node, str(vite), '--host', '127.0.0.1'], ROOT / 'frontend'
         return subprocess.call(command, cwd=cwd, env=child_env)
+    if args.command == 'build' and (config['api_image'] or config['web_image']):
+        raise ValueError('Clear explicit image references before building; never overwrite a release tag')
     docker = shutil.which('docker')
     if not docker:
         raise ValueError('Docker with Compose v2 is required for container commands')
@@ -218,9 +273,23 @@ def main(argv=None):
                                           '--format', '{{.Label "com.docker.compose.project"}}'], text=True, env=env)
         if any(owner != 'niuma-' + name for owner in owners.splitlines()):
             raise ValueError('Another running deployment owns this data volume; back up and stop it before migrating')
-    action = {'build': ['build'], 'up': ['up', '-d', '--no-build', '--force-recreate', 'api', 'web'],
-              'stop': ['stop'], 'status': ['ps']}[args.command]
+    action = {'build': ['build'], 'up': ['up', '-d', '--no-build', '--force-recreate', 'api', 'web']}[args.command]
     return subprocess.call(command + action, cwd=DEPLOY, env=env)
+
+
+def existing_project(action, name):
+    # A broken/missing config must never prevent stopping an existing project.
+    docker = shutil.which('docker')
+    if not docker:
+        raise ValueError('Docker is required for container commands')
+    env = clean_environment()
+    command = [docker, 'ps', '--filter', 'label=com.docker.compose.project=niuma-' + name]
+    if action == 'status':
+        return subprocess.call(command + ['--all'], env=env)
+    ids = subprocess.check_output(command + ['--quiet'], text=True, env=env).splitlines()
+    if any(not re.fullmatch(r'[a-f0-9]{12,64}', value) for value in ids):
+        raise ValueError('Unexpected container identity; refusing to stop')
+    return subprocess.call([docker, 'stop', *ids], env=env) if ids else 0
 
 
 if __name__ == '__main__':

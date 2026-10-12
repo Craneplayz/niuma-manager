@@ -60,11 +60,13 @@ def allow_background_recovery():
 
 def validate_storage(db_path):
     """Claim a fresh data directory or reject a volume from another environment."""
-    if not managed():
-        return
     target = Path(db_path).resolve().parent
-    target.mkdir(parents=True, exist_ok=True)
     marker = target / '.niuma-environment.json'
+    if not managed():
+        if marker.exists():
+            raise ValueError('Labelled data requires an explicit NIUMA_ENVIRONMENT; legacy startup is forbidden')
+        return
+    target.mkdir(parents=True, exist_ok=True)
     expected = environment()
     try:
         identity = json.loads(marker.read_text(encoding='utf-8'))

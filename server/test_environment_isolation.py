@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -51,6 +52,20 @@ class EnvironmentBoundaryTests(unittest.TestCase):
             runtime.validate_storage(db)
         self.assertEqual(db.read_bytes(), b'existing data')
 
+    def test_legacy_startup_cannot_bypass_a_storage_marker(self):
+        for name in runtime.ENVIRONMENTS:
+            db = self.root / name / 'niuma.sqlite3'
+            with patch.dict(os.environ, {'NIUMA_ENVIRONMENT': name}, clear=True):
+                runtime.validate_storage(db)
+            db.write_bytes(b'existing data')
+            with patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(ValueError, 'explicit NIUMA_ENVIRONMENT'):
+                    runtime.validate_storage(db)
+            self.assertEqual(db.read_bytes(), b'existing data')
+        with patch.dict(os.environ, {}, clear=True):
+            runtime.validate_storage(self.root / 'legacy' / 'db.sqlite3')
+        self.assertFalse((self.root / 'legacy').exists())
+
     def test_managed_model_settings_never_fall_back_to_root_secret(self):
         (self.root / '.env').write_text('DDL_PROVIDER=qiniu\nQINIU_API_KEY=synthetic-production-secret\n')
         with patch.object(runtime, 'ROOT', self.root), patch.dict(os.environ, {'NIUMA_ENVIRONMENT':'test'}, clear=True):
@@ -92,6 +107,140 @@ class EnvironmentBoundaryTests(unittest.TestCase):
         self.assertNotIn('APP_ORIGIN',child)
         self.assertIn(str(Path('server')/'data'/'test'),child['NIUMA_DB'])
         self.assertEqual(child['NIUMA_BACKGROUND_RECOVERY'],'0')
+
+    def test_model_files_use_the_native_literal_parser_and_fail_early(self):
+        folder = manager.initialize('test', self.root)
+        model = folder / '.env.model'
+        text = 'DDL_PROVIDER=qiniu\nQINIU_API_KEY=synthetic$UNRELATED ${HOME} # literal\nDDL_MODEL="synthetic\\model"\n'
+        model.write_text(text)
+        manager.read_config('test', self.root)
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(manager.read_model_config(model)['QINIU_API_KEY'], live_options(model)['key'])
+        for invalid in ['QINIU_API_KEY="unclosed\n', 'QINIU_API_KEY=a\nQINIU_API_KEY=b\n',
+                        'NIUMA_DB=other-environment\n', 'QINIU_API_KEY=contains\x00null\n']:
+            with self.subTest(invalid=invalid):
+                model.write_text(invalid)
+                with self.assertRaises(ValueError):
+                    manager.read_config('test', self.root)
+
+    def test_published_ports_and_origin_must_agree(self):
+        folder = manager.initialize('test', self.root)
+        for origin in ['http://localhost:bad', 'http://localhost:65536', 'http://localhost:1532',
+                       'http://localhost:1531#fragment', 'http://local$HOST:1531']:
+            config = manager.defaults('test')
+            config['origin'] = origin
+            (folder / 'config.json').write_text(json.dumps(config))
+            with self.subTest(origin=origin), self.assertRaises(ValueError):
+                manager.read_config('test', self.root)
+        config = manager.defaults('test')
+        config.update(transport='https', origin='https://test.example.com:1543', site_address='test.example.com:1543')
+        (folder / 'config.json').write_text(json.dumps(config))
+        manager.read_config('test', self.root)
+        config['port'] = config['https_port']
+        (folder / 'config.json').write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, 'ports must differ'):
+            manager.read_config('test', self.root)
+
+    def test_local_servers_reject_a_remote_origin(self):
+        config = manager.defaults('test')
+        config['origin'] = 'http://production.example.com:1531'
+        with self.assertRaisesRegex(ValueError, 'Native origin'):
+            manager.local_environment('test', self.root, config)
+
+    def test_origin_normalization_matches_browser_login_requests(self):
+        folder = manager.initialize('production', self.root)
+        path = folder / 'config.json'
+        config = manager.defaults('production')
+        config.update(transport='https', origin='https://EXAMPLE.com:443', site_address='EXAMPLE.com:443')
+        path.write_text(json.dumps(config))
+        _, actual = manager.read_config('production', self.root)
+        self.assertEqual(actual['origin'], 'https://example.com')
+        self.assertEqual(actual['site_address'], 'example.com')
+        config.update(origin='https://example.com:0', site_address='example.com:0')
+        path.write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, 'between 1 and 65535'):
+            manager.read_config('production', self.root)
+
+    def test_production_requires_external_separate_volume_even_without_other_profiles(self):
+        folder = manager.initialize('production', self.root)
+        for changes in [{'external_data_volume': False}, {'data_volume': 'niuma-test-data'},
+                        {'data_volume': 'niuma-development-data'}]:
+            config = {**manager.defaults('production'), **changes}
+            (folder / 'config.json').write_text(json.dumps(config))
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, 'external volume'):
+                manager.read_config('production', self.root)
+
+    def test_build_cannot_overwrite_a_verified_release(self):
+        with patch.object(manager, 'read_config') as read, patch.object(manager.subprocess, 'run') as run:
+            with self.assertRaisesRegex(ValueError, 'promote'):
+                manager.main(['build', 'production'])
+            read.assert_not_called()
+            config = manager.defaults('test')
+            config['api_image'] = 'registry.example.com/api:verified'
+            read.return_value = (self.root, config)
+            with self.assertRaisesRegex(ValueError, 'overwrite a release tag'):
+                manager.main(['build', 'test'])
+            run.assert_not_called()
+
+    def test_stopping_only_targets_the_selected_project_without_reading_broken_config(self):
+        with patch.object(manager, 'read_config', side_effect=AssertionError('config read')), \
+                patch.object(manager.shutil, 'which', return_value='docker'), \
+                patch.object(manager.subprocess, 'check_output', return_value='0123456789ab\n') as query, \
+                patch.object(manager.subprocess, 'call', return_value=0) as call:
+            self.assertEqual(manager.main(['stop', 'test']), 0)
+            self.assertEqual(query.call_args.args[0], ['docker', 'ps', '--filter',
+                             'label=com.docker.compose.project=niuma-test', '--quiet'])
+            self.assertEqual(call.call_args.args[0], ['docker', 'stop', '0123456789ab'])
+            query.return_value = ''
+            call.reset_mock()
+            self.assertEqual(manager.main(['stop', 'test']), 0)
+            call.assert_not_called()
+            query.return_value = 'unexpected-container-name'
+            with self.assertRaises(ValueError):
+                manager.main(['stop', 'test'])
+            call.assert_not_called()
+
+    @unittest.skipUnless(os.environ.get('NIUMA_COMPOSE_TEST_BIN') or shutil.which('docker'),
+                         'Compose CLI required for configuration integration test (no engine needed)')
+    def test_real_compose_preserves_model_literals_paths_and_all_environment_ports(self):
+        # config serializes $ as $$ so its output can be used as a Compose input:
+        # docker/compose cmd/compose/config.go runConfig; decode that output layer.
+        base = self.root / '$UNRELATED profile # directory'
+        value = 'synthetic$UNRELATED ${HOME} # slash\\quote\'"end\\'
+        for name in runtime.ENVIRONMENTS:
+            for transport in ('http', 'https'):
+                with self.subTest(environment=name, transport=transport):
+                    folder = manager.initialize(name, base)
+                    (folder / '.env.model').write_text('QINIU_API_KEY=' + value + '\n')
+                    config = manager.defaults(name)
+                    if transport == 'https':
+                        config.update(transport=transport, origin=f'https://example.com:{config["https_port"]}',
+                                      site_address=f'example.com:{config["https_port"]}')
+                    (folder / 'config.json').write_text(json.dumps(config))
+                    folder, config = manager.read_config(name, base)
+                    command = manager.compose_command(name, folder, config)
+                    if os.environ.get('NIUMA_COMPOSE_TEST_BIN'):
+                        command = [os.environ['NIUMA_COMPOSE_TEST_BIN'], *command[2:]]
+                    env = manager.clean_environment()
+                    env['UNRELATED'] = 'synthetic-shell-value-must-not-win'
+                    process = subprocess.run(command + ['config', '--format', 'json'], env=env,
+                                             capture_output=True, text=True, encoding='utf-8', check=True, timeout=30)
+                    resolved = json.loads(process.stdout.replace('$$', '$'))
+                    self.assertEqual(resolved['name'], 'niuma-' + name)
+                    api = resolved['services']['api']
+                    self.assertEqual(api['environment']['QINIU_API_KEY'], value)
+                    self.assertEqual(api['environment']['NIUMA_ENVIRONMENT'], name)
+                    self.assertEqual(resolved['volumes']['app-data']['name'], config['data_volume'])
+                    if transport == 'https':
+                        web = resolved['services']['web']
+                        self.assertEqual(web['environment']['SITE_ADDRESS'], config['site_address'])
+                        self.assertTrue(any(str(p['published']) == str(config['https_port'])
+                                            and p['target'] == config['https_port'] for p in web['ports']))
+                    else:
+                        self.assertEqual(api['ports'][0]['target'], 1331)
+                        self.assertEqual(str(api['ports'][0]['published']), str(config['port']))
+                    if os.name != 'nt':
+                        self.assertEqual((folder / '.env.model.compose').stat().st_mode & 0o777, 0o600)
 
     def test_production_cannot_be_seeded(self):
         import app
