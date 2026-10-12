@@ -1,6 +1,7 @@
 """Backend planning transport; both modes use the existing planning 2.0 model."""
 import json
 import os
+from runtime_environment import model_env_path
 import sys
 import threading
 from pathlib import Path
@@ -56,12 +57,12 @@ def plan(request, ApiError):
             except Exception:
                 raise ApiError(502, '规划服务不可用或超时，请稍后重试；任务未修改') from None
         try:
-            options = live_options(ROOT / '.env')
+            options = live_options(model_env_path(ROOT))
             # Keep the same provider requirement as the standalone planning service.
             if options['provider'] != 'qiniu' or not options['key'].strip():
                 raise ValueError('Qiniu credential required')
         except (OSError, ValueError, TypeError, KeyError):
-            raise ApiError(503, '规划配置不可用，请检查仓库根目录 .env 中的七牛模型配置与密钥') from None
+            raise ApiError(503, '规划配置不可用，请检查当前环境的模型配置文件或环境变量中的七牛模型配置与密钥') from None
         try:
             return planning_harness.generate(request, options)
         except Exception:

@@ -27,4 +27,5 @@
 **/docs/archive
 **/docs/screenshots
 server/data
+server/deploy/environments
 crawler/data

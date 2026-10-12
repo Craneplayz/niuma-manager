@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+from runtime_environment import model_env_path
 import secrets
 import re
 from datetime import datetime, timezone, timedelta, date
@@ -54,14 +55,14 @@ def recognize(request, ApiError):
             except Exception:
                 raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
         try:
-            options = live_options(ROOT / '.env')
+            options = live_options(model_env_path(ROOT))
             if not options['key'].strip():
                 raise ValueError('missing credential')
             adapter = ExtractionAdapter(make_client(options))
             settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
                                 timeout_seconds=90, max_retries=0)
         except (OSError, ValueError, TypeError, KeyError):
-            raise ApiError(503, '文本识别配置不可用，请检查仓库根目录 .env 中的模型配置与密钥') from None
+            raise ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥') from None
         try:
             policy = text_policy_manifest(settings,provider='qiniu' if options['provider']=='qiniu' else 'codex')
             if policy['components'] != _POLICY_COMPONENTS:

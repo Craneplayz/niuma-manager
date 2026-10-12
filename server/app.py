@@ -19,8 +19,9 @@ import wechat_media
 import manual_materials
 import task_decomposition
 import reprocessing
+import runtime_environment
 
-DB = Path(os.environ.get('NIUMA_DB', str(Path(__file__).parent / 'data' / 'niuma.sqlite3')))
+DB = runtime_environment.database_path()
 TZ = timezone(timedelta(hours=8))
 
 def wechat_enabled():
@@ -40,6 +41,7 @@ def password_hash(password, salt):
     return hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),600000).hex()
 
 def initialize(recover=True):
+    runtime_environment.validate_storage(DB)
     DB.parent.mkdir(parents=True, exist_ok=True)
     with connection() as db:
         db.executescript('''
@@ -56,10 +58,12 @@ def initialize(recover=True):
         if manual_materials.enabled():
             manual_materials.initialize(db,recover=recover and not wechat_enabled())
         task_decomposition.initialize(db)
-    if recover and wechat_enabled():
+    if recover and wechat_enabled() and runtime_environment.allow_background_recovery():
         wechat_media.resume(DB)
 
 def seed():
+    if runtime_environment.environment() == 'production':
+        raise ValueError('Seeding demo accounts is disabled in production')
     initialize(recover=False)
     email, password = 'demo@niuma.test', 'Niuma-Test-2026!'
     with connection() as db:
@@ -90,7 +94,7 @@ def allowed_origins():
 
 def session_cookie(token, max_age):
     secure='; Secure' if os.environ.get('NIUMA_COOKIE_SECURE')=='1' else ''
-    return 'niuma_session='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age='+str(max_age)+secure
+    return runtime_environment.cookie_name()+'='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age='+str(max_age)+secure
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, value, cookie=None):
@@ -125,7 +129,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def user(self,db):
         cookie=SimpleCookie(self.headers.get('Cookie',''))
-        raw=cookie.get('niuma_session')
+        raw=cookie.get(runtime_environment.cookie_name())
         token=hashlib.sha256(raw.value.encode()).hexdigest() if raw else ''
         row=db.execute('SELECT users.id,email,name FROM sessions JOIN users ON user_id=users.id WHERE token=? AND expires>?',(token,time.time())).fetchone()
         if not row: raise ApiError(401,'登录已失效，请重新登录')
@@ -157,6 +161,8 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/health' and self.command=='GET':
                 db.execute('SELECT 1')
                 return self.reply(200,dict(status='ok'))
+            if path=='/api/version' and self.command=='GET':
+                return self.reply(200,runtime_environment.public_version())
             if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
@@ -395,7 +401,8 @@ if __name__=='__main__':
     if '--seed' in sys.argv: seed()
     else:
         host=os.environ.get('NIUMA_HOST','127.0.0.1')
-        with ThreadingHTTPServer((host,1332),Handler) as server:
+        port=runtime_environment.port()
+        with ThreadingHTTPServer((host,port),Handler) as server:
             initialize()
-            print('牛马管理器 API: http://'+host+':1332',flush=True)
+            print('牛马管理器 API: http://'+host+':'+str(port)+' ['+runtime_environment.environment()+']',flush=True)
             server.serve_forever()

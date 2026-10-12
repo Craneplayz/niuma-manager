@@ -6,6 +6,7 @@ import hmac
 import json
 import math
 import os
+from runtime_environment import model_env_path
 import re
 import secrets
 import sqlite3
@@ -369,7 +370,7 @@ def _content_key(request):
     from recognition import ROOT
     from ddl_text.codex_client import live_options
     try:
-        options = live_options(ROOT / '.env')
+        options = live_options(model_env_path(ROOT))
         configuration = {key:options[key] for key in ('provider','model','endpoint')}
     except (OSError,ValueError,KeyError,TypeError):
         return None
@@ -543,7 +544,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
         return _combine_records(request,[completed[record['input_id']] for record in request['records']])
     with _ACTIVE:
         try:
-            options = live_options(ROOT / '.env')
+            options = live_options(model_env_path(ROOT))
             # The image adapter requires a multimodal Chat Completions provider.
             if options['provider'] != 'qiniu' or not options['key'].strip():
                 raise ValueError('image_provider_unavailable')

@@ -1,5 +1,6 @@
 """Account-scoped AI task decomposition preview and apply flow."""
 import json
+from runtime_environment import model_env_path
 import secrets
 import sys
 import threading
@@ -84,7 +85,7 @@ def generate(task, conversation, ApiError):
         raise ApiError(503, 'AI 拆解正在处理其他请求，请稍后重试')
     try:
         try:
-            options = live_options(ROOT / '.env')
+            options = live_options(model_env_path(ROOT))
             if not options['key'].strip():
                 raise ValueError('missing credential')
         except (OSError, ValueError, TypeError, KeyError):

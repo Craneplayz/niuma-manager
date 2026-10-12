@@ -6,6 +6,8 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 ENV VITE_ENABLE_WECHAT=0
+ARG NIUMA_BUILD_REVISION=unknown
+ENV VITE_BUILD_REVISION=$NIUMA_BUILD_REVISION
 RUN npm run build
 
 FROM python:3.12-slim-bookworm AS api
@@ -47,11 +49,16 @@ COPY ddl_text/ ddl_text/
 COPY task_planning/ task_planning/
 COPY server/ server/
 COPY crawler/ crawler/
+ARG NIUMA_BUILD_REVISION=unknown
+ENV NIUMA_BUILD_REVISION=$NIUMA_BUILD_REVISION
+LABEL org.opencontainers.image.revision=$NIUMA_BUILD_REVISION
 USER niuma
 EXPOSE 1332
 CMD ["python", "server/app.py"]
 
 FROM caddy:2-alpine AS web
+ARG NIUMA_BUILD_REVISION=unknown
+LABEL org.opencontainers.image.revision=$NIUMA_BUILD_REVISION
 COPY --from=frontend-build /build/frontend/dist /srv
 COPY server/deploy/Caddyfile /etc/caddy/Caddyfile
 

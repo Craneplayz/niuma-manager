@@ -17,6 +17,7 @@ frontend/
 ├── vite.config.ts             配置开发端口与 API 代理。
 ├── src/
 │   ├── app.js                 组织页面、路由与主要交互。
+│   ├── environment-badge.js   显示运行环境及前后端版本不一致提示。
 │   ├── id.js                  在 HTTPS、localhost 和 HTTP IP 环境生成随机 UUID。
 │   ├── import-journey.js      追踪本次导入、历史批次分组、上下滑动吸附与任务高亮交接。
 │   ├── review-motion.js       在审核创建成功后将候选信封送往任务章节。
@@ -45,6 +46,7 @@ frontend/
 │   ├── 2026-10-09-reprocessing-desktop.png  展示旧通知选择与规则版本入口。
 │   └── 2026-10-09-reprocessing-mobile.png   展示 390px 窗口下的来源管理布局。
 ├── tests/                     覆盖前端行为与团队接口适配。
+│   ├── environment-badge.test.js 验证运行环境切换与版本差异提示。
 │   ├── id-http.test.js        验证 HTTP UUID 兼容及识别按钮实际发起请求。
 │   ├── manual-materials.test.js  验证主动上传同意、登录会话与账号切换取消。
 │   └── reprocessing.test.js   验证显式记录选择、停止调用、分页与账号状态清理。
@@ -68,6 +70,8 @@ frontend/
 ```
 
 本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`。
+
+开发 / 测试使用 [统一环境入口](../server/deploy/ENVIRONMENTS.md)，默认网页 1431 / 1531；Vite 根据 `NIUMA_PORT` 代理对应 API，页面左下角读取 `/api/version` 显示当前环境，同一网页镜像可以从测试发布到生产。
 
 ## 微信材料导入与隐私边界
 
