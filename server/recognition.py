@@ -11,7 +11,6 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from text_contract import validate_request, validate_result
-from model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 
 # dev:api launches server/app.py from frontend/, not from the repository root.
 # The same absolute import path is inherited by Windows spawn workers.
@@ -19,6 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter

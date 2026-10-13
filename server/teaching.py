@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import secrets
 import teaching_submission as submission
-from model_queue import WAIT_ERROR
+from server.model_queue import WAIT_ERROR
 
 from contracts.teaching_io import canonical, check_request, snapshot_digest
 from contracts.teaching_capture import check_capture

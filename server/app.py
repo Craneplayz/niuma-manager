@@ -19,7 +19,7 @@ import wechat_media
 import manual_materials
 import task_decomposition
 import reprocessing
-import model_queue
+from server import model_queue
 
 
 class ThreadingHTTPServer(_ThreadingHTTPServer):

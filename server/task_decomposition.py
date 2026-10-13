@@ -2,7 +2,6 @@
 import json
 import secrets
 import sys
-from model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,6 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from ddl_text.adapters import AgentError
 from ddl_text.codex_client import live_options
 from task_planning.decomposition import generate_decomposition, validate_model_draft

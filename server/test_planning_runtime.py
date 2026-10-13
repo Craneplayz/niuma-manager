@@ -14,7 +14,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 import app
 import planning
-from model_queue import ModelQueue
+from server.model_queue import ModelQueue
 from ddl_text.codex_client import ENV_KEYS
 
 

@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 from jsonschema.exceptions import ValidationError
 
 import recognition
-from model_queue import cancel_if
+from server.model_queue import cancel_if
 from contracts import reprocessing as contract
 from text_contract import validate_result
 
