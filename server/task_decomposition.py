@@ -1,6 +1,9 @@
 """Account-scoped AI task decomposition preview and apply flow."""
 import json
-from runtime_environment import model_env_path
+if __package__:
+    from .runtime_environment import model_env_path
+else:
+    from runtime_environment import model_env_path
 import secrets
 import sys
 import threading

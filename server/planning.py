@@ -1,7 +1,10 @@
 """Backend planning transport; both modes use the existing planning 2.0 model."""
 import json
 import os
-from runtime_environment import model_env_path
+if __package__:
+    from .runtime_environment import model_env_path
+else:
+    from runtime_environment import model_env_path
 import sys
 import threading
 from pathlib import Path

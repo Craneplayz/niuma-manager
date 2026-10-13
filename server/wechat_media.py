@@ -6,7 +6,10 @@ import hmac
 import json
 import math
 import os
-from runtime_environment import model_env_path
+if __package__:
+    from .runtime_environment import model_env_path
+else:
+    from runtime_environment import model_env_path
 import re
 import secrets
 import sqlite3

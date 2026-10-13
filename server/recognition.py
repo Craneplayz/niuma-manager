@@ -2,7 +2,10 @@
 import hashlib
 import json
 import os
-from runtime_environment import model_env_path
+if __package__:
+    from .runtime_environment import model_env_path
+else:
+    from runtime_environment import model_env_path
 import secrets
 import re
 from datetime import datetime, timezone, timedelta, date

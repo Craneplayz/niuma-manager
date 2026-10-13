@@ -51,7 +51,9 @@ class ContainerEnvironmentTests(environment_tests.LiveEnvironmentIsolationTests)
             if name == 'production':
                 config.update(transport='https', https_port=self.free_port(),
                               web_image=os.environ['NIUMA_CONTAINER_TEST_WEB_HTTPS'])
-                config['site_address'] = f'127.0.0.1:{config["https_port"]}'
+                # A hostname sends TLS SNI; Python deliberately omits SNI for IP
+                # literals, which cannot select Caddy's local test certificate.
+                config['site_address'] = f'localhost:{config["https_port"]}'
                 config['origin'] = 'https://' + config['site_address']
             self.urls[name] = config['origin']
             # Validate normal profile rules first, then assign unique disposable

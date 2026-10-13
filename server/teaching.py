@@ -2,7 +2,10 @@
 from copy import deepcopy
 import hashlib
 import json
-from runtime_environment import model_env_path
+if __package__:
+    from .runtime_environment import model_env_path
+else:
+    from runtime_environment import model_env_path
 from pathlib import Path
 import secrets
 import teaching_submission as submission
