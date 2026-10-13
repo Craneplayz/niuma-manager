@@ -1,4 +1,5 @@
 import {newId} from './id.js';
+import {configureSourceSync,resetSourceSync,sourceSyncPanel as backgroundSyncPanel,startSourceSync,sourceSyncClick,syncIsActive} from './source-sync-ui.js';
 import {ImportJourney,scrollToReview,rewriteReview,groupImportBatches,slideToImportPage} from './import-journey.js';
 import {animateReviewedCandidate,isReviewFlying} from './review-motion.js';
 import {transitionView} from './view-motion.js';
@@ -15,10 +16,15 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
 const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',manual:'手动输入',unknown:'其他'};
 let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='manual',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};
-export function configureAssistant(callbacks){host=callbacks;configureReprocessing({render:callbacks.render,finished:async()=>{loaded=false;await callbacks.refresh?.();}});}
+export function configureAssistant(callbacks){host=callbacks;configureSourceSync({render:refresh,changed:async runs=>{
+ const epoch=accountVersion(),latest=runs[0];
+ if(latest){activeRequestIds=new Set(latest.records.map(r=>r.request_id));}
+ await flushStore();if(epoch!==accountVersion())return;
+ await load(true);
+}});configureReprocessing({render:callbacks.render,finished:async()=>{loaded=false;await callbacks.refresh?.();}});}
 const journey=new ImportJourney();let journeyTransition=false,reviewEntered=false,importId='',importTime='',openHistory=new Set();
 let manualFileVersion=0;
-export function resetAssistant(){manualFileVersion++;reviewEntered=false;importId='';openHistory.clear();journey.reset();journeyTransition=false;newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};}
+export function resetAssistant(){resetSourceSync();manualFileVersion++;reviewEntered=false;importId='';openHistory.clear();journey.reset();journeyTransition=false;newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
 let candidateRevision=0;
 window.addEventListener('niuma:recognition-changed',()=>{candidateRevision++;batches=[];loaded=false;refresh();});
@@ -94,10 +100,10 @@ function sourceSyncPanel(){
  const credentialForm=!credentialStatus?.loading&&(!configured||editCredentials)?`<form id="source-credential-form" class="source-sync-credentials"><label>教学网账号<input name="username" type="text" required maxlength="200" autocomplete="off" placeholder="校园卡账号" value="${esc(credentialStatus?.username||'')}"></label><label>教学网密码<input name="password" type="password" required maxlength="200" autocomplete="new-password" placeholder="保存到当前账号"></label><button class="btn" ${credentialBusy?'disabled':''}>${credentialBusy?'保存中…':'保存教学网凭据'}</button></form>`:'';
  return `<section class="agent-source-sync"><h2>选择同步来源</h2><div class="source-sync-options"><label><input type="checkbox" data-agent-sync-source="teaching_web" ${syncSources.has('teaching_web')?'checked':''} ${busy||sourceBusy||!session.user?'disabled':''}> 教学网</label>${wechatEnabled?'<label><input type="checkbox" disabled> 微信（见下方本机采集器）</label>':''}</div>${session.user?`<p>${configured?'教学网账号已保存：'+esc(credentialStatus.username):credentialStatus?.loading?'正在读取教学网凭据…':'请先保存教学网账号和密码。'}</p>${configured?`<div class="button-row"><button type="button" class="btn" data-agent-action="edit-credentials">${editCredentials?'取消修改':'更换凭据'}</button><button type="button" class="btn" data-agent-action="remove-credentials">删除凭据</button></div>`:''}${credentialForm}${credentialStatus?.error?`<p class="error">${esc(credentialStatus.error)}</p>`:''}`:''}</section>`;
 }
-function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#settings">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源原文发送给文本识别服务。</label><button type="button" class="btn primary" data-agent-action="${busy?'stop':'sync-sources'}" ${!session.user?'disabled':''}>${busy?'停止导入':'同步并识别'}</button>${importWaiting()}<p id="agent-sync-error" class="error" role="alert" hidden></p></section>`;}
+function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#settings">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源内容发送给识别服务。</label><button type="button" class="btn primary" data-agent-action="sync-sources" ${busy||syncIsActive()||!session.user?'disabled':''}>${syncIsActive()?'后台同步中':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>${backgroundSyncPanel()}`;}
 export function sourceManagementPage(embedded=false){
  if(session.user&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
- const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice&&!busy&&!['review','done'].includes(journey.phase)?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${reprocessingPanel()}${sourceImportPanel()}${wechatMediaPanel()}`;
+ const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice&&!busy&&!['review','done'].includes(journey.phase)?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${backgroundSyncPanel()}${reprocessingPanel()}${sourceImportPanel()}${wechatMediaPanel()}`;
  return embedded?`<div class="settings-source-management"><hr><h2>来源管理</h2>${content}</div>`:`<div class="page-heading"><h1>来源管理</h1></div>${content}`;
 }
 function sourceImportPanel(standalone=false){
@@ -339,6 +345,7 @@ async function restoreCandidate(item,current){
  finally{candidateBusy.delete(item.id);if(current())refresh();}
 }
 export async function handleAssistantClick(button){
+ if(button.dataset.sourceSyncAction){await sourceSyncClick(button);return;}
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const revision=candidateRevision,candidateCurrent=()=>current()&&revision===candidateRevision;
  if(button.dataset.agentAction==='open-import-tasks'){const ids=journey.snapshot(batches,host.getState?.().tasks||[]).added;if(host.showImportedTasks)host.showImportedTasks(ids);else location.hash='tasks';return;}
@@ -370,35 +377,12 @@ export async function handleAssistantClick(button){
   catch(e){if(current()){error=e.message;refresh();}}return;
  }
  if(button.dataset.agentAction==='sync-sources'){
-  const showSyncError=message=>{const node=document.querySelector('#agent-sync-error');if(node){node.textContent=message;node.hidden=false;}};
+  const showSyncError=message=>{error=message;const node=document.querySelector('#agent-sync-error');if(node){node.textContent=message;node.hidden=false;}};
   if(!syncSources.size){showSyncError('请先选择要同步的来源');return;}
-  if(!syncConsent){showSyncError('请先确认同意发送所选来源的原文');return;}
-  beginImport([],'教学网');sourceImport=null;
-  const controller=new AbortController();activeController=controller;busy=true;error='';notice='正在获取教学网信息，通常约 2 分钟，最多等待 5 分钟…';refresh();
-  try{
-   const result=await api('/api/sources/sync',{sources:[...syncSources]},'POST',{signal:controller.signal,timeoutMs:310000});
-   if(!current())return;
-   if(!Array.isArray(result.requests))throw new Error('同步结果格式不正确');
-   if(!result.requests.length){sourceImport=null;const skipped=result.summary?.skipped||0;beginImport([],'教学网',0,skipped);importProgress.active=false;notice=`同步完成，暂无待识别内容${skipped?`；跳过 ${skipped} 条无需重复识别的来源`:''}。可在“账号全部结果”查看来源待补全记录。`;return;}
-   sourceImport={kind:'requests',requests:result.requests,sent:new Set()};sourceName='教学网增量同步（每条独立识别）';sourceConsent=true;
-   busy=false;activeController=null;
-   const total=sourceImport.requests.length,skipped=result.summary?.skipped||0,failureMessages=[];let failed=0,incomplete=0,attempted=0;
-   beginImport(sourceImport.requests.map(request=>request.request_id),'教学网',total,skipped);
-   for(let index=0;index<total;index++){
-    if(!current())return;
-    const batch=sourceImport.requests[index];
-    notice=`识别第 ${index+1}/${total} 条；跳过 ${skipped} 条无需重复识别的来源`;refresh();
-    const complete=await submitRecognitionRequest(batch,()=>sourceImport.sent.add(index),true,true,false,true);
-    if(!current())return;
-    attempted++;
-    if(complete===false&&needsSourceCompletion(batches.find(item=>item.request.request_id===batch.request_id)))incomplete++;
-    else if(!complete){failed++;if(error)failureMessages.push(error);}
-    if(complete===undefined)break;
-   }
-   await planNewTasks(current);
-   if(current()){if(failureMessages.length)error=[...new Set(failureMessages)].join('；');importProgress.active=false;syncConsent=false;notice=`同步识别${failed||incomplete||attempted<total?'尚未全部完成':'完成'}：成功 ${sourceImport.sent.size} 条，失败 ${failed} 条，来源待补全 ${incomplete} 条，未处理 ${total-attempted} 条，跳过 ${skipped} 条无需重复识别的来源。${failed?'未完成内容可再次同步，识别失败记录可重试。':''}${incomplete?'请查看“来源待补全”；重复重试不会补抓内容。':''}`;}
-  }catch(e){if(current()){notice='';error=e.status===404?'后端尚未提供来源同步接口，请使用文件导入':e.message;}}
-  finally{if(current()){busy=false;activeController=null;importProgress.active=false;refresh();}}
+  if(!syncConsent){showSyncError('请先确认同意发送所选来源内容');return;}
+  try{await flushStore();if(!current())return;await startSourceSync([...syncSources],syncConsent);if(current())syncConsent=false;}
+  catch(e){if(current())showSyncError(e.message);}
+  finally{if(current())refresh();}
   return;
  }
  if(button.dataset.agentImportIndex!==undefined){

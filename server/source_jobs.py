@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 import threading
 import time
+from copy import deepcopy
 
 from contracts import source_sync as contract
 from server.model_queue import cancel_if
@@ -270,4 +271,20 @@ def route(handler, db, uid, path, body, ApiError, database):
                 elif item['state']=='running': item['state']='interrupted'
             save(db,run,'stopped')
         handler.reply(200,view(run)); return True
+    if handler.command=='POST' and suffix==['retry']:
+        contract.check('retry',body); db.execute('BEGIN IMMEDIATE')
+        old = get(db,uid,run_id,ApiError)
+        if old['state'] in contract.ACTIVE: raise ApiError(409,'本轮同步仍在执行，请等待或停止后继续')
+        key = db.execute('SELECT credential FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone()[0]
+        if credential(db,uid)!=key: raise ApiError(409,'教学网凭据已改变，请重新获取来源')
+        records=[]
+        for item in old['records']:
+            if item['state'] not in ('cancelled','interrupted') and not (item['state']=='failed' and (item['error'] or {}).get('retryable')): continue
+            retry = deepcopy(item);retry.update(state='queued',added=0,error=None,seconds=None)
+            records.append(retry)
+        if not records: raise ApiError(409,'没有可重试的识别记录；来源缺失或采集失败请重新获取来源')
+        run=start(db,uid,body,ApiError,trigger='retry',records=records,parent=run_id)
+        db.commit()
+        if run['state'] in contract.ACTIVE: launch(database,uid,run['run_id'],ApiError)
+        handler.reply(202,view(run));return True
     raise ApiError(404,'同步操作不存在')

@@ -8,8 +8,13 @@
 | GET `/api/sources/sync-runs` | runs | 当前账号最近 20 轮运行 |
 | GET `/api/sources/sync-runs/{id}` | run | 持久化阶段、逐条结果、计数与错误 |
 | POST `/api/sources/sync-runs/{id}/stop` | stop / run | 停止派发，已发起调用可能消耗额度，迟到结果不再落库 |
+| POST `/api/sources/sync-runs/{id}/retry` | retry / run | 仅重新识别可恢复失败和未完成记录，不重新抓取来源 |
 
 start 示例：`{"contract_version":"source-sync/0.1","operation_id":"manual:example","sources":["teaching_web"],"consent":true}`；stop 只传 contract_version。
+
+retry 传 contract_version、全新 operation_id 和 consent=true；运行中的批次不能重试。来源待补全、凭据改变和不可重试错误需重新获取来源，不能通过再次调用模型补齐。成功记录与用户已修改、确认或忽略的结果不重放。网络响应丢失后重复相同 operation_id 安全返回原运行。
+
+前端进入通知导入或来源设置时恢复账号运行进度；活动运行每 2 秒查询，切换账号会清空旧页面状态并拒收迟到响应。退出页面或关闭浏览器不停止服务端运行。停止和继续按钮都针对服务端运行，不依赖浏览器保存的循环。
 
 同一账号、operation_id 返回同一运行；同账号同时只允许一轮同步，重复开始返回活动运行。全服务至多 4 轮活动同步，每轮最多 4 条识别，仍受共享模型队列限制。优先派发顺序沿用采集器的课程作业、课程通知、教学内容；执行完成顺序不保证相同。
 

@@ -1,3 +1,4 @@
+import {syncRun} from './sync-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -7,6 +8,7 @@ globalThis.location={hash:'#calendar'};
 globalThis.requestAnimationFrame=()=>{};
 const {session}=await import('../src/team-store.js');
 const recognition=await import('../src/team-recognition-ui.js');
+const {sourceSyncPanel}=await import('../src/source-sync-ui.js');
 const {calendarPage}=await import('../src/team-calendar-ui.js');
 const {dayKey}=await import('../src/data.js');
 
@@ -91,29 +93,21 @@ test('incomplete teaching sources do not hide real model failures',async()=>{
  assert.match(html,/来源待补全 · 1 条/);
 });
 
-test('sync counts missing source separately from model failure',async()=>{
+test('sync counts missing source separately and provides collection instead of model retry',async()=>{
  recognition.resetAssistant();session.user={id:'incomplete-sync'};location.hash='#settings';
- const fixtures=JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json',import.meta.url)));
- const sample=fixtures.cases[0],batch={request:sample.request,result:{status:'failed',record_results:[],
-  errors:[{input_id:sample.request.records[0].input_id,code:'incomplete_source',message:'来源待补全',retryable:false}]},items:[],demo:false};
- let attempts=0;
  recognition.configureAssistant({render(){},getState:()=>({tasks:[]})});
- globalThis.fetch=async(path,options)=>{
-  if(path==='/api/data/sources')return {ok:true,json:async()=>({version:1})};
-  if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
-  if(path==='/api/sources/sync')return {ok:true,json:async()=>({requests:[sample.request],summary:{skipped:0}})};
-  if(path==='/api/recognition/retry'){attempts++;assert.deepEqual(JSON.parse(options.body),sample.run);}
-  else assert.equal(path,'/api/recognition/batches');
-  return {ok:true,json:async()=>attempts?[batch]:[]};
+ let modelCalls=0;
+ globalThis.fetch=async(path)=>{
+  if(path==='/api/sources/sync-runs')return {ok:true,json:async()=>syncRun({state:'failed',states:['incomplete']})};
+  if(path==='/api/recognition/retry')modelCalls++;
+  return {ok:true,json:async()=>path==='/api/data/sources'?{version:1}:[]};
  };
  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
- const html=recognition.assistantPage();assert.equal(attempts,1);
- assert.match(html,/成功 0 条，失败 0 条，来源待补全 1 条/);
- assert.match(html,/已创建 0 项 · 来源待补全 1 条/);
- assert.doesNotMatch(html,/data-agent-retry=/);
+ const html=sourceSyncPanel();assert.equal(modelCalls,0);assert.match(html,/来源待补全 1 条/);assert.match(html,/data-source-sync-action="collect"/);assert.doesNotMatch(html,/data-source-sync-action="retry"/);
 });
+
 
 test('F3 auto-apply accepts clear external actions and rejects uncertain or manual input',async()=>{
  const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
@@ -406,47 +400,20 @@ test('source import does not auto-apply a replayed batch before history is loade
  assert.equal(old.state,'pending');
 });
 
-test('teaching sync resumes cached auto tasks after creation failure without adding reviewed or dismissed items',async()=>{
- recognition.resetAssistant();session.user={id:'resume-sync'};
- const fixture=JSON.parse(await readFile(new URL('../../contracts/text-to-app/text-classification-v02.json',import.meta.url)));
- const candidate=fixture.expected.tasks[0];
- const pending={id:'resume-auto',version:1,state:'pending',candidate};
- const reviewed={id:'resume-review',version:1,state:'pending',candidate:{...candidate,needs_review:true,review_reasons:['核对正文']}};
- const ignored={id:'resume-ignored',version:2,state:'ignored',candidate};
- const reopened={id:'resume-reopened',version:3,state:'pending',candidate};
- const batch={request:fixture.request,result:{status:'success',record_results:[],errors:[]},demo:false,items:[pending,reviewed,ignored,reopened]};
- let attempts=0,refreshed=0;
+test('teaching background results refresh workspace without browser auto-apply replay',async()=>{
+ recognition.resetAssistant();session.user={id:'resume-sync'};let refreshed=0,resolveCalls=0;
  recognition.configureAssistant({render(){},refresh:async()=>{refreshed++;},getState:()=>({tasks:[]})});
- globalThis.fetch=async(path,options={})=>{
- if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
-  const reply=(data,ok=true,status=200)=>({ok,status,json:async()=>structuredClone(data)});
-  if(path==='/api/data/sources')return reply({version:1});
-  if(path==='/api/sources/sync')return reply({requests:[fixture.request],summary:{skipped:0}});
-  if(path==='/api/recognition/batches'||path==='/api/recognition/retry')return reply([batch]);
-  if(path.includes('/resolve')){
-   assert.match(path,/resume-auto/);attempts++;
-   if(attempts===1)return reply({error:'创建暂时失败'},false,503);
-   pending.state='applied';pending.version++;
-   return reply({batches:[batch]});
-  }
-  throw new Error('unexpected request '+path);
+ globalThis.fetch=async(path)=>{
+  if(path.includes('/resolve'))resolveCalls++;
+  if(path==='/api/sources/sync-runs')return {ok:true,json:async()=>syncRun({added:1})};
+  return {ok:true,json:async()=>path==='/api/data/sources'?{version:1}:[]};
  };
  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
- await new Promise(resolve=>setImmediate(resolve));
- for(let i=0;i<2;i++){
-  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
-  await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
-  if(i===0){
-   assert.match(recognition.assistantPage(),/尚未全部完成：成功 0 条，失败 1 条/);
-   assert.match(recognition.assistantPage(),/自动加入任务失败/);
-  }
- }
- assert.equal(attempts,2);
- assert.equal(pending.state,'applied');
- assert.equal(refreshed,1);
- assert.equal(reviewed.state,'pending');assert.equal(ignored.state,'ignored');assert.equal(reopened.state,'pending');
- assert.match(recognition.assistantPage(),/已创建 1 项/);
+ recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
+ await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
+ assert.equal(refreshed,1);assert.equal(resolveCalls,0);assert.match(sourceSyncPanel(),/新增 1 项/);
 });
+
 
 test('source management shows import, consent, credential, and selection errors',async()=>{
  recognition.resetAssistant();session.user={id:'test'};

@@ -1,3 +1,4 @@
+import {syncRun} from './sync-fixtures.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -286,67 +287,38 @@ test('logout drains pending saves and refuses new writes during account transiti
 });
 
 
-test('sync processes more than twenty single records, continues past failure and retries only the failed batch',async()=>{
- await login('A');
- const originalFetch=globalThis.fetch,seen=[],saved=[];
- const syncRequests=Array.from({length:25},(_,i)=>({contract_version:'0.2',request_id:'sync:'+i,records:[{input_id:'r:'+i,text:'合成通知 '+i,platform:'teaching_web'}]}));
- let fail=true;
- globalThis.fetch=async(path,options={})=>{
- if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
-  if(path==='/api/sources/sync')return response({requests:syncRequests,summary:{total:65,skipped:40,pending:25}});
-  if(path==='/api/recognition/retry'){
-   const request=JSON.parse(options.body);seen.push(request);
-   assert.equal(request.records.length,1);
-   const failed=fail&&request.request_id==='sync:0';
-   const result={status:failed?'failed':'no_tasks',record_results:[{input_id:request.records[0].input_id,status:failed?'failed':'no_tasks',warnings:[]}],errors:failed?[{input_id:request.records[0].input_id,message:'Agent 调用超时。'}]:[]};
-   const item={request,result,items:[],demo:false},index=saved.findIndex(b=>b.request.request_id===request.request_id);
-   if(index<0)saved.push(item);else saved[index]=item;
-   return response(saved);
-  }
-  return originalFetch(path,options);
- };
+test('sync submits one durable operation and displays all server-side results',async()=>{
+ await login('A');const originalFetch=globalThis.fetch,seen=[];
+ const run=syncRun({state:'partial_success',states:['failed',...Array(24).fill('succeeded')],skipped:40});
+ globalThis.fetch=async(path,options={})=>{if(path==='/api/sources/sync-runs'){seen.push(JSON.parse(options.body));return response(run);}return originalFetch(path,options);};
  try{
   recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
   recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
   await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
-  assert.equal(seen.length,25);
-  const page=recognition.assistantPage();
-  assert.match(page,/尚未全部完成：成功 24 条，失败 1 条，来源待补全 0 条，未处理 0 条，跳过 40 条/);
-  assert.match(page,/已创建 0 项 · 失败 1 项 · 跳过 40 项/);
-  assert.doesNotMatch(page,/有日期任务进入日历/);
-  assert.doesNotMatch(page,/新任务已加入日历/);
-  assert.match(page,/data-agent-retry="sync:0"/);
-  assert.doesNotMatch(page,/data-agent-retry="sync:1"/);
-  fail=false;
-  await recognition.handleAssistantClick({dataset:{agentRetry:'sync:0'}});
-  assert.equal(seen.length,26);
-  assert.equal(seen.at(-1).request_id,'sync:0');
-  assert.doesNotMatch(recognition.assistantPage(),/data-agent-retry=/);
+  assert.equal(seen.length,1);assert.deepEqual(seen[0].sources,['teaching_web']);assert.equal(seen[0].consent,true);
+  assert.equal(Object.hasOwn(seen[0],'records'),false);
+  const page=recognition.sourceManagementPage();assert.match(page,/已处理 25\/25 条/);assert.match(page,/失败 1 条/);assert.match(page,/跳过 40 条/);assert.match(page,/重试失败 1 条/);
  }finally{globalThis.fetch=originalFetch;}
 });
 
-test('empty source sync does not report zero unchanged records as filtered content',async()=>{
- await login('A');
- const originalFetch=globalThis.fetch;
- globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
-  ? response({requests:[],summary:{total:0,skipped:0,pending:0}})
- : originalFetch(path,options);
+
+test('empty durable sync displays completion without inventing filtered results',async()=>{
+ await login('A');const originalFetch=globalThis.fetch;
+ globalThis.fetch=async(path,options)=>path==='/api/sources/sync-runs'?response(syncRun({states:[]})):originalFetch(path,options);
  try{
-  await recognition.handleAssistantClick({dataset:{agentSourceMode:'teaching_web'}});
   recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
   recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
   await recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
-  const page=recognition.assistantPage();
-  assert.match(page,/同步完成，暂无待识别内容/);
-  assert.doesNotMatch(page,/跳过 0 条/);
+  const page=recognition.sourceManagementPage();assert.match(page,/同步完成/);assert.match(page,/已处理 0\/0 条/);assert.doesNotMatch(page,/已过滤/);
  }finally{globalThis.fetch=originalFetch;}
 });
+
 
 test('a late sync response cannot send any records after account switch',async()=>{
  await login('A');
  recognition.handleAssistantInput({target:{dataset:{agentSyncSource:'teaching_web'},checked:true}});
  recognition.handleAssistantInput({target:{id:'agent-sync-consent',checked:true}});
- const pending=defer('/api/sources/sync');
+ const pending=defer('/api/sources/sync-runs');
  const operation=recognition.handleAssistantClick({dataset:{agentAction:'sync-sources'}});
  await pending.ready;
  state=await store.logout();await login('B');
@@ -360,7 +332,7 @@ test('a late sync response cannot send any records after account switch',async()
 test('failed source sync clears stale loading notice and remains retryable',async()=>{
  await login('A');
  const originalFetch=globalThis.fetch;
- globalThis.fetch=async(path,options)=>path==='/api/sources/sync'
+ globalThis.fetch=async(path,options)=>path==='/api/sources/sync-runs'
   ? {ok:false,status:502,json:async()=>({error:'服务处理失败，请稍后重试；数据未变更'})}
   : originalFetch(path,options);
  try{
