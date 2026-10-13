@@ -105,6 +105,10 @@ python server/manage_environment.py status test
 
 安装 Compose CLI 时，同一组测试还校验三个环境的 HTTP/HTTPS 配置、特殊字符模型配置和端口；独立 Compose 可通过 `NIUMA_COMPOSE_TEST_BIN` 指定，无须 Docker 引擎。未安装 CLI 时仅此集成检查跳过。
 
+`.github/workflows/environment-smoke.yml` 在临时 Linux runner 构建候选镜像并运行 `test_container_environment.py`：HTTP / 本地 HTTPS、三环境账号隔离、版本一致、容器重建持久化及生产保护。模型密钥为空，不调用模型；随机命名项目和卷只保存合成数据，测试结束清理，不连接生产服务器。
+
+本机复现需 Docker 引擎并设置 `NIUMA_CONTAINER_TEST_API`、`NIUMA_CONTAINER_TEST_WEB_IP`、`NIUMA_CONTAINER_TEST_WEB_HTTPS` 为当前提交构建的镜像，再运行 `python -m unittest discover -s server -p test_container_environment.py -v`。HTTPS 验收仅对本地合成端点接受临时自签证书，不代表公网证书已签发。
+
 本次只隔离已有的后台作业恢复；系统尚无完整定时同步调度器，`scheduled_sync_available=false` 如实表示未实现，不能把恢复开关当作定时同步功能。
 
 Compose 配置、镜像启动、服务器挂载和真实业务联调须由对应环境分别验收，不能由本地回归结果推定生产已隔离。[Compose 项目与环境变量规则](https://docs.docker.com/compose/how-tos/project-name/)
