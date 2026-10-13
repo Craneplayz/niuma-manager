@@ -50,7 +50,10 @@ class WechatMediaTests(unittest.TestCase):
 import http.server,os,runpy,sys
 os.environ['NIUMA_DB']=sys.argv[1]
 original=http.server.ThreadingHTTPServer
-http.server.ThreadingHTTPServer=lambda address,handler:original(('127.0.0.1',int(sys.argv[2])),handler)
+class BoundServer(original):
+    def __init__(self,address,handler):
+        super().__init__(('127.0.0.1',int(sys.argv[2])),handler)
+http.server.ThreadingHTTPServer=BoundServer
 import app
 import wechat_media
 wechat_media.recognize_v03=lambda body,*args,**kwargs:wechat_media._failed_result(body)
@@ -783,7 +786,7 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
         finally:connection.close()
         with patch.dict(wechat_media.os.environ,{'WECHAT_UNREFERENCED_TTL_SECONDS':'600'}):
             limits=self.call(client,'/sources/wechat/credential')[1]['limits']
-        self.assertEqual(limits,dict(asset_bytes=20*1048576,account_bytes=200*1048576,queued_jobs=20,unreferenced_ttl_seconds=600))
+        self.assertEqual(limits,dict(asset_bytes=20*1048576,account_bytes=200*1048576,queued_jobs=120,unreferenced_ttl_seconds=600))
 
     def test_actual_file_size_boundary_matches_receipt_and_rejects_empty_or_oversized_files(self):
         client=self.client('wechat-file-byte-boundary@test.local')
@@ -928,7 +931,7 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
         record=copy.deepcopy(request['records'][0]);record.update(text='课程说明。',text_quality='complete',attachments=[],context=[])
         request['records']=[record]
         with patch.object(wechat_media,'_process'):
-            for i in range(20):
+            for i in range(wechat_media.MAX_JOBS):
                 request['request_id']='queue-'+str(i)
                 self.assertEqual(self.call(client,'/sources/wechat/imports','POST',request)[0],202)
             request['request_id']='queue-extra'

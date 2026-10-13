@@ -14,6 +14,9 @@ from unittest.mock import patch
 
 import app
 import recognition
+from server.model_queue import ModelQueue
+from server import model_queue
+import planning
 from ddl_text.codex_client import ENV_KEYS
 from ddl_text.extraction import OfflineDraftClient
 
@@ -57,11 +60,11 @@ class RecognitionRuntimeTests(unittest.TestCase):
         self.request['request_id'] = self.id()
         self.client = self.new_client(self.id())
 
-    def call(self, client, path, data=None):
+    def call(self, client, path, data=None, method=None):
         try:
             response = client.open(Request(self.base + path,
                 None if data is None else json.dumps(data).encode(),
-                {'Content-Type': 'application/json'}), timeout=20)
+                {'Content-Type': 'application/json'},method=method), timeout=20)
         except HTTPError as error:
             response = error
         with response:
@@ -238,7 +241,7 @@ class RecognitionRuntimeTests(unittest.TestCase):
             recognition.initialize(db)
         self.assertTrue(all(policy is None for policy in self.policy_rows().values()))
 
-    def test_busy_gate_is_shared_between_accounts_and_transports(self):
+    def test_full_queue_is_shared_between_accounts_and_transports(self):
         other = self.new_client(self.id() + '-other')
         entered, release = threading.Event(), threading.Event()
         def blocked(req, *args, **kwargs):
@@ -247,6 +250,7 @@ class RecognitionRuntimeTests(unittest.TestCase):
                 raise AssertionError('test did not release recognition')
             return self.empty_result(req)
         with patch.dict(recognition.os.environ, {'QINIU_API_KEY': 'synthetic-only'}), \
+                patch.object(recognition, '_ACTIVE', ModelQueue(limit=1,pending=0)), \
                 patch.object(recognition, 'process_request', side_effect=blocked), \
                 patch.object(recognition, 'urlopen') as http, ThreadPoolExecutor(max_workers=1) as pool:
             first = pool.submit(self.submit)
@@ -264,6 +268,42 @@ class RecognitionRuntimeTests(unittest.TestCase):
                 release.set()
             self.assertEqual(first.result(timeout=5)[0], 200)
             self.assertEqual(self.submit(client=other)[0], 200)
+
+    def test_twenty_http_recognitions_run_and_planning_waits_for_shared_slot(self):
+        other=self.new_client(self.id()+'-planner')
+        day=(app.datetime.now(app.TZ)+app.timedelta(days=1)).date().isoformat()
+        task=dict(id='queue-plan',title='合成报告',status='not_started',plans=[],subtasks=[],due=dict(date=day,precision='date'))
+        self.assertEqual(self.call(other,'/data/tasks',dict(value=[task],version=0),'PUT')[0],200)
+        self.assertEqual(self.call(other,'/data/availability',dict(value=dict(startTime='10:00',endTime='22:00',weekdays=list(range(7))),version=0),'PUT')[0],200)
+        release,twenty,plan_started=threading.Event(),threading.Event(),threading.Event()
+        lock=threading.Lock();count=0
+        def blocked(req,*args,**kwargs):
+            nonlocal count
+            with lock:
+                count+=1
+                if count==20:twenty.set()
+            self.assertTrue(release.wait(10))
+            return self.empty_result(req)
+        def generate(*args):
+            plan_started.set()
+            return dict(estimates={'queue-plan':60},blocks=[dict(taskId='queue-plan',title='写报告',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])
+        with patch.dict(recognition.os.environ,QINIU_API_KEY='synthetic-key'), \
+                patch.object(recognition,'process_request',side_effect=blocked), \
+                patch.object(planning.planning_harness,'generate',side_effect=generate), ThreadPoolExecutor(max_workers=21) as pool:
+            requests=[dict(self.request,request_id=self.id()+':'+str(index)) for index in range(20)]
+            futures=[pool.submit(self.submit,request) for request in requests]
+            try:
+                self.assertTrue(twenty.wait(5))
+                proposal=pool.submit(self.call,other,'/planning/proposals',{})
+                with model_queue.ACTIVE.condition:
+                    self.assertTrue(model_queue.ACTIVE.condition.wait_for(lambda:len(model_queue.ACTIVE.waiters)==1,timeout=3))
+                self.assertFalse(plan_started.is_set())
+                self.assertEqual(self.call(other,'/workspace')[0],200)
+            finally:release.set()
+            for future in futures:self.assertEqual(future.result(timeout=10)[0],200)
+            self.assertEqual(proposal.result(timeout=10)[0],200)
+        self.assertTrue(plan_started.is_set())
+        self.assertEqual(model_queue.ACTIVE.active,0)
 
     def test_configuration_and_runtime_failures_release_slot_without_saving(self):
         self.assertEqual(self.submit()[0], 503)

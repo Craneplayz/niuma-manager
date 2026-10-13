@@ -1,4 +1,9 @@
+import {newId} from './id.js';
 import {api,session,accountVersion} from './store.js';
+import {wechatEnabled} from './source-import.js';
+
+const manualOnly=!wechatEnabled,base=manualOnly?'/api/materials/':'/api/sources/wechat/';
+let selectedFiles=[],uploadConsent=false,uploadVersion=0,uploadController=null;
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
 const labels={queued:'排队中',running:'识别中',succeeded:'已完成',partial_failed:'部分失败',failed:'处理失败'};
@@ -7,7 +12,7 @@ let sourceRevision=0;
 export function configureWechatMedia(callbacks){host=callbacks;}
 function active(){return ['#sources','#settings'].includes(location.hash);}
 function refresh(){if(active())host.render?.();}
-function reset(){sourceRevision++;clearTimeout(timer);timer=null;jobs=[];credential=null;token='';loading=false;busy=false;error='';notice='';removeConfirmation=false;}
+function reset(){uploadController?.abort();uploadController=null;sourceRevision++;uploadVersion++;selectedFiles=[];uploadConsent=false;clearTimeout(timer);timer=null;jobs=[];credential=null;token='';loading=false;busy=false;error='';notice='';removeConfirmation=false;}
 window.addEventListener('niuma:account-reset',reset);
 function schedule(){
  clearTimeout(timer);
@@ -18,7 +23,7 @@ export async function load(){
  const epoch=accountVersion(),revision=sourceRevision;loading=true;
  try{
   const previous=new Map(jobs.map(job=>[job.job_id,job.status]));
-  const [state,list]=await Promise.all([api('/api/sources/wechat/credential'),api('/api/sources/wechat/imports')]);
+  const [state,list]=await Promise.all([api(base+(manualOnly?'limits':'credential')),api(base+'imports')]);
   if(epoch!==accountVersion()||revision!==sourceRevision)return;
   credential=state;jobs=list.jobs;error='';
   if(jobs.some(job=>['succeeded','partial_failed'].includes(job.status)&&job.result?.tasks?.length&&['queued','running'].includes(previous.get(job.job_id)))){
@@ -73,6 +78,10 @@ function result(job){
  ${retry?`<button class="btn" data-media-action="retry" data-media-job="${esc(job.job_id)}" ${busy?'disabled':''}>重试识别失败部分</button>`:''}</div>`;
 }
 export function wechatMediaPanel(){
+ if(manualOnly){
+  if(session.user&&credential===null&&!loading)queueMicrotask(load);
+  return `<section class="panel manual-material-panel"><h2>主动上传材料</h2><p>只处理你自行导出并有权提供的未加密材料，不连接微信、读取聊天数据库或获取附件。JPG、PNG、PDF、DOCX 可交给现有模型读取；其他未加密格式可上传，无法读取时会明确提示，不会当作“没有任务”。JSON 文字可在“导出记录”中预览和选择。</p><label>选择附件<input id="manual-material-files" type="file" multiple ${busy||!session.user?'disabled':''}></label>${selectedFiles.length?`<p>${selectedFiles.map(file=>esc(file.name)).join('、')}</p>`:''}<label class="manual-material-consent"><input id="manual-material-consent" type="checkbox" ${uploadConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我确认材料未加密且有权使用，同意将所选原件发送至服务端和模型。</label><div class="button-row"><button class="btn" data-media-action="upload" ${busy||!session.user||!selectedFiles.length||!uploadConsent?'disabled':''}>${busy?'正在提交…':'上传并识别所选附件'}</button><button class="btn" data-media-action="refresh" ${loading||!session.user?'disabled':''}>刷新处理状态</button></div>${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}<div>${jobs.map(job=>`<article class="panel"><h3>自行提交的材料 · ${esc(labels[job.status]||job.status)}</h3>${result(job)}</article>`).join('')}</div><p class="panel-note">单文件最多 20 MiB，账号附件总量最多 200 MiB；未引用原件按保留期限清理。我们不尝试解密。识别结果需由你核对确认后加入任务。</p></section>`;
+ }
  if(session.user&&credential===null&&!loading)queueMicrotask(load);
  return `<section class="panel wechat-media-panel"><h2>微信附件同步</h2><p>本机采集器可将图片或文件送到此账号的后端和模型；上传原件前请确认其内容可以发送。读取不支持或失败时会明确提示，不会当作无任务。</p>
  ${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice?`<p role="status">${esc(notice)}</p>`:''}
@@ -85,13 +94,33 @@ export function wechatMediaPanel(){
 }
 export async function wechatMediaClick(button){
  const action=button.dataset.mediaAction;if(!action)return false;
- const epoch=accountVersion();
+ if(manualOnly&&!['upload','refresh','review','ignore','retry'].includes(action))return false;
+ const epoch=accountVersion(),operationVersion=uploadVersion;
  if(action==='hide'){token='';refresh();return true;}
  if(action==='refresh'){await load();return true;}
  if(busy)return true;
  if(action==='prepare-remove'||action==='cancel-remove'){removeConfirmation=action==='prepare-remove';refresh();return true;}
  busy=true;error='';notice='';refresh();
  try{
+  if(action==='upload'){
+   if(!manualOnly||!uploadConsent||!selectedFiles.length)return true;
+   if(selectedFiles.length>20||selectedFiles.some(file=>!file.size||file.size>20*1024*1024))throw new Error('每次最多 20 个非空附件，单文件最多 20 MiB');
+   const revision=sourceRevision,version=uploadVersion,records=[];
+   for(const file of selectedFiles){
+    const form=new FormData();form.append('file',file);
+    const controller=new AbortController();uploadController=controller;
+    const timeout=setTimeout(()=>controller.abort(),30000);
+    let response,receipt;
+    try{response=await fetch(base+'assets',{method:'POST',credentials:'same-origin',body:form,signal:controller.signal});receipt=await response.json();}
+    finally{clearTimeout(timeout);if(uploadController===controller)uploadController=null;}
+    if(epoch!==accountVersion()||revision!==sourceRevision||version!==uploadVersion)return true;
+    if(!response.ok)throw new Error(receipt.error?.message||'附件上传失败');
+    const supported=['image/png','image/jpeg','application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(receipt.mime_type);
+    records.push({input_id:'manual-material:'+newId(),text:'',text_quality:'missing',platform:'wechat',published_at:{value:null,precision:'unknown',basis:'unknown'},collected_at:new Date().toISOString(),timezone:'Asia/Shanghai',timezone_basis:'caller_default',source_url:null,source_label:'用户自行提交的导出材料（未采集）',source_item_id:null,course_or_project:null,context:[],upstream_hints:null,attachments:[{asset_id:'manual-asset:'+newId(),...Object.fromEntries(['file_name','mime_type','size_bytes','sha256','file_ref'].map(key=>[key,receipt[key]])),file_ref:supported?receipt.file_ref:null,origin:'unknown',original_published_at:{value:null,precision:'unknown',basis:'unknown'},status:supported?'available':'unsupported',errors:supported?[]:[{stage:'upload',code:'unsupported_type',message:'已接受未加密原件，但当前读取器不支持该格式',retryable:false}],content_mode:'file'}]});
+   }
+   await api(base+'imports',{contract_version:'0.3.1',request_id:'manual-material:'+newId(),records});
+   if(epoch===accountVersion()&&revision===sourceRevision){sourceRevision++;clearTimeout(timer);timer=null;loading=false;selectedFiles=[];uploadConsent=false;notice='已主动提交所选材料；可在下方查看读取结果，不会连接微信。';await load();}
+  }else
   if(action==='remove'){
    if(!removeConfirmation)return true;
    const response=await api('/api/sources/wechat/remove',{confirmed:true});
@@ -112,10 +141,16 @@ export async function wechatMediaClick(button){
    await api('/api/sources/wechat/credential/revoke',{});
    if(epoch===accountVersion()){credential={configured:false};token='';notice='凭证已撤销。';}
   }else if(action==='retry'){
-   await api('/api/sources/wechat/imports/'+encodeURIComponent(button.dataset.mediaJob)+'/retry',{retry_id:crypto.randomUUID()});
+   await api(base+'imports/'+encodeURIComponent(button.dataset.mediaJob)+'/retry',{retry_id:newId()});
    if(epoch===accountVersion()){notice='已提交失败部分重试。';await load();}
   }
- }catch(e){if(epoch===accountVersion())error=e.message;}
- finally{if(epoch===accountVersion()){busy=false;refresh();schedule();}}
+ }catch(e){if(epoch===accountVersion()&&operationVersion===uploadVersion)error=e.name==='AbortError'?'上传超时，请重试。':e.message;}
+ finally{if(epoch===accountVersion()&&operationVersion===uploadVersion){busy=false;refresh();schedule();}}
  return true;
+}
+
+export function manualMaterialInput(event){
+ if(!manualOnly||busy)return;
+ if(event.target.id==='manual-material-files'){uploadVersion++;selectedFiles=[...(event.target.files||[])];uploadConsent=false;refresh();}
+ if(event.target.id==='manual-material-consent'){uploadConsent=event.target.checked;refresh();}
 }

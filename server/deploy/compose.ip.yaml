@@ -1,0 +1,58 @@
+services:
+  api:
+    image: ${API_IMAGE:-niuma-manager-api:local}
+    build:
+      context: ../..
+      dockerfile: server/deploy/Dockerfile
+      target: api
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env.model
+    environment:
+      NIUMA_HOST: 127.0.0.1
+      NIUMA_ENABLE_WECHAT: '0'
+      NIUMA_ENABLE_MANUAL_MATERIALS: '1'
+      NIUMA_ALLOWED_ORIGINS: ${APP_ORIGIN:?Set the complete HTTP IP origin}
+      NIUMA_COOKIE_SECURE: '0'
+    ports:
+      - ${HTTP_PORT:-1331}:1331
+    volumes:
+      - app-data:/data
+    shm_size: 256mb
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:1332/api/health', timeout=5).read()"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 20s
+  web:
+    image: ${WEB_IMAGE:-niuma-manager-web-ip:local}
+    build:
+      context: ../..
+      dockerfile: server/deploy/Dockerfile
+      target: web-eci
+    network_mode: service:api
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+volumes:
+  app-data:
+    name: ${NIUMA_DATA_VOLUME:-niuma-app-data}

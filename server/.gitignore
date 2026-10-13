@@ -1,1 +1,4 @@
 credential.key
+!deploy/.env.example
+!deploy/.env.ip.example
+!deploy/.env.model.example

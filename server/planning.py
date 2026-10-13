@@ -2,8 +2,8 @@
 import json
 import os
 import sys
-import threading
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -11,11 +11,11 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from ddl_text.codex_client import live_options
 from task_planning import planning_harness
 from task_planning.scheduling import rank_tasks
 
-_ACTIVE = threading.Lock()
 MAX_BYTES = 2_000_000
 
 
@@ -32,10 +32,11 @@ def priority_explanations(request, estimates):
 
 
 def plan(request, ApiError):
-    """One planning call per backend process, with no implicit paid retries."""
-    if not _ACTIVE.acquire(blocking=False):
-        raise ApiError(503, '规划正在处理其他请求，请稍后重试')
+    """Shared model admission, with no implicit paid retries."""
+    if not _ACTIVE.acquire():
+        raise ApiError(503, WAIT_ERROR)
     try:
+        request['requestedAt'] = datetime.now(timezone(timedelta(hours=8))).isoformat()
         endpoint = os.environ.get('HARNESS_URL')
         if endpoint:
             headers = {'Content-Type': 'application/json'}

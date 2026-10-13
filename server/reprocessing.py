@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 from jsonschema.exceptions import ValidationError
 
 import recognition
+from server.model_queue import cancel_if
 from contracts import reprocessing as contract
 from text_contract import validate_result
 
@@ -161,8 +162,13 @@ def process(path, uid, run_id, ApiError):
             request = dict(item['request'], request_id='reprocessing:'+run_id+':'+str(index))
             result = None
             policy = None
+            def cancelled():
+                with connection(path) as current_db:
+                    current=current_db.execute('SELECT snapshot FROM reprocessing_runs WHERE run_id=?',(run_id,)).fetchone()
+                    return not current or json.loads(current['snapshot'])['state'] in contract.FINAL | {'stopping'}
             try:
-                result = validate_result(request, recognition.recognize(request, ApiError))
+                with cancel_if(cancelled):
+                    result = validate_result(request, recognition.recognize(request, ApiError))
                 policy = getattr(recognition._EXECUTION, 'policy', None)
                 if not policy or result['status'] not in ('success','no_tasks'):
                     raise ValueError('invalid or unversioned result')

@@ -152,6 +152,41 @@ test('manual text stays pending even when it has an explicit deadline',async()=>
  assert.match(recognition.assistantPage(),/data-agent-confirm="manual-candidate"/);
 });
 
+test('a chosen text file is previewed without upload and submitted only as manual text',async()=>{
+ recognition.resetAssistant();session.user={id:'manual-file-test'};location.hash='#agent';
+ const content='自行导出的文字\n10月20日提交报告',bytes=new TextEncoder().encode(content);
+ const requests=[];recognition.configureAssistant({render(){}});
+ globalThis.fetch=async(path,options)=>{
+  if(path==='/api/recognition/imports')return {ok:true,json:async()=>({saved:true})};
+  if(path==='/api/recognition/batches'&&options?.body){
+   const body=JSON.parse(options.body);requests.push(body);
+   return {ok:true,json:async()=>[{request:body,result:{status:'no_tasks',record_results:[],errors:[]},demo:false,items:[]}]};
+  }
+  return {ok:true,json:async()=>path==='/api/recognition/batches'?[]:path==='/api/workspace'?{}:{configured:false}};
+ };
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-manual-file',files:[{name:'chosen.txt',size:bytes.byteLength,arrayBuffer:async()=>bytes.buffer}]}});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(requests.length,0);assert.ok(recognition.assistantPage().includes(content));
+ await recognition.submitRecognitionText(content);
+ assert.equal(requests.length,1);assert.equal(requests[0].records[0].text,content);
+ assert.equal(requests[0].records[0].platform,'manual');assert.doesNotMatch(JSON.stringify(requests[0]),/chosen\.txt|file_ref|asset_id/);
+ recognition.resetAssistant();
+});
+
+test('late text-file reads do not overwrite typing or repopulate a reset account',async()=>{
+ recognition.resetAssistant();session.user={id:'manual-read-test'};
+ recognition.configureAssistant({render(){}});let finish;
+ const file={name:'chosen.txt',size:10,arrayBuffer:()=>new Promise(resolve=>{finish=resolve;})};
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-manual-file',files:[file]}});
+ recognition.handleAssistantInput({target:{id:'agent-input',value:'用户正在输入'}});
+ finish(new TextEncoder().encode('迟到文件内容').buffer);await new Promise(resolve=>setImmediate(resolve));
+ assert.match(recognition.assistantPage(),/用户正在输入/);assert.doesNotMatch(recognition.assistantPage(),/迟到文件内容/);
+ recognition.handleAssistantInput({type:'change',target:{id:'agent-manual-file',files:[file]}});
+ recognition.resetAssistant();finish(new TextEncoder().encode('前账号文件内容').buffer);
+ await new Promise(resolve=>setImmediate(resolve));assert.doesNotMatch(recognition.assistantPage(),/前账号文件内容/);
+ recognition.resetAssistant();
+});
+
 test('candidate removal invalidates a late ignore response without restoring deleted results',async()=>{
  recognition.resetAssistant();session.user={id:'candidate-removal'};location.hash='#agent';
  recognition.configureAssistant({render(){}});

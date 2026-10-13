@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import secrets
 import teaching_submission as submission
+from server.model_queue import WAIT_ERROR
 
 from contracts.teaching_io import canonical, check_request, snapshot_digest
 from contracts.teaching_capture import check_capture
@@ -204,7 +205,7 @@ def run(db, uid, body, retry, ApiError):
     if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')): return
     if previous and needs_source_completion(json.loads(previous['result'])):
         raise ApiError(409,SOURCE_INCOMPLETE)
-    if not recognition._ACTIVE.acquire(blocking=False): raise ApiError(503,'识别正在处理其他请求，请稍后重试')
+    if not recognition._ACTIVE.acquire(): raise ApiError(503,WAIT_ERROR)
     try:
         result, policy = recognize(request,ApiError)
         try:

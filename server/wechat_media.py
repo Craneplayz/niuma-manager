@@ -23,10 +23,12 @@ from urllib.parse import unquote
 from jsonschema import ValidationError
 
 from contracts.check_v031_examples import check_pair, check_request, check_job, check_retry_result, schema, request_fingerprint, retryable_records, check_asset_metadata
+from server.model_queue import CONCURRENCY, QUEUE_LIMIT
 
 MAX_ASSET = 20 * 1024 * 1024
 BODY_SECONDS = 30
-_slot = threading.Semaphore(1)
+_slot = threading.Semaphore(CONCURRENCY)
+MAX_JOBS = CONCURRENCY + QUEUE_LIMIT
 _workers = set()
 _workers_lock = threading.Lock()
 
@@ -225,7 +227,7 @@ def bearer_user(db, headers):
     return row['user_id']
 
 
-def _asset_type(data):
+def _asset_type(data,allow_unsupported=False):
     if data.startswith(b'\x89PNG\r\n\x1a\n'):
         return 'image/png'
     if data.startswith(b'\xff\xd8\xff'):
@@ -237,7 +239,35 @@ def _asset_type(data):
             names = set(archive.namelist())
         if '[Content_Types].xml' in names and 'word/document.xml' in names:
             return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    if allow_unsupported:return 'application/octet-stream'
     raise MediaError(400, 'invalid_request', '仅支持 JPG、PNG、PDF 或 DOCX 原件')
+
+
+def _pdf_encrypted(data):
+    import pypdfium2 as pdfium
+    try:
+        with pdfium.PdfDocument(data) as document:
+            return pdfium.raw.FPDF_GetSecurityHandlerRevision(document)!=-1
+    except pdfium.PdfiumError as error:
+        return error.err_code==pdfium.raw.FPDF_ERR_PASSWORD
+
+
+def _reject_encrypted(data):
+    encrypted=data.startswith((b'-----BEGIN PGP MESSAGE-----',b'age-encryption.org/v1',b'Salted__'))
+    if data.startswith(b'%PDF-'):
+        from ddl_text.media_worker import bounded
+        encrypted=bounded(_pdf_encrypted,(data,),10)
+    elif data.startswith(b'PK') and is_zipfile(io.BytesIO(data)):
+        with ZipFile(io.BytesIO(data)) as archive:
+            encrypted=any(part.flag_bits&1 for part in archive.infolist())
+    elif data.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+        encrypted=all(name.encode('utf-16le') in data for name in ('EncryptedPackage','EncryptionInfo'))
+    else:
+        try:
+            value=json.loads(data)
+            encrypted=encrypted or isinstance(value,dict) and (value.get('encrypted') is True or value.get('is_encrypted') is True)
+        except (ValueError,UnicodeError,RecursionError):pass
+    if encrypted:raise MediaError(400,'invalid_request','不接受加密数据，请自行合法导出未加密的材料；本站不提供解密功能')
 
 
 def _upload(handler, db, uid, data_dir):
@@ -259,7 +289,9 @@ def _upload(handler, db, uid, data_dir):
     name = parts[0].get_filename() or ''
     if not name or name in ('.', '..') or len(name) > 255 or '/' in name or '\\' in name:
         raise MediaError(400, 'invalid_request', '文件名无效')
-    mime, digest = _asset_type(data), hashlib.sha256(data).hexdigest()
+    manual=getattr(handler,'user_materials',False)
+    if manual:_reject_encrypted(data)
+    mime, digest = _asset_type(data,allow_unsupported=manual), hashlib.sha256(data).hexdigest()
     try:
         from contracts.check_v031_examples import check_file_name
         check_file_name(name)
@@ -308,8 +340,8 @@ def _upload(handler, db, uid, data_dir):
         except Exception:
             path.unlink()
             raise
-    ack = dict(contract_version='0.3.1', file_ref=ref, file_name=name, mime_type=mime, size_bytes=len(data), sha256=digest)
-    schema('wechat-import', ack, 'asset_ack')
+    ack = dict(contract_version='manual-materials/0.1' if manual else '0.3.1', file_ref=ref, file_name=name, mime_type=mime, size_bytes=len(data), sha256=digest)
+    if not manual:schema('wechat-import', ack, 'asset_ack')
     handler.reply(status, ack)
     return True
 
@@ -504,14 +536,15 @@ def _combine_records(request, parts):
 
 def recognize_v03(request, assets, *, checkpoint=None, completed=None):
     """Use the shared image adapter with a trusted, account-bound loader."""
-    from recognition import ROOT, _ACTIVE
+    from recognition import ROOT
+    from server.model_queue import slot
     from ddl_text.codex_client import live_options
     from ddl_text.chat_client import ChatClient
     from ddl_text.config import Settings
     from ddl_text.media_pipeline import process_media_request, MediaLimits
     if checkpoint is not None and completed and all(completed.get(record['input_id']) is not None for record in request['records']):
         return _combine_records(request,[completed[record['input_id']] for record in request['records']])
-    with _ACTIVE:
+    with slot(lambda status,message: MediaError(status,'queue_busy',message,True)):
         try:
             options = live_options(ROOT / '.env')
             # The image adapter requires a multimodal Chat Completions provider.
@@ -818,7 +851,7 @@ def route(handler, db, uid, path, body, data_dir):
         row = db.execute('SELECT 1 FROM wechat_credentials WHERE user_id=?', (uid,)).fetchone()
         if handler.command == 'GET':
             handler.reply(200, dict(configured=bool(row),limits=dict(asset_bytes=MAX_ASSET,account_bytes=200*1024*1024,
-                queued_jobs=20,unreferenced_ttl_seconds=_asset_ttl())))
+                queued_jobs=MAX_JOBS,unreferenced_ttl_seconds=_asset_ttl())))
         elif handler.command == 'POST':
             token = secrets.token_urlsafe(32)
             db.execute('INSERT INTO wechat_credentials VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at', (uid, hashlib.sha256(token.encode()).hexdigest(), time.time()))
@@ -853,7 +886,8 @@ def route(handler, db, uid, path, body, data_dir):
         return True
     if path == '/api/sources/wechat/imports' and handler.command == 'GET':
         _expire_unreferenced(db)
-        rows = db.execute('SELECT * FROM wechat_jobs WHERE user_id=? ORDER BY rowid DESC LIMIT 20', (uid,)).fetchall()
+        scope=' AND id IN(SELECT job_id FROM manual_material_jobs)' if getattr(handler,'user_materials',False) else ''
+        rows = db.execute('SELECT * FROM wechat_jobs WHERE user_id=?'+scope+' ORDER BY rowid DESC LIMIT 20', (uid,)).fetchall()
         jobs = []
         for row in rows:
             attempt = db.execute('SELECT errors FROM wechat_retries WHERE job_id=? AND retry_id=?', (row['id'],row['retry_id'])).fetchone()
@@ -880,17 +914,21 @@ def route(handler, db, uid, path, body, data_dir):
         fingerprint = _fingerprint(body)
         row = db.execute('SELECT * FROM wechat_jobs WHERE user_id=? AND request_id=?', (uid, body['request_id'])).fetchone()
         if row:
+            if getattr(handler,'user_materials',False) and not db.execute('SELECT 1 FROM manual_material_jobs WHERE job_id=?',(row['id'],)).fetchone():
+                raise MediaError(409,'request_conflict','请求编号已用于其他导入')
             if row['fingerprint'] != fingerprint:
                 raise MediaError(409, 'request_conflict', '同一 request_id 对应不同内容')
             handler.reply(200, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status=row['status']))
             return True
         if db.execute('SELECT 1 FROM recognition_batches WHERE user_id=? AND request_id=?', (uid,body['request_id'])).fetchone():
             raise MediaError(409, 'request_conflict', '请求编号已用于其他识别批次')
-        if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= 20:
+        if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= MAX_JOBS:
             raise MediaError(503, 'queue_busy', '导入队列已满，请稍后重试', True)
         job_id = 'job-' + secrets.token_urlsafe(18)
         db.execute('INSERT INTO wechat_jobs(id,user_id,request_id,fingerprint,request,status,result,previous_result,retry_id,attempts) VALUES(?,?,?,?,?,?,?,?,?,0)', (job_id, uid, body['request_id'], fingerprint, json.dumps(body, ensure_ascii=False), 'queued', None, None, None))
         _retain_assets(db,job_id,body)
+        if getattr(handler,'user_materials',False):
+            db.execute('INSERT INTO manual_material_jobs VALUES(?)',(job_id,))
         db.commit()
         _start_job(handler.media_db_path, job_id)
         handler.reply(202, dict(contract_version='0.3.1', job_id=job_id, request_id=body['request_id'], status='queued'))
@@ -924,7 +962,7 @@ def route(handler, db, uid, path, body, data_dir):
                 raise MediaError(409, 'invalid_job_state', '当前任务不能重试')
             request=json.loads(row['request'])
             _validate_assets(db,uid,dict(request,records=[record for record in request['records'] if record['input_id'] in selected]))
-            if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= 20:
+            if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= MAX_JOBS:
                 raise MediaError(503,'queue_busy','导入队列已满，请稍后重试',True)
             db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
             db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))
