@@ -32,11 +32,14 @@ ddl_text/
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
 ├── teaching_draft.py     # 教学网模型直接分类、证据校验与结果编译
+├── teaching_attachment_reader.py # 复用附件 reader，读取 DOCX 文字及图片/PDF 页面转录
 ├── teaching_pipeline.py  # 显式 v0.4 批次调用、逐条失败和消费端复核
 ├── teaching_policy.py    # 教学网实际运行规则和模型配置的独立版本
 ├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
+│   ├── teaching-file-reading/
+│   │   └── SKILL.md      # 教学网附件逐页阅读、可见文字和质量缺口
 │   ├── teaching-task-extraction/
 │   │   └── SKILL.md      # 教学网行动/日期及任务、候选、过滤语义分类
 │   ├── image-task-extraction/

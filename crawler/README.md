@@ -21,7 +21,7 @@ crawler/
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
 │   ├── pku-homework.ts               登录并采集课程内容
-│   ├── pku-attachments.ts            限定同源教师附件下载，在独立进程提取 PDF / UTF-8 文本
+│   ├── pku-attachments.ts            同源附件下载、PDF/TXT 文本提取、图片/DOCX/扫描页暂存
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
 │   ├── pku-teaching-evidence.ts      严格导出独立正文与附件证据，报告无法表达的记录
 │   ├── pku-teaching.ts               为受控同步包装 v0.4 证据、学期上下文与原生提交状态
@@ -46,6 +46,7 @@ crawler/
 │       ├── jsonl-store.ts            读写 JSONL 文件
 │       └── raw-snapshot-store.ts      保存原始网页及来源信息
 ├── tests/                            自动化测试
+│   ├── export-teaching-attachment-smoke.ts  合成附件经实际解析器导出受控快照和文件收据
 │   ├── adapters.test.ts              测试公开来源适配器
 │   ├── crawler.test.ts               测试抓取与重处理流程
 │   ├── fetcher.test.ts               测试 HTTP 获取器

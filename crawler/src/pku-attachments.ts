@@ -2,6 +2,9 @@ import { request } from "node:https";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { BrowserContext } from "playwright";
 import { UNREAD_REFERENCE_WARNING, sourceTextFits, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
 
@@ -64,12 +67,15 @@ export function authenticatedAttachmentReader(context: Pick<BrowserContext, "coo
   };
 }
 
-function formatOf(reference: SourceReference): "pdf" | "txt" | null {
+function formatOf(reference: SourceReference): "pdf" | "txt" | "docx" | "png" | "jpeg" | null {
   let path = "";
   try { path = decodeURIComponent(new URL(reference.url).pathname); } catch { /* Invalid URLs are rejected before any download. */ }
   const name = `${reference.label} ${path}`;
   if (/\.pdf(?:\s|$)/i.test(name)) return "pdf";
   if (/\.txt(?:\s|$)/i.test(name)) return "txt";
+  if (/\.docx(?:\s|$)/i.test(name)) return "docx";
+  if (/\.png(?:\s|$)/i.test(name)) return "png";
+  if (/\.jpe?g(?:\s|$)/i.test(name)) return "jpeg";
   return null;
 }
 
@@ -158,26 +164,51 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
 }
 
 /** Preserve failed/unread evidence, never synthesize dates or task decisions. */
-export async function enrichSourceAttachments(sources: CourseSourceRecord[], read: AttachmentReader): Promise<CourseSourceRecord[]> {
+export async function enrichSourceAttachments(sources: CourseSourceRecord[], read: AttachmentReader, staging?: string): Promise<CourseSourceRecord[]> {
   const results: CourseSourceRecord[] = [];
   const cache = new Map<string, SourceReference>();
+  const stored = new Set<string>();
+  let storedBytes = 0;
+  const stage = async (file: AttachmentFile, format: Exclude<ReturnType<typeof formatOf>, null>): Promise<NonNullable<SourceReference["asset"]>> => {
+    const mime = { pdf: "application/pdf", txt: "text/plain", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", png: "image/png", jpeg: "image/jpeg" }[format];
+    if (file.bytes.length > MAX_ATTACHMENT_BYTES || !file.bytes.length) throw new ReadFailure("too_large");
+    if (file.contentType && ![mime, "application/octet-stream", ...(format === "docx" ? ["application/zip"] : [])].includes(file.contentType)) throw new ReadFailure("unsupported_format");
+    const sha256 = createHash("sha256").update(file.bytes).digest("hex");
+    if (!stored.has(sha256)) {
+      if (storedBytes + file.bytes.length > 100 * 1024 * 1024) throw new ReadFailure("capture_size_limit");
+      await mkdir(staging!, { recursive: true, mode: 0o700 });
+      await writeFile(path.join(staging!, sha256 + ".bin"), file.bytes, { mode: 0o600 });
+      stored.add(sha256); storedBytes += file.bytes.length;
+    }
+    return { sha256, mime_type: mime, size_bytes: file.bytes.length };
+  };
   for (const source of sources) {
     let body = source.body;
     const references: SourceReference[] = [];
     for (const original of source.references) {
       let ref = { ...original };
-      if (ref.kind === "attachment" && !ref.content_read) {
+      if ((ref.kind === "attachment" || staging && ref.kind === "image") && !ref.content_read) {
         const format = formatOf(ref);
         const cacheKey = `${ref.url}\n${format}`;
         const cached = format ? cache.get(cacheKey) : undefined;
         if (cached) ref = { ...cached, label: ref.label };
         else {
           try {
-            if (!format) throw new ReadFailure("unsupported_format");
+            if (!format || !staging && !["pdf", "txt"].includes(format)) throw new ReadFailure("unsupported_format");
             if (!isTeacherAttachmentUrl(ref.url)) throw new ReadFailure("untrusted_attachment_url");
             const file = await read(ref.url).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
-            const { text, partial } = await extractAttachmentText(file, format);
-            ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? "partial_pdf" : null };
+            if (format === "pdf" || format === "txt") {
+              try {
+                const { text, partial } = await extractAttachmentText(file, format);
+                ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? "partial_pdf" : null };
+              } catch (error) {
+                if (!staging || format !== "pdf") throw error;
+                ref = { ...ref, content_read: false, read_status: "unread", reason: "awaiting_file_reader" };
+              }
+            }
+            if (staging && !ref.content_read && format !== "txt") {
+              ref = { ...ref, asset: await stage(file, format), reason: "awaiting_file_reader" };
+            }
           } catch (error) {
             const reason = error instanceof ReadFailure ? error.message : "parse_failed";
             ref = { ...ref, content_read: false, read_status: ["unsupported_format", "untrusted_attachment_url"].includes(reason) ? "unsupported" : "failed", reason };

@@ -153,7 +153,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     }
 
     const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
-    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context));
+    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR);
     return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
       asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
       allSections: options.allSections ?? false, coverageWarnings,

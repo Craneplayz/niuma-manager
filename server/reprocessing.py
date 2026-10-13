@@ -183,13 +183,13 @@ def still_current(db, uid, item, ApiError):
     return True
 
 
-def recognize_saved(request, native, ApiError):
+def recognize_saved(request, native, ApiError, *, attachments=None):
     if not native:
         result=validate_result(request,recognition.recognize(request,ApiError))
         return result,getattr(recognition._EXECUTION,'policy',None)
     if not recognition._ACTIVE.acquire(): raise ApiError(503,'模型队列暂不可用')
     try:
-        result,policy=teaching.recognize(request,ApiError)
+        result,policy=teaching.recognize(request,ApiError,**(attachments or {}))
         teaching.validate_current_result(request,result,policy,ApiError)
         return result,policy
     finally: recognition._ACTIVE.release()
@@ -223,7 +223,9 @@ def process(path, uid, run_id, ApiError):
                     record['state']='superseded';save(db,run,terminal(run));continue
                 record.update(state='running', attempted=True)
                 save(db, run, 'running')
-            request = dict(item['request'], request_id='reprocessing:'+run_id+':'+str(index))
+                attachments = teaching.attachment_context(db,uid,item['request']['request_id']) if item.get('kind')=='teaching' else {}
+            request = json.loads(json.dumps(item['request']))
+            request['request_id']='reprocessing:'+run_id+':'+str(index)
             result = None
             policy = None
             native=item.get('kind')=='teaching'
@@ -236,7 +238,7 @@ def process(path, uid, run_id, ApiError):
                     return not latest or latest['run_id']!=run_id or not still_current(current_db,uid,item,ApiError)
             try:
                 with cancel_if(cancelled):
-                    result,policy = recognize_saved(request,native,ApiError)
+                    result,policy = recognize_saved(request,native,ApiError,**({'attachments':attachments} if attachments else {}))
                 if not policy or result['status'] not in ('success','no_tasks'):
                     raise ValueError('invalid or unversioned result')
             except Exception:

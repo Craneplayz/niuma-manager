@@ -1,7 +1,9 @@
 import { scrapePkuHomeworks } from "./pku-homework.js";
 import { toRecognitionRequests } from "./pku-recognition.js";
-import { toTeachingRequests, toTeachingCaptures } from "./pku-teaching.js";
+import { toTeachingRequests, toTeachingCaptures, toTeachingAssetManifest } from "./pku-teaching.js";
 import { toTeachingRequests as exportEvidence } from "./pku-teaching-evidence.js";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 
 try {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -24,6 +26,10 @@ try {
     } else if (format !== "raw") {
       const requests = format === "teaching-capture" ? toTeachingCaptures(result.source_records, requestId)
         : format === "teaching" ? toTeachingRequests(result.source_records, requestId) : toRecognitionRequests(result.source_records, requestId);
+      if (format === "teaching-capture" && process.env.PKU_ATTACHMENT_DIR) {
+        const assets = toTeachingAssetManifest(result.source_records);
+        await writeFile(path.join(process.env.PKU_ATTACHMENT_DIR, "manifest.json"), JSON.stringify(assets), { mode: 0o600 });
+      }
       // Convert the entire run before writing anything, so a conversion error is explicit.
       console.log(requests.map((request) => JSON.stringify(request)).join("\n"));
     } else {
