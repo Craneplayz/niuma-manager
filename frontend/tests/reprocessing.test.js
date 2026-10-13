@@ -44,3 +44,22 @@ test('an unavailable API does not trigger repeated requests on each render',asyn
  await ui.reprocessingClick(click('load'));
  assert.equal(requests,3);assert.match(ui.reprocessingPanel(),/课程通知/);
 });
+
+test('native teaching records show actual policy and explain automatic task creation',async()=>{
+ reset();const native=structuredClone(directory);native.accounts[0].records[0].policy_version='teaching-policy-v1:'+'a'.repeat(64);
+ globalThis.fetch=async path=>({ok:true,json:async()=>path.includes('/sources')?native:{runs:[],next_cursor:null}});
+ await ui.reprocessingClick(click('load'));
+ assert.match(ui.reprocessingPanel(),/teaching-policy-v1:/);
+ assert.match(ui.reprocessingPanel(),/明确任务直接加入任务清单/);
+ assert.match(ui.reprocessingPanel(),/不重新抓取网页或附件/);
+});
+
+test('refresh removes a stale selection instead of submitting a vanished source record',async()=>{
+ reset();let current=directory,sent=0;
+ globalThis.fetch=async(path,options)=>{if(options.body)sent++;return {ok:true,json:async()=>path.includes('/sources')?current:{runs:[],next_cursor:null}};};
+ await ui.reprocessingClick(click('load'));
+ ui.reprocessingChange({target:{dataset:{reprocessIndex:'0'},checked:true}});
+ current={...directory,accounts:[{...directory.accounts[0],records:[]}]};
+ await ui.reprocessingClick(click('load'));await ui.reprocessingClick(click('start'));
+ assert.equal(sent,0);
+});

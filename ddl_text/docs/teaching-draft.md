@@ -27,7 +27,7 @@ validate_teaching_result(request, result, verified_snapshot_digests=verified_dig
 
 安装 `python -m pip install -r ddl_text/teaching_requirements.txt`。每条一次调用，子进程超时回收，失败保留错误且不丢其他成功记录；七牛 DeepSeek 关闭 thinking，避免输出预算被推理耗尽。批次总预算最多180秒，不自动循环重试。
 
-新结果使用 `classification_mode=model-v1`，`policy_version` 记录实际模型与代码规则摘要；模型内部草稿必须提供 recommendation/reason，旧草稿不能作为新调用成功结果。对外请求与 UI 卡片字段不变，结果新增兼容字段；旧结果仍可读取且不会在查看时重新分类。旧记录不能通过刷新页面自动放行或改写用户决定；当前成功的 v0.4 批次重试仍为幂等，现有批量重识别入口只支持旧 v0.2。验收新规则请用隔离测试账号首次同步；已有账号的 v0.4 批量迁移尚未接通，不要为测试清空生产记录。
+新结果使用 `classification_mode=model-v1`，`policy_version` 记录实际模型与代码规则摘要；模型内部草稿必须提供 recommendation/reason，旧草稿不能作为新调用成功结果。对外请求与 UI 卡片字段不变，结果新增兼容字段；旧结果仍可读取且不会在查看时重新分类。成功批次普通重试仍为幂等；已有账号在来源管理的“重新识别已有通知”中显式选择旧记录，按当前规则重新处理，无需清空数据。明确任务自动入库，旧待核实项可替换，已确认/忽略/修改的决定保留；详见 [重识别约定](../../contracts/docs/reprocessing-v0.1.md)。
 
 `teaching_review_draft.review_codes` 只用于旧结果/历史契约回归，新模型路径不调用它；手工 v0.2 与微信 v0.3.1 不受本次变更影响。来源采集缺失内容仍需要采集侧补全，模型不能读取未提供资料。
 

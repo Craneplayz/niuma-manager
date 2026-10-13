@@ -6,6 +6,7 @@ server/
 ├── recognition.py            文本识别批次与候选确认接口。
 ├── reprocessing.py           已保存教学网通知的定向运行、停止与持久进度。
 ├── test_reprocessing.py      来源分页、幂等、账号隔离、停止与旧结果保留测试。
+├── test_teaching_reprocessing.py  原生快照重识别、自动入库、停止及既有决定保护测试。
 ├── planning.py               规划直调/HTTP 切换、配置读取及并发保护。
 ├── model_queue.py            所有模型入口共用的 20 并发与有界 FIFO 排队。
 ├── test_model_queue.py       验证并发上限、先来先服务、超时与断连取消。
@@ -42,9 +43,10 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 教学网同步使用原生 v0.4：按课程作业、课程通知、教学内容顺序识别，来源账号和快照由后端核验；明确任务自动加入，引用所需材料缺失时保留审核，详见 [运行视图](../contracts/docs/teaching-workspace-v0.1.md)。
 已读部分无任务但内容不完整时标记“来源待补全”，相同快照不重复调用模型；补全正文/附件后重新同步，模型失败仍可重试。
 真实 API 合成验收在仓库根运行 `.venv/Scripts/python.exe server/run_teaching_smoke.py --output local-data/teaching-smoke.json`；只发送合成内容，独立临时数据库，不访问校园网账号。
+追加 `--env-file <测试模型配置文件> --reprocess` 验证旧批次显式重识别及自动入库；输出路径必须不存在，包含两次真实模型输出和最终任务结果，不启动生产服务。
 原生 submitted 来源尚无永久行动映射时继续识别并保留候选，提交范围待核对，不能整条跳过或自动入库；submitted 后状态变化会持久暂停模型及自动入库，再次 submitted/重启不解除，已有候选仍可人工处理。逐行动映射与显式解除来源核对仍待 #110，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
 教学网 DeepSeek 调用显式关闭 thinking；真实调用用原文片段编号填回证据，错误区分输出截断、JSON、字段与证据错误，不记录私人模型响应。
-此测试版尚未接入定向重新识别、教学网图片或 DOCX 原件阅读；PDF/TXT 沿用采集器已有能力，网页结构变化和没有来源时间的普通旧材料仍可能需要核查。
+原生教学网可在来源管理中定向重识别已保存通知；不重新爬取或读取附件。教学网图片或 DOCX 原件阅读尚未接入，PDF/TXT 沿用采集器已有能力。
 文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取仓库根目录 `.env` 的模型配置，无需启动 1333；已有环境变量优先于 `.env`。
 在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
 同一后端进程的文本、教学网、附件识别、重识别、规划及 AI 拆解合计最多 20 个模型请求执行，额外最多 100 个按到达顺序排队，等待上限 180 秒；队列满或等待超时返回 503，不开始模型调用。
@@ -119,4 +121,6 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 业务 API 直接使用模型侧校验过的 v0.2 时间字段；无疑点的外部新增行动可自动入库，无日期任务保留空 DDL 并在工作台补充，需核实及手动输入的候选仍待用户确认。
 重试由用户点击或再次同步触发，不在同次同步内无限重试；采集本身的超时独立于每条识别的 90 秒预算。
 
-教学网原生 v0.4 的新识别结果使用 model-v1 分类：模型 task 可自动新增，candidate 等待核实，filtered 保留原始结果与依据；no_tasks 与 incomplete 由模型区分。后端不在展示或入库时重算正文完整性/补年/历史审核；账号快照、提交状态关联和既有任务操作保护仍生效。旧成功批次不会自动升级，现有 v0.4 retry 仍返回旧结果；验收使用隔离测试账号首次同步，v0.4 批量重识别尚未接通；详见 [识别入口](../ddl_text/docs/teaching-draft.md)。
+教学网原生 v0.4 使用 model-v1 分类：task 自动新增，candidate 等待核实，filtered 留存依据，no_tasks 与 incomplete 由模型区分；不在展示或入库时重算正文完整性/补年/历史审核。账号快照、提交状态关联和既有任务操作保护仍生效；旧成功批次通过来源管理显式重新识别，普通 retry 仍返回旧结果，详见 [识别入口](../ddl_text/docs/teaching-draft.md)。
+
+重识别目录同时支持旧 v0.2 与当前校园账号的 v0.4，使用独立来源 ID；新增 `reprocessing_teaching_sources`、`reprocessing_request_sources` 表由启动初始化，无需改写旧数据。v0.4 新候选和自动任务在同一事务保存，失败/中断保留旧结果，用户决定按账号及来源版本关联保留；部署前备份数据库，回滚不得删除已有任务或新表。
