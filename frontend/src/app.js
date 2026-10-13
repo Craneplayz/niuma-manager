@@ -1,4 +1,5 @@
 import {newId} from './id.js';
+import {showEnvironmentBadge} from './environment-badge.js';
 import {loadTaskEvidence} from './task-evidence.js';
 import {syncImportPageSize} from './import-journey.js';
 import {syncReviewDestination} from './review-motion.js';
@@ -24,6 +25,7 @@ import {configureTrash,trashPage,trashClick,moveTasksToTrash,isTrashBusy} from '
 import {reprocessingChange,reprocessingClick} from './reprocessing-ui.js';
 let state=readStore(), page=location.hash.slice(1)||'tasks', filter='all', query='', sort='due', week=0;
 initTheme();
+showEnvironmentBadge();
 const expandedTasks=new Set();
 const selectedTaskIds=new Set();
 let bulkMode=false;

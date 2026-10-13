@@ -2,6 +2,10 @@
 from copy import deepcopy
 import hashlib
 import json
+if __package__:
+    from .runtime_environment import model_env_path
+else:
+    from runtime_environment import model_env_path
 from pathlib import Path
 import secrets
 import time
@@ -177,7 +181,7 @@ def resolve_snapshot(db, uid, request_id, ApiError):
 def recognize(request, ApiError, *, files=(), save_cache=None):
     started = time.monotonic()
     try:
-        options = live_options(ROOT/'.env')
+        options = live_options(model_env_path(ROOT))
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
         # Qiniu's DeepSeek defaults to thinking; it can exhaust all 8192 tokens
         # before producing JSON. Keep the bounded extraction call non-thinking.
@@ -185,7 +189,7 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
                             thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
         policy = teaching_policy_manifest(settings)
     except (OSError,ValueError,KeyError,TypeError):
-        raise ApiError(503,'教学网识别配置不可用，请检查 .env 中七牛云模型配置并重启后端') from None
+        raise ApiError(503,'教学网识别配置不可用，请检查当前环境的七牛云模型配置并重启后端') from None
     client = ChatClient(options['key'])
     if files:
         try:
