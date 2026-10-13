@@ -20,7 +20,7 @@ import manual_materials
 import task_decomposition
 import reprocessing
 import runtime_environment
-import model_queue
+from server import model_queue
 
 
 class ThreadingHTTPServer(_ThreadingHTTPServer):

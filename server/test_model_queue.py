@@ -1,16 +1,34 @@
 import socket
+import os
+from pathlib import Path
+import subprocess
+import sys
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
-import model_queue
 import recognition
 import planning
 import task_decomposition
+from server import model_queue
 
 
 class ModelQueueTests(unittest.TestCase):
+    def test_root_package_imports_share_the_same_model_queue(self):
+        root = Path(__file__).resolve().parent.parent
+        env = dict(os.environ)
+        env.pop('PYTHONPATH', None)
+        script = '''import sys
+from server import text_contract
+sys.modules['text_contract'] = text_contract
+from server import recognition, planning, task_decomposition, model_queue
+assert recognition._ACTIVE is planning._ACTIVE is task_decomposition._ACTIVE is model_queue.ACTIVE
+'''
+        result = subprocess.run([sys.executable, '-c', script], cwd=root, env=env,
+            capture_output=True, text=True, encoding='utf-8', timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def queued(self, queue, count):
         with queue.condition:
             self.assertTrue(queue.condition.wait_for(lambda: len(queue.waiters)==count, timeout=3))

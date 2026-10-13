@@ -27,7 +27,7 @@ from urllib.parse import unquote
 from jsonschema import ValidationError
 
 from contracts.check_v031_examples import check_pair, check_request, check_job, check_retry_result, schema, request_fingerprint, retryable_records, check_asset_metadata
-from model_queue import CONCURRENCY, QUEUE_LIMIT
+from server.model_queue import CONCURRENCY, QUEUE_LIMIT
 
 MAX_ASSET = 20 * 1024 * 1024
 BODY_SECONDS = 30
@@ -541,7 +541,7 @@ def _combine_records(request, parts):
 def recognize_v03(request, assets, *, checkpoint=None, completed=None):
     """Use the shared image adapter with a trusted, account-bound loader."""
     from recognition import ROOT
-    from model_queue import slot
+    from server.model_queue import slot
     from ddl_text.codex_client import live_options
     from ddl_text.chat_client import ChatClient
     from ddl_text.config import Settings

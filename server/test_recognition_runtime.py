@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 import app
 import recognition
-from model_queue import ModelQueue
-import model_queue
+from server.model_queue import ModelQueue
+from server import model_queue
 import planning
 from ddl_text.codex_client import ENV_KEYS
 from ddl_text.extraction import OfflineDraftClient

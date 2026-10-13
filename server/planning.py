@@ -3,10 +3,8 @@ import json
 import os
 if __package__:
     from .runtime_environment import model_env_path
-    from .model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 else:
     from runtime_environment import model_env_path
-    from model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -17,6 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from ddl_text.codex_client import live_options
 from task_planning import planning_harness
 from task_planning.scheduling import rank_tasks
