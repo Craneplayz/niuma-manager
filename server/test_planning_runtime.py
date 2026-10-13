@@ -14,6 +14,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 import app
 import planning
+from model_queue import ModelQueue
 from ddl_text.codex_client import ENV_KEYS
 
 
@@ -90,6 +91,7 @@ class PlanningRuntimeTests(unittest.TestCase):
         instructions, payload, settings = model.call_args.args
         self.assertEqual(instructions, planning.planning_harness.INSTRUCTIONS)
         self.assertEqual(json.loads(payload)['tasks'], [self.task])
+        self.assertGreater(app.datetime.fromisoformat(json.loads(payload)['requestedAt']),app.datetime.now(app.TZ)-app.timedelta(seconds=10))
         self.assertEqual((settings.model, settings.timeout_seconds, settings.max_retries), ('synthetic-model', 20, 0))
         self.assertEqual(self.call(self.client, '/workspace')[1]['tasks']['value'], [self.task])
         self.assertEqual(self.call(other, '/planning/apply', dict(requestId=result['requestId']))[0], 404)
@@ -161,7 +163,7 @@ class PlanningRuntimeTests(unittest.TestCase):
             with patch.object(planning, 'urlopen', return_value=io.BytesIO(json.dumps(self.proposal).encode())):
                 self.assertEqual(self.propose()[0], 200)
 
-    def test_busy_gate_is_shared_across_accounts_and_transports(self):
+    def test_full_queue_is_shared_across_accounts_and_transports(self):
         other = self.new_client(self.id()+'-other')
         entered, release = threading.Event(), threading.Event()
         def blocked(*args):
@@ -170,6 +172,7 @@ class PlanningRuntimeTests(unittest.TestCase):
                 raise AssertionError('test did not release planning')
             return copy.deepcopy(self.proposal)
         with patch.dict(planning.os.environ, {'QINIU_API_KEY': 'synthetic-key'}), \
+                patch.object(planning, '_ACTIVE', ModelQueue(limit=1,pending=0)), \
                 patch.object(planning.planning_harness, 'generate', side_effect=blocked), \
                 patch.object(planning, 'urlopen') as remote, ThreadPoolExecutor(max_workers=1) as pool:
             first = pool.submit(self.propose)

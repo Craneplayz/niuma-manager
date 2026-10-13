@@ -23,10 +23,12 @@ from urllib.parse import unquote
 from jsonschema import ValidationError
 
 from contracts.check_v031_examples import check_pair, check_request, check_job, check_retry_result, schema, request_fingerprint, retryable_records, check_asset_metadata
+from model_queue import CONCURRENCY, QUEUE_LIMIT
 
 MAX_ASSET = 20 * 1024 * 1024
 BODY_SECONDS = 30
-_slot = threading.Semaphore(1)
+_slot = threading.Semaphore(CONCURRENCY)
+MAX_JOBS = CONCURRENCY + QUEUE_LIMIT
 _workers = set()
 _workers_lock = threading.Lock()
 
@@ -534,14 +536,15 @@ def _combine_records(request, parts):
 
 def recognize_v03(request, assets, *, checkpoint=None, completed=None):
     """Use the shared image adapter with a trusted, account-bound loader."""
-    from recognition import ROOT, _ACTIVE
+    from recognition import ROOT
+    from model_queue import slot
     from ddl_text.codex_client import live_options
     from ddl_text.chat_client import ChatClient
     from ddl_text.config import Settings
     from ddl_text.media_pipeline import process_media_request, MediaLimits
     if checkpoint is not None and completed and all(completed.get(record['input_id']) is not None for record in request['records']):
         return _combine_records(request,[completed[record['input_id']] for record in request['records']])
-    with _ACTIVE:
+    with slot(lambda status,message: MediaError(status,'queue_busy',message,True)):
         try:
             options = live_options(ROOT / '.env')
             # The image adapter requires a multimodal Chat Completions provider.
@@ -848,7 +851,7 @@ def route(handler, db, uid, path, body, data_dir):
         row = db.execute('SELECT 1 FROM wechat_credentials WHERE user_id=?', (uid,)).fetchone()
         if handler.command == 'GET':
             handler.reply(200, dict(configured=bool(row),limits=dict(asset_bytes=MAX_ASSET,account_bytes=200*1024*1024,
-                queued_jobs=20,unreferenced_ttl_seconds=_asset_ttl())))
+                queued_jobs=MAX_JOBS,unreferenced_ttl_seconds=_asset_ttl())))
         elif handler.command == 'POST':
             token = secrets.token_urlsafe(32)
             db.execute('INSERT INTO wechat_credentials VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET token_hash=excluded.token_hash,created_at=excluded.created_at', (uid, hashlib.sha256(token.encode()).hexdigest(), time.time()))
@@ -919,7 +922,7 @@ def route(handler, db, uid, path, body, data_dir):
             return True
         if db.execute('SELECT 1 FROM recognition_batches WHERE user_id=? AND request_id=?', (uid,body['request_id'])).fetchone():
             raise MediaError(409, 'request_conflict', '请求编号已用于其他识别批次')
-        if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= 20:
+        if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= MAX_JOBS:
             raise MediaError(503, 'queue_busy', '导入队列已满，请稍后重试', True)
         job_id = 'job-' + secrets.token_urlsafe(18)
         db.execute('INSERT INTO wechat_jobs(id,user_id,request_id,fingerprint,request,status,result,previous_result,retry_id,attempts) VALUES(?,?,?,?,?,?,?,?,?,0)', (job_id, uid, body['request_id'], fingerprint, json.dumps(body, ensure_ascii=False), 'queued', None, None, None))
@@ -959,7 +962,7 @@ def route(handler, db, uid, path, body, data_dir):
                 raise MediaError(409, 'invalid_job_state', '当前任务不能重试')
             request=json.loads(row['request'])
             _validate_assets(db,uid,dict(request,records=[record for record in request['records'] if record['input_id'] in selected]))
-            if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= 20:
+            if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= MAX_JOBS:
                 raise MediaError(503,'queue_busy','导入队列已满，请稍后重试',True)
             db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
             db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))

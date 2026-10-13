@@ -59,7 +59,7 @@ function planPanel(task){
 function workPanel(){
  const task=selected();
  if(result&&!validResult()){result=null;resultTaskId='';}
- if(busy)return `<div class="decomposition-placeholder busy">${icon('spark')}<h2>正在理解任务…</h2><p>会结合任务说明、原始要求与已有进度生成方案。</p></div>`;
+ if(busy)return `<div class="decomposition-placeholder busy">${icon('spark')}<h2>正在理解任务…</h2><p>高峰时会自动排队；会结合任务说明、原始要求与已有进度生成方案。</p></div>`;
  if(error)return `<div class="decomposition-placeholder error-state"><h2>暂时没有生成方案</h2><p>${esc(error)}</p><button class="btn primary" data-decomposition-action="start">重新尝试</button></div>`;
  if(applied)return `<div class="decomposition-placeholder applied">${icon('check')}<h2>步骤已经写入任务</h2><p>${esc(task?.title||'任务')}现在可以在任务中心逐项完成。</p><div class="decomposition-actions"><a class="btn primary" href="#tasks">查看任务</a><button class="btn" data-decomposition-action="reset">继续拆解</button></div></div>`;
  if(!result)return initialPanel(task);
@@ -82,7 +82,7 @@ async function requestProposal(){
  try{
   await flushStore();
   if(!current())return;
-  const next=await api('/api/decomposition/proposals',{taskId,conversation:history},'POST',{timeoutMs:30000,signal:controller.signal});
+  const next=await api('/api/decomposition/proposals',{taskId,conversation:history},'POST',{timeoutMs:280000,signal:controller.signal});
   if(!current())return;
   if(next.taskId!==taskId)throw new Error('拆解方案与当前任务不匹配，请重新生成');
   result=next;resultTaskId=taskId;
