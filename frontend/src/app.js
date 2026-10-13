@@ -1,184 +1,819 @@
-import {newId} from './id.js';
-import {showEnvironmentBadge} from './environment-badge.js';
-import {loadTaskEvidence} from './task-evidence.js';
-import {syncImportPageSize} from './import-journey.js';
-import {syncReviewDestination} from './review-motion.js';
-import {transitionView} from './view-motion.js';
-import {prepareDialog,highlightTask} from './task-drawer.js';
-import {motionUpdate} from './interaction-motion.js';
-import {dayKey,offsetDay,priorityLabels,statusLabels,isBlocked} from './data.js';
-import {api,readStore,saveStore,session,initSession,authenticate,logout,retrySave,refreshStore,flushStore,workspaceValue} from './store.js';
-import {assistantPage,sourceManagementPage,configureAssistant,handleAssistantClick,handleAssistantInput,handleAssistantSubmit,resetAssistant,leaveAssistant,openMediaCandidate} from './team-recognition-ui.js';
-import {icon} from './icons.js';
-import {pageIntro,storyShell} from './story-layout.js';
-import {selectTasks} from './productivity.js';
-import {configureExperience,experienceClick,experienceInput,experienceKey,focusPill,switchFocusAccount} from './experience.js';
-import {plannerPage,configurePlanner,plannerClick,plannerChange,plannerSubmit,plannerApplyHours,proposeForTasks} from './team-planner-ui.js';
-import {initTheme,themeButton,handleThemeClick,themeSetting,handleThemeChange} from './theme.js';
-import {configurePersonalization,personalizationSettings,personalizationChange,promptForCompletionMinutes,personalizationSubmit} from './team-personalization-ui.js';
-import {calendarPage,calendarClick,calendarStep,calendarToday,focusCalendar,resetCalendarFocus} from './team-calendar-ui.js';
-import {configureWechatMedia,wechatMediaClick,manualMaterialInput} from './team-wechat-media-ui.js';
-import {configureDecomposition,decompositionPage,decompositionClick,decompositionSubmit} from './team-decomposition-ui.js';
-import {updateTaskCompletion,restoreTaskCompletion} from './task-bulk.js';
-import {configureScheduleEditor,scheduleEditorClick,scheduleEditorSubmit} from './schedule-editor.js';
-import {configureTrash,trashPage,trashClick,moveTasksToTrash,isTrashBusy} from './task-trash-ui.js';
-import {reprocessingChange,reprocessingClick} from './reprocessing-ui.js';
-let state=readStore(), page=location.hash.slice(1)||'tasks', filter='all', query='', sort='due', week=0;
-initTheme();
-showEnvironmentBadge();
-const expandedTasks=new Set();
-const selectedTaskIds=new Set();
-let bulkMode=false;
-let undoAction=null,importArrival=null;
-const app=document.querySelector('#app'),dialog=document.querySelector('#dialog');
-document.addEventListener('change',reprocessingChange);
-document.addEventListener('change',manualMaterialInput);
-document.addEventListener('click',reprocessingClick);
-for(const type of ['click','submit','input','change','keydown'])document.addEventListener(type,event=>{
- if(session.changing||isTrashBusy()){event.preventDefault();event.stopImmediatePropagation();}
-},true);
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const button=(label,action,cls='',ico='')=>`<button class="btn ${cls}" data-action="${action}">${ico?icon(ico):''}${label}</button>`;
-const today=()=>dayKey();
-const pending=()=>state.tasks.filter(t=>t.status!=='done');
-function persist(){return saveStore(state);}
-window.addEventListener('niuma:account-reset',()=>{
- state=readStore();importArrival=null;resetCalendarFocus();undoAction=null;expandedTasks.clear();filter='all';query='';sort='due';week=calendarToday();
- bulkMode=false;selectedTaskIds.clear();
- switchFocusAccount(null);clearTimeout(window.toastTimer);
- document.querySelector('#toast').replaceChildren();document.querySelector('#toast').classList.remove('visible');
- if(!dialog.querySelector('#auth-form')){clearTimeout(dialog.closeTimer);dialog.close();dialog.replaceChildren();}
- render();
-});
-function toast(message,undo=null){const t=document.querySelector('#toast');undoAction=undo;t.replaceChildren();const text=document.createElement('span');text.textContent=message;t.append(text);if(undo){const btn=document.createElement('button');btn.textContent='撤销';btn.dataset.action='undo';t.append(btn);}t.classList.add('visible');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>{t.classList.remove('visible');undoAction=null;},undo?9000:4000);}
-function celebrate(rect,message,big=false,undo=null){toast(message,undo);if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;const layer=document.createElement('div');layer.className=`celebration ${big?'big':''}`;layer.setAttribute('aria-hidden','true');const x=rect?.left+rect?.width/2||innerWidth/2,y=rect?.top+rect?.height/2||innerHeight/2;layer.style.setProperty('--x',x+'px');layer.style.setProperty('--y',y+'px');for(let i=0;i<(big?22:12);i++){const dot=document.createElement('i');dot.style.setProperty('--angle',`${i/(big?22:12)*360}deg`);dot.style.setProperty('--distance',`${big?70+Math.random()*70:35+Math.random()*45}px`);dot.style.setProperty('--delay',`${Math.random()*90}ms`);layer.append(dot);}document.body.append(layer);setTimeout(()=>layer.remove(),1100);}
+import {
+  api,
+  session,
+  readStore,
+  initSession,
+  reloadStore,
+  refreshStore,
+  saveStore,
+  flushStore,
+  retrySave,
+  trashStoredTasks,
+  restoreStoredTasks,
+  accountVersion,
+} from "./team-store.js";
+import { icon } from "./icons.js";
+import { newId } from "./id.js";
+import {
+  todayKey,
+  shiftDay,
+  filterTasks,
+  deadlineLabel,
+} from "./task-model.js";
+import { renderTaskList, renderDayPanel } from "./task-views.js";
+import { renderCalendar } from "./calendar.js";
+import { renderTaskDrawer } from "./task-drawer.js";
+import { loadTaskEvidence } from "./task-evidence.js";
+import { demoWorkspace } from "./demo.js";
+import { createImportUI } from "./import-ui.js";
+import { createAccountUI } from "./account-ui.js";
+import { describeEnvironment } from "./environment-badge.js";
 
-function dueText(date){if(!date)return '无 DDL';const diff=Math.round((new Date(date+'T12:00:00')-new Date(today()+'T12:00:00'))/86400000);return diff===0?'今天截止':diff===1?'明天截止':diff<0?`已逾期 ${-diff} 天`:`${date.slice(5).replace('-','月')}日截止`;}
-function taskRow(t){const done=t.subtasks.filter(s=>s.done).length,selected=selectedTaskIds.has(t.id),selection=bulkMode?`<button class="bulk-select ${selected?'selected':''}" data-bulk-select="${t.id}" aria-pressed="${selected}" aria-label="${selected?'取消选择':'选择'} ${esc(t.title)}">${selected?icon('check'):''}</button>`:`<button class="checkbox ${t.status==='done'?'checked':''}" data-complete="${t.id}" aria-label="${t.status==='done'?'重新打开':'完成'} ${esc(t.title)}">${t.status==='done'?icon('check'):''}</button>`;return `<article data-motion-task="${esc(t.id)}" data-motion-done="${t.status}"${importArrival?.ids.includes(t.id)?' data-import-added="true"':''} class="task-card ${selected?'bulk-selected':''}"><div class="task-row">${selection}<button class="task-main" ${bulkMode?`data-bulk-select="${t.id}"`:`data-edit="${t.id}"`}><strong class="${t.status==='done'?'strike':''}">${esc(t.title)}</strong><span>${esc(t.course)} <i>·</i> ${icon('clock')}${t.hours ? `${t.hours} 小时` : '待模型评估'} <i>·</i> <span class="status-dot ${t.status}"></span>${statusLabels[t.status]} ${isBlocked(t,state.tasks)?'<i>·</i> 等待前置任务':''}</span></button>${!bulkMode?`<button class="btn task-evidence-link" data-task-evidence="${esc(t.id)}" aria-label="查看 ${esc(t.title)} 的来源与证据">来源与证据</button>`:''}<span class="badge ${t.priority}">${priorityLabels[t.priority]}</span><span class="due ${t.due&&t.due<=today()&&t.status!=='done'?'urgent':''}">${t.status==='done'?'已完成':dueText(t.due)+(t.dueTime?' '+esc(t.dueTime):t.due?' · 时刻待补':'')}</span><button class="icon-btn" data-edit="${t.id}" aria-label="编辑 ${esc(t.title)}">${icon('chevron')}</button></div>${!bulkMode&&t.subtasks.length?`<details class="task-subtasks" data-task-detail="${t.id}" ${expandedTasks.has(t.id)?'open':''}><summary><span class="mini-progress"><i style="width:${done/t.subtasks.length*100}%"></i></span>${done}/${t.subtasks.length} 个步骤已完成 ${icon('chevron')}</summary><div>${t.subtasks.map((sub,i)=>`<label><input type="checkbox" data-subtask-task="${t.id}" data-subtask-index="${i}" ${sub.done?'checked':''}><span class="${sub.done?'strike':''}">${esc(sub.title)}</span></label>`).join('')}</div></details>`:''}</article>`;}
-
-function empty(message){return `<div class="empty">${icon('leaf')}<h3>${message}</h3><p>留一点空白，也给自己一点时间。</p></div>`;}
-function header(route,action=button('新建任务','new','primary','plus')){return pageIntro(route,action);}
-
-function matchingTasks(){return selectTasks(state.tasks,{filter,query,sort,today:today()});}
-function taskResults(){const list=matchingTasks();if(importArrival)list.sort((a,b)=>Number(importArrival.ids.includes(b.id))-Number(importArrival.ids.includes(a.id)));return list.map(taskRow).join('')||empty(query?'没有找到匹配的任务。':'这里暂时没有任务。');}
-function bulkToolbar(){const visible=matchingTasks(),allVisible=visible.length>0&&visible.every(task=>selectedTaskIds.has(task.id));return `<div class="task-bulk-bar" role="toolbar" aria-label="批量操作"><span class="task-bulk-count">已选择 <b>${selectedTaskIds.size}</b> 项</span><button class="btn" data-bulk-action="select-all" ${visible.length?'':'disabled'}>${allVisible?'取消全选':'全选'}</button><span class="task-bulk-spacer"></span><button class="btn" data-bulk-action="complete" ${selectedTaskIds.size?'':'disabled'}>标记完成</button><button class="btn" data-bulk-action="reopen" ${selectedTaskIds.size?'':'disabled'}>重新打开</button><button class="btn danger" data-bulk-action="delete" ${selectedTaskIds.size?'':'disabled'}>删除</button><button class="btn text-btn" data-bulk-action="toggle">退出</button></div>`;}
-function tasks(){const headingActions=`<div class="button-row"><a class="btn" href="#trash">${icon('trash')}回收站${state.trash?.length?` · ${state.trash.length}`:''}</a>${button(bulkMode?'退出批量操作':'批量操作','bulk-toggle')}${button('新建任务','new','primary','plus')}</div>`;return `${header('tasks',headingActions)}${importArrival?`<div class="import-arrival" role="status"><strong>${importArrival.ids.length?`本次导入新增 ${importArrival.ids.length} 项任务，已高亮显示。`:'本次核对已完成，没有新增任务。'}</strong><button class="inline-button" data-action="clear-import-highlight">收起提示</button></div>`:''}<section class="panel task-panel">${bulkMode?bulkToolbar():''}<div class="task-toolbar"><div class="tabs" aria-label="任务状态">${[['all','全部'],...Object.entries(statusLabels)].map(([k,v])=>`<button data-filter="${k}" aria-pressed="${filter===k}" class="${filter===k?'active':''}">${v}<span>${state.tasks.filter(t=>k==='all'||t.status===k).length}</span></button>`).join('')}</div><label class="search">${icon('search')}<input id="search" placeholder="搜索任务、课程或备注" aria-label="搜索任务或课程" value="${esc(query)}"></label></div><div class="task-options"><div class="filter-chips">${[['today','今天截止'],['overdue','已逾期'],['blocked','等待前置']].map(([k,v])=>`<button data-filter="${filter===k?'all':k}" class="${filter===k?'active':''}" aria-pressed="${filter===k}">${v}</button>`).join('')}</div><label class="sort-label">排序<select id="task-sort" aria-label="任务排序"><option value="due" ${sort==='due'?'selected':''}>截止时间</option><option value="priority" ${sort==='priority'?'selected':''}>优先级</option><option value="duration" ${sort==='duration'?'selected':''}>用时最短</option></select></label></div><div id="task-results">${taskResults()}</div></section>`;}
-
-function calendar(){return calendarPage(state,week);}
-function courseCard(c){const all=state.tasks.filter(t=>t.course===c.name),done=all.filter(t=>t.status==='done').length;return `<article class="course-card"><div class="course-icon ${c.color}">${icon('book')}</div><div><h3>${esc(c.name)}</h3><p>${esc(c.teacher)} · ${all.length} 项任务</p></div><div class="course-progress"><div><span style="width:${all.length?done/all.length*100:0}%"></span></div><small>${done}/${all.length} 已完成</small><button class="icon-btn" data-edit-course="${esc(c.id)}" aria-label="编辑 ${esc(c.name)}">${icon('settings')}</button><button class="course-open" data-course="${esc(c.name)}" aria-label="查看 ${esc(c.name)} 的任务">${icon('arrow')}</button></div></article>`;}
-function courses(){return `${header('book',button('添加课程','add-course','primary','plus'))}<div class="course-grid full">${state.courses.map(courseCard).join('')}</div><section class="panel materials"><div class="section-title"><h2>课程资料与回放笔记</h2>${button('添加资料','material','','plus')}</div>${state.materials.length?state.materials.map(m=>`<article class="material-row">${icon('book')}<div><h3>${esc(m.title)}</h3><p>${esc(m.course)} · ${esc(m.notes)}</p>${m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">打开资料 ↗</a>`:''}</div><button class="btn text-btn" data-edit-material="${m.id}" aria-label="编辑 ${esc(m.title)}">编辑笔记</button><button class="icon-btn" data-remove-material="${m.id}" aria-label="删除资料">${icon('close')}</button></article>`).join(''):empty('还没有保存课程资料')}<p class="panel-note">支持保存回放链接与手写笔记；自动转录和内容摘要待后端接入。</p></section>`;}
-function accountManagement(){return `<hr><div class="account-management"><div><h2>账号管理</h2><p>管理昵称和登录密码。登录邮箱暂不支持修改。</p></div><div class="button-row">${button('修改昵称','account-profile')}${button('修改密码','account-password')}</div></div>`;}
-function settings(){return `${header('settings','')}<section class="panel settings-panel"><div class="account-summary"><span class="avatar">${esc(session.user?.display_name?.slice(0,1)||'我')}</span><div><h2>${esc(session.user?.display_name||'还没有登录')}</h2><p>${session.user?'邮箱：'+esc(session.user.email):'注册或登录后开始使用。'}</p></div>${session.user?button('退出登录','logout'):button('登录 / 注册','login','primary')}</div>${session.user?accountManagement()+personalizationSettings():''}<hr><h2>数据备份</h2>${button('导出 JSON 备份','export','','download')}${sourceManagementPage(true)}</section>`;}
-
-function render(){
- if(page==='sources'){page='settings';history.replaceState(null,'','#settings');}
- const pages={agent:assistantPage,tasks,trash:trashPage,decompose:decompositionPage,plan:plannerPage,calendar,book:courses,settings};
- if(!Object.hasOwn(pages,page)){page='agent';history.replaceState(null,'','#agent');}
- document.title=({agent:'通知导入',tasks:'任务中心',trash:'回收站',decompose:'AI 拆解',plan:'智能规划',calendar:'学习日程',book:'课程与资料',settings:'账号与数据'})[page]+' · 牛马管理器';
- motionUpdate(()=>{app.innerHTML=storyShell({page,user:session.user,saveLabel:saveLabel(),saveAlert:saveAlert(),content:pages[page](),focus:focusPill()});});syncImportPageSize();syncReviewDestination();
+const esc = (value) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+const app = document.querySelector("#app"),
+  dialog = document.querySelector("#dialog"),
+  drawer = document.querySelector("#task-drawer");
+const params = new URLSearchParams(location.search),
+  today = todayKey();
+let demo = params.get("demo") === "1",
+  state = demo ? demoWorkspace(today) : readStore(),
+  loading = !demo,
+  loadError = "",
+  taskBusy = false,
+  drawerId = null,
+  drawerEditing = false,
+  lastFocus = null,
+  toastTimer,
+  environment = null;
+let preferences = {};
+try {
+  preferences = JSON.parse(localStorage.getItem("niuma.task-ui.v2") || "{}");
+} catch {}
+const ui = {
+  page: "tasks",
+  scope: "all",
+  view:
+    params.get("view") === "calendar"
+      ? "calendar"
+      : preferences.view === "calendar"
+        ? "calendar"
+        : "list",
+  mode: preferences.mode === "week" ? "week" : "month",
+  anchor: today,
+  selectedDate: today,
+  pane: "day",
+  query: "",
+  course: "",
+  source: "",
+  dateFrom: "",
+  dateTo: "",
+  filterOpen: false,
+  sidebarCollapsed: preferences.sidebarCollapsed === true,
+  mobileMenu: false,
+};
+const host = {
+  escapeHtml: esc,
+  icon,
+  toast,
+  render,
+  openDialog,
+  closeDialog,
+  refresh,
+  getState: () => state,
+  isDemo: () => demo,
+  setState(next) {
+    state = next;
+    demo = false;
+    const url = new URL(location.href);
+    url.searchParams.delete("demo");
+    history.replaceState(null, "", url);
+    loadError = "";
+    resetAccountUI();
+    render();
+  },
+};
+const imports = createImportUI(host),
+  account = createAccountUI(host);
+function clearUndo() {
+  clearTimeout(toastTimer);
+  const el = document.querySelector("#toast");
+  el.innerHTML = "";
+  el.classList.remove("visible");
 }
-
-function enhanceThemeUI(){
-  const topbarActions=document.querySelector('.topbar>div');
-  if(topbarActions&&!topbarActions.querySelector('[data-theme-toggle]'))topbarActions.insertAdjacentHTML('afterbegin',themeButton());
-  const settingsPanel=document.querySelector('.settings-panel');
-  if(page==='settings'&&settingsPanel&&!settingsPanel.querySelector('.theme-setting'))settingsPanel.insertAdjacentHTML('afterbegin',themeSetting());
+function resetAccountUI() {
+  clearUndo();
+  imports.reset();
+  ui.query = "";
+  ui.course = "";
+  ui.source = "";
+  ui.dateFrom = "";
+  ui.dateTo = "";
+  ui.scope = "all";
+  drawer.close();
+  drawerId = null;
+  ui.page = "tasks";
 }
-new MutationObserver(enhanceThemeUI).observe(app,{childList:true,subtree:true});
-document.addEventListener('click',event=>{const button=event.target.closest('[data-theme-toggle]');if(button){handleThemeClick(button);event.stopImmediatePropagation();}},true);
-document.addEventListener('change',event=>{if(handleThemeChange(event)){render();event.stopImmediatePropagation();}},true);
-document.addEventListener('click',event=>{const button=event.target.closest('button');if(button&&decompositionClick(button)){event.preventDefault();event.stopImmediatePropagation();}},true);
-document.addEventListener('submit',event=>{if(decompositionSubmit(event.target)){event.preventDefault();event.stopImmediatePropagation();}},true);
-document.addEventListener('click',event=>{const button=event.target.closest('button');if(button&&scheduleEditorClick(button)){event.preventDefault();event.stopImmediatePropagation();}},true);
-document.addEventListener('submit',event=>{if(scheduleEditorSubmit(event.target)){event.preventDefault();event.stopImmediatePropagation();}},true);
-function openDialog(html){clearTimeout(dialog.closeTimer);dialog.classList.remove('closing');dialog.innerHTML=html;prepareDialog(dialog);if(!dialog.open)dialog.showModal();}
-function closeDialog(){if(!dialog.open)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){dialog.close();return;}dialog.classList.add('closing');dialog.closeTimer=setTimeout(()=>{dialog.close();dialog.classList.remove('closing');},dialog.classList.contains('task-drawer')?240:140);}
-const dialogHeader=title=>`<div class="dialog-title"><h2>${title}</h2><button type="button" class="icon-btn" data-action="close" aria-label="关闭">${icon('close')}</button></div>`;
-function accountProfileDialog(){openDialog(`<form id="account-profile-form">${dialogHeader('修改昵称')}<label>昵称<input name="name" required maxlength="40" autocomplete="nickname" value="${esc(session.user?.display_name||'')}"></label><p id="account-error" class="error" role="alert"></p><div class="dialog-actions"><button type="submit" class="btn primary">保存昵称</button></div></form>`);}
-function accountPasswordDialog(){openDialog(`<form id="account-password-form">${dialogHeader('修改密码')}<label>当前密码<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label>新密码<input name="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="至少 8 位"></label><label>确认新密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label><p id="account-error" class="error" role="alert"></p><div class="dialog-actions"><button type="submit" class="btn primary">更新密码</button></div></form>`);}
-function taskDialog(id){const t=state.tasks.find(t=>t.id===id)||{title:'',course:state.courses[0]?.name||'',due:'',dueTime:'',hours:null,priority:'medium',status:'todo',notes:'',location:'',owner:'',subtasks:[],dependsOn:''};openDialog(`<form id="task-form" data-id="${id||''}">${dialogHeader(id?'任务详情':'新建任务')}${id?`<section class="task-evidence"><h3>来源与证据</h3><div data-task-evidence-content role="status">正在读取证据…</div></section>`:''}<label>任务名称<input name="title" required maxlength="100" value="${esc(t.title)}" placeholder="下一件要完成的事"></label><div class="form-grid"><label>所属课程<select name="course"><option value="">无课程</option>${t.course&&!state.courses.some(c=>c.name===t.course)?`<option selected>${esc(t.course)}</option>`:''}${state.courses.map(c=>`<option ${c.name===t.course?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label>截止日期<input type="date" name="due" value="${t.due}"></label><label>截止时刻（设置 DDL 时必填）<input type="time" name="dueTime" value="${esc(t.dueTime||'')}"></label><label>优先级<select name="priority">${Object.entries(priorityLabels).map(([k,v])=>`<option value="${k}" ${k===t.priority?'selected':''}>${v}</option>`).join('')}</select></label><label>状态<select name="status">${Object.entries(statusLabels).map(([k,v])=>`<option value="${k}" ${k===t.status?'selected':''}>${v}</option>`).join('')}</select></label><label>学习地点<input name="location" maxlength="60" value="${esc(t.location)}" placeholder="例如：图书馆"></label><label>负责人 / 协作者<input name="owner" maxlength="60" value="${esc(t.owner||'')}" placeholder="例如：我、张三、小组共同"></label></div><label>前置任务<select name="dependsOn"><option value="">无前置任务</option>${state.tasks.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${x.id===t.dependsOn?'selected':''}>${esc(x.title)}</option>`).join('')}</select></label><label>任务备注<textarea name="notes" rows="2" maxlength="2000">${esc(t.notes)}</textarea></label>${t.sourceRequirements?.length?`<details class="task-source"><summary>识别原文要求（${t.sourceRequirements.length}）</summary><ul>${t.sourceRequirements.map(item=>`<li>${esc(item)}</li>`).join('')}</ul></details>`:''}<div class="subtask-editor"><div class="subtask-editor-title"><span>把任务拆成小步骤</span><button type="button" class="inline-button" data-add-step>＋ 添加步骤</button></div><div id="step-rows">${t.subtasks.map(stepRow).join('')}</div></div><div class="dialog-actions">${id?`<button type="button" class="btn danger" data-delete="${id}">删除任务</button>`:''}<button type="submit" class="btn primary">保存任务</button></div></form>`);if(id)void loadTaskEvidence(id,dialog.querySelector('[data-task-evidence-content]'),api);}
-function planDialog(){location.hash='plan';}
-function courseDialog(id){const c=state.courses.find(x=>x.id===id)||{name:'',teacher:'',description:'',url:''};openDialog(`<form id="course-form" data-id="${id||''}">${dialogHeader(id?'编辑课程':'添加课程')}<label>课程名称<input name="name" maxlength="80" required value="${esc(c.name)}"></label><label>教师 / 联系人<input name="teacher" maxlength="100" value="${esc(c.teacher||'')}"></label><label>课程说明<textarea name="description" rows="3">${esc(c.description||'')}</textarea></label><label>资料链接<input name="url" type="url" value="${esc(c.url||'')}"></label><p class="panel-note">更改课程名称不会自动修改现有任务的课程关联。</p><div class="dialog-actions"><button class="btn primary">保存课程</button></div></form>`);}
-function materialDialog(id){const m=state.materials.find(m=>m.id===id)||{title:'',course:'',url:'',notes:''};openDialog(`<form id="material-form" data-id="${id||''}">${dialogHeader(id?'编辑课程资料':'添加课程资料')}<label>资料标题<input name="title" maxlength="100" required value="${esc(m.title)}"></label><label>所属课程<select name="course">${state.courses.map(c=>`<option ${m.course===c.name?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label>资料或回放链接<input name="url" type="url" value="${esc(m.url)}" placeholder="https://…"></label><label>笔记<textarea name="notes" rows="4" maxlength="4000">${esc(m.notes)}</textarea></label><div class="dialog-actions"><button class="btn primary">保存资料</button></div></form>`);}
-async function exportWorkspace(){
- if(!session.user)return authDialog('login');
- try{
+function remember() {
+  try {
+    localStorage.setItem(
+      "niuma.task-ui.v2",
+      JSON.stringify({
+        view: ui.view,
+        mode: ui.mode,
+        sidebarCollapsed: ui.sidebarCollapsed,
+      }),
+    );
+  } catch {}
+}
+function toast(message, undo) {
+  const epoch = accountVersion();
+  clearTimeout(toastTimer);
+  const el = document.querySelector("#toast");
+  el.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" id="toast-undo">撤销</button>' : ""}`;
+  el.classList.add("visible");
+  if (undo)
+    el.querySelector("button").onclick = async () => {
+      if (epoch !== accountVersion()) return;
+      try {
+        await undo();
+        el.classList.remove("visible");
+      } catch (e) {
+        toast(e.message);
+      }
+    };
+  toastTimer = setTimeout(
+    () => el.classList.remove("visible"),
+    undo ? 7000 : 4000,
+  );
+}
+function openDialog(html) {
+  dialog.innerHTML = html;
+  if (!dialog.querySelector("#dialog-heading")) {
+    const heading = dialog.querySelector("h1,h2,h3");
+    if (heading) heading.id = "dialog-heading";
+    else dialog.setAttribute("aria-label", "操作面板");
+  }
+  if (!dialog.open) dialog.showModal();
+}
+function closeDialog() {
+  dialog.close();
+}
+async function refresh() {
+  if (demo) return;
+  state = await refreshStore();
+  render();
+}
+const filtered = () => filterTasks(state.tasks, { ...ui, today });
+const courses = () =>
+  [...new Set(state.tasks.map((t) => t.course).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "zh"),
+  );
+const sources = () =>
+  [...new Set(state.tasks.map((t) => t.source || "手动添加"))].sort();
+function sidebar() {
+  const counts = {
+    all: filterTasks(state.tasks, { scope: "all", today }).length,
+    near: filterTasks(state.tasks, { scope: "near", today }).length,
+    done: filterTasks(state.tasks, { scope: "done", today }).length,
+  };
+  return `<aside id="sidebar" class="sidebar" aria-label="主导航"><div class="sidebar-top"><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a><button type="button" class="icon-button sidebar-hide" data-action="sidebar-toggle" aria-label="收起侧栏" title="收起侧栏">${icon("sidebar")}</button></div><button type="button" class="btn primary import-entry ${ui.page === "import" ? "current" : ""}" data-page="import">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
+    ["all", "全部任务", "tasks"],
+    ["near", "临近截止", "clock"],
+    ["done", "已完成", "check"],
+  ]
+    .map(
+      ([scope, label, name]) =>
+        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span>${label}</span><span class="nav-count">${counts[scope]}</span></button>`,
+    )
+    .join(
+      "",
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open"><span class="avatar">${esc((session.user?.name || session.user?.display_name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || session.user?.display_name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+}
+function saveLabel() {
+  if (loading) return "连接中…";
+  if (!session.user) return loadError ? "连接失败" : "管理账号";
+  return (
+    { saving: "正在保存…", error: "保存失败", saved: "已保存" }[session.sync] ||
+    "已保存"
+  );
+}
+function toolbar() {
+  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="搜索任务" placeholder="搜索任务" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
+    .map(
+      (c) =>
+        `<option ${ui.course === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`,
+    )
+    .join(
+      "",
+    )}</select></label><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${ui.query || ui.course || ui.source || ui.dateFrom || ui.dateTo ? '<button type="button" class="btn quiet reset-filters" data-action="filter-reset">清除</button>' : ""}</div>${
+    ui.filterOpen
+      ? `<div id="advanced-filters" class="advanced-filters"><label class="field">来源<select id="source-filter"><option value="">全部来源</option>${sources()
+          .map(
+            (s) =>
+              `<option ${ui.source === s ? "selected" : ""} value="${esc(s)}">${esc(s)}</option>`,
+          )
+          .join(
+            "",
+          )}</select></label><label class="field">截止日期，从<input id="date-from" type="date" value="${esc(ui.dateFrom)}"></label><label class="field">到<input id="date-to" type="date" value="${esc(ui.dateTo)}"></label></div>`
+      : ""
+  }`;
+}
+function monthLabel() {
+  const d = new Date(ui.anchor + "T12:00:00");
+  return ui.mode === "week"
+    ? `${d.getFullYear()}年 ${d.getMonth() + 1}月`
+    : `${d.getFullYear()}年 ${d.getMonth() + 1}月`;
+}
+function calendarTools() {
+  return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented small" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
+}
+function taskResults() {
+  const tasks = filtered(),
+    paneTasks = [
+      ...tasks.filter((t) => t.due),
+      ...filterTasks(state.tasks, {
+        ...ui,
+        scope: ui.scope === "done" ? "done" : "all",
+        today,
+      }).filter((t) => !t.due),
+    ];
+  if (ui.view === "list")
+    return renderTaskList(tasks, { escapeHtml: esc, icon, today });
+  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc, icon })}</div>${renderDayPanel({ tasks: paneTasks, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
+}
+function tasksPage() {
+  const label =
+    { all: "全部任务", near: "临近截止", done: "已完成", undated: "无日期" }[
+      ui.scope
+    ] || "全部任务";
+  return `<section class="task-page ${ui.view === "calendar" ? "is-calendar" : ""}"><header class="page-heading"><div><div class="page-eyebrow">${new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date(today + "T12:00:00"))}</div><h1 tabindex="-1">${label}<span class="heading-count" id="result-count">${filtered().length}</span></h1></div><button type="button" class="btn add-task" data-action="task-new">${icon("plus")}<span>添加任务</span></button></header><div class="view-tabs" aria-label="任务视图"><button type="button" data-view="list" aria-pressed="${ui.view === "list"}">${icon("tasks")}清单</button><button type="button" data-view="calendar" aria-pressed="${ui.view === "calendar"}">${icon("calendar")}日历</button><span class="view-caption">${ui.view === "calendar" ? "按截止日期查看" : ""}</span></div>${toolbar()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+    .map((c) => `<option value="${esc(c)}">`)
+    .join("")}</datalist></section>`;
+}
+function syncAlert() {
+  return loadError
+    ? `<div class="connection-alert" role="alert"><span>${esc(loadError)}</span><button type="button" class="btn quiet" data-action="reload">重新连接</button></div>`
+    : session.sync === "error" && !demo
+      ? `<div class="connection-alert" role="alert"><span>${esc(session.error)}</span><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
+      : "";
+}
+function focusToken(el) {
+  if (el?.id) return { id: el.id };
+  const key = Object.keys(el?.dataset || {}).find((key) =>
+    [
+      "action",
+      "taskOpen",
+      "taskComplete",
+      "scope",
+      "page",
+      "view",
+      "calendarDay",
+      "calendarMode",
+      "calendarPane",
+      "accountAction",
+    ].includes(key),
+  );
+  return key ? { key, value: el.dataset[key] } : null;
+}
+function restoreFocus(token) {
+  if (!token) return;
+  const el = token.id
+    ? document.getElementById(token.id)
+    : [...document.querySelectorAll("button")].find(
+        (el) => el.dataset[token.key] === token.value,
+      );
+  if (el && !el.disabled) el.focus({ preventScroll: true });
+}
+function render() {
+  const focus = document.activeElement,
+    token = focusToken(focus),
+    focusId = focus?.id,
+    start = focus?.selectionStart,
+    end = focus?.selectionEnd;
+  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" ${ui.mobileMenu ? "" : 'tabindex="-1"'}></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${matchMedia("(max-width: 700px)").matches ? ui.mobileMenu : !ui.sidebarCollapsed}" aria-label="展开侧栏" title="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : "我的任务"}</span></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</main></div>`;
+  if (!focusId) restoreFocus(token);
+  if (focusId) {
+    const next = document.getElementById(focusId);
+    if (next) {
+      next.focus({ preventScroll: true });
+      if (typeof start === "number" && next.setSelectionRange)
+        try {
+          next.setSelectionRange(start, end);
+        } catch {}
+    }
+  }
+  document
+    .querySelectorAll("[data-task-complete]")
+    .forEach((button) => (button.disabled = taskBusy));
+  if (environment && ui.page === "tasks")
+    document.querySelector(".account-entry").title = environment.detail;
+}
+function renderResults() {
+  const dayFocus = document.activeElement?.dataset.calendarDay;
+  const results = document.querySelector("#task-results");
+  if (!results) return;
+  results.innerHTML = taskResults();
+  document.querySelector("#result-count").textContent = filtered().length;
+  if (dayFocus)
+    document
+      .querySelector(`[data-calendar-day="${dayFocus}"]`)
+      ?.focus({ preventScroll: true });
+}
+function requireAccount() {
+  if (demo || session.user) return true;
+  account.click({ dataset: { accountAction: "open" } });
+  return false;
+}
+function openTask(id, editing = false) {
+  if (taskBusy) return toast("正在保存，请稍候");
+  if (!requireAccount()) return;
+  lastFocus = document.activeElement;
+  drawerId = id;
+  drawerEditing = editing;
+  updateDrawer();
+  if (!drawer.open) drawer.showModal();
+}
+function updateDrawer() {
+  const task = state.tasks.find((t) => t.id === drawerId) || {
+    title: "",
+    due: "",
+    dueTime: "",
+    course: "",
+    notes: "",
+  };
+  drawer.innerHTML = renderTaskDrawer({
+    task,
+    editing: drawerEditing,
+    escapeHtml: esc,
+    icon,
+    deadlineLabel: (t) => deadlineLabel(t, today),
+  });
+  if (!drawerEditing && task.id) {
+    const evidence = drawer.querySelector("#task-evidence");
+    if (demo)
+      evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
+    else void loadTaskEvidence(task.id, evidence, api);
+  }
+  if (taskBusy)
+    drawer
+      .querySelectorAll("button,input,textarea")
+      .forEach((el) => (el.disabled = true));
+}
+function closeDrawer() {
+  drawer.close();
+  drawerId = null;
+  drawerEditing = false;
+  const fallback = document.querySelector('[data-action="task-new"]');
+  if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
+  else fallback?.focus({ preventScroll: true });
+}
+async function persist() {
+  if (demo) return;
+  if (!saveStore(state)) throw new Error(session.error || "保存失败");
   await flushStore();
-  const [workspace,batches]=await Promise.all([api('/api/workspace'),api('/api/recognition/batches')]);
-  const content={exportedAt:new Date().toISOString(),user:{email:session.user.email,name:session.user.name},workspace,batches};
-  const url=URL.createObjectURL(new Blob([JSON.stringify(content,null,2)],{type:'application/json'}));
-  const link=document.createElement('a');link.href=url;link.download='niuma-backup-'+today()+'.json';link.click();
-  setTimeout(()=>URL.revokeObjectURL(url),1000);toast('账号数据已导出');
- }catch(e){toast(e.message);}
 }
-const actions={'clear-import-highlight':()=>{importArrival=null;render();},undo:()=>{const callback=undoAction;undoAction=null;if(callback){callback();persist();render();toast('已撤销');}},login:()=>authDialog('login'),logout:signOut,'retry-save':async()=>{try{await retrySave();toast('已保存到账号');}catch(e){toast(e.message);}},'calendar-export':exportCalendar,new:()=>session.user?taskDialog():authDialog('login'),plan:planDialog,close:closeDialog,'add-course':()=>session.user?courseDialog():authDialog('login'),material:()=>session.user?materialDialog():authDialog('login'),'account-profile':accountProfileDialog,'account-password':accountPasswordDialog,prev:()=>transitionView(()=>{week=calendarStep(-1,week);render();},{scope:'calendar',direction:-1}),next:()=>transitionView(()=>{week=calendarStep(1,week);render();},{scope:'calendar',direction:1}),thisweek:()=>transitionView(()=>{week=calendarToday();render();},{scope:'calendar'}),export:exportWorkspace,notifications:()=>{const list=pending().filter(t=>t.due&&t.due<=offsetDay(1));openDialog(`${dialogHeader('到期提醒')}<p class="muted">今天、明天及已逾期的未完成任务</p>${list.map(t=>`<div class="reminder"><b>${esc(t.title)}</b><span class="urgent">${dueText(t.due)}</span></div>`).join('')||empty('暂时没有即将到期的任务')}`);}};
-function toggleBulkMode(){bulkMode=!bulkMode;selectedTaskIds.clear();render();}
-function toggleCurrentResults(){const visible=matchingTasks(),remove=visible.length>0&&visible.every(task=>selectedTaskIds.has(task.id));visible.forEach(task=>remove?selectedTaskIds.delete(task.id):selectedTaskIds.add(task.id));render();}
-function bulkSetCompletion(completed){
- const result=updateTaskCompletion(state.tasks,selectedTaskIds,{completed,date:today()});
- if(!result.changed.length){toast(result.skipped.length?`有 ${result.skipped.length} 项仍在等待前置任务`:'所选任务无需更改');return;}
- state.tasks=result.tasks;selectedTaskIds.clear();persist();render();
- const message=completed?`已完成 ${result.changed.length} 项任务${result.skipped.length?`，跳过 ${result.skipped.length} 项等待前置任务`:''}`:`已重新打开 ${result.changed.length} 项任务`;
- toast(message,()=>{state.tasks=restoreTaskCompletion(state.tasks,result.changed);});
-}
-function openBulkDelete(){if(!selectedTaskIds.size)return;openDialog(`${dialogHeader(`将 ${selectedTaskIds.size} 项任务移入回收站？`)}<p>任务及相关日程会从当前列表中移除，之后可以在回收站恢复。</p><div class="dialog-actions"><button class="btn" data-action="close">取消</button><button class="btn danger" data-confirm-bulk-delete>移入回收站</button></div>`);}
-Object.assign(actions,{'bulk-toggle':toggleBulkMode,'bulk-select-all':toggleCurrentResults,'bulk-complete':()=>bulkSetCompletion(true),'bulk-reopen':()=>bulkSetCompletion(false),'bulk-delete':openBulkDelete});
-const accountActions=new Set(['account-profile','account-password']);
-document.addEventListener('click',event=>{
- const button=event.target.closest('button'),action=button?.dataset.action;
- if(!accountActions.has(action))return;
- event.preventDefault();event.stopImmediatePropagation();actions[action]();
-},true);
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(trashClick(b))return;if(experienceClick(b)||((b.dataset.planAction||b.dataset.planFocus)&&plannerClick(b))||plannerApplyHours(b)||calendarClick(b,render))return;if(b.dataset.taskEvidence){taskDialog(b.dataset.taskEvidence);return;}if(b.dataset.editMaterial){materialDialog(b.dataset.editMaterial);return;}if(b.dataset.editCourse){courseDialog(b.dataset.editCourse);return;}if(b.hasAttribute('data-add-step')){document.querySelector('#step-rows').insertAdjacentHTML('beforeend',stepRow({title:'',done:false}));document.querySelector('#step-rows [data-step-row]:last-child [data-step-title]').focus();return;}if(b.hasAttribute('data-remove-step')){b.closest('[data-step-row]').remove();return;}if(b.dataset.bulkAction){actions['bulk-'+b.dataset.bulkAction]?.();return;}if(b.dataset.bulkSelect){selectedTaskIds.has(b.dataset.bulkSelect)?selectedTaskIds.delete(b.dataset.bulkSelect):selectedTaskIds.add(b.dataset.bulkSelect);render();return;}if(b.dataset.course){query=b.dataset.course;filter='all';if(page==='tasks')render();else location.hash='tasks';return;}handleAssistantClick(b);if(b.dataset.authMode){authDialog(b.dataset.authMode);return;}if(b.dataset.action)actions[b.dataset.action]?.();if(b.dataset.edit)taskDialog(b.dataset.edit);if(b.dataset.complete){const t=state.tasks.find(t=>t.id===b.dataset.complete);if(t.status!=='done'&&isBlocked(t,state.tasks))return toast('请先完成前置任务');const rect=b.getBoundingClientRect(),previous=t.status,previousCompleted=t.completedAt||'',undo=()=>{const current=state.tasks.find(item=>item.id===t.id);if(current){current.status=previous;current.completedAt=previousCompleted;}};t.status=t.status==='done'?'todo':'done';t.completedAt=t.status==='done'?today():'';persist();render();if(t.status==='done'){celebrate(rect,'任务完成！今天又向前走了一步。',true,undo);promptForCompletionMinutes(t);}else toast('任务已重新打开',undo);}if(b.dataset.filter){filter=b.dataset.filter;render();}if(b.dataset.delete){const id=b.dataset.delete;openDialog(`${dialogHeader('将这项任务移入回收站？')}<p>任务及相关日程会从当前列表中移除，之后可以在回收站恢复。</p><div class="dialog-actions"><button class="btn" data-action="close">取消</button><button class="btn danger" data-confirm-delete="${id}">移入回收站</button></div>`);}if(b.hasAttribute('data-confirm-bulk-delete')){void moveTasksToTrash([...selectedTaskIds]);return;}if(b.dataset.confirmDelete){void moveTasksToTrash([b.dataset.confirmDelete]);return;}if(b.dataset.removeMaterial){const material=state.materials.find(m=>m.id===b.dataset.removeMaterial);state.materials=state.materials.filter(m=>m.id!==b.dataset.removeMaterial);persist();render();toast('资料已移除',()=>{if(material&&!state.materials.some(m=>m.id===material.id))state.materials.push(material);});}});
-document.addEventListener('input',e=>{handleAssistantInput(e);experienceInput(e);if(e.target.id==='search'){query=e.target.value;motionUpdate(()=>{document.querySelector('#task-results').innerHTML=taskResults();});}});
-document.addEventListener('submit',async e=>{e.preventDefault();const form=e.target;if(handleAssistantSubmit(form)||plannerSubmit(form))return;if(form.id==='auth-form'){await submitAuth(form);return;}if(form.id==='completion-feedback-form'){await personalizationSubmit(form);return;}if(form.id==='account-profile-form'){await submitAccountProfile(form);return;}if(form.id==='account-password-form'){await submitAccountPassword(form);return;}const v=Object.fromEntries(new FormData(form));if(!session.user&&['task-form','course-form','material-form'].includes(form.id))return authDialog('login');if(form.id==='task-form'){if(!v.title.trim())return toast('请输入任务名称');if(v.due&&!v.dueTime)return toast('请填写具体截止时刻');if(!v.due&&v.dueTime)return toast('请先填写截止日期');const id=form.dataset.id||newId();let dep=v.dependsOn;const seen=new Set([id]);while(dep){if(seen.has(dep))return toast('前置任务形成循环，请重新选择');seen.add(dep);dep=state.tasks.find(t=>t.id===dep)?.dependsOn;}const t={...(state.tasks.find(x=>x.id===id)||{}),...v,id,title:v.title.trim(),subtasks:[...form.querySelectorAll('[data-step-row]')].map(row=>({id:row.dataset.stepId||newId(),title:row.querySelector('[data-step-title]').value.trim(),done:row.querySelector('[data-step-done]').checked})).filter(step=>step.title)};t.completedAt=t.status==='done'?(t.completedAt||(state.tasks.find(x=>x.id===id)?.status==='done'?'':today())):'';if(t.status==='done'&&isBlocked(t,state.tasks))return toast('请先完成前置任务');const index=state.tasks.findIndex(t=>t.id===id);if(index<0)state.tasks.push(t);else state.tasks[index]=t;}else if(form.id==='course-form'){if(!v.name.trim())return toast('请输入课程名称');if(state.courses.some(c=>c.name===v.name.trim()&&c.id!==form.dataset.id))return toast('课程已存在');{const index=state.courses.findIndex(c=>c.id===form.dataset.id),course={...(state.courses[index]||{}),...v,name:v.name.trim(),id:form.dataset.id||newId(),color:state.courses[index]?.color||['green','orange','blue'][state.courses.length%3]};if(index<0)state.courses.push(course);else state.courses[index]=course;}}else if(form.id==='material-form'){if(!v.title.trim())return toast('请输入资料标题');if(v.url&&!/^https?:\/\//i.test(v.url))return toast('链接须以 http:// 或 https:// 开头');const index=state.materials.findIndex(m=>m.id===form.dataset.id);const material={...v,id:form.dataset.id||newId()};if(index<0)state.materials.push(material);else state.materials[index]=material;}else return;const savedTaskId=form.id==='task-form'?state.tasks.find(t=>t.id===(form.dataset.id||state.tasks.at(-1)?.id))?.id:null;persist();closeDialog();render();if(savedTaskId)highlightTask(savedTaskId);toast('已更新，正在保存到账号');});
-window.addEventListener('hashchange',()=>{const from=page,to=location.hash.slice(1)||'tasks';if(page==='agent')leaveAssistant();transitionView(()=>{page=to;if(page!=='tasks'){bulkMode=false;selectedTaskIds.clear();}render();window.scrollTo(0,0);},{from,to});});
-
-function saveLabel(){if(!session.user)return '未登录';return ({local:'未登录',saved:'已保存到账号',saving:'正在保存…',error:'保存失败'})[session.sync]||'连接中…';}
-function saveAlert(){return session.sync==='error'?`<div class="save-error" role="alert">${esc(session.error)} ${button('重试保存','retry-save')}${button('导出备份','export')}</div>`:'';}
-window.addEventListener('niuma:sync',()=>{const label=document.querySelector('#save-status'),alert=document.querySelector('#save-alert');if(label)label.textContent=saveLabel();if(alert)alert.innerHTML=saveAlert();});
-function authDialog(mode='login'){
- if(!session.backend){toast('请在 frontend 目录运行 npm run dev:api');return;}
- const signup=mode==='register';openDialog(`<form id="auth-form" data-mode="${mode}">${dialogHeader(signup?'创建你的学习账号':'欢迎回来')}<p class="muted">${signup?'任务和日历按账号独立保存。':'登录后，继续你的学习计划。'}</p>${signup?'<label>昵称<input name="displayName" autocomplete="nickname" maxlength="40" placeholder="希望小牛怎么称呼你"></label>':''}<label>邮箱<input name="email" type="email" required maxlength="254" autocomplete="username" placeholder="you@example.com"></label><label>密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="${signup?'new-password':'current-password'}" placeholder="至少 8 位"></label>${signup?'<label>确认密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="再输入一次密码"></label>':''}<p id="auth-error" role="alert" class="error"></p><div class="dialog-actions"><button class="btn primary" type="submit">${signup?'注册并登录':'登录'}</button></div><p class="auth-switch">${signup?'已经有账号？':'还没有账号？'}<button type="button" class="inline-button" data-auth-mode="${signup?'login':'register'}">${signup?'去登录':'创建账号'}</button></p><p class="panel-note">账号数据保存在服务端数据库，协作者各自运行本地数据库。</p></form>`);
-}
-async function submitAuth(form){const v=Object.fromEntries(new FormData(form)),error=form.querySelector('#auth-error'),submit=form.querySelector('[type=submit]');error.textContent='';if(form.dataset.mode==='register'&&v.password!==v.confirmPassword){error.textContent='两次输入的密码不一致';return;}submit.disabled=true;submit.textContent='正在连接…';try{state=await authenticate(form.dataset.mode,v);undoAction=null;bulkMode=false;selectedTaskIds.clear();switchFocusAccount(session.user?.id);filter='all';query='';resetAssistant();dialog.close();render();toast('欢迎，'+session.user.display_name);}catch(e){error.textContent=e.message;}finally{submit.disabled=false;submit.textContent=form.dataset.mode==='register'?'注册并登录':'登录';}}
-async function submitAccountProfile(form){const v=Object.fromEntries(new FormData(form)),error=form.querySelector('#account-error'),submit=form.querySelector('[type=submit]'),label=submit.textContent;error.textContent='';submit.disabled=true;submit.textContent='保存中…';try{const result=await api('/api/auth/profile',{name:v.name});session.user={...result.user,display_name:result.user.name};dialog.close();render();toast('昵称已更新');}catch(e){error.textContent=e.message;}finally{submit.disabled=false;submit.textContent=label;}}
-async function submitAccountPassword(form){const v=Object.fromEntries(new FormData(form)),error=form.querySelector('#account-error'),submit=form.querySelector('[type=submit]'),label=submit.textContent;error.textContent='';if(v.newPassword!==v.confirmPassword){error.textContent='两次输入的新密码不一致';return;}if(v.currentPassword===v.newPassword){error.textContent='新密码不能与当前密码相同';return;}submit.disabled=true;submit.textContent='更新中…';try{await api('/api/auth/password',{currentPassword:v.currentPassword,newPassword:v.newPassword});dialog.close();toast('密码已更新，其他设备需要重新登录');}catch(e){error.textContent=e.message;}finally{submit.disabled=false;submit.textContent=label;}}
-async function signOut(){try{state=await logout();undoAction=null;bulkMode=false;selectedTaskIds.clear();switchFocusAccount(null);resetAssistant();filter='all';query='';render();toast('已退出账号');}catch(e){toast(e.message);}}
-function exportCalendar(){
- const escapeICS=value=>String(value).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;');
- const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Niuma Manager//DDL//ZH','CALSCALE:GREGORIAN'];
- const utc=value=>new Date(value).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
- for(const task of workspaceValue('tasks',[]).filter(t=>t.status!=='cancelled')){
-  if(task.due){
-   lines.push('BEGIN:VEVENT','UID:ddl-'+task.id+'@niuma-manager','DTSTAMP:'+utc(new Date().toISOString()),'SUMMARY:'+escapeICS(task.title));
-   lines.push(task.due.time?'DTSTART:'+utc(task.due.date+'T'+task.due.time+':00+08:00'):'DTSTART;VALUE=DATE:'+task.due.date.replaceAll('-',''));
-   lines.push('END:VEVENT');
+async function toggleTask(id) {
+  if (taskBusy || !requireAccount()) return;
+  const epoch = accountVersion(),
+    task = state.tasks.find((t) => t.id === id);
+  if (!task) return;
+  const previous = { status: task.status, completedAt: task.completedAt || "" };
+  task.status = task.status === "done" ? "todo" : "done";
+  task.completedAt = task.status === "done" ? today : "";
+  taskBusy = true;
+  render();
+  if (drawer.open) updateDrawer();
+  try {
+    await persist();
+    if (epoch !== accountVersion()) return;
+    toast(
+      task.status === "done" ? "任务已完成" : "任务已重新打开",
+      async () => {
+        Object.assign(task, previous);
+        await persist();
+        render();
+        if (drawer.open) updateDrawer();
+      },
+    );
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    taskBusy = false;
+    render();
+    if (drawer.open) updateDrawer();
   }
-  for(const plan of task.plans||[]){
-   lines.push('BEGIN:VEVENT','UID:plan-'+plan.id+'@niuma-manager','DTSTAMP:'+utc(new Date().toISOString()),'SUMMARY:'+escapeICS(plan.title));
-   lines.push('DTSTART:'+utc(plan.startAt));
-   if(plan.endAt)lines.push('DTEND:'+utc(plan.endAt));
-   lines.push('END:VEVENT');
-  }
- }
- lines.push('END:VCALENDAR');const url=URL.createObjectURL(new Blob([lines.map(line=>{let out='',count=0;for(const char of line){const size=new TextEncoder().encode(char).length;if(count+size>75){out+='\r\n ';count=1;}out+=char;count+=size;}return out;}).join('\r\n')+'\r\n'],{type:'text/calendar;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='niuma-deadlines.ics';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已导出日历文件，可手动导入其他日历');
 }
-configureTrash({getState:()=>state,render,toast,openDialog,closeDialog:()=>dialog.close(),dialogHeader,requireLogin:()=>authDialog('login'),clearSelection:ids=>ids.forEach(id=>selectedTaskIds.delete(id)),refresh:async()=>{state=await refreshStore();render();}});
-function newTaskArrival(){if(page==='tasks')render();else location.hash='tasks';}
-configureAssistant({showImportedTasks:ids=>{filter='all';query='';bulkMode=false;selectedTaskIds.clear();importArrival={ids};newTaskArrival();},proposeForTasks,getState:()=>state,editTask:taskDialog,render,persist,toast,openDialog,closeDialog,dialogHeader,refresh:async()=>{state=await refreshStore();render();}});
-configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
-configurePlanner({showCalendar:(date,ids)=>{week=focusCalendar(date,ids);if(page==='calendar')render();else location.hash='calendar';},getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,openPreview:planDialog,refresh:async()=>{state=await refreshStore();render();}});
-configureWechatMedia({render,getState:()=>state,proposeForTasks,reviewCandidate:openMediaCandidate,refresh:async()=>{state=await refreshStore();render();}});
-document.addEventListener('click',event=>{const button=event.target.closest?.('[data-media-action]');if(button)wechatMediaClick(button);});
-configurePersonalization({getState:()=>state,render,toast,openDialog,closeDialog,dialogHeader});
-configureScheduleEditor({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
-configureDecomposition({getState:()=>state,render,toast,requireLogin:()=>authDialog('login'),refresh:async()=>{state=await refreshStore();render();}});
-document.addEventListener('keydown',experienceKey);
-document.addEventListener('change',event=>{if(['agent-source-file','agent-manual-file'].includes(event.target.id))handleAssistantInput(event);experienceInput(event);if(personalizationChange(event))return;if(plannerChange(event))return;if(event.target.id==='task-sort'){sort=event.target.value;motionUpdate(()=>{document.querySelector('#task-results').innerHTML=taskResults();});}if(event.target.dataset.subtaskTask){const rect=event.target.getBoundingClientRect(),task=state.tasks.find(t=>t.id===event.target.dataset.subtaskTask),sub=task?.subtasks[Number(event.target.dataset.subtaskIndex)];if(sub){sub.done=event.target.checked;expandedTasks.add(task.id);persist();const completed=task.subtasks.filter(item=>item.done).length,total=task.subtasks.length;render();if(sub.done)celebrate(rect,completed===total?'所有小步骤完成！可以完成整项任务了。':`完成一步 · ${completed}/${total}`,completed===total);else toast(`已重新打开 · ${completed}/${total}`);}}});
-document.addEventListener('toggle',event=>{if(event.target.isConnected&&event.target.dataset.taskDetail){if(event.target.open)expandedTasks.add(event.target.dataset.taskDetail);else expandedTasks.delete(event.target.dataset.taskDetail);}},true);
-dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
-dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeDialog();}});
-function stepRow(step){return `<div data-step-row data-step-id="${esc(step.id||'')}"><input type="checkbox" data-step-done aria-label="步骤完成状态" ${step.done?'checked':''}><input data-step-title value="${esc(step.title)}" maxlength="300" placeholder="写下一个小步骤" aria-label="子任务名称"><button type="button" class="icon-btn" data-remove-step aria-label="移除步骤">${icon('close')}</button></div>`;}
-app.innerHTML='<div class="boot-screen">正在打开你的学习空间…</div>';
-(async()=>{try{state=await initSession();switchFocusAccount(session.user?.id);render();}catch(e){app.innerHTML=`<div class="boot-screen"><h2>暂时无法读取账号数据</h2><p>${esc(e.message)}</p><p>请确认服务已启动，再刷新页面。</p></div>`;}})();
+async function trashTask() {
+  if (taskBusy || !drawerId) return;
+  const id = drawerId;
+  if (demo) {
+    const task = state.tasks.find((t) => t.id === id);
+    state.tasks = state.tasks.filter((t) => t.id !== id);
+    closeDrawer();
+    render();
+    toast("已移入回收站", () => {
+      state.tasks.push(task);
+      render();
+    });
+    return;
+  }
+  try {
+    taskBusy = true;
+    updateDrawer();
+    await trashStoredTasks([id]);
+    closeDrawer();
+    await refresh();
+    toast("已移入回收站", async () => {
+      await restoreStoredTasks([id]);
+      await refresh();
+    });
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    taskBusy = false;
+    if (drawer.open) updateDrawer();
+  }
+}
+function showMobileDay() {
+  if (matchMedia("(max-width: 700px)").matches)
+    document.querySelector(".day-panel")?.scrollIntoView({
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "start",
+    });
+}
+function calendarStep(direction) {
+  const d = new Date(ui.anchor + "T12:00:00");
+  if (ui.mode === "week") {
+    ui.anchor = shiftDay(ui.anchor, direction * 7);
+    ui.selectedDate = shiftDay(ui.selectedDate, direction * 7);
+  } else {
+    d.setDate(1);
+    d.setMonth(d.getMonth() + direction);
+    ui.anchor = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+    ui.selectedDate = ui.anchor;
+  }
+  ui.pane = "day";
+  renderResults();
+}
+const actions = {
+  "sidebar-toggle": () => {
+    if (matchMedia("(max-width: 700px)").matches)
+      ui.mobileMenu = !ui.mobileMenu;
+    else {
+      ui.sidebarCollapsed = !ui.sidebarCollapsed;
+      remember();
+    }
+    render();
+    if (ui.mobileMenu) document.querySelector(".sidebar-hide").focus();
+    else if (matchMedia("(max-width: 700px)").matches || ui.sidebarCollapsed)
+      document.querySelector("#sidebar-show").focus();
+  },
+  "task-new": () => openTask(null, true),
+  "drawer-close": closeDrawer,
+  "drawer-edit": () => {
+    drawerEditing = true;
+    updateDrawer();
+    drawer.querySelector('[name="title"]').focus();
+  },
+  "drawer-cancel": () => {
+    if (drawerId) {
+      drawerEditing = false;
+      updateDrawer();
+    } else closeDrawer();
+  },
+  "drawer-trash": trashTask,
+  "filter-toggle": () => {
+    ui.filterOpen = !ui.filterOpen;
+    render();
+  },
+  "filter-reset": () => {
+    ui.query = "";
+    ui.course = "";
+    ui.source = "";
+    ui.dateFrom = "";
+    ui.dateTo = "";
+    render();
+  },
+  "calendar-prev": () => calendarStep(-1),
+  "calendar-next": () => calendarStep(1),
+  "calendar-today": () => {
+    ui.anchor = today;
+    ui.selectedDate = today;
+    ui.pane = "day";
+    renderResults();
+  },
+  "dialog-close": closeDialog,
+  close: closeDialog,
+  "retry-save": async () => {
+    try {
+      await retrySave();
+      render();
+      toast("已保存");
+    } catch (e) {
+      toast(e.message);
+    }
+  },
+  reload: async () => {
+    loading = true;
+    loadError = "";
+    render();
+    try {
+      state = await reloadStore();
+    } catch (e) {
+      loadError = e.message;
+    } finally {
+      loading = false;
+      render();
+    }
+  },
+  "open-trash": () => {
+    openDialog(
+      `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon("close")}</button></header><div class="trash-list">${state.trash.length ? state.trash.map((t) => `<div><span>${esc(t.title)}</span><button type="button" class="btn quiet" data-restore-task="${esc(t.id)}">恢复</button></div>`).join("") : '<p class="empty-state">回收站为空</p>'}</div>`,
+    );
+  },
+};
+document.addEventListener("click", async (e) => {
+  const button = e.target.closest("button");
+  if (!button) return;
+  try {
+    if (button.dataset.action && actions[button.dataset.action]) {
+      await actions[button.dataset.action]();
+      return;
+    }
+    if (button.dataset.taskEvidence) {
+      updateDrawer();
+      return;
+    }
+    if (button.dataset.taskOpen) {
+      openTask(button.dataset.taskOpen);
+      return;
+    }
+    if (button.dataset.taskComplete) {
+      await toggleTask(button.dataset.taskComplete);
+      return;
+    }
+    if (button.dataset.restoreTask) {
+      await restoreStoredTasks([button.dataset.restoreTask]);
+      await refresh();
+      actions["open-trash"]();
+      toast("任务已恢复");
+      return;
+    }
+    if (button.dataset.scope) {
+      ui.page = "tasks";
+      ui.scope = button.dataset.scope;
+      ui.mobileMenu = false;
+      render();
+      return;
+    }
+    if (button.dataset.page) {
+      ui.page = button.dataset.page;
+      ui.mobileMenu = false;
+      render();
+      if (ui.page === "import") void imports.load?.();
+      return;
+    }
+    if (button.dataset.view) {
+      ui.view = button.dataset.view;
+      remember();
+      render();
+      return;
+    }
+    if (button.dataset.calendarMode) {
+      ui.mode = button.dataset.calendarMode;
+      if (ui.mode === "week") ui.anchor = ui.selectedDate;
+      remember();
+      renderResults();
+      return;
+    }
+    if (button.dataset.calendarDay) {
+      ui.selectedDate = button.dataset.calendarDay;
+      ui.pane = "day";
+      renderResults();
+      showMobileDay();
+      return;
+    }
+    if (button.dataset.calendarPane) {
+      ui.pane = button.dataset.calendarPane;
+      renderResults();
+      showMobileDay();
+      return;
+    }
+    if (button.dataset.accountAction) {
+      await account.click(button);
+      return;
+    }
+    await imports.click(button);
+  } catch (error) {
+    toast(error.message);
+  }
+});
+document.addEventListener("input", (e) => {
+  if (e.target.id === "task-search") {
+    ui.query = e.target.value;
+    renderResults();
+    return;
+  }
+  if (account.input?.(e)) return;
+  imports.input?.(e);
+});
+document.addEventListener("change", (e) => {
+  if (imports.input?.(e)) return;
+  const id = e.target.id,
+    value = e.target.value;
+  if (id === "course-filter") ui.course = value;
+  else if (id === "source-filter") ui.source = value;
+  else if (id === "date-from") ui.dateFrom = value;
+  else if (id === "date-to") ui.dateTo = value;
+  else if (id === "calendar-jump") {
+    if (value) {
+      ui.anchor = value;
+      ui.selectedDate = value;
+      ui.pane = "day";
+    }
+  } else return;
+  render();
+});
+document.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  if (form.id === "task-edit-form") {
+    if (taskBusy) return;
+    const values = Object.fromEntries(new FormData(form)),
+      error = form.querySelector("#task-edit-error");
+    if (!values.title.trim()) {
+      error.textContent = "请输入任务名称";
+      return;
+    }
+    if (values.dueTime && !values.due) {
+      error.textContent = "请先填写截止日期";
+      return;
+    }
+    const epoch = accountVersion();
+    taskBusy = true;
+    form.querySelectorAll("button,input,textarea").forEach((field) => {
+      field.disabled = true;
+    });
+    const draftId = form.dataset.id || newId();
+    form.dataset.id = draftId;
+    const existing = state.tasks.find((t) => t.id === draftId),
+      task = {
+        ...(existing || {
+          id: draftId,
+          status: "todo",
+          subtasks: [],
+          source: "手动添加",
+        }),
+        ...values,
+        title: values.title.trim(),
+        course: values.course.trim(),
+      };
+    if (existing) Object.assign(existing, task);
+    else state.tasks.push(task);
+    try {
+      await persist();
+      if (epoch !== accountVersion()) return;
+      taskBusy = false;
+      render();
+      if (form.isConnected && drawer.open) {
+        closeDrawer();
+        restoreFocus({ key: "taskOpen", value: draftId });
+      }
+      toast("任务已保存");
+    } catch (e) {
+      if (epoch === accountVersion()) {
+        if (form.isConnected) error.textContent = e.message;
+        else toast(e.message);
+      }
+    } finally {
+      taskBusy = false;
+      if (form.isConnected) {
+        form.querySelectorAll("button,input,textarea").forEach((field) => {
+          field.disabled = false;
+        });
+      }
+    }
+    return;
+  }
+  try {
+    if (await account.submit(form)) return;
+    await imports.submit(form);
+  } catch (error) {
+    toast(error.message);
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Tab" && ui.mobileMenu) {
+    const focusable = [
+      ...document.querySelectorAll(".sidebar a,.sidebar button"),
+    ].filter((el) => !el.disabled);
+    const first = focusable[0],
+      last = focusable.at(-1);
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+  if (e.key === "Escape" && ui.mobileMenu) {
+    ui.mobileMenu = false;
+    render();
+    document.querySelector("#sidebar-show").focus();
+  }
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    e.key === "b" &&
+    !["INPUT", "TEXTAREA"].includes(e.target.tagName)
+  ) {
+    e.preventDefault();
+    actions["sidebar-toggle"]();
+  }
+});
+for (const modal of [dialog, drawer])
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) {
+      const rect = modal.getBoundingClientRect();
+      if (
+        e.clientX < rect.left ||
+        e.clientX > rect.right ||
+        e.clientY < rect.top ||
+        e.clientY > rect.bottom
+      )
+        modal === drawer ? closeDrawer() : closeDialog();
+    }
+  });
+drawer.addEventListener("cancel", (e) => {
+  e.preventDefault();
+  closeDrawer();
+});
+window.addEventListener("niuma:account-reset", () => {
+  const authForm = dialog.querySelector("[data-account-form]");
+  if (
+    !(
+      session.changing &&
+      ["login", "register"].includes(authForm?.dataset.accountForm)
+    )
+  ) {
+    dialog.close();
+    dialog.replaceChildren();
+  }
+  clearUndo();
+  state = readStore();
+  imports.reset();
+  drawer.close();
+  drawerId = null;
+  ui.query = "";
+  ui.course = "";
+  ui.source = "";
+  ui.dateFrom = "";
+  ui.dateTo = "";
+  ui.scope = "all";
+  ui.page = "tasks";
+  render();
+});
+window.addEventListener("niuma:sync", () => {
+  const label = document.querySelector("#save-status");
+  if (label) label.textContent = saveLabel();
+  const alert = document.querySelector("#sync-alert");
+  if (alert) alert.innerHTML = syncAlert();
+});
+matchMedia("(max-width: 700px)").addEventListener("change", () => {
+  ui.mobileMenu = false;
+  render();
+});
+render();
+async function initialize() {
+  if (!demo) {
+    try {
+      state = await initSession();
+    } catch (e) {
+      loadError = e.message;
+    } finally {
+      loading = false;
+      render();
+    }
+  }
+}
+void initialize();
+api("/api/version")
+  .then((version) => {
+    environment = describeEnvironment(
+      version,
+      import.meta.env?.VITE_BUILD_REVISION,
+      import.meta.env?.VITE_SOURCE_DIRTY,
+    );
+    const el = document.querySelector(".account-entry");
+    if (el) el.title = environment.detail;
+  })
+  .catch(() => {});
