@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import shutil
 import socket
@@ -147,6 +148,25 @@ class EnvironmentBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Native origin'):
             manager.local_environment('test', self.root, config)
 
+    def test_native_api_and_web_receive_the_same_source_identity(self):
+        for dirty in (True, False, None):
+            with patch.object(manager, 'source_identity', return_value=('a'*40, dirty)), \
+                    patch.dict(os.environ, VITE_BUILD_REVISION='stale', NIUMA_BUILD_REVISION='stale', VITE_SOURCE_DIRTY='stale'):
+                env = manager.local_environment('development', self.root, manager.defaults('development'))
+            self.assertEqual(env['VITE_BUILD_REVISION'], 'a'*40)
+            self.assertEqual(env['NIUMA_BUILD_REVISION'], env['VITE_BUILD_REVISION'])
+            self.assertEqual(env['VITE_SOURCE_DIRTY'], 'unknown' if dirty is None else str(int(dirty)))
+            self.assertEqual(env['NIUMA_SOURCE_DIRTY'], env['VITE_SOURCE_DIRTY'])
+            with patch.dict(os.environ, env, clear=True), patch.object(runtime, 'revision', return_value='a'*40):
+                self.assertIs(runtime.public_version()['source_dirty'], dirty)
+
+    def test_source_identity_reports_dirty_clean_and_unavailable_git(self):
+        for output, dirty in [('', False), (' M frontend/src/app.js\n?? server/new.py\n', True)]:
+            with patch.object(runtime.subprocess, 'check_output', side_effect=['a'*40+'\n', output]):
+                self.assertEqual(runtime.source_identity(), ('a'*40, dirty))
+        with patch.object(runtime.subprocess, 'check_output', side_effect=OSError()):
+            self.assertEqual(runtime.source_identity(), ('unknown', None))
+
     def test_origin_normalization_matches_browser_login_requests(self):
         folder = manager.initialize('production', self.root)
         path = folder / 'config.json'
@@ -263,25 +283,28 @@ class EnvironmentBoundaryTests(unittest.TestCase):
 
 
 class LiveEnvironmentIsolationTests(unittest.TestCase):
-    """Run two real API processes; no model calls, production files or live accounts."""
+    """Three disposable APIs with synthetic data; never open deployed environment data."""
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.children = []
         self.logs = []
         self.urls = {}
+        self.data_paths = {}
         self.addCleanup(self.cleanup)
-        for name in ('development','test'):
+        for name in runtime.ENVIRONMENTS:
             with socket.socket() as probe:
                 probe.bind(('127.0.0.1',0))
                 port=probe.getsockname()[1]
             folder=Path(self.temp.name)/name
             folder.mkdir()
+            self.data_paths[name] = folder/'data'/'niuma.sqlite3'
             log=(folder/'process.log').open('w',encoding='utf-8')
             self.logs.append(log)
             env=manager.clean_environment()
             env.update(NIUMA_ENVIRONMENT=name,NIUMA_DB=str(folder/'data'/'niuma.sqlite3'),NIUMA_PORT=str(port),
                        NIUMA_HOST='127.0.0.1',NIUMA_ALLOWED_ORIGINS=f'http://127.0.0.1:{port}',
-                       NIUMA_ENABLE_WECHAT='0',NIUMA_ENABLE_MANUAL_MATERIALS='0',PYTHONUTF8='1')
+                       NIUMA_ENABLE_WECHAT='0',NIUMA_ENABLE_MANUAL_MATERIALS='1',NIUMA_BACKGROUND_RECOVERY='0',
+                       NIUMA_COOKIE_SECURE='0',PYTHONUTF8='1')
             process=subprocess.Popen([sys.executable,'-u',str(manager.ROOT/'server'/'app.py')],
                                      cwd=manager.ROOT,env=env,stdout=log,stderr=log)
             self.children.append(process)
@@ -314,26 +337,72 @@ class LiveEnvironmentIsolationTests(unittest.TestCase):
         except HTTPError as error:response=error
         with response:return response.status,dict(response.headers),json.load(response)
 
+    def upload(self, name, cookie, content):
+        boundary = 'synthetic-environment-boundary'
+        raw = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="fixture.txt"\r\n'
+               'Content-Type: application/octet-stream\r\n\r\n').encode()+content+f'\r\n--{boundary}--\r\n'.encode()
+        request = Request(self.urls[name]+'/api/materials/assets', data=raw, headers={
+            'Content-Type':'multipart/form-data; boundary='+boundary, 'Origin':self.urls[name], 'Cookie':cookie})
+        # Container subclasses supply the local TLS context through open().
+        with self.open(request) as response:
+            self.assertEqual(response.status, 201)
+            return json.load(response)
+
+    def open(self, request):
+        return urlopen(request, timeout=10)
+
+    def read_asset(self, name, user_id, file_ref):
+        # No public download endpoint exists. Exercise the actual account-scoped
+        # file reader used by recognition, not a direct filesystem hash shortcut.
+        import wechat_media
+        return wechat_media.account_asset_loader(self.data_paths[name], user_id)(
+            file_ref, max_bytes=10000, timeout_seconds=5)
+
     def test_accounts_sessions_writes_and_version_are_isolated(self):
         cookies={}
+        self.expected, self.receipts, self.user_ids = {}, {}, {}
         for name in self.urls:
-            status,headers,_=self.request(name,'/api/auth/register',{'email':'same@synthetic.test','password':'Synthetic-2026!','name':name})
+            status,headers,account=self.request(name,'/api/auth/register',{'email':'same@synthetic.test','password':'Synthetic-2026!','name':name})
             self.assertEqual(status,200)
+            self.user_ids[name] = account['user']['id']
             cookies[name]=headers['Set-Cookie'].split(';')[0]
             self.assertTrue(cookies[name].startswith('niuma_session_'+name+'='))
             status,_,version=self.request(name,'/api/version')
             self.assertEqual(status,200)
             self.assertEqual(version['environment'],name)
             self.assertFalse(version['background_recovery'])
-            self.assertEqual(set(version),{'environment','managed','revision','background_recovery','scheduled_sync_available'})
-        self.assertEqual(self.request('test','/api/auth/me',cookie=cookies['development'])[0],401)
-        forged='niuma_session_test='+cookies['development'].split('=',1)[1]
-        self.assertEqual(self.request('test','/api/auth/me',cookie=forged)[0],401)
-        status,_,_=self.request('development','/api/data/preferences',{'value':{'askCompletionMinutes':False},'version':0},cookies['development'],'PUT')
-        self.assertEqual(status,200)
-        self.assertIn('preferences',self.request('development','/api/workspace',cookie=cookies['development'])[2])
-        self.assertNotIn('preferences',self.request('test','/api/workspace',cookie=cookies['test'])[2])
-        self.assertEqual(self.request('development','/api/sources/credentials',{'username':'synthetic-student','password':'Synthetic-Only!'},cookies['development'])[0],200)
-        self.assertFalse(self.request('test','/api/sources/credentials',cookie=cookies['test'])[2]['configured'])
+            self.assertEqual(set(version),{'environment','managed','revision','source_dirty','background_recovery','scheduled_sync_available'})
+        for source in self.urls:
+            for target in self.urls:
+                if source == target: continue
+                with self.subTest(source=source, target=target):
+                    for cookie in (cookies[source], 'niuma_session_'+target+'='+cookies[source].split('=',1)[1]):
+                        self.assertEqual(self.request(target,'/api/auth/me',cookie=cookie)[0],401)
+                        self.assertEqual(self.request(target,'/api/data/tasks',{'value':[],'version':0},cookie,'PUT')[0],401)
+        for name in self.urls:
+            values = dict(preferences={'askCompletionMinutes':name=='test'}, tasks=[dict(
+                id='same-task-id',title='Synthetic task '+name,status='not_started',plans=[],subtasks=[],due='2099-10-20T18:00:00+08:00')])
+            for key, value in values.items():
+                self.assertEqual(self.request(name,'/api/data/'+key,{'value':value,'version':0},cookies[name],'PUT')[0],200)
+            workspace = self.request(name,'/api/workspace',cookie=cookies[name])[2]
+            for key, value in values.items(): self.assertEqual(workspace[key],dict(value=value,version=1))
+            self.expected[name] = workspace
+            credentials=dict(username='synthetic-'+name, password='Synthetic-Only!')
+            self.assertEqual(self.request(name,'/api/sources/credentials',credentials,cookies[name])[0],200)
+            self.assertEqual(self.request(name,'/api/sources/credentials',cookie=cookies[name])[2],
+                             dict(configured=True,username='synthetic-'+name))
+            content=('Synthetic attachment '+name+'\n').encode()
+            receipt=self.upload(name,cookies[name],content)
+            self.assertEqual(receipt['sha256'],hashlib.sha256(content).hexdigest())
+            self.assertEqual(receipt['size_bytes'],len(content))
+            self.assertEqual(receipt['file_name'],'fixture.txt')
+            self.receipts[name] = receipt
+            self.assertEqual(self.read_asset(name,self.user_ids[name],receipt['file_ref']),content)
+        for source in self.urls:
+            for target in self.urls:
+                if source == target: continue
+                with self.subTest(asset_from=source, read_in=target), self.assertRaises((OSError, ValueError)):
+                    self.read_asset(target,self.user_ids[target],self.receipts[source]['file_ref'])
+        self.cookies = cookies
         self.request('test','/api/auth/logout',{},cookies['test'])
         self.assertEqual(self.request('development','/api/auth/me',cookie=cookies['development'])[0],200)

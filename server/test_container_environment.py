@@ -1,5 +1,7 @@
 """Opt-in Docker smoke test: fresh labelled volumes, synthetic accounts, no model calls."""
 import json
+import base64
+import hashlib
 import os
 import re
 import secrets
@@ -11,10 +13,12 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import manage_environment as manager
+import release_images as release
 import test_environment_isolation as environment_tests
 
 
@@ -100,6 +104,20 @@ class ContainerEnvironmentTests(environment_tests.LiveEnvironmentIsolationTests)
         with response:
             return response.status, dict(response.headers), json.load(response)
 
+    def read_asset(self, name, user_id, file_ref):
+        script = '''import sys, base64
+sys.path.insert(0, 'server')
+from wechat_media import account_asset_loader
+data = account_asset_loader('/data/niuma.sqlite3', sys.argv[1])(sys.argv[2], max_bytes=10000, timeout_seconds=5)
+print(base64.b64encode(data).decode())
+'''
+        result = self.command(self.stacks[name]+['exec', '-T', 'api', 'python', '-c', script, user_id, file_ref], check=False)
+        if result.returncode:
+            # Reject only an actual ownership/missing-reference failure, not an unrelated crash.
+            self.assertIn('file_ref_unavailable', result.stderr)
+            raise FileNotFoundError('file_ref_unavailable')
+        return base64.b64decode(result.stdout.strip(), validate=True)
+
     def test_accounts_sessions_writes_and_version_are_isolated(self):
         super().test_accounts_sessions_writes_and_version_are_isolated()
         revision = manager.git_revision()
@@ -118,18 +136,55 @@ class ContainerEnvironmentTests(environment_tests.LiveEnvironmentIsolationTests)
         status, headers, _ = self.request('production', '/api/auth/login', credentials)
         self.assertEqual(status, 200)
         self.assertIn('; Secure', headers['Set-Cookie'])
-        production_cookie = headers['Set-Cookie'].split(';')[0]
-        self.assertNotIn('preferences', self.request('production', '/api/workspace', cookie=production_cookie)[2])
-
-        # Force-recreate both HTTP containers, including the shared network namespace.
-        self.command(self.stacks['development'] + ['up', '-d', '--no-build', '--force-recreate',
-                                                  '--wait', '--wait-timeout', '90', 'api', 'web'])
-        self.wait_ready('development')
-        status, headers, _ = self.request('development', '/api/auth/login', credentials)
-        self.assertEqual(status, 200)
-        cookie = headers['Set-Cookie'].split(';')[0]
-        self.assertIn('preferences', self.request('development', '/api/workspace', cookie=cookie)[2])
-        self.assertTrue(self.request('development', '/api/sources/credentials', cookie=cookie)[2]['configured'])
+        # Use real Docker metadata; only substitute this test's random project name.
+        original_query = release._query
+        def isolated_query(docker, env, *args):
+            args = tuple('label=com.docker.compose.project='+self.prefix+'-test'
+                         if value == 'label=com.docker.compose.project=niuma-test' else value for value in args)
+            return original_query(docker, env, *args)
+        config = dict(manager.defaults('test'), api_image=os.environ['NIUMA_CONTAINER_TEST_API'],
+                      web_image=os.environ['NIUMA_CONTAINER_TEST_WEB_IP'])
+        receipt_path = Path(self.temp.name)/'accepted-images.json'
+        with patch.object(release, '_query', side_effect=isolated_query):
+            accepted = release.record_acceptance('docker', manager.clean_environment(), config, receipt_path, 'Synthetic container acceptance')
+        pinned = release.verified_images('docker', manager.clean_environment(), config, receipt_path)
+        self.assertEqual(pinned, {service+'_image':image['id'] for service,image in accepted['images'].items()})
+        config['web_image'] = os.environ['NIUMA_CONTAINER_TEST_WEB_HTTPS']
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            release.verified_images('docker', manager.clean_environment(), config, receipt_path)
+        for name in self.urls:
+            # Recreate every environment, including the HTTP shared network namespace.
+            self.command(self.stacks[name] + ['up', '-d', '--no-build', '--force-recreate',
+                                              '--wait', '--wait-timeout', '90', 'api', 'web'])
+            self.wait_ready(name)
+            status, headers, _ = self.request(name, '/api/auth/login', credentials)
+            self.assertEqual(status, 200)
+            cookie = headers['Set-Cookie'].split(';')[0]
+            self.cookies[name] = cookie
+            self.assertEqual(self.request(name, '/api/workspace', cookie=cookie)[2], self.expected[name])
+            self.assertEqual(self.request(name, '/api/sources/credentials', cookie=cookie)[2],
+                             dict(configured=True, username='synthetic-'+name))
+            receipt = self.receipts[name]
+            content = self.read_asset(name, self.user_ids[name], receipt['file_ref'])
+            self.assertEqual(content, ('Synthetic attachment '+name+'\n').encode())
+            self.assertEqual(hashlib.sha256(content).hexdigest(), receipt['sha256'])
+            self.assertEqual(len(content), receipt['size_bytes'])
+            verify_secret = '''import sys, sqlite3
+from pathlib import Path
+from cryptography.fernet import Fernet
+with sqlite3.connect('/data/niuma.sqlite3') as db:
+    row = db.execute('SELECT secret FROM source_credentials WHERE user_id=?', (sys.argv[1],)).fetchone()
+assert Fernet(Path('/data/credential.key').read_bytes()).decrypt(row[0]).decode() == 'Synthetic-Only!'
+'''
+            self.command(self.stacks[name]+['exec', '-T', 'api', 'python', '-c', verify_secret, self.user_ids[name]])
+        # Recreated services must still reject tokens and file references from the other two environments.
+        for source in self.urls:
+            for target in self.urls:
+                if source == target: continue
+                forged = 'niuma_session_'+target+'='+self.cookies[source].split('=',1)[1]
+                self.assertEqual(self.request(target,'/api/auth/me',cookie=forged)[0],401)
+                with self.assertRaises(FileNotFoundError):
+                    self.read_asset(target,self.user_ids[target],self.receipts[source]['file_ref'])
         seeded = self.command(self.stacks['production'] + ['exec', '-T', 'api', 'python', 'server/app.py', '--seed'], check=False)
         self.assertNotEqual(seeded.returncode, 0)
         self.assertIn('disabled in production', seeded.stderr)

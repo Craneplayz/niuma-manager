@@ -96,6 +96,22 @@ def revision():
     return value if re.fullmatch(r'[0-9a-f]{7,40}', value) else 'unknown'
 
 
+def source_identity():
+    """Snapshot both processes' local source at startup, including untracked code."""
+    try:
+        commit = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'],
+                                         stderr=subprocess.DEVNULL, timeout=2, text=True).strip()
+        dirty = bool(subprocess.check_output(['git', '-C', str(ROOT), 'status', '--porcelain',
+                                              '--untracked-files=normal'], stderr=subprocess.DEVNULL,
+                                             timeout=2, text=True).strip())
+        if re.fullmatch(r'[0-9a-f]{40}', commit):
+            return commit, dirty
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return 'unknown', None
+
+
 def public_version():
     return {'environment': environment(), 'managed': managed(), 'revision': revision(),
+            'source_dirty': {'1': True, '0': False}.get(os.environ.get('NIUMA_SOURCE_DIRTY')),
             'background_recovery': allow_background_recovery(), 'scheduled_sync_available': False}

@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from runtime_environment import ENVIRONMENTS, ROOT
+from runtime_environment import ENVIRONMENTS, ROOT, source_identity
+from release_images import record_acceptance, verified_images
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -181,6 +182,7 @@ def local_environment(name, folder, config):
     if urlsplit(config['origin']).hostname not in ('127.0.0.1', 'localhost'):
         raise ValueError('Native origin must use localhost or 127.0.0.1')
     values = clean_environment()
+    revision, dirty = source_identity()
     data = ROOT / 'server' / 'data' / name
     values.update(NIUMA_ENVIRONMENT=name, NIUMA_DB=str(data / 'niuma.sqlite3'),
                   NIUMA_MODEL_ENV=str(folder / '.env.model'), NIUMA_HOST='127.0.0.1',
@@ -188,6 +190,9 @@ def local_environment(name, folder, config):
                   NIUMA_ALLOWED_ORIGINS=config['origin'], NIUMA_COOKIE_SECURE='0',
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
                   NIUMA_ENABLE_WECHAT='0', NIUMA_ENABLE_MANUAL_MATERIALS='1', VITE_ENABLE_WECHAT='0',
+                  NIUMA_BUILD_REVISION=revision, VITE_BUILD_REVISION=revision,
+                  NIUMA_SOURCE_DIRTY='unknown' if dirty is None else str(int(dirty)),
+                  VITE_SOURCE_DIRTY='unknown' if dirty is None else str(int(dirty)),
                   PYTHONUTF8='1', PYTHONUNBUFFERED='1', PYTHON=sys.executable)
     return values
 
@@ -223,10 +228,18 @@ def local_servers(name, folder, config):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('init', 'check', 'build', 'up', 'stop', 'status', 'api', 'web', 'local'))
+    parser.add_argument('command', choices=('init', 'check', 'build', 'up', 'stop', 'status', 'api', 'web', 'local', 'accept'))
     parser.add_argument('environment', choices=(*ENVIRONMENTS, 'all'))
+    parser.add_argument('--evidence', help='Acceptance result/link; required for accept test')
+    parser.add_argument('--acceptance', type=Path, help='Saved acceptance record for up production (including rollback)')
     args = parser.parse_args(argv)
     name = args.environment
+    if args.evidence is not None and args.command != 'accept':
+        parser.error('--evidence is only valid with accept test')
+    if args.acceptance is not None and (args.command, name) != ('up', 'production'):
+        parser.error('--acceptance is only valid with up production')
+    if args.command == 'accept' and (name != 'test' or not args.evidence or not args.evidence.strip()):
+        parser.error('Use accept test --evidence <acceptance result or link>')
     if args.command == 'init':
         for item in ENVIRONMENTS if name == 'all' else [name]:
             print('Prepared (existing files preserved):', initialize(item))
@@ -261,19 +274,25 @@ def main(argv=None):
     docker = shutil.which('docker')
     if not docker:
         raise ValueError('Docker with Compose v2 is required for container commands')
-    command = compose_command(name, folder, config, docker)
     env = clean_environment()
+    if args.command == 'accept':
+        path = folder / 'accepted-images.json'
+        record_acceptance(docker, env, config, path, args.evidence)
+        print('Recorded verified test images:', path)
+        return 0
+    if args.command == 'up' and name == 'production':
+        acceptance = args.acceptance or PROFILES / 'test' / 'accepted-images.json'
+        config = dict(config, **verified_images(docker, env, config, acceptance))
+    command = compose_command(name, folder, config, docker)
     subprocess.run(command + ['config', '-q'], cwd=DEPLOY, env=env, check=True)
     if args.command == 'build' and subprocess.check_output(['git', '-C', str(ROOT), 'status', '--porcelain', '--untracked-files=normal'], text=True).strip():
         raise ValueError('Commit source changes before building a versioned deployment image')
     if args.command == 'up':
-        if name == 'production' and (not config['api_image'] or not config['web_image']):
-            raise ValueError('Production requires explicit API/web images already verified in test; do not use implicit local tags')
         owners = subprocess.check_output([docker, 'ps', '--filter', 'volume=' + config['data_volume'],
                                           '--format', '{{.Label "com.docker.compose.project"}}'], text=True, env=env)
         if any(owner != 'niuma-' + name for owner in owners.splitlines()):
             raise ValueError('Another running deployment owns this data volume; back up and stop it before migrating')
-    action = {'build': ['build'], 'up': ['up', '-d', '--no-build', '--force-recreate', 'api', 'web']}[args.command]
+    action = {'build': ['build'], 'up': ['up', '-d', '--no-build', '--pull', 'never', '--force-recreate', 'api', 'web']}[args.command]
     return subprocess.call(command + action, cwd=DEPLOY, env=env)
 
 

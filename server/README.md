@@ -5,7 +5,9 @@ server/
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── runtime_environment.py    环境身份、数据目录归属、会话名称及版本信息。
 ├── manage_environment.py     初始化、检查并启动开发 / 测试 / 生产环境。
-├── test_environment_isolation.py 验证真实双 API 的账号、数据、配置与会话隔离。
+├── release_images.py         记录测试实际运行镜像，并在生产启动前核对、固定镜像 ID。
+├── test_release_images.py    验证缺失验收记录、镜像替换及不安全标签不能用于发布。
+├── test_environment_isolation.py 验证真实三 API 的账号、数据、附件、配置与会话隔离。
 ├── test_container_environment.py 用临时 Docker 卷验证三环境、HTTPS 与重建持久化。
 ├── recognition.py            文本识别批次与候选确认接口。
 ├── reprocessing.py           已保存教学网通知的定向运行、停止与持久进度。

@@ -1,5 +1,7 @@
 services:
   api:
+    labels:
+      niuma.transport: http
     image: ${API_IMAGE:-niuma-manager-api:local}
     build:
       context: ../..
@@ -43,6 +45,8 @@ services:
       retries: 5
       start_period: 20s
   web:
+    labels:
+      niuma.transport: http
     image: ${WEB_IMAGE:-niuma-manager-web-ip:local}
     build:
       context: ../..
