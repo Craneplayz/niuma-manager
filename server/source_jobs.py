@@ -76,6 +76,14 @@ def view(run):
     return {k: v for k, v in run.items() if k != 'user_id'}
 
 
+def stop(db, run):
+    if run['state'] not in contract.ACTIVE: return
+    for item in run['records']:
+        if item['state']=='queued': item['state']='cancelled'
+        elif item['state']=='running': item['state']='interrupted'
+    save(db,run,'stopped')
+
+
 def get(db, uid, run_id, ApiError):
     row = db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? AND run_id=?', (uid, run_id)).fetchone()
     if not row: raise ApiError(404, '同步记录不存在')
@@ -99,6 +107,8 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
     if not key: raise ApiError(400, '请先保存教学网账号和密码')
     active = db.execute("SELECT snapshot FROM source_sync_runs WHERE user_id=? AND state IN ('queued','crawling','recognizing')", (uid,)).fetchone()
     if active: return json.loads(active['snapshot'])
+    with _lock:
+        if len(_workers)>=RUN_LIMIT: raise ApiError(503, '同步资源仍在使用或释放中，请稍后重试')
     if db.execute("SELECT count(*) FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchone()[0] >= RUN_LIMIT:
         raise ApiError(503, '同步队列已满，请稍后重试')
     run = dict(contract_version=contract.VERSION, run_id=secrets.token_hex(16), user_id=uid,
@@ -265,11 +275,7 @@ def route(handler, db, uid, path, body, ApiError, database):
     if handler.command=='POST' and suffix==['stop']:
         contract.check('stop',body); db.execute('BEGIN IMMEDIATE')
         run = get(db, uid, run_id, ApiError)
-        if run['state'] in contract.ACTIVE:
-            for item in run['records']:
-                if item['state']=='queued': item['state']='cancelled'
-                elif item['state']=='running': item['state']='interrupted'
-            save(db,run,'stopped')
+        stop(db,run)
         handler.reply(200,view(run)); return True
     if handler.command=='POST' and suffix==['retry']:
         contract.check('retry',body); db.execute('BEGIN IMMEDIATE')

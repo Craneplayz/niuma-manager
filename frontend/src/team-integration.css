@@ -323,3 +323,8 @@
 [data-theme=dark] .decomposition-warning,[data-theme=dark] .decomposition-warnings{background:#382f20;color:#f0c77d!important}
 @media(max-width:900px){.decomposition-layout{grid-template-columns:1fr}.decomposition-list,.decomposition-work{min-height:0}.decomposition-list{max-height:310px;overflow:auto}.decomposition-work{min-height:480px}}
 @media(max-width:600px){.decomposition-work{padding:23px 18px;min-height:430px}.decomposition-plan-head{display:block}.decomposition-plan-head>strong{display:inline-block;margin-top:10px}.decomposition-plan li{padding-right:0}.decomposition-plan li>em{position:static;display:block;margin-top:6px}.decomposition-actions{flex-wrap:wrap}.decomposition-actions>*{flex:1}}
+.source-schedule>label:not(.source-import-consent){display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}
+.source-schedule input[type=number]{width:110px;max-width:100%}
+.source-schedule>.btn{margin:6px 8px 6px 0}
+.agent-source-sync progress{max-width:100%}
+.agent-source-sync .draft-card{overflow-wrap:anywhere}

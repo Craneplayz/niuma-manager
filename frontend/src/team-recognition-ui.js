@@ -1,5 +1,6 @@
 import {newId} from './id.js';
 import {configureSourceSync,resetSourceSync,sourceSyncPanel as backgroundSyncPanel,startSourceSync,sourceSyncClick,syncIsActive} from './source-sync-ui.js';
+import {configureSyncSchedule,resetSyncSchedule,syncSchedulePanel,syncScheduleInput,syncScheduleClick} from './source-schedule-ui.js';
 import {ImportJourney,scrollToReview,rewriteReview,groupImportBatches,slideToImportPage} from './import-journey.js';
 import {animateReviewedCandidate,isReviewFlying} from './review-motion.js';
 import {transitionView} from './view-motion.js';
@@ -16,15 +17,19 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const labels={create:'新增',update:'更新',postpone:'延期',cancel:'取消',uncertain:'待核实'};
 const platformLabels={teaching_web:'教学网',wechat:'微信',email:'邮件',manual:'手动输入',unknown:'其他'};
 let host={},batches=[],loaded=false,busy=false,error='',notice='',text='',published='',quality='complete',request=null,voiceState='idle',stopVoice=null,activeController=null,sourceImport=null,sourceName='',sourceConsent=false,selectedMessages=new Set(),syncSources=new Set(),syncConsent=false,sourceVersion=0,sourceBusy=false,credentialStatus=null,credentialBusy=false,editCredentials=false,importMode='manual',activeRequestIds=new Set(),candidateBusy=new Set(),importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};
-export function configureAssistant(callbacks){host=callbacks;configureSourceSync({render:refresh,changed:async runs=>{
+export function configureAssistant(callbacks){host=callbacks;configureSyncSchedule({render:refresh});configureSourceSync({render:refresh,changed:async runs=>{
  const epoch=accountVersion(),latest=runs[0];
- if(latest){activeRequestIds=new Set(latest.records.map(r=>r.request_id));}
+ if(latest&&!busy&&!journey.active&&(importMode==='teaching_web'||!activeRequestIds.size)){
+  activeRequestIds=new Set(latest.records.map(r=>r.request_id));const c=latest.counts;
+  importProgress={active:['queued','crawling','recognizing'].includes(latest.state),source:'教学网',total:c.total,
+   processed:c.total-c.queued-c.running,created:c.added,failed:c.failed,incomplete:c.incomplete,skipped:c.skipped};
+ }
  await flushStore();if(epoch!==accountVersion())return;
  await load(true);
 }});configureReprocessing({render:callbacks.render,finished:async()=>{loaded=false;await callbacks.refresh?.();}});}
 const journey=new ImportJourney();let journeyTransition=false,reviewEntered=false,importId='',importTime='',openHistory=new Set();
 let manualFileVersion=0;
-export function resetAssistant(){resetSourceSync();manualFileVersion++;reviewEntered=false;importId='';openHistory.clear();journey.reset();journeyTransition=false;newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};}
+export function resetAssistant(){resetSyncSchedule();resetSourceSync();manualFileVersion++;reviewEntered=false;importId='';openHistory.clear();journey.reset();journeyTransition=false;newPlanningTaskIds.clear();cancelVoice();activeController?.abort();activeController=null;batches=[];loaded=false;busy=false;error='';notice='';text='';published='';quality='complete';request=null;voiceState='idle';stopVoice=null;sourceImport=null;sourceName='';sourceConsent=false;selectedMessages=new Set();syncSources=new Set();syncConsent=false;sourceVersion=0;sourceBusy=false;credentialStatus=null;credentialBusy=false;editCredentials=false;importMode='manual';activeRequestIds=new Set();candidateBusy=new Set();importProgress={active:false,source:'',total:0,processed:0,created:0,failed:0,incomplete:0,skipped:0};}
 window.addEventListener('niuma:account-reset',resetAssistant);
 let candidateRevision=0;
 window.addEventListener('niuma:recognition-changed',()=>{candidateRevision++;batches=[];loaded=false;refresh();});
@@ -103,7 +108,7 @@ function sourceSyncPanel(){
 function syncActionPanel(){return `<section class="agent-source-sync agent-sync-action"><h2>同步已选来源</h2><p>${syncSources.size?'当前来源：'+esc([...syncSources].map(s=>s==='teaching_web'?'教学网':s).join('、')):'尚未选择来源'} · <a href="#settings">管理来源与账号</a></p><label class="source-import-consent"><input id="agent-sync-consent" type="checkbox" ${syncConsent?'checked':''} ${busy||!session.user?'disabled':''}> 我同意将所选来源内容发送给识别服务。</label><button type="button" class="btn primary" data-agent-action="sync-sources" ${busy||syncIsActive()||!session.user?'disabled':''}>${syncIsActive()?'后台同步中':'同步并识别'}</button><p id="agent-sync-error" class="error" role="alert" hidden></p></section>${backgroundSyncPanel()}`;}
 export function sourceManagementPage(embedded=false){
  if(session.user&&!credentialStatus){credentialStatus={loading:true};queueMicrotask(loadCredentials);}
- const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice&&!busy&&!['review','done'].includes(journey.phase)?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${backgroundSyncPanel()}${reprocessingPanel()}${sourceImportPanel()}${wechatMediaPanel()}`;
+ const content=`${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${notice&&!busy&&!['review','done'].includes(journey.phase)?`<p role="status">${esc(notice)}</p>`:''}${sourceSyncPanel()}${syncSchedulePanel()}${backgroundSyncPanel()}${reprocessingPanel()}${sourceImportPanel()}${wechatMediaPanel()}`;
  return embedded?`<div class="settings-source-management"><hr><h2>来源管理</h2>${content}</div>`:`<div class="page-heading"><h1>来源管理</h1></div>${content}`;
 }
 function sourceImportPanel(standalone=false){
@@ -346,6 +351,7 @@ async function restoreCandidate(item,current){
 }
 export async function handleAssistantClick(button){
  if(button.dataset.sourceSyncAction){await sourceSyncClick(button);return;}
+ if(button.dataset.syncScheduleAction){await syncScheduleClick(button);return;}
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const revision=candidateRevision,candidateCurrent=()=>current()&&revision===candidateRevision;
  if(button.dataset.agentAction==='open-import-tasks'){const ids=journey.snapshot(batches,host.getState?.().tasks||[]).added;if(host.showImportedTasks)host.showImportedTasks(ids);else location.hash='tasks';return;}
@@ -422,6 +428,7 @@ export async function handleAssistantClick(button){
  }
 }
 export function handleAssistantInput(event){
+ if(syncScheduleInput(event))return;
  if(event.target.id==='agent-manual-file'&&event.type==='change'){
   if(busy||!session.user)return;
   const file=event.target.files?.[0],epoch=accountVersion(),version=++manualFileVersion;if(!file)return;

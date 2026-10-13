@@ -15,7 +15,7 @@ export function resetSourceSync(){clearTimeout(timer);timer=null;generation++;ru
 window.addEventListener('niuma:account-reset',resetSourceSync);
 window.addEventListener('hashchange',()=>{clearTimeout(timer);if(visible()&&session.user)void refreshSourceSync();});
 function render(){if(visible())host.render?.();}
-function poll(){clearTimeout(timer);if(visible()&&runs.some(r=>activeStates.has(r.state))){timer=setTimeout(()=>refreshSourceSync(),2000);timer.unref?.();}}
+function poll(){clearTimeout(timer);if(visible()&&session.user){timer=setTimeout(()=>refreshSourceSync(),runs.some(r=>activeStates.has(r.state))?2000:30000);timer.unref?.();}}
 export function syncIsActive(){return working||runs.some(r=>activeStates.has(r.state));}
 
 async function accept(next,current){
@@ -30,13 +30,14 @@ async function accept(next,current){
 export async function refreshSourceSync(){
  if(!session.user||session.changing||loading||working)return;
  const epoch=accountVersion(),gen=generation,current=()=>epoch===accountVersion()&&gen===generation;
+ const previous=JSON.stringify(runs),wasLoaded=loaded,hadError=!!error;
  loading=true;error='';
  try{
   const response=await api(root);
   if(response.contract_version!==version||!Array.isArray(response.runs))throw new Error('同步服务版本不匹配，请刷新或联系管理员');
   await accept(response.runs,current);
  }catch(e){if(current())error=e.message;}
- finally{if(current()){loading=false;render();poll();}}
+ finally{if(current()){loading=false;if(error||hadError||!wasLoaded||previous!==JSON.stringify(runs))render();poll();}}
 }
 export async function startSourceSync(sources,consent){
  if(!consent)throw new Error('请先同意发送所选来源内容');
@@ -73,8 +74,9 @@ export function sourceSyncPanel(){
  if(session.user&&!loaded&&!loading&&!working&&!error){loading=true;queueMicrotask(()=>{loading=false;void refreshSourceSync();});}
  if(!session.user)return '';
  return `<section class="agent-source-sync"><h2>后台同步进度</h2><p>刷新或离开页面后仍会继续；明确任务自动加入，已完成结果会保留。</p><button class="btn" data-source-sync-action="refresh" ${loading||working?'disabled':''}>刷新进度</button>${error?`<p class="error" role="alert">${esc(error)}</p>`:''}${!runs.length?`<p>${loading?'正在读取进度…':'尚无同步记录。'}</p>`:''}${runs.slice(0,3).map(run=>{
- const c=run.counts||{},done=(c.total||0)-(c.queued||0)-(c.running||0),active=activeStates.has(run.state),retry=run.records.filter(retryable).length;
+ const c=run.counts||{},done=(c.total||0)-(c.queued||0)-(c.running||0),active=activeStates.has(run.state),continued=runs.some(next=>next.parent_run_id===run.run_id),retry=continued?0:run.records.filter(retryable).length;
  return `<article class="draft-card"><h3>${esc(labels[run.state])}</h3><p role="status">已处理 ${done}/${c.total||0} 条 · 新增 ${c.added||0} 项 · 失败 ${c.failed||0} 条 · 来源待补全 ${c.incomplete||0} 条 · 跳过 ${c.skipped||0} 条未变化来源</p>${run.state==='crawling'?'<p>正在登录并获取来源；识别完成后会逐条保存。</p>':`<progress max="${Math.max(1,c.total||0)}" value="${done}"></progress>`}${run.error?`<p class="error">${esc(run.error.message)}</p>`:''}
+ ${continued?'<p>此为历史结果；已发起后续重试，请查看上方最新运行。</p>':''}
  ${active?`<button class="btn" data-source-sync-action="stop" data-run="${esc(run.run_id)}" ${working?'disabled':''}>停止本轮同步</button>`:`${retry?`<button class="btn" data-source-sync-action="retry" data-run="${esc(run.run_id)}" ${working?'disabled':''}>继续未完成 / 重试失败 ${retry} 条</button><p>只重试已保存内容；点击即同意再次发送这些内容给识别服务。</p>`:''}${c.incomplete||run.error?`<button class="btn" data-source-sync-action="collect" ${working?'disabled':''}>重新获取来源并识别</button><p>重新登录教学网补抓缺失内容，并发送有变化的内容；已成功结果继续复用。</p>`:''}`}
  <a href="#tasks">查看任务</a> · <a href="#agent">查看待核对内容</a>
  ${run.records.length?`<details><summary>逐条处理结果</summary><ul>${run.records.map(r=>`<li><strong>${esc(r.label)}</strong>${r.course?' · '+esc(r.course):''} · ${esc(itemLabels[r.state])}${r.seconds!=null?' · '+r.seconds+' 秒':''}${r.error?`<p>${esc(r.error.message)}</p>`:''}</li>`).join('')}</ul></details>`:''}</article>`;

@@ -7,6 +7,14 @@ const sync=await import('../src/source-sync-ui.js');
 const response=value=>({ok:true,json:async()=>structuredClone(value)});
 function reset(){sync.resetSourceSync();session.user={id:'synthetic'};sync.configureSourceSync({render(){}});}
 
+test('unchanged progress does not rerender editable forms and completed retries suppress old actions',async()=>{
+ reset();let renders=0;sync.configureSourceSync({render(){renders++;}});
+ const old=syncRun({state:'failed',states:['failed']}),next=syncRun({id:'run:retry'});next.parent_run_id=old.run_id;
+ globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs:[next,old]});
+ await sync.refreshSourceSync();const count=renders;await sync.refreshSourceSync();assert.equal(renders,count);
+ assert.match(sync.sourceSyncPanel(),/已发起后续重试/);assert.doesNotMatch(sync.sourceSyncPanel(),/data-source-sync-action="retry"/);
+});
+
 test('refresh restores active progress without resending crawler or model calls',async()=>{
  reset();const paths=[],run=syncRun({state:'recognizing',states:['succeeded','running','queued'],added:1});
  globalThis.fetch=async(path,options)=>{paths.push([path,options.method]);return response({contract_version:'source-sync/0.1',runs:[run]});};

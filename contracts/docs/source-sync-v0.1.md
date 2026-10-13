@@ -9,6 +9,7 @@
 | GET `/api/sources/sync-runs/{id}` | run | 持久化阶段、逐条结果、计数与错误 |
 | POST `/api/sources/sync-runs/{id}/stop` | stop / run | 停止派发，已发起调用可能消耗额度，迟到结果不再落库 |
 | POST `/api/sources/sync-runs/{id}/retry` | retry / run | 仅重新识别可恢复失败和未完成记录，不重新抓取来源 |
+| GET / PUT `/api/sources/sync-schedule` | schedule_update / schedule | 当前账号定时配置，修改携带 revision 防止覆盖另一页面 |
 
 start 示例：`{"contract_version":"source-sync/0.1","operation_id":"manual:example","sources":["teaching_web"],"consent":true}`；stop 只传 contract_version。
 
@@ -23,3 +24,9 @@ queued → crawling → recognizing → succeeded / partial_success / failed；�
 运行只包含来源标题、课程、服务端 request_id、耗时和安全错误，不包含原文、凭据或文件路径。每次读取/停止按登录用户校验；保存前再次核验来源快照、凭据版本和运行状态，不能用运行编号替代权限。
 
 任务是否可自动入库沿用现有识别和用户决定校验；后台同步不改变任务/候选分类、不替代跨来源任务合并。前后端需一起部署新入口，原同步接口暂保留兼容。
+
+定时设置的共享样例见 `contracts/examples/source-sync-v01.json`。间隔为 15～10080 分钟的整数；只支持显式选定 teaching_web，不能用未知来源冒充已接入。启用时必须 consent=true 且存在教学网凭据；关闭无需重新同意，并停止当前定时批次，手动批次继续。
+
+环境 `scheduled_sync` 默认 false（底层 `NIUMA_ENABLE_SCHEDULED_SYNC=0`）；开启环境能力后仍需账号自行启用。配置持久化，首次运行安排在设定间隔后；调度每 30 秒检查，重启不补跑全部错过周期。撞上手动 / 重试 / 定时活动运行时顺延一个间隔；全服务队列满时 60 秒后再检查。采集或识别失败保留本轮错误，不无限即时重试，下个周期正常增量获取。凭据变化会暂停配置，重新核对后才能启用。
+
+同一数据库仅运行一个业务 API 进程；SQLite 事务保证重复调度不创建重复运行，但多 API 进程的任务恢复及模型并发需要独立协调器。关闭浏览器不影响定时执行，停止 API 会暂停调度。next_run_at 为 Unix 秒，前端按用户本地时区显示。

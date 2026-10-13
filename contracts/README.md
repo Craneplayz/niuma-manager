@@ -5,6 +5,8 @@ contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
 ├── source_sync.py                    # 后台来源同步的独立请求/响应 Schema 与计数语义校验
 ├── docs/source-sync-v0.1.md           # 同步幂等、账号隔离、并发、停止与进度约定
+├── examples/source-sync-v01.json     # 后台运行、重试和定时配置的共享合成样例
+├── tests/test_source_sync.py         # 独立根 Schema、记录唯一性、计数与终态检查
 ├── requirements-teaching-dev.txt     # 教学网政策校验依赖，由可选教学网入口显式引用
 ├── build_teaching_v04.py             # 生成/核对自包含教学网批次请求与结果根 Schema
 ├── teaching_io.py                    # 教学网批次身份、状态、来源和基础政策校验

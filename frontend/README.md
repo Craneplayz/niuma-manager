@@ -31,6 +31,7 @@ frontend/
 │   ├── team-recognition-ui.js 展示通知导入、账号候选与来源证据。
 │   ├── reprocessing-ui.js     选择已保存通知并查询、停止持久化重识别运行。
 │   ├── source-sync-ui.js      恢复后台同步进度、停止运行及继续失败记录。
+│   ├── source-schedule-ui.js  设置所选来源的定时间隔、同意与开关，保留未保存输入。
 │   ├── task-trash-ui.js       展示任务回收站、恢复与彻底删除操作。
 │   ├── source-import.js        本机预览用户选择的文字、JSON 和教学网批次。
 │   ├── team-wechat-media-ui.js 展示主动上传材料的进度、证据及开发版来源凭证。
@@ -42,6 +43,7 @@ frontend/
 │   ├── styles.css / polish.css / team-integration.css 维护界面样式。
 │   └── 其他工具模块           提供示例、搜索、计时、语音、主题和图标。
 ├── docs/screenshots/          保存不含私人数据的桌面和移动端来源页验证截图。
+│   ├── 2026-10-13-sync-desktop.png / 2026-10-13-sync-mobile.png 后台完成结果与定时配置的合成验收。
 │   ├── 2026-10-12-deployment-materials-desktop.png 展示 HTTP 部署版主动上传与采集关闭说明。
 │   ├── 2026-10-12-deployment-materials-mobile.png  展示 390px 部署版材料入口与隐私说明。
 │   ├── 2026-10-09-reprocessing-desktop.png  展示旧通知选择与规则版本入口。
@@ -49,6 +51,7 @@ frontend/
 ├── tests/                     覆盖前端行为与团队接口适配。
 │   ├── environment-badge.test.js 验证运行环境切换与版本差异提示。
 │   ├── source-sync.test.js / sync-fixtures.js 验证后台恢复、重试幂等及迟到响应隔离。
+│   ├── source-schedule.test.js 验证显式定时授权、间隔、配置冲突与账号切换。
 │   ├── id-http.test.js        验证 HTTP UUID 兼容及识别按钮实际发起请求。
 │   ├── manual-materials.test.js  验证主动上传同意、登录会话与账号切换取消。
 │   └── reprocessing.test.js   验证显式记录选择、停止调用、分页与账号状态清理。

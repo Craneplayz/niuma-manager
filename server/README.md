@@ -21,6 +21,8 @@ server/
 ├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
 ├── source_sync.py            调用教学网采集并保存 v0.4 来源快照。
 ├── source_jobs.py            教学网后台同步、逐条持久进度、受控并发与自动入库。
+├── source_schedule.py        账号定时配置、服务端调度、凭据变化暂停及环境开关。
+├── test_source_schedule.py   定时恢复、互斥派发、关闭及迟到结果保护测试。
 ├── test_source_jobs.py       HTTP 同步幂等、4 路并发、停止、账号变化与重启回归。
 ├── teaching.py               核验当前账号快照、调用 v0.4 并适配现有任务卡片。
 ├── teaching_submission.py   可信原生状态、未知行动关联保护及持续来源核对。
@@ -48,6 +50,8 @@ server/
 ```
 
 后台教学网同步接口见 [source-sync/0.1](../contracts/docs/source-sync-v0.1.md)：每轮最多 4 条识别，全服务最多 4 轮活动同步，共用原模型队列；采集和模型期间不持有数据库写锁。刷新不影响执行，停止拒绝迟到写入，服务重启保留结果并标记中断。运行 `python -m unittest discover -s server -p test_source_jobs.py -v` 使用临时数据库和合成采集/模型验证。
+
+定时同步默认关闭；在对应环境 `config.json` 加 `"scheduled_sync": true` 并重启，账号在来源设置保存所选来源和 15～10080 分钟间隔后生效；只支持教学网，须使用单业务 API 进程。验收运行 `python -m unittest discover -s server -p test_source_schedule.py -v`，包括持久配置、手动撞期、失败重试及关闭时拒绝迟到写入，不发送私人数据。
 
 开发和测试优先使用 [统一环境入口](deploy/ENVIRONMENTS.md)：仓库根运行 `python server/manage_environment.py init all`，再运行 `python server/manage_environment.py local development` 或 `local test`；识别和规划由业务 API 直接调用，不必启动 1333/1334。
 原 `frontend/` 的 `npm run dev:api` 和 `npm run dev` 保留旧本地配置兼容，不代表环境已隔离；已上线安装须按迁移步骤保留原数据后接管。

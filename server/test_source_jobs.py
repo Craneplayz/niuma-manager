@@ -111,6 +111,12 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(self.call('/sources/sync-runs/'+run['run_id']+'/stop',dict(contract_version='source-sync/0.1'))[0],404)
         self.assertEqual(self.call('/sources/sync-runs')[1]['runs'],[])
 
+    def test_stopped_but_unfinished_workers_still_count_toward_capacity(self):
+        with patch.object(jobs,'_workers',{('test',str(i)):object() for i in range(jobs.RUN_LIMIT)}):
+            status,error=self.call('/sources/sync-runs',dict(contract_version='source-sync/0.1',operation_id='full:one',sources=['teaching_web'],consent=True))
+            self.assertEqual(status,503);self.assertIn('释放',error['error'])
+            self.assertEqual(self.call('/sources/sync-runs')[1]['runs'],[])
+
     def test_restart_marks_pending_interrupted_without_automatic_model_replay(self):
         with patch.object(jobs,'launch'):
             run=self.start()

@@ -23,15 +23,22 @@ SCHEMAS = {
 COUNT = {'type': 'integer', 'minimum': 0}
 ERROR = {'anyOf': [{'type': 'null'}, obj({'code': {'type': 'string'}, 'message': {'type': 'string'}, 'retryable': {'type': 'boolean'}})]}
 RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'type': 'string', 'maxLength': 160},
-              'course': {'type': ['string', 'null']}, 'state': {'enum': ITEM_STATES}, 'added': COUNT,
+              'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})
 SCHEMAS['run'] = obj({'contract_version': {'const': VERSION}, 'run_id': ID, 'operation_id': ID,
                      'sources': {'const': ['teaching_web']}, 'trigger': {'enum': ['manual', 'scheduled', 'retry']},
-                     'parent_run_id': {'anyOf': [ID, {'type': 'null'}]}, 'state': {'enum': ACTIVE+FINAL},
+                     'parent_run_id': {'anyOf': [ID, {'type': 'null'}]}, 'state': {'enum': list(ACTIVE+FINAL)},
                      'revision': COUNT, 'created_at': {'type': 'string'}, 'updated_at': {'type': 'string'},
                      'skipped': COUNT, 'records': {'type': 'array', 'items': RECORD, 'maxItems': 1000},
                      'counts': obj({key: COUNT for key in (*ITEM_STATES, 'total', 'skipped', 'added')}), 'error': ERROR})
 SCHEMAS['runs'] = obj({'contract_version': {'const': VERSION}, 'runs': {'type': 'array', 'items': SCHEMAS['run'], 'maxItems': 20}})
+SCHEDULE = {'contract_version': {'const': VERSION}, 'enabled': {'type': 'boolean'},
+            'interval_minutes': {'type': 'integer', 'minimum': 15, 'maximum': 10080},
+            'sources': {'const': ['teaching_web']}, 'revision': COUNT}
+SCHEMAS['schedule_update'] = obj(dict(SCHEDULE, consent={'type': 'boolean'}))
+SCHEMAS['schedule'] = obj(dict(SCHEDULE, available={'type': 'boolean'},
+    next_run_at={'type': ['number','null']}, last_run_id={'anyOf': [ID, {'type': 'null'}]},
+    error=ERROR))
 
 
 def check(kind, value):
@@ -51,4 +58,3 @@ def check(kind, value):
 
 def root_schema(kind):
     return dict(SCHEMAS[kind], **{'$schema':'https://json-schema.org/draft/2020-12/schema'})
-
