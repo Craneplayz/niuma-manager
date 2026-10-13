@@ -200,10 +200,11 @@ def recognize(request, ApiError):
     return result, policy
 
 
-def run(db, uid, body, retry, ApiError):
+def run(db, uid, body, retry, ApiError, *, guard=None):
     import recognition
     if set(body)!={'contract_version','request_id'} or body['contract_version']!=RUN or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
         raise ApiError(400,'教学网运行请求仅接受服务器返回的 request_id')
+    if guard: guard(db)
     request = resolve_snapshot(db,uid,body['request_id'],ApiError)
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
     if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')): return
@@ -211,6 +212,7 @@ def run(db, uid, body, retry, ApiError):
         raise ApiError(409,SOURCE_INCOMPLETE)
     if not recognition._ACTIVE.acquire(): raise ApiError(503,WAIT_ERROR)
     try:
+        if guard: guard(db)
         result, policy = recognize(request,ApiError)
         try:
             validate_teaching_result(request,result,verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
@@ -218,6 +220,7 @@ def run(db, uid, body, retry, ApiError):
         except Exception:
             raise ApiError(502,'教学网结果未通过证据和版本校验，未保存候选') from None
         db.execute('BEGIN IMMEDIATE')
+        if guard: guard(db)
         if resolve_snapshot(db,uid,request['request_id'],ApiError)!=request: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
         now = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
         if now and (not previous or now['result']!=previous['result']): return

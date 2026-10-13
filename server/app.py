@@ -15,6 +15,7 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import source_jobs
 import wechat_media
 import manual_materials
 import task_decomposition
@@ -57,6 +58,7 @@ def initialize(recover=True):
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        source_jobs.initialize(db, recover=recover)
         reprocessing.initialize(db,recover=recover)
         if wechat_enabled() or manual_materials.enabled():
             wechat_media.initialize(db,recover=recover and wechat_enabled())
@@ -194,6 +196,7 @@ class Handler(BaseHTTPRequestHandler):
                 uid=user['id']
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
+            if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return

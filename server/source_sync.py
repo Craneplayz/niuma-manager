@@ -104,6 +104,13 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         return False
     if body.get('sources') != ['teaching_web']:
         raise ApiError(400, '当前仅支持同步教学网；微信请使用会话文件导入')
+    handler.reply(200, collect(db, uid, ApiError, key_path))
+    return True
+
+
+def collect(db, uid, ApiError, key_path, *, guard=None):
+    """Collect outside a write transaction, then validate ownership before saving."""
+    if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
     if not row:
         raise ApiError(400, '请先在同步信息中保存教学网账号和密码')
@@ -138,8 +145,8 @@ def route(handler, db, uid, path, body, ApiError, key_path):
     except Exception:
         raise ApiError(502, '教学网采集结果不符合 v0.4 协议或批次数量限制') from None
     if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
+    if guard: guard(db)
     current = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     if not current or dict(current)!=dict(row):
         raise ApiError(409, '教学网账号在采集期间发生变化，请重新同步')
-    handler.reply(200, teaching.register(db, uid, row['username'], requests))
-    return True
+    return teaching.register(db, uid, row['username'], requests)
