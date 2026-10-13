@@ -31,6 +31,7 @@ server/
 ├── test_deployment.py        公网来源、HTTPS Cookie、健康检查与本机兼容测试。
 ├── deploy/                   Docker 全栈、HTTPS 代理与持久数据部署配置。
 │   ├── ENVIRONMENTS.md        三环境启动、旧生产接管、验收与回滚步骤。
+│   ├── TEAM_GUIDE.md          团队本机开发、SSH 测试和协作发布的简明指南。
 │   └── environments/         本机私有环境配置，不提交也不进入镜像。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。

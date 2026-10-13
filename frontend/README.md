@@ -91,6 +91,11 @@ Docker 部署版展示平台与隐私说明，关闭微信采集、客户端/数
 
 ## 启动
 
+日常开发按 [团队使用指南](../server/deploy/TEAM_GUIDE.md) 安装依赖、配置独立模型设置并启动 development（1431）；统一入口会同时管理网页与业务 API。
+
+<details>
+<summary>旧本地安装兼容命令（未按环境隔离，不用于服务器 test / production）</summary>
+
 阿里云 Docker 部署、模型配置及 HTTP IP / HTTPS 访问见 [部署指南](../server/deploy/README.md)；实名认证仅是云账号开通条件，不是应用注册要求。
 
 需要 Node.js 20.19+、Python 3.9+。从 `frontend/` 目录执行：
@@ -109,6 +114,8 @@ npm run dev:api
 上述 npm 命令共用跨平台 Python 启动器，Windows 会依次尝试 python、python3、py；macOS/Linux 尝试 python3、python。也可通过 PYTHON 环境变量指定解释器路径。
 
 文本识别和规划均只需上述两个服务：将仓库根目录 `.env.example` 复制为 `.env` 并填写七牛模型配置与密钥，后端直接调用 `ddl_text` 和 `task_planning`，无需再运行 `npm run dev:recognition` 或 `npm run dev:planning`。已有 `.env` 直接沿用，密钥不进入前端，模型环境变量优先于 `.env`；重启后端使配置生效。
+
+</details>
 
 排程提案在每项任务旁显示用户优先级、自动风险 P0–P3 和简短原因；无 DDL 任务提示补充日期。
 任务或可用时间变更后，旧提案失效并提示重新规划；等待期间返回的旧结果不会重新显示。

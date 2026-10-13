@@ -2,6 +2,8 @@
 
 一套代码与镜像，通过明确环境启动；本文件是环境入口，云资源与 Docker 安装见 [部署指南](README.md)。
 
+第一次使用或只需联调的成员先看 [团队使用指南](TEAM_GUIDE.md)，包含本机开发、测试服务器 SSH 入口及从 PR 到发布的分工。
+
 | 环境 | 默认网页 / 本地 API | Compose 项目 | 默认数据卷 | 自动恢复后台作业 |
 | --- | --- | --- | --- | --- |
 | development | 127.0.0.1:1431 / 1432 | niuma-development | niuma-development-data | 关闭 |
