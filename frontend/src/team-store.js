@@ -57,7 +57,7 @@ function toCanonical(task,previous){
   content_type:task.content_type||old.content_type||'task',
   category:old.category||'课程作业',priority:task.priority||'medium',
   status:canonicalStatus[task.status]||'not_started',
-  planningExcluded:!!task.planningExcluded,
+  planningExcluded:task.content_type==='notice'||(old.content_type==='notice'&&task.content_type==='task'?false:!!task.planningExcluded),
   completedAt:task.status==='done'?(task.completedAt||(old.status==='completed'?(old.completedAt||''):dayKey())):'',
   due:task.due?{date:task.due,precision:task.dueTime?'datetime':'date',...(task.dueTime?{time:task.dueTime}:{})}:null,
   source:old.source||(task.id.startsWith('example-')?'模拟数据':'手动创建'),createdAt:old.createdAt||new Date().toISOString(),

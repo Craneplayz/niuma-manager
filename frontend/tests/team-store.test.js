@@ -17,9 +17,11 @@ test('notice kind survives edits, completion, reload and explicit conversion to 
  state.tasks[0].notes+='，从下周起';state.tasks[0].status='done';
  saveStore(state);await flushStore();state=await initSession();
  assert.equal(state.tasks[0].content_type,'notice');assert.equal(tasks[0].due,null);
+ assert.equal(tasks[0].planningExcluded,true);
  state.tasks[0].content_type='task';state.tasks[0].due='2026-10-16';
  saveStore(state);await flushStore();state=await initSession();
  assert.equal(state.tasks[0].content_type,'task');assert.equal(tasks[0].due.date,'2026-10-16');
+ assert.equal(tasks[0].planningExcluded,false);
 });
 
 test('collaborator task edits preserve team metadata, plans and cancelled history',async()=>{
