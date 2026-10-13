@@ -18,6 +18,10 @@ test('notice kind survives edits, completion, reload and explicit conversion to 
  saveStore(state);await flushStore();state=await initSession();
  assert.equal(state.tasks[0].content_type,'notice');assert.equal(tasks[0].due,null);
  assert.equal(tasks[0].planningExcluded,true);
+ state.tasks[0].due='2026-10-16';state.tasks[0].dueTime='18:00';
+ saveStore(state);await flushStore();state=await initSession();
+ assert.equal(state.tasks[0].content_type,'notice');
+ assert.deepEqual(tasks[0].due,{date:'2026-10-16',precision:'datetime',time:'18:00'});
  state.tasks[0].content_type='task';state.tasks[0].due='2026-10-16';
  saveStore(state);await flushStore();state=await initSession();
  assert.equal(state.tasks[0].content_type,'task');assert.equal(tasks[0].due.date,'2026-10-16');

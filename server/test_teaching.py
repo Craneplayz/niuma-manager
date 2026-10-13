@@ -39,7 +39,9 @@ class TeachingIntegrationTests(unittest.TestCase):
         saved=self.call('/workspace')[1]['tasks']['value']
         self.assertEqual([(t['title'],t['content_type']) for t in saved],expected)
         for task in saved:
-            self.assertIsNone(task['due'])
+            if task['title']=='选课结果公示':
+                self.assertEqual(task['due'],dict(date='2026-10-20',time='18:00',precision='datetime'))
+            else:self.assertIsNone(task['due'])
             if task['content_type']=='notice':self.assertTrue(task['planningExcluded'])
         evidence=self.call('/recognition/task-evidence',dict(task_id=saved[0]['id']))[1]
         self.assertIn('理教408',json.dumps(evidence,ensure_ascii=False))

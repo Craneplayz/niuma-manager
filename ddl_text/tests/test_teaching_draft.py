@@ -5,12 +5,14 @@ import unittest
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 from contracts.teaching_review_draft import validate_pair
 from ddl_text.adapters import AgentError
 from ddl_text.config import Settings
 from ddl_text.teaching_draft import (compile_teaching_draft, process_teaching_draft,
-                                    teaching_draft_schema, validate_teaching_record, evidence_catalog)
+                                    teaching_draft_schema, validate_teaching_record, evidence_catalog,
+                                    compile_teaching_response, TeachingDraftAdapter)
 from ddl_text.tests.teaching_cases import POLICY_CASES, model_task, policy_case, raw_task
 
 
@@ -36,8 +38,11 @@ class TeachingDraftTests(unittest.TestCase):
         self.assertEqual((decision['content_type'],decision['recommendation']),('notice','task'))
         self.assertIsNone(decision['pair']['assessment']['deadline']['value'])
 
-    def test_notice_cannot_smuggle_deadline_or_unknown_content_type(self):
-        for kind in ('notice','event',''):
+    def test_notice_preserves_deadline_and_rejects_unknown_content_type(self):
+        decision=self.compile('explicit-complete',lambda r,t:t.update(content_type='notice'))[0]
+        self.assertEqual(decision['content_type'],'notice')
+        self.assertEqual(decision['pair']['assessment']['deadline']['value'],'2026-10-23')
+        for kind in ('event',''):
             with self.subTest(kind=kind),self.assertRaises(AgentError):
                 self.compile('explicit-complete',lambda r,t:t.update(content_type=kind))
 
@@ -54,7 +59,7 @@ class TeachingDraftTests(unittest.TestCase):
         task['assessment']['deadline']['evidence']=[dict(span_id=body_id)]
         decisions=compile_teaching_draft(json.dumps(dict(tasks=[task])),record,source_verified=True,indexed=True)
         self.assertEqual(decisions[0]['pair']['assessment']['action']['evidence'],[catalog[body_id]])
-        for bad in ('invented', next(k for k,q in catalog.items() if q['part_id']=='source_metadata')):
+        for bad in ('invented', 'another-record:q0'):
             task['assessment']['action']['evidence']=[dict(span_id=bad)]
             with self.assertRaises(AgentError):
                 compile_teaching_draft(json.dumps(dict(tasks=[task])),record,source_verified=True,indexed=True)
@@ -145,24 +150,43 @@ class TeachingDraftTests(unittest.TestCase):
         raw=json.loads(empty_reply(record));raw['empty_decision']['evidence'][0]['quote']='invented'
         with self.assertRaises(AgentError):compile_teaching_response(json.dumps(raw),record,source_verified=True)
 
-    def test_year_metadata_supplements_but_cannot_replace_deadline_or_action_quote(self):
+    def test_captured_metadata_is_available_in_all_evidence_slots(self):
         def add_metadata(record,task):
             task['assessment']['deadline']['evidence'].append(dict(part_id='source_metadata',quote=record['source_metadata_text']))
         self.assertEqual(self.compile('yearless-unknown-age',add_metadata)[0]['recommendation'],'task')
         def only_metadata(record,task):
             task['assessment']['deadline']['evidence']=[dict(part_id='source_metadata',quote=record['source_metadata_text'])]
-        with self.assertRaises(AgentError):self.compile('yearless-unknown-age',only_metadata)
+        self.assertEqual(self.compile('yearless-unknown-age',only_metadata)[0]['recommendation'],'task')
         def action_metadata(record,task):
             task['assessment']['action']['evidence']=[dict(part_id='source_metadata',quote=record['source_metadata_text'])]
-        with self.assertRaises(AgentError):self.compile('explicit-complete',action_metadata)
+        self.assertEqual(self.compile('explicit-complete',action_metadata)[0]['recommendation'],'task')
 
-    def test_omitted_unread_reference_and_forged_quote_rejected(self):
-        for field in ('missing_relation', 'fake_quote', 'metadata_quote'):
+    def test_empty_classification_accepts_body_and_metadata_catalog_spans(self):
+        record=policy_case()['pair']['record']
+        catalog=evidence_catalog(record)
+        for status in ('no_tasks','incomplete'):
+            raw=dict(tasks=[],empty_decision=dict(status=status,reason='材料不足或无待执行要求。',
+                evidence=[dict(span_id=k) for k in catalog]))
+            out=compile_teaching_response(json.dumps(raw),record,source_verified=True,indexed=True)
+            self.assertEqual(out['empty_decision']['status'],status)
+            self.assertEqual(out['empty_decision']['evidence'],list(catalog.values()))
+        raw['empty_decision']['evidence']=[dict(span_id='not-captured')]
+        with self.assertRaises(AgentError):compile_teaching_response(json.dumps(raw),record,source_verified=True,indexed=True)
+
+    def test_unread_relation_annotations_are_optional_but_cannot_invent_sources(self):
+        self.assertEqual(self.compile(change=lambda r,t:t['assessment'].update(unread_relations=[]))[0]['recommendation'],'task')
+        def no_quote(record,task):
+            task['relevance'].update(state='ongoing',evidence=[])
+            for rel in task['assessment']['unread_relations']:rel.update(role='supplementary',evidence=[])
+        self.assertEqual(self.compile(change=no_quote)[0]['recommendation'],'task')
+
+    def test_invented_reference_and_forged_quote_rejected(self):
+        for field in ('unknown_relation', 'fake_quote', 'metadata_quote'):
             def change(record, task):
-                if field == 'missing_relation': task['assessment']['unread_relations'] = []
+                if field == 'unknown_relation': task['assessment']['unread_relations'][0]['ref_id']='not-in-record'
                 else: task['assessment']['action']['evidence'] = [dict(
                     part_id='source_metadata' if field == 'metadata_quote' else 'body',
-                    quote=record['source_metadata_text'] if field == 'metadata_quote' else 'invented action')]
+                    quote='invented action')]
             with self.subTest(field=field), self.assertRaises(AgentError) as error:
                 self.compile(change=change)
             self.assertEqual(error.exception.code, 'invalid_agent_output')
@@ -194,7 +218,7 @@ class TeachingDraftTests(unittest.TestCase):
     def test_prompt_schema_limits_quotes_to_actual_read_parts(self):
         record = policy_case()['pair']['record']
         schema = teaching_draft_schema(record)
-        self.assertEqual(schema['$defs']['quote']['properties']['part_id']['enum'], ['body'])
+        self.assertEqual(schema['$defs']['quote']['properties']['part_id']['enum'], ['body','source_metadata'])
         relevance = schema['properties']['tasks']['items']['properties']['relevance']
         self.assertEqual(relevance['properties']['evidence']['items']['properties']['part_id']['enum'],
                          ['body', 'source_metadata'])
@@ -239,6 +263,28 @@ class TeachingDraftTests(unittest.TestCase):
             process_teaching_draft(policy_case()['pair']['record'],
                 client=SyntheticClient('{"tasks":[]}', delay=5), settings=Settings(timeout_seconds=0.1))
         self.assertEqual(error.exception.code, 'agent_timeout')
+
+    def test_real_adapter_corrects_once_with_original_budget_and_explicit_feedback(self):
+        record=policy_case('explicit-complete')['pair']['record']
+        valid=json.dumps(dict(tasks=[],empty_decision=dict(status='incomplete',reason='缺少材料。',evidence=[dict(span_id='q0')])))
+        class Client:
+            def __init__(self,responses):self.responses=iter(responses);self.calls=[]
+            def complete_json(self,instructions,payload,settings):
+                self.calls.append((instructions,json.loads(payload),settings.timeout_seconds))
+                return next(self.responses)
+        client=Client(['{"tasks":[{}]}',valid])
+        with patch('ddl_text.teaching_draft.time.monotonic',side_effect=[10,12]):
+            out=TeachingDraftAdapter(client,True).extract(record,Settings(mode='real',timeout_seconds=10),0)
+        self.assertEqual(out[0]['empty_decision']['status'],'incomplete')
+        self.assertEqual([c[2] for c in client.calls],[10,8])
+        self.assertIn('validation_feedback',client.calls[1][1])
+        self.assertEqual(client.calls[1][1]['previous_response'],'{"tasks":[{}]}')
+        self.assertEqual(client.calls[0][1]['record_metadata'],client.calls[1][1]['record_metadata'])
+        for responses,budget,expected_calls in [(['bad','bad'],10,2),(['bad'],1,1)]:
+            client=Client(responses)
+            with patch('ddl_text.teaching_draft.time.monotonic',side_effect=[10,12]),self.assertRaises(AgentError):
+                TeachingDraftAdapter(client,True).extract(record,Settings(mode='real',timeout_seconds=budget),0)
+            self.assertEqual(len(client.calls),expected_calls)
 
     def test_output_fields_are_derived_from_shared_assessment(self):
         from contracts.teaching_review_draft import SCHEMA

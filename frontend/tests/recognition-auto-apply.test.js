@@ -22,8 +22,12 @@ test('notice and no-deadline action share the auto-apply UI without losing type'
  assert.equal(quick.draft.due,null);
  const reviewed=recognition.buildResolution(item,{action:'create',reviewed:'on',title:candidate.title,description:'上课地点',date:'',time:''},[],1);
  assert.equal(reviewed.draft.content_type,'notice');
- const converted=recognition.buildResolution(item,{action:'create',reviewed:'on',title:'去新教室参加考试',date:'2026-10-16',time:'09:00'},[],1);
- assert.equal(converted.draft.content_type,'task');
+ const dated=recognition.buildResolution(item,{action:'create',reviewed:'on',title:'考试通知',date:'2026-10-16',time:'09:00'},[],1);
+ assert.equal(dated.draft.content_type,'notice');
+ assert.deepEqual(dated.draft.due,{date:'2026-10-16',precision:'datetime',time:'09:00'});
+ Object.assign(candidate.deadline,{value:'2026-10-16',precision:'date',status:'explicit'});
+ assert.equal(recognition.canAutoApplyCandidate(candidate,{request:sample.request,demo:false}),true);
+ assert.equal(recognition.buildQuickResolution(item,1).draft.due.date,'2026-10-16');
 });
 
 test('teaching snapshot view runs by opaque ID and auto-applies the returned card',async()=>{

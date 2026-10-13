@@ -267,7 +267,6 @@ class Handler(BaseHTTPRequestHandler):
                     for task in value:
                         if not isinstance(task,dict) or not isinstance(task.get('id'),str) or not isinstance(task.get('title'),str) or not isinstance(task.get('plans'),list) or not isinstance(task.get('subtasks'),list): raise ApiError(400,'任务格式不正确')
                         if task.get('content_type','task') not in ('task','notice'): raise ApiError(400,'内容类型必须是任务或通知')
-                        if task.get('content_type')=='notice' and task.get('due') is not None: raise ApiError(400,'通知没有截止日期；请先改为任务')
                         ids.append(task['id'])
                     if len(ids)!=len(set(ids)): raise ApiError(400,'任务编号重复')
                 if name=='feedback':

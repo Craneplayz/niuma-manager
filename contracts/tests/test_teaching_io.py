@@ -12,19 +12,15 @@ CASES=json.loads((ROOT/'examples/teaching-v04-cases.json').read_text(encoding='u
 
 
 class TeachingIOTests(unittest.TestCase):
-    def test_content_type_examples_and_notice_deadline_invariant(self):
+    def test_content_type_examples_allow_notice_with_or_without_deadline(self):
         cases=json.loads((ROOT/'examples/teaching-content-types-v04.json').read_text(encoding='utf-8'))['cases']
         for case in cases:
             with self.subTest(case=case['name']):
                 self.check(case['request'],case['expected'])
-                for d in case['expected']['record_results'][0]['decisions']:
-                    if d['content_type']=='notice':
-                        self.assertIsNone(d['pair']['assessment']['deadline']['value'])
         request,result=self.sample()
         result['classification_mode']='model-v1'
         result['record_results'][0]['decisions'][0]['content_type']='notice'
-        with self.assertRaisesRegex(ValueError,'notice cannot carry'):
-            self.check(request,result)
+        self.check(request,result)
 
     def test_model_classification_shared_real_synthetic_examples(self):
         cases=json.loads((ROOT/'examples/teaching-model-routing-v04-cases.json').read_text(encoding='utf-8'))['cases']

@@ -691,6 +691,176 @@
           }
         ]
       }
+    },
+    {
+      "name": "notice-with-deadline",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:content:notice-with-deadline",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:content:notice-with-deadline",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "选课结果公示至2026年10月20日18:00。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-13T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "draft": {
+        "tasks": [
+          {
+            "title": "选课结果公示",
+            "description": "选课结果公示至2026年10月20日18:00。",
+            "content_type": "notice",
+            "notice_type": "create",
+            "target": null,
+            "relevance": {
+              "state": "current",
+              "reason": "通知中的行动要求。",
+              "evidence": [
+                {
+                  "part_id": "body",
+                  "quote": "选课结果公示至2026年10月20日18:00。"
+                }
+              ]
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "选课结果公示至2026年10月20日18:00。"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": "2026-10-20T18:00:00+08:00",
+                "precision": "datetime",
+                "derivation": "absolute",
+                "anchor": null,
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "选课结果公示至2026年10月20日18:00。"
+                  }
+                ]
+              },
+              "unread_relations": [],
+              "other_review_reasons": []
+            },
+            "recommendation": "task",
+            "reason": ""
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "synthetic:content:notice-with-deadline",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:content:notice-with-deadline",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "选课结果公示",
+                "description": "选课结果公示至2026年10月20日18:00。",
+                "content_type": "notice",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": [
+                    {
+                      "part_id": "body",
+                      "quote": "选课结果公示至2026年10月20日18:00。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:content:notice-with-deadline",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "选课结果公示至2026年10月20日18:00。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-13T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "选课结果公示至2026年10月20日18:00。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-20T18:00:00+08:00",
+                      "precision": "datetime",
+                      "derivation": "absolute",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "选课结果公示至2026年10月20日18:00。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:content:notice-with-deadline",
+                    "candidate_id": "teaching-draft:1c460035b332f2d90421ba2e"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      }
     }
   ]
 }

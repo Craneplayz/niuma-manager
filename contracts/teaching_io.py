@@ -87,7 +87,7 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
             if model_routing:
                 empty=row.get('empty_decision')
                 require(empty is not None and empty['status']==status and empty['reason'].strip(), 'empty decision/status mismatch')
-                texts={'body':r['text']}
+                texts={'body':r['text'],'source_metadata':r['source_metadata_text']}
                 texts.update({x['ref_id']:x['text'] for x in r['references'] if x['read_state'] in ('complete','partial')})
                 for e in empty['evidence']:
                     require(e['part_id'] in texts and e['quote'].strip() and e['quote'] in texts[e['part_id']], 'invalid empty-decision evidence')
@@ -102,7 +102,6 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
             pair=decision['pair'];require(pair['record']==r,'decision rewrites source snapshot');validate_pair(pair,model_routing=model_routing)
             if decision.get('content_type', 'task') == 'notice':
                 require(model_routing, 'notice requires model classification')
-                require(pair['assessment']['deadline']['derivation']=='not_provided', 'notice cannot carry a deadline')
             cid=pair['assessment']['candidate_id'];require(cid not in candidates,'duplicate candidate_id');candidates.add(cid)
             if not model_routing:
                 # Frozen legacy results remain valid; no new model run uses these gates.
@@ -111,11 +110,11 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
             available={'body':r['text'],'source_metadata':r['source_metadata_text']}
             available.update({x['ref_id']:x['text'] for x in r['references'] if x['read_state'] in ('complete','partial')})
             rel=decision['relevance']
-            require(rel['state']=='current' or bool(rel['evidence']),'missing relevance evidence')
+            if not model_routing:require(rel['state']=='current' or bool(rel['evidence']),'missing relevance evidence')
             for quote in rel['evidence']+([decision['target']] if decision['target'] is not None else []):
                 require(quote['part_id'] in available and quote['quote'].strip() and quote['quote'] in available[quote['part_id']],'invalid decision quotation')
             if decision['target'] is not None:
-                require(decision['notice_type']!='create' and decision['target']['part_id']!='source_metadata','invalid change target')
+                require(decision['notice_type']!='create' and (model_routing or decision['target']['part_id']!='source_metadata'),'invalid change target')
             route=decision['recommendation']
             require((route=='filtered')==(decision['filter_reason'] is not None),'filter reason mismatch')
             if route in ('task','filtered'):

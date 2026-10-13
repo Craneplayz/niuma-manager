@@ -231,7 +231,7 @@ export function buildResolution(item,values,tasks,tasksVersion){
  const title=action==='postpone'?target.title:values.title?.trim();
  if(!title)throw new Error('请输入任务名称');
  body.draft={title,description:action==='postpone'?(target.notes||''):(values.description||''),course:action==='postpone'?(target.course||null):(values.course?.trim()||null),
-  content_type:values.date?'task':(item.candidate?.content_type||'task'),
+  content_type:action==='create'?(item.candidate?.content_type||'task'):(target.content_type||'task'),
   due:values.date?{date:values.date,precision:values.time?'datetime':'date',...(values.time?{time:values.time}:{})}:null};
  return body;
 }

@@ -14,16 +14,18 @@ from unittest.mock import patch
 import app
 
 class ApiTests(unittest.TestCase):
-    def test_notice_type_round_trip_and_no_deadline_validation(self):
+    def test_notice_type_round_trip_preserves_date_without_conversion(self):
         client=self.client();self.register(client,'notice-kind@test.local')
         task=dict(id='n',title='上课地点：理教408',content_type='notice',due=None,status='not_started',plans=[],subtasks=[])
-        for invalid in (dict(task,content_type='event'),dict(task,due=dict(date='2026-10-16',precision='date'))):
+        for invalid in (dict(task,content_type='event'),):
             self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[invalid],version=0))[0],400)
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
         self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'][0],task)
-        # User explicitly converts the same entry to a dated task.
-        task.update(content_type='task',due=dict(date='2026-10-16',precision='date'))
+        task.update(due=dict(date='2026-10-16',precision='date'))
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=1))[0],200)
+        saved=self.call(client,'/workspace')[1]['tasks']['value'][0]
+        self.assertEqual(saved['content_type'],'notice')
+        self.assertEqual(saved['due'],task['due'])
 
     @classmethod
     def setUpClass(cls):

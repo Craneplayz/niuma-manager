@@ -13,10 +13,10 @@ description: 从教学网已取得的正文、附件与课程上下文提取任�
 
 - task：需要用户执行的具体行动；没有截止时间也可以是任务。加群、填写分组表、改昵称、完成作业都是行动，不能因它们来自通知或没有 DDL 而归为 notice。
 - notice：与用户相关、值得保留的告知信息，本身不要求执行具体行动，例如上课地点、课表变动、停课、资料发布。保留原意，不把地点信息改写成“到某地上课”，也不编造“查看/确认通知”等行动。
-- notice 没有截止时间：deadline 固定为 value=null、precision=unknown、derivation=not_provided、anchor=null、evidence=[]。活动发生时间、有效区间等直接保留在 description 和内容证据中，不当作 DDL；如果出现真正的提交/报名期限及行动，应归为 task。
+- task 和 notice 都可以有截止日期，内容类型不由日期决定。notice 可保留公示截止、通知有效期限等；考试/活动的关键提醒时间也可填入 deadline，并在 description 说明它是开始、结束还是有效期。多个时间选择最需要关注的一项，其余保留在说明中；不把无关参考日期当作截止日期。明确要求用户执行的提交/报名等行动仍归为 task。
 - 同一原文可以包含任务和通知，独立信息才拆分，不能把同一要求复制成两份。无关闲聊、重复无价值信息、已经失效的通知仍可 filtered；不因为 notice 没有截止时间而永久保留明显失效的信息，也不能仅凭发布时间旧排除仍有效的信息。
 
-兼容当前接口，tasks 数组可同时装 task 与 notice，recommendation=task 表示“直接收录到当前列表”，并不决定 content_type。notice 的 assessment.action 是沿用的内容证据槽：supported 表示通知内容有已取得的原文支持，不表示要求行动；证据引用支持通知事实，不能伪造动作。有真实疑点才 candidate；没有 DDL 是 notice 的正常状态。
+兼容当前接口，tasks 数组可同时装 task 与 notice，recommendation=task 表示“直接收录到当前列表”，并不决定 content_type。notice 的 assessment.action 是沿用的内容证据槽：supported 表示通知内容有已取得的原文支持，不表示要求行动；证据引用支持通知事实，不能伪造动作。有真实疑点才 candidate；有或没有 DDL 都不单独成为审核理由。
 
 每项填写 recommendation 和 reason。程序不会根据 body_status、未读附件、补年方式或历史日期重新分类，不要依赖程序替你筛选。
 
@@ -32,9 +32,9 @@ body_status=partial、附件未读、课程名缺失、年份省略，**都不�
 
 ## 时间
 
-按语义直接生成标准日期，不使用原文格式白名单。只有日期用 YYYY-MM-DD，不补 23:59；有时刻用来源时区 ISO datetime。尽快等催促语不与明确截止冲突，活动参考时间不冒充作业截止。
+按语义直接生成标准日期，不使用原文格式白名单。只有日期用 YYYY-MM-DD，不补 23:59；有时刻用来源时区 ISO datetime。尽快等催促语不与明确截止冲突，活动时间不冒充作业提交期限；通知可按上述规则保留其关键时间。
 
-已过滤的 task 也保留原文可确定的截止日期及证据，不因 filtered 就把已知日期清空为 unresolved；notice 的活动时间仍只放说明和内容证据。
+已过滤的条目也保留原文可确定的截止日期及证据，不因 filtered 或 notice 就清空已知日期。
 
 - absolute：明确年份按原文，anchor=null。
 - missing_year：优先可信原发布时间；否则结合明确适用学期；均没有时按采集时点最近合理年份补全，等距优先未来。正常补年直接 task，不要求确认年份；日期依据保留在 derivation/anchor，不输出长篇推理。
@@ -45,9 +45,9 @@ body_status=partial、附件未读、课程名缺失、年份省略，**都不�
 
 ## 证据与简短输出
 
-真实调用提供 record_metadata 和 evidence_catalog；按编号顺序连接同 part 的片段就是已取得原文。证据仅选 {"span_id":"q编号"}，程序恢复原文。离线回放也支持 part_id+quote 连续原文。source_metadata 可用于 relevance 和辅助补年的 deadline 证据，但不能替代正文/已读附件中的行动或时间原话；有日期时至少保留一条实际时间原话。不伪造文字或引用未取得内容。
+真实调用提供 record_metadata 和 evidence_catalog；按编号顺序连接同 part 的片段就是已取得原文。证据仅选 {"span_id":"q编号"}，程序恢复原文。离线回放也支持 part_id+quote 连续原文。所有证据槽都可引用已取得的正文、附件及 source_metadata，按实际含义选择支持结论的片段；课程元数据可解释适用范围或内容不足，但课程名本身不证明作业要求或截止日期。不伪造文字或引用未取得内容。
 
-assessment.action 表示行动是否有依据，deadline 表示时间。relevance 说明 current/ongoing/historical/uncertain；这些信息应与最终 recommendation 一致。对每个未完整读取的引用，unread_relations 记录 supplementary/required/unknown 与依据，不因为 unknown 自动 candidate；只有影响本任务结论时才 candidate。other_review_reasons 保持 []，审核理由只写一次到 reason。description 简述用户要做的事，不复述全文、不解题、不写推理过程。
+assessment.action 表示内容是否有依据，deadline 表示时间。relevance 说明 current/ongoing/historical/uncertain；这些信息应与最终 recommendation 一致。unread_relations 只需记录影响当前结论的附件及 supplementary/required/unknown 关系，可为空；不为凑齐清单编造证据，不因为 unknown 自动 candidate。other_review_reasons 保持 []，审核理由只写一次到 reason。description 简述行动或通知内容，不复述全文、不解题、不写推理过程。
 
 既没有行动也没有值得保留的相关通知时输出 tasks=[] 和 empty_decision={status:"no_tasks",reason:"简短原因",evidence:[原文引用]}，即使存在无关未读附件也可如此；若已取得内容不足以判断，输出 tasks=[] 和 empty_decision={status:"incomplete",reason:"具体缺少什么",evidence:[已有引用或空数组]}。tasks 非空时 empty_decision 省略或为 null。filtered 也可用于有明确证据的历史行动或失效通知，保留分类依据。
 
@@ -60,3 +60,5 @@ assessment.action 表示行动是否有依据，deadline 表示时间。relevanc
 - “报告提交日期以尚未读取的附件更正为准” → candidate，说明缺少最终截止依据。
 - “10月16日上午停课一次”，采集日为10月13日，没有已知任务需要变更 → content_type=notice、recommendation=task、notice_type=create；日期保留在说明中，不创建“完成停课”或虚构取消目标。
 - “本学期上课地点调整为理教408” → notice，无截止；“请扫码加入课程群并填写分组表” → task，无截止。
+- “选课结果公示至2026年10月20日18:00” → notice，可直接收录，deadline=2026-10-20T18:00:00+08:00，说明这是公示截止时间。
+- 只有讲义标题且附件尚未读到 → 按是否足以判断内容决定 notice 或 empty_decision=incomplete；说明内容缺口时可同时引用正文标题和课程元数据，不编造作业。

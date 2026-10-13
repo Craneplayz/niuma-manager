@@ -23,7 +23,7 @@
 
 ## 整体流程
 
-教学网原生 v0.4 结果保留 `content_type=task/notice`：模型区分行动与告知，通知没有 DDL，暂与任务共用列表；类型贯通候选、入库和编辑，后续前端可直接分栏，见[教学网结果契约](contracts/docs/teaching-v0.4.md)。
+教学网原生 v0.4 结果保留 `content_type=task/notice`：模型区分行动与告知，任务和通知都可携带日期，暂共用列表；类型贯通候选、入库和编辑，后续前端可直接分栏，见[教学网结果契约](contracts/docs/teaching-v0.4.md)。
 
 ```text
 教学网 ──爬虫──┐

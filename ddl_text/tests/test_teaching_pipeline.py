@@ -67,6 +67,20 @@ class TeachingPipelineTests(unittest.TestCase):
                 self.assertEqual(result['record_results'][0]['status'],status)
                 self.assertEqual(result['status'],'no_tasks' if status=='no_tasks' else 'failed')
 
+    def test_metadata_citations_and_partial_relation_annotations_survive_final_contract(self):
+        for status in ('no_tasks','incomplete'):
+            request,drafts=example(('unread-supplement',))
+            record=request['records'][0]['record'];raw=json.loads(empty_reply(record,status))
+            raw['empty_decision']['evidence'].append(dict(part_id='source_metadata',quote=record['source_metadata_text']))
+            result=self.run_batch(request,{record['input_id']:json.dumps(raw)})
+            self.assertEqual(result['record_results'][0]['status'],status)
+        request,drafts=example(('unread-supplement',))
+        rid=request['records'][0]['record']['input_id'];raw=json.loads(drafts[rid])
+        raw['tasks'][0]['assessment']['unread_relations']=[]
+        raw['tasks'][0]['relevance'].update(state='ongoing',evidence=[])
+        result=self.run_batch(request,{rid:json.dumps(raw)})
+        self.assertEqual(result['record_results'][0]['status'],'success')
+
     def test_default_trust_does_not_promote_valid_proposals(self):
         request,drafts=example()
         result=process_teaching_request(request,client=RecordClient(drafts),settings=Settings(timeout_seconds=10))
