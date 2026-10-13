@@ -2,11 +2,12 @@
 import json
 if __package__:
     from .runtime_environment import model_env_path
+    from .model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 else:
     from runtime_environment import model_env_path
+    from model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 import secrets
 import sys
-import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,7 +20,6 @@ from ddl_text.codex_client import live_options
 from task_planning.decomposition import generate_decomposition, validate_model_draft
 
 TZ = timezone(timedelta(hours=8))
-_ACTIVE = threading.Lock()
 
 
 def initialize(db):
@@ -84,8 +84,8 @@ def _request(task, conversation):
 
 
 def generate(task, conversation, ApiError):
-    if not _ACTIVE.acquire(blocking=False):
-        raise ApiError(503, 'AI 拆解正在处理其他请求，请稍后重试')
+    if not _ACTIVE.acquire():
+        raise ApiError(503, WAIT_ERROR)
     try:
         try:
             options = live_options(model_env_path(ROOT))

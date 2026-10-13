@@ -270,14 +270,14 @@ async function submitRecognitionRequest(body,onSuccess,retry=false,autoApply=fal
  if(busy||!session.user)return;
  const epoch=accountVersion(),current=()=>epoch===accountVersion();
  const external=autoApply&&body.records.some(record=>['teaching_web','wechat'].includes(record.platform));
- busy=true;error='';if(retry)notice='正在重新识别，请稍候…';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),100000);refresh();
+ busy=true;error='';notice='正在识别，高峰时会自动排队…';const controller=new AbortController();activeController=controller;const timeout=setTimeout(()=>controller.abort(),280000);refresh();
  try{
   if(importId&&activeRequestIds.has(body.request_id))await api('/api/recognition/imports',{import_id:importId,created_at:importTime,source:journey.source,request_ids:[body.request_id]},'POST',{signal:controller.signal});
   const existing=external?await api('/api/recognition/batches',undefined,'GET',{signal:controller.signal,timeoutMs:100000}):batches;
   if(!current())return;
   const previousIds=new Set(existing.find(batch=>batch.request.request_id===body.request_id)?.items.map(item=>item.id)||[]);
   const payload=body.contract_version==='teaching-workspace/0.1'?{contract_version:'teaching-run/0.1',request_id:body.request_id}:body;
-  const next=await api(retry?'/api/recognition/retry':'/api/recognition/batches',payload,'POST',{signal:controller.signal,timeoutMs:100000});
+  const next=await api(retry?'/api/recognition/retry':'/api/recognition/batches',payload,'POST',{signal:controller.signal,timeoutMs:280000});
   if(!current())return;
   batches=next;loaded=true;refresh();
   const batch=next.find(batch=>batch.request.request_id===body.request_id),result=batch?.result;

@@ -10,7 +10,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from pathlib import Path
 import recognition
 import planning
@@ -20,6 +20,11 @@ import manual_materials
 import task_decomposition
 import reprocessing
 import runtime_environment
+import model_queue
+
+
+class ThreadingHTTPServer(_ThreadingHTTPServer):
+    request_queue_size = 128
 
 DB = runtime_environment.database_path()
 TZ = timezone(timedelta(hours=8))
@@ -348,7 +353,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self): self.handle_request()
     def do_DELETE(self): self.handle_request()
     def handle_request(self):
-        try: self.route()
+        try:
+            with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
         except ApiError as e:
             if self.path.startswith(('/api/sources/wechat/','/api/materials/')):

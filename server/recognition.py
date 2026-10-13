@@ -4,8 +4,10 @@ import json
 import os
 if __package__:
     from .runtime_environment import model_env_path
+    from .model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 else:
     from runtime_environment import model_env_path
+    from model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 import secrets
 import re
 from datetime import datetime, timezone, timedelta, date
@@ -29,17 +31,16 @@ from ddl_text.pipeline import process_request
 from ddl_text.provider import make_client
 from ddl_text.policy_version import text_policy_manifest, COMPONENTS, ROOT as POLICY_ROOT
 
-_ACTIVE = threading.Lock()
 _EXECUTION = threading.local()
 _POLICY_COMPONENTS = {name:hashlib.sha256((POLICY_ROOT/name).read_text(encoding='utf-8-sig').replace('\r\n','\n').replace('\r','\n').encode()).hexdigest()
                       for name in COMPONENTS}
 
 
 def recognize(request, ApiError):
-    """Share one bounded recognition slot across accounts and transports."""
+    """Queue model admission across accounts, features and transports."""
     _EXECUTION.policy = None
-    if not _ACTIVE.acquire(blocking=False):
-        raise ApiError(503, '文本识别正在处理其他请求，请稍后重试')
+    if not _ACTIVE.acquire():
+        raise ApiError(503, WAIT_ERROR)
     try:
         endpoint = os.environ.get('TEXT_HARNESS_URL')
         if endpoint:

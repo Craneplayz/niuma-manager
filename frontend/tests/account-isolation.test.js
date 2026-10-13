@@ -237,7 +237,7 @@ test('late recognition response is discarded after logout and a new account can 
  assert.equal(request.body.records[0].text,'B 的通知');
 });
 
-test('shared recognition request survives the old 30-second limit but stops at 100 seconds',async(t)=>{
+test('shared recognition waits through queue admission but stops at 280 seconds',async(t)=>{
  await login('A');
  const pending=defer('/api/recognition/batches');
  t.mock.timers.enable({apis:['setTimeout']});
@@ -250,6 +250,8 @@ test('shared recognition request survives the old 30-second limit but stops at 1
   t.mock.timers.tick(30000);
   assert.equal(signal.aborted,false); // The shared API must not abort at 60 seconds.
   t.mock.timers.tick(40000);
+  assert.equal(signal.aborted,false);
+  t.mock.timers.tick(180000);
   assert.equal(signal.aborted,true);
  }finally{
   pending.release([]);

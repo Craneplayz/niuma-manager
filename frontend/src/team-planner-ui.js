@@ -75,7 +75,7 @@ export function plannerPage(){
  ${!selected.length&&!busy&&!result?`<div class="planning-empty-state" role="status">${!session.user?'<h3>登录后，安排你的学习时间。</h3><p>登录后即可读取任务，生成排程提案。</p><button class="btn" data-action="login">登录 / 注册</button>':tasks.length?'<h3>这些任务暂时无需规划。</h3><p>在“无需规划的任务”中取消勾选，就能重新加入。</p>':host.getState().tasks.some(task=>task.status!=='done')?'<h3>未完成的任务已经有安排。</h3><p>可以查看当前日程，或勾选上方选项重新规划。</p><a class="story-link" href="#calendar">查看学习日程 '+icon('arrow')+'</a>':'<h3>还没有待规划的任务。</h3><p>先导入通知或添加任务，再为它们安排时间。</p><a class="story-link" href="#tasks">前往任务中心 '+icon('arrow')+'</a>'}</div>`:''}
  <div class="planner-actions"><button class="btn primary" data-plan-action="start" ${busy||!selected.length?'disabled':''}>${icon('spark')}${busy?'正在处理…':'开始规划'}</button>${busy?'<button class="btn" data-plan-action="cancel">取消等待</button>':''}</div></section></div>
  ${error?`<p class="save-error" role="alert">${esc(error)}</p>`:''}
- ${busy?waitingPanel('正在生成排程提案','正在等待规划服务返回结果，你可以随时取消等待。'):''}
+ ${busy?waitingPanel('正在生成排程提案','高峰时会自动排队，你可以随时取消等待。'):''}
  ${result?`<section class="panel planning-insights"><div class="section-title"><h2>排程提案</h2><span>确认后才写入日历</span></div>
  ${result.replannedTaskIds?.length?`<p class="planning-replacement-note">确认后将替换以下任务尚未开始的安排：${result.replannedTaskIds.map(id=>esc(host.getState().tasks.find(task=>task.id===id)?.title||id)).join('、')}。未生成新时段的任务保留原安排。</p>`:''}
  ${proposalSummaryHtml(result,host.getState().tasks)}
@@ -103,13 +103,13 @@ async function requestProposal(payload={}){
   if(epoch!==accountVersion()||activeController!==controller)return;
   activeController=null;busy=false;error='已取消或请求超时；尚未写入排程，已导入的任务保留。';host.render();
  },{once:true});
- const timer=setTimeout(()=>controller.abort(),30000);
+ const timer=setTimeout(()=>controller.abort(),280000);
  host.openPreview?.();host.render();
  try{
   await flushStore();if(!current())return false;
   await saveData('availability',currentAvailability());if(!current())return false;
   if(context!==planningContext())throw new Error(changedMessage);
-  const next=await api('/api/planning/proposals',payload,'POST',{signal:controller.signal});
+  const next=await api('/api/planning/proposals',payload,'POST',{signal:controller.signal,timeoutMs:280000});
   if(!current())return false;
   if(context!==planningContext())throw new Error(changedMessage);
   resultContext=context;result=next;return true;
