@@ -1,15 +1,25 @@
 services:
   api:
+    labels:
+      niuma.transport: https
     image: ${API_IMAGE:-niuma-manager-api:local}
     build:
       context: ../..
       dockerfile: server/deploy/Dockerfile
       target: api
+      args:
+        NIUMA_BUILD_REVISION: ${NIUMA_BUILD_REVISION:-unknown}
     restart: unless-stopped
     init: true
     env_file:
-      - .env.model
+      - ${NIUMA_MODEL_ENV_FILE:-.env.model}
     environment:
+      NIUMA_ENVIRONMENT: ${NIUMA_ENVIRONMENT:-production}
+      NIUMA_DB: /data/niuma.sqlite3
+      NIUMA_PORT: '1332'
+      NIUMA_MODEL_ENV: /run/niuma/no-model-file
+      NIUMA_BACKGROUND_RECOVERY: ${NIUMA_BACKGROUND_RECOVERY:-0}
+      NIUMA_ADOPT_EXISTING_DATA: ${NIUMA_ADOPT_EXISTING_DATA:-0}
       NIUMA_ENABLE_WECHAT: '0'
       NIUMA_ENABLE_MANUAL_MATERIALS: '1'
       NIUMA_ALLOWED_ORIGINS: ${APP_ORIGIN:?Set the public HTTPS origin}
@@ -32,11 +42,15 @@ services:
       retries: 5
       start_period: 20s
   web:
+    labels:
+      niuma.transport: https
     image: ${WEB_IMAGE:-niuma-manager-web:local}
     build:
       context: ../..
       dockerfile: server/deploy/Dockerfile
       target: web
+      args:
+        NIUMA_BUILD_REVISION: ${NIUMA_BUILD_REVISION:-unknown}
     restart: unless-stopped
     depends_on:
       api:
@@ -45,7 +59,7 @@ services:
       SITE_ADDRESS: ${SITE_ADDRESS:?Set the public domain}
     ports:
       - ${HTTP_PORT:-80}:80
-      - ${HTTPS_PORT:-443}:443
+      - ${HTTPS_PORT:-443}:${NIUMA_HTTPS_TARGET_PORT:-443}
     volumes:
       - tls-data:/data
       - tls-config:/config
@@ -57,5 +71,6 @@ services:
 volumes:
   app-data:
     name: ${NIUMA_DATA_VOLUME:-niuma-app-data}
+    external: ${NIUMA_DATA_VOLUME_EXTERNAL:-false}
   tls-data:
   tls-config:

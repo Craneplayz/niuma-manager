@@ -1,6 +1,9 @@
 ```text
 deploy/
 ├── README.md                 阿里云 ECS、弹性 IP 与 HTTPS 的部署、验收和维护步骤。
+├── ENVIRONMENTS.md           开发、测试、生产隔离及已有生产环境接管步骤。
+├── TEAM_GUIDE.md             团队日常开发、SSH 联调与发布的使用指南。
+├── environments/            私有环境配置与模型密钥，不入 Git 或镜像。
 ├── Dockerfile                构建 API、HTTPS 网页和 HTTP IP 网页镜像。
 ├── Dockerfile.dockerignore   排除凭据、数据库、采集数据和本机配置。
 ├── compose.ip.yaml           单机 HTTP IP 部署，仅向外开放 1331。
@@ -13,6 +16,12 @@ deploy/
 ```
 
 # 阿里云部署指南
+
+团队成员先读 [新环境使用指南](TEAM_GUIDE.md)，本页供部署者安装和维护服务器。
+
+日常启动与发布统一使用 [三环境入口](ENVIRONMENTS.md)，下面保留云资源安装和 HTTP / HTTPS 原始 Compose 参数说明；不要在测试中直接复用默认生产数据卷或旧 `.env.model`。
+
+升级已有部署前先备份整个 `/data` 并按接管步骤确认卷名；新版本会核验数据目录所属环境，未标记的旧数据须在生产显式接管，不会自动创建空库代替旧数据。
 
 ## 1. 部署条件与功能边界
 

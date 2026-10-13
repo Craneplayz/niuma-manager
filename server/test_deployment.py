@@ -25,7 +25,7 @@ class DeploymentConfigTests(unittest.TestCase):
             self.assertIn("NIUMA_ENABLE_WECHAT: '0'",value)
             self.assertIn("NIUMA_ENABLE_MANUAL_MATERIALS: '1'",value)
             self.assertIn('name: ${NIUMA_DATA_VOLUME:-niuma-app-data}',value)
-            self.assertIn('- .env.model',value)
+            self.assertIn('- ${NIUMA_MODEL_ENV_FILE:-.env.model}',value)
 
     def test_http_mode_uses_loopback_api_and_non_root_web(self):
         compose=(self.root/'compose.ip.yaml').read_text(encoding='utf-8')

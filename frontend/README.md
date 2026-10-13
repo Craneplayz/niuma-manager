@@ -17,6 +17,7 @@ frontend/
 ├── vite.config.ts             配置开发端口与 API 代理。
 ├── src/
 │   ├── app.js                 组织页面、路由与主要交互。
+│   ├── environment-badge.js   显示运行环境及前后端版本不一致提示。
 │   ├── id.js                  在 HTTPS、localhost 和 HTTP IP 环境生成随机 UUID。
 │   ├── import-journey.js      追踪本次导入、历史批次分组、上下滑动吸附与任务高亮交接。
 │   ├── review-motion.js       在审核创建成功后将候选信封送往任务章节。
@@ -45,6 +46,7 @@ frontend/
 │   ├── 2026-10-09-reprocessing-desktop.png  展示旧通知选择与规则版本入口。
 │   └── 2026-10-09-reprocessing-mobile.png   展示 390px 窗口下的来源管理布局。
 ├── tests/                     覆盖前端行为与团队接口适配。
+│   ├── environment-badge.test.js 验证运行环境切换与版本差异提示。
 │   ├── id-http.test.js        验证 HTTP UUID 兼容及识别按钮实际发起请求。
 │   ├── manual-materials.test.js  验证主动上传同意、登录会话与账号切换取消。
 │   └── reprocessing.test.js   验证显式记录选择、停止调用、分页与账号状态清理。
@@ -69,6 +71,8 @@ frontend/
 
 本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`。
 
+开发 / 测试使用 [统一环境入口](../server/deploy/ENVIRONMENTS.md)，默认网页 1431 / 1531；Vite 根据 `NIUMA_PORT` 代理对应 API，页面左下角读取 `/api/version` 显示当前环境，同一网页镜像可以从测试发布到生产。
+
 ## 微信材料导入与隐私边界
 
 前端展示用户提供的材料、导入进度与识别结果，不登录或操作微信客户端；来源采集位于独立的 `wechat/` 模块，材料鉴权与保存位于 `server/`，模型识别位于 `ddl_text/`。
@@ -86,6 +90,11 @@ Docker 部署版展示平台与隐私说明，关闭微信采集、客户端/数
 只提供有权使用的材料；声明不等于平台授权或免责保证，更换部署主体也不自动满足授权要求。
 
 ## 启动
+
+日常开发按 [团队使用指南](../server/deploy/TEAM_GUIDE.md) 安装依赖、配置独立模型设置并启动 development（1431）；统一入口会同时管理网页与业务 API。
+
+<details>
+<summary>旧本地安装兼容命令（未按环境隔离，不用于服务器 test / production）</summary>
 
 阿里云 Docker 部署、模型配置及 HTTP IP / HTTPS 访问见 [部署指南](../server/deploy/README.md)；实名认证仅是云账号开通条件，不是应用注册要求。
 
@@ -105,6 +114,8 @@ npm run dev:api
 上述 npm 命令共用跨平台 Python 启动器，Windows 会依次尝试 python、python3、py；macOS/Linux 尝试 python3、python。也可通过 PYTHON 环境变量指定解释器路径。
 
 文本识别和规划均只需上述两个服务：将仓库根目录 `.env.example` 复制为 `.env` 并填写七牛模型配置与密钥，后端直接调用 `ddl_text` 和 `task_planning`，无需再运行 `npm run dev:recognition` 或 `npm run dev:planning`。已有 `.env` 直接沿用，密钥不进入前端，模型环境变量优先于 `.env`；重启后端使配置生效。
+
+</details>
 
 排程提案在每项任务旁显示用户优先级、自动风险 P0–P3 和简短原因；无 DDL 任务提示补充日期。
 任务或可用时间变更后，旧提案失效并提示重新规划；等待期间返回的旧结果不会重新显示。

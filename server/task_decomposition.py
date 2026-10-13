@@ -1,5 +1,9 @@
 """Account-scoped AI task decomposition preview and apply flow."""
 import json
+if __package__:
+    from .runtime_environment import model_env_path
+else:
+    from runtime_environment import model_env_path
 import secrets
 import sys
 from datetime import datetime, timedelta, timezone
@@ -83,7 +87,7 @@ def generate(task, conversation, ApiError):
         raise ApiError(503, WAIT_ERROR)
     try:
         try:
-            options = live_options(ROOT / '.env')
+            options = live_options(model_env_path(ROOT))
             if not options['key'].strip():
                 raise ValueError('missing credential')
         except (OSError, ValueError, TypeError, KeyError):

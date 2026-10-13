@@ -3,6 +3,12 @@ server/
 ├── README.md                 本目录的文件说明与启动命令。
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
+├── runtime_environment.py    环境身份、数据目录归属、会话名称及版本信息。
+├── manage_environment.py     初始化、检查并启动开发 / 测试 / 生产环境。
+├── release_images.py         记录测试实际运行镜像，并在生产启动前核对、固定镜像 ID。
+├── test_release_images.py    验证缺失验收记录、镜像替换及不安全标签不能用于发布。
+├── test_environment_isolation.py 验证真实三 API 的账号、数据、附件、配置与会话隔离。
+├── test_container_environment.py 用临时 Docker 卷验证三环境、HTTPS 与重建持久化。
 ├── recognition.py            文本识别批次与候选确认接口。
 ├── reprocessing.py           已保存教学网通知的定向运行、停止与持久进度。
 ├── test_reprocessing.py      来源分页、幂等、账号隔离、停止与旧结果保留测试。
@@ -19,13 +25,16 @@ server/
 ├── test_teaching_submission.py  共享提交策略一致性和旧自动撤出记录恢复测试。
 ├── test_teaching.py          教学网同步、自动入库、重试和来源变化的 HTTP 回归。
 ├── run_teaching_smoke.py     合成网页经真实 API 到任务入库的手动验收脚本。
-├── start-local-test.ps1      启动独立测试数据库、后端和网页，复用本机浏览器。
+├── start-local-test.ps1      Windows 统一环境启动入口，Ctrl+C 停止本次服务。
 ├── requirements.txt          定义账号凭据加密所需的 Python 依赖。
 ├── requirements-test.txt     安装完整业务测试及共享附件读取依赖。
 ├── text_contract.py          文本识别结果的服务端契约校验。
 ├── test_api.py               账号与业务 API 测试。
 ├── test_deployment.py        公网来源、HTTPS Cookie、健康检查与本机兼容测试。
 ├── deploy/                   Docker 全栈、HTTPS 代理与持久数据部署配置。
+│   ├── ENVIRONMENTS.md        三环境启动、旧生产接管、验收与回滚步骤。
+│   ├── TEAM_GUIDE.md          团队本机开发、SSH 测试和协作发布的简明指南。
+│   └── environments/         本机私有环境配置，不提交也不进入镜像。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。
 ├── test_recognition_runtime.py  直调识别、Windows 子进程、HTTP 回退与并发限制测试。
@@ -36,23 +45,24 @@ server/
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
 
-在 `frontend/` 运行 `npm run dev:api` 启动业务 API，另开终端运行 `npm run dev`；识别和规划默认都由业务 API 直接调用，不必启动 1333/1334。
+开发和测试优先使用 [统一环境入口](deploy/ENVIRONMENTS.md)：仓库根运行 `python server/manage_environment.py init all`，再运行 `python server/manage_environment.py local development` 或 `local test`；识别和规划由业务 API 直接调用，不必启动 1333/1334。
+原 `frontend/` 的 `npm run dev:api` 和 `npm run dev` 保留旧本地配置兼容，不代表环境已隔离；已上线安装须按迁移步骤保留原数据后接管。
 Docker 公网部署使用 [部署说明](deploy/README.md)，`NIUMA_HOST` 设置容器监听地址，`NIUMA_ALLOWED_ORIGINS` 指定允许的完整来源，`NIUMA_COOKIE_SECURE=1` 仅经 HTTPS 发送会话；未设置时保留 localhost:1331 的本机行为。
-Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File server/start-local-test.ps1`；依赖使用根目录 `.venv`，数据库独立保存为 `server/data/teaching-test.sqlite3`，进程和日志见同目录。
+Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File server/start-local-test.ps1`；默认 test 环境为网页 1531、API 1532，数据库在 `server/data/test/`，旧测试数据库不迁移、不删除。
 教学网同步使用原生 v0.4：按课程作业、课程通知、教学内容顺序识别，来源账号和快照由后端核验；明确任务自动加入，引用所需材料缺失时保留审核，详见 [运行视图](../contracts/docs/teaching-workspace-v0.1.md)。
 已读部分无任务但内容不完整时标记“来源待补全”，相同快照不重复调用模型；补全正文/附件后重新同步，模型失败仍可重试。
 真实 API 合成验收在仓库根运行 `.venv/Scripts/python.exe server/run_teaching_smoke.py --output local-data/teaching-smoke.json`；只发送合成内容，独立临时数据库，不访问校园网账号。
 原生 submitted 来源尚无永久行动映射时继续识别并保留候选，提交范围待核对，不能整条跳过或自动入库；submitted 后状态变化会持久暂停模型及自动入库，再次 submitted/重启不解除，已有候选仍可人工处理。逐行动映射与显式解除来源核对仍待 #110，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
 教学网 DeepSeek 调用显式关闭 thinking；真实调用用原文片段编号填回证据，错误区分输出截断、JSON、字段与证据错误，不记录私人模型响应。
 此测试版尚未接入定向重新识别、教学网图片或 DOCX 原件阅读；PDF/TXT 沿用采集器已有能力，网页结构变化和没有来源时间的普通旧材料仍可能需要核查。
-文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取仓库根目录 `.env` 的模型配置，无需启动 1333；已有环境变量优先于 `.env`。
+文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取当前环境的 `.env.model` 或容器环境变量，无需启动 1333；未设置环境身份的旧本地入口仍兼容根目录 `.env`。
 在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
 同一后端进程的文本、教学网、附件识别、重识别、规划及 AI 拆解合计最多 20 个模型请求执行，额外最多 100 个按到达顺序排队，等待上限 180 秒；队列满或等待超时返回 503，不开始模型调用。
 同步请求排队时客户端断连会撤销等待；已经开始的模型调用不因浏览器取消而保证中止，生成预览仍不写入任务或日程；该限制为单进程共享，多进程部署须另行提供跨进程控制。
-规划默认调用 `task_planning.planning_harness.generate`，同样读取根目录 `.env`，沿用独立规划服务的七牛配置要求；未配置密钥返回 503，不用本地假排程代替模型。
+规划默认调用 `task_planning.planning_harness.generate`，同样读取当前环境的模型配置，沿用独立规划服务的七牛配置要求；未配置密钥返回 503，不用本地假排程代替模型。
 显式导出 `HARNESS_URL` 时走原 HTTP 通道，仍支持 `HARNESS_TOKEN`；HTTP 失败不会转而再调用本地模型。恢复直调需清除此环境变量并重启，`.env` 中的路由变量不生效。
 规划使用同一模型队列，异常后释放名额；排队不占模型执行预算，模型网络超时保持 20 秒、HTTP 等待保持 25 秒，无自动重试。
-任务拆解同样读取根目录 `.env` 的模型配置并进入共享队列。`POST /api/decomposition/proposals` 只生成追问或预览，复杂任务的方案须通过 `POST /api/decomposition/apply` 确认后才替换任务步骤；任务版本变化时旧方案拒绝写入；回应携带任务 ID，确认时必须提交同一任务 ID，公开格式见 [拆解契约](../contracts/task-decomposition/README.md)。
+任务拆解同样读取当前环境的模型配置并进入共享队列。`POST /api/decomposition/proposals` 只生成追问或预览，复杂任务的方案须通过 `POST /api/decomposition/apply` 确认后才替换任务步骤；任务版本变化时旧方案拒绝写入；回应携带任务 ID，确认时必须提交同一任务 ID，公开格式见 [拆解契约](../contracts/task-decomposition/README.md)。
 两种规划通道仍使用规划 2.0 和同一结果校验，预览只保存提案，用户确认后按账号与任务版本写日历；DDL、任务状态和已有计划不因生成预览而改变。
 `POST /api/planning/proposals` 可带 `taskIds` 限定本账号有 DDL、未完成且未安排的新增任务；无匹配任务返回 400，提案仍须通过 `/api/planning/apply` 确认。
 同一接口可带 `replan: true` 纳入已有安排的任务，格式见 [规划接口约定](../contracts/task-planning/README.md)；使用 `taskIds` 时只重新规划选中任务。共享规划 2.0 输入输出不变，服务端记录待替换的时段 ID，确认时原子替换有新时段的任务尚未开始的安排；无新时段、模型失败、取消预览或版本冲突保留原安排，等待期间原时段已经开始时拒绝应用。
@@ -96,7 +106,7 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 登录用户通过来源设置确认调用 `POST /api/sources/wechat/remove` 删除原件、导入记录和候选，已确认任务保留；凭证及句柄立即失效，处理中迟到结果不重新写入，账号删除后的遗留内容在启动时清理。
 被占用原件保存到持久化删除队列，在启动或后续上传/导入/查询时重试清理；接口用 `cleanup_pending` 如实报告剩余原件数量，待删字节继续计入 200 MiB 账号配额。
 `DELETE /api/sources/wechat/assets/{file_ref}` 返回无响应体的 204，仅原账号可幂等撤销自己的句柄；撤销后导入和新重试返回 404，重新上传签发新句柄，不复活旧引用。
-图片识别调用 `ddl_text.media_pipeline.process_media_request`；使用 Python 3.10+ 安装 `ddl_text/media_requirements.txt`，模型配置沿用根目录 `.env`，须选用支持图片的七牛模型。
+图片识别调用 `ddl_text.media_pipeline.process_media_request`；使用 Python 3.10+ 安装 `ddl_text/media_requirements.txt`，模型配置沿用当前环境的模型配置，须选用支持图片的七牛模型。
 附件处理最多 20 个后台作业执行，每个数据库最多接纳 120 个未完成作业；模型阶段与其他功能共用 20 并发队列，读取器的解码、记录和批次预算不变；支持范围及 PDF/DOCX 的覆盖限制以 `ddl_text/docs/image-input.md` 为准。
 附件读取结束或异常均关闭 SQLite 连接，测试先等待本数据库后台作业退出再删除临时目录，不遗留 Windows 文件占用。
 附件作业逐记录保存执行标记与校验后的结果，查询返回真实已处理数量；每次执行共享 180 秒批次预算，单记录最多 70 秒。
