@@ -25,6 +25,26 @@ class SyntheticClient:
 
 
 class TeachingDraftTests(unittest.TestCase):
+    def test_notice_has_evidence_without_inventing_action_or_deadline(self):
+        def change(record, task):
+            record.update(text='本学期上课地点为理教408。', references=[], body_status='complete')
+            task.update(content_type='notice', title='上课地点：理教408', description=record['text'])
+            task['assessment'].update(action=dict(state='supported', evidence=[dict(part_id='body', quote=record['text'])]),
+                deadline=dict(value=None, precision='unknown', derivation='not_provided', anchor=None, evidence=[]),
+                unread_relations=[])
+        decision=self.compile('explicit-complete',change)[0]
+        self.assertEqual((decision['content_type'],decision['recommendation']),('notice','task'))
+        self.assertIsNone(decision['pair']['assessment']['deadline']['value'])
+
+    def test_notice_cannot_smuggle_deadline_or_unknown_content_type(self):
+        for kind in ('notice','event',''):
+            with self.subTest(kind=kind),self.assertRaises(AgentError):
+                self.compile('explicit-complete',lambda r,t:t.update(content_type=kind))
+
+    def test_old_model_draft_without_content_type_remains_task(self):
+        decision=self.compile('explicit-complete',lambda r,t:t.pop('content_type'))[0]
+        self.assertEqual(decision['content_type'],'task')
+
     def test_indexed_evidence_resolves_exact_source_without_recopying_pdf(self):
         pair=policy_case('explicit-complete')['pair'];record=pair['record']
         record['text']='请交作业。\nPDF提取有\t空格\n与换行。\n2026年10月23日前提交。'

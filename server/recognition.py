@@ -321,6 +321,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             try: confirmed_due=due(draft.get('due'))
             except (ValueError,KeyError,TypeError): raise ApiError(400,'截止日期格式不正确')
             if action=='postpone' and confirmed_due is None: raise ApiError(400,'延期必须明确新的截止日期')
+            content_type=draft.get('content_type', c.get('content_type', 'task'))
+            if content_type not in ('task','notice'): raise ApiError(400,'内容类型必须是任务或通知')
+            if content_type=='notice' and confirmed_due is not None: raise ApiError(400,'通知没有截止日期；请先改为任务')
             if action=='create':
                 platform=c['sources'][0]['platform']
                 source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
@@ -328,9 +331,12 @@ def resolve_candidate(db, uid, cid, body, ApiError):
                 tasks.append(target)
                 target['course']=course
                 target['category']='课程作业' if course else '个人事务'
+                target['content_type']=content_type
+                if content_type=='notice': target['planningExcluded']=True
             elif action=='postpone': target['due']=confirmed_due
             else:
                 target.update(title=draft['title'].strip(),description=draft['description'],due=confirmed_due)
+                target['content_type']=content_type
                 if 'course' in draft: target['course']=course
             if action=='create' or (action=='update' and c['prerequisites']):
                 target['sourceRequirements']=c['prerequisites']

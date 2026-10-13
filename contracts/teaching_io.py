@@ -100,6 +100,9 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
             require(row.get('empty_decision') is None,'nonempty/failed record cannot classify an empty result')
         for decision in decisions:
             pair=decision['pair'];require(pair['record']==r,'decision rewrites source snapshot');validate_pair(pair,model_routing=model_routing)
+            if decision.get('content_type', 'task') == 'notice':
+                require(model_routing, 'notice requires model classification')
+                require(pair['assessment']['deadline']['derivation']=='not_provided', 'notice cannot carry a deadline')
             cid=pair['assessment']['candidate_id'];require(cid not in candidates,'duplicate candidate_id');candidates.add(cid)
             if not model_routing:
                 # Frozen legacy results remain valid; no new model run uses these gates.

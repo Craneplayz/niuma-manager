@@ -1,0 +1,696 @@
+{
+  "synthetic_only": true,
+  "model_execution": false,
+  "cases": [
+    {
+      "name": "notice-location",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:content:notice-location",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:content:notice-location",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "本学期上课地点调整为理教408。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-13T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "draft": {
+        "tasks": [
+          {
+            "title": "上课地点：理教408",
+            "description": "本学期上课地点调整为理教408。",
+            "content_type": "notice",
+            "notice_type": "create",
+            "target": null,
+            "relevance": {
+              "state": "current",
+              "reason": "通知中的行动要求。",
+              "evidence": []
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "本学期上课地点调整为理教408。"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": null,
+                "precision": "unknown",
+                "derivation": "not_provided",
+                "anchor": null,
+                "evidence": []
+              },
+              "unread_relations": [],
+              "other_review_reasons": []
+            },
+            "recommendation": "task",
+            "reason": ""
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "synthetic:content:notice-location",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:content:notice-location",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "上课地点：理教408",
+                "description": "本学期上课地点调整为理教408。",
+                "content_type": "notice",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:content:notice-location",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "本学期上课地点调整为理教408。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-13T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "本学期上课地点调整为理教408。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": []
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:content:notice-location",
+                    "candidate_id": "teaching-draft:54d995872e364ae2fb5082af"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "notice-with-event-time",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:content:notice-with-event-time",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:content:notice-with-event-time",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "2026年10月16日上午课程暂停一次，无需办理手续。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-13T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "draft": {
+        "tasks": [
+          {
+            "title": "10月16日上午停课",
+            "description": "2026年10月16日上午课程暂停一次，无需办理手续。",
+            "content_type": "notice",
+            "notice_type": "create",
+            "target": null,
+            "relevance": {
+              "state": "current",
+              "reason": "通知中的行动要求。",
+              "evidence": []
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "2026年10月16日上午课程暂停一次，无需办理手续。"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": null,
+                "precision": "unknown",
+                "derivation": "not_provided",
+                "anchor": null,
+                "evidence": []
+              },
+              "unread_relations": [],
+              "other_review_reasons": []
+            },
+            "recommendation": "task",
+            "reason": ""
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "synthetic:content:notice-with-event-time",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:content:notice-with-event-time",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "10月16日上午停课",
+                "description": "2026年10月16日上午课程暂停一次，无需办理手续。",
+                "content_type": "notice",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:content:notice-with-event-time",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "2026年10月16日上午课程暂停一次，无需办理手续。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-13T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "2026年10月16日上午课程暂停一次，无需办理手续。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": []
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:content:notice-with-event-time",
+                    "candidate_id": "teaching-draft:ef707dddec61275b554056c6"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "task-without-deadline",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:content:task-without-deadline",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:content:task-without-deadline",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请扫码加入课程群并填写分组表，不设完成期限。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-13T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "draft": {
+        "tasks": [
+          {
+            "title": "加入课程群并填写分组表",
+            "description": "请扫码加入课程群并填写分组表，不设完成期限。",
+            "content_type": "task",
+            "notice_type": "create",
+            "target": null,
+            "relevance": {
+              "state": "current",
+              "reason": "通知中的行动要求。",
+              "evidence": []
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "请扫码加入课程群并填写分组表，不设完成期限。"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": null,
+                "precision": "unknown",
+                "derivation": "not_provided",
+                "anchor": null,
+                "evidence": []
+              },
+              "unread_relations": [],
+              "other_review_reasons": []
+            },
+            "recommendation": "task",
+            "reason": ""
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "synthetic:content:task-without-deadline",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:content:task-without-deadline",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "加入课程群并填写分组表",
+                "description": "请扫码加入课程群并填写分组表，不设完成期限。",
+                "content_type": "task",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:content:task-without-deadline",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请扫码加入课程群并填写分组表，不设完成期限。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-13T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请扫码加入课程群并填写分组表，不设完成期限。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": []
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:content:task-without-deadline",
+                    "candidate_id": "teaching-draft:d4353ef3e40e48e7bc685554"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed-notice-and-task",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:content:mixed-notice-and-task",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:content:mixed-notice-and-task",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "本学期上课地点为理教408。请扫码加入课程群，不设完成期限。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-13T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "draft": {
+        "tasks": [
+          {
+            "title": "上课地点：理教408",
+            "description": "本学期上课地点为理教408。",
+            "content_type": "notice",
+            "notice_type": "create",
+            "target": null,
+            "relevance": {
+              "state": "current",
+              "reason": "通知中的行动要求。",
+              "evidence": []
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "本学期上课地点为理教408。"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": null,
+                "precision": "unknown",
+                "derivation": "not_provided",
+                "anchor": null,
+                "evidence": []
+              },
+              "unread_relations": [],
+              "other_review_reasons": []
+            },
+            "recommendation": "task",
+            "reason": ""
+          },
+          {
+            "title": "加入课程群",
+            "description": "请扫码加入课程群，不设完成期限。",
+            "content_type": "task",
+            "notice_type": "create",
+            "target": null,
+            "relevance": {
+              "state": "current",
+              "reason": "通知中的行动要求。",
+              "evidence": []
+            },
+            "assessment": {
+              "action": {
+                "state": "supported",
+                "evidence": [
+                  {
+                    "part_id": "body",
+                    "quote": "请扫码加入课程群，不设完成期限。"
+                  }
+                ]
+              },
+              "deadline": {
+                "value": null,
+                "precision": "unknown",
+                "derivation": "not_provided",
+                "anchor": null,
+                "evidence": []
+              },
+              "unread_relations": [],
+              "other_review_reasons": []
+            },
+            "recommendation": "task",
+            "reason": ""
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "synthetic:content:mixed-notice-and-task",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:content:mixed-notice-and-task",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "上课地点：理教408",
+                "description": "本学期上课地点为理教408。",
+                "content_type": "notice",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:content:mixed-notice-and-task",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "本学期上课地点为理教408。请扫码加入课程群，不设完成期限。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-13T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "本学期上课地点为理教408。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": []
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:content:mixed-notice-and-task",
+                    "candidate_id": "teaching-draft:e83e9143a6738f1e732b1115"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              },
+              {
+                "title": "加入课程群",
+                "description": "请扫码加入课程群，不设完成期限。",
+                "content_type": "task",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:content:mixed-notice-and-task",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "本学期上课地点为理教408。请扫码加入课程群，不设完成期限。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-13T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请扫码加入课程群，不设完成期限。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": []
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:content:mixed-notice-and-task",
+                    "candidate_id": "teaching-draft:235ac18cfcca33eb4e27a15b"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      }
+    }
+  ]
+}

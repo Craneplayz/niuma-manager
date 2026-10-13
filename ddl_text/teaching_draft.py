@@ -73,12 +73,15 @@ def teaching_draft_schema(record=None, *, indexed=False):
         target=dict(anyOf=[quote, dict(type='null')]), relevance=relevance, assessment=assessment,
         recommendation=dict(enum=['task', 'candidate', 'filtered']),
         reason=dict(type='string', maxLength=1024)))
+    # Optional only for historical replay; new model calls always supply the kind.
+    task['properties']['content_type'] = dict(enum=['task', 'notice'])
     schema = _object_schema(dict(tasks=dict(type='array', items=task, maxItems=50)))
     schema['properties']['empty_decision'] = dict(anyOf=[dict(type='null'), _object_schema(dict(
         status=dict(enum=['no_tasks', 'incomplete']), reason=dict(type='string', minLength=1, maxLength=512),
         evidence=dict(type='array', items=quote, maxItems=20)))])
     schema.update({'$schema': SCHEMA['$schema'], '$defs': definitions})
     if indexed:
+        task['required'].append('content_type')
         catalog = evidence_catalog(record)
         task_ids = [key for key, q in catalog.items() if q['part_id'] != 'source_metadata']
         def reference(ids):
@@ -158,6 +161,9 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 raise ValueError('create cannot name a change target')
             pair = _pair(record, draft['assessment'], index)
             assessment = draft['assessment']
+            content_type = draft.get('content_type', 'task')
+            if content_type == 'notice' and assessment['deadline']['derivation'] != 'not_provided':
+                raise ValueError('notice cannot carry a deadline')
             _quotes(record, assessment['action']['evidence'])
             _quotes(record, assessment['deadline']['evidence'], allow_metadata=True)
             for relation in assessment['unread_relations']:
@@ -183,6 +189,7 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 codes.append('source_unverified')
                 reasons.append(REASONS['source_unverified'])
             decisions.append(dict(title=draft['title'], description=draft['description'],
+                content_type=content_type,
                 notice_type=draft['notice_type'], target=deepcopy(draft['target']),
                 relevance=deepcopy(relevance), pair=pair, recommendation=route,
                 review_codes=codes, review_reasons=reasons,

@@ -10,6 +10,22 @@ const recognition=await import('../src/team-recognition-ui.js');
 const {calendarPage}=await import('../src/team-calendar-ui.js');
 const {dayKey}=await import('../src/data.js');
 
+test('notice and no-deadline action share the auto-apply UI without losing type',async()=>{
+ const fixture=JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json',import.meta.url)));
+ const sample=fixture.cases.find(c=>c.name==='date-only');
+ const candidate=structuredClone(sample.result.tasks[0]);
+ candidate.content_type='notice';candidate.needs_review=false;candidate.review_reasons=[];
+ Object.assign(candidate.deadline,{value:null,precision:'unknown',status:'not_provided',raw:null});
+ assert.equal(recognition.canAutoApplyCandidate(candidate,{request:sample.request,demo:false}),true);
+ const item={id:'notice',version:1,candidate};
+ const quick=recognition.buildQuickResolution(item,1);
+ assert.equal(quick.draft.due,null);
+ const reviewed=recognition.buildResolution(item,{action:'create',reviewed:'on',title:candidate.title,description:'上课地点',date:'',time:''},[],1);
+ assert.equal(reviewed.draft.content_type,'notice');
+ const converted=recognition.buildResolution(item,{action:'create',reviewed:'on',title:'去新教室参加考试',date:'2026-10-16',time:'09:00'},[],1);
+ assert.equal(converted.draft.content_type,'task');
+});
+
 test('teaching snapshot view runs by opaque ID and auto-applies the returned card',async()=>{
  recognition.resetAssistant();session.user={id:'teaching-native'};location.hash='#agent';
  const fixtures=JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json',import.meta.url)));

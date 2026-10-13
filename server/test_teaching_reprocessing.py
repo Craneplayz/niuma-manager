@@ -14,6 +14,24 @@ import test_teaching
 
 
 class TeachingReprocessingTests(unittest.TestCase):
+    def test_native_reprocessing_preserves_notice_kind_in_workspace(self):
+        self.prepare()
+        cases=json.loads((Path(__file__).parents[1]/'contracts/examples/teaching-content-types-v04.json').read_text(encoding='utf8'))['cases']
+        self.case=deepcopy(cases[0])
+        self.capture=deepcopy(self.case['request'])
+        with app.connection() as db:
+            sync=teaching.register(db,self.uid,'synthetic-course-user',[self.capture])
+            self.request=teaching.resolve_snapshot(db,self.uid,sync['requests'][0]['request_id'],app.ApiError)
+        self.start['input_ids']=[self.request['records'][0]['record']['input_id']]
+        # Normal model runs attach a manifest after the semantic compiler.
+        self.case['expected']['policy_version']='teaching-policy-v1:'+'0'*64
+        with patch.object(teaching,'recognize',side_effect=self.model):
+            run=self.saved(self.launch())
+        tasks=self.tasks()
+        self.assertEqual(len(tasks),1,run)
+        self.assertEqual(tasks[0]['content_type'],'notice')
+        self.assertIsNone(tasks[0]['due'])
+
     setUp=test_teaching.TeachingIntegrationTests.setUp
     call=test_teaching.TeachingIntegrationTests.call
 

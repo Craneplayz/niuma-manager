@@ -1,5 +1,7 @@
 # 文本识别模块
 
+教学网 v0.4 识别结果区分 `content_type=task/notice`；通知无截止日期，活动时间保留在说明中，规则见 `skills/teaching-task-extraction/SKILL.md`。旧文本/微信入口暂保持原契约与默认 task。
+
 ```text
 ddl_text/
 ├── README.md             # 模块用途、运行和检查入口

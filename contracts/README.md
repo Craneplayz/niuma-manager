@@ -9,6 +9,7 @@ contracts/
 ├── schemas/teaching-request-v0.4.schema.json # 独立教学网批次请求
 ├── schemas/teaching-result-v0.4.schema.json # 独立教学网批次结果
 ├── examples/teaching-model-routing-v04-cases.json # 新模型分类的八组真实合成输入/输出
+├── examples/teaching-content-types-v04.json # 任务、通知、活动时间与混合内容的合成回放契约（非真实模型结果）
 ├── examples/teaching-v04-cases.json   # 7 组教学网公开批次边界与多任务样例
 ├── tests/test_teaching_io.py          # 教学网批次、信任与非法状态反例
 ├── docs/teaching-v0.4.md              # 教学网显式接入、消费复核及重识别规则

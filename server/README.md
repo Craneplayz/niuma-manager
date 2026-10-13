@@ -15,7 +15,7 @@ server/
 ├── test_manual_materials.py  主动上传、加密拒绝、会话鉴权与旧作业隔离测试。
 ├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
 ├── source_sync.py            调用教学网采集并保存 v0.4 来源快照。
-├── teaching.py               核验当前账号快照、调用 v0.4 并适配现有任务卡片。
+├── teaching.py               核验当前账号快照、调用 v0.4 并适配任务/通知卡片。
 ├── teaching_submission.py   可信原生状态、未知行动关联保护及持续来源核对。
 ├── test_teaching_submission.py  共享提交策略一致性和旧自动撤出记录恢复测试。
 ├── test_teaching.py          教学网同步、自动入库、重试和来源变化的 HTTP 回归。

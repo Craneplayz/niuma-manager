@@ -18,6 +18,12 @@
 
 ## 输出与消费
 
+每项 decision 新增兼容字段 `content_type="task"|"notice"`，旧结果缺省为 task；新模型必须返回该字段。类型与 `recommendation` 独立：后者 task 表示直接收录，candidate 表示待审核，filtered 表示不进入活动列表，不能用有无截止日期区分任务和通知。
+
+notice 是相关告知，不虚构行动；其 deadline 固定 `value=null, precision=unknown, derivation=not_provided, anchor=null, evidence=[]`，活动日期/地点/有效区间保留在 description 和引文中。沿用 assessment.action 证据槽：notice 的 supported 表示事实有原文依据，并非存在执行动作；来源、证据、内容不确定性检查仍适用。新增内容类型不改变既有任务过期策略。
+
+前端投影卡片与 workspace.tasks 都保留同名 content_type，notice 暂用同一列表、编辑、完成、删除和导出流程；不进入自动耗时估算/排期、不询问完成用时。显式转换为 task 后可以设置截止日期；通知携带非空 due 的 API 写入会拒绝。历史记录不自动改型，重新识别保留用户已确认/忽略决定；旧消费端需随服务一起更新。无需数据库表迁移。[共享样例](../examples/teaching-content-types-v04.json) 覆盖无 DDL 任务、通知中的活动时间、一条原文含两种内容。
+
 结果含 `request_id`、`policy_version`、批次 `status` 和与输入顺序/数量完全一致的 `record_results`；每条保留 input_id、snapshot_id、source、attempted、status、decisions、warnings、error。
 
 | 记录状态 | 含义 |

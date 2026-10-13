@@ -16,7 +16,7 @@ def model_task(pair, recommendation='task', reason=''):
     assessment = deepcopy(pair['assessment'])
     for key in ('candidate_id', 'input_id'):
         assessment.pop(key)
-    return dict(title='完成第二次作业', description='按通知完成练习。', notice_type='create', target=None,
+    return dict(title='完成第二次作业', description='按通知完成练习。', content_type='task', notice_type='create', target=None,
                 relevance=dict(state='current', reason='通知中的行动要求。', evidence=[]), assessment=assessment,
                 recommendation=recommendation, reason=reason)
 
@@ -53,4 +53,12 @@ def routing_cases():
     add('expired-partial','请完成Assignment 1并邮件提交，本次作业deadline为9.29。','filtered','2026-09-29',partial=True)
     add('non-action-partial','10月9日上午课程因故暂停一次。','no_tasks',partial=True)
     add('no-deadline-with-reference','请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。','task',reference=supplementary)
+    add('notice-location','本学期《算法导论》的上课地点调整为理教408，其余安排不变。','task')
+    cases[-1]['expected']['content_type']='notice'
+    add('notice-event-time','2026年10月16日上午课程暂停一次。无需办理任何手续。','task')
+    cases[-1]['expected']['content_type']='notice'
+    add('task-join-group','请扫码加入课程微信群并填写分组表，本项不设完成期限。','task')
+    cases[-1]['expected']['content_type']='task'
+    add('mixed-notice-and-task','本学期上课地点为理教408。请扫码加入课程群，不设完成期限。','task')
+    cases[-1]['expected']['content_types']=['notice','task']
     return cases

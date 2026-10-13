@@ -73,6 +73,7 @@ def candidate_view(decision, entry, *, model_routing=False):
                 evidence.append(by_quote[key])
             by_quote[key]['supports']=list(dict.fromkeys(by_quote[key]['supports']+supports))
     return dict(candidate_id=a['candidate_id'], input_id=r['input_id'], title=decision['title'],
+        content_type=decision.get('content_type', 'task'),
         description=decision['description'], course_or_project=source['course_or_project'],
         course_basis='provided' if source['course_or_project'] else 'unknown',
         notice_type=decision['notice_type'], target_reference=decision['target']['quote'] if decision['target'] else None, prerequisites=[],
@@ -80,7 +81,7 @@ def candidate_view(decision, entry, *, model_routing=False):
             value=d['value'] if known else None, precision=d['precision'] if known else 'unknown',
             timezone=r['timezone'], alternatives=[],
             raw=d['evidence'][0]['quote'] if d['evidence'] else None,
-            basis='日期已识别，来源年代待核实。' if inferred else '教学网正文及课程上下文' if known else '请查看原文中的截止要求。'),
+            basis='通知没有截止要求；活动时间保留在说明中。' if decision.get('content_type')=='notice' else '日期已识别，来源年代待核实。' if inferred else '教学网正文及课程上下文' if known else '请查看原文中的截止要求。'),
         needs_review=decision['recommendation']!='task', review_reasons=decision['review_reasons'],
         evidence=evidence, sources=[dict(input_id=r['input_id'], platform=r['platform'],
             url=source['url'], label=source['label'], source_item_id=r['source_item_id'])])

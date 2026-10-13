@@ -418,6 +418,12 @@
                       "type": "null"
                     }
                   ]
+                },
+                "content_type": {
+                  "enum": [
+                    "task",
+                    "notice"
+                  ]
                 }
               },
               "required": [

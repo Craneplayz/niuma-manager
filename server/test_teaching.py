@@ -22,6 +22,28 @@ from ddl_text.tests.teaching_cases import empty_reply
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_shared_notices_and_tasks_auto_apply_through_same_workspace(self):
+        cases=json.loads((Path(__file__).parents[1]/'contracts/examples/teaching-content-types-v04.json').read_text(encoding='utf-8'))['cases']
+        expected=[]
+        for case in cases:
+            request=case['request'];record=request['records'][0]['record']
+            self.drafts[record['input_id']]=json.dumps(case['draft'])
+            with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+            batch=self.run_request(sync['requests'][0])
+            for item,draft in zip(batch['items'],case['draft']['tasks']):
+                self.assertEqual(item['candidate']['content_type'],draft['content_type'])
+                self.assertFalse(item['candidate']['needs_review'])
+                status,out=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+                self.assertEqual(status,200,out)
+                expected.append((draft['title'],draft['content_type']))
+        saved=self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual([(t['title'],t['content_type']) for t in saved],expected)
+        for task in saved:
+            self.assertIsNone(task['due'])
+            if task['content_type']=='notice':self.assertTrue(task['planningExcluded'])
+        evidence=self.call('/recognition/task-evidence',dict(task_id=saved[0]['id']))[1]
+        self.assertIn('理教408',json.dumps(evidence,ensure_ascii=False))
+
     def test_real_synthetic_model_results_replay_through_http_and_workspace(self):
         fixtures=json.loads((Path(__file__).parents[1]/'contracts/examples/teaching-model-routing-v04-cases.json').read_text(encoding='utf-8'))['cases']
         added=0

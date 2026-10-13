@@ -46,7 +46,7 @@ export function planDateTime(iso){
  return {date:parts.year+'-'+parts.month+'-'+parts.day,time:parts.hour+':'+parts.minute,hour:Number(parts.hour)+Number(parts.minute)/60};
 }
 function toView(task){
- return {...task,due:task.due?.date||'',dueTime:task.due?.time||'',course:task.course||'',
+ return {...task,content_type:task.content_type||'task',due:task.due?.date||'',dueTime:task.due?.time||'',course:task.course||'',
   notes:task.description||'',hours:task.estimatedMinutes?task.estimatedMinutes/60:null,
   status:status[task.status]||'todo',location:task.location||'',dependsOn:task.dependsOn||'',
   subtasks:(task.subtasks||[]).map(s=>({...s,done:s.status==='completed'}))};
@@ -54,6 +54,7 @@ function toView(task){
 function toCanonical(task,previous){
  const old=previous||{},oldSteps=new Map((old.subtasks||[]).map(s=>[s.title,s])),stepsById=new Map((old.subtasks||[]).map(s=>[s.id,s]));
  return {...old,id:task.id,title:task.title,description:task.notes||'',course:task.course||null,
+  content_type:task.content_type||old.content_type||'task',
   category:old.category||'课程作业',priority:task.priority||'medium',
   status:canonicalStatus[task.status]||'not_started',
   planningExcluded:!!task.planningExcluded,

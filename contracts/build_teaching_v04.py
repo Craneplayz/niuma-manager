@@ -39,6 +39,8 @@ def schemas():
         recommendation=dict(enum=['task','candidate','filtered']),
         review_codes=array(string(512,1),100), review_reasons=array(string(1024,1),100),
         filter_reason=nullable(string(1024,1))))
+    # Additive result field: old saved results default to task, never reclassified.
+    decision['properties']['content_type'] = dict(enum=['task','notice'])
     error = obj(dict(code=dict(enum=['agent_timeout','agent_unavailable','invalid_agent_output','limit_exceeded']),
                      message=string(256,1), retryable=dict(type='boolean')))
     row = obj(dict(input_id=ident, snapshot_id=ident, source=source, attempted=dict(type='boolean'),
