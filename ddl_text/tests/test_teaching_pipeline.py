@@ -14,7 +14,7 @@ from ddl_text.config import Settings
 from ddl_text.chat_client import ChatClient
 from ddl_text.teaching_pipeline import process_teaching_request, validate_teaching_result
 from ddl_text.teaching_policy import teaching_policy_manifest
-from ddl_text.tests.teaching_cases import model_task, policy_case
+from ddl_text.tests.teaching_cases import model_task, policy_case, empty_reply
 
 
 @dataclass
@@ -45,8 +45,8 @@ class TeachingPipelineTests(unittest.TestCase):
     def test_mixed_decisions_keep_each_course_source_and_policy_gate(self):
         request,drafts=example(('unread-supplement','yearless-current-assignment-term','yearless-unknown-age'))
         before=deepcopy(request);result=self.run_batch(request,drafts)
-        self.assertEqual(result['status'],'success');self.assertIsNone(result['policy_version'])
-        self.assertEqual([r['decisions'][0]['recommendation'] for r in result['record_results']],['task','task','candidate'])
+        self.assertEqual(result['status'],'success',result);self.assertIsNone(result['policy_version'])
+        self.assertEqual([r['decisions'][0]['recommendation'] for r in result['record_results']],['task','task','task'])
         self.assertEqual(result['record_results'][1]['decisions'][0]['pair']['assessment']['deadline']['value'],'2026-10-23')
         self.assertEqual(result['record_results'][0]['source']['course_or_project'],'测试课程')
         self.assertEqual(request,before)
@@ -60,9 +60,9 @@ class TeachingPipelineTests(unittest.TestCase):
         self.assertEqual(result['record_results'][1]['error']['code'],'invalid_agent_output')
 
     def test_empty_readable_unread_and_unverified_are_distinguished(self):
-        for name,verified,status in [('explicit-complete',True,'no_tasks'),('unread-supplement',True,'incomplete'),('explicit-complete',False,'incomplete')]:
+        for name,verified,status in [('explicit-complete',True,'no_tasks'),('unread-supplement',True,'no_tasks'),('explicit-complete',False,'incomplete')]:
             with self.subTest(name=name,verified=verified):
-                request,drafts=example((name,));drafts={key:'{"tasks":[]}' for key in drafts}
+                request,drafts=example((name,));drafts={key:empty_reply(request['records'][0]['record']) for key in drafts}
                 result=self.run_batch(request,drafts,verified)
                 self.assertEqual(result['record_results'][0]['status'],status)
                 self.assertEqual(result['status'],'no_tasks' if status=='no_tasks' else 'failed')
@@ -91,11 +91,11 @@ class TeachingPipelineTests(unittest.TestCase):
         self.assertTrue(all(r['error']['code']=='agent_timeout' for r in result['record_results']))
         self.assertTrue(all(not r['attempted'] for r in result['record_results']))
 
-    def test_consumer_rejects_forged_history_filter_and_metadata_changes(self):
+    def test_consumer_checks_classification_consistency_and_metadata(self):
         request,drafts=example();trusted={snapshot_digest(e) for e in request['records']}
         result=self.run_batch(request,drafts)
         forged=deepcopy(result);d=forged['record_results'][0]['decisions'][0]
-        d.update(recommendation='filtered',filter_reason='pretend expired')
+        d.update(recommendation='filtered',filter_reason=None)
         with self.assertRaises(ValueError):validate_teaching_result(request,forged,verified_snapshot_digests=trusted)
         forged=deepcopy(result);forged['record_results'][0]['source']['course_or_project']='wrong course'
         with self.assertRaises(ValueError):check_pair(request,forged,verified_snapshot_digests=trusted)
@@ -118,13 +118,16 @@ class TeachingPipelineTests(unittest.TestCase):
                 trusted={snapshot_digest(e) for e in case['request']['records']} if case['verified'] else set()
                 validate_teaching_result(case['request'],case['expected'],verified_snapshot_digests=trusted)
 
-    def test_saved_live_drafts_pass_formal_batch_and_consumer_check(self):
+    def test_legacy_live_results_remain_readable_without_reclassifying(self):
         path=Path(__file__).resolve().parents[1]/'docs/archive/2026-10-07-teaching-policy-live.json'
         for case in json.loads(path.read_text(encoding='utf-8'))['cases']:
             request=dict(contract_version='0.4',request_id='archive:'+case['name'],records=[dict(
                 record=case['record'],source=dict(label='合成通知',url=None,course_or_project=None))])
-            result=self.run_batch(request,{case['record']['input_id']:case['model_draft']},case['source_verified'])
-            self.assertEqual(result['record_results'][0]['decisions'],case['decisions'])
+            result=dict(contract_version='0.4',request_id=request['request_id'],policy_version=None,status='success',
+                record_results=[dict(input_id=case['record']['input_id'],snapshot_id=case['record']['snapshot_id'],
+                    source=request['records'][0]['source'],attempted=True,status='success',decisions=case['decisions'],warnings=[],error=None)])
+            trusted={snapshot_digest(e) for e in request['records']} if case['source_verified'] else set()
+            self.assertEqual(validate_teaching_result(request,result,verified_snapshot_digests=trusted),result)
 
 
 class TeachingPolicyTests(unittest.TestCase):
@@ -154,7 +157,7 @@ class TeachingPolicyTests(unittest.TestCase):
                               endpoint='http://127.0.0.1:%d/v1'%server.server_port)
             result=process_teaching_request(request,client=ChatClient('synthetic-secret'),settings=settings,
                 verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
-            self.assertEqual(result['status'],'success')
+            self.assertEqual(result['status'],'success',result)
             self.assertTrue(result['record_results'][0]['attempted'])
             self.assertEqual(result['policy_version'],teaching_policy_manifest(settings)['version'])
             self.assertEqual(len(calls),1);self.assertEqual(calls[0][0],'/v1/chat/completions')

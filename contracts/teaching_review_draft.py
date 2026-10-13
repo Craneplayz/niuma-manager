@@ -27,7 +27,7 @@ def _day(value, zone):
     return datetime.fromisoformat(value.replace("Z", "+00:00").replace("z", "+00:00")).astimezone(zone).date()
 
 
-def validate_pair(pair):
+def validate_pair(pair, *, model_routing=False):
     """Check standalone shape, references and cross-field consistency offline."""
     require(len(json.dumps(pair, ensure_ascii=False, allow_nan=False).encode("utf-8")) <= 1_000_000,
             "pair exceeds draft budget")
@@ -62,13 +62,15 @@ def validate_pair(pair):
     require(assessment["action"]["state"] != "supported" or bool(assessment["action"]["evidence"]),
             "supported action needs evidence")
     d = assessment["deadline"]
-    check_evidence(d["evidence"])
+    check_evidence(d["evidence"], allow_metadata=model_routing)
     if d["derivation"] in {"unresolved", "not_provided"}:
         require(d["value"] is None and d["precision"] == "unknown" and d["anchor"] is None,
                 "unknown deadline cannot carry a value or anchor")
     else:
         require(d["value"] is not None and d["precision"] in {"date", "datetime"} and d["evidence"],
                 "known deadline needs a value, precision and evidence")
+        require(any(e['part_id']!='source_metadata' for e in d['evidence']),
+                'metadata cannot replace the source time expression')
         is_datetime = "T" in d["value"] or "t" in d["value"]
         require(is_datetime == (d["precision"] == "datetime"), "deadline precision mismatch")
         if is_datetime:

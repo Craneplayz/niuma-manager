@@ -10,7 +10,7 @@ from contracts.teaching_io import (MAX_BYTES, aggregate_status, canonical, check
 
 from .adapters import AgentError, OUTPUT_DIAGNOSTICS
 from .chat_client import ChatClient
-from .teaching_draft import compile_teaching_draft, process_teaching_draft
+from .teaching_draft import CLASSIFICATION_MODE, process_teaching_draft
 from .teaching_policy import teaching_policy_manifest
 
 MESSAGES={
@@ -22,20 +22,8 @@ MESSAGES={
 
 
 def validate_teaching_result(request,result,*,verified_snapshot_digests=()):
-    """Consumer check: replay evidence/policy/history gates, without calling a model."""
+    """Check source, evidence and output consistency; never reclassify model decisions."""
     check_pair(request,result,verified_snapshot_digests=verified_snapshot_digests)
-    trusted=verified_set(request,verified_snapshot_digests)
-    for entry,row in zip(request['records'],result['record_results']):
-        if not row['decisions']:continue
-        drafts=[]
-        for decision in row['decisions']:
-            draft={key:deepcopy(decision[key]) for key in ('title','description','notice_type','target','relevance')}
-            draft['assessment']=deepcopy(decision['pair']['assessment'])
-            for key in ('input_id','candidate_id'):draft['assessment'].pop(key)
-            drafts.append(draft)
-        expected=compile_teaching_draft(json.dumps(dict(tasks=drafts),ensure_ascii=False),entry['record'],
-                                        source_verified=snapshot_digest(entry) in trusted)
-        if expected!=row['decisions']:raise ValueError('teaching decision gates do not match')
     return result
 
 
@@ -66,7 +54,7 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
         raise AgentError('invalid_input',False) from None
     # Fail before any execution if deployed files no longer match loaded code.
     policy=teaching_policy_manifest(settings) if settings.mode=='real' else None
-    result=dict(contract_version='0.4',request_id=request['request_id'],
+    result=dict(contract_version='0.4',classification_mode=CLASSIFICATION_MODE,request_id=request['request_id'],
         policy_version=policy['version'] if policy else None,status='failed',record_results=[])
     expires=time.monotonic()+budget_seconds
     def unchanged_policy():
@@ -91,7 +79,8 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
             row=dict(input_id=entry['record']['input_id'],snapshot_id=entry['record']['snapshot_id'],
                 source=deepcopy(entry['source']),attempted=True,status='success' if preview.decisions else
                 'no_tasks' if preview.no_action_complete else 'incomplete',
-                decisions=list(preview.decisions),warnings=list(preview.warnings),error=None)
+                decisions=list(preview.decisions),warnings=list(preview.warnings),error=None,
+                empty_decision=preview.empty_decision)
             single=dict(request,records=[entry])
             single_trust={snapshot_digest(entry)} if snapshot_digest(entry) in trusted else set()
             validate_teaching_result(single,dict(result,record_results=[row],status=aggregate_status([row])),

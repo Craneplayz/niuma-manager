@@ -12,7 +12,7 @@ from contracts.teaching_capture import check_capture
 from ddl_text.chat_client import ChatClient
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings
-from ddl_text.teaching_draft import UNRESOLVED_TIME, compile_teaching_draft
+from ddl_text.teaching_draft import CLASSIFICATION_MODE, UNRESOLVED_TIME
 from ddl_text.teaching_pipeline import process_teaching_request, validate_teaching_result
 from ddl_text.teaching_policy import teaching_policy_manifest
 
@@ -55,15 +55,15 @@ def request_view(request):
     return dict(contract_version=VIEW, request_id=request['request_id'], records=records)
 
 
-def candidate_view(decision, entry):
+def candidate_view(decision, entry, *, model_routing=False):
     r, source = entry['record'], entry['source']
     a = decision['pair']['assessment']; d = a['deadline']
     # A guessed year can be shown without granting auto-apply. Keep actual
     # unresolved/contradictory dates hidden, but do not erase a valid proposal
     # merely because the source's age still needs confirmation.
     codes = set(decision['review_codes'])
-    known = d['value'] is not None and not (UNRESOLVED_TIME - {'original_age_unknown'}).intersection(codes)
-    inferred = known and 'original_age_unknown' in codes
+    known = d['value'] is not None and (model_routing or not (UNRESOLVED_TIME - {'original_age_unknown'}).intersection(codes))
+    inferred = known and not model_routing and 'original_age_unknown' in codes
     evidence = []; by_quote = {}
     for quotes, supports in [(a['action']['evidence'], ['title','description']), (d['evidence'], ['deadline'])]:
         for q in quotes:
@@ -86,29 +86,13 @@ def candidate_view(decision, entry):
             url=source['url'], label=source['label'], source_item_id=r['source_item_id'])])
 
 
-def history_view(decision):
-    """Only demote old pending history; never promote a saved model run to a task."""
-    if decision['recommendation']!='candidate' or decision['review_codes']:
-        return decision
-    draft={key:deepcopy(decision[key]) for key in ('title','description','notice_type','target','relevance')}
-    draft['assessment']=deepcopy(decision['pair']['assessment'])
-    for key in ('input_id','candidate_id'):draft['assessment'].pop(key)
-    try:
-        # A saved decision without source_unverified passed the authenticated
-        # source gate. Recheck its unchanged evidence; no new model call/version.
-        refreshed=compile_teaching_draft(json.dumps(dict(tasks=[draft]),ensure_ascii=False),
-            decision['pair']['record'],source_verified=True)[0]
-    except Exception:
-        return decision
-    if refreshed['recommendation']!='filtered':return decision
-    return dict(decision,recommendation='filtered',review_codes=[],review_reasons=[],filter_reason=refreshed['filter_reason'])
-
-
 def result_view(request, result):
     tasks, rows, errors = [], [], []
+    model_routing = result.get('classification_mode') == CLASSIFICATION_MODE
     for entry, row in zip(request['records'], result['record_results']):
-        decisions=[history_view(d) for d in row['decisions']]
-        cards = [candidate_view(d, entry) for d in decisions if d['recommendation']!='filtered']
+        # Viewing a stored result must not reclassify it or change user decisions.
+        decisions=row['decisions']
+        cards = [candidate_view(d, entry, model_routing=model_routing) for d in decisions if d['recommendation']!='filtered']
         tasks.extend(cards)
         warnings = list(row['warnings'])
         warnings.extend('history_filtered:'+str(d['filter_reason']) for d in decisions if d['recommendation']=='filtered')
@@ -209,6 +193,7 @@ def run(db, uid, body, retry, ApiError):
     try:
         result, policy = recognize(request,ApiError)
         try:
+            if result.get('classification_mode') != CLASSIFICATION_MODE: raise ValueError()
             validate_teaching_result(request,result,verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
             if not policy or result['policy_version']!=policy['version']: raise ValueError()
         except Exception:

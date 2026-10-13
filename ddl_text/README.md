@@ -7,7 +7,7 @@ ddl_text/
 ├── __main__.py           # CLI 参数、输入文件和输出
 ├── adapters.py           # 调用协议及离线回放适配器
 ├── chat_client.py        # 七牛兼容 API 请求和错误处理
-├── classification.py    # F3 历史有效性过滤、待核实判断和过滤说明
+├── classification.py    # 旧 v0.2 的历史过滤与待核实判断（教学网 model-v1 不使用）
 ├── codex_client.py       # 环境配置读取及可选 Codex 适配器
 ├── config.py             # 超时、重试和运行参数校验
 ├── contract_v02.py       # 前后端 v0.2 契约转换和校验
@@ -29,14 +29,14 @@ ddl_text/
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
-├── teaching_draft.py     # 教学网内部模型草稿、逐任务证据和历史规则编译
+├── teaching_draft.py     # 教学网模型直接分类、证据校验与结果编译
 ├── teaching_pipeline.py  # 显式 v0.4 批次调用、逐条失败和消费端复核
 ├── teaching_policy.py    # 教学网实际运行规则和模型配置的独立版本
 ├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
 │   ├── teaching-task-extraction/
-│   │   └── SKILL.md      # 教学网逐任务附件依赖、可信学期和历史语义
+│   │   └── SKILL.md      # 教学网行动/日期及任务、候选、过滤语义分类
 │   ├── image-task-extraction/
 │   │   └── SKILL.md      # 图片行动、日期、证据和质量判断规则
 │   └── text-task-extraction/
@@ -71,7 +71,8 @@ ddl_text/
 │   ├── teaching_cases.py  # 从共享政策样例派生的内部/真实合成测试输入
 │   ├── test_teaching_draft.py # 覆盖、学期、历史、信任及超时回归
 │   ├── test_teaching_pipeline.py # 共享批次样例、失败隔离、消费复核与版本回归
-│   ├── run_teaching_smoke.py # 显式调用当前模型的合成教学网政策预览
+│   ├── run_teaching_smoke.py # 新分类实测的兼容命令入口
+│   ├── run_teaching_routing_smoke.py # 八组合成教学网分类的真实服务验证
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
 │   ├── homework_cases.py # 作业语境、参考资料和可选行动的合成验证输入
@@ -104,7 +105,7 @@ ddl_text/
 
 接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
 
-教学网 #108/#109 的 [政策识别组件](docs/teaching-draft.md) 使用已合入 #114 的覆盖与学期规则；采集、账号核验、HTTP 和入库由消费方接入。
+教学网 [model-v1 分类](docs/teaching-draft.md) 在同次模型调用中输出 task/candidate/filtered；程序只做格式、证据和来源等技术校验，正文 partial、未读补充资料和正常补年不再强制审核。下文 F3 旧规则只用于 v0.2，微信 v0.3.1 规则不变。
 
 新增可选 [v0.3.1 附件识别入口](docs/image-input.md)：支持静态 JPG/PNG、普通 PDF 可见页面、DOCX 正文/表格/内嵌图片和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，文件证据依正式契约保留待审核。
 

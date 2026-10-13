@@ -478,6 +478,42 @@
                 "type": "null"
               }
             ]
+          },
+          "empty_decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "no_tasks",
+                      "incomplete"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/quote"
+                    },
+                    "maxItems": 20
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason",
+                  "evidence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -493,6 +529,9 @@
         "additionalProperties": false
       },
       "maxItems": 20
+    },
+    "classification_mode": {
+      "const": "model-v1"
     }
   },
   "required": [

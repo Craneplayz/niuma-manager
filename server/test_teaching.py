@@ -18,9 +18,67 @@ from contracts.teaching_io import snapshot_digest
 from ddl_text.config import Settings
 from ddl_text.teaching_pipeline import process_teaching_request
 from ddl_text.tests.test_teaching_pipeline import example, RecordClient
+from ddl_text.tests.teaching_cases import empty_reply
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_real_synthetic_model_results_replay_through_http_and_workspace(self):
+        fixtures=json.loads((Path(__file__).parents[1]/'contracts/examples/teaching-model-routing-v04-cases.json').read_text(encoding='utf-8'))['cases']
+        added=0
+        for case in fixtures:
+            with self.subTest(case=case['name']):
+                with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[case['request']])
+                view=sync['requests'][0]
+                with app.connection() as db:request=teaching.resolve_snapshot(db,self.uid,view['request_id'],app.ApiError)
+                result=deepcopy(case['expected']);result['request_id']=request['request_id']
+                row=result['record_results'][0];row['snapshot_id']=request['records'][0]['record']['snapshot_id']
+                for d in row['decisions']:d['pair']['record']=deepcopy(request['records'][0]['record'])
+                with patch.object(teaching,'recognize',return_value=(result,dict(version=result['policy_version']))):
+                    status,batches=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
+                self.assertEqual(status,200,batches)
+                batch=next(b for b in batches if b['request']['request_id']==view['request_id'])
+                route=case['expected_classification']['recommendation']
+                if route in ('filtered','no_tasks'):
+                    self.assertFalse(batch['items']);self.assertFalse(batch['result']['errors'])
+                else:
+                    item=batch['items'][0]
+                    self.assertEqual(item['candidate']['needs_review'],route=='candidate')
+                    status,_=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+                    self.assertEqual(status,200 if route=='task' else 400)
+                    added+=route=='task'
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),added)
+
+    def test_partial_model_task_auto_applies_while_candidate_and_filtered_remain_distinct(self):
+        request,drafts=example(('explicit-complete',)*3)
+        for entry,route in zip(request['records'],('task','candidate','filtered')):
+            record=entry['record'];record['body_status']='partial'
+            task=json.loads(drafts[record['input_id']])['tasks'][0]
+            task.update(recommendation=route,reason='' if route=='task' else '缺少最终截止更正。' if route=='candidate' else '历史作业已失效。')
+            drafts[record['input_id']]=json.dumps(dict(tasks=[task]))
+        self.drafts.update(drafts)
+        with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+        for view,route in zip(sync['requests'],('task','candidate','filtered')):
+            batch=self.run_request(view)
+            if route=='filtered':
+                self.assertFalse(batch['items'])
+                self.assertTrue(batch['result']['record_results'][0]['warnings'])
+                continue
+            item=batch['items'][0]
+            self.assertEqual(item['candidate']['needs_review'],route=='candidate')
+            status,_=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+            self.assertEqual(status,200 if route=='task' else 400)
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+
+    def test_partial_non_action_stays_out_of_review_and_failure_retry(self):
+        request,drafts=example();record=request['records'][0]['record']
+        record.update(text='10月9日上午课程暂停一次。',body_status='partial')
+        self.drafts[record['input_id']]=empty_reply(record)
+        with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+        batch=self.run_request(sync['requests'][0])
+        self.assertFalse(batch['items'])
+        self.assertFalse(batch['result']['errors'])
+        self.assertEqual(batch['result']['status'],'no_tasks')
+
     def test_teaching_task_evidence_survives_import_grouping_and_archive(self):
         capture=self.native_capture('active')
         view=self.sync_native(capture)['requests'][0]
@@ -257,21 +315,16 @@ class TeachingIntegrationTests(unittest.TestCase):
         for index,view in enumerate(sync['requests']):
             batch=self.run_request(view);item=batch['items'][0];card=item['candidate']
             self.assertEqual(card['course_or_project'],'测试课程')
-            self.assertEqual(card['needs_review'],index==2)
-            if index<2:
-                self.assertEqual(card['deadline']['value'],'2026-10-23')
-                status,result=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
-                self.assertEqual(status,200,result)
-            else:
-                self.assertEqual(card['deadline']['status'],'inferred')
-                self.assertEqual(card['deadline']['value'],'2026-10-23')
-                self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+            self.assertFalse(card['needs_review'])
+            self.assertEqual(card['deadline']['value'],'2026-10-23')
+            status,result=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+            self.assertEqual(status,200,result)
             with app.connection() as db:
                 row=db.execute('SELECT request,result FROM recognition_batches WHERE request_id=?',(view['request_id'],)).fetchone()
                 self.assertEqual(json.loads(row['request'])['contract_version'],'0.4')
                 self.assertEqual(json.loads(row['result'])['policy_version'],'teaching-policy-v1:'+'0'*64)
         tasks=self.call('/workspace')[1]['tasks']['value']
-        self.assertEqual(len(tasks),2);self.assertTrue(all(t['course']=='测试课程' for t in tasks))
+        self.assertEqual(len(tasks),3);self.assertTrue(all(t['course']=='测试课程' for t in tasks))
         self.assertTrue(all(t['due']==dict(date='2026-10-23',precision='date') for t in tasks))
         _,again=self.capture(('unread-supplement','yearless-current-assignment-term','yearless-unknown-age'))
         self.assertEqual(again['summary'],dict(total=3,skipped=3,pending=0))
@@ -286,8 +339,8 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertEqual(current['id'],item['id'])
         self.assertEqual((current['state'],current['version']),('pending',1))
         self.assertEqual(current['candidate']['deadline']['value'],'2026-10-23')
-        self.assertEqual(current['candidate']['deadline']['status'],'inferred')
-        self.assertTrue(current['candidate']['needs_review'])
+        self.assertEqual(current['candidate']['deadline']['status'],'explicit')
+        self.assertFalse(current['candidate']['needs_review'])
 
     def test_same_quote_merges_action_and_deadline_support_without_losing_native_proof(self):
         request,sync=self.capture(('explicit-complete',))
@@ -305,7 +358,7 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertEqual(assessment['action']['evidence'],[quote])
         self.assertEqual(assessment['deadline']['evidence'],[quote])
 
-    def test_old_overdue_review_projection_preserves_raw_results_and_user_decisions(self):
+    def test_old_overdue_results_and_user_decisions_are_not_reclassified_on_read(self):
         _,sync=self.capture(('explicit-complete','explicit-complete','explicit-complete'))
         expected={}
         for view,state in zip(sync['requests'],('pending','applied','ignored')):
@@ -318,6 +371,7 @@ class TeachingIntegrationTests(unittest.TestCase):
                 request['records'][0]['record']['collected_at']='2026-10-24T12:00:00+08:00'
                 decision['pair']['record']['collected_at']='2026-10-24T12:00:00+08:00'
                 decision.update(recommendation='candidate',review_reasons=['截止已过，是否仍需执行请核对原通知。'])
+                result.pop('classification_mode',None)
                 raw=json.dumps(result)
                 db.execute('UPDATE recognition_batches SET request=?,result=? WHERE request_id=?',
                            (json.dumps(request),raw,view['request_id']))
@@ -328,10 +382,9 @@ class TeachingIntegrationTests(unittest.TestCase):
         model.assert_not_called()
         for batch in batches:
             state,raw,item_id=expected[batch['request']['request_id']]
-            self.assertEqual(batch['result']['tasks'],[])
-            self.assertEqual(batch['result']['record_results'][0]['status'],'no_tasks')
-            self.assertTrue(any(w.startswith('history_filtered:') for w in batch['result']['record_results'][0]['warnings']))
-            self.assertEqual([i['state'] for i in batch['items']],[] if state=='pending' else [state])
+            self.assertEqual(len(batch['result']['tasks']),1)
+            self.assertEqual(batch['result']['record_results'][0]['status'],'success')
+            self.assertEqual([i['state'] for i in batch['items']],[state])
             with app.connection() as db:
                 self.assertEqual(db.execute('SELECT result FROM recognition_batches WHERE request_id=?',
                     (batch['request']['request_id'],)).fetchone()['result'],raw)
@@ -362,7 +415,7 @@ class TeachingIntegrationTests(unittest.TestCase):
     def test_incomplete_source_is_preserved_but_does_not_repeat_model_until_capture_changes(self):
         request,sync=self.capture(('unread-supplement',))
         view=sync['requests'][0];iid=view['records'][0]['input_id']
-        self.drafts[iid]='{"tasks":[]}'
+        self.drafts[iid]=empty_reply(request['records'][0]['record'],'incomplete')
         batch=self.run_request(view)
         self.assertEqual(batch['result']['errors'][0]['code'],'incomplete_source')
         self.assertFalse(batch['result']['errors'][0]['retryable'])
@@ -382,12 +435,13 @@ class TeachingIntegrationTests(unittest.TestCase):
             refreshed=teaching.register(db,self.uid,'synthetic-course-user',[complete])
         fresh=refreshed['requests'][0]
         self.assertNotEqual(fresh['request_id'],view['request_id'])
+        self.drafts[iid]=empty_reply(record)
         self.assertEqual(self.run_request(fresh)['result']['status'],'no_tasks')
         self.assertEqual(len(self.call('/recognition/batches')[1]),2)
 
     def test_no_tasks_and_multiple_tasks_are_distinct(self):
-        _,sync=self.capture(('explicit-complete','explicit-complete'))
-        first,second=sync['requests'];self.drafts[first['records'][0]['input_id']]='{"tasks":[]}'
+        request,sync=self.capture(('explicit-complete','explicit-complete'))
+        first,second=sync['requests'];self.drafts[first['records'][0]['input_id']]=empty_reply(request['records'][0]['record'])
         iid=second['records'][0]['input_id'];draft=json.loads(self.drafts[iid]);draft['tasks']*=2;self.drafts[iid]=json.dumps(draft)
         self.assertEqual(self.run_request(first)['result']['status'],'no_tasks')
         batch=self.run_request(second);self.assertEqual(len(batch['items']),2)

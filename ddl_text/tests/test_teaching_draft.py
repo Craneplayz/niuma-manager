@@ -66,56 +66,75 @@ class TeachingDraftTests(unittest.TestCase):
         return compile_teaching_draft(json.dumps(dict(tasks=[task]), ensure_ascii=False), record,
             source_verified=case['source_verified'] if verified is None else verified)
 
-    def test_shared_twenty_cases_survive_compilation(self):
-        for case in POLICY_CASES:
-            with self.subTest(name=case['name']):
-                result = self.compile(case['name'])[0]
-                self.assertEqual(result['review_codes'], case['expected_review_codes'])
-                validate_pair(result['pair'])
+    def test_model_task_survives_partial_unknown_attachment_and_year_completion(self):
+        for name in ('explicit-complete','unread-supplement','yearless-unknown-age','cross-year-term'):
+            def change(record,task):
+                record['body_status']='partial'
+                for relation in task['assessment']['unread_relations']:relation.update(role='unknown',evidence=[])
+                task['assessment']['other_review_reasons']=['An unrelated informational note']
+            with self.subTest(name=name):
+                decision=self.compile(name,change)[0]
+                self.assertEqual(decision['recommendation'],'task')
+                self.assertEqual(decision['review_codes'],[])
+                self.assertEqual(decision['review_reasons'],[])
 
-    def test_supplementary_attachment_does_not_force_review_or_claim_read(self):
-        decision = self.compile()[0]
-        self.assertEqual(decision['recommendation'], 'task')
-        self.assertEqual(decision['review_reasons'], [])
-        self.assertEqual(decision['pair']['record']['references'][0]['read_state'], 'unread')
+    def test_model_candidate_and_filter_are_not_overridden_by_complete_metadata(self):
+        for route,reason in [('candidate','The final deadline is in an unread correction'),('filtered','This is a past assignment')]:
+            def change(record,task):task.update(recommendation=route,reason=reason)
+            decision=self.compile('explicit-complete',change)[0]
+            self.assertEqual(decision['recommendation'],route)
+            self.assertEqual(decision['filter_reason'],reason if route=='filtered' else None)
+            self.assertEqual(decision['review_reasons'],[reason] if route=='candidate' else [])
 
-    def test_term_year_completion_is_quiet_but_unknown_age_remains_reviewable(self):
-        decision = self.compile('yearless-current-assignment-term')[0]
-        self.assertEqual(decision['recommendation'], 'task')
-        self.assertEqual(decision['review_reasons'], [])
-        self.assertEqual(decision['pair']['record']['published_at'], None)
-        unknown = self.compile('yearless-unknown-age')[0]
-        self.assertEqual(unknown['recommendation'], 'candidate')
-        self.assertIn('original_age_unknown', unknown['review_codes'])
+    def test_ongoing_and_expired_dates_are_classified_by_model_not_python(self):
+        def change(record,task):record['collected_at']='2026-11-01T12:00:00+08:00'
+        decision=self.compile('explicit-complete',change)[0]
+        self.assertEqual(decision['recommendation'],'task')
+        # A real model must distinguish overdue/ongoing in the skill; this test
+        # proves code does not secretly perform a second semantic classification.
 
-    def test_cross_year_and_outside_term(self):
-        self.assertEqual(self.compile('cross-year-term')[0]['recommendation'], 'task')
-        outside = self.compile('outside-term-do-not-discard')[0]
-        self.assertEqual(outside['recommendation'], 'candidate')
-        self.assertIn('term_date_unresolved', outside['review_codes'])
+    def test_per_task_classification_does_not_spread_one_attachment_doubt(self):
+        pair=policy_case()['pair'];record=pair['record']
+        first=model_task(pair);second=model_task(pair,'candidate','Final date depends on the unread correction')
+        decisions=compile_teaching_draft(json.dumps(dict(tasks=[first,second])),record,source_verified=True)
+        self.assertEqual([d['recommendation'] for d in decisions],['task','candidate'])
+        self.assertNotEqual(decisions[0]['pair']['assessment']['candidate_id'],decisions[1]['pair']['assessment']['candidate_id'])
 
-    def test_no_year_date_is_not_checked_against_new_raw_format_list(self):
-        def change(record, task):
-            record['text'] = '作业在十月廿三号以前交齐。'
-            for field in ('action', 'deadline'):
-                task['assessment'][field]['evidence'] = [dict(part_id='body', quote=record['text'])]
-        self.assertEqual(self.compile('yearless-current-assignment-term', change)[0]['recommendation'], 'task')
+    def test_missing_or_inconsistent_classifications_fail_instead_of_entering_review(self):
+        for error in ('missing_route','missing_reason','unknown_route','unresolved_task','change_task','filter_without_evidence'):
+            def change(record,task):
+                if error=='missing_route':task.pop('recommendation')
+                elif error=='missing_reason':task.update(recommendation='candidate',reason=' ')
+                elif error=='unknown_route':task['recommendation']='maybe'
+                elif error=='unresolved_task':task['assessment']['deadline'].update(value=None,precision='unknown',derivation='unresolved',anchor=None)
+                elif error=='change_task':task['notice_type']='cancel'
+                else:
+                    task.update(recommendation='filtered',reason='No action')
+                    task['assessment']['action'].update(state='uncertain',evidence=[])
+            with self.subTest(error=error),self.assertRaises(AgentError):self.compile('explicit-complete',change)
 
-    def test_multitask_attachment_relation_is_per_task(self):
-        case = policy_case()
-        record = case['pair']['record']
-        record['text'] += '第三次作业的提交日期见附加练习。'
-        first = model_task(case['pair'])
-        second = deepcopy(first)
-        second['title'] = '完成第三次作业'
-        quote = [dict(part_id='body', quote='第三次作业的提交日期见附加练习。')]
-        second['assessment'].update(action=dict(state='supported', evidence=quote),
-            deadline=dict(value=None, precision='unknown', derivation='unresolved', anchor=None, evidence=quote),
-            unread_relations=[dict(ref_id='extra', role='required', evidence=quote)])
-        decisions = compile_teaching_draft(json.dumps(dict(tasks=[first, second]), ensure_ascii=False), record,
-                                          source_verified=True)
-        self.assertEqual([d['recommendation'] for d in decisions], ['task', 'candidate'])
-        self.assertNotEqual(decisions[0]['pair']['assessment']['candidate_id'], decisions[1]['pair']['assessment']['candidate_id'])
+    def test_new_empty_decisions_distinguish_non_tasks_from_missing_source(self):
+        from ddl_text.tests.teaching_cases import empty_reply
+        from ddl_text.teaching_draft import compile_teaching_response
+        record=policy_case()['pair']['record'];record['body_status']='partial'
+        for status in ('no_tasks','incomplete'):
+            out=compile_teaching_response(empty_reply(record,status),record,source_verified=True)
+            self.assertEqual(out['decisions'],[])
+            self.assertEqual(out['empty_decision']['status'],status)
+        with self.assertRaises(AgentError):compile_teaching_response('{"tasks":[]}',record,source_verified=True)
+        raw=json.loads(empty_reply(record));raw['empty_decision']['evidence'][0]['quote']='invented'
+        with self.assertRaises(AgentError):compile_teaching_response(json.dumps(raw),record,source_verified=True)
+
+    def test_year_metadata_supplements_but_cannot_replace_deadline_or_action_quote(self):
+        def add_metadata(record,task):
+            task['assessment']['deadline']['evidence'].append(dict(part_id='source_metadata',quote=record['source_metadata_text']))
+        self.assertEqual(self.compile('yearless-unknown-age',add_metadata)[0]['recommendation'],'task')
+        def only_metadata(record,task):
+            task['assessment']['deadline']['evidence']=[dict(part_id='source_metadata',quote=record['source_metadata_text'])]
+        with self.assertRaises(AgentError):self.compile('yearless-unknown-age',only_metadata)
+        def action_metadata(record,task):
+            task['assessment']['action']['evidence']=[dict(part_id='source_metadata',quote=record['source_metadata_text'])]
+        with self.assertRaises(AgentError):self.compile('explicit-complete',action_metadata)
 
     def test_omitted_unread_reference_and_forged_quote_rejected(self):
         for field in ('missing_relation', 'fake_quote', 'metadata_quote'):
@@ -140,38 +159,17 @@ class TeachingDraftTests(unittest.TestCase):
         with self.assertRaises(AgentError): self.compile(change=lambda r, t: t.update(source_verified=True))
 
     def test_historical_deadline_filtered_without_rebasing_to_current_year(self):
-        decision = self.compile('old-publication-keeps-old-year')[0]
+        def change(record,task):task.update(recommendation='filtered',reason='已失效的历史作业。')
+        decision = self.compile('old-publication-keeps-old-year',change)[0]
         self.assertEqual(decision['recommendation'], 'filtered')
         self.assertTrue(decision['pair']['assessment']['deadline']['value'].startswith('2023-'))
         self.assertTrue(decision['filter_reason'])
-        self.assertEqual(self.compile('old-publication-cannot-refresh-year')[0]['recommendation'], 'candidate')
 
-    def test_ongoing_future_and_changes_survive_historical_filter(self):
-        def ongoing(record, task):
-            record['text'] += '逾期仍须补交。'
-            task['relevance'] = dict(state='ongoing', reason='仍需完成', evidence=[dict(part_id='body', quote='逾期仍须补交。')])
-        self.assertEqual(self.compile('old-publication-keeps-old-year', ongoing)[0]['recommendation'], 'candidate')
-        def future(record, task):
-            record['text'] = '请于2027年1月3日交报告。'
-            quotes = [dict(part_id='body', quote=record['text'])]
-            task['assessment']['action']['evidence'] = quotes
-            task['assessment']['deadline'].update(value='2027-01-03', derivation='absolute', anchor=None, evidence=quotes)
-        self.assertEqual(self.compile('old-publication-keeps-old-year', future)[0]['recommendation'], 'task')
-        def cancel(record, task):
-            task['notice_type'] = 'cancel'
-            task['target'] = dict(part_id='body', quote=record['text'])
-        self.assertEqual(self.compile('old-publication-keeps-old-year', cancel)[0]['recommendation'], 'candidate')
-
-    def test_unverified_old_source_is_not_silently_discarded(self):
-        self.assertEqual(self.compile('old-publication-keeps-old-year', verified=False)[0]['recommendation'], 'candidate')
-
-    def test_metadata_can_support_history_but_not_action(self):
-        def history(record, task):
-            record['source_metadata_text'] = '这是2023年布置的旧作业。'
-            task['relevance'] = dict(state='historical', reason='旧作业',
-                evidence=[dict(part_id='source_metadata', quote=record['source_metadata_text'])])
-        self.assertEqual(self.compile('old-publication-keeps-old-year', history)[0]['recommendation'], 'filtered')
-        self.assertEqual(self.compile('old-publication-keeps-old-year', history, verified=False)[0]['recommendation'], 'candidate')
+    def test_unverified_model_filter_is_not_allowed_to_hide_source(self):
+        def change(record,task):task.update(recommendation='filtered',reason='Old assignment')
+        d=self.compile('old-publication-keeps-old-year',change,verified=False)[0]
+        self.assertEqual(d['recommendation'],'candidate')
+        self.assertIn('source_unverified',d['review_codes'])
 
     def test_prompt_schema_limits_quotes_to_actual_read_parts(self):
         record = policy_case()['pair']['record']
@@ -180,50 +178,6 @@ class TeachingDraftTests(unittest.TestCase):
         relevance = schema['properties']['tasks']['items']['properties']['relevance']
         self.assertEqual(relevance['properties']['evidence']['items']['properties']['part_id']['enum'],
                          ['body', 'source_metadata'])
-
-    def test_explicit_old_year_stays_old_even_in_current_course(self):
-        def change(record, task):
-            record['text'] = '请于2023年10月23日交第二次作业。'
-            quote = [dict(part_id='body', quote=record['text'])]
-            task['assessment']['action']['evidence'] = quote
-            task['assessment']['deadline'].update(value='2023-10-23', derivation='absolute', anchor=None, evidence=quote)
-        self.assertEqual(self.compile('yearless-current-assignment-term', change)[0]['recommendation'], 'filtered')
-
-    def test_recently_overdue_is_filtered_without_thirty_day_grace(self):
-        def change(record, task): record['collected_at'] = '2026-10-24T12:00:00+08:00'
-        decision = self.compile('explicit-complete', change)[0]
-        self.assertEqual(decision['recommendation'], 'filtered')
-        self.assertEqual(decision['review_reasons'], [])
-        self.assertIn('在采集时已过', decision['filter_reason'])
-
-    def test_date_only_deadline_survives_entire_source_local_day(self):
-        for collected, expected in [('2026-10-23T15:59:59Z', 'task'),
-                                    ('2026-10-23T16:00:00Z', 'filtered')]:
-            def change(record, task): record['collected_at'] = collected
-            with self.subTest(collected=collected):
-                self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], expected)
-
-    def test_datetime_expires_only_after_its_instant(self):
-        for collected, expected in [('2026-10-23T09:59:59Z', 'task'),
-                                    ('2026-10-23T10:00:00Z', 'task'),
-                                    ('2026-10-23T10:00:01Z', 'filtered')]:
-            def change(record, task):
-                record.update(text='请于2026年10月23日18点交作业。', collected_at=collected)
-                evidence = [dict(part_id='body', quote=record['text'])]
-                task['assessment']['action']['evidence'] = evidence
-                task['assessment']['deadline'].update(value='2026-10-23T18:00:00+08:00',
-                    precision='datetime', evidence=evidence)
-            with self.subTest(collected=collected):
-                self.assertEqual(self.compile('explicit-complete', change)[0]['recommendation'], expected)
-
-    def test_recent_overdue_does_not_override_real_uncertainty(self):
-        for case in ('yearless-unknown-age', 'unread-authority'):
-            def change(record, task): record['collected_at'] = '2026-10-24T12:00:00+08:00'
-            with self.subTest(case=case):
-                self.assertEqual(self.compile(case, change)[0]['recommendation'], 'candidate')
-        def incomplete(record, task):
-            record.update(collected_at='2026-10-24T12:00:00+08:00', body_status='partial')
-        self.assertEqual(self.compile('explicit-complete', incomplete)[0]['recommendation'], 'candidate')
 
     def test_invalid_model_json_and_dates_are_errors_not_no_tasks(self):
         record = policy_case()['pair']['record']
@@ -250,16 +204,15 @@ class TeachingDraftTests(unittest.TestCase):
         self.assertEqual(before, case['pair']['record'])
         self.assertFalse(preview.no_action_complete)
 
-    def test_empty_partial_and_unverified_inputs_cannot_claim_no_tasks(self):
-        for name, verified, complete in [('unread-supplement', True, False),
-                                         ('explicit-complete', True, True),
-                                         ('explicit-complete', False, False)]:
-            with self.subTest(name=name, verified=verified):
-                preview = process_teaching_draft(policy_case(name)['pair']['record'],
-                    client=SyntheticClient('{"tasks":[]}'), settings=Settings(timeout_seconds=10),
-                    source_verified=verified)
-                self.assertEqual(preview.no_action_complete, complete)
-                self.assertEqual(bool(preview.warnings), not complete)
+    def test_worker_transports_empty_classification_and_preserves_source_trust(self):
+        from ddl_text.tests.teaching_cases import empty_reply
+        for name,verified,complete in [('unread-supplement',True,True),('explicit-complete',False,False)]:
+            record=policy_case(name)['pair']['record']
+            preview=process_teaching_draft(record,client=SyntheticClient(empty_reply(record)),
+                settings=Settings(timeout_seconds=10),source_verified=verified)
+            self.assertEqual(preview.no_action_complete,complete)
+            self.assertEqual(preview.empty_decision['status'],'no_tasks' if complete else 'incomplete')
+            self.assertTrue(preview.warnings)
 
     def test_worker_timeout_is_not_an_empty_result(self):
         with self.assertRaises(AgentError) as error:
@@ -275,34 +228,6 @@ class TeachingDraftTests(unittest.TestCase):
             expected['properties'].pop(key); expected['required'].remove(key)
         self.assertEqual(actual, expected)
 
-    def test_saved_live_drafts_match_current_compiler(self):
-        path = Path(__file__).resolve().parents[1] / 'docs/archive/2026-10-07-teaching-policy-live.json'
-        self.assertTrue(path.exists(), 'synthetic live archive is part of this delivery')
-        from ddl_text.tests.teaching_cases import live_cases, matches
-        expected = {c['name']: c for c in live_cases()}
-        for row in json.loads(path.read_text(encoding='utf-8'))['cases']:
-            with self.subTest(name=row['name']):
-                self.assertEqual(row['record'], expected[row['name']]['record'])
-                self.assertEqual(row['expected'], expected[row['name']]['expected'])
-                decisions = compile_teaching_draft(row['model_draft'], row['record'], source_verified=row['source_verified'])
-                self.assertEqual(decisions, row['decisions'])
-                self.assertTrue(matches(row, decisions))
-
-    def test_live_check_does_not_allow_required_file_to_be_auto_accepted(self):
-        from ddl_text.tests.teaching_cases import live_cases, matches
-        case = next(c for c in live_cases() if c['name'] == 'unread-authority')
-        decisions = self.compile('unread-authority')
-        self.assertTrue(matches(case, decisions))
-        changed = deepcopy(decisions)
-        changed[0]['pair']['assessment']['deadline'].update(value=None, precision='unknown', derivation='unresolved', anchor=None)
-        self.assertTrue(matches(case, changed))
-        for change in ('route', 'missing_reason', 'false_no_deadline', 'wrong_date'):
-            bad = deepcopy(decisions)
-            if change == 'route': bad[0]['recommendation'] = 'task'
-            elif change == 'missing_reason': bad[0]['review_codes'] = []
-            elif change == 'false_no_deadline': bad[0]['pair']['assessment']['deadline'].update(value=None, derivation='not_provided')
-            else: bad[0]['pair']['assessment']['deadline']['value'] = '2030-01-01'
-            with self.subTest(change=change): self.assertFalse(matches(case, bad))
 
 
 if __name__ == '__main__':

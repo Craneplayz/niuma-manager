@@ -12,6 +12,29 @@ CASES=json.loads((ROOT/'examples/teaching-v04-cases.json').read_text(encoding='u
 
 
 class TeachingIOTests(unittest.TestCase):
+    def test_model_classification_shared_real_synthetic_examples(self):
+        cases=json.loads((ROOT/'examples/teaching-model-routing-v04-cases.json').read_text(encoding='utf-8'))['cases']
+        for case in cases:
+            with self.subTest(name=case['name']):
+                self.check(case['request'],case['expected'])
+                route=case['expected_classification']['recommendation']
+                row=case['expected']['record_results'][0]
+                if route=='no_tasks':self.assertEqual(row['status'],'no_tasks')
+                else:self.assertEqual([d['recommendation'] for d in row['decisions']],[route])
+
+    def test_new_mode_cannot_bypass_evidence_identity_or_consistency(self):
+        cases=json.loads((ROOT/'examples/teaching-model-routing-v04-cases.json').read_text(encoding='utf-8'))['cases']
+        for bad in ('unknown_mode','missing_evidence','false_date','wrong_snapshot','unverified','old_mode','contradiction'):
+            case=deepcopy(cases[1]);request,result=case['request'],case['expected']
+            d=result['record_results'][0]['decisions'][0]
+            if bad=='unknown_mode':result['classification_mode']='whatever'
+            elif bad=='missing_evidence':d['pair']['assessment']['action']['evidence'][0]['quote']='invented'
+            elif bad=='false_date':d['pair']['assessment']['deadline']['value']='2026-02-30'
+            elif bad=='wrong_snapshot':d['pair']['record']['text']='forged'
+            elif bad=='old_mode':result.pop('classification_mode')
+            elif bad=='contradiction':d['pair']['assessment']['deadline'].update(value=None,precision='unknown',derivation='unresolved',anchor=None)
+            with self.subTest(bad=bad),self.assertRaises(Exception):self.check(request,result,bad!='unverified')
+
     def sample(self):
         case=deepcopy(CASES[0]);return case['request'],case['expected']
 
