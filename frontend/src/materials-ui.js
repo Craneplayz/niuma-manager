@@ -1,4 +1,4 @@
-import { api, session, accountVersion } from "./team-store.js";
+import { api, session, accountVersion, flushStore } from "./team-store.js";
 import { newId } from "./id.js";
 
 const root = "/api/materials/";
@@ -75,6 +75,7 @@ export function createMaterialsUI(host) {
     const value = stamp(); busy = true; error = notice = ""; controller = new AbortController(); host.render();
     try {
       if (loadingPromise) await loadingPromise;
+      await flushStore();
       if (!valid(value)) return true;
       if (action === "upload") {
         if (!consent || !files.length) throw new Error("请选择文件并同意发送给识别服务");
@@ -95,8 +96,8 @@ export function createMaterialsUI(host) {
       } else if (action === "retry") {
         const id = button.dataset.job;
         if (!jobs.some(j => j.job_id === id && !active(j))) return true;
-        if (!retryIds.has(id)) retryIds.set(id, "retry:" + newId());
-        await api(root + "imports/" + encodeURIComponent(id) + "/retry", { contract_version: "0.3.1", retry_id: retryIds.get(id) });
+        if (!retryIds.has(id)) retryIds.set(id, "retry-" + newId());
+        await api(root + "imports/" + encodeURIComponent(id) + "/retry", { retry_id: retryIds.get(id) });
         if (!valid(value)) return true;
         retryIds.delete(id); notice = "已重试失败部分，成功结果保留。";
       }

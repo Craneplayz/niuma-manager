@@ -402,7 +402,7 @@ class LiveEnvironmentIsolationTests(unittest.TestCase):
             credentials=dict(username='synthetic-'+name, password='Synthetic-Only!')
             self.assertEqual(self.request(name,'/api/sources/credentials',credentials,cookies[name])[0],200)
             self.assertEqual(self.request(name,'/api/sources/credentials',cookie=cookies[name])[2],
-                             dict(configured=True,username='synthetic-'+name))
+                             dict(configured=True,username='synthetic-'+name,source_account_id=hashlib.sha256(('synthetic-'+name).encode()).hexdigest()))
             content=('Synthetic attachment '+name+'\n').encode()
             receipt=self.upload(name,cookies[name],content)
             self.assertEqual(receipt['sha256'],hashlib.sha256(content).hexdigest())

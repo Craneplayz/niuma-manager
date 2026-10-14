@@ -97,7 +97,7 @@ def skip_model(state):
 
 def review_reason(state):
     if state and state['review_pending']: return STATUS_REVIEW
-    if state and state['state']=='submitted' and state.get('scope')=='unknown': return SCOPE_REVIEW
+    if state and state['state']=='submitted' and state.get('scope','unknown')=='unknown': return SCOPE_REVIEW
     return None
 
 

@@ -263,7 +263,8 @@ def route(handler,db,uid,path,body,ApiError):
                     (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         handler.reply(200,batches(db,uid));return True
     if path.startswith('/api/recognition/candidates/') and path.endswith('/resolve') and handler.command=='POST':
-        cid=path.split('/')[-2]
+        from urllib.parse import unquote
+        cid=unquote(path.split('/')[-2])
         db.execute('BEGIN IMMEDIATE')
         resolve_candidate(db,uid,cid,body,ApiError)
         handler.reply(200,dict(batches=batches(db,uid)));return True

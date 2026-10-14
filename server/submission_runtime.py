@@ -6,11 +6,15 @@ import re
 from jsonschema import ValidationError
 from copy import deepcopy
 from datetime import datetime, timezone
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import urlsplit, parse_qs, unquote
 
 from contracts import submission_policy as policy, submission_operations as operations
 
 BASES = {'submitted': 'review_submission_history_title', 'active': 'active_assignment_page', 'unknown': 'unknown'}
+
+
+class ActionLimitError(ValueError):
+    """An incomplete action list must never authorize whole-source completion."""
 
 
 def initialize(db):
@@ -102,6 +106,7 @@ def linked_actions(db, row, detail):
 def refresh(db, row):
     detail=json.loads(row['detail']); observation=detail['observation']
     actions, refs, labels=linked_actions(db,row,detail)
+    if len(actions)>100: raise ActionLimitError('source action limit')
     if actions!=observation['actions'] or labels!=detail['action_labels']:
         observation['actions']=actions; detail['action_labels']=labels
         if any(a['relation']!='assignment_submission' for a in actions): observation['scope']='unknown'
@@ -133,7 +138,12 @@ def observe(db, uid, account, record, assignment, previous, *, source=None, asse
         operations.check('detail',detail)
         db.execute('INSERT INTO submission_controls VALUES(?,?,?,?,?,?)',(rid,uid,account,record['input_id'],digest,json.dumps(detail)))
         row=find(db,uid,account,record['input_id'])
-    detail, refs=refresh(db,row); obs=detail['observation']; before=deepcopy(detail)
+    try: detail, refs=refresh(db,row)
+    except ActionLimitError:
+        detail=json.loads(row['detail']);detail['observation']['scope']='unknown'
+        detail['observation']['control_revision']+=1;persist(db,row,detail)
+        return  # Preserve all actions; do not complete a truncated selection.
+    obs=detail['observation']; before=deepcopy(detail)
     old_state=previous['state'] if previous else 'unknown'
     snap=obs['snapshot']
     if snap['observed_at']!=record['collected_at'] or snap['state']!=assignment['state']:
@@ -189,7 +199,10 @@ def refresh_request(db,uid,request_id):
     obs=control_for_request(db,uid,request_id)
     if obs:
         row=find(db,uid,obs['snapshot']['source_account_id'],obs['snapshot']['input_id'])
-        refresh(db,row)
+        try: refresh(db,row)
+        except ActionLimitError:
+            detail=json.loads(row['detail']);detail['observation']['scope']='unknown'
+            detail['observation']['control_revision']+=1;persist(db,row,detail)
 
 
 def manual_task_write(db,uid,tasks):
@@ -197,7 +210,10 @@ def manual_task_write(db,uid,tasks):
     reopened={identity('task',t['id']) for t in tasks if t['status']!='completed' and old.get(t['id'],{}).get('status')=='completed'}
     if not reopened:return
     for row in db.execute('SELECT * FROM submission_controls WHERE user_id=?',(uid,)).fetchall():
-        detail,_=refresh(db,row);obs=detail['observation'];changed=False
+        try: detail,_=refresh(db,row)
+        except ActionLimitError:
+            detail=json.loads(row['detail']);detail['observation']['scope']='unknown'
+        obs=detail['observation'];changed=False
         for action in obs['actions']:
             if action['action_id'] in reopened and action['relation']=='assignment_submission':
                 action.update(source_completion_paused=True,decision='confirmed',completion_origin=None);changed=True
@@ -210,6 +226,7 @@ def manual_task_write(db,uid,tasks):
 def route(handler,db,uid,path,body,ApiError):
     root='/api/sources/submissions'
     if path!=root and not path.startswith(root+'/'):return False
+    path=unquote(path)
     account=current_account(db,uid)
     if not account:raise ApiError(404,'请先连接教学网')
     if handler.headers.get('Authorization'):raise ApiError(403,'此操作需要登录会话')
@@ -221,12 +238,13 @@ def route(handler,db,uid,path,body,ApiError):
         rows=db.execute('SELECT * FROM submission_controls WHERE user_id=? AND account=? AND record_id>? ORDER BY record_id LIMIT 101',(uid,account,cursor)).fetchall()
         records=[]
         for row in rows[:100]:
-            detail,_=refresh(db,row);records.append({k:detail[k] for k in ('record_id','label','course_or_project')})
+            detail=json.loads(row['detail']);records.append({k:detail[k] for k in ('record_id','label','course_or_project')})
         handler.reply(200,dict(contract_version=operations.VERSION,source_account_id=account,records=records,next_cursor=rows[99]['record_id'] if len(rows)>100 else None));return True
     rid=path[len(root)+1:].split('/')[0]
     row=db.execute('SELECT * FROM submission_controls WHERE record_id=? AND user_id=? AND account=?',(rid,uid,account)).fetchone()
     if not row:raise ApiError(404,'作业记录不存在或来源已移除')
-    detail,refs=refresh(db,row)
+    try: detail,refs=refresh(db,row)
+    except ActionLimitError: raise ApiError(503,'该来源关联超过 100 项，无法完整确认；请分别处理任务，不会自动完成。') from None
     if path==root+'/'+rid and handler.command=='GET':handler.reply(200,detail);return True
     if path==root+'/'+rid+'/source' and handler.command=='GET':
         from teaching import request_view
@@ -244,6 +262,11 @@ def route(handler,db,uid,path,body,ApiError):
     if saved:
         if saved['digest']!=digest:raise ApiError(409,'操作编号已用于不同请求，请刷新后重试')
         handler.reply(200,json.loads(saved['receipt']));return True
+    if body['kind']=='associate_actions' and body['scope']=='submission_only':
+        captured=db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',(uid,account,row['input_id'])).fetchone()
+        records=json.loads(captured['request'])['records'] if captured else []
+        if not records or any(e['record']['body_status']!='complete' or any(r['read_state']!='complete' for r in e['record']['references']) for e in records):
+            raise ApiError(400,'当前来源未完整取得，请逐项关联；不能确认整份来源只有提交行动。')
     try:plan=operations.apply_operation(detail,body)
     except operations.OperationConflict:raise ApiError(409,'来源或操作版本已变化，请刷新后重新确认') from None
     except (ValueError,KeyError,TypeError,ValidationError):raise ApiError(400,'当前状态不允许此操作，请刷新后核对选择') from None

@@ -1,6 +1,7 @@
 import json
 import time
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 import test_teaching
 import public_sources
@@ -8,7 +9,7 @@ from contracts import public_import as contract
 
 
 def capture():
-    return dict(contract_version=contract.VERSION,pages_failed=0,events=[dict(id='evt_synthetic',title='合成公开讲座',description='公开活动说明',start_time='2099-10-20T09:00:00+08:00',end_time=None,location='合成报告厅',url='https://cs.pku.edu.cn/info/1019/1.htm',source_id='cs')])
+    return json.loads((Path(__file__).parents[1]/'contracts/examples/public-import-v01.json').read_text(encoding='utf-8'))['capture']
 
 
 class PublicSourcesAPI(test_teaching.TeachingIntegrationTests):
@@ -20,7 +21,7 @@ class PublicSourcesAPI(test_teaching.TeachingIntegrationTests):
                 runs=self.call('/sources/public/runs')[1]['runs']
                 if runs[0]['state']!='running':break
                 time.sleep(.01)
-            self.assertEqual(runs[0]['state'],'succeeded');self.assertEqual(collect.call_count,1)
+            contract.check('run',runs[0]);self.assertEqual(runs[0]['state'],'succeeded');self.assertEqual(collect.call_count,1)
             self.assertEqual(self.call('/sources/public/runs',body)[1]['run_id'],run['run_id'])
         self.assertFalse(self.call('/workspace')[1].get('tasks',{}).get('value'))
         route='/sources/public/runs/'+run['run_id']+'/import'

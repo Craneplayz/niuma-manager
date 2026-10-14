@@ -1,6 +1,6 @@
 # 教学网提交状态操作接口 v0.1
 
-`submission-operations/0.1` 是 #110 的业务接口契约，复用 [submission-policy/0.1](submission-policy-v0.1.md)，不改识别输入 v0.2/v0.3.1；本目录仅提供格式和纯转换参考，HTTP、数据库与 UI 由消费方实现。
+`submission-operations/0.1` 是 #110 的业务接口契约，复用 [submission-policy/0.1](submission-policy-v0.1.md)，不改识别输入 v0.2/v0.3.1；运行端由 `server/submission_runtime.py` 和前端导入页实现，本目录保留格式和纯转换参考。
 
 ## 查询与操作
 
@@ -10,6 +10,7 @@
 | --- | --- | --- |
 | GET `/api/sources/submissions?source_account_id=...&cursor=...` | directory | 必填账号内 source_account_id，cursor 可省略；每页最多 100 条受控教学网作业记录，不限于已生成任务的记录。 |
 | GET `/api/sources/submissions/{record_id}` | detail | 返回当前快照、控制版本、范围和所有永久行动及显示标题。 |
+| GET `/api/sources/submissions/{record_id}/source` | teaching-workspace/0.1 请求展示根 | 当前账号的完整已保存正文与引用，供整份范围核对；未读取部分明确标注。 |
 | POST `/api/sources/submissions/{record_id}/operations` | operation → receipt | 原子应用显式用户操作，首次成功 201，同一请求重放 200。 |
 
 record_id 是服务器分配的稳定、不透明 ID；既有 input_id 原样保存在 observation.snapshot 中，不能截短、trim、拼进路由或按标题猜测。record_id 绑定登录用户、source_account_id、input_id、course_id、content_id；详情与操作都须再次按用户查询全部行动。跨账号资源和不存在资源均返回 404，分页游标也必须绑定登录用户与来源账号，不能从另一账号延续。
@@ -52,4 +53,4 @@ python -m contracts.submission_operations --check
 python -m unittest contracts.tests.test_submission_operations -q
 ```
 
-Ken 审查并合并共享接口；Dranix 对接登录鉴权、路由、游标、持久幂等、数据库事务和 UI，并补跨账号、并发与重启测试；采集方提供稳定课程/作业身份及状态事实。合成校验通过不等于上述运行端已经上线。
+现已由 `server/submission_runtime.py` 对接登录鉴权、游标、持久幂等与事务，`frontend/src/submissions-ui.js` 提供操作入口；采集方提供稳定课程/作业身份及状态事实。审查按团队公约执行；合成运行端验收通过不等于生产环境已经部署。

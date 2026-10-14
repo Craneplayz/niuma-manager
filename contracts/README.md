@@ -3,6 +3,11 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── public_import.py                  # 公开活动采集、预览、选择导入的独立根及一致性校验
+├── schemas/public-import-v0.1.schema.json # 公开活动自包含 Schema 包
+├── examples/public-import-v01.json   # 生产方与前端共用的合成公开活动样例
+├── tests/test_public_import.py       # 信封、状态、重复活动和来源检查
+├── docs/public-import-v0.1.md         # 公开活动权限、幂等和导入边界
 ├── source_sync.py                    # 后台来源同步的独立请求/响应 Schema 与计数语义校验
 ├── docs/source-sync-v0.1.md           # 同步幂等、账号隔离、并发、停止与进度约定
 ├── examples/source-sync-v01.json     # 后台运行、重试和定时配置的共享合成样例

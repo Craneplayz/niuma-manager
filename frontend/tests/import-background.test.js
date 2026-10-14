@@ -6,7 +6,6 @@ globalThis.window=new EventTarget();setMaxListeners(0,window);
 globalThis.CustomEvent ||= class extends Event {constructor(type,options){super(type);this.detail=options?.detail;}};
 const store=await import('../src/team-store.js');
 const {createImportUI}=await import('../src/import-ui.js');
-const {refreshSourceSync}=await import('../src/source-sync-ui.js');
 const response=value=>({ok:true,json:async()=>structuredClone(value)});
 async function setup(t,intercept=()=>{}) {
  let tasks=[],runs=[],version=0,state,account='A';const calls=[],navigation=[];
@@ -30,7 +29,7 @@ async function setup(t,intercept=()=>{}) {
  state=await store.initSession();
  const ui=createImportUI({escapeHtml:s=>String(s??''),icon:()=>'',toast(){},render(){},openDialog(){},closeDialog(){},isDemo:()=>false,isImportVisible:()=>true,getState:()=>state,
   navigateTasks:()=>navigation.push('tasks'),showReview:()=>navigation.push('review'),refresh:async()=>{state=await store.refreshStore();}});
- t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'teaching'}});await refreshSourceSync();
+ t.after(()=>ui.reset());await ui.load();await ui.loadSourceSync();await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));
  return {ui,calls,navigation,get state(){return state;},complete(){tasks=[{id:'one',title:'后端已自动加入',content_type:'notice',status:'not_started',due:null,plans:[],subtasks:[]}];version++;runs=[syncRun({added:1})];},switchAccount(){account='B';window.dispatchEvent(new Event('niuma:account-reset'));}};
 }
 test('new UI starts one durable run only after consent, refreshes server tasks, and restores progress on return',async t=>{
@@ -39,9 +38,9 @@ test('new UI starts one durable run only after consent, refreshes server tasks, 
  f.ui.input({target:{id:'teaching-sync-consent',checked:true}});await f.ui.click({dataset:{importAction:'sync'}});
  assert.equal(f.calls.filter(c=>c.method==='POST').length,1);
  assert.match(f.ui.render(),/后台同步中|正在并发识别/);
- f.complete();await refreshSourceSync();assert.equal(f.state.tasks[0].content_type,'notice');
+ f.complete();await f.ui.loadSourceSync();assert.equal(f.state.tasks[0].content_type,'notice');
  assert.match(f.ui.render(),/新增 1 项/);
- const writes=f.calls.filter(c=>c.method==='POST').length;await f.ui.load();await refreshSourceSync();
+ const writes=f.calls.filter(c=>c.method==='POST').length;await f.ui.load();await new Promise(r=>setImmediate(r));await f.ui.loadSourceSync();
  assert.equal(f.calls.filter(c=>c.method==='POST').length,writes);
  assert.ok(f.calls.every(c=>c.path!=='/api/sources/sync'&&!c.path.endsWith('/resolve')));
  await f.ui.click({dataset:{sourceSyncAction:'tasks'}});await f.ui.click({dataset:{sourceSyncAction:'review'}});

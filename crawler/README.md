@@ -13,6 +13,7 @@ crawler/
 ├── data/                             保存原始页面、候选记录、规范记录和审阅网页
 ├── logs/                             保存结构化运行日志
 ├── src/                              爬虫及课程采集实现
+│   ├── public-import-cli.ts         现有三个公开适配器的受限网页预览导出入口
 │   ├── cli.ts                        公共事件爬取、重处理与审阅入口
 │   ├── crawler.ts                    调度抓取、解析、过滤和存储
 │   ├── index.ts                      导出爬虫公共接口
@@ -152,3 +153,5 @@ The producer uses `contracts/schemas/teaching-request-v0.4.schema.json`, copied 
 教师附件支持同源 Blackboard `dt-content` 和通知栏 `dt-announcement` 路径，含无扩展名的 xid 文件地址（格式由附件标签识别）；仍拒绝私人提交文件与外站地址。
 
 单条采集诊断：`pnpm pku:homework -- --format=raw --source-page=<已保存通知所在页URL> --source-item=<原始条目ID> --course-label=<课程名> --section-label=<栏目名>`。四个参数必须同时提供，不能与 `--all-sections` / 学期扫描组合；仅读取指定页面中的该条通知及其引用，不调用模型、不写账号数据，原始输出只保存到本地忽略目录。
+
+公开活动已接入网页“导入 → 公开活动”，后台调用 `public-import-cli.ts <cs|bio|gse> <临时输出目录>`；当前仅返回未来活动，最多 6 页，页面和跳转均限制在所选网站来源内，原始页面仅保存在临时目录并在结束时移除。

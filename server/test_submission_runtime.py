@@ -10,6 +10,7 @@ import teaching
 import test_teaching
 from urllib.request import Request
 from urllib.error import HTTPError
+from urllib.parse import quote
 from contracts import submission_operations as ops
 
 
@@ -96,6 +97,31 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         capture=self.native_capture('active','2026-10-10T11:00:00+08:00');capture['request']['records'][0]['record']['text']+=' 增加独立阅读要求。'
         self.sync_native(capture);self.assertEqual(self.details()['observation']['scope'],'unknown')
         self.assertEqual(self.call('/sources/submissions/'+detail['record_id']+'/source')[0],200)
+        encoded=quote(detail['record_id'],safe='')
+        self.assertEqual(self.call('/sources/submissions/'+encoded)[0],200)
+        self.assertEqual(self.call('/sources/submissions/'+encoded+'/source')[0],200)
         self.call('/sources/credentials',dict(username='different-account',password='synthetic'))
         self.assertEqual(self.apply(body)[0],404)
         self.assertEqual(self.call('/sources/submissions/'+detail['record_id'])[0],404)
+
+    def test_runtime_partial_source_cannot_authorize_whole_source_skip(self):
+        capture=self.native_capture('active')
+        capture['request']['records'][0]['record']['body_status']='partial'
+        view=self.sync_native(capture)['requests'][0];self.run_request(view)
+        detail=self.details()
+        links=[dict(action_id=a['action_id'],relation='assignment_submission') for a in detail['observation']['actions']]
+        self.assertEqual(self.apply(self.operation(detail,scope='submission_only',links=links))[0],400)
+        self.assertEqual(self.apply(self.operation(detail,scope='mixed',links=links))[0],201)
+        self.assertEqual(self.details()['observation']['scope'],'mixed')
+
+    def test_runtime_user_control_change_rejects_late_model_result(self):
+        view=self.sync_native(self.native_capture('active'))['requests'][0]
+        detail=self.details()
+        def model(request,ApiError):
+            result=self.model(request,ApiError)
+            self.link_all(detail)
+            return result
+        with patch.object(teaching,'recognize',side_effect=model):
+            status,_=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
+        self.assertEqual(status,409)
+        self.assertEqual(self.call('/recognition/batches')[1],[])

@@ -29,8 +29,8 @@ def initialize(db,recover=False):
 
 
 def view(row):
-    return dict(contract_version=contract.VERSION,run_id=row['id'],source_id=row['source'],state=row['state'],
-                result=json.loads(row['result']) if row['result'] else None,error=row['error'],created_at=row['created_at'])
+    return contract.check('run',dict(contract_version=contract.VERSION,run_id=row['id'],source_id=row['source'],state=row['state'],
+                result=json.loads(row['result']) if row['result'] else None,error=row['error'],created_at=row['created_at']))
 
 
 def collect(source):

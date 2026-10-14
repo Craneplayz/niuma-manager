@@ -16,215 +16,296 @@ globalThis.FormData = class {
 const store = await import('../src/team-store.js');
 const {createImportUI} = await import('../src/import-ui.js');
 const cases = JSON.parse(await readFile(new URL('../../contracts/examples/teaching-workspace-v01.json', import.meta.url), 'utf8')).cases;
+const root = '/api/sources/sync-runs', version = 'source-sync/0.1';
 const clone = value => structuredClone(value);
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const check = (name, fn) => test(name, {timeout: 3000}, fn);
 
-function teaching(name = 'date-only', suffix = '', edit = () => {}) {
+function teaching(name = 'date-only', suffix = '') {
   const entry = clone(cases.find(entry => entry.name === name));
-  assert.ok(entry, 'use a synthetic server fixture');
+  assert.ok(entry, 'use a synthetic saved teaching fixture');
   entry.run.request_id += suffix;
   entry.request.request_id = entry.result.request_id = entry.run.request_id;
-  edit(entry);
   return entry;
 }
 
-function fixture({entries = [teaching(), teaching('no-deadline')], rejectAutomatic = [], failAutomaticOnce = [], demo = false} = {}) {
-  let account = 'A', state = {tasks: [], trash: []}, workspaceFailures = 0;
-  const calls = [], modelCalls = [], messages = [], pauses = [], refusals = new Set(rejectAutomatic), failures = new Set(failAutomaticOnce);
-  const accounts = Object.fromEntries(['A','B'].map(who => [who, {batches: [], tasks: [], version: 0, resolutions: new Map()}]));
+function fixture({entries = [teaching(), teaching('no-deadline')], manualRequests = [], failedRequests = [], startState = 'succeeded', demo = false} = {}) {
+  let account = 'A', state = {tasks: [], trash: []}, workspaceFailures = 0, startFailures = 0;
+  const calls = [], pauses = [], messages = [], manual = new Set(manualRequests), failed = new Set(failedRequests);
+  const accounts = Object.fromEntries(['A','B'].map(who => [who, {batches: [], tasks: [], runs: [], version: 0, operations: new Map()}]));
   const response = value => ({ok: true, json: async () => clone(value)});
   const rejection = (status, error) => ({ok: false, status, json: async () => ({error})});
   const abortError = () => Object.assign(new Error('aborted'), {name: 'AbortError'});
-  const automaticCalls = () => calls.filter(call => call.path.endsWith('/resolve') && call.body?.auto_apply === true);
+  const starts = () => calls.filter(call => call.path === root && call.method === 'POST');
   const batchFor = (who, id) => accounts[who].batches.find(batch => batch.request.request_id === id);
-  const snapshots = who => clone(accounts[who].batches);
 
-  function seed(entry, who = 'A') {
+  function seed(entry, who = 'A', applied = false) {
+    const previous = batchFor(who, entry.request.request_id);
+    if (previous) return previous;
+    const db = accounts[who];
     const batch = {
-      request: clone(entry.request), result: clone(entry.result), demo: Boolean(entry.demo),
-      items: entry.result.tasks.map((candidate, index) => ({id: `${who}:${entry.run.request_id}:storage:${index}`, state: 'pending', version: 1, candidate: clone(candidate)})),
+      request: clone(entry.request), result: clone(entry.result),
+      items: entry.result.tasks.map((candidate, index) => ({id: `${who}:${entry.run.request_id}:storage:${index}`, state: applied ? 'applied' : 'pending', version: applied ? 2 : 1, candidate: clone(candidate)})),
     };
-    accounts[who].batches.push(batch);
+    db.batches.push(batch);
+    if (applied) for (const item of batch.items) {
+      const candidate = item.candidate;
+      db.tasks.push({id: `task:${item.id}`, title: candidate.title, description: candidate.description, course: candidate.course_or_project, due: candidate.deadline.status === 'not_provided' ? null : {date: candidate.deadline.value, precision: 'date'}, status: 'not_started', source: '教学网', subtasks: [], plans: [], recognitionHistory: [{storageId: item.id, requestId: batch.request.request_id, candidateId: candidate.candidate_id, action: 'create'}]});
+      db.version++;
+    }
     return batch;
   }
+
+  function recount(run) {
+    run.counts = Object.fromEntries(['queued','running','succeeded','failed','incomplete','cancelled','interrupted'].map(name => [name, run.records.filter(record => record.state === name).length]));
+    Object.assign(run.counts, {total: run.records.length, skipped: run.skipped, added: run.records.reduce((sum, record) => sum + record.added, 0)});
+  }
+
+  function complete(run, who = 'A') {
+    for (const record of run.records) {
+      const entry = entries.find(entry => entry.run.request_id === record.request_id);
+      if (failed.has(record.request_id)) {
+        record.state = 'failed';record.added = 0;
+        record.error = {code: 'agent_timeout', message: '识别服务超时', retryable: true};
+        if (!batchFor(who, record.request_id)) {
+          const batch = seed(entry, who);
+          batch.items = [];batch.result = {...batch.result, status: 'failed', tasks: [], errors: [record.error]};
+        }
+      } else {
+        const existing = batchFor(who, record.request_id);
+        if (existing?.result.status === 'failed') accounts[who].batches.splice(accounts[who].batches.indexOf(existing), 1);
+        const batch = seed(entry, who, !manual.has(record.request_id));
+        record.state = 'succeeded';record.error = null;record.added = existing && existing.result.status !== 'failed' ? 0 : batch.items.filter(item => item.state === 'applied').length;
+      }
+    }
+    run.state = run.records.some(record => record.state === 'failed') ? 'partial_success' : 'succeeded';
+    run.revision++;recount(run);
+    return run;
+  }
+
+  function makeRun(who, operationId, currentEntries = entries, parent = null, status = startState) {
+    const run = {
+      contract_version: version, run_id: `${who}:sync:${accounts[who].runs.length}`, operation_id: operationId,
+      sources: ['teaching_web'], trigger: 'manual', parent_run_id: parent, state: status, revision: 1,
+      created_at: '2026-10-14T12:00:00Z', updated_at: '2026-10-14T12:00:01Z', skipped: 0, error: null,
+      records: currentEntries.map(entry => ({request_id: entry.run.request_id, label: `${who} 合成通知`, course: '合成课程', state: 'queued', added: 0, seconds: null, error: null})),
+    };
+    recount(run);accounts[who].runs.unshift(run);
+    if (status === 'succeeded') complete(run, who);
+    return run;
+  }
+
   async function pause(phase, call) {
-    const index = pauses.findIndex(gate => gate.phase === phase && (!gate.requestId || gate.requestId === call.requestId));
+    const index = pauses.findIndex(gate => gate.phase === phase);
     if (index < 0) return;
-    const gate = pauses.splice(index, 1)[0];
-    gate.enter(call);
-    if (gate.ignoreAbort) { await gate.wait; return; }
+    const gate = pauses.splice(index, 1)[0];gate.enter(call);
+    if (gate.ignoreAbort) {await gate.wait;return;}
     if (call.signal.aborted) throw abortError();
     let abort;
     try {
       await Promise.race([gate.wait, new Promise((_, reject) => {
-        abort = () => reject(abortError());
-        call.signal.addEventListener('abort', abort, {once: true});
+        abort = () => reject(abortError());call.signal.addEventListener('abort', abort, {once: true});
       })]);
-    } finally { call.signal.removeEventListener('abort', abort); }
+    } finally {call.signal.removeEventListener('abort', abort);}
   }
-  function stillPending(batch) {
-    // The mock server advertises saved, unapplied work without rerunning extraction.
-    return !batch.demo && !refusals.has(batch.request.request_id) && batch.items.some(item => item.state === 'pending' && item.version === 1 && item.candidate.notice_type === 'create' && item.candidate.needs_review === false && !item.candidate.review_reasons.length);
-  }
+
   globalThis.fetch = async (path, options = {}) => {
     const who = account, db = accounts[who], method = options.method || 'GET', body = options.body ? JSON.parse(options.body) : undefined;
-    const call = {path, method, body, account: who, signal: options.signal};
-    calls.push(call);
-    if (path === '/api/auth/login') { account = body.email.split('@')[0]; return response({}); }
+    const call = {path, method, body, account: who, signal: options.signal};calls.push(call);
+    if (path === '/api/auth/login') {account = body.email.split('@')[0];return response({});}
     if (path === '/api/auth/me') return response({user: {id: who, name: who, email: `${who}@test.local`}});
     if (path === '/api/auth/logout') return response({});
     if (path === '/api/workspace') {
-      if (workspaceFailures && db.tasks.length) { workspaceFailures--; return rejection(503, '无法连接服务，请检查后端'); }
+      await pause('workspace', call);
+      if (workspaceFailures && db.tasks.length) {workspaceFailures--;return rejection(503, '无法连接服务，请检查后端');}
       return response({tasks: {version: db.version, value: db.tasks}});
     }
     if (path === '/api/data/tasks') {
       await pause('save', call);
       if (body.version !== db.version) return rejection(409, '任务已变化');
-      db.tasks = clone(body.value); db.version++;
-      return response({version: db.version});
+      db.tasks = clone(body.value);db.version++;return response({version: db.version});
     }
-    if (path === '/api/sources/sync-runs') return response({contract_version:'source-sync/0.1',runs:[]});
     if (path === '/api/sources/credentials') return response({configured: true, username: `${who}-campus`});
-    if (path === '/api/sources/sync') {
-      assert.deepEqual(body, {sources: ['teaching_web']});
-      const pending = entries.filter(entry => {
-        const batch = batchFor(who, entry.run.request_id);
-        return !batch || ['failed','partial_success'].includes(batch.result.status) || stillPending(batch);
-      });
-      return response({requests: pending.map(entry => entry.request), summary: {total: entries.length, skipped: entries.length - pending.length, pending: pending.length}});
+    if (path === root && method === 'GET') {
+      const snapshot = {contract_version: version, runs: clone(db.runs)};
+      await pause('runs', call);return response(snapshot);
     }
-    if (path === '/api/recognition/batches' && method === 'GET') return response(snapshots(who));
-    if ((path === '/api/recognition/batches' || path === '/api/recognition/retry') && method === 'POST') {
-      call.requestId = body.request_id;
-      await pause('recognize', call);
-      if (body.contract_version === 'teaching-run/0.1') {
-        const entry = entries.find(entry => entry.run.request_id === body.request_id);
-        assert.ok(entry, 'run identity must belong to a captured server fixture');
-        assert.deepEqual(body, entry.run, 'the browser must not submit the teaching snapshot');
-        const previous = batchFor(who, body.request_id);
-        if (!previous || ['failed','partial_success'].includes(previous.result.status)) {
-          modelCalls.push({account: who, requestId: body.request_id});
-          if (previous) db.batches.splice(db.batches.indexOf(previous), 1);
-          seed(entry, who);
-        }
-      } else {
-        assert.equal(body.contract_version, '0.2');
-        assert.equal(body.records[0].platform, 'manual');
-        const entry = teaching();
-        entry.run.request_id = body.request_id;
-        entry.request = clone(body); entry.result.request_id = body.request_id;
-        entry.result.record_results[0].input_id = body.records[0].input_id;
-        entry.result.tasks[0].input_id = body.records[0].input_id;
-        entry.result.tasks[0].title = `${who} 文本任务`;
-        entry.result.tasks[0].sources.forEach(source => source.platform = 'manual');
-        seed(entry, who);
-      }
-      return response(snapshots(who));
+    if (path === root && method === 'POST') {
+      assert.deepEqual(Object.keys(body).sort(), ['consent','contract_version','operation_id','sources']);
+      assert.equal(body.contract_version, version);assert.deepEqual(body.sources, ['teaching_web']);assert.equal(body.consent, true);assert.ok(body.operation_id);
+      await pause('start', call);
+      if (!db.operations.has(body.operation_id)) db.operations.set(body.operation_id, makeRun(who, body.operation_id));
+      if (startFailures) {startFailures--;throw new TypeError('connection lost after the backend accepted this operation');}
+      return response(db.operations.get(body.operation_id));
     }
-    if (path.endsWith('/resolve')) {
-      const id = decodeURIComponent(path.split('/').at(-2));
-      const batch = db.batches.find(batch => batch.items.some(item => item.id === id));
-      const item = batch?.items.find(item => item.id === id);
-      assert.ok(item, 'resolve stays in the authenticated account');
-      call.requestId = batch.request.request_id;
-      call.candidateId = id;
-      await pause('resolve', call);
-      const previous = db.resolutions.get(id);
-      if (item.state !== 'pending' && body.action !== 'reopen') {
-        return previous && JSON.stringify(previous) === JSON.stringify(body) ? response({batches: snapshots(who)}) : rejection(409, '候选已处理');
+    if (path.startsWith(root + '/') && method === 'POST') {
+      const [,id,action] = path.slice(root.length).split('/');
+      const run = db.runs.find(run => run.run_id === decodeURIComponent(id));assert.ok(run, 'run belongs to the current account');
+      if (action === 'stop') {
+        assert.deepEqual(body, {contract_version: version});
+        run.state = 'stopped';run.revision++;run.records.filter(record => ['queued','running'].includes(record.state)).forEach(record => record.state = 'cancelled');recount(run);return response(run);
       }
-      if (body.version !== item.version) return rejection(409, '候选已变化，请刷新');
-      if (body.action === 'ignore') { item.state = 'ignored'; item.version++; db.resolutions.set(id, clone(body)); return response({batches: snapshots(who)}); }
-      if (body.action === 'reopen') {
-        assert.equal(item.state, 'ignored');
-        item.state = 'pending'; item.version++; db.resolutions.delete(id);
-        return response({batches: snapshots(who)});
-      }
-      assert.deepEqual(body, {action: 'create', auto_apply: true, version: item.version});
-      assert.ok(call.signal instanceof AbortSignal, 'automatic resolve participates in cancellation');
-      if (refusals.has(batch.request.request_id)) return rejection(400, '此候选需要人工处理，不能自动加入日程');
-      if (failures.delete(batch.request.request_id)) return rejection(503, '无法连接服务，请检查后端');
-      const candidate = item.candidate;
-      db.tasks.push({id: `task:${id}`, title: candidate.title, description: candidate.description, course: candidate.course_or_project, due: candidate.deadline.status === 'not_provided' ? null : {date: candidate.deadline.value, precision: 'date'}, status: 'not_started', source: '教学网', subtasks: [], plans: [], recognitionHistory: [{storageId: id, requestId: batch.request.request_id, candidateId: candidate.candidate_id, action: 'create'}]});
-      db.version++; item.state = 'applied'; item.version++; db.resolutions.set(id, clone(body));
-      return response({batches: snapshots(who)});
+      assert.equal(action, 'retry');assert.equal(body.contract_version, version);assert.equal(body.consent, true);assert.ok(body.operation_id);assert.ok(body.request_ids.length);
+      const selected = entries.filter(entry => body.request_ids.includes(entry.run.request_id));
+      for (const entry of selected) failed.delete(entry.run.request_id);
+      return response(makeRun(who, body.operation_id, selected, run.run_id, 'succeeded'));
+    }
+    if (path === '/api/recognition/batches' && method === 'GET') return response(db.batches);
+    if (path === '/api/recognition/batches' && method === 'POST') {
+      assert.equal(body.contract_version, '0.2');assert.equal(body.records[0].platform, 'manual');
+      const entry = teaching();entry.run.request_id = body.request_id;entry.request = clone(body);entry.result.request_id = body.request_id;
+      entry.result.record_results[0].input_id = body.records[0].input_id;entry.result.tasks[0].input_id = body.records[0].input_id;
+      entry.result.tasks[0].title = `${who} 文本任务`;entry.result.tasks[0].sources.forEach(source => source.platform = 'manual');
+      seed(entry, who);return response(db.batches);
     }
     throw new Error(`unexpected request ${method} ${path}`);
   };
+
   const host = {
     escapeHtml, icon: () => '', render() {}, openDialog() {}, closeDialog() {},
     toast: message => messages.push(message), getState: () => state, isDemo: () => demo,
-    refresh: async () => { state = await store.refreshStore(); },
+    refresh: async () => {state = await store.refreshStore();},
   };
   return {
-    host, calls, modelCalls, accounts, seed, batchFor, automaticCalls,
-    get state() { return state; },
-    async login(who = 'A') { state = await store.authenticate('login', {email: `${who}@test.local`, password: 'test-password'}); },
-    failNextWorkspaceRead() { workspaceFailures++; },
-    pauseNext(phase, requestId = '', ignoreAbort = false) {
-      let enter, release;
-      const entered = new Promise(resolve => enter = resolve), wait = new Promise(resolve => release = resolve);
-      pauses.push({phase, requestId, ignoreAbort, enter, wait});
-      return {entered, release};
+    host, calls, accounts, seed, batchFor, starts, messages,
+    get state() {return state;},
+    async login(who = 'A') {state = await store.authenticate('login', {email: `${who}@test.local`, password: 'test-password'});},
+    restoreActive(who = 'A') {return makeRun(who, 'restored-operation', entries, null, 'recognizing');},
+    finish(who = 'A') {return complete(accounts[who].runs[0], who);},
+    failNextWorkspaceRead() {workspaceFailures++;},
+    failNextStartResponse() {startFailures++;},
+    pauseNext(phase, ignoreAbort = false) {
+      let enter, release;const entered = new Promise(resolve => enter = resolve), wait = new Promise(resolve => release = resolve);
+      pauses.push({phase, ignoreAbort, enter, wait});return {entered, release};
     },
   };
 }
 
-async function ready(f) {
-  await f.login();
-  const ui = createImportUI(f.host);
-  await ui.load();
-  await ui.click({dataset: {importSource: 'teaching'}});
-  return ui;
+function makeUI(f, t) {
+  const ui = createImportUI(f.host);t.after(() => ui.reset());return ui;
 }
-const sync = ui => ui.click({dataset: {importAction: 'sync'}});
-const noPlanning = f => assert.equal(f.calls.some(call => call.path.includes('/planning/')), false);
+async function ready(f, t) {
+  await f.login();const ui = makeUI(f, t);await ui.load();await ui.loadSourceSync();await ui.click({dataset: {importSource: 'teaching'}});await new Promise(r=>setImmediate(r));return ui;
+}
+const sync = async ui => {ui.input({target:{id:'teaching-sync-consent',checked:true}});return ui.click({dataset: {importAction: 'sync'}});};
+const noClientRecognition = f => {
+  assert.equal(f.calls.some(call => call.path === '/api/sources/sync' || call.path.endsWith('/resolve') || call.path.includes('/planning/')), false);
+  assert.equal(f.calls.some(call => call.method === 'POST' && ['/api/recognition/batches','/api/recognition/retry'].includes(call.path) && call.body.contract_version !== '0.2'), false);
+};
+function textForm(text) {
+  return {dataset: {importForm: 'text'}, values: {text, published: '2026-10-14T12:00:00'}, querySelector() {return null;}, querySelectorAll() {return [];}};
+}
 
-check('text recognition and normal loading cannot auto-apply unrelated teaching history', async () => {
-  const f = fixture(), history = f.seed(teaching('date-only', ':history'));
-  await f.login();
-  const ui = createImportUI(f.host); await ui.load();
-  assert.equal(f.automaticCalls().length, 0);
-  await ui.submit({dataset: {importForm: 'text'}, values: {text: '合成文本通知', published: '2026-10-14T12:00:00'}});
-  assert.equal(f.automaticCalls().length, 0);
-  assert.equal(history.items[0].state, 'pending');
-  assert.equal(f.accounts.A.tasks.length, 0);
-  assert.match(ui.render(), /A 文本任务/);
-  noPlanning(f);
+check('teaching start sends consent and operation identity while backend-applied tasks retain source evidence', async t => {
+  const f = fixture(), ui = await ready(f, t);await sync(ui);
+  assert.equal(f.starts().length, 1);assert.equal(f.state.tasks.length, 2);
+  for (const task of f.state.tasks) assert.ok(task.recognitionHistory[0].storageId);
+  assert.ok(f.accounts.A.batches.every(batch => batch.items.every(item => item.state === 'applied')));
+  assert.match(ui.render(), /导入完成/);assert.doesNotMatch(ui.render(), /data-import-review=/);
+  noClientRecognition(f);
 });
 
-check('demo imports make no server requests', async () => {
-  const f = fixture({demo: true}); await f.login();
-  const ui = createImportUI(f.host), count = f.calls.length;
-  await ui.load(); await sync(ui);
-  await ui.submit({dataset: {importForm: 'text'}, values: {text: '示例通知', published: ''}});
-  assert.equal(f.calls.length, count);
-  assert.equal(f.accounts.A.tasks.length, 0);
+check('manual and already-applied results use the backend result without browser eligibility decisions', async t => {
+  const entry = teaching('unknown-year'), f = fixture({entries: [entry, teaching()], manualRequests: [entry.run.request_id]}), ui = await ready(f, t);await sync(ui);
+  assert.equal(f.state.tasks.length, 1);assert.equal(f.batchFor('A', entry.run.request_id).items[0].state, 'pending');
+  assert.match(ui.render(), /data-import-review=/);noClientRecognition(f);
 });
 
-check('a manually ignored and reopened candidate stays manual on retry', async () => {
-  const entry = teaching(), f = fixture({entries: [entry]}), batch = f.seed(entry), ui = await ready(f);
-  const id = batch.items[0].id;
-  await ui.click({dataset: {importIgnore: id}});
-  await ui.click({dataset: {importReopen: id}});
-  assert.equal(batch.items[0].version, 3);
-  await ui.click({dataset: {importRetry: entry.run.request_id}});
-  assert.equal(f.automaticCalls().length, 0);
-  assert.equal(batch.items[0].state, 'pending');
-  assert.equal(f.modelCalls.length, 0);
-  assert.match(ui.render(), new RegExp(`data-import-review="${id}"`));
+check('plain-text recognition and normal history loading do not create unrelated teaching candidates', async t => {
+  const f = fixture(), saved = f.seed(teaching());await f.login();const ui = makeUI(f, t);await ui.load();
+  await ui.submit(textForm('这是一条合成文本通知'));
+  assert.equal(f.starts().length, 0);assert.equal(saved.items[0].state, 'pending');assert.equal(f.accounts.A.tasks.length, 0);
+  assert.equal(f.calls.filter(call => call.path === '/api/recognition/batches' && call.method === 'POST').length, 1);
+  noClientRecognition(f);
 });
 
-check('retry uses a server run identity and automatically applies its newly recovered result', async () => {
-  const entry = teaching(), f = fixture({entries: [entry]}), failed = f.seed(entry);
-  failed.result = {...failed.result, status: 'failed', tasks: [], errors: [{code: 'agent_timeout', message: 'agent_timeout', retryable: true}]};
-  failed.items = [];
-  const ui = await ready(f); await ui.click({dataset: {importRetry: entry.run.request_id}});
-  assert.deepEqual(f.calls.find(call => call.path === '/api/recognition/retry').body, entry.run);
-  assert.equal(f.modelCalls.length, 1);
-  assert.equal(f.accounts.A.tasks.length, 1);
-  assert.equal(f.automaticCalls().length, 1);
-  noPlanning(f);
+check('demo imports and source-run recovery make no server requests', async t => {
+  const f = fixture({demo: true});await f.login();const ui = makeUI(f, t), before = f.calls.length;
+  await ui.load();await ui.loadSourceSync();await sync(ui);await ui.submit(textForm('合成示例'));
+  assert.equal(f.calls.length, before);assert.equal(f.accounts.A.tasks.length, 0);
 });
 
+check('restoring an active run blocks duplicate import and reads terminal tasks without restarting the run', async t => {
+  const f = fixture(), run = f.restoreActive(), ui = await ready(f, t);
+  await sync(ui);await ui.submit(textForm('运行中的通知'));assert.equal(f.starts().length, 0);
+  assert.equal(f.calls.some(call => call.method === 'POST' && call.path === '/api/recognition/batches'), false);
+  f.finish();await ui.loadSourceSync();assert.equal(f.state.tasks.length, 2);assert.equal(f.accounts.A.runs.length, 1);assert.equal(f.accounts.A.runs[0].run_id, run.run_id);
+  noClientRecognition(f);
+});
+
+check('reading the same terminal run does not rewrite tasks or repeat completion refresh', async t => {
+  const f = fixture(), ui = await ready(f, t);await sync(ui);
+  const reads = f.calls.filter(call => call.path === '/api/workspace').length;
+  await ui.loadSourceSync();await ui.loadSourceSync();
+  assert.equal(f.starts().length, 1);assert.equal(f.accounts.A.tasks.length, 2);
+  assert.equal(f.calls.filter(call => call.path === '/api/workspace').length, reads);noClientRecognition(f);
+});
+
+check('starting a background run waits for pending local edits and preserves the saved task', async t => {
+  const f = fixture(), ui = await ready(f, t), gate = f.pauseNext('save');t.after(gate.release);
+  store.saveStore({tasks: [{id: 'local-task', title: '本地编辑', notes: '已编辑的说明', course: '', due: '', dueTime: '', status: 'todo'}]});
+  await gate.entered;const running = sync(ui);await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.starts().length, 0);gate.release();await running;
+  assert.equal(f.state.tasks.length, 3);assert.equal(f.state.tasks[0].notes, '已编辑的说明');noClientRecognition(f);
+});
+
+check('a task save conflict prevents background start until the workspace is explicitly recovered', async t => {
+  const f = fixture(), ui = await ready(f, t);f.accounts.A.version++;
+  t.after(() => store.reloadStore());store.saveStore({tasks: [{id: 'unsaved', title: '未保存编辑', status: 'todo'}]});
+  await assert.rejects(store.flushStore(), /任务已变化/);await sync(ui);
+  assert.equal(f.starts().length, 0);assert.equal(f.accounts.A.tasks.length, 0);assert.match(ui.render(), /class="error" role="alert"/);
+});
+
+check('retrying a failed background record sends only stored request identity and refreshes backend-applied tasks', async t => {
+  const entry = teaching(), f = fixture({failedRequests: [entry.run.request_id]}), ui = await ready(f, t);await sync(ui);
+  const failedRun = f.accounts.A.runs[0];assert.equal(f.state.tasks.length, 1);
+  assert.doesNotMatch(ui.render(), new RegExp(`data-import-retry="${entry.run.request_id}"`));
+  await ui.click({dataset: {sourceSyncAction: 'retry', sourceSyncRun: failedRun.run_id, sourceSyncRequest: entry.run.request_id}});
+  const retry = f.calls.find(call => call.path.endsWith('/retry'));
+  assert.deepEqual(retry.body.request_ids, [entry.run.request_id]);assert.equal(Object.hasOwn(retry.body, 'records'), false);
+  assert.equal(f.state.tasks.length, 2);assert.equal(f.starts().length, 1);noClientRecognition(f);
+});
+
+check('stopping background import sends the backend stop request and preserves previously stored tasks', async t => {
+  const f = fixture({startState: 'recognizing'}), ui = await ready(f, t);await sync(ui);
+  const run = f.accounts.A.runs[0];f.seed(teaching(), 'A', true);await f.host.refresh();
+  await ui.click({dataset: {sourceSyncAction: 'stop', sourceSyncRun: run.run_id}});
+  const stop = f.calls.find(call => call.path.endsWith('/stop'));assert.deepEqual(stop.body, {contract_version: version});
+  assert.equal(f.accounts.A.runs[0].state, 'stopped');assert.equal(f.state.tasks.length, 1);assert.match(ui.render(), /已停止/);noClientRecognition(f);
+});
+
+check('switching accounts prevents a late background-start response from displaying the previous account data', async t => {
+  const f = fixture(), b = f.seed(teaching('date-only', ':B-private'), 'B');b.items[0].candidate.title = 'B 合成私有任务';
+  const ui = await ready(f, t), gate = f.pauseNext('start', true);t.after(gate.release);
+  const running = sync(ui), active = await gate.entered;await f.login('B');gate.release();await running;await ui.load();await ui.loadSourceSync();
+  assert.equal(active.signal.aborted, true);assert.equal(f.accounts.A.tasks.length, 2);assert.equal(f.accounts.B.tasks.length, 0);
+  assert.match(ui.render(), /B 合成私有任务/);assert.doesNotMatch(ui.render(), /A-campus|A 合成通知/);noClientRecognition(f);
+});
+
+check('an old run-list response cannot restore a previous account run or its import lock', async t => {
+  const f = fixture(), ui = await ready(f, t);f.restoreActive();const gate = f.pauseNext('runs', true);t.after(gate.release);
+  const loading = ui.loadSourceSync(), active = await gate.entered;await f.login('B');gate.release();await loading;await ui.load();await ui.loadSourceSync();
+  assert.equal(active.signal.aborted, true);assert.doesNotMatch(ui.render(), /A 合成通知|A-campus/);
+  await ui.click({dataset: {importSource: 'teaching'}});await new Promise(resolve => setImmediate(resolve));await sync(ui);assert.equal(f.starts().at(-1).account, 'B');noClientRecognition(f);
+});
+
+check('terminal task refresh retains the import lock until task and batch reads have completed', async t => {
+  const f = fixture({startState: 'recognizing'}), ui = await ready(f, t);await sync(ui);f.finish();
+  const gate = f.pauseNext('workspace');t.after(gate.release);const refreshing = ui.loadSourceSync();await gate.entered;
+  const before = f.calls.length;await sync(ui);await ui.submit(textForm('终态刷新期间的通知'));
+  assert.equal(f.calls.length, before);gate.release();await refreshing;assert.equal(f.state.tasks.length, 2);
+  await ui.submit(textForm('终态刷新完成后的通知'));assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/batches').length, 1);noClientRecognition(f);
+});
+
+check('a workspace read failure retains the server-created result and retrying progress never restarts recognition', async t => {
+  const f = fixture(), ui = await ready(f, t);f.failNextWorkspaceRead();await sync(ui);
+  assert.equal(f.accounts.A.tasks.length, 2);assert.equal(f.state.tasks.length, 0);assert.equal(f.starts().length, 1);
+  assert.match(ui.render(), /刷新|读取/);await ui.loadSourceSync();assert.equal(f.state.tasks.length, 2);assert.equal(f.starts().length, 1);noClientRecognition(f);
+});
+
+check('retrying a lost start response retains operation identity and cannot duplicate backend-created tasks', async t => {
+  const f = fixture(), ui = await ready(f, t);f.failNextStartResponse();await sync(ui);
+  assert.equal(f.accounts.A.tasks.length, 2);assert.equal(f.state.tasks.length, 0);await sync(ui);
+  assert.equal(f.starts().length, 2);assert.equal(f.starts()[0].body.operation_id, f.starts()[1].body.operation_id);
+  assert.equal(f.accounts.A.runs.length, 1);assert.equal(f.state.tasks.length, 2);noClientRecognition(f);
+});

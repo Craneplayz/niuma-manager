@@ -12,7 +12,7 @@ import { createReprocessingUI } from "./reprocessing-ui.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createSubmissionsUI } from "./submissions-ui.js";
 import { createPublicSourcesUI } from "./public-sources-ui.js";
-import { configureSourceSync, resetSourceSync, sourceSyncPanel, startSourceSync, sourceSyncClick, syncIsActive, syncOwnsRequest, refreshSourceSync } from "./source-sync-ui.js";
+import { createSourceSyncUI } from "./source-sync-ui.js";
 import { configureSyncSchedule, resetSyncSchedule, syncSchedulePanel, syncScheduleInput, syncScheduleClick } from "./source-schedule-ui.js";
 
 const actions = {
@@ -288,22 +288,28 @@ export function createImportUI(host) {
     stamp.epoch === accountVersion() && stamp.revision === revision;
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
-  configureSourceSync({
+  const sourceSync = createSourceSyncUI({
+    ...host, api, flushStore, accountVersion, isDemo: demo,
+    describeError: describeImportError,
+    isAuthenticated: () => Boolean(session.user && !session.changing),
+    isImportBusy: () => busy || reprocessing.isBusy(),
     render: refresh,
-    navigate: target => target === "settings" ? openCredentials() : target === "review" ? host.showReview?.() : host.navigateTasks?.(),
-    isVisible: () => !demo() && (host.isImportVisible?.() ?? true),
-    async changed() {
+    async onChanged(isCurrent) {
       const stamp = current();
       if (busy) return false;
       await host.refresh();
-      if (!valid(stamp)) return false;
+      if (!valid(stamp) || !isCurrent()) return false;
       const next = await api("/api/recognition/batches");
-      if (!valid(stamp)) return false;
+      if (!valid(stamp) || !isCurrent()) return false;
       if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
       batches = next; loaded = true;
       refresh(); return true;
     },
   });
+  const syncIsActive = () => sourceSync.isBusy();
+  const syncOwnsRequest = id => sourceSync.ownsRequest(id);
+  const refreshSourceSync = () => sourceSync.load();
+  const sourceSyncPanel = () => sourceSync.render();
   configureSyncSchedule({ render: refresh });
   const submissions = createSubmissionsUI({...host, isDemo: demo});
   const publicSources = createPublicSourcesUI({...host, isDemo: demo, isVisible:()=>source==='public'&&(host.isImportVisible?.()??true)});
@@ -311,6 +317,8 @@ export function createImportUI(host) {
     ...host, isDemo: demo, isVisible: () => source === "files" && (host.isImportVisible?.() ?? true),
     async changed() {
       const stamp = current();
+      await flushStore();
+      if (!valid(stamp)) return;
       await host.refresh();
       if (!valid(stamp)) return;
       const next = await api("/api/recognition/batches");
@@ -335,7 +343,7 @@ export function createImportUI(host) {
       refresh();
     },
   });
-  const blocked = () => busy || reprocessing.isBusy();
+  const blocked = () => busy || reprocessing.isBusy() || sourceSync.isBusy();
   const allowed = () => {
     if (demo()) {
       host.toast("示例预览暂不发送，请登录后导入");
@@ -378,7 +386,7 @@ export function createImportUI(host) {
     request = null;
     modal = null;
     reprocessing.reset();
-    resetSourceSync(); resetSyncSchedule(); syncConsent = false;
+    sourceSync.reset(); resetSyncSchedule(); syncConsent = false;
     materials.reset();
     submissions.reset();
     publicSources.reset();
@@ -632,7 +640,7 @@ export function createImportUI(host) {
     try {
       await flushStore();
       if (!valid(stamp)) return;
-      await startSourceSync(["teaching_web"], true);
+    await sourceSync.start();
       if (valid(stamp)) { syncConsent = false; error = ""; }
     } catch (cause) { if (valid(stamp)) error = describeImportError(cause); }
     finally { if (valid(stamp)) refresh(); }
@@ -684,6 +692,8 @@ export function createImportUI(host) {
       batches = next;
       const automatic = await autoApply(batch.request.request_id, stamp);
       if (!valid(stamp)) return;
+      await host.refresh();
+      if (!valid(stamp)) return;
       notice = controller.signal.aborted ? "已停止导入，后台已开始的识别可能继续，可刷新查看结果。" :
         "识别结果已更新" + (automatic.applied ? `，已自动加入 ${automatic.applied} 项任务` : "");
     } catch (e) {
@@ -702,7 +712,12 @@ export function createImportUI(host) {
   }
   async function click(button) {
     const d = button.dataset;
-    if (d.sourceSyncAction) { if (allowed()) await sourceSyncClick(button); return true; }
+    if (d.sourceSyncAction) {
+      if (d.sourceSyncAction === 'tasks') host.navigateTasks?.();
+      else if (d.sourceSyncAction === 'review') host.showReview?.();
+      else if (allowed()) await sourceSync.click(button);
+      return true;
+    }
     if (d.syncScheduleAction) { if (allowed()) await syncScheduleClick(button); return true; }
     if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
     if (d.submissionAction) { if (allowed()) await submissions.click(button); return true; }
@@ -961,5 +976,7 @@ export function createImportUI(host) {
     }
     return false;
   }
-  return { render, click, submit, input, reset, load, toggle: (event) => reprocessing.toggle(event) };
+  return { render, click, submit, input, reset, load,
+    setVisible: visible => sourceSync.setVisible(visible), loadSourceSync: () => sourceSync.load(),
+    toggle: event => sourceSync.toggle(event) || reprocessing.toggle(event) };
 }

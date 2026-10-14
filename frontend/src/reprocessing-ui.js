@@ -111,7 +111,7 @@ export function createReprocessingUI(host) {
     terminal.forEach((run) => reported.add(run.run_id));
     try {
       await host.onFinished(valid);
-      if (valid()) notice = "识别结果已刷新，请在待核对列表查看。";
+      if (valid()) notice = "任务与识别结果已刷新。";
     } catch (cause) {
       if (valid()) {
         terminal.forEach((run) => reported.delete(run.run_id));

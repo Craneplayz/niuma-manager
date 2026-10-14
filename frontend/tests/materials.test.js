@@ -34,3 +34,15 @@ test('unsupported file metadata remains an explicit unsupported record',()=>{
  const r=buildMaterialRequest([{...receipt,mime_type:'application/zip'}],'request:one','2026-10-14T00:00:00Z');
  assert.equal(r.records[0].attachments[0].status,'unsupported');assert.equal(r.records[0].attachments[0].file_ref,null);
 });
+
+test('failed file jobs use a retry identity accepted by the runtime',async t=>{
+ session.user={id:'test'};let retry;
+ globalThis.fetch=async(path,options={})=>{
+  if(path.endsWith('/limits'))return response({limits:{asset_bytes:20*1048576,account_bytes:200*1048576}});
+  if(path.endsWith('/retry')){retry=JSON.parse(options.body);return response({status:'queued'});}
+  return response({jobs:[{job_id:'job-synthetic',status:'failed',result:{errors:[{retryable:true,message:'synthetic'}]}}]});
+ };
+ const ui=createMaterialsUI({escapeHtml:String,render(){},changed:async()=>{},isDemo:()=>false,isVisible:()=>false});t.after(()=>ui.reset());
+ await ui.load();await ui.click({dataset:{materialAction:'retry',job:'job-synthetic'}});
+ assert.deepEqual(Object.keys(retry),['retry_id']);assert.match(retry.retry_id,/\S/);
+});
