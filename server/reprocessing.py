@@ -1,4 +1,4 @@
-"""Account-scoped, explicit reprocessing of saved v0.2 source records."""
+"""Account-scoped, explicit reprocessing of saved text and teaching snapshots."""
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 from jsonschema.exceptions import ValidationError
 
 import recognition
+import teaching
 from server.model_queue import cancel_if
 from contracts import reprocessing as contract
 from text_contract import validate_result
@@ -40,6 +41,8 @@ def initialize(db, recover=True):
     CREATE TABLE IF NOT EXISTS reprocessing_sources(user_id TEXT NOT NULL, account TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, PRIMARY KEY(user_id,account));
     CREATE TABLE IF NOT EXISTS reprocessing_runs(user_id TEXT NOT NULL, run_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL, selection TEXT NOT NULL, snapshot TEXT NOT NULL, inputs TEXT NOT NULL, results TEXT NOT NULL, UNIQUE(user_id,operation_id));
     CREATE TABLE IF NOT EXISTS reprocessing_latest(user_id TEXT NOT NULL, source_id TEXT NOT NULL, input_id TEXT NOT NULL, run_id TEXT NOT NULL, PRIMARY KEY(user_id,source_id,input_id));
+    CREATE TABLE IF NOT EXISTS reprocessing_teaching_sources(user_id TEXT NOT NULL, account TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, PRIMARY KEY(user_id,account));
+    CREATE TABLE IF NOT EXISTS reprocessing_request_sources(user_id TEXT NOT NULL, kind TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY(user_id,kind,account,input_id,request_id));
     ''')
     if recover:
         for row in db.execute('SELECT run_id,snapshot FROM reprocessing_runs').fetchall():
@@ -54,7 +57,22 @@ def initialize(db, recover=True):
 def source_ids(db, uid):
     for row in db.execute('SELECT DISTINCT account FROM source_versions WHERE user_id=?', (uid,)).fetchall():
         db.execute('INSERT OR IGNORE INTO reprocessing_sources VALUES(?,?,?)', (uid, row['account'], secrets.token_hex(16)))
-    return db.execute('SELECT * FROM reprocessing_sources WHERE user_id=? ORDER BY source_id', (uid,)).fetchall()
+    credential=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+    if credential:
+        account=teaching.account(credential['username'])
+        if db.execute('SELECT 1 FROM teaching_sources WHERE user_id=? AND account=?',(uid,account)).fetchone():
+            db.execute('INSERT OR IGNORE INTO reprocessing_teaching_sources VALUES(?,?,?)',(uid,account,secrets.token_hex(16)))
+
+
+def current_source(db, uid, item, input_id):
+    """Allow only the captured campus account; never revive removed credentials."""
+    native=dict(item).get('kind')=='teaching'
+    if native:
+        credential=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+        if not credential or teaching.account(credential['username'])!=item['account']: return None
+    table='teaching_sources' if native else 'source_versions'
+    return db.execute(f'SELECT * FROM {table} WHERE user_id=? AND account=? AND input_id=?',
+                      (uid,item['account'],input_id)).fetchone()
 
 
 def catalogue(db, uid, cursor):
@@ -65,9 +83,14 @@ def catalogue(db, uid, cursor):
             raise ValueError()
     except ValueError:
         raise ValueError('invalid cursor')
-    sources = source_ids(db, uid)
-    rows = db.execute('''SELECT v.*,s.source_id FROM source_versions v JOIN reprocessing_sources s
-        ON v.user_id=s.user_id AND v.account=s.account WHERE v.user_id=? ORDER BY s.source_id,v.input_id LIMIT 101 OFFSET ?''', (uid, offset)).fetchall()
+    source_ids(db, uid)
+    credential=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+    campus=teaching.account(credential['username']) if credential else ''
+    rows = db.execute('''SELECT v.input_id,v.request,s.source_id,'text' AS kind FROM source_versions v JOIN reprocessing_sources s
+        ON v.user_id=s.user_id AND v.account=s.account WHERE v.user_id=?
+        UNION ALL SELECT v.input_id,v.request,s.source_id,'teaching' AS kind FROM teaching_sources v JOIN reprocessing_teaching_sources s
+        ON v.user_id=s.user_id AND v.account=s.account WHERE v.user_id=? AND v.account=?
+        ORDER BY source_id,input_id LIMIT 101 OFFSET ?''', (uid,uid,campus,offset)).fetchall()
     accounts = {}
     consumed=0
     for row in rows[:100]:
@@ -75,15 +98,15 @@ def catalogue(db, uid, cursor):
             break
         consumed+=1
         request = json.loads(row['request'])
-        record = request['records'][0]
+        record = teaching.request_view(request)['records'][0] if row['kind']=='teaching' else request['records'][0]
         stored = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request['request_id'])).fetchone()
         status = 'unknown'
         if stored:
             outcome = next((r for r in json.loads(stored['result'])['record_results'] if r['input_id'] == row['input_id']), None)
-            status = outcome['status'] if outcome else 'failed'
+            status = outcome['status'] if outcome and outcome['status'] in ('success','no_tasks') else 'failed'
         policy = db.execute('SELECT policy FROM recognition_record_policies WHERE user_id=? AND request_id=? AND input_id=?', (uid, request['request_id'], row['input_id'])).fetchone()
         version = json.loads(policy['policy'])['version'] if policy and policy['policy'] else None
-        account = accounts.setdefault(row['source_id'], dict(source_account_id=row['source_id'], label='教学网来源 ' + str(next(i for i, s in enumerate(sources, 1) if s['source_id'] == row['source_id'])), records=[]))
+        account = accounts.setdefault(row['source_id'], dict(source_account_id=row['source_id'], label='当前教学网账号' if row['kind']=='teaching' else '旧版教学网来源 '+row['source_id'][:6], records=[]))
         label=re.sub(r'[\x00-\x1f\x7f]',' ',record.get('source_label') or row['input_id'])[:512]
         course=record.get('course_or_project')
         course=re.sub(r'[\x00-\x1f\x7f]',' ',course)[:512] if course else None
@@ -123,19 +146,22 @@ def start(db, uid, body, ApiError):
     active=db.execute("SELECT COUNT(*) FROM reprocessing_runs WHERE json_extract(snapshot,'$.state') IN ('queued','running','stopping')").fetchone()[0]
     if active>=4:
         raise ApiError(503,'重识别队列已满，请稍后重试')
-    source = db.execute('SELECT account FROM reprocessing_sources WHERE user_id=? AND source_id=?', (uid, body['source_account_id'])).fetchone()
+    source = db.execute('''SELECT account,'text' AS kind FROM reprocessing_sources WHERE user_id=? AND source_id=?
+        UNION ALL SELECT account,'teaching' AS kind FROM reprocessing_teaching_sources WHERE user_id=? AND source_id=?''',
+        (uid,body['source_account_id'],uid,body['source_account_id'])).fetchone()
     if not source:
         raise ApiError(404, '来源不存在')
     inputs = []
     records = []
     for identity in body['input_ids']:
-        row = db.execute('SELECT * FROM source_versions WHERE user_id=? AND account=? AND input_id=?', (uid, source['account'], identity)).fetchone()
+        row = current_source(db,uid,source,identity)
         if not row:
             raise ApiError(404, '来源记录不存在')
         request = json.loads(row['request'])
+        if source['kind']=='teaching': teaching.resolve_snapshot(db,uid,request['request_id'],ApiError)
         old_batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request['request_id'])).fetchone()
         previous = bool(old_batch and json.loads(old_batch['result'])['status'] in ('success','no_tasks'))
-        inputs.append(dict(request=request, digest=row['digest'], account=source['account']))
+        inputs.append(dict(request=request, digest=row['digest'], account=source['account'],kind=source['kind']))
         records.append(dict(input_id=identity, state='queued', attempted=False, policy_version=None, previous_available=previous, old_result_retained=previous, outcome=None, decision_summary=dict(preserved=0,replaced=0,new_pending=0,unresolved=0), error=None))
     run = dict(contract_version=contract.VERSION, run_id=secrets.token_hex(16), operation_id=body['operation_id'], source_account_id=body['source_account_id'], revision=1, state='queued', created_at=stamp(), updated_at=stamp(), records=records, counts=dict(total=len(records), **{s:len(records) if s=='queued' else 0 for s in contract.ROW_STATES}))
     contract.check_start_run(body, run)
@@ -143,6 +169,42 @@ def start(db, uid, body, ApiError):
     for record in records:
         db.execute('INSERT INTO reprocessing_latest VALUES(?,?,?,?) ON CONFLICT(user_id,source_id,input_id) DO UPDATE SET run_id=excluded.run_id', (uid,run['source_account_id'],record['input_id'],run['run_id']))
     return run, True
+
+
+def still_current(db, uid, item, ApiError):
+    native=item.get('kind')=='teaching'
+    entry=item['request']['records'][0]
+    identity=(entry['record'] if native else entry)['input_id']
+    row=current_source(db,uid,item,identity)
+    if not row or row['digest']!=item['digest'] or json.loads(row['request'])!=item['request']: return False
+    if native:
+        try: teaching.resolve_snapshot(db,uid,item['request']['request_id'],ApiError)
+        except ApiError: return False
+    return True
+
+
+def recognize_saved(request, native, ApiError, *, attachments=None):
+    if not native:
+        result=validate_result(request,recognition.recognize(request,ApiError))
+        return result,getattr(recognition._EXECUTION,'policy',None)
+    if not recognition._ACTIVE.acquire(): raise ApiError(503,'模型队列暂不可用')
+    try:
+        result,policy=teaching.recognize(request,ApiError,**(attachments or {}))
+        teaching.validate_current_result(request,result,policy,ApiError)
+        return result,policy
+    finally: recognition._ACTIVE.release()
+
+
+def prior_candidates(db, uid, item, identity):
+    """Use server-bound request lineage, never a title or input ID alone."""
+    kind=item.get('kind','text');ids={item['request']['request_id']}
+    ids.update(r[0] for r in db.execute('''SELECT request_id FROM reprocessing_request_sources
+        WHERE user_id=? AND kind=? AND account=? AND input_id=?''',(uid,kind,item['account'],identity)))
+    if kind=='teaching':
+        ids.update(r[0] for r in db.execute('''SELECT request_id FROM teaching_submission_requests
+            WHERE user_id=? AND account=? AND input_id=?''',(uid,item['account'],identity)))
+    return [row for row in db.execute('SELECT * FROM recognition_candidates WHERE user_id=?',(uid,))
+            if row['request_id'] in ids and json.loads(row['candidate'])['input_id']==identity]
 
 
 def process(path, uid, run_id, ApiError):
@@ -156,20 +218,27 @@ def process(path, uid, run_id, ApiError):
                 if run['state'] in contract.FINAL or index is None:
                     return
                 record = run['records'][index]
+                item = json.loads(stored['inputs'])[index]
+                if not still_current(db,uid,item,ApiError):
+                    record['state']='superseded';save(db,run,terminal(run));continue
                 record.update(state='running', attempted=True)
                 save(db, run, 'running')
-                item = json.loads(stored['inputs'])[index]
-            request = dict(item['request'], request_id='reprocessing:'+run_id+':'+str(index))
+                attachments = teaching.attachment_context(db,uid,item['request']['request_id']) if item.get('kind')=='teaching' else {}
+            request = json.loads(json.dumps(item['request']))
+            request['request_id']='reprocessing:'+run_id+':'+str(index)
             result = None
             policy = None
+            native=item.get('kind')=='teaching'
             def cancelled():
                 with connection(path) as current_db:
                     current=current_db.execute('SELECT snapshot FROM reprocessing_runs WHERE run_id=?',(run_id,)).fetchone()
-                    return not current or json.loads(current['snapshot'])['state'] in contract.FINAL | {'stopping'}
+                    if not current or json.loads(current['snapshot'])['state'] in contract.FINAL | {'stopping'}: return True
+                    latest=current_db.execute('SELECT run_id FROM reprocessing_latest WHERE user_id=? AND source_id=? AND input_id=?',
+                        (uid,run['source_account_id'],record['input_id'])).fetchone()
+                    return not latest or latest['run_id']!=run_id or not still_current(current_db,uid,item,ApiError)
             try:
                 with cancel_if(cancelled):
-                    result = validate_result(request, recognition.recognize(request, ApiError))
-                policy = getattr(recognition._EXECUTION, 'policy', None)
+                    result,policy = recognize_saved(request,native,ApiError,**({'attachments':attachments} if attachments else {}))
                 if not policy or result['status'] not in ('success','no_tasks'):
                     raise ValueError('invalid or unversioned result')
             except Exception:
@@ -184,46 +253,74 @@ def process(path, uid, run_id, ApiError):
                 if policy:
                     record['policy_version'] = policy['version']
                 latest = db.execute('SELECT run_id FROM reprocessing_latest WHERE user_id=? AND source_id=? AND input_id=?', (uid,run['source_account_id'],record['input_id'])).fetchone()
-                current = db.execute('SELECT digest FROM source_versions WHERE user_id=? AND account=? AND input_id=?', (uid,item['account'],record['input_id'])).fetchone()
                 if run['state']=='stopping':
                     record.update(state='interrupted', error=dict(code='interrupted',message='已停止，未接纳迟到结果'))
-                elif not latest or latest['run_id']!=run_id or not current or current['digest']!=item['digest']:
+                elif not latest or latest['run_id']!=run_id or not still_current(db,uid,item,ApiError):
                     record['state']='superseded'
                 elif result is None:
                     record.update(state='failed',error=dict(code='agent_unavailable',message='识别未成功，已有数据未变更'))
                 else:
                     # Legacy records have no verified cross-version action links.
                     # Protect every handled decision; do not match titles or model IDs.
-                    old = []
-                    for candidate in db.execute('SELECT * FROM recognition_candidates WHERE user_id=?', (uid,)):
-                        if json.loads(candidate['candidate'])['input_id']==record['input_id']:
-                            old.append(candidate)
+                    old = prior_candidates(db,uid,item,record['input_id'])
+                    cards=teaching.result_view(request,result)['tasks'] if native else result['tasks']
                     protected = [c for c in old if c['state']!='pending' or c['version']!=1]
-                    candidate_ids=[secrets.token_hex(16) for _ in result['tasks']]
+                    candidate_ids=[secrets.token_hex(16) for _ in cards]
                     plan=contract.association_plan(dict(contract_version=contract.VERSION,
                         previous=[dict(action_id=c['id'],decision='ignored' if c['state']=='ignored' else 'confirmed') for c in protected],
                         candidates=candidate_ids,links=[],confirmed_new=[]))
                     hold=plan['hold_record']
                     summary = record['decision_summary']
                     summary['preserved']=len(protected)
-                    summary['unresolved']=len(result['tasks']) if hold else 0
+                    summary['unresolved']=len(cards) if hold else 0
                     fingerprint=hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
                     db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result)))
-                    for candidate,identity in zip(result['tasks'],candidate_ids):
+                    for rid in (item['request']['request_id'],request['request_id']):
+                        db.execute('INSERT OR IGNORE INTO reprocessing_request_sources VALUES(?,?,?,?,?)',
+                            (uid,item.get('kind','text'),item['account'],record['input_id'],rid))
+                    if native:
+                        db.execute('INSERT OR IGNORE INTO teaching_submission_requests VALUES(?,?,?,?)',
+                            (uid,item['account'],request['request_id'],record['input_id']))
+                    for candidate,identity in zip(cards,candidate_ids):
                         candidate=deepcopy(candidate)
+                        if native: candidate=teaching.submission.decorate(db,uid,request['request_id'],candidate)
                         if hold:
                             candidate.update(notice_type='uncertain',needs_review=True,review_reasons=candidate['review_reasons']+['旧任务已有用户决定；请明确选择新增、更新或忽略，不会自动替换旧任务'])
                         db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(identity,uid,request['request_id'],json.dumps(candidate)))
                     db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',(uid,request['request_id'],record['input_id'],json.dumps(policy)))
                     if not hold:
-                        pending = [c for c in old if c['request_id']==item['request']['request_id'] and c['state']=='pending' and c['version']==1]
+                        pending = [c for c in old if c['state']=='pending' and c['version']==1]
                         for candidate in pending:
                             db.execute('DELETE FROM recognition_candidates WHERE id=? AND user_id=?',(candidate['id'],uid))
-                        summary.update(replaced=len(pending),new_pending=len(result['tasks']))
-                        db.execute('UPDATE source_versions SET request=? WHERE user_id=? AND account=? AND input_id=?',(json.dumps(request),uid,item['account'],record['input_id']))
+                        summary.update(replaced=len(pending),new_pending=len(cards))
+                        if native:
+                            # Keep crawler evidence immutable; enriched reader/model data
+                            # belongs only to recognition_batches. Advance file bindings
+                            # atomically so normal sync pruning cannot delete live assets.
+                            captured=deepcopy(item['request'])
+                            captured['request_id']=request['request_id']
+                            teaching.teaching_assets.rebind(db,uid,item['account'],
+                                item['request']['request_id'],request['request_id'])
+                            db.execute('UPDATE teaching_sources SET request=?,request_id=? WHERE user_id=? AND account=? AND input_id=?',
+                                (json.dumps(captured),request['request_id'],uid,item['account'],record['input_id']))
+                            # Superseded failures must not keep offering retry in the active inbox.
+                            # Keep their request/result in storage; never hide handled decisions.
+                            for rid in {item['request']['request_id'],*(c['request_id'] for c in pending)}:
+                                if not db.execute('SELECT 1 FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,rid)).fetchone():
+                                    db.execute('''INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1)
+                                        ON CONFLICT(user_id,request_id) DO UPDATE SET archived=1''',
+                                        (uid,rid,rid,stamp(),'教学网重识别前的结果'))
+                            # Same account/source guard and transactional task creation as normal sync.
+                            for identity in candidate_ids:
+                                candidate=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])
+                                if recognition.can_auto_apply(candidate,request):
+                                    recognition.resolve_candidate(db,uid,identity,dict(action='create',auto_apply=True,version=1),ApiError)
+                                    summary['new_pending']-=1
+                        else:
+                            db.execute('UPDATE source_versions SET request=? WHERE user_id=? AND account=? AND input_id=?',(json.dumps(request),uid,item['account'],record['input_id']))
                     results=json.loads(stored['results']);results[record['input_id']]=result
                     db.execute('UPDATE reprocessing_runs SET results=? WHERE run_id=?',(json.dumps(results),run_id))
-                    record.update(state='succeeded',outcome='tasks' if result['tasks'] else 'no_tasks',old_result_retained=record['previous_available'] if protected else False)
+                    record.update(state='succeeded',outcome='tasks' if cards else 'no_tasks',old_result_retained=record['previous_available'] if protected else False)
                 save(db,run,terminal(run))
     except Exception:
         with connection(path) as db:

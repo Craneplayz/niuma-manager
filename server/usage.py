@@ -75,6 +75,8 @@ def visit(db, uid, now=None):
     return dict(offerRating=offer)
 
 def workspace_changes(db, uid, old, new):
+    old = [t for t in old if t.get('content_type')!='notice']
+    new = [t for t in new if t.get('content_type')!='notice']
     before = {t['id']:t for t in old}
     added = sum(t['id'] not in before for t in new)
     completed = sum(t.get('status')=='completed' and before.get(t['id'],{}).get('status')!='completed' for t in new)

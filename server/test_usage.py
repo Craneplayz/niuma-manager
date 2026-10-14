@@ -81,6 +81,11 @@ class UsageTests(unittest.TestCase):
             with patch.dict(os.environ,NIUMA_ANALYTICS_EXCLUDED_USER_IDS=self.uid):
                 result=usage.summary(db,now.date().isoformat(),now.date().isoformat())
                 self.assertEqual(result['activeUsers'],0)
+    def test_notices_are_not_counted_as_tasks(self):
+        notice=dict(id='notice',content_type='notice',status='completed',due=dict(date='2099-01-01'))
+        with app.connection() as db:
+            usage.workspace_changes(db,self.uid,[],[notice])
+            self.assertFalse(db.execute('SELECT 1 FROM usage_events WHERE event LIKE "task_%" OR event="dated_task_completed"').fetchone())
     def test_persistent_admin_role_and_business_failure_status(self):
         with app.connection() as db:
             db.execute('INSERT INTO usage_admins VALUES(?)',(usage.actor(self.uid),))

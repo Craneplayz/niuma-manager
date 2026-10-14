@@ -3,8 +3,10 @@ import hashlib
 import json
 import os
 if __package__:
+    from . import usage
     from .runtime_environment import model_env_path
 else:
+    import usage
     from runtime_environment import model_env_path
 import secrets
 import re
@@ -82,6 +84,7 @@ def recognize(request, ApiError):
 
 
 def initialize(db):
+    usage.initialize(db)
     db.executescript('''
     CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
@@ -106,8 +109,12 @@ def batches(db,uid):
             for item in items:
                 # Refresh the read-only presentation of existing results while
                 # preserving storage IDs, review state and user resolutions.
-                item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],
-                    cards.get(item['candidate']['candidate_id'], item['candidate']))
+                # Stored cards also carry user-decision guards from reprocessing.
+                card=dict(cards.get(item['candidate']['candidate_id'],item['candidate']))
+                if json.loads(row['result']).get('classification_mode')==teaching.CLASSIFICATION_MODE:
+                    for field in ('notice_type','needs_review','review_reasons'):
+                        card[field]=item['candidate'][field]
+                item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],card)
             request = teaching.request_view(request)
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None))
     return result
@@ -261,76 +268,87 @@ def route(handler,db,uid,path,body,ApiError):
     if path.startswith('/api/recognition/candidates/') and path.endswith('/resolve') and handler.command=='POST':
         cid=path.split('/')[-2]
         db.execute('BEGIN IMMEDIATE')
-        row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
-        if not row: raise ApiError(404,'候选不存在')
-        canonical=json.dumps(body,sort_keys=True)
-        action=body.get('action')
-        if action=='reopen':
-            if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
-            if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
-            db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
-            handler.reply(200,dict(batches=batches(db,uid)));return True
-        if row['state']!='pending':
-            if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
-            handler.reply(200,dict(batches=batches(db,uid)));return True
-        if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
-        c=json.loads(row['candidate'])
-        if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
-        auto=body.get('auto_apply') is True
-        if auto:
-            d=c['deadline']
-            batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
-            if json.loads(batch['request']).get('contract_version')=='0.4':
-                import teaching
-                teaching.submission.guard_auto_apply(db,uid,row['request_id'],ApiError)
-                teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
-            if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
-                raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
-        if action!='ignore':
-            if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
-            if c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
-            taskrow=db.execute('SELECT * FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
-            version=taskrow['version'] if taskrow else 0
-            if not auto and body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
-            tasks=json.loads(taskrow['value']) if taskrow else []
-            handler.usage_tasks=json.loads(taskrow['value']) if taskrow else []
-            target=next((t for t in tasks if t['id']==body.get('target_id')),None)
-            if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
-            if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
-            draft=body.get('draft',{})
-            if auto:
-                automatic_due=None
-                if d['status']=='explicit':
-                    value=d['value']
-                    if d['precision']=='datetime':
-                        local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))
-                        automatic_due=dict(date=local.date().isoformat(),precision='datetime',time=local.strftime('%H:%M'))
-                    else: automatic_due=dict(date=value,precision='date')
-                draft=dict(title=c['title'],description=c['description'],course=c['course_or_project'],due=automatic_due)
-            if action!='cancel':
-                if not isinstance(draft.get('title'),str) or not draft['title'].strip() or not isinstance(draft.get('description'),str): raise ApiError(400,'请填写有效任务内容')
-                course=draft.get('course',c['course_or_project'])
-                if course is not None and not isinstance(course,str): raise ApiError(400,'课程或项目格式不正确')
-                course=course.strip() or None if isinstance(course,str) else None
-                try: confirmed_due=due(draft.get('due'))
-                except (ValueError,KeyError,TypeError): raise ApiError(400,'截止日期格式不正确')
-                if action=='postpone' and confirmed_due is None: raise ApiError(400,'延期必须明确新的截止日期')
-                if action=='create':
-                    platform=c['sources'][0]['platform']
-                    source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
-                    target=dict(id=secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=datetime.now(timezone.utc).isoformat())
-                    tasks.append(target)
-                    target['course']=course
-                    target['category']='课程作业' if course else '个人事务'
-                elif action=='postpone': target['due']=confirmed_due
-                else:
-                    target.update(title=draft['title'].strip(),description=draft['description'],due=confirmed_due)
-                    if 'course' in draft: target['course']=course
-                if action=='create' or (action=='update' and c['prerequisites']):
-                    target['sourceRequirements']=c['prerequisites']
-            else: target['status']='cancelled'
-            target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
-            db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
-        db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
+        resolve_candidate(db,uid,cid,body,ApiError)
         handler.reply(200,dict(batches=batches(db,uid)));return True
     raise ApiError(404,'识别接口不存在')
+
+
+def resolve_candidate(db, uid, cid, body, ApiError):
+    """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
+    row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
+    if not row: raise ApiError(404,'候选不存在')
+    canonical=json.dumps(body,sort_keys=True)
+    action=body.get('action')
+    if action=='reopen':
+        if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
+        if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
+        db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
+        return
+    if row['state']!='pending':
+        if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
+        return
+    if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
+    c=json.loads(row['candidate'])
+    if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
+    auto=body.get('auto_apply') is True
+    if auto:
+        d=c['deadline']
+        batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
+        if json.loads(batch['request']).get('contract_version')=='0.4':
+            import teaching
+            teaching.submission.guard_auto_apply(db,uid,row['request_id'],ApiError)
+            teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
+        if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
+            raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
+    if action!='ignore':
+        if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
+        if c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
+        taskrow=db.execute('SELECT * FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+        version=taskrow['version'] if taskrow else 0
+        if not auto and body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
+        tasks=json.loads(taskrow['value']) if taskrow else []
+        target=next((t for t in tasks if t['id']==body.get('target_id')),None)
+        if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
+        if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
+        draft=body.get('draft',{})
+        if auto:
+            automatic_due=None
+            if d['status']=='explicit':
+                value=d['value']
+                if d['precision']=='datetime':
+                    local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))
+                    automatic_due=dict(date=local.date().isoformat(),precision='datetime',time=local.strftime('%H:%M'))
+                else: automatic_due=dict(date=value,precision='date')
+            draft=dict(title=c['title'],description=c['description'],course=c['course_or_project'],due=automatic_due)
+        if action!='cancel':
+            if not isinstance(draft.get('title'),str) or not draft['title'].strip() or not isinstance(draft.get('description'),str): raise ApiError(400,'请填写有效任务内容')
+            course=draft.get('course',c['course_or_project'])
+            if course is not None and not isinstance(course,str): raise ApiError(400,'课程或项目格式不正确')
+            course=course.strip() or None if isinstance(course,str) else None
+            try: confirmed_due=due(draft.get('due'))
+            except (ValueError,KeyError,TypeError): raise ApiError(400,'截止日期格式不正确')
+            if action=='postpone' and confirmed_due is None: raise ApiError(400,'延期必须明确新的截止日期')
+            content_type=draft.get('content_type', c.get('content_type', 'task'))
+            if content_type not in ('task','notice'): raise ApiError(400,'内容类型必须是任务或通知')
+            if action=='create':
+                platform=c['sources'][0]['platform']
+                source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
+                target=dict(id=secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=datetime.now(timezone.utc).isoformat())
+                tasks.append(target)
+                target['course']=course
+                target['category']='课程作业' if course else '个人事务'
+                target['content_type']=content_type
+                if content_type=='notice': target['planningExcluded']=True
+            elif action=='postpone': target['due']=confirmed_due
+            else:
+                target.update(title=draft['title'].strip(),description=draft['description'],due=confirmed_due)
+                target['content_type']=content_type
+                if 'course' in draft: target['course']=course
+            if action=='create' or (action=='update' and c['prerequisites']):
+                target['sourceRequirements']=c['prerequisites']
+        else: target['status']='cancelled'
+        target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
+        db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
+        usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
+    db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
+    return

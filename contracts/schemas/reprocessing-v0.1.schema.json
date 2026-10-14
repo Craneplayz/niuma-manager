@@ -119,7 +119,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "pattern": "^text-policy-v1:[0-9a-f]{64}$"
+                    "pattern": "^(text|teaching)-policy-v1:[0-9a-f]{64}$"
                   },
                   {
                     "type": "null"
@@ -359,7 +359,7 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "pattern": "^text-policy-v1:[0-9a-f]{64}$"
+                          "pattern": "^(text|teaching)-policy-v1:[0-9a-f]{64}$"
                         },
                         {
                           "type": "null"
@@ -492,7 +492,7 @@
                       "anyOf": [
                         {
                           "type": "string",
-                          "pattern": "^text-policy-v1:[0-9a-f]{64}$"
+                          "pattern": "^(text|teaching)-policy-v1:[0-9a-f]{64}$"
                         },
                         {
                           "type": "null"

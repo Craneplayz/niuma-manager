@@ -127,6 +127,6 @@ python server/manage_environment.py accept test --evidence "验收链接或合�
 
 本机复现需 Docker 引擎并设置 `NIUMA_CONTAINER_TEST_API`、`NIUMA_CONTAINER_TEST_WEB_IP`、`NIUMA_CONTAINER_TEST_WEB_HTTPS` 为当前提交构建的镜像，再运行 `python -m unittest discover -s server -p test_container_environment.py -v`。HTTPS 验收仅对本地合成端点接受临时自签证书，不代表公网证书已签发。
 
-本次只隔离已有的后台作业恢复；系统尚无完整定时同步调度器，`scheduled_sync_available=false` 如实表示未实现，不能把恢复开关当作定时同步功能。
+教学网定时同步使用各环境私有 `config.json` 的 `scheduled_sync` 布尔开关，省略时兼容为 false；统一入口将其注入 `NIUMA_ENABLE_SCHEDULED_SYNC`，不会继承其他环境终端的值。三个环境均默认关闭，开发 / 测试只在独立合成账号验收时显式设为 true 并重启。`/api/version` 的 `scheduled_sync_available` 表示环境是否开放该能力，账号还须在来源设置中选定来源、间隔并同意启用。`background_recovery` 不能替代此开关。定时运行与手动同步共用队列、数据库和状态保护，详见 [接口约定](../../contracts/docs/source-sync-v0.1.md)。
 
 Compose 配置、镜像启动、服务器挂载和真实业务联调须由对应环境分别验收，不能由本地回归结果推定生产已隔离。[Compose 项目与环境变量规则](https://docs.docker.com/compose/how-tos/project-name/)

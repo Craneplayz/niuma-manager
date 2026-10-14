@@ -3,11 +3,17 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── source_sync.py                    # 后台来源同步的独立请求/响应 Schema 与计数语义校验
+├── docs/source-sync-v0.1.md           # 同步幂等、账号隔离、并发、停止与进度约定
+├── examples/source-sync-v01.json     # 后台运行、重试和定时配置的共享合成样例
+├── tests/test_source_sync.py         # 独立根 Schema、记录唯一性、计数与终态检查
 ├── requirements-teaching-dev.txt     # 教学网政策校验依赖，由可选教学网入口显式引用
 ├── build_teaching_v04.py             # 生成/核对自包含教学网批次请求与结果根 Schema
 ├── teaching_io.py                    # 教学网批次身份、状态、来源和基础政策校验
 ├── schemas/teaching-request-v0.4.schema.json # 独立教学网批次请求
 ├── schemas/teaching-result-v0.4.schema.json # 独立教学网批次结果
+├── examples/teaching-model-routing-v04-cases.json # 新模型分类的八组真实合成输入/输出
+├── examples/teaching-content-types-v04.json # 任务、通知、活动时间与混合内容的合成回放契约（非真实模型结果）
 ├── examples/teaching-v04-cases.json   # 7 组教学网公开批次边界与多任务样例
 ├── tests/test_teaching_io.py          # 教学网批次、信任与非法状态反例
 ├── docs/teaching-v0.4.md              # 教学网显式接入、消费复核及重识别规则
@@ -86,7 +92,7 @@ contracts/
 
 - 业务排程与重新规划以 [规划接口约定](task-planning/README.md) 和 [请求 / 提案样例](task-planning/api-examples.json) 为准；确认后仅替换选中任务尚未开始的安排。
 - AI 拆解接口以 [拆解契约](task-decomposition/README.md)、[Schema](task-decomposition/schema-v0.1.json) 和 [样例](task-decomposition/examples-v0.1.json) 为准；内部模型草稿由后端包装成带任务编号的公开回应，确认须再核对任务编号。
-- 教学网 #108/#109 的 [v0.4 批次契约](docs/teaching-v0.4.md) 复用已审查的 [覆盖/学期政策组件](docs/teaching-review-v0.4-draft.md)；消费端须显式接入并复核，不静默改变以下 v0.2 或微信 v0.3.1 规则。
+- 教学网 #108/#109 的 [v0.4 批次契约](docs/teaching-v0.4.md) 复用已审查的 [覆盖/学期政策组件](docs/teaching-review-v0.4-draft.md)；新结果显式标记 model-v1，由模型分类，消费端仅校验格式/证据/身份和一致性；旧结果可读，不改变以下 v0.2 或微信 v0.3.1 规则。
 
 - #110 [已提交状态决策契约](docs/submission-policy-v0.1.md) 区分来源事实和永久行动对应，提供纯校验与参考决策；后端显式接入后才生效，不凭模型或 imported hints 自动完成。
 - #110 [公开操作契约](docs/submission-operations-v0.1.md) 提供来源查询、人工关联、重开、恢复自动完成和来源确认的独立根；运行端仍须实现登录鉴权、持久幂等和事务。
