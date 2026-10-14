@@ -43,8 +43,8 @@ async function accept(next,current){
  runs=next;loaded=true;
  const fingerprint=JSON.stringify(runs.map(r=>[r.run_id,r.counts?.succeeded,r.counts?.failed,r.counts?.incomplete,r.state]));
  if(fingerprint!==observed){
-  observed=fingerprint;
-  await host.changed?.(runs);
+  const updated=await host.changed?.(runs);
+  if(current()&&updated!==false)observed=fingerprint;
  }
 }
 export async function refreshSourceSync(){

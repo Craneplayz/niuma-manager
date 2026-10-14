@@ -75,6 +75,27 @@ test('progress network errors keep saved state and distinguish connection from r
  assert.equal(sync.syncIsActive(),true);assert.match(sync.sourceSyncPanel(),/不代表识别失败/);assert.match(sync.sourceSyncPanel(),/停止本轮同步/);
 });
 
+test('actual recognition callback retries unchanged progress after workspace or candidate fetch fails',async()=>{
+ const recognition=await import('../src/team-recognition-ui.js');
+ for(const failure of ['workspace','candidates']){
+  reset();recognition.resetAssistant();let workspace=0,candidates=0,progress=0,fail=true;
+  const run=syncRun({added:1});
+  recognition.configureAssistant({render(){},refresh:async()=>{workspace++;if(fail&&failure==='workspace'){fail=false;throw new Error('temporary workspace failure');}}});
+  globalThis.fetch=async path=>{
+   if(path==='/api/sources/sync-runs'){progress++;return response({contract_version:'source-sync/0.1',runs:[run]});}
+   assert.equal(path,'/api/recognition/batches');candidates++;
+   if(fail&&failure==='candidates'){fail=false;throw new Error('temporary candidate failure');}
+   return response([]);
+  };
+  await sync.refreshSourceSync();assert.match(sync.sourceSyncPanel(),/暂时无法读取进度/);
+  await sync.sourceSyncClick({dataset:{sourceSyncAction:'refresh'}});
+  assert.equal(workspace,2);assert.equal(candidates,failure==='workspace'?1:2);
+  assert.doesNotMatch(sync.sourceSyncPanel(),/暂时无法读取进度/);
+  await sync.refreshSourceSync();assert.equal(progress,3);assert.equal(workspace,2);
+  recognition.resetAssistant();
+ }
+});
+
 test('older failures and expanded details remain accessible across polls, not account changes',async()=>{
  reset();const old=syncRun({id:'run:older',state:'failed',states:['failed']});old.records[0].request_id='older:source';old.records[0].label='旧故障';
  const runs=[syncRun({id:'run:a'}),syncRun({id:'run:b'}),syncRun({id:'run:c'}),old];

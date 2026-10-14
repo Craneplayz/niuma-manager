@@ -102,6 +102,58 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(self.until(run['run_id'],lambda r:r['state']=='failed')['records'],[])
         with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM teaching_sources').fetchone()[0],0)
 
+    def test_credentials_changed_mid_recognition_finish_undispatched_records(self):
+        for remove in (False, True):
+            with self.subTest(remove=remove):
+                request,drafts=example(('explicit-complete',)*6);self.drafts.update(drafts)
+                gate=threading.Event();entered=threading.Event();lock=threading.Lock();count=0
+                def model(request,ApiError):
+                    nonlocal count
+                    with lock:
+                        count+=1
+                        if count==jobs.CONCURRENCY:entered.set()
+                    gate.wait(10)
+                    return self.model(request,ApiError)
+                with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=model):
+                    run=self.start('credentials:'+str(remove))
+                    try:
+                        self.assertTrue(entered.wait(5))
+                        endpoint='/sources/credentials/remove' if remove else '/sources/credentials'
+                        body={} if remove else dict(username='other-campus',password='synthetic-password')
+                        self.assertEqual(self.call(endpoint,body)[0],200)
+                    finally:gate.set();jobs.wait_for_jobs(app.DB)
+                result=self.call('/sources/sync-runs/'+run['run_id'])[1]
+                check('run',result)
+                self.assertEqual(result['counts']['failed'],6)
+                self.assertEqual(result['counts']['queued'],0)
+                self.assertEqual(result['counts']['running'],0)
+                self.assertEqual(result['error']['code'],'source_changed')
+                self.assertTrue(all(r['error']['code']=='source_changed' and not r['error']['retryable'] for r in result['records']))
+                self.assertEqual(count,jobs.CONCURRENCY)
+                self.assertEqual(self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='changed:retry:'+str(remove),consent=True))[0],409)
+                self.assertFalse(self.call('/workspace')[1].get('tasks',{}).get('value'))
+
+    def test_reused_operation_survives_failure_restart_and_lost_response(self):
+        request,_=example();gate=threading.Event();entered=threading.Event()
+        def model(*args,**kwargs):
+            entered.set();gate.wait(10);raise app.ApiError(502,'合成暂时故障')
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=model) as recognize:
+            first=self.start('op:first')
+            try:
+                self.assertTrue(entered.wait(5))
+                self.assertEqual(self.start('op:lost-response')['run_id'],first['run_id'])
+            finally:gate.set();jobs.wait_for_jobs(app.DB)
+            app.initialize()
+            repeat=self.start('op:lost-response');jobs.wait_for_jobs(app.DB)
+            self.assertEqual(repeat['run_id'],first['run_id']);self.assertEqual(repeat['state'],'failed')
+            self.assertEqual(crawler.call_count,1);self.assertEqual(recognize.call_count,1)
+            self.assertEqual(self.call('/sources/sync-runs/'+first['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='op:lost-response',consent=True))[0],409)
+            # Upgrade an older database without operation aliases.
+            with app.connection() as db:db.execute('DELETE FROM source_sync_operations')
+            app.initialize()
+            self.assertEqual(self.start('op:first')['run_id'],first['run_id'])
+            jobs.wait_for_jobs(app.DB);self.assertEqual(crawler.call_count,1)
+
     def test_other_user_cannot_read_stop_or_start_without_consent(self):
         with patch.object(jobs,'launch'):
             run=self.start()

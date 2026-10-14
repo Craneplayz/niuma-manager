@@ -25,7 +25,7 @@ export function configureAssistant(callbacks){host=callbacks;configureSyncSchedu
    processed:c.total-c.queued-c.running,created:c.added,failed:c.failed,incomplete:c.incomplete,skipped:c.skipped};
  }
  await flushStore();if(epoch!==accountVersion())return;
- await load(true);
+ return load(true,true);
 }});configureReprocessing({render:callbacks.render,finished:async()=>{loaded=false;await callbacks.refresh?.();}});}
 const journey=new ImportJourney();let journeyTransition=false,reviewEntered=false,importId='',importTime='',openHistory=new Set();
 let manualFileVersion=0;
@@ -134,12 +134,12 @@ export function suggestedDue(d){
  const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));
  return {date:p.year+'-'+p.month+'-'+p.day,time:stamp.getUTCSeconds()||stamp.getUTCMilliseconds()?'':p.hour+':'+p.minute};
 }
-async function load(refreshWorkspace=false){
+async function load(refreshWorkspace=false,propagate=false){
  const revision=candidateRevision;
- if(!session.user)return;
+ if(!session.user)return false;
  const epoch=accountVersion(),current=()=>epoch===accountVersion()&&revision===candidateRevision;
- try{if(refreshWorkspace)await host.refresh();if(!current())return;const next=await api('/api/recognition/batches');if(!current())return;batches=next;error='';loaded=true;refresh();}
- catch(e){if(!current())return;error=e.message;loaded=true;refresh();}
+ try{if(refreshWorkspace)await host.refresh();if(!current())return false;const next=await api('/api/recognition/batches');if(!current())return false;batches=next;error='';loaded=true;refresh();return true;}
+ catch(e){if(!current())return false;error=e.message;loaded=true;refresh();if(propagate)throw e;return false;}
 }
 export async function openMediaCandidate(id){
  await load(true);

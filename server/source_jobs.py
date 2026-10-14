@@ -43,6 +43,14 @@ def initialize(db, recover=True):
         UNIQUE(user_id,operation_id))''')
     db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS source_sync_one_active
         ON source_sync_runs(user_id) WHERE state IN ('queued','crawling','recognizing')""")
+    db.execute('''CREATE TABLE IF NOT EXISTS source_sync_operations(
+        user_id TEXT NOT NULL, operation_id TEXT NOT NULL, run_id TEXT NOT NULL,
+        signature TEXT NOT NULL, PRIMARY KEY(user_id,operation_id))''')
+    for row in db.execute('SELECT user_id,operation_id,run_id,snapshot FROM source_sync_runs').fetchall():
+        run = json.loads(row['snapshot'])
+        db.execute('INSERT OR IGNORE INTO source_sync_operations VALUES(?,?,?,?)',
+                   (row['user_id'],row['operation_id'],row['run_id'],
+                    operation_signature(run['parent_run_id'],run.get('retry_selection'))))
     if recover:
         for row in db.execute("SELECT * FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchall():
             run = json.loads(row['snapshot'])
@@ -131,21 +139,37 @@ def guard(db, uid, run_id, ApiError):
     if credential(db, uid) != row['credential']: raise ApiError(409, '教学网凭据已变化，请重新同步')
 
 
+def operation_signature(parent, selection):
+    return json.dumps([parent,sorted(selection) if selection is not None else None])
+
+
+def operation(db, uid, body, parent, ApiError):
+    prior = db.execute('''SELECT o.signature,r.snapshot FROM source_sync_operations o
+        JOIN source_sync_runs r ON r.user_id=o.user_id AND r.run_id=o.run_id
+        WHERE o.user_id=? AND o.operation_id=?''',(uid,body['operation_id'])).fetchone()
+    if prior:
+        if prior['signature'] != operation_signature(parent,body.get('request_ids')):
+            raise ApiError(409, '同一操作编号不能用于不同运行或不同记录')
+        return json.loads(prior['snapshot'])
+
+
+def bind_operation(db, uid, body, parent, run_id):
+    db.execute('INSERT INTO source_sync_operations VALUES(?,?,?,?)',
+               (uid,body['operation_id'],run_id,operation_signature(parent,body.get('request_ids'))))
+
+
 def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=None):
     contract.check('retry' if parent else 'start', body)
-    prior = db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? AND operation_id=?', (uid, body['operation_id'])).fetchone()
-    if prior:
-        run = json.loads(prior['snapshot'])
-        if (run['parent_run_id'] != parent or
-                run.get('retry_selection') != (sorted(body['request_ids']) if 'request_ids' in body else None)):
-            raise ApiError(409, '同一操作编号不能用于不同运行或不同记录')
-        return run
+    prior = operation(db,uid,body,parent,ApiError)
+    if prior: return prior
     key = credential(db, uid)
     if not key: raise ApiError(400, '请先保存教学网账号和密码')
     active = db.execute("SELECT snapshot FROM source_sync_runs WHERE user_id=? AND state IN ('queued','crawling','recognizing')", (uid,)).fetchone()
     if active:
         if parent: raise ApiError(409, '已有同步正在执行，请等待或停止后重试')
-        return json.loads(active['snapshot'])
+        run = json.loads(active['snapshot'])
+        bind_operation(db,uid,body,parent,run['run_id'])
+        return run
     with _lock:
         if len(_workers)>=RUN_LIMIT: raise ApiError(503, '同步资源仍在使用或释放中，请稍后重试')
     if db.execute("SELECT count(*) FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchone()[0] >= RUN_LIMIT:
@@ -156,6 +180,7 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
                records=records or [], counts={}, error=None)
     if parent: run['retry_selection'] = sorted(body['request_ids']) if 'request_ids' in body else None
     db.execute('INSERT INTO source_sync_runs VALUES(?,?,?,?,?,?)', (uid, run['run_id'], body['operation_id'], key, 'queued', '{}'))
+    bind_operation(db,uid,body,parent,run['run_id'])
     save(db, run)
     return run
 
@@ -263,6 +288,12 @@ def process(path, uid, run_id, ApiError):
                 db.execute('BEGIN IMMEDIATE')
                 run = get(db, uid, run_id, ApiError)
                 if run['state'] not in contract.ACTIVE: return
+                try: guard(db,uid,run_id,ApiError)
+                except ApiError as exc:
+                    run['error'] = error('source_changed',exc.message,False)
+                    for item in run['records']:
+                        if item['state'] in ('queued','running'):
+                            item.update(state='failed',error=run['error'])
                 bad = any(r['state'] != 'succeeded' for r in run['records'])
                 good = any(r['state'] == 'succeeded' for r in run['records'])
                 save(db, run, ('partial_success' if good else 'failed') if bad else 'succeeded')
@@ -322,7 +353,7 @@ def route(handler, db, uid, path, body, ApiError, database):
         contract.check('retry',body); db.execute('BEGIN IMMEDIATE')
         old = get(db,uid,run_id,ApiError)
         # A lost HTTP response can be retried even after its child has completed.
-        prior = db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? AND operation_id=?', (uid,body['operation_id'])).fetchone()
+        prior = operation(db,uid,body,run_id,ApiError)
         if prior:
             run = start(db,uid,body,ApiError,trigger='retry',parent=run_id)
             db.commit()
