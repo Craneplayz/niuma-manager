@@ -387,10 +387,17 @@ button .icon {
   height: 40px;
   font-size: 12px;
   color: #9a9ea3;
-  margin-bottom: 29px;
+  margin-bottom: 10px;
 }
 .main-topbar > span {
   margin-left: 1px;
+}
+.main-date {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  color: #878e96;
+  white-space: nowrap;
 }
 #sidebar-show {
   display: none;
@@ -452,14 +459,14 @@ button .icon {
 .page-heading {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: 16.8px minmax(50px, auto);
+  grid-template-rows: minmax(50px, auto);
   align-items: center;
-  gap: 9px 18px;
-  margin-bottom: 23px;
+  gap: 10px;
+  margin-bottom: 18px;
 }
 .page-heading-line {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 20px;
@@ -489,7 +496,7 @@ button .icon {
 }
 .page-heading-actions {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -497,18 +504,6 @@ button .icon {
 }
 .page-heading-actions .btn {
   min-height: 44px;
-}
-.page-eyebrow {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  min-height: 16.8px;
-  height: 16.8px;
-  font-size: 12px;
-  line-height: 16.8px;
-  color: #878e96;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .page-heading h1 {
   font-size: 29px;
@@ -1351,8 +1346,11 @@ dialog .auth-switch {
     padding: 12px 20px 45px;
   }
   .main-topbar {
-    margin: 0 -8px 23px;
+    margin: 0 0 10px -8px;
     font-size: 12px;
+  }
+  .main-date {
+    font-size: 11px;
   }
   #sidebar-show {
     display: inline-flex;
@@ -1366,22 +1364,14 @@ dialog .auth-switch {
   }
   .page-heading {
     grid-template-columns: minmax(0, 1fr) 44px;
-    grid-template-rows: 44px minmax(50px, auto);
+    grid-template-rows: minmax(50px, auto);
     align-items: center;
-    gap: 6px 0;
-    margin-bottom: 17px;
-  }
-  .page-eyebrow {
-    grid-column: 1;
-    grid-row: 1;
-    display: flex;
-    align-items: center;
-    min-height: 44px;
-    height: 44px;
+    gap: 10px;
+    margin-bottom: 14px;
   }
   .page-heading-line {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    grid-column: 1;
+    grid-row: 1;
     justify-content: space-between;
     gap: 10px;
   }
@@ -1418,9 +1408,6 @@ dialog .auth-switch {
   }
   .page-heading h1 {
     font-size: 27px;
-  }
-  .page-eyebrow {
-    font-size: 11px;
   }
   .add-task {
     font-size: 12px;
@@ -1550,8 +1537,13 @@ dialog .auth-switch {
   }
 }
 @media (max-width: 360px) {
+  .page-heading,
+  .page-heading-line {
+    gap: 6px;
+  }
   .page-heading-line h1 {
     font-size: 24px;
+    gap: 4px;
   }
   .page-heading-line .task-view-switch button {
     min-width: 44px;

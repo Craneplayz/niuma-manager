@@ -5,7 +5,7 @@
 | 模块 | 职责 |
 | --- | --- |
 | `app.js` | 统一 `.page-frame`、页面和查询状态、任务操作、日历导航、抽屉与焦点协调 |
-| `page-layout.js` | `renderPageHeading` 共用标题渲染器，统一标题行与首控件起点 |
+| `page-layout.js` | `renderPageHeading` 只渲染单行标题、`controls` 与 `actions`，统一标题行与首控件起点 |
 | `task-model.js` | 本地日期、截止排序、范围及组合筛选、日期分组 |
 | `task-views.js` | 清单任务行、截止分组、当日及无日期任务面板 |
 | `calendar.js` / `calendar.css` | 月历、周截止日程及任务组件样式 |
@@ -35,7 +35,7 @@
 
 按 [小组协作规范](../../CONTRIBUTING.md) 建立分支。界面与浏览器交互保留在 `frontend/`，服务端契约变更由相应模块负责人审查。启动和环境选择见 [README](../README.md)；共享测试和生产使用[环境隔离入口](../../server/deploy/ENVIRONMENTS.md)，不共用数据库、凭据或数据卷。
 
-新页面必须复用 `renderPageHeading`，沿用 `app.js` 的 `.page-frame`（最大宽度 1450px），让顶部栏、提示、页标题和首控件共用坐标。正文可使用左对齐的 `.page-reading`（最大宽度 860px）或框架内的宽视图，不能另设居中或限宽的页面外框。
+新页面必须共用 `app.js` 的紧凑顶栏、右上日期与 `.page-frame`（最大宽度 1450px），复用 `renderPageHeading` 的单行标题、控件和操作，让提示、页标题和首控件共用坐标；标题不添加日期、眉题或空占位行。正文可使用左对齐的 `.page-reading`（最大宽度 860px）或框架内的宽视图，不能另设居中或限宽的页面外框。
 
 在 `frontend/` 运行：
 
