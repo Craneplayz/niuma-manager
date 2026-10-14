@@ -22,3 +22,11 @@ test('separate admin entry does not import ordinary task UI or store',async()=>{
  assert.doesNotMatch(app,/admin\.html|admin-usage/);
  assert.match(admin,/escape\(f\.message/);
 });
+test('an open tab records the next Beijing day without requiring reload',async()=>{
+ const RealDate=globalThis.Date;let clock='2026-10-14T15:59:00Z',count=0;
+ globalThis.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[clock]));}};
+ globalThis.fetch=async()=>{count++;return {ok:true,json:async()=>({offerRating:false})};};
+ session.user={id:'midnight-synthetic'};
+ try{await usageVisit();await usageVisit();clock='2026-10-14T16:01:00Z';await usageVisit();assert.equal(count,2);}
+ finally{globalThis.Date=RealDate;}
+});

@@ -4,8 +4,10 @@ export function feedbackBox(){
  return session.user?`<section class="panel"><h2>使用反馈</h2><form id="usage-feedback-form"><label>有什么可以改进？<textarea name="message" maxlength="2000" required rows="3" placeholder="写下你的建议…"></textarea></label><button class="btn" type="submit">发送反馈</button><p role="status" data-feedback-status></p></form></section>`:'';
 }
 export async function usageVisit(){
- const uid=session.user?.id;if(!uid||offeredFor===uid)return;
- offeredFor=uid;
+ const uid=session.user?.id;if(!uid)return;
+ const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ const key=uid+':'+day;if(offeredFor===key)return;
+ offeredFor=key;
  try{
   const result=await api('/api/usage/visit',{});
   if(session.user?.id!==uid||!result.offerRating)return;
@@ -21,7 +23,7 @@ export async function usageVisit(){
    try{await api('/api/usage/feedback',{kind:'rating',score:Number(choice.dataset.rating)});panel.remove();}
    catch(error){panel.querySelector('[role="status"]').textContent=error.message;panel.querySelectorAll('button').forEach(b=>b.disabled=false);}
   });
- }catch{offeredFor=null;} // Analytics failure must not block ordinary use.
+ }catch{if(offeredFor===key)offeredFor=null;} // Analytics failure must not block ordinary use.
 }
 export async function submitUsageFeedback(form){
  if(session.changing||!session.user)return;
