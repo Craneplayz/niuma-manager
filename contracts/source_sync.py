@@ -18,7 +18,10 @@ SCHEMAS = {
     'start': obj({'contract_version': {'const': VERSION}, 'operation_id': ID,
                   'sources': {'const': ['teaching_web']}, 'consent': {'const': True}}),
     'stop': obj({'contract_version': {'const': VERSION}}),
-    'retry': obj({'contract_version': {'const': VERSION}, 'operation_id': ID, 'consent': {'const': True}}),
+    'retry': obj({'contract_version': {'const': VERSION}, 'operation_id': ID, 'consent': {'const': True},
+                  'request_ids': {'type': 'array', 'minItems': 1, 'maxItems': 1000, 'uniqueItems': True,
+                                  'items': {'type': 'string', 'minLength': 1, 'maxLength': 256}}},
+                 ['contract_version', 'operation_id', 'consent']),
 }
 COUNT = {'type': 'integer', 'minimum': 0}
 ERROR = {'anyOf': [{'type': 'null'}, obj({'code': {'type': 'string'}, 'message': {'type': 'string'}, 'retryable': {'type': 'boolean'}})]}

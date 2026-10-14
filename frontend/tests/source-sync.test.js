@@ -49,3 +49,48 @@ test('missing source offers recollection and escapes untrusted titles',async()=>
  globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs:[run]});await sync.refreshSourceSync();
  const html=sync.sourceSyncPanel();assert.match(html,/data-source-sync-action="collect"/);assert.doesNotMatch(html,/data-source-sync-action="retry"/);assert.doesNotMatch(html,/<script>/);
 });
+
+test('single retry keeps remaining failures visible and reports repaired history',async()=>{
+ reset();const old=syncRun({state:'failed',states:['failed','failed','incomplete']}),next=syncRun({id:'run:retry'});next.parent_run_id=old.run_id;
+ globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs:[next,old]});await sync.refreshSourceSync();
+ let html=sync.sourceSyncPanel();assert.match(html,/1 条已恢复/);assert.match(html,/重试失败 1 条/);
+ assert.match(html,/data-request="sync:1"/);assert.doesNotMatch(html,/data-request="sync:0"/);assert.doesNotMatch(html,/data-request="sync:2"/);
+ assert.match(html,/重试模型不能补齐/);assert.match(html,/模型响应超时/);assert.equal(sync.syncOwnsRequest('sync:1'),true);
+ let sent;
+ globalThis.fetch=async(path,options)=>{sent=JSON.parse(options.body);return response(syncRun({id:'run:selected',state:'queued',states:['queued']}));};
+ await sync.sourceSyncClick({dataset:{sourceSyncAction:'retry',run:old.run_id,request:'sync:1'}});
+ assert.deepEqual(sent.request_ids,['sync:1']);assert.equal(sent.consent,true);
+});
+
+test('service configuration failures offer guidance without a futile retry button',async()=>{
+ reset();const run=syncRun({state:'failed',states:['failed']});run.records[0].error={code:'model_configuration',message:'合成配置故障',retryable:false};
+ globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs:[run]});await sync.refreshSourceSync();
+ const html=sync.sourceSyncPanel();assert.match(html,/请联系管理员检查/);assert.doesNotMatch(html,/data-source-sync-action="retry"/);assert.match(html,/运行 run:one/);
+});
+
+test('progress network errors keep saved state and distinguish connection from recognition failure',async()=>{
+ reset();const run=syncRun({state:'recognizing',states:['running']});
+ globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs:[run]});await sync.refreshSourceSync();
+ globalThis.fetch=async()=>{throw new Error('offline');};await sync.refreshSourceSync();
+ assert.equal(sync.syncIsActive(),true);assert.match(sync.sourceSyncPanel(),/不代表识别失败/);assert.match(sync.sourceSyncPanel(),/停止本轮同步/);
+});
+
+test('older failures and expanded details remain accessible across polls, not account changes',async()=>{
+ reset();const old=syncRun({id:'run:older',state:'failed',states:['failed']});old.records[0].request_id='older:source';old.records[0].label='旧故障';
+ const runs=[syncRun({id:'run:a'}),syncRun({id:'run:b'}),syncRun({id:'run:c'}),old];
+ globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs});await sync.refreshSourceSync();
+ assert.doesNotMatch(sync.sourceSyncPanel(),/旧故障/);await sync.sourceSyncClick({dataset:{sourceSyncAction:'history'}});
+ assert.match(sync.sourceSyncPanel(),/旧故障/);await sync.sourceSyncClick({dataset:{sourceSyncAction:'details',run:'run:older'}});
+ await sync.refreshSourceSync();assert.match(sync.sourceSyncPanel(),/aria-expanded="true"/);
+ sync.resetSourceSync();assert.equal(sync.syncOwnsRequest('older:source'),false);
+});
+
+test('stopped during collection offers recrawl and active work disables competing retries',async()=>{
+ reset();const stopped=syncRun({state:'stopped',states:[]});
+ globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs:[stopped]});await sync.refreshSourceSync();
+ assert.match(sync.sourceSyncPanel(),/data-source-sync-action="collect"/);
+ const active=syncRun({id:'run:active',state:'recognizing',states:['running']});active.records[0].request_id='active:source';
+ const failed=syncRun({state:'failed',states:['failed']});
+ globalThis.fetch=async()=>response({contract_version:'source-sync/0.1',runs:[active,failed]});await sync.refreshSourceSync();
+ assert.match(sync.sourceSyncPanel(),/data-source-sync-action="retry"[^>]*disabled/);
+});

@@ -1,6 +1,6 @@
 {
   "start": {"contract_version":"source-sync/0.1","operation_id":"manual:example","sources":["teaching_web"],"consent":true},
-  "retry": {"contract_version":"source-sync/0.1","operation_id":"retry:example","consent":true},
+  "retry": {"contract_version":"source-sync/0.1","operation_id":"retry:example","consent":true,"request_ids":["snapshot:failed"]},
   "schedule_update": {"contract_version":"source-sync/0.1","enabled":true,"interval_minutes":180,"sources":["teaching_web"],"revision":0,"consent":true},
   "schedule": {"contract_version":"source-sync/0.1","enabled":true,"available":true,"interval_minutes":180,"sources":["teaching_web"],"revision":1,"next_run_at":1792000000,"last_run_id":null,"error":null},
   "run": {

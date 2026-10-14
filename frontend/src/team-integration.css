@@ -328,3 +328,8 @@
 .source-schedule>.btn{margin:6px 8px 6px 0}
 .agent-source-sync progress{max-width:100%}
 .agent-source-sync .draft-card{overflow-wrap:anywhere}
+.agent-source-sync .sync-run-id{font-size:12px;color:var(--muted)}
+.agent-source-sync .sync-recovery{margin:16px 0;padding:12px;border:1px solid var(--border);border-radius:10px}
+.agent-source-sync ul{padding-left:20px}
+.agent-source-sync li{margin:14px 0}
+.agent-source-sync .btn{max-width:100%;white-space:normal;margin:6px 6px 6px 0}

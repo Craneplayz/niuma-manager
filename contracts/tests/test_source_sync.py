@@ -22,5 +22,14 @@ class SourceSyncContractTests(unittest.TestCase):
                 value['records'][1]['state']='running';value['counts'].update(incomplete=0,running=1)
             with self.assertRaises(ValueError):check('run',value)
 
+    def test_selective_retry_is_optional_bounded_and_unique(self):
+        retry=deepcopy(EXAMPLES['retry'])
+        check('retry',retry)
+        retry.pop('request_ids')
+        check('retry',retry)
+        check('retry',dict(retry,request_ids=['snapshot:one']))
+        for ids in ([],['same','same'],['x']*1001,[''],[123]):
+            with self.assertRaises(ValueError):check('retry',dict(retry,request_ids=ids))
+
 
 if __name__=='__main__':unittest.main()

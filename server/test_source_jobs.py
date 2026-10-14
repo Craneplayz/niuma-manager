@@ -171,5 +171,62 @@ class SourceJobsTests(unittest.TestCase):
             jobs.save(db,raw,'failed')
         self.assertEqual(self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:missing',consent=True))[0],409)
 
+    def test_single_retry_then_remaining_batch_uses_latest_attempt_and_idempotency(self):
+        request,drafts=example(('explicit-complete',)*3);self.drafts.update(drafts)
+        failed={e['record']['input_id'] for e in request['records'][:2]};calls=[]
+        def model(request,ApiError):
+            identity=request['records'][0]['record']['input_id'];calls.append(identity)
+            if identity in failed:raise ApiError(502,'合成临时故障')
+            return self.model(request,ApiError)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=model):
+            first=self.start();jobs.wait_for_jobs(app.DB)
+            old=self.call('/sources/sync-runs/'+first['run_id'])[1]
+            failed_ids=[r['request_id'] for r in old['records'] if r['state']=='failed']
+            endpoint='/sources/sync-runs/'+first['run_id']+'/retry'
+            payload=dict(contract_version='source-sync/0.1',operation_id='retry:selected',consent=True,request_ids=[failed_ids[0]])
+            self.assertEqual(self.call(endpoint,dict(payload,request_ids=['other-account:request']))[0],400)
+            failed.clear()
+            status,child=self.call(endpoint,payload);self.assertEqual(status,202,child);jobs.wait_for_jobs(app.DB)
+            self.assertEqual([r['request_id'] for r in child['records']],[failed_ids[0]])
+            self.assertEqual(self.call(endpoint,payload)[1]['run_id'],child['run_id'])
+            self.assertEqual(self.call(endpoint,dict(payload,request_ids=[failed_ids[1]]))[0],409)
+            self.assertEqual(self.call(endpoint,dict(payload,operation_id='retry:stale'))[0],409)
+            status,last=self.call(endpoint,dict(contract_version='source-sync/0.1',operation_id='retry:rest',consent=True))
+            self.assertEqual(status,202,last);jobs.wait_for_jobs(app.DB)
+            self.assertEqual([r['request_id'] for r in last['records']],[failed_ids[1]])
+            self.assertEqual(crawler.call_count,1);self.assertEqual(len(calls),5)
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),3)
+            self.assertEqual(self.call(endpoint,dict(payload,operation_id='retry:again'))[0],409)
+            check('runs',self.call('/sources/sync-runs')[1])
+
+    def test_retry_rejects_removed_snapshot_and_cross_account_access(self):
+        request,_=example()
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(502,'合成故障')):
+            run=self.start();jobs.wait_for_jobs(app.DB)
+        endpoint='/sources/sync-runs/'+run['run_id']+'/retry'
+        payload=dict(contract_version='source-sync/0.1',operation_id='retry:removed',consent=True)
+        with app.connection() as db:db.execute('DELETE FROM teaching_sources WHERE user_id=?',(self.uid,))
+        with patch.object(jobs,'launch') as launch:
+            self.assertEqual(self.call(endpoint,payload)[0],409);launch.assert_not_called()
+        self.call('/auth/register',dict(name='Other',email='other@example.test',password='Synthetic-password!'))
+        self.assertEqual(self.call(endpoint,payload)[0],404)
+
+    def test_configuration_failure_is_not_offered_as_model_retry(self):
+        request,_=example()
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'live_options',side_effect=ValueError('synthetic missing configuration')):
+            run=self.start();jobs.wait_for_jobs(app.DB)
+        result=self.call('/sources/sync-runs/'+run['run_id'])[1]
+        self.assertEqual(result['records'][0]['error']['code'],'model_configuration')
+        self.assertFalse(result['records'][0]['error']['retryable'])
+        self.assertEqual(self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:config',consent=True))[0],409)
+
+    def test_temporary_service_503_remains_retryable(self):
+        request,_=example()
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(503,'合成临时不可用')):
+            run=self.start();jobs.wait_for_jobs(app.DB)
+        result=self.call('/sources/sync-runs/'+run['run_id'])[1]
+        self.assertEqual(result['records'][0]['error']['code'],'recognition_failed')
+        self.assertTrue(result['records'][0]['error']['retryable'])
+
 
 if __name__=='__main__':unittest.main()

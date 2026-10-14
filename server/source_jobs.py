@@ -73,7 +73,42 @@ def save(db, run, state=None):
 
 
 def view(run):
-    return {k: v for k, v in run.items() if k != 'user_id'}
+    return {k: v for k, v in run.items() if k not in ('user_id', 'retry_selection')}
+
+
+def can_retry(item):
+    return item['state'] in ('cancelled', 'interrupted') or (
+        item['state']=='failed' and (item['error'] or {}).get('retryable', False))
+
+
+def retry_records(db, uid, old, selection, ApiError):
+    """Resolve each requested record against its newest attempt, not a stale parent."""
+    originals = {r['request_id']: r for r in old['records']}
+    selected = set(selection) if selection is not None else set(originals)
+    if not selected.issubset(originals): raise ApiError(400, '所选记录不属于本轮同步')
+    latest = {}
+    for row in db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? ORDER BY rowid DESC', (uid,)):
+        run = json.loads(row['snapshot'])
+        for item in run['records']:
+            if item['request_id'] in selected: latest.setdefault(item['request_id'], (run['run_id'],item))
+        if selected.issubset(latest): break
+    records = []
+    for identity, original in originals.items():
+        latest_run, latest_item = latest.get(identity, (old['run_id'],original))
+        if (identity not in selected or latest_run!=old['run_id'] or
+                not can_retry(original) or not can_retry(latest_item)): continue
+        stored = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, identity)).fetchone()
+        if stored:
+            result = json.loads(stored['result'])
+            if result['status'] in ('success','no_tasks') or teaching.needs_source_completion(result): continue
+        try: teaching.resolve_snapshot(db, uid, identity, ApiError)
+        except ApiError as exc:
+            if exc.status==409: continue  # removed, replaced or already submitted
+            raise
+        item = deepcopy(original); item.update(state='queued', added=0, error=None, seconds=None)
+        records.append(item)
+    if not records: raise ApiError(409, '所选记录已恢复、来源已变化或不可重试；请刷新进度，需要补全内容时重新获取来源')
+    return records
 
 
 def stop(db, run):
@@ -101,12 +136,16 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
     prior = db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? AND operation_id=?', (uid, body['operation_id'])).fetchone()
     if prior:
         run = json.loads(prior['snapshot'])
-        if run['parent_run_id'] != parent: raise ApiError(409, '同一操作编号不能用于不同运行')
+        if (run['parent_run_id'] != parent or
+                run.get('retry_selection') != (sorted(body['request_ids']) if 'request_ids' in body else None)):
+            raise ApiError(409, '同一操作编号不能用于不同运行或不同记录')
         return run
     key = credential(db, uid)
     if not key: raise ApiError(400, '请先保存教学网账号和密码')
     active = db.execute("SELECT snapshot FROM source_sync_runs WHERE user_id=? AND state IN ('queued','crawling','recognizing')", (uid,)).fetchone()
-    if active: return json.loads(active['snapshot'])
+    if active:
+        if parent: raise ApiError(409, '已有同步正在执行，请等待或停止后重试')
+        return json.loads(active['snapshot'])
     with _lock:
         if len(_workers)>=RUN_LIMIT: raise ApiError(503, '同步资源仍在使用或释放中，请稍后重试')
     if db.execute("SELECT count(*) FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchone()[0] >= RUN_LIMIT:
@@ -115,6 +154,7 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
                operation_id=body['operation_id'], sources=['teaching_web'], trigger=trigger, parent_run_id=parent,
                state='queued', revision=0, created_at=stamp(), updated_at=stamp(), skipped=0,
                records=records or [], counts={}, error=None)
+    if parent: run['retry_selection'] = sorted(body['request_ids']) if 'request_ids' in body else None
     db.execute('INSERT INTO source_sync_runs VALUES(?,?,?,?,?,?)', (uid, run['run_id'], body['operation_id'], key, 'queued', '{}'))
     save(db, run)
     return run
@@ -180,9 +220,10 @@ def process_record(path, uid, run_id, request_id, ApiError):
             if run['state'] not in contract.ACTIVE: return
             item = next(r for r in run['records'] if r['request_id']==request_id)
             conflict = isinstance(exc, ApiError) and exc.status==409
+            configuration = getattr(exc, 'code', None)=='model_configuration'
             item.update(state='failed', seconds=round(time.monotonic()-started, 2),
-                        error=error('source_changed' if conflict else 'recognition_failed',
-                                    exc.message if isinstance(exc, ApiError) else '识别暂时失败，已保存的其他结果不受影响。', not conflict))
+                        error=error('source_changed' if conflict else 'model_configuration' if configuration else 'recognition_failed',
+                                    exc.message if isinstance(exc, ApiError) else '识别暂时失败，已保存的其他结果不受影响。', not (conflict or configuration)))
             save(db, run)
 
 
@@ -280,15 +321,17 @@ def route(handler, db, uid, path, body, ApiError, database):
     if handler.command=='POST' and suffix==['retry']:
         contract.check('retry',body); db.execute('BEGIN IMMEDIATE')
         old = get(db,uid,run_id,ApiError)
+        # A lost HTTP response can be retried even after its child has completed.
+        prior = db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? AND operation_id=?', (uid,body['operation_id'])).fetchone()
+        if prior:
+            run = start(db,uid,body,ApiError,trigger='retry',parent=run_id)
+            db.commit()
+            if run['state'] in contract.ACTIVE: launch(database,uid,run['run_id'],ApiError)
+            handler.reply(202,view(run));return True
         if old['state'] in contract.ACTIVE: raise ApiError(409,'本轮同步仍在执行，请等待或停止后继续')
         key = db.execute('SELECT credential FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone()[0]
         if credential(db,uid)!=key: raise ApiError(409,'教学网凭据已改变，请重新获取来源')
-        records=[]
-        for item in old['records']:
-            if item['state'] not in ('cancelled','interrupted') and not (item['state']=='failed' and (item['error'] or {}).get('retryable')): continue
-            retry = deepcopy(item);retry.update(state='queued',added=0,error=None,seconds=None)
-            records.append(retry)
-        if not records: raise ApiError(409,'没有可重试的识别记录；来源缺失或采集失败请重新获取来源')
+        records=retry_records(db,uid,old,body.get('request_ids'),ApiError)
         run=start(db,uid,body,ApiError,trigger='retry',records=records,parent=run_id)
         db.commit()
         if run['state'] in contract.ACTIVE: launch(database,uid,run['run_id'],ApiError)

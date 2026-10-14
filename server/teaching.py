@@ -194,7 +194,9 @@ def recognize(request, ApiError):
                             thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
         policy = teaching_policy_manifest(settings)
     except (OSError,ValueError,KeyError,TypeError):
-        raise ApiError(503,'教学网识别配置不可用，请检查当前环境的七牛云模型配置并重启后端') from None
+        error = ApiError(503,'教学网识别配置不可用，请检查当前环境的七牛云模型配置并重启后端')
+        error.code = 'model_configuration'
+        raise error from None
     result = process_teaching_request(request, client=ChatClient(options['key']), settings=settings,
         verified_snapshot_digests={snapshot_digest(e) for e in request['records']}, budget_seconds=90)
     return result, policy
