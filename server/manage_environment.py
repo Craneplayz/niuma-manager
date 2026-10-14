@@ -24,7 +24,7 @@ PROFILES = DEPLOY / 'environments'
 MODEL_KEYS = {'DDL_PROVIDER', 'DDL_MODEL', 'DDL_ENDPOINT', 'DDL_CODEX_BIN', 'QINIU_API_KEY', 'DEEPSEEK_API_KEY'}
 COMPOSE_KEYS = {'APP_ORIGIN', 'HTTP_PORT', 'HTTPS_PORT', 'SITE_ADDRESS', 'API_IMAGE', 'WEB_IMAGE', 'COOKIE_SECURE'}
 FIELDS = {'environment', 'transport', 'origin', 'listen', 'port', 'api_port', 'https_port', 'site_address',
-          'api_image', 'web_image', 'data_volume', 'external_data_volume', 'adopt_existing_data', 'background_recovery'}
+          'api_image', 'web_image', 'data_volume', 'external_data_volume', 'adopt_existing_data', 'background_recovery', 'scheduled_sync'}
 
 
 def defaults(name):
@@ -33,7 +33,7 @@ def defaults(name):
                 listen='127.0.0.1', port=public_port, api_port=public_port + 1,
                 https_port={'development':1443, 'test':1543, 'production':443}[name], site_address='', api_image='', web_image='',
                 data_volume=f'niuma-{name}-data', external_data_volume=name == 'production',
-                adopt_existing_data=False, background_recovery=name == 'production')
+                adopt_existing_data=False, background_recovery=name == 'production', scheduled_sync=False)
 
 
 def initialize(name, root=PROFILES):
@@ -53,6 +53,7 @@ def initialize(name, root=PROFILES):
 def read_config(name, root=PROFILES):
     folder = (root / name).resolve()
     config = json.loads((folder / 'config.json').read_text(encoding='utf-8'))
+    if isinstance(config,dict): config.setdefault('scheduled_sync',False)
     if not isinstance(config, dict) or set(config) != FIELDS or config['environment'] != name:
         raise ValueError('Invalid environment configuration or mismatched environment name')
     if config['transport'] not in ('http', 'https'):
@@ -87,7 +88,7 @@ def read_config(name, root=PROFILES):
     config['origin'] = origin.scheme + '://' + authority
     if config['transport'] == 'https':
         config['site_address'] = authority
-    for key in ('external_data_volume', 'adopt_existing_data', 'background_recovery'):
+    for key in ('external_data_volume', 'adopt_existing_data', 'background_recovery', 'scheduled_sync'):
         if type(config[key]) is not bool:
             raise ValueError(f'{key} must be boolean')
     if not isinstance(config['data_volume'], str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}', config['data_volume']):
@@ -167,6 +168,7 @@ def compose_command(name, folder, config, docker='docker'):
                   NIUMA_MODEL_ENV_FILE=(folder / '.env.model.compose').as_posix(),
                   NIUMA_HTTPS_TARGET_PORT=str(urlsplit(config['origin']).port or 443),
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
+                  NIUMA_ENABLE_SCHEDULED_SYNC='1' if config.get('scheduled_sync',False) else '0',
                   NIUMA_ADOPT_EXISTING_DATA='1' if config['adopt_existing_data'] else '0',
                   NIUMA_BUILD_REVISION=revision, COOKIE_SECURE='1' if config['transport'] == 'https' else '0')
     env_file = folder / '.env.compose'
@@ -189,6 +191,7 @@ def local_environment(name, folder, config):
                   NIUMA_PORT=str(config['api_port']), NIUMA_WEB_PORT=str(config['port']),
                   NIUMA_ALLOWED_ORIGINS=config['origin'], NIUMA_COOKIE_SECURE='0',
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
+                  NIUMA_ENABLE_SCHEDULED_SYNC='1' if config.get('scheduled_sync',False) else '0',
                   NIUMA_ENABLE_WECHAT='0', NIUMA_ENABLE_MANUAL_MATERIALS='1', VITE_ENABLE_WECHAT='0',
                   NIUMA_BUILD_REVISION=revision, VITE_BUILD_REVISION=revision,
                   NIUMA_SOURCE_DIRTY='unknown' if dirty is None else str(int(dirty)),
@@ -256,7 +259,7 @@ def main(argv=None):
     if args.command == 'check':
         print(json.dumps({'environment': name, 'project': f'niuma-{name}', 'origin': config['origin'],
                           'data_volume': config['data_volume'], 'background_recovery': config['background_recovery'],
-                          'scheduled_sync_available': False}, ensure_ascii=False))
+                          'scheduled_sync_available': config.get('scheduled_sync',False)}, ensure_ascii=False))
         return 0
     if args.command in ('api', 'web'):
         child_env = local_environment(name, folder, config)

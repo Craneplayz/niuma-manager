@@ -350,6 +350,7 @@ function restoreFocus(token) {
 }
 function render() {
   hideSidebarTooltip();
+  imports.setVisible(ui.page === "import" && !demo && !loading);
   const focus = document.activeElement,
     token = focusToken(focus),
     focusId = focus?.id,

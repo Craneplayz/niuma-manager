@@ -14,6 +14,19 @@ from unittest.mock import patch
 import app
 
 class ApiTests(unittest.TestCase):
+    def test_notice_type_round_trip_preserves_date_without_conversion(self):
+        client=self.client();self.register(client,'notice-kind@test.local')
+        task=dict(id='n',title='上课地点：理教408',content_type='notice',due=None,status='not_started',plans=[],subtasks=[])
+        for invalid in (dict(task,content_type='event'),):
+            self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[invalid],version=0))[0],400)
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
+        self.assertEqual(self.call(client,'/workspace')[1]['tasks']['value'][0],task)
+        task.update(due=dict(date='2026-10-16',precision='date'))
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=1))[0],200)
+        saved=self.call(client,'/workspace')[1]['tasks']['value'][0]
+        self.assertEqual(saved['content_type'],'notice')
+        self.assertEqual(saved['due'],task['due'])
+
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory()
@@ -261,7 +274,7 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
         completed_plans=[dict(id='done-future',title='已完成任务的未来安排',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00'),
                          dict(id='done-started',title='已经开始的安排',startAt=(now-app.timedelta(minutes=15)).isoformat(),endAt=(now+app.timedelta(minutes=45)).isoformat()),
                          dict(id='done-past',title='历史安排',startAt=(now-app.timedelta(days=1)).isoformat(),endAt=(now-app.timedelta(days=1,hours=-1)).isoformat())]
-        tasks=[dict(base,id='plan'),dict(base,id='excluded',planningExcluded=True),dict(base,id='done',status='completed',plans=completed_plans)]
+        tasks=[dict(base,id='plan'),dict(base,id='excluded',planningExcluded=True),dict(base,id='done',status='completed',plans=completed_plans),dict(base,id='notice',content_type='notice',due=None)]
         self.assertEqual(self.call(a,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
         self.assertEqual(self.call(a,'/data/feedback','PUT',dict(value=[dict(taskId='done',actualMinutes=80,recordedAt='2026-09-23T00:00:00Z')],version=0))[0],200)
         self.assertEqual(self.call(a,'/data/availability','PUT',dict(value=dict(startTime='19:00',endTime='22:00',weekdays=list(range(7))),version=0))[0],200)

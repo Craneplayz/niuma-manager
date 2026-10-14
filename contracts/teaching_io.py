@@ -70,6 +70,7 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
     trusted=verified_set(request,verified_snapshot_digests)
     require(result['request_id']==request['request_id'],'request identity mismatch')
     rows=result['record_results']
+    model_routing = result.get('classification_mode') == 'model-v1'
     require(len(rows)==len(request['records']),'record count mismatch')
     candidates=set()
     for entry,row in zip(request['records'],rows):
@@ -83,26 +84,49 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
         elif status=='success':require(bool(decisions),'successful record has no decisions')
         else:
             require(not decisions,'empty status contains decisions')
-            covered=verified and r['body_status']=='complete' and all(x['read_state']=='complete' for x in r['references'])
-            require((status=='no_tasks')==covered,'unread or unverified input cannot prove no_tasks')
+            if model_routing:
+                empty=row.get('empty_decision')
+                require(empty is not None and empty['status']==status and empty['reason'].strip(), 'empty decision/status mismatch')
+                texts={'body':r['text'],'source_metadata':r['source_metadata_text']}
+                texts.update({x['ref_id']:x['text'] for x in r['references'] if x['read_state'] in ('complete','partial')})
+                for e in empty['evidence']:
+                    require(e['part_id'] in texts and e['quote'].strip() and e['quote'] in texts[e['part_id']], 'invalid empty-decision evidence')
+                if status=='no_tasks':require(verified and bool(empty['evidence']), 'no_tasks requires verified captured evidence')
+            else:
+                covered=verified and r['body_status']=='complete' and all(x['read_state']=='complete' for x in r['references'])
+                require((status=='no_tasks')==covered,'unread or unverified input cannot prove no_tasks')
             require(status!='incomplete' or bool(row['warnings']),'missing incomplete warning')
+        if model_routing and status in ('success','failed'):
+            require(row.get('empty_decision') is None,'nonempty/failed record cannot classify an empty result')
         for decision in decisions:
-            pair=decision['pair'];require(pair['record']==r,'decision rewrites source snapshot');validate_pair(pair)
+            pair=decision['pair'];require(pair['record']==r,'decision rewrites source snapshot');validate_pair(pair,model_routing=model_routing)
+            if decision.get('content_type', 'task') == 'notice':
+                require(model_routing, 'notice requires model classification')
             cid=pair['assessment']['candidate_id'];require(cid not in candidates,'duplicate candidate_id');candidates.add(cid)
-            codes=review_codes(pair,source_verified=verified)
-            require(set(codes).issubset(decision['review_codes']),'missing policy review codes')
+            if not model_routing:
+                # Frozen legacy results remain valid; no new model run uses these gates.
+                codes=review_codes(pair,source_verified=verified)
+                require(set(codes).issubset(decision['review_codes']),'missing policy review codes')
             available={'body':r['text'],'source_metadata':r['source_metadata_text']}
             available.update({x['ref_id']:x['text'] for x in r['references'] if x['read_state'] in ('complete','partial')})
             rel=decision['relevance']
-            require(rel['state']=='current' or bool(rel['evidence']),'missing relevance evidence')
+            if not model_routing:require(rel['state']=='current' or bool(rel['evidence']),'missing relevance evidence')
             for quote in rel['evidence']+([decision['target']] if decision['target'] is not None else []):
                 require(quote['part_id'] in available and quote['quote'].strip() and quote['quote'] in available[quote['part_id']],'invalid decision quotation')
             if decision['target'] is not None:
-                require(decision['notice_type']!='create' and decision['target']['part_id']!='source_metadata','invalid change target')
+                require(decision['notice_type']!='create' and (model_routing or decision['target']['part_id']!='source_metadata'),'invalid change target')
             route=decision['recommendation']
             require((route=='filtered')==(decision['filter_reason'] is not None),'filter reason mismatch')
             if route in ('task','filtered'):
                 require(verified and not decision['review_codes'] and not decision['review_reasons'] and decision['notice_type']=='create','unsafe automatic recommendation')
             else:require(bool(decision['review_reasons']),'candidate needs a reason')
+            if model_routing:
+                require(set(decision['review_codes']).issubset({'model_review','source_unverified'}), 'unexpected model classification codes')
+                require(('source_unverified' in decision['review_codes']) == (not verified), 'source verification mismatch')
+                if route=='candidate':require(all(x.strip() for x in decision['review_reasons']), 'candidate needs concrete reason')
+                if route=='task':
+                    a=pair['assessment']
+                    require(a['action']['state']=='supported' and a['deadline']['derivation']!='unresolved', 'task contradicts its own assessment')
+                if route=='filtered':require(decision['filter_reason'].strip() and bool(pair['assessment']['action']['evidence'] or rel['evidence']), 'filtered needs reason and captured evidence')
     require(result['status']==aggregate_status(rows),'batch status mismatch')
     return result

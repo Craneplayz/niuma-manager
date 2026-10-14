@@ -1536,6 +1536,11 @@ dialog p {
   flex: 1;
   min-width: 0;
 }
+.source-sync-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
 .reprocessing-panel .check-field {
   min-height: 44px;
 }

@@ -79,7 +79,8 @@ test("the compact entry stays folded and rendering never fetches records or runs
   const f = fixture(t);
   const html = f.ui.render();
   assert.match(html, /<details[^>]*data-reprocess-panel >.*<summary[^>]*>重新识别已有通知<\/summary>/);
-  assert.match(html, /新教学网采集内容暂不支持此入口/);
+  assert.match(html, /按当前规则重新识别下方已保存的通知/);
+  assert.doesNotMatch(html, /暂不支持此入口/);
   assert.doesNotMatch(html, /v0\.2|v0\.4/);
   assert.equal(f.requests.length, 0);
   await f.ui.toggle(toggle(true));
@@ -111,6 +112,51 @@ test("success and no-task saved records can both be explicitly rerun after queue
   assert.match(f.ui.render(), /已完成/);
   await f.ui.load();
   assert.equal(f.refreshes, 1, "the terminal callback must not repeat for an unchanged run");
+});
+
+test("native teaching records and teaching policy versions reuse the same reprocessing envelope", async (t) => {
+  const policy = "teaching-policy-v1:" + "a".repeat(64);
+  const nativeRecord = {
+    input_id: "教学网/课程:通知 1", label: "原生教学网通知", course_or_project: "测试课程",
+    result_status: "success", policy_version: policy,
+  };
+  const nativeSource = { source_account_id: "native:campus", label: "当前教学网账号", records: [nativeRecord] };
+  const nativeRun = (state, revision) => {
+    const result = run(state, revision, [nativeRecord.input_id]);
+    result.source_account_id = nativeSource.source_account_id;
+    result.records[0].policy_version = state === "succeeded" ? policy : null;
+    result.records[0].outcome = state === "succeeded" ? "tasks" : null;
+    result.records[0].old_result_retained = false;
+    result.records[0].decision_summary = { preserved: 0, replaced: 1, new_pending: 0, unresolved: 0 };
+    return result;
+  };
+  const f = fixture(t, { intercept(path, body, method) {
+    if (path === ROOT + "runs" && method === "POST") {
+      return { ...nativeRun("queued", 1), operation_id: body.operation_id };
+    }
+  } });
+  f.setSources([nativeSource]);
+  await f.ui.toggle(toggle(true));
+  assert.match(f.ui.render(), /原生教学网通知/);
+  assert.doesNotMatch(f.ui.render(), /暂不支持|class="error"/);
+  f.ui.input(select(nativeRecord.input_id));
+  await f.ui.click(click("start"));
+  const created = f.requests.find((item) => item.method === "POST");
+  assert.deepEqual(Object.keys(created.body).sort(), ["contract_version", "input_ids", "operation_id", "source_account_id"]);
+  assert.equal(created.body.contract_version, VERSION);
+  assert.equal(created.body.source_account_id, nativeSource.source_account_id);
+  assert.deepEqual(created.body.input_ids, [nativeRecord.input_id]);
+  assert.equal(Object.hasOwn(created.body, "policy_version"), false, "the backend owns the teaching execution policy");
+  f.setRuns([nativeRun("succeeded", 2)]);
+  await f.poll();
+  assert.equal(f.ui.isBusy(), false);
+  assert.equal(f.refreshes, 1, "native automatic task creation still refreshes tasks and candidates");
+  assert.match(f.ui.render(), /任务与识别结果已刷新/);
+  assert.doesNotMatch(f.ui.render(), /请在待核对列表查看/);
+  assert.equal(f.requests.filter((item) => item.method === "POST").length, 1, "native results must not trigger a second client write");
+  assert.equal(f.requests.some((item) => item.path.endsWith("/resolve")), false);
+  await f.ui.load();
+  assert.equal(f.refreshes, 1);
 });
 
 test("older run revisions cannot replace newer state or repeat completion refresh", async (t) => {

@@ -132,3 +132,27 @@ test("fallback names are concise and ignore reference paths and upstream metadat
   assert.ok(!html.includes("通知".repeat(61)));
   assert.doesNotMatch(html, /正文不应|private|hidden\.pdf|<a /);
 });
+
+test("native teaching workspace projections retain body and attachment excerpts for notices", () => {
+  const candidate = item({
+    content_type: "notice",
+    evidence: [
+      { input_id: "notice-1", field: "body", quote: "课程安排见附件。", supports: ["description"] },
+      { input_id: "notice-1", field: "reference:course-file", quote: "新教室：<实验楼> 201。", supports: ["description"] },
+    ],
+    sources: [{ input_id: "notice-1", platform: "teaching_web", url: "https://course.example.test/notice/2", label: "课程安排通知", source_item_id: "course-item" }],
+  });
+  candidate.batch.request.contract_version = "teaching-workspace/0.1";
+  candidate.batch.request.records[0] = record("notice-1", {
+    text: "课程安排见附件。\n请以最新教室安排为准。",
+    source_label: "课程安排通知",
+    upstream_hints: { references: [{ file_ref: "/private/course-file.pdf", text: "内部读取详情" }], course_term: null },
+  });
+  const html = candidateEvidenceMarkup(candidate);
+  assert.match(html, /查看完整通知原文/);
+  assert.ok(html.includes("请以最新教室安排为准。"));
+  assert.match(html, /新教室：&lt;实验楼&gt; 201。/);
+  assert.equal((html.match(/<blockquote>/g) || []).length, 2);
+  assert.equal((html.match(/<a /g) || []).length, 1);
+  assert.doesNotMatch(html, /private|course-file\.pdf|内部读取详情|<实验楼>/);
+});
