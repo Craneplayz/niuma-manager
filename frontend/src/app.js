@@ -23,6 +23,7 @@ import {
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { renderCalendar } from "./calendar.js";
 import { renderTaskDrawer } from "./task-drawer.js";
+import { renderPageHeading } from "./page-layout.js";
 import { loadTaskEvidence } from "./task-evidence.js";
 import { demoWorkspace } from "./demo.js";
 import { createImportUI } from "./import-ui.js";
@@ -308,7 +309,16 @@ function tasksPage() {
     { all: "全部任务", near: "临近截止", done: "已完成", undated: "无日期" }[
       ui.scope
     ] || "全部任务";
-  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}"><header class="page-heading task-page-heading"><div class="task-heading"><div class="page-eyebrow">${new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date(today + "T12:00:00"))}</div><div class="task-heading-line"><h1 tabindex="-1">${label}<span class="heading-count" id="result-count">${filtered().length}</span></h1>${viewSwitch}</div></div><button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button></header>${toolbar()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+  const heading = renderPageHeading({
+    title: label,
+    eyebrow: new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date(today + "T12:00:00")),
+    count: filtered().length,
+    countId: "result-count",
+    controls: viewSwitch,
+    actions: `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
+    escapeHtml: esc,
+  });
+  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${toolbar()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
     .map((c) => `<option value="${esc(c)}">`)
     .join("")}</datalist></section>`;
 }
@@ -353,7 +363,7 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : "我的任务"}</span></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</main></div>`;
+  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : "我的任务"}</span></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
@@ -381,6 +391,15 @@ function renderResults() {
     document
       .querySelector(`[data-calendar-day="${dayFocus}"]`)
       ?.focus({ preventScroll: true });
+}
+function navigatePage(page, scope = ui.scope) {
+  const fromMobileMenu = ui.mobileMenu;
+  ui.page = page;
+  ui.scope = scope;
+  ui.mobileMenu = false;
+  render();
+  window.scrollTo(0, 0);
+  if (fromMobileMenu) document.getElementById("page-title")?.focus({ preventScroll: true });
 }
 function requireAccount() {
   if (demo || session.user) return true;
@@ -649,24 +668,11 @@ document.addEventListener("click", async (e) => {
       return;
     }
     if (button.dataset.scope) {
-      const fromMobileMenu = ui.mobileMenu;
-      ui.page = "tasks";
-      ui.scope = button.dataset.scope;
-      ui.mobileMenu = false;
-      render();
-      if (fromMobileMenu) document.querySelector(".page-heading h1").focus({ preventScroll: true });
+      navigatePage("tasks", button.dataset.scope);
       return;
     }
     if (button.dataset.page) {
-      const fromMobileMenu = ui.mobileMenu;
-      ui.page = button.dataset.page;
-      ui.mobileMenu = false;
-      render();
-      if (fromMobileMenu) {
-        const heading = document.querySelector("#main h1");
-        heading?.setAttribute("tabindex", "-1");
-        heading?.focus({ preventScroll: true });
-      }
+      navigatePage(button.dataset.page);
       if (ui.page === "import") void imports.load?.();
       return;
     }
