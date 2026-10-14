@@ -136,6 +136,12 @@ function enqueue(snapshot){
 }
 export function saveStore(data){
  if(!session.user||session.changing){report('error','请先登录账号，或等待账号切换完成');return false;}
+ const previous=new Map((latest?.tasks||canonicalTasks).map(task=>[task.id,task]));
+ for(const task of data.tasks){
+  const old=previous.get(task.id);
+  if(task.content_type==='notice')task.planningExcluded=true;
+  else if(old?.content_type==='notice'&&task.content_type==='task')task.planningExcluded=false;
+ }
  latest=clone(data);if(!failed)enqueue(latest);return true;
 }
 export async function deleteStoredTasks(ids){

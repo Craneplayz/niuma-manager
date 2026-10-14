@@ -2,7 +2,7 @@ import hashlib
 import json
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from ddl_text.adapters import AgentError
 from ddl_text.config import Settings
@@ -16,6 +16,12 @@ TEXT = '请于2026年11月17日23:30前提交合成实验报告。'
 
 
 class AttachmentReaderTests(unittest.TestCase):
+    def setUp(self):
+        # Content tests isolate transport; real wall-clock transport is tested below.
+        transport=patch('ddl_text.teaching_attachment_reader.transcribe',
+            side_effect=lambda client,instructions,parts,settings:client.complete_json(instructions,parts,settings))
+        transport.start();self.addCleanup(transport.stop)
+
     def read(self, data, mime, pages=1, uncertain=False):
         client=Mock()
         client.complete_json.return_value=json.dumps(dict(pages=[dict(index=i+1,text=TEXT,
@@ -58,3 +64,47 @@ class AttachmentReaderTests(unittest.TestCase):
         out,client=self.read(stream.getvalue(),'application/pdf')
         self.assertEqual(out['read_state'],'complete');self.assertIn('第 1 页',out['text'])
         client.complete_json.assert_called_once()
+
+
+class AttachmentTransportTests(unittest.TestCase):
+    def test_real_http_slow_drip_is_terminated_and_fast_response_succeeds(self):
+        import multiprocessing
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from ddl_text.chat_client import ChatClient
+        stop=threading.Event();received=threading.Event();slow=True
+        payload=json.dumps({'choices':[{'finish_reason':'stop','message':{'content':json.dumps(
+            dict(pages=[dict(index=1,text=TEXT,uncertain=False,note='')]))}}], 'padding':'x'*8000}).encode()
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']))
+                self.send_response(200);self.send_header('Content-Length',str(len(payload)));self.end_headers()
+                received.set()
+                try:
+                    if not slow:self.wfile.write(payload);return
+                    for index in range(0,len(payload),8):
+                        if stop.wait(.02):return
+                        self.wfile.write(payload[index:index+8]);self.wfile.flush()
+                except OSError:pass
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        children={p.pid for p in multiprocessing.active_children()}
+        settings=Settings(mode='real',endpoint=f'http://127.0.0.1:{server.server_port}/v1')
+        data=image_bytes();asset=dict(mime_type='image/png',sha256=hashlib.sha256(data).hexdigest(),size_bytes=len(data))
+        try:
+            started=time.monotonic()
+            with patch('ddl_text.teaching_attachment_reader.read_image',return_value=b'synthetic-png'):
+                with self.assertRaises(AgentError) as caught:
+                    read_attachment(data,asset,ChatClient('synthetic'),settings,expires=started+4)
+            self.assertTrue(received.is_set(),'exercise an established HTTP response, not only process startup')
+            self.assertEqual(caught.exception.code,'agent_timeout');self.assertTrue(caught.exception.retryable)
+            self.assertLess(time.monotonic()-started,6)
+            self.assertFalse({p.pid for p in multiprocessing.active_children()}-children)
+            stop.set();slow=False
+            with patch('ddl_text.teaching_attachment_reader.read_image',return_value=b'synthetic-png'):
+                result=read_attachment(data,asset,ChatClient('synthetic'),settings,expires=time.monotonic()+10)
+            self.assertEqual(result['read_state'],'complete');self.assertIn(TEXT,result['text'])
+            self.assertFalse({p.pid for p in multiprocessing.active_children()}-children)
+        finally:
+            stop.set();server.shutdown();server.server_close();thread.join(2)

@@ -42,7 +42,7 @@ def read_capture(folder, requests):
     if not isinstance(entries,list) or len(entries) > 1000: raise ValueError('too many attachments')
     refs = {(e['record']['input_id'], r['ref_id']): r for batch in requests
         for e in batch.get('request',batch)['records'] for r in e['record']['references']}
-    assets, seen, total = {}, set(), 0
+    assets, seen, files, total = {}, set(), {}, 0
     for item in entries:
         if set(item) != {'input_id','ref_id','sha256','mime_type','size_bytes'}: raise ValueError('invalid receipt')
         key = (item['input_id'],item['ref_id'])
@@ -53,9 +53,13 @@ def read_capture(folder, requests):
             or not 0 < item['size_bytes'] <= MAX_FILE): raise ValueError('invalid file metadata')
         path = folder / (item['sha256'] + '.bin')
         if path.is_symlink() or path.resolve().parent != folder or path.stat().st_size != item['size_bytes']: raise ValueError('invalid staged file')
-        with path.open('rb') as file: data = file.read(MAX_FILE+1)
-        total += len(data)
-        if total > 100*1024*1024 or hashlib.sha256(data).hexdigest() != item['sha256']: raise ValueError('file integrity/size mismatch')
+        data = files.get(item['sha256'])
+        if data is None:
+            with path.open('rb') as file: data = file.read(MAX_FILE+1)
+            total += len(data)
+            if total > 100*1024*1024 or hashlib.sha256(data).hexdigest() != item['sha256']: raise ValueError('file integrity/size mismatch')
+            files[item['sha256']] = data
+        if len(data) != item['size_bytes']: raise ValueError('file integrity/size mismatch')
         assets.setdefault(item['input_id'],[]).append(dict(item,data=data))
     return assets
 
@@ -138,11 +142,16 @@ def enrich(request, assets, client, settings, save_cache):
         ref = by_ref[a['ref_id']]
         if result['text'] is None and ref.get('text'):
             continue  # A failed visual pass must not erase a captured PDF text layer.
+        merged = dict(result)
+        if ref.get('text') and result['text']:
+            merged['text'] = ref['text'] + '\n\n【原件补充读取】\n' + result['text']
         proposal = deepcopy(request)
-        next(r for r in proposal['records'][0]['record']['references'] if r['ref_id']==a['ref_id']).update(result)
+        next(r for r in proposal['records'][0]['record']['references'] if r['ref_id']==a['ref_id']).update(merged)
         try: check_request(proposal)
         except Exception:
-            # Keep other successfully read references if the aggregate text bound is hit.
-            ref.update(read_state='failed',text=None)
-        else: ref.update(result)
+            # Preserve every captured character when supplemental evidence will
+            # not fit; retain a coverage gap rather than erasing the original.
+            if ref.get('text'): ref['read_state']='partial'
+            else: ref.update(read_state='failed',text=None)
+        else: ref.update(merged)
     check_request(request)

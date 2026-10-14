@@ -27,7 +27,11 @@ TEXT='请于2026年11月17日23:30前提交合成实验报告。'
 
 
 class TeachingAssetsIntegrationTests(unittest.TestCase):
-    setUp=harness.TeachingIntegrationTests.setUp
+    def setUp(self):
+        harness.TeachingIntegrationTests.setUp(self)
+        transport=patch('ddl_text.teaching_attachment_reader.transcribe',
+            side_effect=lambda client,instructions,parts,settings:client.complete_json(instructions,parts,settings))
+        transport.start();self.addCleanup(transport.stop)
     tearDown=harness.TeachingIntegrationTests.tearDown
     call=harness.TeachingIntegrationTests.call
 
@@ -197,3 +201,71 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(teaching_assets.load(db,self.uid,account,rid)[0]['data'],data)
             self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],0)
             self.assertEqual(db.execute('SELECT count(*) FROM recognition_candidates').fetchone()[0],0)
+
+
+class TeachingAssetsEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.settings=Settings(model='synthetic',endpoint='https://model.example.invalid/v1')
+
+    def test_pdf_visual_pages_supplement_the_captured_full_text(self):
+        from unittest.mock import Mock
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        data=pdf_bytes(('Page with graphics',)*6+('Deadline 2026-11-17 23:30',))
+        request,_=example();record=request['records'][0]['record']
+        original='\n'.join(['PDF text page '+str(n) for n in range(1,7)]+['Deadline 2026-11-17 23:30'])
+        record['references']=[dict(ref_id='file:1',kind='attachment',label='seven-pages.pdf',read_state='partial',text=original)]
+        asset=dict(ref_id='file:1',data=data,mime_type='application/pdf',sha256=hashlib.sha256(data).hexdigest(),result=None,cache_version=None)
+        transcript=json.dumps(dict(pages=[dict(index=n,text='Visible page '+str(n),uncertain=False,note='') for n in range(1,7)]))
+        cache=Mock()
+        with patch('ddl_text.teaching_attachment_reader.transcribe',return_value=transcript):
+            teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
+        ref=record['references'][0]
+        self.assertEqual(ref['read_state'],'partial');self.assertIn(original,ref['text'])
+        self.assertIn('Visible page 6',ref['text']);self.assertIn('共 7 页',ref['text'])
+        teaching_assets.check_request(request)
+        # Repeat with the persisted transcript cache and the original capture.
+        asset.update(cache_version=cache.call_args.args[1],result=json.dumps(cache.call_args.args[2]))
+        ref['text']=original
+        with patch.object(teaching_assets,'read_attachment',side_effect=AssertionError('cached file')):
+            teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
+        self.assertIn(original,ref['text']);self.assertIn('Visible page 6',ref['text'])
+
+    def test_supplement_over_budget_keeps_captured_evidence(self):
+        from unittest.mock import Mock
+        request,_=example();record=request['records'][0]['record']
+        record['text']='Source body '+ 'X'*20000
+        original='A'*49000+' Deadline 2026-11-17 23:30'
+        record['references']=[dict(ref_id='file:1',kind='attachment',label='large.pdf',read_state='partial',text=original)]
+        data=b'synthetic';asset=dict(ref_id='file:1',data=data,mime_type='application/pdf',sha256=hashlib.sha256(data).hexdigest(),result=None,cache_version=None)
+        teaching_assets.check_request(request)
+        with patch.object(teaching_assets,'read_attachment',return_value=dict(read_state='partial',text='B'*40000)):
+            teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+        self.assertEqual(record['references'][0]['text'],original)
+        self.assertEqual(record['references'][0]['read_state'],'partial')
+        teaching_assets.check_request(request)
+
+    def test_shared_capture_file_counted_and_read_once_with_each_binding_checked(self):
+        import tempfile
+        from unittest.mock import Mock
+        data=image_bytes()+b'\0'*(5*1024*1024-len(image_bytes()))
+        digest=hashlib.sha256(data).hexdigest()
+        request,_=example();base=request['records'][0]
+        entries=[];batches=[]
+        for i in range(21):
+            row=deepcopy(base);row['record']['input_id']='input:'+str(i)
+            row['record']['references']=[dict(ref_id='file:1',kind='attachment',label='shared.png',read_state='unread',text=None)]
+            batches.append(dict(request,records=[row]))
+            entries.append(dict(input_id=row['record']['input_id'],ref_id='file:1',sha256=digest,mime_type='image/png',size_bytes=len(data)))
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp);path=folder/(digest+'.bin');path.write_bytes(data)
+            manifest=folder/'manifest.json';manifest.write_text(json.dumps(entries),encoding='utf-8')
+            open_file=Path.open;reads=[]
+            def opened(p,*args,**kwargs):
+                if p==path:reads.append(p)
+                return open_file(p,*args,**kwargs)
+            with patch.object(Path,'open',opened):assets=teaching_assets.read_capture(folder,batches)
+            self.assertEqual(len(assets),21);self.assertEqual(len(reads),1)
+            self.assertTrue(all(a[0]['data'] is assets['input:0'][0]['data'] for a in assets.values()))
+            entries[-1]['size_bytes']-=1
+            manifest.write_text(json.dumps(entries),encoding='utf-8')
+            with self.assertRaises(ValueError):teaching_assets.read_capture(folder,batches)

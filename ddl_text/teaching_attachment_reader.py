@@ -7,16 +7,33 @@ import base64
 import hashlib
 import json
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .adapters import AgentError
 from .image_reader import ImageLimits, read_image
 from .pdf_reader import PDF_MIME, PdfLimits, read_pdf
 from .docx_reader import DOCX_MIME, DocxLimits, read_docx
+from .runner import run_attempt
 
 SKILL = Path(__file__).parent / 'skills/teaching-file-reading/SKILL.md'
 MAX_TEXT = 50000
+
+
+@dataclass
+class TranscriptionAdapter:
+    client: object
+
+    def extract(self, record, settings, attempt):
+        return [self.client.complete_json(record['instructions'],record['parts'],settings)]
+
+
+def transcribe(client, instructions, parts, settings):
+    """Reap even a slow streaming HTTP response at the wall-clock deadline."""
+    result = run_attempt(TranscriptionAdapter(client),dict(instructions=instructions,parts=parts),settings,0)
+    if len(result)!=1 or not isinstance(result[0],str):
+        raise AgentError('invalid_agent_output',True)
+    return result[0]
 
 
 def cache_version(settings):
@@ -55,7 +72,7 @@ def read_attachment(data, asset, client, settings, *, expires):
         for location, png in pictures:
             parts.extend([dict(type='text', text=location), dict(type='image_url',
                 image_url=dict(url='data:image/png;base64,' + base64.b64encode(png).decode()))])
-        raw = client.complete_json(SKILL.read_text(encoding='utf-8'), parts,
+        raw = transcribe(client, SKILL.read_text(encoding='utf-8'), parts,
             replace(settings, timeout_seconds=remaining(60)))
         try:
             output = json.loads(raw)
