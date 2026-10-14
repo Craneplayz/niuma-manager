@@ -73,7 +73,7 @@ try{
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(screenshots,'integration-public-mobile.png'),fullPage:true});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'mobile overflow');
  await page.setViewportSize({width:320,height:844});
- assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'320px mobile overflow');
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'320px mobile overflow: '+JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(-12).map(e=>[e.tagName,e.className,e.getBoundingClientRect().right]))));
  assert.deepEqual(errors,[]);
  console.log(JSON.stringify({passed:['background sync','reload and targeted recovery','schedule settings','submission association','native reprocessing','multipart upload and file retry','file candidate confirmation','public preview to notice'],tasks:tasks.length,external_services:'synthetic',browser:'Chromium'},null,2));
 }catch(error){if(browser){const pages=browser.contexts().flatMap(c=>c.pages());if(pages[0]){diagnostic+='\n'+(await pages[0].locator('body').innerText()).slice(-6000);await pages[0].screenshot({path:join(temporary,'failure.png'),fullPage:true});}}console.error(diagnostic);throw error;}
