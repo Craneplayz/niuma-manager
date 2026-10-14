@@ -568,7 +568,7 @@ export function createImportUI(host) {
     } catch (e) {
       if (valid(stamp)) {
         if (controller?.signal.aborted)
-          notice = "已停止导入";
+          notice = "已停止导入，后台已开始的识别可能继续，可刷新查看结果。";
         else error = describeImportError(e);
       }
     } finally {
@@ -632,7 +632,7 @@ export function createImportUI(host) {
       }
       if (!valid(stamp)) return;
       if (controller.signal.aborted) {
-        notice = "已停止导入";
+        notice = "已停止导入，后台已开始的识别可能继续，可刷新查看结果。";
         return;
       }
       if (!result.requests.length) {
@@ -649,7 +649,7 @@ export function createImportUI(host) {
     } catch (e) {
       if (valid(stamp)) {
         if (controller?.signal.aborted)
-          notice = "已停止导入";
+          notice = "已停止导入，后台已开始的识别可能继续，可刷新查看结果。";
         else error = describeImportError(e);
       }
     } finally {
@@ -708,12 +708,12 @@ export function createImportUI(host) {
       batches = next;
       const automatic = await autoApply(batch.request.request_id, stamp);
       if (!valid(stamp)) return;
-      notice = controller.signal.aborted ? "已停止导入" :
+      notice = controller.signal.aborted ? "已停止导入，后台已开始的识别可能继续，可刷新查看结果。" :
         "识别结果已更新" + (automatic.applied ? `，已自动加入 ${automatic.applied} 项任务` : "");
     } catch (e) {
       if (valid(stamp))
         error = controller?.signal.aborted
-          ? "已停止导入"
+          ? "已停止导入，后台已开始的识别可能继续，可刷新查看结果。"
           : describeImportError(e);
     } finally {
       if (valid(stamp)) {
