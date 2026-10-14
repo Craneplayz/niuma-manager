@@ -106,8 +106,12 @@ def batches(db,uid):
             for item in items:
                 # Refresh the read-only presentation of existing results while
                 # preserving storage IDs, review state and user resolutions.
-                item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],
-                    cards.get(item['candidate']['candidate_id'], item['candidate']))
+                # Stored cards also carry user-decision guards from reprocessing.
+                card=dict(cards.get(item['candidate']['candidate_id'],item['candidate']))
+                if json.loads(row['result']).get('classification_mode')==teaching.CLASSIFICATION_MODE:
+                    for field in ('notice_type','needs_review','review_reasons'):
+                        card[field]=item['candidate'][field]
+                item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],card)
             request = teaching.request_view(request)
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None))
     return result
@@ -267,7 +271,7 @@ def route(handler,db,uid,path,body,ApiError):
 
 
 def resolve_candidate(db, uid, cid, body, ApiError):
-    """Resolve in the caller's transaction; shared by HTTP and background sync."""
+    """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
     if not row: raise ApiError(404,'候选不存在')
     canonical=json.dumps(body,sort_keys=True)
@@ -321,6 +325,8 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             try: confirmed_due=due(draft.get('due'))
             except (ValueError,KeyError,TypeError): raise ApiError(400,'截止日期格式不正确')
             if action=='postpone' and confirmed_due is None: raise ApiError(400,'延期必须明确新的截止日期')
+            content_type=draft.get('content_type', c.get('content_type', 'task'))
+            if content_type not in ('task','notice'): raise ApiError(400,'内容类型必须是任务或通知')
             if action=='create':
                 platform=c['sources'][0]['platform']
                 source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
@@ -328,9 +334,12 @@ def resolve_candidate(db, uid, cid, body, ApiError):
                 tasks.append(target)
                 target['course']=course
                 target['category']='课程作业' if course else '个人事务'
+                target['content_type']=content_type
+                if content_type=='notice': target['planningExcluded']=True
             elif action=='postpone': target['due']=confirmed_due
             else:
                 target.update(title=draft['title'].strip(),description=draft['description'],due=confirmed_due)
+                target['content_type']=content_type
                 if 'course' in draft: target['course']=course
             if action=='create' or (action=='update' and c['prerequisites']):
                 target['sourceRequirements']=c['prerequisites']

@@ -5,6 +5,36 @@ globalThis.window={addEventListener(){},dispatchEvent(){}};
 globalThis.CustomEvent ||= class {constructor(type){this.type=type;}};
 const {initSession,saveStore,deleteStoredTasks,flushStore}=await import('../src/team-store.js');
 
+test('notice kind survives edits, completion, reload and explicit conversion to a task',async()=>{
+ let tasks=[{id:'notice',title:'理教408上课',content_type:'notice',description:'本学期上课地点',due:null,status:'not_started',plans:[],subtasks:[]}],version=0;
+ globalThis.fetch=async(path,options={})=>{
+  if(path==='/api/auth/me')return {ok:true,json:async()=>({user:{id:'notice-kind',name:'测试'}})};
+  if(path==='/api/workspace')return {ok:true,json:async()=>({tasks:{value:structuredClone(tasks),version}})};
+  assert.equal(path,'/api/data/tasks');const body=JSON.parse(options.body);
+  assert.equal(body.version,version);tasks=body.value;return {ok:true,json:async()=>({version:++version})};
+ };
+ let state=await initSession();assert.equal(state.tasks[0].content_type,'notice');
+ state.tasks[0].notes+='，从下周起';state.tasks[0].status='done';
+ saveStore(state);await flushStore();state=await initSession();
+ assert.equal(state.tasks[0].content_type,'notice');assert.equal(tasks[0].due,null);
+ assert.equal(tasks[0].planningExcluded,true);
+ state.tasks[0].due='2026-10-16';state.tasks[0].dueTime='18:00';
+ saveStore(state);await flushStore();state=await initSession();
+ assert.equal(state.tasks[0].content_type,'notice');
+ assert.deepEqual(tasks[0].due,{date:'2026-10-16',precision:'datetime',time:'18:00'});
+ state.tasks[0].content_type='task';state.tasks[0].due='2026-10-16';
+ state.tasks[0].status='todo';
+ saveStore(state);await flushStore();
+ assert.equal(state.tasks[0].planningExcluded,false);
+ state.tasks[0].notes+='，已恢复为任务';
+ saveStore(state);await flushStore();
+ assert.equal(tasks[0].planningExcluded,false);
+ assert.equal(state.tasks.filter(t=>t.status!=='done'&&!t.planningExcluded).length,1);
+ state=await initSession();
+ assert.equal(state.tasks[0].content_type,'task');assert.equal(tasks[0].due.date,'2026-10-16');
+ assert.equal(tasks[0].planningExcluded,false);
+});
+
 test('collaborator task edits preserve team metadata, plans and cancelled history',async()=>{
  const original=[
   {id:'active',title:'报告',description:'原文说明',course:'课程',category:'课程作业',

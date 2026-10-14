@@ -1,4 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { enrichSourceAttachments, extractAttachmentText, isTeacherAttachmentUrl, MAX_ATTACHMENT_BYTES } from "../src/pku-attachments.js";
@@ -12,6 +14,28 @@ function source(label = "HW1.txt", href = url, body = "请按附件要求提交�
   return extractCourseSourcesFromHtml(`<ul id="content_listContainer"><li id="a"><div class="item"><h3>HW1</h3></div><div class="details"><p>${body}</p><a href="${href}">${label}</a></div></li></ul>`, { course: "Synthetic", section: "作业", sourceUrl: "https://course.pku.edu.cn/course?course_id=c1", collectedAt: "2026-10-07T12:00:00+08:00" })[0];
 }
 function textFile(text: string) { return { bytes: new TextEncoder().encode(text), contentType: "text/plain" }; }
+
+it("stages DOCX and images privately without sending cookies/URLs to the recognition request", async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), "niuma-attachments-test-"));
+  try {
+    for (const [suffix, mime] of [["docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"], ["png", "image/png"]]) {
+      const raw = source(`HW1.${suffix}`, url.replace(".txt", `.${suffix}`));
+      const bytes = new Uint8Array([1, 2, 3]); // Download receipt; the runtime reader validates the actual file.
+      const read = vi.fn().mockResolvedValue({ bytes, contentType: mime });
+      const [out] = await enrichSourceAttachments([raw], read, folder);
+      expect(out.references[0].asset?.mime_type).toBe(mime);
+      expect(await readFile(path.join(folder, out.references[0].asset!.sha256 + ".bin"))).toEqual(Buffer.from(bytes));
+      const exported = toTeachingRequests([out]);
+      expect(exported.skipped).toEqual([]);
+      expect(JSON.stringify(exported.requests)).not.toContain(folder);
+      expect(JSON.stringify(exported.requests)).not.toContain("bbcswebdav");
+    }
+    const external = source("malicious.png", "https://example.com/file.png");
+    const read = vi.fn();
+    const [out] = await enrichSourceAttachments([external], read, folder);
+    expect(out.references[0].asset).toBeUndefined();expect(read).not.toHaveBeenCalled();
+  } finally { await rm(folder, { recursive: true, force: true }); }
+});
 
 /** A small real PDF without images, generated entirely from synthetic text. */
 function pdf(text: string, blankPage = false, visual?: "stencil" | "bad-image" | "image" | "repeated-image", embedded = false) {
@@ -33,6 +57,17 @@ function pdf(text: string, blankPage = false, visual?: "stencil" | "bad-image" |
 }
 
 describe("teacher attachment acquisition", () => {
+  it("reads a teacher announcement PDF with an opaque xid filename", async () => {
+    const href = "https://course.pku.edu.cn/bbcswebdav/pid-42-dt-announcement-rid-73_1/xid-73_1";
+    const original = source("Assessment.pdf", href, "Assessment rules are in the attached PDF.");
+    const read = vi.fn().mockResolvedValue(pdf("Attendance 20 percent. Homework 30 percent. Exam 50 percent."));
+    const [result] = await enrichSourceAttachments([original], read);
+    expect(read).toHaveBeenCalledWith(href);
+    expect(result.references[0]).toMatchObject({ read_status: "complete", reason: null, content_read: true });
+    const exported = toTeachingRequests([result]);
+    expect(exported.skipped).toEqual([]);
+    expect(exported.requests[0].records[0].record.references[0].text).toContain("Attendance 20 percent");
+  }, 20_000);
   it.each(["https://evil.test/bbcswebdav/pid-1-dt-content-rid-2/a.pdf", "https://course.pku.edu.cn/webapps/assignment/download?file=private", "https://course.pku.edu.cn/bbcswebdav/users/a/a.pdf", "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-attachment-rid-2/a.pdf", "https://course.pku.edu.cn/bbcswebdav/courses/c1/submissions/a.pdf"])("rejects unsafe/private attachment %s", (href) => {
     expect(isTeacherAttachmentUrl(href)).toBe(false);
   });

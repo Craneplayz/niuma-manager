@@ -26,6 +26,7 @@ export function personalizationChange(event){
 }
 
 export function promptForCompletionMinutes(task){
+ if(task.content_type==='notice')return false;
  if(!asksForCompletionMinutes())return false;
  const estimate=Number.isFinite(task.hours)&&task.hours>0?Math.round(task.hours*60):'';
  host.openDialog(`<form id="completion-feedback-form" data-task-id="${esc(task.id)}">${host.dialogHeader('记录完成用时')}<p class="muted">${esc(task.title)}</p><label>实际用时（分钟）<input name="actualMinutes" type="number" min="1" max="100000" step="1" required autofocus value="${estimate}" placeholder="例如：45"></label><p id="completion-feedback-error" class="error" role="alert"></p><div class="dialog-actions"><button type="button" class="btn" data-action="close">跳过</button><button type="submit" class="btn primary">保存用时</button></div></form>`);
