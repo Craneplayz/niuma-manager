@@ -257,7 +257,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
             batches.append(dict(request,records=[row]))
             entries.append(dict(input_id=row['record']['input_id'],ref_id='file:1',sha256=digest,mime_type='image/png',size_bytes=len(data)))
         with tempfile.TemporaryDirectory() as tmp:
-            folder=Path(tmp);path=folder/(digest+'.bin');path.write_bytes(data)
+            folder=Path(tmp).resolve();path=folder/(digest+'.bin');path.write_bytes(data)
             manifest=folder/'manifest.json';manifest.write_text(json.dumps(entries),encoding='utf-8')
             open_file=Path.open;reads=[]
             def opened(p,*args,**kwargs):
