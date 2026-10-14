@@ -2,9 +2,8 @@ import {
   api,
   session,
   accountVersion,
-  refreshStore,
   flushStore,
-  dataVersion,
+  getTaskVersion,
 } from "./team-store.js";
 import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -323,13 +322,6 @@ export function createImportUI(host) {
     modal = null;
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
-  async function refreshWorkspace(stamp) {
-    if (host.refresh) await host.refresh();
-    else {
-      const data = await refreshStore();
-      if (valid(stamp)) host.setState?.(data);
-    }
-  }
   async function load() {
     if (loading || busy || !session.user || demo()) return;
     const stamp = current();
@@ -404,20 +396,20 @@ export function createImportUI(host) {
     return `<header class="dialog-header"><h2>${esc(title)}</h2><button class="icon-button" type="button" data-import-action="close" aria-label="关闭">${host.icon("close")}</button></header>`;
   }
   function openCredentials() {
-    modal = { kind: "credentials" };
+    modal = null;
     host.openDialog(
       `<form data-import-form="credentials">${dialogHeader("连接教学网")}<label class="field">教学网账号<input name="username" required maxlength="200" autocomplete="username" value="${esc(credentials?.username || "")}"></label><label class="field">教学网密码<input name="password" type="password" required maxlength="200" autocomplete="current-password"></label><p class="error" data-import-error role="alert" hidden></p><div class="dialog-actions"><button class="btn primary" type="submit">保存连接</button>${credentials?.configured ? '<button class="btn quiet" type="button" data-import-action="remove-credentials">移除连接</button>' : ""}</div></form>`,
     );
   }
-  function openReview(item, values) {
+  function openReview(item) {
     if (!item || item.state !== "pending") return;
     const due = candidateDue(item.candidate.deadline);
     modal = {
       kind: "review",
       id: item.id,
       version: item.version,
-      tasksVersion: dataVersion("tasks"),
-      values: values || {
+      tasksVersion: getTaskVersion(),
+      values: {
         action:
           item.candidate.notice_type === "uncertain"
             ? ""
@@ -767,7 +759,7 @@ export function createImportUI(host) {
         stamp = current(),
         form = button.closest?.("form");
       try {
-        await refreshWorkspace(stamp);
+        await host.refresh();
         if (!valid(stamp)) return true;
         await load();
         if (valid(stamp)) {
@@ -849,7 +841,7 @@ export function createImportUI(host) {
           .getState()
           .tasks.find((task) => task.id === values.target_id);
         if (
-          dataVersion("tasks") !== modal.tasksVersion ||
+          getTaskVersion() !== modal.tasksVersion ||
           taskFingerprint(target) !== modal.targetFingerprint
         ) {
           const conflict = new Error("内容刚刚发生变化，请刷新后重新核对");
@@ -873,7 +865,7 @@ export function createImportUI(host) {
         modal = null;
         host.closeDialog();
         try {
-          await refreshWorkspace(stamp);
+          await host.refresh();
           if (valid(stamp)) {
             host.toast(
               body.action === "create"

@@ -47,7 +47,6 @@ export function renderCalendar({
   selectedDate,
   today,
   escapeHtml = fallbackEscape,
-  icon,
 } = {}) {
   const anchor =
     readDate(anchorDate) ||
@@ -59,14 +58,13 @@ export function renderCalendar({
   const byDate = new Map();
 
   for (const task of Array.isArray(tasks) ? tasks : []) {
-    if (!readDate(task.due)) continue;
+    if (task.status === "done" || !readDate(task.due)) continue;
     if (!byDate.has(task.due)) byDate.set(task.due, []);
     byDate.get(task.due).push(task);
   }
   for (const members of byDate.values()) {
     members.sort(
       (a, b) =>
-        Number(a.status === "done") - Number(b.status === "done") ||
         String(a.dueTime || "99:99").localeCompare(
           String(b.dueTime || "99:99"),
         ) ||
@@ -76,8 +74,8 @@ export function renderCalendar({
 
   function taskButton(task, date) {
     const time = task.dueTime ? String(task.dueTime) : "";
-    const label = `${task.title}，${accessibleDate(date)}${time ? ` ${time}` : ""}${task.status === "done" ? "，已完成" : ""}`;
-    return `<button type="button" class="calendar-task${task.status === "done" ? " is-completed" : ""}" data-task-open="${escapeHtml(task.id)}" aria-label="${escapeHtml(label)}">${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}<span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
+    const label = `${task.title}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
+    return `<button type="button" class="calendar-task" data-task-open="${escapeHtml(task.id)}" aria-label="${escapeHtml(label)}">${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}<span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
   }
 
   function day(date, index) {

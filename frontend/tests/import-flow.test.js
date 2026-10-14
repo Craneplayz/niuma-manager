@@ -163,7 +163,7 @@ test('account login survives its own reset and replaces the root account state',
  await ui.click({dataset:{accountAction:'profile'}});
  assert.match(f.dialog,/data-account-form="profile"/);
  const profile=fakeForm('',{name:'新昵称'});profile.dataset={accountForm:'profile'};await ui.submit(profile);
- assert.equal(store.session.user.display_name,'新昵称');assert.ok(f.messages.includes('昵称已更新'));
+ assert.equal(store.session.user.name,'新昵称');assert.ok(f.messages.includes('昵称已更新'));
 });
 
 test('password mismatch is visible and does not send a request',async()=>{

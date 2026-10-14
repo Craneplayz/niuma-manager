@@ -1,27 +1,15 @@
-// Adapts the collaborator's page state to the shared team workspace API.
-import { newId } from "./id.js";
+// Maps the task UI to the account workspace API.
 import { todayKey as dayKey } from "./task-model.js";
 export const session = {
   user: null,
-  backend: true,
-  aiConfigured: false,
   sync: "saved",
   error: "",
   conflict: false,
   changing: false,
 };
-const empty = () => ({
-  version: 1,
-  tasks: [],
-  trash: [],
-  courses: [],
-  schedule: [],
-  materials: [],
-});
-let workspace = {},
-  versions = {},
-  canonicalTasks = [],
-  canonicalCourses = [],
+const empty = () => ({ tasks: [], trash: [] });
+let canonicalTasks = [],
+  taskVersion = 0,
   queue = Promise.resolve(),
   latest = null,
   failed = false;
@@ -34,10 +22,8 @@ function resetAccount() {
   for (const controller of requests) controller.abort();
   requests.clear();
   session.user = null;
-  workspace = {};
-  versions = {};
   canonicalTasks = [];
-  canonicalCourses = [];
+  taskVersion = 0;
   latest = null;
   failed = false;
   session.conflict = false;
@@ -49,7 +35,7 @@ function report(sync, error = "") {
   window.dispatchEvent(new CustomEvent("niuma:sync"));
 }
 export async function api(path, body, method = "POST", options = {}) {
-  const { timeoutMs = 60000, ...fetchOptions } = options;
+  const { timeoutMs = 60000 } = options;
   const epoch = accountEpoch,
     controller = new AbortController(),
     timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -63,7 +49,6 @@ export async function api(path, body, method = "POST", options = {}) {
       credentials: "same-origin",
       headers: body === undefined ? {} : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
-      ...fetchOptions,
       signal: controller.signal,
     });
     const data = await response.json();
@@ -95,33 +80,12 @@ const status = {
   completed: "done",
   in_progress: "doing",
   not_started: "todo",
-  cancelled: "todo",
 };
 const canonicalStatus = {
   done: "completed",
   doing: "in_progress",
   todo: "not_started",
 };
-export function planDateTime(iso) {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("sv-SE", {
-      timeZone: "Asia/Shanghai",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    })
-      .formatToParts(new Date(iso))
-      .map((p) => [p.type, p.value]),
-  );
-  return {
-    date: parts.year + "-" + parts.month + "-" + parts.day,
-    time: parts.hour + ":" + parts.minute,
-    hour: Number(parts.hour) + Number(parts.minute) / 60,
-  };
-}
 function toView(task) {
   return {
     ...task,
@@ -129,34 +93,21 @@ function toView(task) {
     dueTime: task.due?.time || "",
     course: task.course || "",
     notes: task.description || "",
-    hours: task.estimatedMinutes ? task.estimatedMinutes / 60 : null,
     status: status[task.status] || "todo",
-    location: task.location || "",
-    dependsOn: task.dependsOn || "",
-    subtasks: (task.subtasks || []).map((s) => ({
-      ...s,
-      done: s.status === "completed",
-    })),
   };
 }
-function toCanonical(task, previous) {
-  const old = previous || {},
-    oldSteps = new Map((old.subtasks || []).map((s) => [s.title, s])),
-    stepsById = new Map((old.subtasks || []).map((s) => [s.id, s]));
+function toCanonical(task, previous = {}) {
   return {
-    ...old,
+    ...previous,
     id: task.id,
     title: task.title,
     description: task.notes || "",
     course: task.course || null,
-    category: old.category || "课程作业",
-    priority: task.priority || "medium",
     status: canonicalStatus[task.status] || "not_started",
-    planningExcluded: !!task.planningExcluded,
     completedAt:
       task.status === "done"
         ? task.completedAt ||
-          (old.status === "completed" ? old.completedAt || "" : dayKey())
+          (previous.status === "completed" ? previous.completedAt || "" : dayKey())
         : "",
     due: task.due
       ? {
@@ -165,61 +116,22 @@ function toCanonical(task, previous) {
           ...(task.dueTime ? { time: task.dueTime } : {}),
         }
       : null,
-    source:
-      old.source || (task.id.startsWith("example-") ? "模拟数据" : "手动创建"),
-    createdAt: old.createdAt || new Date().toISOString(),
-    ...(task.id.startsWith("example-") && Number.isFinite(task.hours)
-      ? { estimatedMinutes: task.hours * 60 }
-      : {}),
-    location: task.location || "",
-    owner: task.owner || "",
-    dependsOn: task.dependsOn || "",
-    subtasks: (task.subtasks || []).map((s) => {
-      const previous = stepsById.get(s.id) || oldSteps.get(s.title) || {};
-      return {
-        ...previous,
-        id: s.id || previous.id || newId(),
-        title: s.title,
-        status: s.done ? "completed" : "pending",
-      };
-    }),
-    plans: [],
+    source: previous.source || task.source || "手动添加",
+    createdAt: previous.createdAt || new Date().toISOString(),
+    // The task API requires these arrays; existing metadata passes through untouched.
+    plans: previous.plans || [],
+    subtasks: previous.subtasks || [],
   };
 }
 function view() {
-  canonicalTasks = clone(workspace.tasks?.value || []);
-  canonicalCourses = clone(workspace.courses?.value || []);
-  const active = canonicalTasks.filter(
-    (t) => t.status !== "cancelled" && !t.recycleBin,
-  );
-  const tasks = active.map(toView);
-  const trash = canonicalTasks
-    .filter((t) => t.recycleBin)
-    .map((t) => toView({ ...t, status: t.recycleBin.status }));
-  const schedule = active.flatMap((t) =>
-    (t.plans || []).map((p) => ({
-      id: p.id,
-      taskId: t.id,
-      date: planDateTime(p.startAt).date,
-      start: planDateTime(p.startAt).hour,
-      hours: p.endAt
-        ? (Date.parse(p.endAt) - Date.parse(p.startAt)) / 3600000
-        : 1,
-      label: p.title,
-    })),
-  );
-  return {
-    version: 1,
-    tasks,
-    trash,
-    courses: canonicalCourses.map((c) => ({
-      ...c,
-      color: c.color || "blue",
-      description: c.notes || "",
-    })),
-    schedule,
-    materials: clone(workspace.materials?.value || []),
-  };
+  return clone({
+    tasks: canonicalTasks
+      .filter((task) => task.status !== "cancelled" && !task.recycleBin)
+      .map(toView),
+    trash: canonicalTasks
+      .filter((task) => task.recycleBin)
+      .map((task) => toView({ ...task, status: task.recycleBin.status })),
+  });
 }
 async function loadSession(discardPending = false) {
   let epoch = accountEpoch;
@@ -232,11 +144,9 @@ async function loadSession(discardPending = false) {
     }
     const next = await api("/api/workspace");
     if (epoch !== accountEpoch) throw new Error("账号已切换");
-    session.user = { ...result.user, display_name: result.user.name };
-    workspace = next;
-    versions = Object.fromEntries(
-      Object.entries(workspace).map(([key, row]) => [key, row.version]),
-    );
+    session.user = result.user;
+    canonicalTasks = clone(next.tasks?.value || []);
+    taskVersion = next.tasks?.version || 0;
     if (discardPending) {
       latest = null;
       failed = false;
@@ -272,57 +182,14 @@ export async function reloadStore() {
   // Explicitly replace a failed local draft only after fresh data has arrived.
   return loadSession(true);
 }
-function payload(data) {
-  const old = new Map(canonicalTasks.map((t) => [t.id, t]));
-  const tasks = [
-    ...canonicalTasks.filter((t) => t.status === "cancelled" || t.recycleBin),
+function taskPayload(data) {
+  const previous = new Map(canonicalTasks.map((task) => [task.id, task]));
+  return [
+    ...canonicalTasks.filter((task) => task.status === "cancelled" || task.recycleBin),
     ...data.tasks
-      .filter((t) => !old.get(t.id)?.recycleBin)
-      .map((t) => toCanonical(t, old.get(t.id))),
+      .filter((task) => !previous.get(task.id)?.recycleBin)
+      .map((task) => toCanonical(task, previous.get(task.id))),
   ];
-  const byId = new Map(tasks.map((t) => [t.id, t]));
-  for (const item of data.schedule) {
-    const task = byId.get(item.taskId);
-    if (!task || task.recycleBin) continue;
-    const previous =
-      old.get(item.taskId)?.plans?.find((plan) => plan.id === item.id) || {};
-    const h = String(Math.floor(item.start)).padStart(2, "0"),
-      m = String(Math.round((item.start % 1) * 60)).padStart(2, "0");
-    const startAt = `${item.date}T${h}:${m}:00+08:00`;
-    const endAt = new Date(
-      Date.parse(startAt) + Number(item.hours) * 3600000,
-    ).toISOString();
-    const unchanged =
-      previous.startAt &&
-      Date.parse(previous.startAt) === Date.parse(startAt) &&
-      (!previous.endAt || Date.parse(previous.endAt) === Date.parse(endAt)) &&
-      previous.title === (item.label || task.title);
-    task.plans.push(
-      unchanged
-        ? previous
-        : {
-            ...previous,
-            id: item.id || newId(),
-            title: item.label || task.title,
-            startAt,
-            endAt,
-            origin: "manual",
-          },
-    );
-  }
-  const courses = data.courses.map((c) => {
-    const old = canonicalCourses.find((x) => x.id === c.id) || {};
-    return {
-      ...old,
-      id: c.id,
-      name: c.name,
-      teacher: c.teacher || "",
-      notes: c.description || "",
-      url: c.url || "",
-      color: c.color || "blue",
-    };
-  });
-  return { tasks, courses, materials: data.materials };
 }
 function enqueue(snapshot) {
   const epoch = accountEpoch;
@@ -330,24 +197,17 @@ function enqueue(snapshot) {
     if (failed || epoch !== accountEpoch) return;
     report("saving");
     try {
-      const next = payload(snapshot);
-      for (const name of ["tasks", "courses", "materials"]) {
-        if (
-          JSON.stringify(next[name]) ===
-          JSON.stringify(workspace[name]?.value || [])
-        )
-          continue;
+      const value = taskPayload(snapshot);
+      if (JSON.stringify(value) !== JSON.stringify(canonicalTasks)) {
         const result = await api(
-          "/api/data/" + name,
-          { value: next[name], version: versions[name] || 0 },
+          "/api/data/tasks",
+          { value, version: taskVersion },
           "PUT",
         );
         if (epoch !== accountEpoch) return;
-        versions[name] = result.version;
-        workspace[name] = { value: clone(next[name]), version: result.version };
+        taskVersion = result.version;
+        canonicalTasks = clone(value);
       }
-      canonicalTasks = clone(workspace.tasks?.value || []);
-      canonicalCourses = clone(workspace.courses?.value || []);
       if (latest === snapshot) latest = null;
       report(latest ? "saving" : "saved");
     } catch (error) {
@@ -368,51 +228,6 @@ export function saveStore(data) {
   if (!failed) enqueue(latest);
   return true;
 }
-export async function deleteStoredTasks(ids) {
-  if (!session.user || session.changing)
-    throw new Error("请先登录账号，或等待账号切换完成");
-  const selected = [...new Set(ids)];
-  if (!selected.length) throw new Error("请选择要删除的任务");
-  const epoch = accountEpoch;
-  await flushStore();
-  if (epoch !== accountEpoch) throw new Error("账号已切换");
-  report("saving");
-  try {
-    const result = await api(
-      "/api/data/tasks",
-      { ids: selected, version: versions.tasks || 0 },
-      "DELETE",
-    );
-    if (epoch !== accountEpoch) throw new Error("账号已切换");
-    const removed = new Set(result.deletedIds);
-    canonicalTasks = canonicalTasks
-      .filter((task) => !removed.has(task.id))
-      .map((task) => {
-        const next = { ...task };
-        if (removed.has(next.dependsOn)) next.dependsOn = "";
-        return next;
-      });
-    versions.tasks = result.version;
-    workspace.tasks = { value: clone(canonicalTasks), version: result.version };
-    if (
-      Array.isArray(result.feedback) &&
-      Number.isInteger(result.feedbackVersion)
-    ) {
-      versions.feedback = result.feedbackVersion;
-      workspace.feedback = {
-        value: clone(result.feedback),
-        version: result.feedbackVersion,
-      };
-    }
-    session.conflict = false;
-    report("saved");
-    return result;
-  } catch (error) {
-    session.conflict = error.status === 409;
-    report("error", error.message);
-    throw error;
-  }
-}
 async function changeStoredTasks(transform) {
   if (!session.user || session.changing)
     throw new Error("请先登录账号，或等待账号切换完成");
@@ -425,12 +240,11 @@ async function changeStoredTasks(transform) {
     try {
       const result = await api(
         "/api/data/tasks",
-        { value, version: versions.tasks || 0 },
+        { value, version: taskVersion },
         "PUT",
       );
       if (epoch !== accountEpoch) throw new Error("账号已切换");
-      versions.tasks = result.version;
-      workspace.tasks = { value: clone(value), version: result.version };
+      taskVersion = result.version;
       canonicalTasks = clone(value);
       session.conflict = false;
       report("saved");
@@ -451,34 +265,20 @@ export function trashStoredTasks(ids) {
     if (
       !selected.size ||
       [...selected].some(
-        (id) =>
-          !tasks.some(
-            (task) =>
-              task.id === id && task.status !== "cancelled" && !task.recycleBin,
-          ),
+        (id) => !tasks.some(
+          (task) => task.id === id && task.status !== "cancelled" && !task.recycleBin,
+        ),
       )
-    )
-      throw new Error("要删除的任务不存在，请刷新后重试");
+    ) throw new Error("要删除的任务不存在，请刷新后重试");
     const deletedAt = new Date().toISOString();
-    return tasks.map((task) => {
-      const next = { ...task };
-      if (selected.has(task.id)) {
-        next.recycleBin = {
-          deletedAt,
-          status: task.status,
-          plans: task.plans,
-          dependsOn: task.dependsOn || "",
-          dependents: tasks
-            .filter((item) => item.dependsOn === task.id)
-            .map((item) => item.id),
-        };
-        // Completed tasks retain their status so their saved time feedback stays valid.
-        next.status = task.status === "completed" ? "completed" : "cancelled";
-        next.plans = [];
-      }
-      if (selected.has(next.dependsOn)) next.dependsOn = "";
-      return next;
-    });
+    return tasks.map((task) => selected.has(task.id)
+      ? {
+          ...task,
+          recycleBin: { deletedAt, status: task.status },
+          status: task.status === "completed" ? "completed" : "cancelled",
+        }
+      : task,
+    );
   });
 }
 export function restoreStoredTasks(ids) {
@@ -489,35 +289,12 @@ export function restoreStoredTasks(ids) {
       [...selected].some(
         (id) => !tasks.some((task) => task.id === id && task.recycleBin),
       )
-    )
-      throw new Error("回收站任务不存在，请刷新后重试");
-    const archived = tasks.filter((task) => selected.has(task.id)),
-      active = new Set(
-        tasks
-          .filter(
-            (task) =>
-              selected.has(task.id) ||
-              (task.status !== "cancelled" && !task.recycleBin),
-          )
-          .map((task) => task.id),
-      );
-    const restored = tasks.map((task) => {
+    ) throw new Error("回收站任务不存在，请刷新后重试");
+    return tasks.map((task) => {
       if (!selected.has(task.id)) return task;
-      const { recycleBin, ...next } = task;
-      next.status = recycleBin.status;
-      next.plans = recycleBin.plans || [];
-      next.dependsOn = active.has(recycleBin.dependsOn)
-        ? recycleBin.dependsOn
-        : "";
-      return next;
+      const { recycleBin, ...restored } = task;
+      return { ...restored, status: recycleBin.status };
     });
-    for (const task of archived)
-      for (const id of task.recycleBin.dependents || []) {
-        const dependent = restored.find((item) => item.id === id);
-        if (dependent && active.has(id) && !dependent.dependsOn)
-          dependent.dependsOn = task.id;
-      }
-    return restored;
   });
 }
 export async function flushStore() {
@@ -564,31 +341,8 @@ export async function logout() {
     session.changing = false;
   }
 }
-export function dataVersion(name) {
-  return versions[name] || 0;
-}
-export function workspaceValue(name, fallback) {
-  return clone(workspace[name]?.value ?? fallback);
-}
-export function saveData(name, value) {
-  if (!session.user || session.changing)
-    return Promise.reject(new Error("请先登录账号，或等待账号切换完成"));
-  const snapshot = clone(value),
-    epoch = accountEpoch;
-  const update = queue.then(async () => {
-    if (epoch !== accountEpoch) throw new Error("账号已切换");
-    const result = await api(
-      "/api/data/" + name,
-      { value: snapshot, version: versions[name] || 0 },
-      "PUT",
-    );
-    if (epoch !== accountEpoch) throw new Error("账号已切换");
-    versions[name] = result.version;
-    workspace[name] = { value: snapshot, version: result.version };
-    return result;
-  });
-  queue = update.catch(() => {});
-  return update;
+export function getTaskVersion() {
+  return taskVersion;
 }
 window.addEventListener("beforeunload", (event) => {
   if (latest || failed) {

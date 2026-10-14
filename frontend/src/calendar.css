@@ -129,11 +129,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.calendar-view .calendar-task.is-completed .calendar-task-title {
-  color: var(--muted);
-  text-decoration: line-through;
-}
-
 .calendar-view .calendar-more {
   display: block;
   min-height: 29px;

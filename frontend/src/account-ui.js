@@ -32,9 +32,9 @@ export function createAccountUI(host) {
   }
   function render() {
     if (mode === "summary" && session.user)
-      return `${header("账号")}<div class="account-summary"><h3>${esc(session.user.display_name || session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div>`;
+      return `${header("账号")}<div class="account-summary"><h3>${esc(session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div>`;
     if (mode === "profile")
-      return `<form data-account-form="profile">${header("修改昵称")}<label class="field">昵称<input name="name" required maxlength="40" autocomplete="nickname" value="${esc(session.user?.display_name || session.user?.name || "")}"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">保存昵称</button></div></form>`;
+      return `<form data-account-form="profile">${header("修改昵称")}<label class="field">昵称<input name="name" required maxlength="40" autocomplete="nickname" value="${esc(session.user?.name || "")}"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">保存昵称</button></div></form>`;
     if (mode === "password")
       return `<form data-account-form="password">${header("修改密码")}<label class="field">当前密码<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label class="field">新密码<input name="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="至少 8 位"></label><label class="field">确认新密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">更新密码</button></div></form>`;
     const register = mode === "register";
@@ -102,9 +102,9 @@ export function createAccountUI(host) {
       return true;
     }
     if (
-      ["login", "register", "summary", "profile", "password"].includes(action)
+      ["login", "register", "profile", "password"].includes(action)
     ) {
-      if (["summary", "profile", "password"].includes(action) && !session.user)
+      if (["profile", "password"].includes(action) && !session.user)
         show("login");
       else show(action);
       return true;
@@ -165,7 +165,7 @@ export function createAccountUI(host) {
           name: String(values.name).trim(),
         });
         if (!current()) return true;
-        session.user = { ...result.user, display_name: result.user.name };
+        session.user = result.user;
         host.closeDialog();
         host.render();
         host.toast("昵称已更新");
@@ -203,5 +203,5 @@ export function createAccountUI(host) {
     }
     return false;
   }
-  return { render, click, submit, input, reset };
+  return { click, submit, input };
 }

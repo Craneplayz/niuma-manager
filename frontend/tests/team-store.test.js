@@ -1,355 +1,211 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-globalThis.window = { addEventListener() {}, dispatchEvent() {} };
-globalThis.CustomEvent ||= class {
-  constructor(type) {
-    this.type = type;
-  }
+globalThis.window = new EventTarget();
+globalThis.CustomEvent ||= class extends Event {
+  constructor(type) { super(type); }
 };
 const {
+  api,
   initSession,
+  readStore,
   saveStore,
-  deleteStoredTasks,
+  trashStoredTasks,
+  restoreStoredTasks,
   flushStore,
   refreshStore,
   reloadStore,
   retrySave,
   session,
   accountVersion,
+  getTaskVersion,
+  logout,
 } = await import("../src/team-store.js");
 
-test("collaborator task edits preserve team metadata, plans and cancelled history", async () => {
-  const original = [
-    {
-      id: "active",
-      title: "报告",
-      description: "原文说明",
-      course: "课程",
-      category: "课程作业",
-      priority: "high",
-      status: "not_started",
-      due: { date: "2026-09-30", precision: "date" },
-      source: "识别",
-      sourceRequirements: ["提交 PDF"],
-      recognitionHistory: [{ candidateId: "c1" }],
-      subtasks: [
-        {
-          id: "step",
-          title: "起草",
-          status: "pending",
-          sourceRequirement: "保留子任务来源",
-        },
-      ],
-      plans: [
-        {
-          id: "plan",
-          title: "写作",
-          startAt: "2026-09-28T19:00:00+08:00",
-          endAt: "2026-09-28T20:00:00+08:00",
-          origin: "ai",
-        },
-      ],
-    },
-    {
-      id: "cancelled",
-      title: "取消的任务",
-      status: "cancelled",
-      subtasks: [],
-      plans: [],
-      due: null,
-    },
-  ];
+const reply = value => ({ ok: true, json: async () => structuredClone(value) });
+const task = (id, overrides = {}) => ({
+  id, title: "任务 " + id, description: "", course: null,
+  status: "not_started", due: null, plans: [], subtasks: [], ...overrides,
+});
+function fixture(user, initialTasks, otherRows = {}) {
+  let tasks = structuredClone(initialTasks), version = 1;
   const writes = [];
   globalThis.fetch = async (path, options = {}) => {
-    if (path === "/api/auth/me")
-      return {
-        ok: true,
-        json: async () => ({
-          user: { id: "u", name: "测试", email: "u@test.local" },
-        }),
-      };
-    if (path === "/api/workspace")
-      return {
-        ok: true,
-        json: async () => ({ tasks: { value: original, version: 1 } }),
-      };
-    if (path === "/api/data/tasks") {
-      const body = JSON.parse(options.body);
-      writes.push(body);
-      return { ok: true, json: async () => ({ version: 2 }) };
-    }
-    throw new Error("unexpected request " + path);
-  };
-  const state = await initSession();
-  assert.equal(state.tasks.length, 1);
-  state.tasks[0].subtasks[0].done = true;
-  state.tasks[0].subtasks[0].title = "修改后的步骤标题";
-  state.tasks[0].due = "2026-10-01";
-  state.tasks[0].dueTime = "23:59";
-  assert.equal(saveStore(state), true);
-  await flushStore();
-  assert.equal(writes.length, 1);
-  const edited = writes[0].value.find((t) => t.id === "active");
-  const cancelled = writes[0].value.find((t) => t.id === "cancelled");
-  assert.equal(edited.due.time, "23:59");
-  assert.equal(edited.subtasks[0].status, "completed");
-  assert.equal(edited.subtasks[0].id, "step");
-  assert.equal(edited.subtasks[0].title, "修改后的步骤标题");
-  assert.equal(edited.subtasks[0].sourceRequirement, "保留子任务来源");
-  assert.deepEqual(edited.sourceRequirements, ["提交 PDF"]);
-  assert.deepEqual(edited.recognitionHistory, [{ candidateId: "c1" }]);
-  assert.deepEqual(edited.plans, original[0].plans);
-  assert.deepEqual(cancelled, original[1]);
-});
-
-test("planning exclusion and completion dates survive saving, reloading and reopening", async () => {
-  let tasks = [
-      {
-        id: "task",
-        title: "测试任务",
-        status: "not_started",
-        due: null,
-        plans: [],
-        subtasks: [],
-      },
-    ],
-    version = 1;
-  globalThis.fetch = async (path, options = {}) => {
-    if (path === "/api/auth/me")
-      return {
-        ok: true,
-        json: async () => ({ user: { id: "u", name: "测试" } }),
-      };
-    if (path === "/api/workspace")
-      return {
-        ok: true,
-        json: async () => ({
-          tasks: { value: structuredClone(tasks), version },
-        }),
-      };
-    if (path === "/api/data/tasks") {
+    if (path === "/api/auth/me") return reply({ user: { id: user, name: "测试" } });
+    if (path === "/api/workspace") return reply({ ...otherRows, tasks: { value: tasks, version } });
+    if (path === "/api/data/tasks" && options.method === "PUT") {
       const body = JSON.parse(options.body);
       assert.equal(body.version, version);
-      tasks = body.value;
-      return { ok: true, json: async () => ({ version: ++version }) };
+      for (const item of body.value) {
+        assert.equal(typeof item.id, "string");
+        assert.equal(typeof item.title, "string");
+        assert.ok(Array.isArray(item.plans));
+        assert.ok(Array.isArray(item.subtasks));
+      }
+      writes.push(body);
+      tasks = structuredClone(body.value);
+      return reply({ version: ++version });
     }
     throw new Error("unexpected request " + path);
   };
+  return { writes, get tasks() { return tasks; } };
+}
+
+test("current task edits preserve server metadata and never write unrelated workspace rows", async () => {
+  const original = [
+    task("active", {
+      title: "报告", description: "原文说明", course: "课程", source: "教学网",
+      due: { date: "2026-09-30", precision: "date" },
+      sourceUrl: "https://example.test/course", sourceRequirements: ["提交 PDF"],
+      recognitionHistory: [{ candidateId: "c1" }],
+      serverMetadata: { opaque: true },
+      plans: [{ id: "server-entry", retained: true }],
+      subtasks: [{ id: "server-step", title: "服务端字段", status: "pending", retained: true }],
+    }),
+    task("cancelled", { status: "cancelled", reason: "由通知取消" }),
+  ];
+  const f = fixture("edit", original, {
+    courses: { value: [{ id: "course", name: "不由前端编辑" }], version: 4 },
+    materials: { value: [{ id: "material", name: "不由前端编辑" }], version: 3 },
+  });
+  const state = await initSession();
+  assert.deepEqual(Object.keys(state).sort(), ["tasks", "trash"]);
+  assert.equal(state.tasks.length, 1);
+  assert.equal(getTaskVersion(), 1);
+  assert.equal(Object.hasOwn(session.user, "display_name"), false);
+  // Mutating a returned view must not alter the authoritative server task cache.
+  state.tasks[0].serverMetadata.opaque = false;
+  state.tasks[0].recognitionHistory[0].candidateId = "caller-only";
+  state.tasks[0].plans[0].retained = false;
+  state.tasks[0].subtasks[0].retained = false;
+  Object.assign(state.tasks[0], { title: "更新后的报告", notes: "更新说明", course: "新课程", due: "2026-10-01", dueTime: "18:30" });
+  assert.equal(saveStore(state), true);
+  await flushStore();
+  assert.equal(f.writes.length, 1);
+  assert.equal(getTaskVersion(), 2);
+  const saved = f.tasks.find(item => item.id === "active");
+  assert.equal(saved.title, "更新后的报告");
+  assert.equal(saved.description, "更新说明");
+  assert.equal(saved.course, "新课程");
+  assert.deepEqual(saved.due, { date: "2026-10-01", time: "18:30", precision: "datetime" });
+  for (const name of ["source", "sourceUrl", "sourceRequirements", "recognitionHistory", "serverMetadata", "plans", "subtasks"]) {
+    assert.deepEqual(saved[name], original[0][name]);
+  }
+  assert.deepEqual(f.tasks.find(item => item.id === "cancelled"), original[1]);
+});
+
+test("a new task supplies only the required task arrays without client scheduling fields", async () => {
+  const f = fixture("new", []);
+  const state = await initSession();
+  state.tasks.push({ id: "new", title: "新任务", notes: "说明", course: "", due: "2026-10-14", dueTime: "", status: "todo", source: "手动添加" });
+  saveStore(state);
+  await flushStore();
+  const saved = f.tasks[0];
+  assert.deepEqual(saved.plans, []);
+  assert.deepEqual(saved.subtasks, []);
+  assert.deepEqual(saved.due, { date: "2026-10-14", precision: "date" });
+  assert.equal(saved.source, "手动添加");
+  assert.match(saved.createdAt, /^\d{4}-\d{2}-\d{2}T/);
+  for (const name of ["hours", "estimatedMinutes", "planningExcluded", "dependsOn", "location", "owner"]) assert.equal(Object.hasOwn(saved, name), false);
+  assert.deepEqual(readStore(), { tasks: [], trash: [] });
+});
+
+test("completion dates survive save and reload and clear when the task reopens", async () => {
+  const f = fixture("completion", [task("task")]);
   let state = await initSession();
-  state.tasks[0].planningExcluded = true;
   state.tasks[0].status = "done";
   saveStore(state);
   await flushStore();
   state = await initSession();
-  assert.equal(state.tasks[0].planningExcluded, true);
+  assert.equal(state.tasks[0].status, "done");
   assert.match(state.tasks[0].completedAt, /^\d{4}-\d{2}-\d{2}$/);
-  state.tasks[0].planningExcluded = false;
   state.tasks[0].status = "todo";
   saveStore(state);
   await flushStore();
   state = await initSession();
-  assert.equal(state.tasks[0].planningExcluded, false);
   assert.equal(state.tasks[0].completedAt, "");
   state.tasks[0].status = "done";
   state.tasks[0].completedAt = "2026-09-20";
   saveStore(state);
   await flushStore();
-  assert.equal((await initSession()).tasks[0].completedAt, "2026-09-20");
+  assert.equal(f.tasks[0].completedAt, "2026-09-20");
 });
 
-test("UTC plans display at the same Beijing time as offset timestamps", async () => {
-  const plan = {
-    id: "p",
-    title: "跨日计划",
-    startAt: "2026-09-25T17:30:00Z",
-    endAt: "2026-09-25T18:30:00Z",
-  };
-  globalThis.fetch = async (path) => ({
-    ok: true,
-    json: async () =>
-      path === "/api/auth/me"
-        ? { user: { id: "u", name: "测试" } }
-        : {
-            tasks: {
-              version: 1,
-              value: [
-                {
-                  id: "t",
-                  title: "任务",
-                  status: "not_started",
-                  due: null,
-                  subtasks: [],
-                  plans: [plan],
-                },
-              ],
-            },
-          },
-  });
+test("moving tasks to trash and restoring only changes their visibility and saved status", async () => {
+  const original = [
+    task("active", { status: "in_progress", source: "教学网", serverMetadata: { opaque: true }, plans: [{ id: "untouched" }], subtasks: [{ id: "untouched-step" }] }),
+    task("done", { status: "completed", completedAt: "2026-10-01" }),
+    task("other", { dependsOn: "active" }),
+  ];
+  const f = fixture("trash", original);
+  const stale = await initSession();
+  await trashStoredTasks(["active", "done"]);
+  let state = await refreshStore();
+  assert.deepEqual(state.tasks.map(item => item.id), ["other"]);
+  assert.deepEqual(state.trash.map(item => item.status), ["doing", "done"]);
+  const archived = f.tasks.find(item => item.id === "active");
+  assert.deepEqual(Object.keys(archived.recycleBin).sort(), ["deletedAt", "status"]);
+  assert.deepEqual(archived.plans, original[0].plans);
+  assert.deepEqual(archived.subtasks, original[0].subtasks);
+  assert.deepEqual(f.tasks.find(item => item.id === "other"), original[2]);
+  stale.tasks.find(item => item.id === "other").title = "正常编辑";
+  saveStore(stale);
+  await flushStore();
+  assert.ok(f.tasks.find(item => item.id === "active").recycleBin);
+  await restoreStoredTasks(["active", "done"]);
+  state = await refreshStore();
+  assert.deepEqual(state.trash, []);
+  for (const id of ["active", "done"]) assert.deepEqual(f.tasks.find(item => item.id === id), original.find(item => item.id === id));
+  await assert.rejects(restoreStoredTasks(["active"]), /回收站任务不存在/);
+});
+
+test("save snapshots are serialized with the newest task version", async () => {
+  const f = fixture("queue", [task("task")]);
   const state = await initSession();
-  assert.equal(state.schedule[0].date, "2026-09-26");
-  assert.equal(state.schedule[0].start, 1.5);
-  assert.equal(state.schedule[0].hours, 1);
-});
-
-test("edited and removed learning blocks survive saving and reload without resurrecting old plans", async () => {
-  let tasks = [
-      {
-        id: "t",
-        title: "报告",
-        status: "not_started",
-        subtasks: [],
-        due: { date: "2026-10-10", precision: "date" },
-        plans: [
-          {
-            id: "move",
-            title: "起草",
-            startAt: "2026-10-07T19:00:00+08:00",
-            endAt: "2026-10-07T20:00:00+08:00",
-            origin: "ai",
-            source: "preserved",
-          },
-          {
-            id: "remove",
-            title: "检查",
-            startAt: "2026-10-08T19:00:00+08:00",
-            endAt: "2026-10-08T20:00:00+08:00",
-            origin: "ai",
-          },
-        ],
-      },
-    ],
-    version = 1;
-  globalThis.fetch = async (path, options = {}) => {
-    if (path === "/api/auth/me")
-      return {
-        ok: true,
-        json: async () => ({ user: { id: "schedule", name: "测试" } }),
-      };
-    if (path === "/api/workspace")
-      return {
-        ok: true,
-        json: async () => ({
-          tasks: { value: structuredClone(tasks), version },
-        }),
-      };
-    const body = JSON.parse(options.body);
-    assert.equal(body.version, version);
-    tasks = body.value;
-    return { ok: true, json: async () => ({ version: ++version }) };
-  };
-  let state = await initSession();
-  state.schedule = state.schedule.filter((plan) => plan.id !== "remove");
-  Object.assign(state.schedule[0], {
-    date: "2026-10-08",
-    start: 23.5,
-    hours: 1.25,
-    label: "修改后的安排",
-  });
+  state.tasks[0].title = "第一次保存";
+  saveStore(state);
+  state.tasks[0].title = "第二次保存";
   saveStore(state);
   await flushStore();
-  state = await initSession();
-  assert.equal(state.schedule.length, 1);
-  assert.equal(state.schedule[0].hours, 1.25);
-  assert.equal(tasks[0].plans[0].id, "move");
-  assert.equal(tasks[0].plans[0].origin, "manual");
-  assert.equal(tasks[0].plans[0].source, "preserved");
-  assert.equal(
-    Date.parse(tasks[0].plans[0].endAt),
-    Date.parse("2026-10-09T00:45:00+08:00"),
-  );
-  assert.deepEqual(tasks[0].due, { date: "2026-10-10", precision: "date" });
-  state.tasks[0].notes = "之后修改任务";
+  assert.deepEqual(f.writes.map(item => item.version), [1, 2]);
+  assert.deepEqual(f.writes.map(item => item.value[0].title), ["第一次保存", "第二次保存"]);
+  assert.equal(getTaskVersion(), 3);
   saveStore(state);
   await flushStore();
-  assert.deepEqual(
-    tasks[0].plans.map((plan) => plan.id),
-    ["move"],
-  );
+  assert.equal(f.writes.length, 2);
+  assert.equal(getTaskVersion(), 3);
+  assert.equal(session.sync, "saved");
 });
 
-test("permanent task deletion uses the server delete endpoint and cannot return in later saves", async () => {
-  let tasks = [
-      {
-        id: "delete",
-        title: "永久删除",
-        status: "completed",
-        due: null,
-        subtasks: [],
-        plans: [
-          {
-            id: "p",
-            title: "计划",
-            startAt: "2026-10-07T10:00:00+08:00",
-            endAt: "2026-10-07T11:00:00+08:00",
-          },
-        ],
-      },
-      {
-        id: "keep",
-        title: "保留",
-        status: "not_started",
-        dependsOn: "delete",
-        due: null,
-        subtasks: [],
-        plans: [],
-      },
-    ],
-    version = 3,
-    deletedRequest,
-    saveRequest;
+test("an account reset aborts pending requests and rejects late results from the old account", async () => {
+  fixture("old-account", [task("old-task")]);
+  await initSession();
+  const epoch = accountVersion();
+  let release, started, signal;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { started = resolve; });
   globalThis.fetch = async (path, options = {}) => {
-    if (path === "/api/auth/me")
-      return {
-        ok: true,
-        json: async () => ({ user: { id: "u", name: "测试" } }),
-      };
-    if (path === "/api/workspace")
-      return {
-        ok: true,
-        json: async () => ({
-          tasks: { value: structuredClone(tasks), version },
-          feedback: {
-            value: [{ taskId: "delete", actualMinutes: 30 }],
-            version: 1,
-          },
-        }),
-      };
-    if (path === "/api/data/tasks" && options.method === "DELETE") {
-      deletedRequest = JSON.parse(options.body);
-      tasks = [{ ...tasks[1], dependsOn: "" }];
-      version++;
-      return {
-        ok: true,
-        json: async () => ({
-          deletedIds: ["delete"],
-          version,
-          feedback: [],
-          feedbackVersion: 2,
-        }),
-      };
+    if (path === "/api/slow") {
+      signal = options.signal; started(); await waiting;
+      return reply({ secret: "旧账号材料" });
     }
-    if (path === "/api/data/tasks") {
-      saveRequest = JSON.parse(options.body);
-      tasks = saveRequest.value;
-      version++;
-      return { ok: true, json: async () => ({ version }) };
-    }
-    throw new Error("unexpected request " + path);
+    if (path === "/api/auth/logout") return reply({ ok: true });
+    throw new Error(path);
   };
+  const late = api("/api/slow");
+  await entered;
+  const next = await logout();
+  assert.deepEqual(next, { tasks: [], trash: [] });
+  assert.equal(getTaskVersion(), 0);
+  assert.equal(accountVersion(), epoch + 1);
+  assert.equal(signal.aborted, true);
+  const rejected = assert.rejects(late, /账号已切换/);
+  release();
+  await rejected;
+  fixture("new-account", [task("new-task")]);
   const state = await initSession();
-  await deleteStoredTasks(["delete"]);
-  assert.deepEqual(deletedRequest, { ids: ["delete"], version: 3 });
-  state.tasks = state.tasks.filter((task) => task.id !== "delete");
-  state.tasks[0].title = "仍然保留";
-  state.tasks[0].dependsOn = "";
-  saveStore(state);
-  await flushStore();
-  assert.deepEqual(
-    saveRequest.value.map((task) => task.id),
-    ["keep"],
-  );
-  assert.equal(saveRequest.value[0].title, "仍然保留");
+  assert.equal(session.user.id, "new-account");
+  assert.deepEqual(state.tasks.map(item => item.id), ["new-task"]);
 });
 
 test("explicit reload recovers a conflict and never resurrects the discarded failed draft", async () => {

@@ -11,11 +11,11 @@
 - **账号**：侧栏底部可登录、注册、退出、修改昵称和密码。真实账号数据由服务端保存，浏览器只保留会话 Cookie 和视图偏好，不把工作区作为本地存储副本。
 - **导航**：桌面固定收放按钮切换 232px 侧栏与 72px 图标栏；折叠后仍可直接打开导入、全部任务、临近截止、已完成和账号。图标悬停约 500ms 或获得键盘焦点时显示名称，手机沿用抽屉菜单。
 
-当前前端不提供规划、任务拆分、学习时段或专注计时入口。保存适配层保留已有任务的来源、证据、`plans`、`subtasks` 等元数据；精简界面不删除账号中已有的这些记录。
+当前前端不提供规划、任务拆分、学习时段或专注计时入口，也不包含历史任务迁移和旧界面数据转换。客户端工作区仅有任务和回收站，保存只写任务；来源证据继续通过服务端接口读取。服务端要求 `plans`、`subtasks` 为数组，新任务提交空数组，已有字段直接透传。
 
 ## 目录结构
 
-`src/` 当前包含 16 个文件；测试按当前产品和服务端适配职责保留。
+`src/` 当前包含 16 个文件；测试覆盖当前前端功能与接口适配。
 
 ```text
 frontend/
@@ -36,16 +36,16 @@ frontend/
 │   ├── calendar.css          日历、任务清单和当日面板样式
 │   ├── task-drawer.js        任务详情及新增、编辑表单
 │   ├── task-evidence.js      原文、证据摘录和安全来源链接
-│   ├── team-store.js         服务端账号工作区与元数据适配
+│   ├── team-store.js         任务与回收站状态、账号请求和保存队列
 │   ├── demo.js               仅在内存中的合成任务
-│   ├── environment-badge.js  服务环境和前后端版本描述
+│   ├── environment-badge.js  服务环境和版本描述，不生成额外页面浮层
 │   ├── icons.js              共用 SVG 图标
 │   ├── id.js                 浏览器兼容的随机任务 ID
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
 │   ├── task-model.test.js    筛选、截止分组、月周日历和安全渲染
 │   ├── import-flow.test.js   通知时间、候选确认、教学网和账号隔离
-│   ├── team-store.test.js    保存适配与已有元数据保留
+│   ├── team-store.test.js    任务保存、账号隔离、冲突与删除恢复
 │   ├── task-evidence.test.js 来源链接和证据展示
 │   └── environment-badge.test.js 环境识别与版本差异
 └── docs/
@@ -55,36 +55,35 @@ frontend/
     │   ├── task-list-desktop.jpg
     │   ├── calendar-desktop.jpg
     │   ├── calendar-mobile.jpg
+    │   ├── sidebar-collapsed.jpg
     │   └── import-desktop.jpg
     └── archive/              历史文档与截图，不代表当前功能
 ```
 
 ## 本地启动
 
-需要 Node.js 20.19+ 和 Python 3.9+；完整测试需要 Python 3.10+。从 `frontend/` 目录执行：
+前端开发与测试需要 Node.js 20.19+。从 `frontend/` 目录执行：
 
 ```bash
 npm ci
-node ../scripts/run-python.mjs -m pip install -r ../server/requirements.txt
-pnpm --dir ../crawler install --frozen-lockfile
-npm run dev:api
+npm run dev
 ```
 
-另开终端，在同一目录执行：
+网页需要可用的业务 API。本地启动当前后端时，按 [服务端说明](../server/README.md) 准备 Python 环境和依赖，再另开终端，在同一目录执行：
 
 ```bash
-npm run dev
+npm run dev:api
 ```
 
 打开 [本地网页](http://localhost:1331/)。Vite 默认端口为 1331，同源 `/api` 代理到本机 1332。端口占用时先确认已有进程，不另起一个容易混淆的网页。不要在仓库根目录运行 npm。
 
 文本识别与教学网识别由业务后端调用模型；普通本地启动读取仓库根目录 `.env`，教学网要求有效的七牛配置。显式设置 `NIUMA_ENVIRONMENT` 时，需要为该环境配置模型文件，或用 `NIUMA_MODEL_ENV` 指向已有配置文件；配置变更后重启 API。密钥不进入前端或 `VITE_*`。
 
-教学网采集依赖单独安装在 `crawler/`；已有 Chrome 或 Edge 时直接使用，否则从 `frontend/` 执行 `pnpm --dir ../crawler exec playwright install chromium`。账号连接由用户在导入页管理；缺依赖、缺模型配置与连接失败会显示各自原因，单纯刷新不能代替安装或配置。
+教学网采集依赖单独安装在 `crawler/`，安装与浏览器要求见 [采集器说明](../crawler/README.md)。账号连接由用户在导入页管理；缺依赖、缺模型配置与连接失败会显示各自原因，单纯刷新不能代替安装或配置。
 
 教学网同步返回服务端保存的来源展示对象，前端仅使用其 `request_id` 发起 `teaching-run/0.1` 识别或重试；不会把浏览器中的来源正文当作可信采集请求回传。
 
-`npm run db:seed` 仅供独立的本地测试数据库初始化合成账号；不用于生产，也不是查看设计的前提。数据库、凭据、密钥和本地配置不提交到仓库。
+数据库、凭据、密钥和本地配置不提交到仓库。
 
 ## 合成预览
 
@@ -100,19 +99,13 @@ npm run dev
 
 ## 验证
 
-仅运行前端模块测试：
-
-```bash
-node --test tests/*.test.js
-npm run build
-```
-
-完整回归：
+运行前端模块测试与构建：
 
 ```bash
 npm test
+npm run build
 ```
 
-`npm test` 会安装服务端测试依赖，并运行前端与服务端测试。界面变更还应检查桌面与 320–390px 手机宽度，验证任务操作、筛选、日历跳转、导入核对和账号切换；演示截图只使用合成材料。当前截图与视觉规格见 [设计说明](docs/design.md)。
+`npm test` 仅运行前端测试，不安装后端依赖或运行后端测试。服务端与采集器的验证由各自模块负责。界面变更还应检查桌面与 320–390px 手机宽度，验证任务操作、筛选、日历跳转、导入核对和账号切换；演示截图只使用合成材料。当前截图与视觉规格见 [设计说明](docs/design.md)。
 
 历史贡献与来源见 [CONTRIBUTIONS.md](CONTRIBUTIONS.md)。

@@ -54,7 +54,6 @@ export function demoWorkspace(today) {
       source,
       notes,
       status: "todo",
-      subtasks: [],
     }),
   );
   tasks.push({
@@ -66,15 +65,10 @@ export function demoWorkspace(today) {
     source: "教学网",
     notes: "",
     status: "done",
-    subtasks: [],
     completedAt: shiftDay(today, -3),
   });
   return {
-    version: 1,
     tasks,
     trash: [],
-    courses: [],
-    schedule: [],
-    materials: [],
   };
 }

@@ -72,9 +72,8 @@ export function filterTasks(
     const due = dueOf(task);
     if (scope === "done" ? !done : done) return false;
     if (scope === "near" && (!due || due > nearEnd)) return false;
-    if (scope === "undated" && due) return false;
-    if (course && course !== "all" && task.course !== course) return false;
-    if (source && source !== "all" && (task.source || "手动添加") !== source)
+    if (course && task.course !== course) return false;
+    if (source && (task.source || "手动添加") !== source)
       return false;
     if ((from && (!due || due < from)) || (to && (!due || due > to)))
       return false;

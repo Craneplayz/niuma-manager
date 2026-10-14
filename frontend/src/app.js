@@ -206,7 +206,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || session.user?.display_name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || session.user?.display_name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
 }
 function hideSidebarTooltip() {
   clearTimeout(sidebarTooltipTimer);
@@ -282,9 +282,7 @@ function toolbar() {
 }
 function monthLabel() {
   const d = new Date(ui.anchor + "T12:00:00");
-  return ui.mode === "week"
-    ? `${d.getFullYear()}年 ${d.getMonth() + 1}月`
-    : `${d.getFullYear()}年 ${d.getMonth() + 1}月`;
+  return `${d.getFullYear()}年 ${d.getMonth() + 1}月`;
 }
 function calendarTools() {
   return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented small" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
@@ -293,15 +291,7 @@ function taskResults() {
   const tasks = filtered();
   if (taskView() === "list")
     return renderTaskList(tasks, { escapeHtml: esc, icon, today });
-  const paneTasks = [
-    ...tasks.filter((t) => t.due),
-    ...filterTasks(state.tasks, {
-      ...ui,
-      scope: "all",
-      today,
-    }).filter((t) => !t.due),
-  ];
-  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc, icon })}</div>${renderDayPanel({ tasks: paneTasks, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
+  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc })}</div>${renderDayPanel({ tasks, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
 }
 function tasksPage() {
   const view = taskView();
@@ -309,7 +299,7 @@ function tasksPage() {
     ? `<div class="segmented task-view-switch" role="group" aria-label="任务视图"><button type="button" data-view="list" aria-pressed="${view === "list"}">${icon("tasks")}<span>清单</span></button><button type="button" data-view="calendar" aria-pressed="${view === "calendar"}">${icon("calendar")}<span>日历</span></button></div>`
     : "";
   const label =
-    { all: "全部任务", near: "临近截止", done: "已完成", undated: "无日期" }[
+    { all: "全部任务", near: "临近截止", done: "已完成" }[
       ui.scope
     ] || "全部任务";
   const heading = renderPageHeading({
@@ -589,7 +579,6 @@ const actions = {
     renderResults();
   },
   "dialog-close": closeDialog,
-  close: closeDialog,
   "retry-save": async () => {
     try {
       await retrySave();
@@ -767,7 +756,6 @@ document.addEventListener("submit", async (e) => {
         ...(existing || {
           id: draftId,
           status: "todo",
-          subtasks: [],
           source: "手动添加",
         }),
         ...values,

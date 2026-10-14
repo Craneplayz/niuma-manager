@@ -649,14 +649,6 @@ button .icon {
   align-items: center;
   gap: 12px;
 }
-.calendar-options > .btn {
-  font-size: 12px;
-  padding: 6px 9px;
-}
-.calendar-options > .btn > span {
-  font-size: 11px;
-  color: #919ca5;
-}
 .segmented {
   display: flex;
   gap: 2px;
@@ -707,13 +699,6 @@ button .icon {
   border-left: 1px solid var(--line);
   padding-left: 22px;
 }
-.calendar-view {
-  --cal-text: var(--ink);
-  --cal-muted: var(--muted);
-  --cal-border: var(--line);
-  --cal-accent: var(--blue);
-  --cal-selected: var(--blue-light);
-}
 .field {
   display: flex;
   flex-direction: column;
@@ -758,8 +743,7 @@ button .icon {
   color: #929aa1;
   margin-bottom: 22px;
 }
-.status-note,
-.muted {
+.status-note {
   color: #8a949c;
   font-size: 13px;
   line-height: 1.8;
@@ -801,36 +785,6 @@ button .icon {
   text-align: center;
   color: #8b959e;
 }
-.import-page .segmented {
-  width: max-content;
-  margin-bottom: 28px;
-}
-.import-page .import-tabs {
-  display: flex;
-  gap: 24px;
-  border-bottom: 1px solid var(--line);
-  margin: 22px 0;
-}
-.import-tabs button {
-  border: 0;
-  background: transparent;
-  min-height: 44px;
-  padding: 7px 0;
-  color: #87919a;
-  font-size: 14px;
-}
-.import-tabs button.active,
-.import-tabs button[aria-pressed="true"] {
-  font-weight: 600;
-  color: #34424d;
-  border-bottom: 2px solid #4d5a65;
-}
-.import-page > p {
-  color: #87919a;
-  font-size: 13px;
-  line-height: 1.8;
-  margin: 12px 0 26px;
-}
 .import-page h2 {
   font-size: 18px;
   font-weight: 600;
@@ -849,107 +803,26 @@ button .icon {
 .import-page form {
   margin-top: 22px;
 }
-.import-actions,
-.import-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  justify-content: space-between;
-}
-.import-card,
-.candidate-card {
-  border-bottom: 1px solid var(--line);
-  padding: 20px 0;
-}
-.candidate-card p {
-  font-size: 13px;
-  color: #8a959e;
-  line-height: 1.7;
-  margin: 9px 0;
-}
-.candidate-title {
-  font-size: 16px;
-  line-height: 1.7;
-  font-weight: 550;
-}
-.candidate-meta {
-  font-size: 12px;
-  color: #8996a0;
-}
 .candidate-actions {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-.candidate-card .btn {
-  min-height: 36px;
-  font-size: 13px;
-  padding: 7px 12px;
-}
-.candidate-card details,
 .import-page details {
   font-size: 13px;
   color: #85909a;
   margin-top: 14px;
   line-height: 1.8;
 }
-.candidate-card summary {
-  cursor: pointer;
-}
-.candidate-card blockquote {
-  margin: 8px 0;
-  white-space: pre-wrap;
-  color: #707c86;
-}
-.teaching-card {
-  padding: 22px 0;
-}
-.teaching-card .icon {
-  width: 28px;
-  height: 28px;
-  color: #667c8e;
-}
-.teaching-card p {
-  margin: 12px 0 20px;
-  font-size: 13px;
-  color: #8a949c;
-  line-height: 1.8;
-}
-.import-empty {
-  padding: 24px 0;
-  color: #95a0a8;
-  font-size: 13px;
-}
 .import-progress {
-  padding: 16px 0;
   color: #647e92;
   font-size: 13px;
   line-height: 1.8;
 }
-.candidate-list {
-  margin: 20px 0;
-}
-.import-page .source-card {
-  padding: 22px 0;
-  border-bottom: 1px solid var(--line);
-}
-.import-page input[type="checkbox"],
 dialog input[type="checkbox"] {
   accent-color: #627e95;
   width: 16px;
   height: 16px;
-}
-.consent {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 12px;
-  color: #86929a;
-  line-height: 1.7;
-  margin: 18px 0;
-}
-.consent input {
-  flex-shrink: 0;
 }
 #dialog {
   border: 0;
@@ -994,56 +867,11 @@ dialog h3 {
 dialog p {
   line-height: 1.8;
 }
-dialog label:not(.field) {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 13px;
-  color: #737e87;
-  margin-bottom: 18px;
-}
-dialog label:not(.field) > input,
-dialog label:not(.field) > select {
-  border: 1px solid #e1e5e8;
-  border-radius: 8px;
-  min-height: 43px;
-  padding: 10px 12px;
-}
-dialog .auth-switch {
-  margin-top: 24px;
-  font-size: 13px;
-  color: #8a959e;
-}
-.inline-button {
-  border: 0;
-  background: transparent;
-  font-size: 13px;
-  color: #55728a;
-  padding: 8px;
-}
-.account-links {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  margin: 20px 0;
-}
-.account-links button {
-  justify-content: flex-start;
-  text-align: left;
-  width: 100%;
-}
 .account-summary {
   display: flex;
   flex-direction: column;
   gap: 9px;
   padding: 4px 0 12px;
-}
-.account-summary strong {
-  font-size: 18px;
-}
-.account-summary span {
-  font-size: 13px;
-  color: #8a959e;
 }
 .trash-list > div {
   display: flex;
@@ -1474,10 +1302,6 @@ dialog .auth-switch {
     justify-content: space-between;
     gap: 6px;
   }
-  .calendar-options > .btn {
-    padding: 6px;
-    font-size: 12px;
-  }
   .calendar-layout {
     gap: 22px;
   }
@@ -1503,7 +1327,7 @@ dialog .auth-switch {
   .connection-alert .btn {
     font-size: 12px;
     padding: 3px;
-    min-height: 32px;
+    min-height: 44px;
   }
   .field-pair {
     gap: 12px;
@@ -1520,17 +1344,11 @@ dialog .auth-switch {
   }
   .icon-button,
   .nav-item,
-  .btn:not(.candidate-card .btn) {
+  .btn {
     min-height: 44px;
   }
   .account-entry {
     min-height: 56px;
-  }
-  .import-page .import-actions {
-    flex-wrap: wrap;
-  }
-  .import-page .segmented {
-    max-width: 100%;
   }
   .preview-note {
     font-size: 11px;
@@ -1766,7 +1584,7 @@ dialog .auth-switch {
     margin-top: 10px;
   }
   .candidate-actions .btn {
-    min-height: 42px;
+    min-height: 44px;
   }
   .import-source-tabs .status-note {
     font-size: 10px;

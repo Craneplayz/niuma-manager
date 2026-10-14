@@ -107,9 +107,6 @@ test("task scopes include overdue deadlines and the seventh day, but exclude com
     "week",
   ]);
   assert.deepEqual(ids(filterTasks(tasks, { scope: "done", today })), ["done"]);
-  assert.deepEqual(ids(filterTasks(tasks, { scope: "undated", today })), [
-    "undated",
-  ]);
   assert.equal(filterTasks(tasks, { scope: "all", today }).length, 7);
 });
 
@@ -140,6 +137,11 @@ test("combined query, course, source, and inclusive date filters preserve deadli
     "manual",
   ]);
   assert.deepEqual(filterTasks(manual, { query: "隐藏的原文", today }), []);
+  const namedAll = [
+    { id: "named-all", title: "任务", course: "all", source: "all", status: "todo" },
+    ...manual,
+  ];
+  assert.deepEqual(ids(filterTasks(namedAll, { course: "all", source: "all", today })), ["named-all"]);
 });
 
 test("grouping uses all six deadline buckets across a year boundary and sorting never mutates input", () => {
@@ -161,15 +163,7 @@ test("date arithmetic handles leap years and year rollover without accepting imp
   assert.equal(shiftDay("2027-01-01", -1), "2026-12-31");
   assert.equal(shiftDay("2026-02-30", 1), "");
   assert.match(todayKey(), /^\d{4}-\d{2}-\d{2}$/);
-  assert.deepEqual(
-    ids(
-      filterTasks([{ id: "bad", due: "2026-02-30", status: "todo" }], {
-        scope: "undated",
-        today,
-      }),
-    ),
-    ["bad"],
-  );
+  assert.equal(groupTasks([{ id: "bad", due: "2026-02-30", status: "todo" }], today)[0].tone, "undated");
   assert.equal(deadlineLabel(tasks[2], today), "今天 20:00");
   assert.equal(deadlineLabel(tasks[4], today), "明天");
   assert.equal(deadlineLabel(tasks[5], today), "2027 年 1 月 4 日");
@@ -198,6 +192,10 @@ test("calendar is a Monday-first deadline projection that handles leap months an
     "2027-01-03",
   ]);
   assert.doesNotMatch(month, /data-task-open="undated"/);
+  for (const mode of ["month", "week"]) {
+    const html = renderCalendar({ tasks, anchorDate: today, mode, today });
+    assert.doesNotMatch(html, /data-task-open="done"/);
+  }
 });
 
 test("calendar caps summaries, exposes the remainder, escapes imported task content, and has no nested buttons", () => {
