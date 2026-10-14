@@ -9,6 +9,11 @@ import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
 import { candidateEvidenceMarkup, failureSourcesMarkup } from "./import-evidence.js";
 import { createReprocessingUI } from "./reprocessing-ui.js";
+import { createMaterialsUI } from "./materials-ui.js";
+import { createSubmissionsUI } from "./submissions-ui.js";
+import { createPublicSourcesUI } from "./public-sources-ui.js";
+import { configureSourceSync, resetSourceSync, sourceSyncPanel, startSourceSync, sourceSyncClick, syncIsActive, syncOwnsRequest, refreshSourceSync } from "./source-sync-ui.js";
+import { configureSyncSchedule, resetSyncSchedule, syncSchedulePanel, syncScheduleInput, syncScheduleClick } from "./source-schedule-ui.js";
 
 const actions = {
   create: "新增任务",
@@ -155,6 +160,7 @@ export function buildCandidateResolution(item, values, tasks, tasksVersion) {
   if (!title) throw new Error("请填写任务名称");
   body.draft = {
     title,
+    content_type: action === "create" ? (item.candidate?.content_type || "task") : (target.content_type || "task"),
     description:
       action === "postpone"
         ? target.notes || ""
@@ -275,17 +281,49 @@ export function createImportUI(host) {
     request = null,
     modal = null,
     controller = null,
+    syncConsent = false,
     revision = 0;
   const current = () => ({ epoch: accountVersion(), revision });
   const valid = (stamp) =>
     stamp.epoch === accountVersion() && stamp.revision === revision;
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
+  configureSourceSync({
+    render: refresh,
+    navigate: target => target === "settings" ? openCredentials() : target === "review" ? host.showReview?.() : host.navigateTasks?.(),
+    isVisible: () => !demo() && (host.isImportVisible?.() ?? true),
+    async changed() {
+      const stamp = current();
+      if (busy) return false;
+      await host.refresh();
+      if (!valid(stamp)) return false;
+      const next = await api("/api/recognition/batches");
+      if (!valid(stamp)) return false;
+      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
+      batches = next; loaded = true;
+      refresh(); return true;
+    },
+  });
+  configureSyncSchedule({ render: refresh });
+  const submissions = createSubmissionsUI({...host, isDemo: demo});
+  const publicSources = createPublicSourcesUI({...host, isDemo: demo, isVisible:()=>source==='public'&&(host.isImportVisible?.()??true)});
+  const materials = createMaterialsUI({
+    ...host, isDemo: demo, isVisible: () => source === "files" && (host.isImportVisible?.() ?? true),
+    async changed() {
+      const stamp = current();
+      await host.refresh();
+      if (!valid(stamp)) return;
+      const next = await api("/api/recognition/batches");
+      if (!valid(stamp)) return;
+      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
+      batches = next; loaded = true; refresh();
+    },
+  });
   const reprocessing = createReprocessingUI({
     ...host, api, flushStore, accountVersion,
     isDemo: demo,
     isAuthenticated: () => Boolean(session.user && !session.changing),
-    isImportBusy: () => busy,
+    isImportBusy: () => busy || syncIsActive(),
     async onFinished(isCurrent) {
       await host.refresh();
       if (!isCurrent()) return;
@@ -340,6 +378,10 @@ export function createImportUI(host) {
     request = null;
     modal = null;
     reprocessing.reset();
+    resetSourceSync(); resetSyncSchedule(); syncConsent = false;
+    materials.reset();
+    submissions.reset();
+    publicSources.reset();
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
   async function load() {
@@ -361,6 +403,9 @@ export function createImportUI(host) {
     loading = false;
     loaded = true;
     refresh();
+    if (source === "teaching") void refreshSourceSync();
+    if (source === "files") void materials.load();
+    if (source === "public") void publicSources.load();
   }
   function deadlineLabel(deadline = {}) {
     if (deadline.kind === "reference") return "参考时间，待核对";
@@ -370,8 +415,7 @@ export function createImportUI(host) {
     if (!due.date) return "截止日期待确认";
     return (
       due.date.replaceAll("-", " / ") +
-      (due.time ? " " + due.time : "") +
-      (deadline.status === "inferred" ? " · 待确认" : "")
+      (due.time ? " " + due.time : "")
     );
   }
   function evidence(item) {
@@ -382,7 +426,7 @@ export function createImportUI(host) {
       record = item.batch.request?.records?.find(
         (record) => record.input_id === c.input_id,
       ),
-      label = platforms[record?.platform] || c.sources?.[0]?.label || "通知";
+      label = record?.source_label === "用户主动上传的文件" ? "图片与文件" : platforms[record?.platform] || c.sources?.[0]?.label || "通知";
     return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${blocked() ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${blocked() ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${blocked() ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
   }
   function render() {
@@ -393,9 +437,9 @@ export function createImportUI(host) {
       ignored = items.filter((item) => item.state === "ignored"),
       applied = items.filter((item) => item.state === "applied");
     const failures = batches.filter((batch) =>
-      ["failed", "partial_success"].includes(batch.result?.status),
+      !syncOwnsRequest(batch.request.request_id) && ["failed", "partial_success"].includes(batch.result?.status),
     );
-    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading"><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}" ${blocked() ? "disabled" : ""}>文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}" ${blocked() ? "disabled" : ""}>教学网</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${blocked() || loading ? "disabled" : ""}>${busy ? "正在采集…" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<button class="btn quiet" type="button" data-import-action="credentials" ${blocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${failures.map((batch) => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${!incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}${applied.length ? `<details class="import-history"><summary>已处理 · ${applied.length}</summary>${applied.map(candidateRow).join("")}</details>` : ""}</section>${reprocessing.render()}</div>`;
+    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading"><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}" ${blocked() ? "disabled" : ""}>文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}" ${blocked() ? "disabled" : ""}>教学网</button><button type="button" class="btn ${source === "files" ? "selected" : "quiet"}" data-import-source="files" aria-pressed="${source === "files"}" ${blocked() ? "disabled" : ""}>图片与文件</button><button type="button" class="btn quiet" data-import-source="public">公开活动</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "public" ? publicSources.render() : source === "files" ? materials.render() : source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${blocked() || loading || syncIsActive() ? "disabled" : ""}>${syncIsActive() ? "后台同步中" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<label class="sync-consent"><input id="teaching-sync-consent" type="checkbox" ${syncConsent ? "checked" : ""}>我同意获取教学网所选内容（含附件），并发送给识别服务。</label><button class="btn quiet" type="button" data-import-action="credentials" ${blocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${failures.map((batch) => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${batch.request.contract_version === "0.3.1" ? `<button class="btn quiet" data-import-source="files">查看文件处理</button>` : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}${applied.length ? `<details class="import-history"><summary>已处理 · ${applied.length}</summary>${applied.map(candidateRow).join("")}</details>` : ""}</section>${source === "teaching" && !demo() ? syncSchedulePanel() + sourceSyncPanel() + submissions.render() : ""}${reprocessing.render()}</div>`;
   }
   function dialogHeader(title) {
     return `<header class="dialog-header"><h2>${esc(title)}</h2><button class="icon-button" type="button" data-import-action="close" aria-label="关闭">${host.icon("close")}</button></header>`;
@@ -581,85 +625,17 @@ export function createImportUI(host) {
     }
   }
   async function sync() {
-    if (blocked() || !allowed()) return;
-    if (!credentials?.configured) {
-      openCredentials();
-      return;
-    }
+    if (blocked() || syncIsActive() || !allowed()) return;
+    if (!credentials?.configured) { openCredentials(); return; }
+    if (!syncConsent) { error = "请先同意获取并识别所选来源内容。"; refresh(); return; }
     const stamp = current();
-    busy = true;
-    error = "";
-    notice = "";
-    progress = "正在采集教学网…";
-    controller = new AbortController();
-    refresh();
     try {
-      const result = await api(
-        "/api/sources/sync",
-        { sources: ["teaching_web"] },
-        "POST",
-        { signal: controller.signal, timeoutMs: 310000 },
-      );
+      await flushStore();
       if (!valid(stamp)) return;
-      if (!Array.isArray(result.requests))
-        throw new Error("采集结果暂时无法读取");
-      let failures = 0, applied = 0;
-      for (let index = 0; index < result.requests.length; index++) {
-        if (!valid(stamp) || controller.signal.aborted) break;
-        progress = `正在识别通知 ${index + 1} / ${result.requests.length}`;
-        refresh();
-        try {
-          const next = await recognize(result.requests[index]);
-          if (!valid(stamp)) return;
-          batches = next;
-          loaded = true;
-          const batch = next.find(
-            (batch) =>
-              batch.request.request_id === result.requests[index].request_id,
-          );
-          if (["failed", "partial_success"].includes(batch?.result?.status))
-            failures++;
-          const automatic = await autoApply(result.requests[index].request_id, stamp);
-          if (!valid(stamp)) return;
-          applied += automatic.applied;
-          failures += automatic.failed;
-        } catch (e) {
-          if (!valid(stamp)) return;
-          if (controller.signal.aborted) throw e;
-          failures++;
-          error = describeImportError(e);
-        }
-      }
-      if (!valid(stamp)) return;
-      if (controller.signal.aborted) {
-        notice = "已停止导入，后台已开始的识别可能继续，可刷新查看结果。";
-        return;
-      }
-      if (!result.requests.length) {
-        const next = await api("/api/recognition/batches");
-        if (!valid(stamp)) return;
-        batches = next;
-        loaded = true;
-      }
-      const requestIds = new Set(result.requests.map((request) => request.request_id));
-      const pending = allItems().filter((item) => requestIds.has(item.batch.request.request_id) && item.state === "pending").length;
-      notice = "采集完成" + (applied ? `，已自动加入 ${applied} 项任务` : "") +
-        (pending ? `，${pending} 项待核对` : "") +
-        (failures ? "，部分处理未完成" : !result.requests.length ? "，暂无新增通知" : "");
-    } catch (e) {
-      if (valid(stamp)) {
-        if (controller?.signal.aborted)
-          notice = "已停止导入，后台已开始的识别可能继续，可刷新查看结果。";
-        else error = describeImportError(e);
-      }
-    } finally {
-      if (valid(stamp)) {
-        busy = false;
-        controller = null;
-        progress = "";
-        refresh();
-      }
-    }
+      await startSourceSync(["teaching_web"], true);
+      if (valid(stamp)) { syncConsent = false; error = ""; }
+    } catch (cause) { if (valid(stamp)) error = describeImportError(cause); }
+    finally { if (valid(stamp)) refresh(); }
   }
   async function resolveSmall(item, action) {
     if (
@@ -726,12 +702,20 @@ export function createImportUI(host) {
   }
   async function click(button) {
     const d = button.dataset;
+    if (d.sourceSyncAction) { if (allowed()) await sourceSyncClick(button); return true; }
+    if (d.syncScheduleAction) { if (allowed()) await syncScheduleClick(button); return true; }
+    if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
+    if (d.submissionAction) { if (allowed()) await submissions.click(button); return true; }
+    if (d.publicAction) { if (allowed()) await publicSources.click(button); return true; }
     if (d.reprocessAction) return reprocessing.click(button);
     if (d.importSource) {
       if (!blocked()) {
         source = d.importSource;
         error = "";
         notice = "";
+        if (source === "teaching" && allowed()) void refreshSourceSync();
+        if (source === "files" && allowed()) void materials.load();
+        if (source === "public" && allowed()) void publicSources.load();
         refresh();
       }
       return true;
@@ -768,7 +752,7 @@ export function createImportUI(host) {
       return true;
     }
     if (action === "refresh") {
-      if (allowed()) await load();
+      if (allowed()) { await host.refresh(); await load(); await refreshSourceSync(); }
       return true;
     }
     if (action === "credentials") {
@@ -949,6 +933,11 @@ export function createImportUI(host) {
     return false;
   }
   function input(event) {
+    if (publicSources.input(event)) return true;
+    if (submissions.input(event)) return true;
+    if (materials.input(event)) return true;
+    if (syncScheduleInput(event)) return true;
+    if (event.target.id === "teaching-sync-consent") { syncConsent = event.target.checked; return true; }
     if (reprocessing.input(event)) return true;
     const target = event.target;
     if (target.id === "import-text") {

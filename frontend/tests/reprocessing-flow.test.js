@@ -79,7 +79,7 @@ test("the compact entry stays folded and rendering never fetches records or runs
   const f = fixture(t);
   const html = f.ui.render();
   assert.match(html, /<details[^>]*data-reprocess-panel >.*<summary[^>]*>重新识别已有通知<\/summary>/);
-  assert.match(html, /新教学网采集内容暂不支持此入口/);
+  assert.match(html, /不重新抓取网页或附件/);
   assert.doesNotMatch(html, /v0\.2|v0\.4/);
   assert.equal(f.requests.length, 0);
   await f.ui.toggle(toggle(true));
@@ -87,6 +87,14 @@ test("the compact entry stays folded and rendering never fetches records or runs
   assert.ok(f.requests.every((item) => item.body === undefined));
   await f.ui.toggle(toggle(true));
   assert.equal(f.requests.length, 2);
+});
+
+test("native teaching policy is visible and vanished selections cannot be submitted", async t => {
+ const f=fixture(t);f.setSources([{...source,records:[{...records[0],policy_version:'teaching-policy-v1:synthetic'}]}]);
+ await f.ui.toggle(toggle(true));assert.match(f.ui.render(),/teaching-policy-v1:synthetic/);
+ assert.match(f.ui.render(),/明确任务直接加入任务清单/);
+ f.ui.input(select(records[0].input_id));f.setSources([{...source,records:[]}]);await f.ui.click(click('load'));await f.ui.click(click('start'));
+ assert.equal(f.requests.some(r=>r.method==='POST'),false);
 });
 
 test("success and no-task saved records can both be explicitly rerun after queued task writes finish", async (t) => {

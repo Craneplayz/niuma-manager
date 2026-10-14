@@ -15,6 +15,10 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import source_jobs
+import submission_runtime
+import public_sources
+import source_schedule
 import wechat_media
 import manual_materials
 import task_decomposition
@@ -57,6 +61,9 @@ def initialize(recover=True):
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        source_jobs.initialize(db, recover=recover)
+        source_schedule.initialize(db)
+        public_sources.initialize(db,recover=recover)
         reprocessing.initialize(db,recover=recover)
         if wechat_enabled() or manual_materials.enabled():
             wechat_media.initialize(db,recover=recover and wechat_enabled())
@@ -194,7 +201,11 @@ class Handler(BaseHTTPRequestHandler):
                 uid=user['id']
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
+            if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
+            if source_schedule.route(self,db,uid,path,body,ApiError): return
+            if public_sources.route(self,db,uid,path,body,ApiError,DB): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
+            if submission_runtime.route(self,db,uid,path,body,ApiError): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
@@ -272,6 +283,7 @@ class Handler(BaseHTTPRequestHandler):
                     ids=[]
                     for task in value:
                         if not isinstance(task,dict) or not isinstance(task.get('id'),str) or not isinstance(task.get('title'),str) or not isinstance(task.get('plans'),list) or not isinstance(task.get('subtasks'),list): raise ApiError(400,'任务格式不正确')
+                        if task.get('content_type','task') not in ('task','notice'): raise ApiError(400,'内容类型必须是任务或通知')
                         ids.append(task['id'])
                     if len(ids)!=len(set(ids)): raise ApiError(400,'任务编号重复')
                 if name=='feedback':
@@ -288,6 +300,7 @@ class Handler(BaseHTTPRequestHandler):
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()
                 version=row['version'] if row else 0
                 if body.get('version')!=version: raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
+                if name=='tasks':submission_runtime.manual_task_write(db,uid,value)
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 return self.reply(200,dict(version=version+1))
             if path=='/api/planning/proposals' and self.command=='POST':
@@ -299,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
                 if task_ids is not None:
                     if not isinstance(task_ids,list) or not task_ids or any(not isinstance(item,str) for item in task_ids) or len(set(task_ids))!=len(task_ids): raise ApiError(400,'规划任务范围不正确')
                     if replan and any(not any(t['id']==tid and t['status'] not in ['completed','cancelled'] for t in tasks) for tid in task_ids): raise ApiError(400,'要重新规划的任务不存在或已经完成')
-                pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and
+                pending=[t for t in tasks if t.get('content_type','task')!='notice' and t['status'] not in ['completed','cancelled'] and
                          (not t.get('planningExcluded') or replan and task_ids is not None) and (replan or not t['plans'])]
                 if task_ids is not None:
                     pending=[t for t in pending if t['id'] in task_ids and t.get('due')]
@@ -357,7 +370,10 @@ class Handler(BaseHTTPRequestHandler):
             with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
         except ApiError as e:
-            if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
+            if self.path.startswith('/api/sources/submissions'):
+                code={401:'unauthorized',403:'unauthorized',404:'not_found',409:'conflict',503:'unavailable'}.get(e.status,'invalid_request')
+                self.reply(e.status,dict(contract_version='submission-operations/0.1',code=code,message=e.message))
+            elif self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 code={401:'unauthorized',403:'forbidden',404:'not_found',413:'limit_exceeded',503:'queue_busy'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
             else: self.reply(e.status,dict(error=e.message))
@@ -410,5 +426,7 @@ if __name__=='__main__':
         port=runtime_environment.port()
         with ThreadingHTTPServer((host,port),Handler) as server:
             initialize()
+            scheduler_stop=source_schedule.start_worker(DB,ApiError)
             print('牛马管理器 API: http://'+host+':'+str(port)+' ['+runtime_environment.environment()+']',flush=True)
-            server.serve_forever()
+            try: server.serve_forever()
+            finally: scheduler_stop.set()

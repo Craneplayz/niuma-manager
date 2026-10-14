@@ -12,7 +12,7 @@ ID = dict(type='string', pattern=r'^[A-Za-z0-9_.:-]{1,160}$')
 # Preserve them byte-for-byte; size is bounded by the enclosing 2 MB envelope.
 INPUT_ID = dict(type='string', minLength=1, pattern=r'\S')
 LABEL = dict(type='string', minLength=1, maxLength=512, pattern=r'^[^\u0000-\u001f\u007f]+$')
-POLICY = dict(type='string', pattern=r'^text-policy-v1:[0-9a-f]{64}$')
+POLICY = dict(type='string', pattern=r'^(text|teaching)-policy-v1:[0-9a-f]{64}$')
 ROW_STATES = ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted', 'superseded')
 FINAL = {'succeeded', 'partial_success', 'failed', 'stopped', 'interrupted'}
 PROTECTED = {'confirmed', 'ignored', 'edited', 'completed', 'deleted'}

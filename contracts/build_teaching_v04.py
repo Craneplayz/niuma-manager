@@ -39,15 +39,20 @@ def schemas():
         recommendation=dict(enum=['task','candidate','filtered']),
         review_codes=array(string(512,1),100), review_reasons=array(string(1024,1),100),
         filter_reason=nullable(string(1024,1))))
+    # Additive result field: old saved results default to task, never reclassified.
+    decision['properties']['content_type'] = dict(enum=['task','notice'])
     error = obj(dict(code=dict(enum=['agent_timeout','agent_unavailable','invalid_agent_output','limit_exceeded']),
                      message=string(256,1), retryable=dict(type='boolean')))
     row = obj(dict(input_id=ident, snapshot_id=ident, source=source, attempted=dict(type='boolean'),
         status=dict(enum=['success','no_tasks','incomplete','failed']),
         decisions=array(decision,50), warnings=array(string(512,1),20), error=nullable(error)))
+    row['properties']['empty_decision'] = nullable(obj(dict(status=dict(enum=['no_tasks','incomplete']),
+        reason=string(512,1), evidence=array({'$ref':'#/$defs/quote'},20))))
     # Full manifests are server run metadata. JSON carries only their digest.
     policy = nullable(dict(type='string',pattern='^teaching-policy-v1:[0-9a-f]{64}$'))
     result = obj(dict(contract_version=dict(const='0.4'),request_id=ident,policy_version=policy,
         status=dict(enum=['success','partial_success','no_tasks','failed']),record_results=array(row,20)))
+    result['properties']['classification_mode'] = dict(const='model-v1')
     request = obj(dict(contract_version=dict(const='0.4'),request_id=ident,records=array(entry,20)))
     return {name:dict(value, **{'$schema':POLICY['$schema'], '$defs':deepcopy(defs)})
             for name,value in [('request',request),('result',result)]}

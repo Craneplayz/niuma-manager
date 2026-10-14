@@ -21,7 +21,7 @@ crawler/
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
 │   ├── pku-homework.ts               登录并采集课程内容
-│   ├── pku-attachments.ts            限定同源教师附件下载，在独立进程提取 PDF / UTF-8 文本
+│   ├── pku-attachments.ts            同源附件下载、PDF/TXT 文本提取、图片/DOCX/扫描页暂存
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
 │   ├── pku-teaching-evidence.ts      严格导出独立正文与附件证据，报告无法表达的记录
 │   ├── pku-teaching.ts               为受控同步包装 v0.4 证据、学期上下文与原生提交状态
@@ -46,6 +46,7 @@ crawler/
 │       ├── jsonl-store.ts            读写 JSONL 文件
 │       └── raw-snapshot-store.ts      保存原始网页及来源信息
 ├── tests/                            自动化测试
+│   ├── export-teaching-attachment-smoke.ts  合成附件经实际解析器导出受控快照和文件收据
 │   ├── adapters.test.ts              测试公开来源适配器
 │   ├── crawler.test.ts               测试抓取与重处理流程
 │   ├── fetcher.test.ts               测试 HTTP 获取器
@@ -147,3 +148,7 @@ Run `pnpm pku:homework -- --format=teaching-v04 --all-sections` to collect and e
 The producer uses `contracts/schemas/teaching-request-v0.4.schema.json`, copied unchanged from #124 head `6312dca`; shared source cases replay both v0.2 and v0.4 output and Python semantic validation. It emits `course_term=null` until platform evidence provides actual semester dates and assignment applicability, and never emits a trust flag. The consumer must verify its account-bound full entry and compute the v0.4 entry digest separately. Old snapshots without separated body evidence are not upgraded by stripping attachment text or relabeling completeness.
 
 `--format=teaching-v04` keeps the strict #127 evidence export and partial-export exit 2 behavior. `--format=teaching` selects teaching sections and emits one v0.4 request per source; `--format=teaching-capture` wraps the same verified evidence with bound native assignment state for the server. Both integration formats fail explicitly on invalid evidence or duplicate identities; course labels never replace body/attachment evidence.
+
+教师附件支持同源 Blackboard `dt-content` 和通知栏 `dt-announcement` 路径，含无扩展名的 xid 文件地址（格式由附件标签识别）；仍拒绝私人提交文件与外站地址。
+
+单条采集诊断：`pnpm pku:homework -- --format=raw --source-page=<已保存通知所在页URL> --source-item=<原始条目ID> --course-label=<课程名> --section-label=<栏目名>`。四个参数必须同时提供，不能与 `--all-sections` / 学期扫描组合；仅读取指定页面中的该条通知及其引用，不调用模型、不写账号数据，原始输出只保存到本地忽略目录。

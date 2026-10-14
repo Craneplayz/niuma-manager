@@ -28,6 +28,7 @@ export function renderTaskRow(
   const done = task.status === "done";
   const overdue = !done && Boolean(task.due) && task.due < today;
   const meta = [...new Set([task.course, task.source].filter(Boolean))];
+  if (task.content_type === "notice") meta.push("通知");
   if (task.status === "doing") meta.push("进行中");
   const due = compact
     ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(task.dueTime || "")

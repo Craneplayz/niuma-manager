@@ -70,6 +70,7 @@
       "required": ["candidate_id", "input_id", "title", "description", "course_or_project", "course_basis", "notice_type", "target_reference", "prerequisites", "deadline", "needs_review", "review_reasons", "evidence", "sources"],
       "properties": {
         "candidate_id": { "$ref": "#/$defs/id" }, "input_id": { "$ref": "#/$defs/id" },
+        "content_type": { "enum": ["task", "notice"] },
         "title": { "type": "string", "minLength": 1, "maxLength": 512 },
         "description": { "type": "string", "maxLength": 4096 },
         "course_or_project": { "type": ["string", "null"], "maxLength": 512 },

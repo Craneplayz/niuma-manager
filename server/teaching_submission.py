@@ -1,10 +1,6 @@
-"""Account-bound native status with submission-policy/0.1 unknown-scope protection.
-
-This runtime has no verified permanent action mapping yet. All captured sources
-therefore have unknown scope: a submitted page cannot withdraw any action or
-skip recognition. The persistent reopened-review latch takes precedence.
-"""
+"""Account-bound native status and explicit submission action controls."""
 import json
+import submission_runtime as controls
 from datetime import datetime, timezone
 
 SCOPE_REVIEW = '原生作业显示已提交，但尚未明确对应哪些行动，请核对后决定是否保留。'
@@ -12,6 +8,7 @@ STATUS_REVIEW = '该作业曾显示已提交，提交状态发生变化；来源
 
 
 def initialize(db):
+    controls.initialize(db)
     db.executescript('''
     CREATE TABLE IF NOT EXISTS teaching_submission_sources(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
@@ -45,8 +42,12 @@ def initialize(db):
 
 
 def source_state(db, uid, account, input_id):
-    return db.execute('SELECT * FROM teaching_submission_sources WHERE user_id=? AND account=? AND input_id=?',
+    row=db.execute('SELECT * FROM teaching_submission_sources WHERE user_id=? AND account=? AND input_id=?',
                       (uid,account,input_id)).fetchone()
+    if not row:return None
+    state=dict(row);control=controls.find(db,uid,account,input_id)
+    state['scope']=json.loads(control['detail'])['observation']['scope'] if control else 'unknown'
+    return state
 
 
 def stale(previous, record, assignment):
@@ -56,7 +57,7 @@ def stale(previous, record, assignment):
     return new < old or (new == old and assignment['state'] != previous['state'])
 
 
-def observe(db, uid, account, record, request_id, assignment, old_request_id=None):
+def observe(db, uid, account, record, request_id, assignment, old_request_id=None, source=None, assets=()):
     # Bind only versions actually registered under this campus account. Do not
     # guess the account of older batches from their title/course/input alone.
     for rid in (old_request_id, request_id):
@@ -71,7 +72,7 @@ def observe(db, uid, account, record, request_id, assignment, old_request_id=Non
             ON CONFLICT(user_id,account,input_id) DO UPDATE SET state=excluded.state,
             observed_at=excluded.observed_at,review_pending=excluded.review_pending''',
             (uid,account,record['input_id'],assignment['state'],record['collected_at'],int(review)))
-    # Unknown action relations must remain intact, even on a submitted page.
+        controls.observe(db,uid,account,record,assignment,previous,source=source,assets=assets)
     return source_state(db,uid,account,record['input_id'])
 
 
@@ -81,28 +82,29 @@ def for_request(db, uid, request_id):
     from teaching import account
     cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     if not cred: return None
-    return db.execute('''SELECT s.* FROM teaching_submission_requests r JOIN teaching_submission_sources s
+    row=db.execute('''SELECT s.* FROM teaching_submission_requests r JOIN teaching_submission_sources s
         ON s.user_id=r.user_id AND s.account=r.account AND s.input_id=r.input_id
         WHERE r.user_id=? AND r.account=? AND r.request_id=?''',
         (uid,account(cred['username']),request_id)).fetchone()
+    return source_state(db,uid,row['account'],row['input_id']) if row else None
 
 
 def skip_model(state):
     # submission-policy/0.1: unknown scope is not enough to skip a model call;
     # review_pending, however, pauses all later calls until explicit resolution.
-    return bool(state and state['review_pending'])
+    return bool(state and (state['review_pending'] or state['state']=='submitted' and state.get('scope')=='submission_only'))
 
 
 def review_reason(state):
-    if skip_model(state): return STATUS_REVIEW
-    if state and state['state']=='submitted': return SCOPE_REVIEW
+    if state and state['review_pending']: return STATUS_REVIEW
+    if state and state['state']=='submitted' and state.get('scope')=='unknown': return SCOPE_REVIEW
     return None
 
 
 def guard_model(db, uid, request_id, ApiError):
     state=for_request(db,uid,request_id)
     if skip_model(state):
-        raise ApiError(409,STATUS_REVIEW)
+        raise ApiError(409,STATUS_REVIEW if state['review_pending'] else '该来源已明确关联为已提交作业，无需重复识别')
     return state
 
 

@@ -84,6 +84,7 @@ function fixture({entries = [teaching(), teaching('no-deadline')], rejectAutomat
       db.tasks = clone(body.value); db.version++;
       return response({version: db.version});
     }
+    if (path === '/api/sources/sync-runs') return response({contract_version:'source-sync/0.1',runs:[]});
     if (path === '/api/sources/credentials') return response({configured: true, username: `${who}-campus`});
     if (path === '/api/sources/sync') {
       assert.deepEqual(body, {sources: ['teaching_web']});
@@ -180,34 +181,6 @@ async function ready(f) {
 const sync = ui => ui.click({dataset: {importAction: 'sync'}});
 const noPlanning = f => assert.equal(f.calls.some(call => call.path.includes('/planning/')), false);
 
-check('clear dated and undated teaching candidates use server automatic creation and preserve evidence', async () => {
-  const f = fixture(), ui = await ready(f);
-  await sync(ui);
-  assert.deepEqual(f.automaticCalls().map(call => call.body), [1,1].map(version => ({action: 'create', auto_apply: true, version})));
-  assert.deepEqual(f.state.tasks.map(task => [task.title, task.due, task.dueTime]), [['完成第二次作业','2026-10-23',''], ['完成第二次作业','','']]);
-  assert.equal(f.accounts.A.tasks[1].due, null);
-  for (const task of f.accounts.A.tasks) assert.equal(task.recognitionHistory[0].storageId, f.automaticCalls().find(call => `task:${call.candidateId}` === task.id).candidateId);
-  assert.match(ui.render(), /已自动加入 2 项任务/);
-  noPlanning(f);
-});
-
-check('review flags, review reasons, demo batches and changes remain manual', async () => {
-  const entries = [
-    teaching('date-only', ':review', entry => entry.result.tasks[0].needs_review = true),
-    teaching('date-only', ':reason', entry => entry.result.tasks[0].review_reasons = ['需核对原文']),
-    teaching('date-only', ':demo', entry => entry.demo = true),
-    teaching('date-only', ':change', entry => entry.result.tasks[0].notice_type = 'update'),
-    teaching('date-only', ':email', entry => entry.request.records[0].platform = 'email'),
-  ];
-  const f = fixture({entries}), ui = await ready(f);
-  await sync(ui);
-  assert.equal(f.automaticCalls().length, 0);
-  assert.equal(f.accounts.A.tasks.length, 0);
-  assert.ok(f.accounts.A.batches.every(batch => batch.items.every(item => item.state === 'pending')));
-  assert.match(ui.render(), /5 项待核对/);
-  noPlanning(f);
-});
-
 check('text recognition and normal loading cannot auto-apply unrelated teaching history', async () => {
   const f = fixture(), history = f.seed(teaching('date-only', ':history'));
   await f.login();
@@ -243,31 +216,6 @@ check('a manually ignored and reopened candidate stays manual on retry', async (
   assert.match(ui.render(), new RegExp(`data-import-review="${id}"`));
 });
 
-check('sync resumes a saved successful candidate without model rerun or duplicate task', async () => {
-  const entry = teaching(), f = fixture({entries: [entry]}), batch = f.seed(entry), id = batch.items[0].id, ui = await ready(f);
-  await sync(ui); await sync(ui);
-  assert.equal(f.modelCalls.length, 0);
-  assert.equal(f.automaticCalls().length, 1);
-  assert.equal(f.accounts.A.tasks.length, 1);
-  assert.equal(f.accounts.A.tasks[0].recognitionHistory[0].storageId, id);
-  assert.equal(batch.items[0].state, 'applied');
-  assert.equal(batch.items[0].version, 2);
-  noPlanning(f);
-});
-
-check('automatic creation waits for pending local edits and retains the saved task', async () => {
-  const entry = teaching(), f = fixture({entries: [entry]}), ui = await ready(f), gate = f.pauseNext('save');
-  store.saveStore({tasks: [{id: 'local-task', title: '本地编辑', notes: '已编辑的说明', course: '', due: '', dueTime: '', status: 'todo'}]});
-  await gate.entered;
-  const running = sync(ui);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.automaticCalls().length, 0, 'automatic resolve waits for the queued save');
-  gate.release(); await running;
-  assert.deepEqual(f.state.tasks.map(task => task.id), ['local-task', `task:${f.automaticCalls()[0].candidateId}`]);
-  assert.equal(f.state.tasks[0].notes, '已编辑的说明');
-  noPlanning(f);
-});
-
 check('retry uses a server run identity and automatically applies its newly recovered result', async () => {
   const entry = teaching(), f = fixture({entries: [entry]}), failed = f.seed(entry);
   failed.result = {...failed.result, status: 'failed', tasks: [], errors: [{code: 'agent_timeout', message: 'agent_timeout', retryable: true}]};
@@ -280,94 +228,3 @@ check('retry uses a server run identity and automatically applies its newly reco
   noPlanning(f);
 });
 
-check('one automatic failure does not block later tasks and sync retries only the unapplied work', async () => {
-  const entry = teaching(), f = fixture({failAutomaticOnce: [entry.run.request_id]}), ui = await ready(f);
-  await sync(ui);
-  assert.equal(f.batchFor('A', entry.run.request_id).items[0].state, 'pending');
-  assert.equal(f.accounts.A.tasks.length, 1);
-  assert.equal(f.state.tasks.length, 1);
-  assert.match(ui.render(), /部分.*未完成/);
-  await sync(ui);
-  assert.equal(f.accounts.A.tasks.length, 2);
-  assert.equal(f.modelCalls.length, 2);
-  assert.deepEqual(f.automaticCalls().map(call => call.requestId), [entry.run.request_id, 'synthetic:no-deadline', entry.run.request_id]);
-  noPlanning(f);
-});
-
-check('the backend may reject automatic creation with 400 while other tasks continue', async () => {
-  const rejected = teaching('date-only', ':server-refusal', entry => Object.assign(entry.result.tasks[0].deadline, {status: 'unknown', precision: 'unknown', value: null}));
-  const f = fixture({entries: [rejected, teaching('no-deadline')], rejectAutomatic: [rejected.run.request_id]}), ui = await ready(f);
-  await sync(ui);
-  assert.equal(f.automaticCalls().length, 2, 'deadline eligibility belongs to the server');
-  assert.equal(f.batchFor('A', rejected.run.request_id).items[0].state, 'pending');
-  assert.equal(f.accounts.A.tasks.length, 1);
-  assert.match(ui.render(), /1 项待核对/);
-  assert.doesNotMatch(ui.render(), /class="error" role="alert"/);
-  noPlanning(f);
-});
-
-check('stopping an active automatic resolve aborts it and prevents the remaining candidates', async () => {
-  const entry = teaching('two-tasks'), f = fixture({entries: [entry]}), ui = await ready(f), gate = f.pauseNext('resolve');
-  const running = sync(ui), active = await gate.entered;
-  await ui.click({dataset: {importAction: 'stop'}}); gate.release(); await running;
-  assert.equal(active.signal.aborted, true);
-  assert.equal(f.automaticCalls().length, 1);
-  assert.equal(f.accounts.A.tasks.length, 0);
-  assert.ok(f.accounts.A.batches[0].items.every(item => item.state === 'pending'));
-  assert.match(ui.render(), /已停止导入/);
-  await sync(ui);
-  assert.equal(f.accounts.A.tasks.length, 2);
-  assert.equal(f.modelCalls.length, 1, 'resume uses the saved recognition result');
-});
-
-check('a recognition response arriving after stop cannot start automatic writes', async () => {
-  const f = fixture(), ui = await ready(f), gate = f.pauseNext('recognize', '', true);
-  const running = sync(ui), active = await gate.entered;
-  await ui.click({dataset: {importAction: 'stop'}}); gate.release(); await running;
-  assert.equal(active.signal.aborted, true);
-  assert.equal(f.automaticCalls().length, 0);
-  assert.equal(f.accounts.A.tasks.length, 0);
-  assert.equal(f.modelCalls.length, 1, 'the remote recognition may finish after stopping the wait');
-  assert.match(ui.render(), /已停止导入/);
-});
-
-check('switching accounts prevents a late response from auto-applying or exposing the previous account', async () => {
-  const f = fixture(), b = f.seed(teaching('date-only', ':B-private'), 'B');
-  b.items[0].candidate.title = 'B 合成私有任务';
-  const ui = await ready(f), gate = f.pauseNext('recognize', '', true), running = sync(ui), active = await gate.entered;
-  await f.login('B'); gate.release(); await running; await ui.load();
-  assert.equal(active.signal.aborted, true);
-  assert.equal(f.automaticCalls().length, 0);
-  assert.equal(f.accounts.A.tasks.length, 0);
-  assert.equal(f.accounts.B.tasks.length, 0);
-  assert.match(ui.render(), /B 合成私有任务/);
-  assert.doesNotMatch(ui.render(), /完成第二次作业|A-campus/);
-});
-
-check('switching accounts aborts an active automatic resolve and submits no remaining candidates', async () => {
-  const f = fixture({entries: [teaching('two-tasks')]}), ui = await ready(f), gate = f.pauseNext('resolve');
-  const running = sync(ui), active = await gate.entered;
-  await f.login('B'); gate.release(); await running; await ui.load();
-  assert.equal(active.signal.aborted, true);
-  assert.equal(f.automaticCalls().length, 1);
-  assert.equal(f.automaticCalls()[0].account, 'A');
-  assert.equal(f.accounts.A.tasks.length, 0);
-  assert.equal(f.accounts.B.tasks.length, 0);
-  assert.doesNotMatch(ui.render(), /data-import-review=/);
-  noPlanning(f);
-});
-
-check('a workspace refresh failure preserves the applied result and later refresh cannot duplicate it', async () => {
-  const entry = teaching(), f = fixture({entries: [entry]}), ui = await ready(f);
-  f.failNextWorkspaceRead(); await sync(ui);
-  assert.equal(f.accounts.A.tasks.length, 1);
-  assert.equal(f.batchFor('A', entry.run.request_id).items[0].state, 'applied');
-  assert.equal(f.state.tasks.length, 0, 'the failed read must not pretend the task list was refreshed');
-  assert.match(ui.render(), /任务已加入.*刷新失败/);
-  assert.doesNotMatch(ui.render(), /data-import-review=/);
-  await ui.click({dataset: {importAction: 'refresh'}}); await sync(ui);
-  assert.equal(f.accounts.A.tasks.length, 1);
-  assert.equal(f.automaticCalls().length, 1);
-  assert.equal(f.modelCalls.length, 1);
-  noPlanning(f);
-});

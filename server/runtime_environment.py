@@ -58,6 +58,10 @@ def allow_background_recovery():
     return os.environ.get('NIUMA_BACKGROUND_RECOVERY', '1' if not managed() or environment() == 'production' else '0') == '1'
 
 
+def scheduled_sync_available():
+    return os.environ.get('NIUMA_ENABLE_SCHEDULED_SYNC', '0') == '1'
+
+
 def validate_storage(db_path):
     """Claim a fresh data directory or reject a volume from another environment."""
     target = Path(db_path).resolve().parent
@@ -114,4 +118,4 @@ def source_identity():
 def public_version():
     return {'environment': environment(), 'managed': managed(), 'revision': revision(),
             'source_dirty': {'1': True, '0': False}.get(os.environ.get('NIUMA_SOURCE_DIRTY')),
-            'background_recovery': allow_background_recovery(), 'scheduled_sync_available': False}
+            'background_recovery': allow_background_recovery(), 'scheduled_sync_available': scheduled_sync_available()}

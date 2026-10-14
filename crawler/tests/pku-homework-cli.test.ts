@@ -23,6 +23,18 @@ async function run(args: string[]) {
 }
 
 describe("campus source export CLI", () => {
+  it("targeted diagnosis never enables a course/section scan", async () => {
+    scrape.mockResolvedValue({ source_records: sources });
+    const args = ['--source-page=https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1_1&method=search',
+      '--source-item=_2_1', '--course-label=Synthetic', '--section-label=课程通知'];
+    await run(args);
+    expect(scrape).toHaveBeenCalledWith({term:undefined, allSections:false,
+      targetSource:{url:args[0].slice('--source-page='.length),itemId:'_2_1',course:'Synthetic',section:'课程通知'}});
+    scrape.mockReset();
+    vi.resetModules();
+    await run([...args, '--all-sections']);
+    expect(scrape).not.toHaveBeenCalled();
+  });
   it("explicit teaching format selects the integration collection scope", async () => {
     const teachingSources = extractCourseSourcesFromHtml('<ul id="content_listContainer"><li id="a"><div class="item"><h3>教材</h3></div><div class="details">请提前阅读</div></li></ul>', { course: "Synthetic", section: "资料", sourceUrl: "https://course.pku.edu.cn/list?course_id=c1", collectedAt: "2026-09-26T09:00:00+08:00" });
     scrape.mockResolvedValue({source_records:teachingSources,records:[],upcoming:[]});
@@ -73,8 +85,10 @@ describe("campus source export CLI", () => {
   it("shows help without logging in", async () => {
     const { log } = await run(["--help"]);
     expect(scrape).not.toHaveBeenCalled();
-    expect(log.mock.calls[0][0]).toContain("JSONL");
-    expect(log.mock.calls[0][0]).toContain("--all-sections");
+    const help = log.mock.calls.map(call => call[0]).join('\n');
+    expect(help).toContain("JSONL");
+    expect(help).toContain("--all-sections");
+    expect(help).toContain("--source-item");
   });
   it.each([["--format=bad"], ["--term="], ["--all-terms", "--term=term"]])("rejects invalid arguments before logging in: %j", async (...args) => {
     const { error } = await run(args);

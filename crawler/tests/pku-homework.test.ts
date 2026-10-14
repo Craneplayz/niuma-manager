@@ -1,10 +1,28 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
-import { buildHomeworkScrapeResult, currentAcademicTerm, extractHomeworkRecords, filterUpcomingHomeworks, parseHomeworkDeadline, planCourseCollection, type HomeworkRecord } from "../src/pku-homework.js";
+import { buildHomeworkScrapeResult, currentAcademicTerm, extractHomeworkRecords, filterUpcomingHomeworks, parseHomeworkDeadline, planCourseCollection, selectSourceTarget, validateSourceTarget, type HomeworkRecord } from "../src/pku-homework.js";
 
 const asOf = DateTime.fromISO("2026-09-22T13:46:00+08:00");
 const context = { course: "Synthetic course", section: "课程作业", sourceUrl: "https://example.test/course", asOf };
 const section = (text: string, id: string) => ({ text, href: `https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?content_id=${id}` });
+
+describe("single-source diagnosis scope", () => {
+  const target = { url: "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1_1",
+    itemId: "_2_1", course: "Synthetic", section: "教学内容" };
+  const html = '<ul id="content_listContainer"><li id="_2_1"><div class="item"><h3>Assessment</h3></div><div class="details">See Assessment.pdf</div></li><li id="_3_1"><div class="item"><h3>Other notice</h3></div><div class="details"><a href="https://example.test/private.pdf">Do not read</a></div></li></ul>';
+  it("selects only the requested item before reading any attachments", () => {
+    const sources = selectSourceTarget(html, target, asOf.toISO()!);
+    expect(sources.map(s => s.source_item_id)).toEqual(["_2_1"]);
+    expect(JSON.stringify(sources)).not.toContain("private.pdf");
+    expect(() => selectSourceTarget(html, { ...target, itemId: "_9_1" }, asOf.toISO()!)).toThrow("missing or ambiguous");
+  });
+  it.each(["https://evil.test/webapps/blackboard/content/listContent.jsp?course_id=_1_1",
+    "https://user@course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1_1",
+    "https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1_1&method=delete",
+    "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=_1_1"])("rejects non-list/private target %s", url => {
+    expect(() => validateSourceTarget(url, target.itemId)).toThrow();
+  });
+});
 
 describe("course section collection scope", () => {
   const anchors = [

@@ -10,6 +10,8 @@ export interface PublicationTime {
   basis: "source" | "unknown";
 }
 export interface SourceReference {
+  /** Private capture sidecar only; never exported as a model URL/path. */
+  asset?: { sha256: string; mime_type: string; size_bytes: number };
   label: string;
   url: string;
   content_read: boolean;

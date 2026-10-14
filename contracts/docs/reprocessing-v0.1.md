@@ -1,6 +1,6 @@
 # 定向重新识别业务契约 v0.1
 
-本契约对应 #112，基于 Dranix 的操作提议和现有 UI 反馈，只处理服务端已保存的 v0.2 文本记录；不依赖教学网 v0.4 或附件读取 PR，不替换微信 v0.3.1 文件队列，也不声明这些路由已经部署。
+本契约处理服务端已保存的 v0.2 文本与教学网原生 v0.4 快照；两种来源独立登记，不替换微信 v0.3.1 文件队列。#151 将原生教学网接入同一个显式重识别入口。
 
 ```text
 contracts/reprocessing.py                    # 根 Schema、状态/身份校验和纯关联决策参考
@@ -20,7 +20,7 @@ contracts/tests/test_reprocessing.py           # 状态、版本、迟到响应�
 | POST /api/recognition/reprocessing/runs/{run_id}/stop | stop → run | 幂等停止，不再派发排队记录；当前调用可清理退出，但迟到结果不得写入。 |
 | 操作失败 | error | invalid_request=400、not_found=404、conflict=409、unavailable=503；不要返回内部异常。 |
 
-所有信封标记 `contract_version="reprocessing/0.1"`；原识别请求/结果仍是 v0.2，不能把这个业务信封送给模型；`root_schema(kind)` 返回无需外部引用的独立根，`check(kind,value)` 同时执行语义校验。
+所有信封标记 `contract_version="reprocessing/0.1"`；原识别请求/结果保留自身的 v0.2 或 v0.4，不把业务信封送给模型；`root_schema(kind)` 返回无需外部引用的独立根，`check(kind,value)` 同时执行语义校验。接口字段不变，只追加原生策略版本取值，前后端须一同更新。
 
 单信封最多 2 MB，列表页最多 50 个来源、每个来源 100 条目录记录，运行列表每页最多 20 项；目录的 `next_cursor` 应封装当前遍历位置及来源账号，后端仍须重新检查登录账号权限，不能由游标授权；必须遍历后续页才能声称已列全。
 
@@ -39,11 +39,15 @@ contracts/tests/test_reprocessing.py           # 状态、版本、迟到响应�
 - 服务重启后的活动记录标为 interrupted，queued 的 attempted=false、已发起的 running 保持 attempted=true；不要自动重新发送无法确认是否已计费的请求，用户显式启动下一次运行。
 - 事务提交前按登录账号 + source_account_id + input_id 读取最新 run_id，并用 `may_commit` 检查仍为 running；即使模型成功，已停止或过时运行也不得覆盖新结果；内存布尔标志不能代替事务检查。
 
-`policy_version` 只接受实际 v0.2 工作进程的 text-policy-v1，成功记录不可为空；queued/cancelled 为空，失败或中断可保留已取得的真实版本，不能给旧结果补写新版本；真实 manifest 另存服务器运行元数据。
+`policy_version` 接受实际工作进程的 text-policy-v1 或 teaching-policy-v1 摘要，成功记录不可为空；queued/cancelled 为空，失败或中断可保留已取得的真实版本，不能给旧结果补写新版本；真实 manifest 另存服务器运行元数据。
 
 ## 结果与永久行动关联
 
-新识别结果先经过原 v0.2 消费校验；失败或中断必须保留旧有效结果，识别出 no_tasks 也不能删除已确认、手改、忽略、完成或删除的用户决定。
+新识别结果通过对应版本的格式、证据、来源和执行版本校验；v0.4 接纳 model-v1 分类，不重算旧语义审核规则。失败或中断保留旧有效结果，no_tasks 也不能删除已确认、手改、忽略、完成或删除的用户决定。
+
+原生教学网仅列出当前绑定校园账号的快照；开始、队列等待及提交时核验账号、来源快照和最新运行，凭据移除/更换、来源变化或提交状态保护生效时不接纳迟到结果。重识别只读已保存内容，不补抓网页、附件，也不会在升级或刷新页面时自动调用模型。
+
+v0.4 无受保护旧决定时，以新结果替换未处理候选；task 在同一事务内通过正常任务接口的账号及操作保护直接入库，candidate 留待核实，filtered/no_tasks 不产生候选。`new_pending` 只计算提交后仍待处理的候选；已自动入库的任务不计入。已有决定且无法对应的新差异仍需核对，不能让模型覆盖用户选择。
 
 `association` 是共享**内部测试/服务端关联对象**，不是公开 start 请求；其永久 action_id 由 server 分配，以账号、来源账号、input_id 保存，links 只能来自已验证的稳定映射或明确人工关联，不能让客户端自报绑定。
 
@@ -63,4 +67,4 @@ python -m contracts.reprocessing --check
 python -m unittest contracts.tests.test_reprocessing -q
 ```
 
-Ken 审查共享契约并最终合并；Dranix 实现 server 的来源目录、幂等运行、持久化队列和事务；现有 UI 负责人接旧记录选择、刷新恢复及停止；识别侧已有 #120/#129 的实际版本与回归输入，微信/教学网 v0.4 后续接入须另行显式扩展版本。
+契约、识别、server 和前端在同一改动中验证；按团队公约由任意一名非作者审查后合并。微信文件队列不在此入口范围。

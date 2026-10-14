@@ -1620,3 +1620,17 @@ dialog p {
   width: 16px;
   height: 16px;
 }
+
+/* Integrated sources use the current import page's spacing and controls. */
+.agent-source-sync,.materials-panel { margin:24px 0; overflow-wrap:anywhere; }
+.agent-source-sync h2,.materials-panel h2 { font-size:20px; margin:18px 0; }
+.agent-source-sync progress { width:100%; max-width:100%; accent-color:var(--ink); }
+.agent-source-sync .draft-card { border-top:1px solid var(--line); padding:20px 0; }
+.agent-source-sync .btn { white-space:normal; margin:8px 8px 8px 0; }
+.agent-source-sync li { margin:12px 0; }
+.sync-run-id { font-size:12px; opacity:.7; }
+.sync-recovery { padding:12px; border:1px solid var(--line); border-radius:8px; }
+.source-schedule label,.sync-consent { display:flex;align-items:center;gap:10px;margin:12px 0; }
+.source-schedule input[type=number] { width:110px; }
+.sync-consent input,.source-schedule input[type=checkbox] { flex-shrink:0; width:20px; height:20px; }
+.materials-panel input[type=file] { max-width:100%; }

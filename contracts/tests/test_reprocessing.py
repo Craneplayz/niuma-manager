@@ -13,6 +13,14 @@ EXAMPLES=json.loads((ROOT/'examples/reprocessing-v01-cases.json').read_text(enco
 class ReprocessingTests(unittest.TestCase):
     def samples(self):return deepcopy(EXAMPLES)
 
+    def test_native_policy_versions_are_additive_without_trusting_client_version(self):
+        directory=self.samples()['sources']
+        directory['accounts'][0]['records'][0]['policy_version']='teaching-policy-v1:'+'a'*64
+        check('sources',directory)
+        for version in ('teaching-policy-v1:unknown','model-reported:123'):
+            directory['accounts'][0]['records'][0]['policy_version']=version
+            with self.assertRaises(Exception): check('sources',directory)
+
     def test_standalone_roots_and_all_shared_examples(self):
         self.assertEqual(json.loads((ROOT/'schemas/reprocessing-v0.1.schema.json').read_text(encoding='utf-8')),bundle())
         for kind in bundle()['$defs']:Draft202012Validator.check_schema(root_schema(kind))
@@ -100,7 +108,7 @@ class ReprocessingTests(unittest.TestCase):
             with self.subTest(change=change),self.assertRaises(ValueError):check('run',run)
 
     def test_success_requires_actual_policy_not_demo_or_unknown_version(self):
-        for version in (None,'teaching-policy-v1:'+'a'*64,'text-policy-v1:unknown'):
+        for version in (None,'demo-policy-v1:'+'a'*64,'text-policy-v1:unknown'):
             run=self.samples()['lifecycle'][0]['snapshots'][-1];run['records'][0]['policy_version']=version
             with self.subTest(version=version),self.assertRaises(Exception):check('run',run)
 

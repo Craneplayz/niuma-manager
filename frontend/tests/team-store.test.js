@@ -106,8 +106,17 @@ test("a new task supplies only the required task arrays without client schedulin
   assert.deepEqual(saved.due, { date: "2026-10-14", precision: "date" });
   assert.equal(saved.source, "手动添加");
   assert.match(saved.createdAt, /^\d{4}-\d{2}-\d{2}T/);
-  for (const name of ["hours", "estimatedMinutes", "planningExcluded", "dependsOn", "location", "owner"]) assert.equal(Object.hasOwn(saved, name), false);
+  for (const name of ["hours", "estimatedMinutes", "dependsOn", "location", "owner"]) assert.equal(Object.hasOwn(saved, name), false);
   assert.deepEqual(readStore(), { tasks: [], trash: [] });
+});
+
+test("notice edits retain type and explicit dates through consecutive saves and conversion", async () => {
+ const f=fixture('notice',[{...task('one'),content_type:'notice',planningExcluded:true}]);
+ const state=await initSession();state.tasks[0].due='2026-10-23';saveStore(state);await flushStore();
+ state.tasks[0].notes='第二次编辑';saveStore(state);await flushStore();assert.equal(f.tasks[0].content_type,'notice');assert.equal(f.tasks[0].planningExcluded,true);
+ state.tasks[0].content_type='task';saveStore(state);await flushStore();assert.equal(f.tasks[0].planningExcluded,false);
+ state.tasks[0].notes='转换后编辑';saveStore(state);await flushStore();assert.equal(f.tasks[0].planningExcluded,false);
+ assert.equal(f.tasks[0].due.date,'2026-10-23');
 });
 
 test("completion dates survive save and reload and clear when the task reopens", async () => {

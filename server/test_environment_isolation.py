@@ -19,6 +19,18 @@ from ddl_text.codex_client import live_options
 
 
 class EnvironmentBoundaryTests(unittest.TestCase):
+    def test_scheduler_profile_defaults_off_and_old_profiles_remain_valid(self):
+        for name in runtime.ENVIRONMENTS:self.assertFalse(manager.defaults(name)['scheduled_sync'])
+        folder=manager.initialize('test',self.root)
+        config=manager.defaults('test');config.pop('scheduled_sync')
+        (folder/'config.json').write_text(json.dumps(config))
+        _,loaded=manager.read_config('test',self.root)
+        self.assertFalse(loaded['scheduled_sync'])
+        with patch.dict(os.environ,NIUMA_ENABLE_SCHEDULED_SYNC='1'):
+            self.assertEqual(manager.local_environment('test',folder,loaded)['NIUMA_ENABLE_SCHEDULED_SYNC'],'0')
+        loaded['scheduled_sync']=True
+        self.assertEqual(manager.local_environment('test',folder,loaded)['NIUMA_ENABLE_SCHEDULED_SYNC'],'1')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
