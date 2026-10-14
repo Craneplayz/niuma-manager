@@ -108,6 +108,13 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         return False
     if body.get('sources') != ['teaching_web']:
         raise ApiError(400, '当前仅支持同步教学网；微信请使用会话文件导入')
+    handler.reply(200, collect(db, uid, ApiError, key_path))
+    return True
+
+
+def collect(db, uid, ApiError, key_path, *, guard=None):
+    """Collect outside a write transaction, then validate ownership before saving."""
+    if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
     if not row:
         raise ApiError(400, '请先在同步信息中保存教学网账号和密码')
@@ -144,11 +151,11 @@ def route(handler, db, uid, path, body, ApiError, key_path):
     except (OSError, subprocess.TimeoutExpired):
         raise ApiError(503, '教学网采集无法启动或超时；请检查 Node、浏览器及校园网连接')
     if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
+    if guard: guard(db)
     current = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     if not current or dict(current)!=dict(row):
         raise ApiError(409, '教学网账号在采集期间发生变化，请重新同步')
     try: response = teaching.register(db, uid, row['username'], requests, assets=assets)
     except ValueError:
         raise ApiError(413, '教学网附件超过账号存储限制，或附件无效；请清理来源后重新同步') from None
-    handler.reply(200, response)
-    return True
+    return response

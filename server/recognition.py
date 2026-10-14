@@ -271,7 +271,7 @@ def route(handler,db,uid,path,body,ApiError):
 
 
 def resolve_candidate(db, uid, cid, body, ApiError):
-    """Resolve inside the caller transaction, shared by HTTP and reprocessing."""
+    """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
     if not row: raise ApiError(404,'候选不存在')
     canonical=json.dumps(body,sort_keys=True)

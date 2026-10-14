@@ -15,6 +15,8 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import source_jobs
+import source_schedule
 import wechat_media
 import manual_materials
 import task_decomposition
@@ -57,6 +59,8 @@ def initialize(recover=True):
         ''')
         recognition.initialize(db)
         source_sync.initialize(db)
+        source_jobs.initialize(db, recover=recover)
+        source_schedule.initialize(db)
         reprocessing.initialize(db,recover=recover)
         if wechat_enabled() or manual_materials.enabled():
             wechat_media.initialize(db,recover=recover and wechat_enabled())
@@ -194,6 +198,8 @@ class Handler(BaseHTTPRequestHandler):
                 uid=user['id']
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
+            if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
+            if source_schedule.route(self,db,uid,path,body,ApiError): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return
@@ -411,5 +417,7 @@ if __name__=='__main__':
         port=runtime_environment.port()
         with ThreadingHTTPServer((host,port),Handler) as server:
             initialize()
+            scheduler_stop=source_schedule.start_worker(DB,ApiError)
             print('牛马管理器 API: http://'+host+':'+str(port)+' ['+runtime_environment.environment()+']',flush=True)
-            server.serve_forever()
+            try: server.serve_forever()
+            finally: scheduler_stop.set()
