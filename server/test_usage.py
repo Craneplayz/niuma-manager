@@ -97,3 +97,15 @@ class UsageTests(unittest.TestCase):
             result=usage.summary(db,'2000-01-01','2099-01-01')
             values={m['event']:m['quantity'] for m in result['metrics']}
             self.assertEqual(values['dated_task_completed'],1);self.assertEqual(values['task_on_time'],1)
+    def test_long_planning_request_does_not_claim_other_window_task_changes(self):
+        task=dict(id='a',title='Synthetic',status='not_started',plans=[],subtasks=[],due=dict(date='2099-01-01',precision='date'))
+        self.assertEqual(self.call('/data/tasks',dict(value=[task],version=0),'PUT')[0],200)
+        self.assertEqual(self.call('/data/availability',dict(value=dict(startTime='09:00',endTime='23:00',weekdays=list(range(7))),version=0),'PUT')[0],200)
+        def model(*args):
+            task['status']='completed'
+            with app.connection() as db:db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',(json.dumps([task]),self.uid))
+            return dict(blocks=[],warnings=[],estimates={'a':15})
+        with patch.object(app.planning,'plan',side_effect=model):
+            self.assertEqual(self.call('/planning/proposals',{})[0],200)
+        with app.connection() as db:
+            self.assertFalse(db.execute('SELECT 1 FROM usage_events WHERE event="task_completed"').fetchone())

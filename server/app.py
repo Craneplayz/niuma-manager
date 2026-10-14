@@ -212,9 +212,6 @@ class Handler(BaseHTTPRequestHandler):
                 user,token=self.user(db)
                 uid=user['id']
             self.usage_uid=uid
-            if self.command in ('POST','PUT','DELETE') and not path.startswith(('/api/usage/','/api/admin/')):
-                old=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
-                self.usage_tasks=json.loads(old['value']) if old else []
             if usage.route(self,db,uid,path,body,ApiError): return
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
@@ -312,6 +309,9 @@ class Handler(BaseHTTPRequestHandler):
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()
                 version=row['version'] if row else 0
                 if body.get('version')!=version: raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
+                if name=='tasks':
+                    old=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+                    self.usage_tasks=json.loads(old['value']) if old else []
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 return self.reply(200,dict(version=version+1))
             if path=='/api/planning/proposals' and self.command=='POST':
@@ -357,6 +357,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not proposal or not row: raise ApiError(404,'规划不存在')
                 if proposal['applied']: raise ApiError(409,'规划已应用，请刷新')
                 if row['version']!=proposal['version']: raise ApiError(409,'任务已变化，请重新规划')
+                self.usage_tasks=json.loads(row['value'])
                 tasks=json.loads(row['value'])
                 result=json.loads(proposal['result'])
                 for task in tasks:

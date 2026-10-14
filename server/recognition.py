@@ -293,6 +293,7 @@ def route(handler,db,uid,path,body,ApiError):
             version=taskrow['version'] if taskrow else 0
             if not auto and body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
             tasks=json.loads(taskrow['value']) if taskrow else []
+            handler.usage_tasks=json.loads(taskrow['value']) if taskrow else []
             target=next((t for t in tasks if t['id']==body.get('target_id')),None)
             if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
             if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
