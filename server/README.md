@@ -3,6 +3,8 @@ server/
 ├── README.md                 本目录的文件说明与启动命令。
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
+├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
+├── test_usage.py             后台权限、反馈评分、去重、数据最小化与保留期测试。
 ├── runtime_environment.py    环境身份、数据目录归属、会话名称及版本信息。
 ├── manage_environment.py     初始化、检查并启动开发 / 测试 / 生产环境。
 ├── release_images.py         记录测试实际运行镜像，并在生产启动前核对、固定镜像 ID。
@@ -44,6 +46,20 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+## 使用数据后台
+
+- 后台位于 `/admin.html`，普通应用导航不显示入口，统计 API 仅允许服务器授予权限的已登录用户。
+- 部署人执行 `docker exec niuma-production-api-1 python server/usage.py --grant <用户ID> --db /data/niuma.sqlite3` 授权，将 `--grant` 改为 `--revoke` 撤销，角色随环境数据卷持久化，不通过注册、昵称或客户端字段授权。
+- 本机直启可用 `NIUMA_ADMIN_USER_IDS` 空格分隔用户 ID，管理员操作默认从统计中排除；不要将管理员配置放入模型 `.env`。
+- `NIUMA_ANALYTICS_EXCLUDED_USER_IDS` 是空格分隔的测试账号 ID，设置后统计与反馈列表排除这些账号。
+- 记录注册/登录、来源同步、识别、拆解、规划生成/采纳和任务新增/编辑/完成，保存匿名标识、次数、结果和请求总耗时，不保存任务正文、邮件账号、凭据、附件或 IP。
+- 请求总耗时含排队，不作为纯模型耗时；识别返回 HTTP 200 但业务失败计为失败，分页读取不计功能调用。
+- 任务按时完成按本次服务端完成变更与 DDL 比较，仅统计启用后的有 DDL 完成事件，不补造旧数据或实际线下完成时刻。
+- 行为明细和反馈在记录新事件时清理90天之前的数据，后台日期范围最多90天，使用数据与各环境数据库一同隔离、备份。
+- 主动反馈允许用户输入最多2000字，后台只展示反馈内容和评分，不展示用户账号；用户自行填写的反馈不作为匿名文本保证。
+- 连续两个北京时间自然日使用时原子领取一次评分提示，关闭不再提醒，刷新、多窗口及后续日期不重复领取。
+- 第一版展示活跃趋势、功能使用/成功率/请求耗时、任务变更计数、按时完成计数及反馈评分；不以独立事件数量冒充同批任务转化漏斗、模型准确率、工时偏差或逐用户追踪。
 
 开发和测试优先使用 [统一环境入口](deploy/ENVIRONMENTS.md)：仓库根运行 `python server/manage_environment.py init all`，再运行 `python server/manage_environment.py local development` 或 `local test`；识别和规划由业务 API 直接调用，不必启动 1333/1334。
 原 `frontend/` 的 `npm run dev:api` 和 `npm run dev` 保留旧本地配置兼容，不代表环境已隔离；已上线安装须按迁移步骤保留原数据后接管。
