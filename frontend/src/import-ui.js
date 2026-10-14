@@ -172,15 +172,66 @@ export function buildCandidateResolution(item, values, tasks, tasksVersion) {
   return body;
 }
 
-function friendlyError(error) {
-  const message = String(error?.message || error || "操作未完成，请重试");
-  if (error?.status === 409) return "内容刚刚发生变化，请刷新后重新核对";
-  if (/账号已切换/.test(message)) return "";
-  if (/v0\.|契约|协议|JSON|contract|request_id/i.test(message))
-    return "返回内容暂时无法读取，请刷新结果或重试";
-  if (/crawler|Node|依赖未安装|加密密钥|尚未提供.*接口/i.test(message))
-    return "采集服务尚未就绪，请稍后重试";
-  return message.replaceAll("DDL", "截止时间").replaceAll("后端", "服务");
+export function buildRecognitionRequest(request) {
+  if (!request || typeof request !== "object")
+    throw new Error("导入记录暂时无法读取，请刷新结果后重试");
+  if (["teaching-workspace/0.1", "teaching-run/0.1", "0.4"].includes(request.contract_version)) {
+    if (typeof request.request_id !== "string" || !request.request_id.trim() || request.request_id.length > 256)
+      throw new Error("教学网导入记录缺少识别编号，请重新采集");
+    return {contract_version:"teaching-run/0.1",request_id:request.request_id};
+  }
+  if (request.contract_version === "0.2") return request;
+  throw new Error("采集记录格式暂不受支持，请更新服务后重新采集");
+}
+
+export function describeImportError(error) {
+  const text = String(error?.message || error || "操作未完成，请重试");
+  const code = typeof error?.code === "string" ? error.code : "";
+  const report = (kind, message, details = "") => ({kind,message,details});
+  if (/账号已切换/.test(text)) return report("account_changed", "");
+  if (code === "incomplete_source" || /来源待补全|来源内容.*不完整/.test(text))
+    return report("incomplete_source", "通知内容未完整取得，请补全原文后重新采集。", "重试识别只会读取已保存的内容，不会重新获取附件或网页。");
+  if (/来源.*变化|凭据已移除/.test(text))
+    return report("source_changed", "教学网来源已变化，请重新采集后核对。");
+  if (error?.status === 409) return report("conflict", "内容刚刚发生变化，请刷新后重新核对");
+  if (/凭据加密依赖.*未安装/.test(text))
+    return report("credential_dependency", "缺少连接保存组件，请安装后重新保存教学网连接。", "安装 server/requirements.txt 中的凭据加密依赖，然后重启服务。");
+  if (/无法解密|凭据加密密钥.*(缺失|无效)/.test(text))
+    return report("credential_storage", "教学网连接无法读取，请重新保存连接。", "重新保存仍失败时，检查服务的凭据加密配置。");
+  if (/教学网采集依赖.*未安装|(?:crawler|tsx).*(?:未安装|not found|cannot find)|cannot find.*(?:tsx|playwright)/i.test(text))
+    return report("crawler_dependency", "缺少教学网采集组件，请安装后重新采集。", "在 crawler/ 安装依赖（pnpm install），确认采集浏览器已安装，然后重启服务。");
+  if (/教学网识别配置不可用/.test(text))
+    return report("teaching_model_configuration", "教学网识别的模型配置不可用，请完成配置后重试。", "检查当前环境的七牛云模型名称、服务地址和调用密钥，配置后重启服务。模型文件路径可通过 NIUMA_MODEL_ENV 指定。");
+  if (/文本识别配置不可用|模型.*(?:未配置|缺少配置|配置不可用)|missing (?:model )?credential/i.test(text))
+    return report("model_configuration", "任务识别的模型配置不可用，请完成配置后重试。", "检查当前环境的模型名称、服务地址和调用密钥，配置后重启服务。模型文件路径可通过 NIUMA_MODEL_ENV 指定。");
+  if (/识别规则.*不一致/.test(text))
+    return report("recognition_rules", "识别规则已更新，请重启服务后重试。");
+  if (/排队.*(?:已满|超时)|正在处理其他请求/.test(text))
+    return report("model_busy", "识别请求较多，请稍后重试。");
+  if (error?.status === 401 || /请先登录|登录.*过期/.test(text))
+    return report("session", "登录已过期，请重新登录后再导入。");
+  if (/请填写有效的教学网账号和密码|请先.*保存教学网账号/.test(text))
+    return report("teaching_credentials", "请保存教学网账号和密码后再采集。");
+  if (/教学网采集失败|教学网.*登录失败/.test(text))
+    return report("teaching_connection", "教学网连接失败，请核对账号密码及校园网后重试。", "可以通过“管理连接”更正教学网账号；同时确认服务所在机器能访问教学网。");
+  if (/教学网采集无法启动或超时/.test(text))
+    return report("crawler_runtime", "教学网采集未完成，请检查校园网和采集环境后重试。", "检查 Node 运行环境、采集浏览器是否安装，以及服务所在机器的校园网连接。");
+  if (/尚未提供.*接口|接口不存在/.test(text) || error?.status === 404)
+    return report("service_version", "当前服务版本不支持这项导入，请更新服务后重试。");
+  if (code === "agent_timeout" || /文本识别服务不可用或超时|识别.*超时/.test(text))
+    return report("model_connection", "识别服务连接失败或超时，请检查模型服务后重试。", "检查模型服务地址、网络连接及调用权限；较长通知可分段识别。");
+  if (code === "agent_unavailable")
+    return report("model_connection", "识别服务无法连接，请检查模型配置和网络后重试。", "模型调用未成功（agent_unavailable）。检查服务地址、可用模型及调用权限。");
+  if (/无法连接服务|Failed to fetch|NetworkError/i.test(text))
+    return report("service_connection", "无法连接服务，请确认服务正在运行后重试。");
+  if (/请求超时/.test(text))
+    return report("timeout", "等待已超时，请刷新结果后再重试。");
+  if (code === "invalid_agent_output" || /v0\.|契约|协议|JSON|contract|request_id|结果未通过证据和版本校验/i.test(text))
+    return report("invalid_result", "识别结果未通过校验，请重试；仍失败时检查模型配置。", "服务未保存未通过内容、证据或版本校验的识别结果。");
+  // Display only known validation text; upstream exceptions may contain credentials.
+  if (!/(?:api[_-]?key|authorization|bearer|password|secret|token|sk-[a-z0-9]|(?:密码|密钥)\s*[:=])/i.test(text) && /^(?:请(?:填写|选择|确认|核对)|每次最多识别|填写时刻前|新增任务无需|处理方式已经改变|导入记录暂时无法读取|教学网导入记录缺少识别编号|采集记录格式暂不受支持)/.test(text))
+    return report("validation", text);
+  return report("unknown", "操作未完成，请重试；仍失败时检查服务连接。", Number.isInteger(error?.status) ? `服务返回状态 ${error.status}。` : "");
 }
 const taskFingerprint = (task) =>
   JSON.stringify(
@@ -198,6 +249,13 @@ const incomplete = (batch) =>
   (batch.result?.errors || []).some(
     (error) => error.code === "incomplete_source",
   );
+
+function batchErrorReport(batch) {
+  const reports = (batch.result?.errors || []).map(describeImportError);
+  return reports.find(report=>report.kind!=="unknown") || {
+    kind:"recognition_failed",message:"部分通知识别失败，可重试识别。",details:"",
+  };
+}
 
 export function createImportUI(host) {
   const esc = host.escapeHtml;
@@ -237,6 +295,14 @@ export function createImportUI(host) {
       (batch.items || []).map((item) => ({ ...item, batch })),
     );
   const itemById = (id) => allItems().find((item) => item.id === id);
+  function errorDetailsMarkup(report, attribute="") {
+    return report.details ? `<details class="import-error-details" ${attribute}><summary>查看原因</summary><p class="status-note">${esc(report.details)}</p></details>` : "";
+  }
+  function errorMarkup(value) {
+    if(!value)return "";
+    const report=typeof value==="string"?{message:value,details:""}:value;
+    return report.message?`<p class="error" role="alert">${esc(report.message)}</p>${errorDetailsMarkup(report)}`:"";
+  }
   function reset() {
     revision++;
     controller?.abort();
@@ -276,9 +342,9 @@ export function createImportUI(host) {
     if (!valid(stamp)) return;
     if (results[0].status === "fulfilled" && Array.isArray(results[0].value))
       batches = results[0].value;
-    else error = friendlyError(results[0].reason || "导入结果暂时无法读取");
+    else error = describeImportError(results[0].reason || "导入结果暂时无法读取");
     if (results[1].status === "fulfilled") credentials = results[1].value;
-    else if (!error) error = friendlyError(results[1].reason);
+    else if (!error) error = describeImportError(results[1].reason);
     loading = false;
     loaded = true;
     refresh();
@@ -331,7 +397,7 @@ export function createImportUI(host) {
     const failures = batches.filter((batch) =>
       ["failed", "partial_success"].includes(batch.result?.status),
     );
-    return `<header class="page-heading"><h1>导入</h1></header><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}" ${busy ? "disabled" : ""}>文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}" ${busy ? "disabled" : ""}>教学网</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${busy ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${busy ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${busy ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${busy || loading ? "disabled" : ""}>${busy ? "正在采集…" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<button class="btn quiet" type="button" data-import-action="credentials" ${busy ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止等待</button></div>` : ""}${error ? `<p class="error" role="alert">${esc(error)}</p>` : ""}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${busy || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${failures.map((batch) => `<div class="import-failure"><p class="status-note">${incomplete(batch) ? "有通知未完整取得，请核对来源内容后重新采集" : "部分通知识别失败"}</p>${!incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${busy ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}${applied.length ? `<details class="import-history"><summary>已处理 · ${applied.length}</summary>${applied.map(candidateRow).join("")}</details>` : ""}</section>`;
+    return `<header class="page-heading"><h1>导入</h1></header><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}" ${busy ? "disabled" : ""}>文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}" ${busy ? "disabled" : ""}>教学网</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${busy ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${busy ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${busy ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${busy || loading ? "disabled" : ""}>${busy ? "正在采集…" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<button class="btn quiet" type="button" data-import-action="credentials" ${busy ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止等待</button></div>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${busy || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${failures.map((batch) => `<div class="import-failure">${errorMarkup(batchErrorReport(batch))}${!incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${busy ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}${applied.length ? `<details class="import-history"><summary>已处理 · ${applied.length}</summary>${applied.map(candidateRow).join("")}</details>` : ""}</section>`;
   }
   function dialogHeader(title) {
     return `<header class="dialog-header"><h2>${esc(title)}</h2><button class="icon-button" type="button" data-import-action="close" aria-label="关闭">${host.icon("close")}</button></header>`;
@@ -396,10 +462,14 @@ export function createImportUI(host) {
     );
   }
   function formError(form, message, conflict = false) {
+    const report=typeof message==="string"?{message,details:""}:message;
     const node = form.querySelector("[data-import-error]");
     if (node) {
-      node.textContent = message;
-      node.hidden = !message;
+      node.textContent = report.message;
+      node.hidden = !report.message;
+      const details=form.querySelector("[data-import-error-details]");
+      if(details){details.hidden=!report.details;details.open=false;const text=details.querySelector("p");if(text)text.textContent=report.details;}
+      else if(report.details)node.insertAdjacentHTML?.("afterend",errorDetailsMarkup(report,"data-import-error-details"));
     }
     const retry = form.querySelector('[data-import-action="refresh-review"]');
     if (retry) retry.hidden = !conflict;
@@ -418,7 +488,7 @@ export function createImportUI(host) {
   async function recognize(body, retry = false) {
     const next = await api(
       retry ? "/api/recognition/retry" : "/api/recognition/batches",
-      body,
+      buildRecognitionRequest(body),
       "POST",
       { signal: controller.signal, timeoutMs: 280000 },
     );
@@ -458,7 +528,7 @@ export function createImportUI(host) {
       if (valid(stamp)) {
         if (controller?.signal.aborted)
           notice = "已停止等待，可刷新查看处理结果";
-        else error = friendlyError(e);
+        else error = describeImportError(e);
       }
     } finally {
       if (valid(stamp)) {
@@ -512,7 +582,7 @@ export function createImportUI(host) {
           if (!valid(stamp)) return;
           if (controller.signal.aborted) throw e;
           failures++;
-          error = friendlyError(e);
+          error = describeImportError(e);
         }
       }
       if (!valid(stamp)) return;
@@ -534,7 +604,7 @@ export function createImportUI(host) {
       if (valid(stamp)) {
         if (controller?.signal.aborted)
           notice = "已停止等待，可刷新查看处理结果";
-        else error = friendlyError(e);
+        else error = describeImportError(e);
       }
     } finally {
       if (valid(stamp)) {
@@ -569,7 +639,7 @@ export function createImportUI(host) {
         host.toast(action === "ignore" ? "已忽略" : "已恢复待核对");
       }
     } catch (e) {
-      if (valid(stamp)) error = friendlyError(e);
+      if (valid(stamp)) error = describeImportError(e);
     } finally {
       if (valid(stamp)) {
         busy = false;
@@ -596,7 +666,7 @@ export function createImportUI(host) {
       if (valid(stamp))
         error = controller?.signal.aborted
           ? "已停止等待，可刷新查看结果"
-          : friendlyError(e);
+          : describeImportError(e);
     } finally {
       if (valid(stamp)) {
         busy = false;
@@ -678,8 +748,8 @@ export function createImportUI(host) {
         }
       } catch (e) {
         if (valid(stamp)) {
-          if (form) formError(form, friendlyError(e));
-          else error = friendlyError(e);
+          if (form) formError(form, describeImportError(e));
+          else error = describeImportError(e);
         }
       } finally {
         if (valid(stamp)) {
@@ -710,8 +780,8 @@ export function createImportUI(host) {
         }
       } catch (e) {
         if (valid(stamp)) {
-          if (form) formError(form, friendlyError(e), true);
-          else error = friendlyError(e);
+          if (form) formError(form, describeImportError(e), true);
+          else error = describeImportError(e);
           refresh();
         }
       }
@@ -746,7 +816,7 @@ export function createImportUI(host) {
           host.toast("教学网已连接");
         }
       } catch (e) {
-        if (valid(stamp)) formError(form, friendlyError(e));
+        if (valid(stamp)) formError(form, describeImportError(e));
       } finally {
         if (valid(stamp)) {
           busy = false;
@@ -817,7 +887,7 @@ export function createImportUI(host) {
             error = "任务已保存，刷新页面时出现问题，请刷新后查看";
         }
       } catch (e) {
-        if (valid(stamp)) formError(form, friendlyError(e), e.status === 409);
+        if (valid(stamp)) formError(form, describeImportError(e), e.status === 409);
       } finally {
         if (valid(stamp)) {
           busy = false;

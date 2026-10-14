@@ -64,6 +64,7 @@ frontend/
 ```bash
 npm ci
 node ../scripts/run-python.mjs -m pip install -r ../server/requirements.txt
+pnpm --dir ../crawler install --frozen-lockfile
 npm run dev:api
 ```
 
@@ -75,7 +76,11 @@ npm run dev
 
 打开 [本地网页](http://localhost:1331/)。Vite 默认端口为 1331，同源 `/api` 代理到本机 1332。端口占用时先确认已有进程，不另起一个容易混淆的网页。不要在仓库根目录运行 npm。
 
-文本识别由业务后端调用 `ddl_text`，通常无需启动独立识别进程。模型配置沿用仓库的服务端配置方式，密钥不进入前端或 `VITE_*`；配置变更后重启 API。教学网采集还需要 `crawler/` 的依赖及可用 Playwright 浏览器，账号连接由用户在导入页管理。
+文本识别与教学网识别由业务后端调用模型；普通本地启动读取仓库根目录 `.env`，教学网要求有效的七牛配置。显式设置 `NIUMA_ENVIRONMENT` 时，需要为该环境配置模型文件，或用 `NIUMA_MODEL_ENV` 指向已有配置文件；配置变更后重启 API。密钥不进入前端或 `VITE_*`。
+
+教学网采集依赖单独安装在 `crawler/`；已有 Chrome 或 Edge 时直接使用，否则从 `frontend/` 执行 `pnpm --dir ../crawler exec playwright install chromium`。账号连接由用户在导入页管理；缺依赖、缺模型配置与连接失败会显示各自原因，单纯刷新不能代替安装或配置。
+
+教学网同步返回服务端保存的来源展示对象，前端仅使用其 `request_id` 发起 `teaching-run/0.1` 识别或重试；不会把浏览器中的来源正文当作可信采集请求回传。
 
 `npm run db:seed` 仅供独立的本地测试数据库初始化合成账号；不用于生产，也不是查看设计的前提。数据库、凭据、密钥和本地配置不提交到仓库。
 
