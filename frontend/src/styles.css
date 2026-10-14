@@ -24,6 +24,9 @@
 * {
   box-sizing: border-box;
 }
+html {
+  scrollbar-gutter: stable;
+}
 [hidden] {
   display: none !important;
 }
@@ -343,11 +346,13 @@ button .icon {
   display: none;
 }
 .task-page {
-  max-width: 860px;
-  margin: auto;
-}
-.task-page.is-calendar {
   max-width: 1450px;
+  margin: auto;
+  overflow-anchor: none;
+}
+.task-page:not(.is-calendar) #task-results,
+.task-page:not(.is-calendar) .task-page-footer {
+  max-width: 860px;
 }
 .page-heading {
   display: flex;
@@ -355,6 +360,43 @@ button .icon {
   justify-content: space-between;
   gap: 18px;
   margin-bottom: 23px;
+}
+.task-page-heading {
+  align-items: flex-end;
+}
+.task-heading {
+  min-width: 0;
+}
+.task-heading-line {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-height: 50px;
+}
+.task-heading-line h1 {
+  flex: none;
+  white-space: nowrap;
+}
+.task-heading-line .task-view-switch {
+  flex: none;
+}
+.task-heading-line .task-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 76px;
+  min-height: 44px;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+.task-view-switch .icon {
+  width: 17px;
+  height: 17px;
+}
+.task-page-heading > .add-task {
+  min-height: 44px;
+  margin-bottom: 3px;
 }
 .page-eyebrow {
   font-size: 12px;
@@ -387,49 +429,6 @@ button .icon {
 .add-task .icon {
   width: 17px;
   height: 17px;
-}
-.view-tabs {
-  display: flex;
-  align-items: center;
-  border-bottom: 1px solid var(--line);
-  gap: 26px;
-  margin-bottom: 21px;
-}
-.view-tabs > button {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  position: relative;
-  min-height: 44px;
-  background: transparent;
-  border: 0;
-  padding: 0 1px 10px;
-  font-size: 14px;
-  color: #8c9399;
-}
-.view-tabs > button[aria-pressed="true"] {
-  color: #303941;
-  font-weight: 600;
-}
-.view-tabs > button[aria-pressed="true"]:after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: #424b53;
-  border-radius: 2px;
-}
-.view-tabs .icon {
-  width: 17px;
-  height: 17px;
-}
-.view-caption {
-  font-size: 12px;
-  color: #a2a8ad;
-  margin-left: auto;
-  padding-bottom: 10px;
 }
 .query-toolbar {
   display: flex;
@@ -1152,9 +1151,6 @@ dialog .auth-switch {
     padding-left: 64px;
     padding-right: 64px;
   }
-  .task-page {
-    max-width: 900px;
-  }
   .calendar-layout {
     grid-template-columns: minmax(0, 1fr) 290px;
   }
@@ -1219,11 +1215,11 @@ dialog .auth-switch {
   .page-heading h1 {
     font-size: 26px;
   }
+  .task-heading-line {
+    gap: 14px;
+  }
   .calendar-options {
     gap: 5px;
-  }
-  .view-caption {
-    display: none;
   }
   .calendar-period {
     gap: 12px;
@@ -1284,6 +1280,54 @@ dialog .auth-switch {
     gap: 10px;
     margin-bottom: 17px;
   }
+  .task-page-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-rows: 44px auto;
+    align-items: center;
+    gap: 6px 0;
+  }
+  .task-page-heading .task-heading {
+    display: contents;
+  }
+  .task-page-heading .page-eyebrow {
+    grid-column: 1;
+    grid-row: 1;
+    margin-bottom: 0;
+  }
+  .task-heading-line {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .task-heading-line h1 {
+    gap: 8px;
+  }
+  .task-heading-line .heading-count {
+    font-size: 13px;
+  }
+  .task-heading-line .task-view-switch button {
+    gap: 4px;
+    min-width: 58px;
+    padding: 9px 7px;
+    font-size: 12px;
+  }
+  .task-view-switch .icon {
+    width: 14px;
+    height: 14px;
+  }
+  .task-page-heading > .add-task {
+    grid-column: 2;
+    grid-row: 1;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    margin-bottom: 0;
+  }
+  .task-page-heading > .add-task span {
+    display: none;
+  }
   .page-heading h1,
   .import-page h1 {
     font-size: 27px;
@@ -1298,10 +1342,6 @@ dialog .auth-switch {
   .add-task .icon {
     width: 16px;
     height: 16px;
-  }
-  .view-tabs {
-    margin-bottom: 13px;
-    gap: 25px;
   }
   .query-toolbar {
     flex-wrap: wrap;
@@ -1423,6 +1463,18 @@ dialog .auth-switch {
   }
   .preview-note {
     font-size: 11px;
+  }
+}
+@media (max-width: 360px) {
+  .task-heading-line h1 {
+    font-size: 24px;
+  }
+  .task-heading-line .task-view-switch button {
+    min-width: 44px;
+    padding: 9px 6px;
+  }
+  .task-view-switch .icon {
+    display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -171,6 +171,7 @@ async function refresh() {
   render();
 }
 const filtered = () => filterTasks(state.tasks, { ...ui, today });
+const taskView = () => (ui.scope === "all" ? ui.view : "list");
 const courses = () =>
   [...new Set(state.tasks.map((t) => t.course).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "zh"),
@@ -235,25 +236,29 @@ function calendarTools() {
   return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented small" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
 }
 function taskResults() {
-  const tasks = filtered(),
-    paneTasks = [
-      ...tasks.filter((t) => t.due),
-      ...filterTasks(state.tasks, {
-        ...ui,
-        scope: ui.scope === "done" ? "done" : "all",
-        today,
-      }).filter((t) => !t.due),
-    ];
-  if (ui.view === "list")
+  const tasks = filtered();
+  if (taskView() === "list")
     return renderTaskList(tasks, { escapeHtml: esc, icon, today });
+  const paneTasks = [
+    ...tasks.filter((t) => t.due),
+    ...filterTasks(state.tasks, {
+      ...ui,
+      scope: "all",
+      today,
+    }).filter((t) => !t.due),
+  ];
   return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc, icon })}</div>${renderDayPanel({ tasks: paneTasks, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
 }
 function tasksPage() {
+  const view = taskView();
+  const viewSwitch = ui.scope === "all"
+    ? `<div class="segmented task-view-switch" role="group" aria-label="任务视图"><button type="button" data-view="list" aria-pressed="${view === "list"}">${icon("tasks")}<span>清单</span></button><button type="button" data-view="calendar" aria-pressed="${view === "calendar"}">${icon("calendar")}<span>日历</span></button></div>`
+    : "";
   const label =
     { all: "全部任务", near: "临近截止", done: "已完成", undated: "无日期" }[
       ui.scope
     ] || "全部任务";
-  return `<section class="task-page ${ui.view === "calendar" ? "is-calendar" : ""}"><header class="page-heading"><div><div class="page-eyebrow">${new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date(today + "T12:00:00"))}</div><h1 tabindex="-1">${label}<span class="heading-count" id="result-count">${filtered().length}</span></h1></div><button type="button" class="btn add-task" data-action="task-new">${icon("plus")}<span>添加任务</span></button></header><div class="view-tabs" aria-label="任务视图"><button type="button" data-view="list" aria-pressed="${ui.view === "list"}">${icon("tasks")}清单</button><button type="button" data-view="calendar" aria-pressed="${ui.view === "calendar"}">${icon("calendar")}日历</button><span class="view-caption">${ui.view === "calendar" ? "按截止日期查看" : ""}</span></div>${toolbar()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}"><header class="page-heading task-page-heading"><div class="task-heading"><div class="page-eyebrow">${new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date(today + "T12:00:00"))}</div><div class="task-heading-line"><h1 tabindex="-1">${label}<span class="heading-count" id="result-count">${filtered().length}</span></h1>${viewSwitch}</div></div><button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button></header>${toolbar()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
     .map((c) => `<option value="${esc(c)}">`)
     .join("")}</datalist></section>`;
 }
@@ -583,6 +588,7 @@ document.addEventListener("click", async (e) => {
       return;
     }
     if (button.dataset.view) {
+      if (ui.scope !== "all") return;
       ui.view = button.dataset.view;
       remember();
       render();
