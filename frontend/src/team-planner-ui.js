@@ -7,7 +7,7 @@ import {priorityLabels} from './data.js';
 let focusedTaskId='',host={},result=null,resultContext=null,error='',busy=false,availability=null,activeController=null,exclusionsOpen=false,replanExisting=false,targetedIds=null;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const defaults={startTime:'19:00',endTime:'22:00',weekdays:[1,2,3,4,5]};
-const active=()=>host.getState().tasks.filter(t=>t.status!=='done'&&(targetedIds?targetedIds.includes(t.id):replanExisting||!host.getState().schedule.some(p=>p.taskId===t.id)));
+const active=()=>host.getState().tasks.filter(t=>t.content_type!=='notice'&&t.status!=='done'&&(targetedIds?targetedIds.includes(t.id):replanExisting||!host.getState().schedule.some(p=>p.taskId===t.id)));
 function currentAvailability(){return availability||workspaceValue('availability',defaults);}
 const planningContext=()=>JSON.stringify([host.getState().tasks,host.getState().schedule,currentAvailability(),replanExisting,targetedIds]);
 const changedMessage='任务或可用时间已更新，请重新规划。';

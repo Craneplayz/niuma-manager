@@ -27,7 +27,7 @@ def _day(value, zone):
     return datetime.fromisoformat(value.replace("Z", "+00:00").replace("z", "+00:00")).astimezone(zone).date()
 
 
-def validate_pair(pair):
+def validate_pair(pair, *, model_routing=False):
     """Check standalone shape, references and cross-field consistency offline."""
     require(len(json.dumps(pair, ensure_ascii=False, allow_nan=False).encode("utf-8")) <= 1_000_000,
             "pair exceeds draft budget")
@@ -58,17 +58,20 @@ def validate_pair(pair):
             require(allow_metadata or item["part_id"] != "source_metadata", "metadata cannot replace task quotation")
             require(item["quote"].strip() and item["quote"] in available[item["part_id"]], "quotation not present")
 
-    check_evidence(assessment["action"]["evidence"])
+    check_evidence(assessment["action"]["evidence"], allow_metadata=model_routing)
     require(assessment["action"]["state"] != "supported" or bool(assessment["action"]["evidence"]),
             "supported action needs evidence")
     d = assessment["deadline"]
-    check_evidence(d["evidence"])
+    check_evidence(d["evidence"], allow_metadata=model_routing)
     if d["derivation"] in {"unresolved", "not_provided"}:
         require(d["value"] is None and d["precision"] == "unknown" and d["anchor"] is None,
                 "unknown deadline cannot carry a value or anchor")
     else:
         require(d["value"] is not None and d["precision"] in {"date", "datetime"} and d["evidence"],
                 "known deadline needs a value, precision and evidence")
+        if not model_routing:
+            require(any(e['part_id']!='source_metadata' for e in d['evidence']),
+                    'metadata cannot replace the source time expression')
         is_datetime = "T" in d["value"] or "t" in d["value"]
         require(is_datetime == (d["precision"] == "datetime"), "deadline precision mismatch")
         if is_datetime:
@@ -82,10 +85,14 @@ def validate_pair(pair):
             require(d["anchor"] in {"published_at", "collected_at", "course_term"}, "missing year requires anchor")
     relations = {r["ref_id"]: r for r in assessment["unread_relations"]}
     require(len(relations) == len(assessment["unread_relations"]), "duplicate relation")
-    require(set(relations) == unread, "every unread reference needs exactly one assessment")
+    if model_routing:
+        require(set(relations).issubset(refs), "relation references an unknown source")
+    else:
+        require(set(relations) == unread, "every unread reference needs exactly one assessment")
     for relation in relations.values():
-        check_evidence(relation["evidence"])
-        require(relation["role"] == "unknown" or bool(relation["evidence"]), "known relation needs evidence")
+        check_evidence(relation["evidence"], allow_metadata=model_routing)
+        if not model_routing:
+            require(relation["role"] == "unknown" or bool(relation["evidence"]), "known relation needs evidence")
     term = record["course_term"]
     if term:
         start, end = date.fromisoformat(term["starts_on"]), date.fromisoformat(term["ends_on"])

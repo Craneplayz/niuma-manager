@@ -69,3 +69,12 @@ export function toTeachingCaptures(sources: CourseSourceRecord[], requestId?: st
       ? { course_id: record.course_id, content_id: record.source_item_id, state, basis } : null };
   });
 }
+
+/** Internal manifest shares the exact filtered-reference identity used by v0.4. */
+export function toTeachingAssetManifest(sources: CourseSourceRecord[]) {
+  return sources.flatMap(source => {
+    const refs = source.references.filter(ref => !source.body_evidence?.included_reference_urls.includes(ref.url));
+    const exported = toTeachingRequests([source])[0].records[0].record.references;
+    return refs.flatMap((ref, index) => ref.asset ? [{ input_id: source.input_id, ref_id: exported[index].ref_id, ...ref.asset }] : []);
+  });
+}

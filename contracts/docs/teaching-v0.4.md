@@ -4,7 +4,7 @@
 
 - [请求根 Schema](../schemas/teaching-request-v0.4.schema.json) 与 [结果根 Schema](../schemas/teaching-result-v0.4.schema.json) 自包含，无外部 URN；以 `python -m contracts.build_teaching_v04 --check` 核对生成文件。
 - [7 组样例](../examples/teaching-v04-cases.json) 覆盖日精度、补充附件、学期补年、年份依据不足、无截止、纯资讯/空课程名和一条双任务；`verified` 是测试包装，不能送进请求。
-- 每个 decision 的 `pair` 冻结使用已审查的 `0.4-draft.1` [政策组件](teaching-review-v0.4-draft.md)，内层版本不冒充完整批次版本。
+- 每个 decision 的 `pair` 保留 `0.4-draft.1` 字段结构；新结果用 `classification_mode=model-v1` 显式区分模型分类，旧结果沿用历史政策。新增兼容字段不改变采集请求；生产方和消费方须一起升级，新服务可读旧记录，旧服务不能消费新结果。
 
 ## 输入
 
@@ -18,13 +18,19 @@
 
 ## 输出与消费
 
+每项 decision 新增兼容字段 `content_type="task"|"notice"`，旧结果缺省为 task；新模型必须返回该字段。类型与 `recommendation` 独立：后者 task 表示直接收录，candidate 表示待审核，filtered 表示不进入活动列表，不能用有无截止日期区分任务和通知。
+
+notice 是相关告知，不虚构行动；task 和 notice 均可携带有依据的 deadline。通知的公示截止、有效期限或关键提醒时间按原意保留，在 description 说明时间含义；没有日期才使用 not_provided。沿用 assessment.action 证据槽：notice 的 supported 表示事实有原文依据，并非存在执行动作；来源、证据、内容不确定性检查仍适用。新增内容类型不改变既有任务过期策略。
+
+前端投影卡片与 workspace.tasks 都保留同名 content_type，notice 暂用同一列表、编辑、完成、删除和导出流程；不进入自动耗时估算/排期、不询问完成用时。两种类型都可设置和编辑日期，仅填写日期也有效；有日期不会把 notice 自动改成 task。历史记录不自动改型，重新识别保留用户已确认/忽略决定；旧消费端需随服务一起更新。无需数据库表迁移。[共享样例](../examples/teaching-content-types-v04.json) 覆盖无 DDL 任务、有/无日期的通知、一条原文含两种内容。
+
 结果含 `request_id`、`policy_version`、批次 `status` 和与输入顺序/数量完全一致的 `record_results`；每条保留 input_id、snapshot_id、source、attempted、status、decisions、warnings、error。
 
 | 记录状态 | 含义 |
 | --- | --- |
 | success | 至少一项经过校验的 decision；仍可能全部待审核或过滤，不等于新增任务成功。 |
-| no_tasks | 已核验来源且正文/所有资料完整，模型返回无行动。 |
-| incomplete | 空草稿且读取或来源核验有缺口；保留 warning，不能缓存为确定无任务。 |
+| no_tasks | model-v1：模型有已取得证据支持无行动；无关的部分读取不强制改判。旧结果仍按历史覆盖规则校验。 |
+| incomplete | model-v1：模型明确无法根据已有内容判断是否有行动，或来源未经核验；保留具体原因。 |
 | failed | 超时、调用失败、结构/证据不合法或容量超限；decisions 为空、error 非空。 |
 
 `attempted=false` 只允许 failed，表示预算或部署检查已阻止开始本次识别；true 表示进入一次识别尝试，不证明供应商收到请求或识别成功。
@@ -33,7 +39,13 @@
 
 每条最多 50 项 decision，保留标题/描述、通知性质/目标、历史判断/证据、政策 pair、recommendation、review_codes/review_reasons、filter_reason；`task` 为可交给后端进一步入库检查的明确新增行动，`candidate` 必须带待审核原因，`filtered` 保留历史过滤依据。
 
-`contracts.teaching_io.check_pair` 检查身份/数量/顺序、来源未改写、证据存在、状态和基础政策；**保存前还须调用 `ddl_text.teaching_pipeline.validate_teaching_result` 重算完整政策和 F3 历史判断**，不能只相信模型或请求中自带的分类；无日期允许保留明确行动，不能伪造截止；更新/延期/取消仍需确认原任务。
+`contracts.teaching_io.check_pair` 和 `validate_teaching_result` 对 model-v1 仅检查身份/数量/顺序、来源未改写、证据存在、合法日期与状态一致性，不调用旧 review_codes 或重算历史分类。推荐 task 时行动须有证据且不能同时声明期限 unresolved；candidate 必须有非空具体原因；filtered 必须有原文证据与过滤原因。修改/延期/取消不能绕过既有任务确认。来源授信仅由后端核验，不由模型自报。
+
+新模型内部每项增加 `recommendation` 与 `reason`；task 的 reason 为空，candidate 的 reason 映射为 `review_codes=["model_review"]` 与 review_reasons，filtered 的 reason 映射为 filter_reason。旧 assessment 的覆盖标志和 other_review_reasons 不再单独触发分类，日期补年的元数据引用可作辅助证据，不能替代正文/已读附件中的时间原话。
+
+无行动输出 tasks=[] 时，模型同时提供 `empty_decision={status:"no_tasks"|"incomplete",reason,evidence}`，保存在对应 record_results。no_tasks 须有真实引用，incomplete 可无引文；非空决策或失败不能同时携带 empty_decision。新结果的 classification_mode 由识别服务固定写入，不接受模型选择旧政策。旧批次缺少这个字段时仍可校验读取，展示不会再次按当前规则改判。
+
+[新分类八组真实合成样例](../examples/teaching-model-routing-v04-cases.json) 包含 partial 明确任务、补年、必需/补充附件、过期过滤、无任务和无期限。
 
 error.code 为 agent_timeout、agent_unavailable、invalid_agent_output 或 limit_exceeded，消息不包含供应商原始异常；retryable 只是暂时故障提示，不触发自动重试；容量超限按记录失败，不截断证据或丢掉后续正常记录。
 

@@ -272,6 +272,7 @@ class Handler(BaseHTTPRequestHandler):
                     ids=[]
                     for task in value:
                         if not isinstance(task,dict) or not isinstance(task.get('id'),str) or not isinstance(task.get('title'),str) or not isinstance(task.get('plans'),list) or not isinstance(task.get('subtasks'),list): raise ApiError(400,'任务格式不正确')
+                        if task.get('content_type','task') not in ('task','notice'): raise ApiError(400,'内容类型必须是任务或通知')
                         ids.append(task['id'])
                     if len(ids)!=len(set(ids)): raise ApiError(400,'任务编号重复')
                 if name=='feedback':
@@ -299,7 +300,7 @@ class Handler(BaseHTTPRequestHandler):
                 if task_ids is not None:
                     if not isinstance(task_ids,list) or not task_ids or any(not isinstance(item,str) for item in task_ids) or len(set(task_ids))!=len(task_ids): raise ApiError(400,'规划任务范围不正确')
                     if replan and any(not any(t['id']==tid and t['status'] not in ['completed','cancelled'] for t in tasks) for tid in task_ids): raise ApiError(400,'要重新规划的任务不存在或已经完成')
-                pending=[t for t in tasks if t['status'] not in ['completed','cancelled'] and
+                pending=[t for t in tasks if t.get('content_type','task')!='notice' and t['status'] not in ['completed','cancelled'] and
                          (not t.get('planningExcluded') or replan and task_ids is not None) and (replan or not t['plans'])]
                 if task_ids is not None:
                     pending=[t for t in pending if t['id'] in task_ids and t.get('due')]
