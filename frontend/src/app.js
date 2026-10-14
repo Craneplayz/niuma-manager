@@ -39,7 +39,8 @@ const esc = (value) =>
   );
 const app = document.querySelector("#app"),
   dialog = document.querySelector("#dialog"),
-  drawer = document.querySelector("#task-drawer");
+  drawer = document.querySelector("#task-drawer"),
+  sidebarTooltip = document.querySelector("#sidebar-tooltip");
 const params = new URLSearchParams(location.search),
   today = todayKey();
 let demo = params.get("demo") === "1",
@@ -51,6 +52,8 @@ let demo = params.get("demo") === "1",
   drawerEditing = false,
   lastFocus = null,
   toastTimer,
+  sidebarTooltipTimer,
+  sidebarTooltipTarget,
   environment = null;
 let preferences = {};
 try {
@@ -154,6 +157,7 @@ function toast(message, undo) {
   );
 }
 function openDialog(html) {
+  hideSidebarTooltip();
   dialog.innerHTML = html;
   if (!dialog.querySelector("#dialog-heading")) {
     const heading = dialog.querySelector("h1,h2,h3");
@@ -179,23 +183,69 @@ const courses = () =>
 const sources = () =>
   [...new Set(state.tasks.map((t) => t.source || "手动添加"))].sort();
 function sidebar() {
+  const mobile = matchMedia("(max-width: 700px)").matches;
+  const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
+  const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
   const counts = {
     all: filterTasks(state.tasks, { scope: "all", today }).length,
     near: filterTasks(state.tasks, { scope: "near", today }).length,
     done: filterTasks(state.tasks, { scope: "done", today }).length,
   };
-  return `<aside id="sidebar" class="sidebar" aria-label="主导航"><div class="sidebar-top"><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a><button type="button" class="icon-button sidebar-hide" data-action="sidebar-toggle" aria-label="收起侧栏" title="收起侧栏">${icon("sidebar")}</button></div><button type="button" class="btn primary import-entry ${ui.page === "import" ? "current" : ""}" data-page="import">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
+  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry ${ui.page === "import" ? "current" : ""}" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
     ["near", "临近截止", "clock"],
     ["done", "已完成", "check"],
   ]
     .map(
       ([scope, label, name]) =>
-        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span>${label}</span><span class="nav-count">${counts[scope]}</span></button>`,
+        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${counts[scope]}</span></button>`,
     )
     .join(
       "",
-    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open"><span class="avatar">${esc((session.user?.name || session.user?.display_name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || session.user?.display_name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || session.user?.display_name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || session.user?.display_name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+}
+function hideSidebarTooltip() {
+  clearTimeout(sidebarTooltipTimer);
+  sidebarTooltipTarget?.removeAttribute("aria-describedby");
+  sidebarTooltipTarget = null;
+  sidebarTooltip.hidden = true;
+}
+function hasSidebarTooltip(button) {
+  return button?.isConnected && !matchMedia("(max-width: 700px)").matches &&
+    (ui.sidebarCollapsed || button.id === "sidebar-toggle") &&
+    !dialog.open && !drawer.open;
+}
+function showSidebarTooltip(button) {
+  if (!hasSidebarTooltip(button)) return;
+  sidebarTooltipTarget = button;
+  sidebarTooltip.textContent = button.dataset.sidebarLabel;
+  sidebarTooltip.hidden = false;
+  const anchor = button.getBoundingClientRect();
+  const tip = sidebarTooltip.getBoundingClientRect();
+  sidebarTooltip.style.left = `${Math.max(8, Math.min(anchor.right + 10, innerWidth - tip.width - 8))}px`;
+  sidebarTooltip.style.top = `${Math.max(8, Math.min(anchor.top + (anchor.height - tip.height) / 2, innerHeight - tip.height - 8))}px`;
+  button.setAttribute("aria-describedby", "sidebar-tooltip");
+}
+function updateSidebarState() {
+  hideSidebarTooltip();
+  const mobile = matchMedia("(max-width: 700px)").matches;
+  const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
+  const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
+  const workspace = document.querySelector(".workspace");
+  workspace.classList.toggle("sidebar-collapsed", ui.sidebarCollapsed);
+  workspace.classList.toggle("menu-open", ui.mobileMenu);
+  document.querySelector("#sidebar").inert = mobile && !ui.mobileMenu;
+  document.querySelector("#main").inert = mobile && ui.mobileMenu;
+  const toggle = document.querySelector("#sidebar-toggle");
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.setAttribute("aria-label", toggleLabel);
+  toggle.dataset.sidebarLabel = toggleLabel;
+  document.querySelector("#sidebar-show").setAttribute("aria-expanded", String(ui.mobileMenu));
+  if (environment) {
+    const accountEntry = document.querySelector(".account-entry");
+    if (!mobile && ui.sidebarCollapsed) accountEntry.removeAttribute("title");
+    else accountEntry.title = environment.detail;
+  }
 }
 function saveLabel() {
   if (loading) return "连接中…";
@@ -297,12 +347,13 @@ function restoreFocus(token) {
   if (el && !el.disabled) el.focus({ preventScroll: true });
 }
 function render() {
+  hideSidebarTooltip();
   const focus = document.activeElement,
     token = focusToken(focus),
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" ${ui.mobileMenu ? "" : 'tabindex="-1"'}></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${matchMedia("(max-width: 700px)").matches ? ui.mobileMenu : !ui.sidebarCollapsed}" aria-label="展开侧栏" title="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : "我的任务"}</span></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</main></div>`;
+  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : "我的任务"}</span></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</main></div>`;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
@@ -317,7 +368,7 @@ function render() {
   document
     .querySelectorAll("[data-task-complete]")
     .forEach((button) => (button.disabled = taskBusy));
-  if (environment && ui.page === "tasks")
+  if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
 }
 function renderResults() {
@@ -337,6 +388,7 @@ function requireAccount() {
   return false;
 }
 function openTask(id, editing = false) {
+  hideSidebarTooltip();
   if (taskBusy) return toast("正在保存，请稍候");
   if (!requireAccount()) return;
   lastFocus = document.activeElement;
@@ -471,16 +523,15 @@ function calendarStep(direction) {
 }
 const actions = {
   "sidebar-toggle": () => {
-    if (matchMedia("(max-width: 700px)").matches)
+    const mobile = matchMedia("(max-width: 700px)").matches;
+    if (mobile)
       ui.mobileMenu = !ui.mobileMenu;
     else {
       ui.sidebarCollapsed = !ui.sidebarCollapsed;
       remember();
     }
-    render();
-    if (ui.mobileMenu) document.querySelector(".sidebar-hide").focus();
-    else if (matchMedia("(max-width: 700px)").matches || ui.sidebarCollapsed)
-      document.querySelector("#sidebar-show").focus();
+    updateSidebarState();
+    document.querySelector(mobile && !ui.mobileMenu ? "#sidebar-show" : "#sidebar-toggle").focus({ preventScroll: true });
   },
   "task-new": () => openTask(null, true),
   "drawer-close": closeDrawer,
@@ -546,9 +597,33 @@ const actions = {
     );
   },
 };
+document.addEventListener("pointerover", (event) => {
+  const button = event.target.closest?.("#sidebar [data-sidebar-label]");
+  if (!button || button.contains(event.relatedTarget)) return;
+  hideSidebarTooltip();
+  if (!hasSidebarTooltip(button)) return;
+  if (button.matches(":focus-visible")) showSidebarTooltip(button);
+  else sidebarTooltipTimer = setTimeout(() => showSidebarTooltip(button), 500);
+});
+document.addEventListener("pointerout", (event) => {
+  const button = event.target.closest?.("#sidebar [data-sidebar-label]");
+  if (button && !button.contains(event.relatedTarget)) hideSidebarTooltip();
+});
+document.addEventListener("focusin", (event) => {
+  const button = event.target.closest?.("#sidebar [data-sidebar-label]");
+  if (button?.matches(":focus-visible") && hasSidebarTooltip(button)) {
+    hideSidebarTooltip();
+    showSidebarTooltip(button);
+  }
+});
+document.addEventListener("focusout", hideSidebarTooltip);
+document.addEventListener("pointerdown", hideSidebarTooltip);
+window.addEventListener("scroll", hideSidebarTooltip, true);
+window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
   const button = e.target.closest("button");
   if (!button) return;
+  hideSidebarTooltip();
   try {
     if (button.dataset.action && actions[button.dataset.action]) {
       await actions[button.dataset.action]();
@@ -574,16 +649,24 @@ document.addEventListener("click", async (e) => {
       return;
     }
     if (button.dataset.scope) {
+      const fromMobileMenu = ui.mobileMenu;
       ui.page = "tasks";
       ui.scope = button.dataset.scope;
       ui.mobileMenu = false;
       render();
+      if (fromMobileMenu) document.querySelector(".page-heading h1").focus({ preventScroll: true });
       return;
     }
     if (button.dataset.page) {
+      const fromMobileMenu = ui.mobileMenu;
       ui.page = button.dataset.page;
       ui.mobileMenu = false;
       render();
+      if (fromMobileMenu) {
+        const heading = document.querySelector("#main h1");
+        heading?.setAttribute("tabindex", "-1");
+        heading?.focus({ preventScroll: true });
+      }
       if (ui.page === "import") void imports.load?.();
       return;
     }
@@ -718,10 +801,12 @@ document.addEventListener("submit", async (e) => {
   }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Tab" && ui.mobileMenu) {
+  if (e.key === "Escape") hideSidebarTooltip();
+  const modalOpen = dialog.open || drawer.open;
+  if (e.key === "Tab" && ui.mobileMenu && !modalOpen) {
     const focusable = [
       ...document.querySelectorAll(".sidebar a,.sidebar button"),
-    ].filter((el) => !el.disabled);
+    ].filter((el) => !el.disabled && el.getClientRects().length);
     const first = focusable[0],
       last = focusable.at(-1);
     if (e.shiftKey && document.activeElement === first) {
@@ -732,14 +817,16 @@ document.addEventListener("keydown", (e) => {
       first.focus();
     }
   }
-  if (e.key === "Escape" && ui.mobileMenu) {
+  if (e.key === "Escape" && ui.mobileMenu && !modalOpen) {
+    e.preventDefault();
     ui.mobileMenu = false;
-    render();
-    document.querySelector("#sidebar-show").focus();
+    updateSidebarState();
+    document.querySelector("#sidebar-show").focus({ preventScroll: true });
   }
   if (
     (e.metaKey || e.ctrlKey) &&
     e.key === "b" &&
+    !modalOpen &&
     !["INPUT", "TEXTAREA"].includes(e.target.tagName)
   ) {
     e.preventDefault();

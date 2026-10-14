@@ -100,9 +100,11 @@ button .icon {
   border: 0;
 }
 .workspace {
+  --sidebar-width: 232px;
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100dvh;
+  transition: grid-template-columns 170ms ease;
 }
 .sidebar {
   position: sticky;
@@ -110,16 +112,28 @@ button .icon {
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 22px 16px 16px;
+  width: var(--sidebar-width);
+  min-width: 0;
+  padding: 16px;
   background: var(--sidebar);
   z-index: 20;
+  overflow-x: hidden;
+  overflow-y: auto;
+  transition: width 170ms ease;
 }
 .sidebar-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 3px;
-  margin: 0 0 26px;
+  gap: 8px;
+  height: 40px;
+  min-height: 40px;
+  flex: none;
+  margin: 6px 0 26px;
+}
+.sidebar-toggle {
+  width: 40px;
+  height: 40px;
+  flex: none;
 }
 .brand {
   display: flex;
@@ -129,6 +143,8 @@ button .icon {
   font-size: 15px;
   font-weight: 650;
   white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
 .brand .icon {
   width: 23px;
@@ -192,23 +208,35 @@ button .icon {
   border-color: transparent;
 }
 .import-entry {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
   width: 100%;
-  justify-content: flex-start;
   margin-bottom: 28px;
-  padding-left: 12px;
-  min-height: 42px;
+  padding: 0 12px 0 0;
+  min-height: 44px;
+  border: 0;
+  flex: none;
+  text-align: left;
   box-shadow: 0 2px 3px #181b2010;
 }
 .import-entry .icon {
   width: 19px;
   height: 19px;
+  justify-self: center;
 }
 .nav-label {
   display: block;
+  height: 28px;
+  flex: none;
   padding: 0 12px 10px;
   font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   color: #969a9e;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .task-nav {
   display: flex;
@@ -217,12 +245,14 @@ button .icon {
 }
 .nav-item {
   border: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 11px;
-  min-height: 43px;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 0;
   background: transparent;
   text-align: left;
   font-size: 14px;
@@ -238,12 +268,20 @@ button .icon {
 }
 .nav-item .icon {
   color: #818a91;
+  justify-self: center;
+}
+.nav-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nav-item.active .icon {
   color: #59788f;
 }
 .nav-count {
   margin-left: auto;
+  padding-right: 12px;
   font-size: 12px;
   font-weight: 400;
   opacity: 0.7;
@@ -254,13 +292,16 @@ button .icon {
   padding-top: 40px;
 }
 .account-entry {
-  display: flex;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 15px;
   width: 100%;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  height: 56px;
+  min-height: 56px;
   border: 0;
   background: transparent;
-  padding: 10px 8px;
+  padding: 0;
   border-radius: 8px;
   text-align: left;
 }
@@ -277,6 +318,8 @@ button .icon {
   height: 32px;
   border-radius: 50%;
   font-size: 13px;
+  justify-self: center;
+  flex: none;
 }
 .account-name {
   display: flex;
@@ -288,6 +331,8 @@ button .icon {
   font-size: 13px;
   font-weight: 550;
   flex: 1;
+  min-width: 0;
+  white-space: nowrap;
 }
 .account-name small {
   font-size: 11px;
@@ -303,9 +348,15 @@ button .icon {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+  align-items: center;
+  height: 32px;
+  min-height: 32px;
   padding: 8px;
   font-size: 11px;
+  line-height: 16px;
   color: #8a9096;
+  white-space: nowrap;
+  overflow: hidden;
 }
 .preview-note a {
   text-decoration: none;
@@ -330,17 +381,46 @@ button .icon {
 #sidebar-show {
   display: none;
 }
-.sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+.workspace.sidebar-collapsed {
+  --sidebar-width: 72px;
 }
-.sidebar-collapsed .sidebar {
-  display: none;
+.sidebar-tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 8px 11px;
+  border-radius: 7px;
+  color: #fff;
+  background: #303237;
+  box-shadow: 0 3px 12px #181b2018;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
 }
-.sidebar-collapsed #sidebar-show {
-  display: inline-flex;
-}
-.sidebar-collapsed #main {
-  padding-left: 44px;
+@media (min-width: 701px) {
+  .sidebar-collapsed .sidebar .brand,
+  .sidebar-collapsed .import-entry > span,
+  .sidebar-collapsed .nav-text,
+  .sidebar-collapsed .nav-count,
+  .sidebar-collapsed .account-name,
+  .sidebar-collapsed .account-entry > .icon {
+    display: none;
+  }
+  .sidebar-collapsed .nav-label,
+  .sidebar-collapsed .preview-note {
+    visibility: hidden;
+  }
+  .sidebar-collapsed .import-entry,
+  .sidebar-collapsed .nav-item,
+  .sidebar-collapsed .account-entry {
+    width: 40px;
+    grid-template-columns: 40px;
+    gap: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
 }
 .sidebar-scrim {
   display: none;
@@ -1174,23 +1254,14 @@ dialog .auth-switch {
   .calendar-options {
     margin-left: auto;
   }
-  .sidebar-collapsed #main {
-    padding-left: 28px;
-  }
 }
 @media (max-width: 850px) {
   .workspace {
-    grid-template-columns: 208px minmax(0, 1fr);
-  }
-  .sidebar {
-    padding: 18px 12px;
+    --sidebar-width: 208px;
   }
   .brand {
     font-size: 13px;
     gap: 6px;
-  }
-  .sidebar-top {
-    gap: 0;
   }
   .brand .icon {
     width: 20px;
@@ -1199,9 +1270,6 @@ dialog .auth-switch {
   #main {
     padding-left: 22px;
     padding-right: 22px;
-  }
-  .sidebar-collapsed {
-    grid-template-columns: 1fr;
   }
   .query-toolbar {
     gap: 5px;
@@ -1243,6 +1311,11 @@ dialog .auth-switch {
     transition: transform 0.18s ease;
     display: flex !important;
     visibility: hidden;
+  }
+  .sidebar-top {
+    margin-top: 0;
+    height: 44px;
+    min-height: 44px;
   }
   .menu-open .sidebar {
     transform: translateX(0);
@@ -1450,7 +1523,7 @@ dialog .auth-switch {
     min-height: 44px;
   }
   .account-entry {
-    min-height: 52px;
+    min-height: 56px;
   }
   .task-page {
     width: 100%;
