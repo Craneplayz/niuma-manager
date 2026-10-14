@@ -8,6 +8,8 @@ import unittest
 from unittest.mock import patch
 
 import app
+import recognition
+import reprocessing
 import teaching
 import teaching_assets
 import test_teaching as harness
@@ -123,3 +125,75 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_files').fetchone()[0],1)
             self.assertEqual(teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid),[])
         self.sync(malformed=True)
+
+    def reprocess(self, operation, auto_apply=False):
+        account=next(a for a in self.call('/recognition/reprocessing/sources')[1]['accounts']
+            if a['label']=='当前教学网账号')
+        options=dict(provider='qiniu',key='synthetic-key',model='synthetic-test',endpoint='https://api.qnaigc.com/v1')
+        good=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False,note='')]))
+        with patch.object(teaching,'live_options',return_value=options), \
+             patch.object(teaching,'process_teaching_request',side_effect=self.final_model), \
+             patch.object(teaching.ChatClient,'complete_json',return_value=good) as vision, \
+             patch.object(recognition,'can_auto_apply',return_value=auto_apply):
+            status,run=self.call('/recognition/reprocessing/runs',dict(contract_version='reprocessing/0.1',
+                operation_id=operation,source_account_id=account['source_account_id'],
+                input_ids=[account['records'][0]['input_id']]))
+            self.assertEqual(status,202,run)
+            self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+            saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
+        return saved,vision
+
+    def test_repeated_reprocessing_prune_restart_preserves_raw_snapshot_and_image(self):
+        data=image_bytes();rid=self.sync(data,'image/png')['requests'][0]['request_id']
+        account=teaching.account('synthetic-course-user')
+        with app.connection() as db:
+            original=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+        # Keep cards pending to exercise two successive source-pointer advances.
+        for index in range(2):
+            saved,vision=self.reprocess('image-lineage:'+str(index))
+            self.assertEqual(saved['state'],'succeeded',saved)
+            self.assertEqual(vision.call_count,1 if index==0 else 0)
+            with app.connection() as db:
+                current=db.execute('SELECT request_id FROM teaching_sources').fetchone()[0]
+                self.assertNotEqual(current,rid)
+                expected=deepcopy(original);expected['request_id']=current
+                self.assertEqual(teaching.resolve_snapshot(db,self.uid,current,app.ApiError),expected)
+                self.assertEqual(teaching_assets.load(db,self.uid,account,current)[0]['data'],data)
+                enriched=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(current,)).fetchone()[0])
+                self.assertEqual(enriched['records'][0]['record']['references'][0]['text'],'【模型转录：图片】\n'+TEXT)
+                self.assertEqual(teaching_assets.load(db,'other-user',account,current),[])
+                self.assertEqual(teaching_assets.load(db,self.uid,'other-account',current),[])
+                # This is the prune that used to delete the sole original file.
+                teaching_assets.prune(db,self.uid)
+                self.assertEqual(teaching_assets.load(db,self.uid,account,current)[0]['data'],data)
+            self.assertEqual(self.sync(data,'image/png')['requests'][0]['request_id'],current)
+            rid=current
+        # Reinitialize storage through a new connection, with no in-memory cache.
+        app.initialize()
+        saved,vision=self.reprocess('after-restart',auto_apply=True)
+        self.assertEqual(saved['state'],'succeeded',saved);vision.assert_not_called()
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+        self.assertEqual(self.call('/sources/credentials',dict(username='changed-course-user',password='synthetic-password'))[0],200)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_files').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_refs').fetchone()[0],0)
+        self.sync(data,'image/png')
+        self.assertEqual(self.call('/sources/credentials/remove',{})[0],200)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_files').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_refs').fetchone()[0],0)
+
+    def test_failed_final_commit_rolls_back_attachment_rebind_and_source(self):
+        data=image_bytes();rid=self.sync(data,'image/png')['requests'][0]['request_id']
+        account=teaching.account('synthetic-course-user')
+        with app.connection() as db:
+            original=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+        with patch.object(recognition,'resolve_candidate',side_effect=RuntimeError('synthetic commit failure')):
+            saved,_=self.reprocess('rollback-image-lineage',auto_apply=True)
+        self.assertEqual(saved['state'],'interrupted',saved)
+        with app.connection() as db:
+            self.assertEqual(teaching.resolve_snapshot(db,self.uid,rid,app.ApiError),original)
+            teaching_assets.prune(db,self.uid)
+            self.assertEqual(teaching_assets.load(db,self.uid,account,rid)[0]['data'],data)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_candidates').fetchone()[0],0)

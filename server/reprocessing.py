@@ -294,8 +294,15 @@ def process(path, uid, run_id, ApiError):
                             db.execute('DELETE FROM recognition_candidates WHERE id=? AND user_id=?',(candidate['id'],uid))
                         summary.update(replaced=len(pending),new_pending=len(cards))
                         if native:
+                            # Keep crawler evidence immutable; enriched reader/model data
+                            # belongs only to recognition_batches. Advance file bindings
+                            # atomically so normal sync pruning cannot delete live assets.
+                            captured=deepcopy(item['request'])
+                            captured['request_id']=request['request_id']
+                            teaching.teaching_assets.rebind(db,uid,item['account'],
+                                item['request']['request_id'],request['request_id'])
                             db.execute('UPDATE teaching_sources SET request=?,request_id=? WHERE user_id=? AND account=? AND input_id=?',
-                                (json.dumps(request),request['request_id'],uid,item['account'],record['input_id']))
+                                (json.dumps(captured),request['request_id'],uid,item['account'],record['input_id']))
                             # Superseded failures must not keep offering retry in the active inbox.
                             # Keep their request/result in storage; never hide handled decisions.
                             for rid in {item['request']['request_id'],*(c['request_id'] for c in pending)}:

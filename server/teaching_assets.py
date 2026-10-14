@@ -81,6 +81,13 @@ def clear(db, uid):
     db.execute('DELETE FROM teaching_asset_files WHERE user_id=?',(uid,))
 
 
+def rebind(db, uid, account, old_request_id, new_request_id):
+    """Advance captured-file ownership in the source update's transaction."""
+    db.execute('''UPDATE teaching_asset_refs SET request_id=?
+        WHERE user_id=? AND account=? AND request_id=?''',
+        (new_request_id,uid,account,old_request_id))
+
+
 def prune(db, uid):
     # Superseded snapshots cannot run again; stored results already retain their evidence text.
     db.execute('''DELETE FROM teaching_asset_refs WHERE user_id=? AND NOT EXISTS (

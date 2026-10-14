@@ -141,3 +141,4 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 教学网原生 v0.4 使用 model-v1 分类：task 自动新增，candidate 等待核实，filtered 留存依据，no_tasks 与 incomplete 由模型区分；不在展示或入库时重算正文完整性/补年/历史审核。账号快照、提交状态关联和既有任务操作保护仍生效；旧成功批次通过来源管理显式重新识别，普通 retry 仍返回旧结果，详见 [识别入口](../ddl_text/docs/teaching-draft.md)。
 
 重识别目录同时支持旧 v0.2 与当前校园账号的 v0.4，使用独立来源 ID；新增 `reprocessing_teaching_sources`、`reprocessing_request_sources` 表由启动初始化，无需改写旧数据。v0.4 新候选和自动任务在同一事务保存，失败/中断保留旧结果，用户决定按账号及来源版本关联保留；部署前备份数据库，回滚不得删除已有任务或新表。
+教学网重识别保留原始采集正文，并在同一事务迁移附件绑定；读取结果只写入识别批次，连续重识别、正常同步清理和重启仍可读取原件，换号或移除凭据才清理对应附件。
