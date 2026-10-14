@@ -83,8 +83,11 @@ def workspace_changes(db, uid, old, new):
     now=datetime.now(TZ)
     for task in new:
         if task.get('status')!='completed' or before.get(task['id'],{}).get('status')=='completed' or not task.get('due'): continue
-        due=task['due'];dated+=1
-        deadline=datetime.fromisoformat(due['date']+'T'+(due.get('time') or '23:59:59')+'+08:00')
+        due=task['due']
+        if not isinstance(due,dict):continue
+        try: deadline=datetime.fromisoformat(due['date']+'T'+(due.get('time') or '23:59:59')+'+08:00')
+        except (ValueError,KeyError,TypeError):continue
+        dated+=1
         on_time+=now<=deadline
     if dated: record(db,uid,'dated_task_completed',quantity=dated)
     if on_time: record(db,uid,'task_on_time',quantity=on_time)

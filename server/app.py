@@ -99,9 +99,10 @@ def allowed_origins():
     configured=os.environ.get('NIUMA_ALLOWED_ORIGINS')
     return configured.split() if configured is not None else ['http://localhost:1331','http://127.0.0.1:1331']
 
-def session_cookie(token, max_age):
+def session_cookie(token, max_age, admin=False):
     secure='; Secure' if os.environ.get('NIUMA_COOKIE_SECURE')=='1' else ''
-    return runtime_environment.cookie_name()+'='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age='+str(max_age)+secure
+    name=runtime_environment.cookie_name()+('_admin' if admin else '')
+    return name+'='+token+'; HttpOnly; SameSite=Strict; Path='+('/api/admin' if admin else '/api')+'; Max-Age='+str(max_age)+secure
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, value, cookie=None):
@@ -151,7 +152,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def user(self,db):
         cookie=SimpleCookie(self.headers.get('Cookie',''))
-        raw=cookie.get(runtime_environment.cookie_name())
+        raw=cookie.get(runtime_environment.cookie_name()+('_admin' if self.path.startswith('/api/admin/') else ''))
         token=hashlib.sha256(raw.value.encode()).hexdigest() if raw else ''
         row=db.execute('SELECT users.id,email,name FROM sessions JOIN users ON user_id=users.id WHERE token=? AND expires>?',(token,time.time())).fetchone()
         if not row: raise ApiError(401,'登录已失效，请重新登录')
@@ -186,7 +187,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,dict(status='ok'))
             if path=='/api/version' and self.command=='GET':
                 return self.reply(200,runtime_environment.public_version())
-            if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
+            if path in ['/api/auth/register','/api/auth/login','/api/admin/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
                 if not 8<=len(password)<=128 or '@' not in email or len(email)>254: raise ApiError(400,'请输入有效邮箱和至少 8 位密码')
@@ -200,11 +201,13 @@ class Handler(BaseHTTPRequestHandler):
                     row=db.execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
                 elif not row or not hmac.compare_digest(row['hash'],password_hash(password,row['salt'])):
                     raise ApiError(401,'邮箱或密码不正确')
+                administrator=path.startswith('/api/admin/')
+                if administrator and not usage.admin(row['id'],db): raise ApiError(403,'此账号没有后台访问权限')
                 token=secrets.token_urlsafe(32)
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
                 usage.record(db,row['id'],'register' if path.endswith('register') else 'login')
-                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400))
+                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400,administrator))
             bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
             if bearer:
                 uid,token,user=bearer,None,None
@@ -212,6 +215,9 @@ class Handler(BaseHTTPRequestHandler):
                 user,token=self.user(db)
                 uid=user['id']
             self.usage_uid=uid
+            if path=='/api/admin/auth/logout' and self.command=='POST':
+                db.execute('DELETE FROM sessions WHERE token=?',(token,))
+                return self.reply(200,{},session_cookie('',0,True))
             if usage.route(self,db,uid,path,body,ApiError): return
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
             if manual_materials.route(self,db,uid,path,body,DB.parent): return

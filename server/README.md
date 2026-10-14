@@ -50,6 +50,7 @@ server/
 ## 使用数据后台
 
 - 后台位于 `/admin.html`，普通应用导航不显示入口，统计 API 仅允许服务器授予权限的已登录用户。
+- 后台登录使用独立 `/api/admin` Cookie，登录或退出后台不切换普通页面账号，避免跨标签页混入数据。
 - 部署人执行 `docker exec niuma-production-api-1 python server/usage.py --grant <用户ID> --db /data/niuma.sqlite3` 授权，将 `--grant` 改为 `--revoke` 撤销，角色随环境数据卷持久化，不通过注册、昵称或客户端字段授权。
 - 本机直启可用 `NIUMA_ADMIN_USER_IDS` 空格分隔用户 ID，管理员操作默认从统计中排除；不要将管理员配置放入模型 `.env`。
 - `NIUMA_ANALYTICS_EXCLUDED_USER_IDS` 是空格分隔的测试账号 ID，设置后统计与反馈列表排除这些账号。

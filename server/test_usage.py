@@ -28,13 +28,15 @@ class UsageTests(unittest.TestCase):
         except HTTPError as e:r=e
         return r.status,json.load(r)
     def test_admin_denied_by_default_and_not_granted_by_profile(self):
-        self.assertEqual(self.call('/admin/usage')[0],403)
+        self.assertEqual(self.call('/admin/usage')[0],401)
         self.call('/auth/profile',dict(name='Admin',admin=True))
-        self.assertEqual(self.call('/admin/usage')[0],403)
+        self.assertEqual(self.call('/admin/auth/login',dict(email='usage@example.test',password='Usage-Test-2026!'))[0],403)
         with patch.dict(os.environ,NIUMA_ADMIN_USER_IDS=self.uid):
+            self.assertEqual(self.call('/admin/auth/login',dict(email='usage@example.test',password='Usage-Test-2026!'))[0],200)
             self.assertEqual(self.call('/admin/usage')[0],200)
             self.assertEqual(self.call('/admin/usage?start=2020-01-01&end=2026-01-01')[0],400)
         self.call('/auth/logout',{})
+        self.call('/admin/auth/logout',{})
         self.assertEqual(self.call('/admin/usage')[0],401)
     def test_next_day_only_once_refresh_account_isolation(self):
         day=datetime(2026,10,14,12,tzinfo=usage.TZ)
@@ -82,6 +84,7 @@ class UsageTests(unittest.TestCase):
     def test_persistent_admin_role_and_business_failure_status(self):
         with app.connection() as db:
             db.execute('INSERT INTO usage_admins VALUES(?)',(usage.actor(self.uid),))
+        self.assertEqual(self.call('/admin/auth/login',dict(email='usage@example.test',password='Usage-Test-2026!'))[0],200)
         self.assertEqual(self.call('/admin/usage')[0],200)
         with app.connection() as db:
             db.execute('DELETE FROM usage_admins')
@@ -90,6 +93,20 @@ class UsageTests(unittest.TestCase):
         self.assertTrue(usage.successful(200,value,'new'))
         self.assertFalse(usage.successful(200,value,'old'))
         self.assertFalse(usage.successful(502,{}))
+    def test_admin_login_does_not_switch_or_log_out_ordinary_session(self):
+        salt='0123456789abcdef0123456789abcdef'
+        with app.connection() as db:
+            db.execute('INSERT INTO users VALUES(?,?,?,?,?)',('other-admin','other-admin@example.test','Admin',salt,app.password_hash('Other-Admin-2026!',salt)))
+            db.execute('INSERT INTO usage_admins VALUES(?)',(usage.actor('other-admin'),))
+        self.assertEqual(self.call('/admin/auth/login',dict(email='other-admin@example.test',password='Other-Admin-2026!'))[0],200)
+        self.assertEqual(self.call('/auth/me')[1]['user']['id'],self.uid)
+        self.call('/admin/auth/logout',{})
+        self.assertEqual(self.call('/auth/me')[1]['user']['id'],self.uid)
+        self.assertEqual(self.call('/admin/usage')[0],401)
+    def test_invalid_legacy_due_does_not_make_analytics_block_task_save(self):
+        with app.connection() as db:
+            usage.workspace_changes(db,self.uid,[],[dict(id='legacy',status='completed',due=dict(date='unknown'))])
+            self.assertFalse(db.execute('SELECT 1 FROM usage_events WHERE event="dated_task_completed"').fetchone())
     def test_future_deadline_completion_has_numeric_only_on_time_metric(self):
         task=dict(id='a',status='completed',due=dict(date='2099-01-01',time='10:00'))
         with app.connection() as db:
