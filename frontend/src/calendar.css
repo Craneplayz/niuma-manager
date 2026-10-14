@@ -111,6 +111,46 @@
   background: var(--selected);
 }
 
+.calendar-view .calendar-task.is-notice {
+  background: #f0f1f2;
+  color: #505a63;
+}
+
+.calendar-view .calendar-task.is-notice:hover {
+  background: #e5e8ea;
+}
+
+.notice-label {
+  display: inline-block;
+  flex: none;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border: 1px solid #d6dade;
+  border-radius: 4px;
+  background: #f2f3f4;
+  color: #58636d;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0;
+  vertical-align: middle;
+}
+
+.calendar-task .notice-label {
+  margin-right: 0;
+  font-size: 10px;
+}
+
+.calendar-kind-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
 .calendar-view .calendar-task-title {
   display: block;
   min-width: 0;
@@ -283,6 +323,14 @@
   width: 44px;
   padding: 0;
   margin-top: 3px;
+}
+
+.task-row .notice-mark {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  margin-top: 3px;
+  color: #78828b;
 }
 
 .task-row .task-complete-mark {

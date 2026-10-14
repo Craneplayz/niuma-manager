@@ -155,6 +155,9 @@ export function buildCandidateResolution(item, values, tasks, tasksVersion) {
     action === "postpone" ? target.title : String(values.title || "").trim();
   if (!title) throw new Error("请填写任务名称");
   body.draft = {
+    content_type: action === "create"
+      ? item.candidate?.content_type || "task"
+      : target.content_type || "task",
     title,
     description:
       action === "postpone"

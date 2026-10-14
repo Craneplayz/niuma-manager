@@ -18,6 +18,7 @@ import {
   todayKey,
   shiftDay,
   filterTasks,
+  isNotice,
   deadlineLabel,
 } from "./task-model.js";
 import { renderTaskList, renderDayPanel } from "./task-views.js";
@@ -180,6 +181,7 @@ async function refresh() {
 }
 const filtered = () => filterTasks(state.tasks, { ...ui, today });
 const taskView = () => (ui.scope === "all" ? ui.view : "list");
+const calendarItems = () => filterTasks(state.tasks, { ...ui, scope: "calendar", today });
 const courses = () =>
   [...new Set(state.tasks.map((t) => t.course).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "zh"),
@@ -194,6 +196,7 @@ function sidebar() {
     all: filterTasks(state.tasks, { scope: "all", today }).length,
     near: filterTasks(state.tasks, { scope: "near", today }).length,
     done: filterTasks(state.tasks, { scope: "done", today }).length,
+    notices: filterTasks(state.tasks, { scope: "notices", today }).length,
   };
   return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry ${ui.page === "import" ? "current" : ""}" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
@@ -206,7 +209,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+    )}<button type="button" class="nav-item notice-nav ${ui.page === "tasks" && ui.scope === "notices" ? "active" : ""}" data-scope="notices" aria-label="通知" data-sidebar-label="通知" ${ui.page === "tasks" && ui.scope === "notices" ? 'aria-current="page"' : ""}>${icon("info")}<span class="nav-text">通知</span><span class="nav-count">${counts.notices}</span></button></nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
 }
 function hideSidebarTooltip() {
   clearTimeout(sidebarTooltipTimer);
@@ -260,7 +263,9 @@ function saveLabel() {
   );
 }
 function toolbar() {
-  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="搜索任务" placeholder="搜索任务" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
+  const searchLabel = ui.scope === "notices" ? "搜索通知" : taskView() === "calendar" ? "搜索任务与通知" : "搜索任务";
+  const dateLabel = ui.scope === "notices" ? "关键日期" : taskView() === "calendar" ? "日期范围" : "截止日期";
+  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
     .map(
       (c) =>
         `<option ${ui.course === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`,
@@ -276,7 +281,7 @@ function toolbar() {
           )
           .join(
             "",
-          )}</select></label><label class="field">截止日期，从<input id="date-from" type="date" value="${esc(ui.dateFrom)}"></label><label class="field">到<input id="date-to" type="date" value="${esc(ui.dateTo)}"></label></div>`
+          )}</select></label><label class="field">${dateLabel}，从<input id="date-from" type="date" value="${esc(ui.dateFrom)}"></label><label class="field">到<input id="date-to" type="date" value="${esc(ui.dateTo)}"></label></div>`
       : ""
   }`;
 }
@@ -290,8 +295,9 @@ function calendarTools() {
 function taskResults() {
   const tasks = filtered();
   if (taskView() === "list")
-    return renderTaskList(tasks, { escapeHtml: esc, icon, today });
-  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc })}</div>${renderDayPanel({ tasks, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
+    return renderTaskList(tasks, { escapeHtml: esc, icon, today, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : "没有符合条件的任务" });
+  const items = calendarItems();
+  return `${calendarTools()}<p class="calendar-kind-key"><span>任务截止</span><span><span class="notice-label">通知</span>关键时间 · ${items.filter(isNotice).length} 条</span></p><div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
 }
 function tasksPage() {
   const view = taskView();
@@ -299,7 +305,7 @@ function tasksPage() {
     ? `<div class="segmented task-view-switch" role="group" aria-label="任务视图"><button type="button" data-view="list" aria-pressed="${view === "list"}">${icon("tasks")}<span>清单</span></button><button type="button" data-view="calendar" aria-pressed="${view === "calendar"}">${icon("calendar")}<span>日历</span></button></div>`
     : "";
   const label =
-    { all: "全部任务", near: "临近截止", done: "已完成" }[
+    { all: "全部任务", near: "临近截止", done: "已完成", notices: "通知" }[
       ui.scope
     ] || "全部任务";
   const heading = renderPageHeading({
@@ -307,7 +313,7 @@ function tasksPage() {
     count: filtered().length,
     countId: "result-count",
     controls: viewSwitch,
-    actions: `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
+    actions: ui.scope === "notices" ? "" : `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
     escapeHtml: esc,
   });
   return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${toolbar()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
@@ -356,7 +362,7 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : "我的任务"}</span><time class="main-date" datetime="${today}">${esc(dateLabel)}</time></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
+  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : ui.scope === "notices" ? "通知" : "我的任务"}</span><time class="main-date" datetime="${today}">${esc(dateLabel)}</time></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
@@ -452,7 +458,7 @@ async function toggleTask(id) {
   if (taskBusy || !requireAccount()) return;
   const epoch = accountVersion(),
     task = state.tasks.find((t) => t.id === id);
-  if (!task) return;
+  if (!task || isNotice(task)) return;
   const previous = { status: task.status, completedAt: task.completedAt || "" };
   task.status = task.status === "done" ? "todo" : "done";
   task.completedAt = task.status === "done" ? today : "";
@@ -777,7 +783,7 @@ document.addEventListener("submit", async (e) => {
         closeDrawer();
         restoreFocus({ key: "taskOpen", value: draftId });
       }
-      toast("任务已保存");
+      toast(isNotice(task) ? "通知已保存" : "任务已保存");
     } catch (e) {
       if (epoch === accountVersion()) {
         if (form.isConnected) error.textContent = e.message;

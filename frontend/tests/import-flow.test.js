@@ -50,6 +50,18 @@ test('review retains date precision and requires explicit confirmation for chang
  assert.deepEqual(candidateDue({...deadline,precision:'datetime',value:'2026-10-20T12:30:45+08:00'}),{date:'2026-10-20',time:''});
 });
 
+test('candidate confirmation retains notice classification and never changes the selected target type',()=>{
+ const values={action:'create',title:'地点调整',description:'上课地点更改',course:'',date:'',time:'',reviewed:'on'};
+ const notice={...item,candidate:{...candidate,content_type:'notice'}};
+ assert.equal(buildCandidateResolution(notice,values,[],7).draft.content_type,'notice');
+ assert.equal(buildCandidateResolution(item,values,[],7).draft.content_type,'task');
+ const update={...item,candidate:{...candidate,notice_type:'update'}};
+ const target={id:'target',title:'原通知',content_type:'notice',notes:'原说明'};
+ assert.equal(buildCandidateResolution(update,{...values,action:'update',target_id:'target'},[target],7).draft.content_type,'notice');
+ const incomingNotice={...notice,candidate:{...notice.candidate,notice_type:'update'}};
+ assert.equal(buildCandidateResolution(incomingNotice,{...values,action:'update',target_id:'target'},[{...target,content_type:'task'}],7).draft.content_type,'task');
+});
+
 function fakeForm(kind,values,extra={}){
  const error={textContent:'',hidden:true},retry={hidden:true},submit={textContent:'确认',disabled:false,dataset:{}};
  const fields=[submit,{disabled:false,dataset:{}}];

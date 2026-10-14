@@ -67,6 +67,30 @@ export function demoWorkspace(today) {
     status: "done",
     completedAt: shiftDay(today, -3),
   });
+  tasks.push(
+    {
+      id: "preview-notice-room",
+      content_type: "notice",
+      title: "本周上课地点调整为理教 408",
+      course: "数据结构",
+      due: "",
+      dueTime: "",
+      source: "教学网",
+      notes: "本周课程在理教 408 上课，课程时间不变。",
+      status: "todo",
+    },
+    {
+      id: "preview-notice-result",
+      content_type: "notice",
+      title: "课程分组结果公示",
+      course: "计算机导论",
+      due: today,
+      dueTime: "18:00",
+      source: "教学网",
+      notes: "课程分组结果公示至今天 18:00。这是公示有效期，不是提交作业的截止时间。",
+      status: "todo",
+    },
+  );
   return {
     tasks,
     trash: [],

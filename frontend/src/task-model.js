@@ -1,5 +1,7 @@
 const DAY_MS = 86_400_000;
 
+export const isNotice = (task) => task.content_type === "notice";
+
 function readDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -68,9 +70,16 @@ export function filterTasks(
     .split(/\s+/)
     .filter(Boolean);
   const result = (Array.isArray(tasks) ? tasks : []).filter((task) => {
+    const notice = isNotice(task);
     const done = task.status === "done";
     const due = dueOf(task);
-    if (scope === "done" ? !done : done) return false;
+    if (scope === "notices") {
+      if (!notice) return false;
+    } else if (scope === "calendar") {
+      if (!notice && done) return false;
+    } else {
+      if (notice || (scope === "done" ? !done : done)) return false;
+    }
     if (scope === "near" && (!due || due > nearEnd)) return false;
     if (course && task.course !== course) return false;
     if (source && (task.source || "手动添加") !== source)

@@ -110,6 +110,21 @@ test("a new task supplies only the required task arrays without client schedulin
   assert.deepEqual(readStore(), { tasks: [], trash: [] });
 });
 
+test("editing and recycling notices retains content type and existing status without read or archive fields", async () => {
+  const original = task("notice", { content_type: "notice", status: "completed", planningExcluded: true, completedAt: "2026-10-12" });
+  const f = fixture("notice-preservation", [original]);
+  const state = await initSession();
+  state.tasks[0].title = "修改通知标题";
+  saveStore(state); await flushStore();
+  assert.equal(f.tasks[0].content_type, "notice");
+  assert.equal(f.tasks[0].status, "completed");
+  assert.equal(f.tasks[0].completedAt, original.completedAt);
+  await trashStoredTasks(["notice"]); await restoreStoredTasks(["notice"]);
+  assert.equal(f.tasks[0].content_type, "notice");
+  assert.equal(f.tasks[0].status, "completed");
+  for (const field of ["readAt", "archivedAt", "isRead"]) assert.equal(Object.hasOwn(f.tasks[0], field), false);
+});
+
 test("completion dates survive save and reload and clear when the task reopens", async () => {
   const f = fixture("completion", [task("task")]);
   let state = await initSession();
