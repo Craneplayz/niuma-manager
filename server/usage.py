@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 import secrets
+import math
+from statistics import median
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 
@@ -106,7 +108,7 @@ def summary(db, start, end):
         durations = sorted(r['duration_ms'] for r in values)
         metrics.append(dict(event=name,count=len(values),quantity=sum(r['quantity'] for r in values),
             users=len({r['actor'] for r in values}),success=sum(r['success'] for r in values),
-            medianMs=durations[len(durations)//2],p95Ms=durations[min(len(durations)-1,int(len(durations)*.95))]))
+            medianMs=median(durations),p95Ms=durations[math.ceil(len(durations)*.95)-1]))
     feedback = [dict(r) for r in db.execute('SELECT actor,created_at,kind,score,message FROM usage_feedback WHERE substr(created_at,1,10) BETWEEN ? AND ? ORDER BY created_at DESC',(start,end)) if r['actor'] not in excluded]
     scores=[r['score'] for r in feedback if r['kind']=='rating']
     rating=dict(samples=len(scores),average=round(sum(scores)/len(scores),2) if scores else None)
@@ -115,7 +117,7 @@ def summary(db, start, end):
     return dict(start=start,end=end,activeUsers=len({r['actor'] for r in rows}),
         daily=[dict(day=day,users=len(users)) for day,users in sorted(by_day.items())],
         metrics=metrics,feedback=feedback,rating=rating,environment=os.environ.get('NIUMA_ENVIRONMENT','development'),
-        methodology='从启用记录后统计；流程量不是同批次转化漏斗；耗时为请求总耗时，包含排队；不推断历史行为或模型正确率。')
+        methodology='从启用记录后统计；流程量不是同批次转化漏斗；耗时含排队，中位数为常规样本中位数，P95使用最近秩 ceil(0.95×n)；不推断历史行为或模型正确率。')
 
 def route(handler, db, uid, path, body, error):
     if path=='/api/usage/visit' and handler.command=='POST':

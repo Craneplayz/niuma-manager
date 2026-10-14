@@ -107,6 +107,17 @@ class UsageTests(unittest.TestCase):
         with app.connection() as db:
             usage.workspace_changes(db,self.uid,[],[dict(id='legacy',status='completed',due=dict(date='unknown'))])
             self.assertFalse(db.execute('SELECT 1 FROM usage_events WHERE event="dated_task_completed"').fetchone())
+    def test_median_and_nearest_rank_p95_boundaries(self):
+        with app.connection() as db:
+            for samples,expected_median,expected_p95 in [([100],100,100),([100,1100],600,1100),(list(range(1,21)),10.5,19),(list(range(1,22)),11,20)]:
+                with self.subTest(samples=len(samples)):
+                    db.execute('DELETE FROM usage_events')
+                    for duration in samples:usage.record(db,self.uid,'planning',duration_ms=duration)
+                    result=usage.summary(db,'2000-01-01','2099-01-01')['metrics'][0]
+                    self.assertEqual(result['medianMs'],expected_median)
+                    self.assertEqual(result['p95Ms'],expected_p95)
+            db.execute('DELETE FROM usage_events')
+            self.assertEqual(usage.summary(db,'2000-01-01','2099-01-01')['metrics'],[])
     def test_future_deadline_completion_has_numeric_only_on_time_metric(self):
         task=dict(id='a',status='completed',due=dict(date='2099-01-01',time='10:00'))
         with app.connection() as db:

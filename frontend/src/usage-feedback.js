@@ -4,6 +4,7 @@ export function feedbackBox(){
  return session.user?`<section class="panel"><h2>使用反馈</h2><form id="usage-feedback-form"><label>有什么可以改进？<textarea name="message" maxlength="2000" required rows="3" placeholder="写下你的建议…"></textarea></label><button class="btn" type="submit">发送反馈</button><p role="status" data-feedback-status></p></form></section>`:'';
 }
 export async function usageVisit(){
+ if(document.visibilityState==='hidden')return;
  const uid=session.user?.id;if(!uid)return;
  const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
  const key=uid+':'+day;if(offeredFor===key)return;
@@ -34,3 +35,8 @@ export async function submitUsageFeedback(form){
 window.addEventListener('niuma:account-reset',()=>{offeredFor=null;document.querySelector('#usage-rating')?.remove();});
 document.addEventListener('submit',event=>{if(event.target.id==='usage-feedback-form'){event.preventDefault();event.stopImmediatePropagation();void submitUsageFeedback(event.target);}},true);
 document.addEventListener('click',()=>{if(session.user)void usageVisit();});
+window.addEventListener('niuma:session-ready',()=>{void usageVisit();});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void usageVisit();});
+window.addEventListener('pageshow',()=>{void usageVisit();});
+window.addEventListener('focus',()=>{void usageVisit();});
+document.addEventListener('keydown',()=>{void usageVisit();});

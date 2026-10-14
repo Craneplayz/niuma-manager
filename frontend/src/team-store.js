@@ -87,7 +87,7 @@ export async function initSession(){
   if(epoch!==accountEpoch)throw new Error('账号已切换');
   session.user={...result.user,display_name:result.user.name};workspace=next;
   versions=Object.fromEntries(Object.entries(workspace).map(([key,row])=>[key,row.version]));
-  report('saved');return view();
+  report('saved');window.dispatchEvent(new CustomEvent('niuma:session-ready'));return view();
  }catch(error){
   if(epoch!==accountEpoch)throw error;
   if(error.status===401){resetAccount();report('saved');return empty();}
