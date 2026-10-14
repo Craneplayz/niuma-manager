@@ -10,6 +10,10 @@
 - `server/teaching.py` 原样投影模型分类，task 可自动新增、candidate 等待核实、filtered 保留结果及依据；无任务与来源不足分别显示。
 - 来源账号权限、过期快照、用户已确认/忽略决定、既有任务修改权限和原生 submitted 状态关联保护仍归后端管理，不由模型解除。
 
+notice 仅收录用户漏看会直接影响考核、日程、资格或必要信息接收的告知；普通课件/讲义发布不收录，未读普通课件也不自动变为来源待补全。教学内容中的明确作业、考核说明和必做阅读仍保留，具体对照见 skill。
+
+新增接口不能直接执行既有任务变更：模型输出 update/postpone/cancel/uncertain 却标为 task 时，适配器保留操作、目标证据和新日期，兼容路由为 candidate 等待关联，不再整条报错，也不会擅自修改旧任务。格式、日期合法性和引用真实性仍照常校验。
+
 正文 partial、未读补充附件和正常补年本身不要求审核。任务确实无截止时可以自动新增 due=null；任务自称尚有 unresolved 截止却又声明 task 属于不一致输出，作为识别失败处理。
 
 真实模型选择 evidence_catalog 编号，程序恢复连续原文；所有槽可引用同一快照内已取得的正文、附件和课程元数据，引用能否支持结论由模型判断。未知编号、未读资料的伪造引文、非法日期、错误字段等仍校验，不混入待审核。
@@ -41,6 +45,8 @@ python -m contracts.build_teaching_v04 --check
 # 显式付费，仅固定合成内容；使用自己的环境配置，不读取生产数据。
 python -m ddl_text.tests.run_teaching_routing_smoke --live --env-file <当前环境配置> --output <忽略目录内新结果.json>
 ```
+
+`--cases courseware-chapter courseware-upload courseware-slides assessment-rules assessment-unread courseware-required-reading assignment-in-content deadline-change task-join-group notice-deadline` 运行本轮通知边界与变更日期的十条合成真实模型回归；普通离线测试不验证模型语义。
 
 [八组真实合成输入与输出](../../contracts/examples/teaching-model-routing-v04-cases.json) 覆盖“尽快+明确日期”、partial 明确期限、无发布时间补年、未读补充资料、必须读取的日期更正、过期任务、纯停课消息和无期限行动。实测不代表独立召回率或生产账号验收；旧入口 `run_teaching_smoke` 转到同一组新测试。
 

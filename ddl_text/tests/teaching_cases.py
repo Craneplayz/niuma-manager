@@ -63,4 +63,29 @@ def routing_cases():
     cases[-1]['expected']['content_types']=['notice','task']
     add('notice-deadline','选课结果公示至2026年10月20日18:00。','task','2026-10-20T18:00:00+08:00')
     cases[-1]['expected']['content_type']='notice'
+    # Inclusion depends on concrete consequences, not the source section or
+    # whether an ordinary lecture file happened to be downloaded.
+    for name, text, label in (
+        ('courseware-chapter', '第四章 字符串\n第四章 字符串.pdf', '第四章 字符串.pdf'),
+        ('courseware-upload', '发布课件：generative-04-Transformer-2', 'generative-04-Transformer-2.pdf'),
+        ('courseware-slides', '函数PPT', '函数.pptx'),
+    ):
+        add(name,text,'no_tasks',partial=True,reference=dict(ref_id='lecture',kind='attachment',
+            label=label,read_state='unsupported',text=None),collected='2026-10-14T12:00:00+08:00')
+        cases[-1]['record']['source_metadata_text']='课程：合成课程（26-27学年第1学期）\n栏目：教学内容'
+    add('assessment-rules','本学期考核说明\n详见附件。','task',reference=dict(ref_id='assessment',kind='attachment',
+        label='考核说明.pdf',read_state='complete',text='本学期出勤占20%，两次作业占30%，期末考试占50%。'),
+        collected='2026-10-14T12:00:00+08:00')
+    cases[-1]['expected']['content_type']='notice'
+    add('assessment-unread','本学期考核说明，考核要求详见附件。','incomplete',reference=dict(ref_id='assessment',kind='attachment',
+        label='考核说明.pdf',read_state='unread',text=None),collected='2026-10-14T12:00:00+08:00')
+    add('courseware-required-reading','请在2026年10月18日前阅读第四章课件，下次课据此签到测验。','task','2026-10-18',
+        reference=dict(ref_id='lecture',kind='attachment',label='第四章课件.pdf',read_state='unsupported',text=None),
+        collected='2026-10-14T12:00:00+08:00')
+    add('assignment-in-content','第五章课件已发布。课后作业：完成例题改编题并于2026年10月20日前提交。','task','2026-10-20',
+        collected='2026-10-14T12:00:00+08:00')
+    cases[-1]['record']['source_metadata_text']='课程：合成课程\n栏目：教学内容'
+    add('deadline-change','练习平台第四章作业题截止日期修改为2026-11-03 23:59:00。请大家合理安排时间完成。',
+        'candidate','2026-11-03T23:59:00+08:00',collected='2026-10-14T12:00:00+08:00')
+    cases[-1]['expected']['notice_types']=['update','postpone']
     return cases

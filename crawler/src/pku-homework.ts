@@ -49,6 +49,8 @@ export interface ScrapeOptions {
   executablePath?: string;
   allSections?: boolean;
   teachingSections?: boolean;
+  /** Read-only diagnosis of one saved source, without traversing other courses. */
+  targetSource?: { url: string; itemId: string; course: string; section: string };
 }
 
 export interface AnchorInfo {
@@ -102,6 +104,7 @@ export function filterUpcomingHomeworks(records: HomeworkRecord[], asOf: DateTim
 }
 
 export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<HomeworkScrapeResult> {
+  if (options.targetSource) validateSourceTarget(options.targetSource.url, options.targetSource.itemId);
   const asOf = (options.asOf ?? DateTime.now()).setZone(DEFAULT_TIMEZONE);
   const term = options.term === undefined ? currentAcademicTerm(asOf) : options.term;
   const credentials = await readCredentials(options.secretPath ?? process.env.PKU_SECRET_PATH ?? "secret");
@@ -111,6 +114,17 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
 
   try {
     await login(page, credentials.username, credentials.password);
+    if (options.targetSource) {
+      const target = options.targetSource;
+      await navigateCoursePage(page, target.url);
+      const selected = selectSourceTarget(await page.content(), target, asOf.toISO()!);
+      const detailed = await enrichAssignmentSources(page, selected);
+      const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR);
+      return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
+        asOf, term: null, coursesChecked: 1, sectionsChecked: 1, sourceRecords,
+        scopeWarning: "Only the requested source item and its references were inspected.",
+      });
+    }
     await navigateCoursePage(page, PKU_PORTAL_URL);
     await page.waitForTimeout(2_000);
 
@@ -163,6 +177,25 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
   }
 }
 
+export function validateSourceTarget(value: string, itemId: string): void {
+  const url = new URL(value);
+  if (url.origin !== PKU_ORIGIN || url.username || url.password || !/^_\d+_\d+$/.test(itemId)
+    || !/^_\d+_\d+$/.test(url.searchParams.get("course_id") ?? "")
+    || (url.pathname.endsWith("/announcement") && url.searchParams.get("method") !== "search")
+    || !/^\/webapps\/blackboard\/(?:execute\/announcement|content\/listContent(?:Editable)?\.jsp)$/i.test(url.pathname)) {
+    throw new Error("target source must be a PKU course announcement/content page and an exact item ID");
+  }
+}
+
+export function selectSourceTarget(html: string, target: NonNullable<ScrapeOptions["targetSource"]>, collectedAt: string): CourseSourceRecord[] {
+  validateSourceTarget(target.url, target.itemId);
+  const selected = extractCourseSourcesFromHtml(html, {
+    course: target.course, section: target.section, sourceUrl: target.url, collectedAt,
+  }).filter(source => source.source_item_id === target.itemId);
+  if (selected.length !== 1) throw new Error("requested source item was missing or ambiguous; no other sources were read");
+  return selected;
+}
+
 /** Source records are the primary output; legacy homework fields remain for compatibility. */
 export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: {
   asOf: DateTime;
@@ -172,11 +205,12 @@ export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: {
   sourceRecords?: CourseSourceRecord[];
   allSections?: boolean;
   coverageWarnings?: string[];
+  scopeWarning?: string;
 }): HomeworkScrapeResult {
   const deduplicated = deduplicateRecords(records);
-  const scopeWarning = context.allSections
+  const scopeWarning = context.scopeWarning ?? (context.allSections
     ? "Course landing pages, linked content lists and native assignment details were inspected when available; nested folders and other detail pages were not read. Only same-origin teacher PDF/UTF-8 text attachments are supported; unread references retain their status."
-    : "Only assignment sections and native assignment details were inspected; course announcements, other sections and nested folders were not read. Only same-origin teacher PDF/UTF-8 text attachments are supported; unread references retain their status.";
+    : "Only assignment sections and native assignment details were inspected; course announcements, other sections and nested folders were not read. Only same-origin teacher PDF/UTF-8 text attachments are supported; unread references retain their status.");
   return {
     checked_at: context.asOf.toISO({ suppressMilliseconds: true })!,
     timezone: DEFAULT_TIMEZONE,

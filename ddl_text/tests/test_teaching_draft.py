@@ -126,17 +126,62 @@ class TeachingDraftTests(unittest.TestCase):
         self.assertNotEqual(decisions[0]['pair']['assessment']['candidate_id'],decisions[1]['pair']['assessment']['candidate_id'])
 
     def test_missing_or_inconsistent_classifications_fail_instead_of_entering_review(self):
-        for error in ('missing_route','missing_reason','unknown_route','unresolved_task','change_task','filter_without_evidence'):
+        for error in ('missing_route','missing_reason','unknown_route','unresolved_task','filter_without_evidence'):
             def change(record,task):
                 if error=='missing_route':task.pop('recommendation')
                 elif error=='missing_reason':task.update(recommendation='candidate',reason=' ')
                 elif error=='unknown_route':task['recommendation']='maybe'
                 elif error=='unresolved_task':task['assessment']['deadline'].update(value=None,precision='unknown',derivation='unresolved',anchor=None)
-                elif error=='change_task':task['notice_type']='cancel'
                 else:
                     task.update(recommendation='filtered',reason='No action')
                     task['assessment']['action'].update(state='uncertain',evidence=[])
             with self.subTest(error=error),self.assertRaises(AgentError):self.compile('explicit-complete',change)
+
+    def test_change_marked_ready_keeps_new_deadline_and_waits_for_linking(self):
+        for operation in ('update', 'postpone', 'cancel', 'uncertain'):
+            def change(record, task):
+                task['notice_type'] = operation
+                task['target'] = dict(part_id='body', quote=record['text'])
+            with self.subTest(operation=operation):
+                decision = self.compile('explicit-complete', change)[0]
+                self.assertEqual(decision['recommendation'], 'candidate')
+                self.assertEqual(decision['notice_type'], operation)
+                self.assertEqual(decision['pair']['assessment']['deadline'],
+                    policy_case('explicit-complete')['pair']['assessment']['deadline'])
+                self.assertEqual(decision['review_reasons'], ['变更通知需关联现有条目后处理。'])
+                self.assertTrue(decision['target']['quote'])
+        def forged_change(record, task):
+            task.update(notice_type='update', target=dict(part_id='body', quote='invented target'))
+        with self.assertRaises(AgentError): self.compile('explicit-complete', forged_change)
+
+    def test_courseware_empty_decision_does_not_require_reading_unrelated_attachment(self):
+        from ddl_text.tests.teaching_cases import empty_reply
+        record = policy_case()['pair']['record']
+        record['text'] = '第四章 字符串\n第四章课件.pdf'
+        record['body_status'] = 'partial'
+        raw = json.loads(empty_reply(record, 'no_tasks'))
+        raw['empty_decision']['reason'] = '仅发布普通课件，无必做行动或影响安排的信息。'
+        result = compile_teaching_response(json.dumps(raw), record, source_verified=True)
+        self.assertEqual(result['decisions'], [])
+        self.assertEqual(result['empty_decision']['status'], 'no_tasks')
+
+    def test_change_route_compatibility_does_not_spend_another_model_call(self):
+        pair = policy_case('explicit-complete')['pair']
+        draft = model_task(pair)
+        draft.update(notice_type='update', target=None)
+        draft['assessment']['action']['evidence'] = [dict(span_id='q0')]
+        draft['assessment']['deadline']['evidence'] = [dict(span_id='q0')]
+        class Client:
+            calls = 0
+            def complete_json(self, instructions, payload, settings):
+                self.calls += 1
+                return json.dumps(dict(tasks=[draft]))
+        client = Client()
+        result = TeachingDraftAdapter(client, True).extract(pair['record'], Settings(mode='real'), 0)
+        self.assertEqual(client.calls, 1)
+        self.assertEqual(result[0]['decisions'][0]['recommendation'], 'candidate')
+        self.assertEqual(result[0]['decisions'][0]['pair']['assessment']['deadline']['value'],
+            draft['assessment']['deadline']['value'])
 
     def test_new_empty_decisions_distinguish_non_tasks_from_missing_source(self):
         from ddl_text.tests.teaching_cases import empty_reply

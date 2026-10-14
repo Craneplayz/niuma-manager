@@ -41,10 +41,14 @@ def main():
                 and all(d['recommendation']==expected['recommendation'] and d['pair']['assessment']['deadline']['value'] is None for d in decisions))
         elif expected['recommendation']=='no_tasks':
             passed=row['status']=='no_tasks' or bool(decisions) and all(d['recommendation']=='filtered' for d in decisions)
+        elif expected['recommendation']=='incomplete':
+            passed=row['status']=='incomplete' or bool(decisions) and all(d['recommendation']=='candidate' for d in decisions)
         else:
             passed=len(decisions)==1 and decisions[0]['recommendation']==expected['recommendation']
-            if passed and expected['recommendation']!='candidate':
+            if passed and (expected['recommendation']!='candidate' or expected['value'] is not None):
                 passed=decisions[0]['pair']['assessment']['deadline']['value']==expected['value']
+            if passed and 'notice_types' in expected:
+                passed=decisions[0]['notice_type'] in expected['notice_types']
             if passed and 'content_type' in expected:
                 passed=decisions[0].get('content_type')==expected['content_type']
         report['cases'].append(dict(name=case['name'],request=request,result=result,expected=expected,

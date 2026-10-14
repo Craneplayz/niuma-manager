@@ -70,9 +70,11 @@ def teaching_draft_schema(record=None, *, indexed=False):
     task = _object_schema(dict(
         title=dict(type='string', minLength=1, maxLength=512),
         description=dict(type='string', maxLength=4096),
-        notice_type=dict(enum=['create', 'update', 'postpone', 'cancel', 'uncertain']),
+        notice_type=dict(enum=['create', 'update', 'postpone', 'cancel', 'uncertain'],
+            description='create 新增；update/postpone/cancel/uncertain 变更必须 recommendation=candidate，保留已知新日期。'),
         target=dict(anyOf=[quote, dict(type='null')]), relevance=relevance, assessment=assessment,
-        recommendation=dict(enum=['task', 'candidate', 'filtered']),
+        recommendation=dict(enum=['task', 'candidate', 'filtered'],
+            description='task 仅用于 create 直接新增；既有条目的变更用 candidate 等待关联，不能直接新增重复任务。'),
         reason=dict(type='string', maxLength=1024)))
     # Optional only for historical replay; new model calls always supply the kind.
     task['properties']['content_type'] = dict(enum=['task', 'notice'])
@@ -166,6 +168,11 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 _quotes(record, relation['evidence'])
             validate_pair(pair, model_routing=True)
             route, reason = draft['recommendation'], draft['reason'].strip()
+            # The create-only save API cannot apply a change. Keep the model's
+            # operation and valid new deadline, but route it to target linking
+            # instead of rejecting the whole record or creating a duplicate.
+            if route == 'task' and draft['notice_type'] != 'create':
+                route, reason = 'candidate', reason or '变更通知需关联现有条目后处理。'
             if route != 'task' and not reason:
                 raise ValueError('candidate/filtered classification needs a reason')
             if route == 'task':

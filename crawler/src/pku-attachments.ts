@@ -23,7 +23,7 @@ export function isTeacherAttachmentUrl(value: string): boolean {
     const path = decodeURIComponent(url.pathname);
     return url.origin === ORIGIN && !url.username && !url.password
       && !/\/(?:users?|students?|submissions?|attempts?|grades?)(?:\/|$)/i.test(path)
-      && (/^\/bbcswebdav\/pid-[\w]+-dt-content-rid-[\w]+(?:\/|$)/i.test(path)
+      && (/^\/bbcswebdav\/pid-[\w]+-dt-(?:content|announcement)-rid-[\w]+(?:\/|$)/i.test(path)
         || /^\/bbcswebdav\/courses\/[^/]+\//i.test(path));
   } catch { return false; }
 }

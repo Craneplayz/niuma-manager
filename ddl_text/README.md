@@ -2,6 +2,8 @@
 
 教学网 v0.4 识别结果区分 `content_type=task/notice`；任务和通知均可携带有依据的日期，类型不由日期决定，规则见 `skills/teaching-task-extraction/SKILL.md`。旧文本/微信入口暂保持原契约与默认 task。
 
+通知按“漏看会直接影响用户”收录；普通课件发布忽略，考核规则、课程群要求及教学内容中的作业保留；既有任务的变更保留新日期，等待关联后处理。
+
 ```text
 ddl_text/
 ├── README.md             # 模块用途、运行和检查入口
