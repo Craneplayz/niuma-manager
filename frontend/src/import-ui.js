@@ -7,6 +7,8 @@ import {
 } from "./team-store.js";
 import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
+import { candidateEvidenceMarkup, failureSourcesMarkup } from "./import-evidence.js";
+import { createReprocessingUI } from "./reprocessing-ui.js";
 
 const actions = {
   create: "新增任务",
@@ -279,6 +281,23 @@ export function createImportUI(host) {
     stamp.epoch === accountVersion() && stamp.revision === revision;
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
+  const reprocessing = createReprocessingUI({
+    ...host, api, flushStore, accountVersion,
+    isDemo: demo,
+    isAuthenticated: () => Boolean(session.user && !session.changing),
+    isImportBusy: () => busy,
+    async onFinished(isCurrent) {
+      await host.refresh();
+      if (!isCurrent()) return;
+      const next = await api("/api/recognition/batches");
+      if (!isCurrent()) return;
+      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
+      batches = next;
+      loaded = true;
+      refresh();
+    },
+  });
+  const blocked = () => busy || reprocessing.isBusy();
   const allowed = () => {
     if (demo()) {
       host.toast("示例预览暂不发送，请登录后导入");
@@ -320,6 +339,7 @@ export function createImportUI(host) {
     progress = "";
     request = null;
     modal = null;
+    reprocessing.reset();
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
   async function load() {
@@ -355,22 +375,7 @@ export function createImportUI(host) {
     );
   }
   function evidence(item) {
-    const candidate = item.candidate,
-      record = item.batch.request?.records?.find(
-        (record) => record.input_id === candidate.input_id,
-      );
-    const quotes = [
-      ...new Set(
-        (candidate.evidence || []).map((e) => e.quote).filter(Boolean),
-      ),
-    ];
-    const original = record?.text;
-    return `<details class="candidate-evidence"><summary>查看原文</summary>${quotes.length ? quotes.map((quote) => `<blockquote>${esc(quote)}</blockquote>`).join("") : original ? `<blockquote>${esc(original)}</blockquote>` : '<p class="status-note">原文暂不可用</p>'}${candidate.deadline?.basis ? `<p class="status-note">${esc(candidate.deadline.basis)}</p>` : ""}${(
-      candidate.review_reasons || []
-    )
-      .filter((reason) => reason !== candidate.deadline?.basis)
-      .map((reason) => `<p class="status-note">${esc(reason)}</p>`)
-      .join("")}</details>`;
+    return candidateEvidenceMarkup(item);
   }
   function candidateRow(item) {
     const c = item.candidate,
@@ -378,7 +383,7 @@ export function createImportUI(host) {
         (record) => record.input_id === c.input_id,
       ),
       label = platforms[record?.platform] || c.sources?.[0]?.label || "通知";
-    return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${busy ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${busy ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${busy ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
+    return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${blocked() ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${blocked() ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${blocked() ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
   }
   function render() {
     if (session.user && !demo() && !loaded && !loading && !busy)
@@ -390,7 +395,7 @@ export function createImportUI(host) {
     const failures = batches.filter((batch) =>
       ["failed", "partial_success"].includes(batch.result?.status),
     );
-    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading"><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}" ${busy ? "disabled" : ""}>文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}" ${busy ? "disabled" : ""}>教学网</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${busy ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${busy ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${busy ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${busy || loading ? "disabled" : ""}>${busy ? "正在采集…" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<button class="btn quiet" type="button" data-import-action="credentials" ${busy ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止等待</button></div>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${busy || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${failures.map((batch) => `<div class="import-failure">${errorMarkup(batchErrorReport(batch))}${!incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${busy ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}${applied.length ? `<details class="import-history"><summary>已处理 · ${applied.length}</summary>${applied.map(candidateRow).join("")}</details>` : ""}</section></div>`;
+    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading"><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}" ${blocked() ? "disabled" : ""}>文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}" ${blocked() ? "disabled" : ""}>教学网</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${blocked() || loading ? "disabled" : ""}>${busy ? "正在采集…" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<button class="btn quiet" type="button" data-import-action="credentials" ${blocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止等待</button></div>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${failures.map((batch) => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${!incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}${applied.length ? `<details class="import-history"><summary>已处理 · ${applied.length}</summary>${applied.map(candidateRow).join("")}</details>` : ""}</section>${reprocessing.render()}</div>`;
   }
   function dialogHeader(title) {
     return `<header class="dialog-header"><h2>${esc(title)}</h2><button class="icon-button" type="button" data-import-action="close" aria-label="关闭">${host.icon("close")}</button></header>`;
@@ -488,8 +493,51 @@ export function createImportUI(host) {
     if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
     return next;
   }
+  async function autoApply(requestId, stamp) {
+    const signal = controller?.signal;
+    const batch = batches.find((batch) => batch.request.request_id === requestId);
+    const candidates = !batch || batch.demo ? [] : (batch.items || []).filter((item) => {
+      const candidate = item.candidate;
+      const record = batch.request.records?.find((record) => record.input_id === candidate?.input_id);
+      return item.state === "pending" && item.version === 1 &&
+        record?.platform === "teaching_web" && candidate.notice_type === "create" &&
+        candidate.needs_review === false && !candidate.review_reasons?.length;
+    });
+    let applied = 0, failed = 0;
+    if (!candidates.length || !valid(stamp) || signal?.aborted) return { applied, failed };
+    await flushStore();
+    for (const [index, item] of candidates.entries()) {
+      if (!valid(stamp) || signal?.aborted) break;
+      progress = `正在加入任务 ${index + 1} / ${candidates.length}`;
+      refresh();
+      try {
+        // The server owns eligibility, source validation and the task contents.
+        const result = await api(
+          "/api/recognition/candidates/" + encodeURIComponent(item.id) + "/resolve",
+          { action: "create", auto_apply: true, version: item.version },
+          "POST", { signal },
+        );
+        if (!valid(stamp)) return { applied, failed };
+        if (!Array.isArray(result.batches)) throw new Error("导入结果暂时无法读取");
+        batches = result.batches;
+        applied++;
+      } catch (e) {
+        if (!valid(stamp)) return { applied, failed };
+        if (signal?.aborted) break;
+        // A refusal keeps the candidate available for manual review.
+        if (e.status === 400) continue;
+        failed++;
+        error = "部分任务自动加入未完成，可再次采集重试，或核对后加入。";
+      }
+    }
+    if (applied && valid(stamp)) {
+      try { await host.refresh(); }
+      catch { if (valid(stamp)) error = "任务已加入，但列表刷新失败，请重新读取任务。"; }
+    }
+    return { applied, failed };
+  }
   async function importText(values) {
-    if (busy || !allowed()) return;
+    if (blocked() || !allowed()) return;
     text = String(values.text || "");
     published = String(values.published ?? published);
     const stamp = current();
@@ -533,7 +581,7 @@ export function createImportUI(host) {
     }
   }
   async function sync() {
-    if (busy || !allowed()) return;
+    if (blocked() || !allowed()) return;
     if (!credentials?.configured) {
       openCredentials();
       return;
@@ -555,7 +603,7 @@ export function createImportUI(host) {
       if (!valid(stamp)) return;
       if (!Array.isArray(result.requests))
         throw new Error("采集结果暂时无法读取");
-      let failures = 0;
+      let failures = 0, applied = 0;
       for (let index = 0; index < result.requests.length; index++) {
         if (!valid(stamp) || controller.signal.aborted) break;
         progress = `正在识别通知 ${index + 1} / ${result.requests.length}`;
@@ -571,6 +619,10 @@ export function createImportUI(host) {
           );
           if (["failed", "partial_success"].includes(batch?.result?.status))
             failures++;
+          const automatic = await autoApply(result.requests[index].request_id, stamp);
+          if (!valid(stamp)) return;
+          applied += automatic.applied;
+          failures += automatic.failed;
         } catch (e) {
           if (!valid(stamp)) return;
           if (controller.signal.aborted) throw e;
@@ -589,10 +641,11 @@ export function createImportUI(host) {
         batches = next;
         loaded = true;
       }
-      notice = failures
-        ? "采集完成，部分通知尚未识别成功"
-        : "采集完成" +
-          (result.requests.length ? "，请核对下方任务" : "，暂无新增通知");
+      const requestIds = new Set(result.requests.map((request) => request.request_id));
+      const pending = allItems().filter((item) => requestIds.has(item.batch.request.request_id) && item.state === "pending").length;
+      notice = "采集完成" + (applied ? `，已自动加入 ${applied} 项任务` : "") +
+        (pending ? `，${pending} 项待核对` : "") +
+        (failures ? "，部分处理未完成" : !result.requests.length ? "，暂无新增通知" : "");
     } catch (e) {
       if (valid(stamp)) {
         if (controller?.signal.aborted)
@@ -610,7 +663,7 @@ export function createImportUI(host) {
   }
   async function resolveSmall(item, action) {
     if (
-      busy ||
+      blocked() ||
       !allowed() ||
       !item ||
       item.state !== (action === "reopen" ? "ignored" : "pending")
@@ -641,7 +694,7 @@ export function createImportUI(host) {
     }
   }
   async function retryBatch(batch) {
-    if (busy || !allowed() || !batch || incomplete(batch)) return;
+    if (blocked() || !allowed() || !batch || incomplete(batch)) return;
     const stamp = current();
     busy = true;
     error = "";
@@ -651,10 +704,12 @@ export function createImportUI(host) {
     refresh();
     try {
       const next = await recognize(batch.request, true);
-      if (valid(stamp)) {
-        batches = next;
-        notice = "识别结果已更新";
-      }
+      if (!valid(stamp)) return;
+      batches = next;
+      const automatic = await autoApply(batch.request.request_id, stamp);
+      if (!valid(stamp)) return;
+      notice = controller.signal.aborted ? "已停止等待，可刷新查看处理结果" :
+        "识别结果已更新" + (automatic.applied ? `，已自动加入 ${automatic.applied} 项任务` : "");
     } catch (e) {
       if (valid(stamp))
         error = controller?.signal.aborted
@@ -671,8 +726,9 @@ export function createImportUI(host) {
   }
   async function click(button) {
     const d = button.dataset;
+    if (d.reprocessAction) return reprocessing.click(button);
     if (d.importSource) {
-      if (!busy) {
+      if (!blocked()) {
         source = d.importSource;
         error = "";
         notice = "";
@@ -681,7 +737,7 @@ export function createImportUI(host) {
       return true;
     }
     if (d.importReview) {
-      if (!busy && allowed()) openReview(itemById(d.importReview));
+      if (!blocked() && allowed()) openReview(itemById(d.importReview));
       return true;
     }
     if (d.importIgnore) {
@@ -716,7 +772,7 @@ export function createImportUI(host) {
       return true;
     }
     if (action === "credentials") {
-      if (!busy && allowed()) openCredentials();
+      if (!blocked() && allowed()) openCredentials();
       return true;
     }
     if (action === "sync") {
@@ -724,7 +780,7 @@ export function createImportUI(host) {
       return true;
     }
     if (action === "remove-credentials") {
-      if (busy || !allowed()) return true;
+      if (blocked() || !allowed()) return true;
       const stamp = current(),
         form = button.closest?.("form");
       busy = true;
@@ -754,7 +810,7 @@ export function createImportUI(host) {
       return true;
     }
     if (action === "refresh-review") {
-      if (busy || !allowed()) return true;
+      if (blocked() || !allowed()) return true;
       const id = modal?.id,
         stamp = current(),
         form = button.closest?.("form");
@@ -785,7 +841,7 @@ export function createImportUI(host) {
   async function submit(form) {
     const kind = form.dataset.importForm;
     if (!kind) return false;
-    if (busy || !allowed()) return true;
+    if (blocked() || !allowed()) return true;
     const values = Object.fromEntries(new FormData(form));
     if (kind === "text") {
       await importText(values);
@@ -893,6 +949,7 @@ export function createImportUI(host) {
     return false;
   }
   function input(event) {
+    if (reprocessing.input(event)) return true;
     const target = event.target;
     if (target.id === "import-text") {
       text = target.value;
@@ -915,5 +972,5 @@ export function createImportUI(host) {
     }
     return false;
   }
-  return { render, click, submit, input, reset, load };
+  return { render, click, submit, input, reset, load, toggle: (event) => reprocessing.toggle(event) };
 }

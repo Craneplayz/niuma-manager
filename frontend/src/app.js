@@ -729,6 +729,9 @@ document.addEventListener("change", (e) => {
   } else return;
   render();
 });
+document.addEventListener("toggle", (event) => {
+  void imports.toggle(event);
+}, true);
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;

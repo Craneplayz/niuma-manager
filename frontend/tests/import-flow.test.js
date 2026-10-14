@@ -65,6 +65,10 @@ function fixture(scenario={}){
  globalThis.fetch=async(path,options={})=>{
   const method=options.method||'GET',body=options.body?JSON.parse(options.body):undefined;
   calls.push({path,method,body,account,signal:options.signal});
+  if(scenario.intercept){
+   const value=await scenario.intercept(path,body,method);
+   if(value!==undefined)return respond(value);
+  }
   if(path==='/api/auth/login'||path==='/api/auth/register'){account=body.email.split('@')[0];return respond({});}
   if(path==='/api/auth/me')return respond({user:{id:account,name:account,email:account+'@test.local'}});
   if(path==='/api/auth/logout')return respond({});
@@ -81,6 +85,8 @@ function fixture(scenario={}){
     const fixture=syncCases.find(item=>item.run.request_id===body.request_id);
     assert.ok(fixture,'the identifier must originate from a captured server fixture');
     assert.deepEqual(body,fixture.run,'teaching recognition accepts only the server-issued run identity');
+    const existing=batches[account].find(batch=>batch.request.request_id===body.request_id);
+    if(existing&&['success','no_tasks'].includes(existing.result.status))return respond(batches[account]);
     const failed=scenario.teachingFailOnce&&!teachingFailed;
     if(failed)teachingFailed=true;
     const result=failed?{...fixture.result,status:'failed',tasks:[],errors:[{code:'agent_timeout',message:'agent_timeout',retryable:true}]}:fixture.result;
@@ -89,8 +95,14 @@ function fixture(scenario={}){
    batches[account]=batches[account].filter(batch=>batch.request.request_id!==next.request.request_id);batches[account].push(next);return respond(batches[account]);
   }
   if(path.includes('/resolve')){
-   const found=batches[account].flatMap(b=>b.items).find(item=>path.includes(item.id));
-   if(found){found.state=body.action==='ignore'?'ignored':body.action==='reopen'?'pending':'applied';found.version++;}
+   const found=batches[account].flatMap(b=>b.items).find(item=>decodeURIComponent(path).includes(item.id));
+   if(found){
+    if(found.state==='pending'&&body.action==='create'){
+     const due=candidateDue(found.candidate.deadline);
+     workspaces[account].push({id:'task-'+found.id,title:found.candidate.title,description:found.candidate.description,course:found.candidate.course_or_project,source:'教学网',due:due.date?{date:due.date,precision:due.time?'datetime':'date',...(due.time?{time:due.time}:{})}:null,status:'not_started',plans:[],subtasks:[]});taskVersion++;
+    }
+    found.state=body.action==='ignore'?'ignored':body.action==='reopen'?'pending':'applied';found.version++;
+   }
    return respond({batches:batches[account]});
   }
   if(path==='/api/sources/sync')return scenario.syncError?reject(scenario.syncError):respond({requests:syncCases.map(item=>item.request),summary:{skipped:0}});
@@ -133,12 +145,15 @@ test('ignored candidates can be restored using the newest candidate version',asy
  assert.match(ui.render(),/data-import-review="candidate-A"/);
 });
 
-test('teaching collection recognizes each request without automatic task application',async()=>{
+test('teaching collection recognizes each request and uses server automatic task application without planning',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
  await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
  const sync=f.calls.find(call=>call.path==='/api/sources/sync');assert.deepEqual(sync.body,{sources:['teaching_web']});
  assert.deepEqual(f.calls.filter(call=>call.path==='/api/recognition/batches'&&call.method==='POST').map(call=>call.body),[teachingCase('date-only').run,teachingCase('no-deadline').run]);
- assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')||call.path.includes('/planning/')),false);
+ const applies=f.calls.filter(call=>call.path.endsWith('/resolve'));
+ assert.equal(applies.length,2);assert.ok(applies.every(call=>call.body.auto_apply===true&&call.body.version===1));
+ assert.equal(f.host.getState().tasks.length,2);
+ assert.equal(f.calls.some(call=>call.path.includes('/planning/')),false);
  assert.match(ui.render(),/采集完成/);
 });
 
@@ -197,14 +212,15 @@ test('real teaching candidates retain date-only, absent, and unknown-year deadli
  assert.equal(teachingCase('unknown-year').result.tasks[0].deadline.value,null);
 });
 
-test('a real teaching request with two tasks exposes independent review controls',async()=>{
+test('a real teaching request with two clear tasks applies each independently',async()=>{
  const source=teachingCase('two-tasks'),f=fixture({syncCases:[source]});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
  const html=ui.render();
  for(const candidate of source.result.tasks)assert.ok(html.includes(escapeHtml(candidate.title)));
- assert.ok(html.includes(`data-import-review="${source.run.request_id}:storage:0"`));
- assert.ok(html.includes(`data-import-review="${source.run.request_id}:storage:1"`));
- assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
+ assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,2);
+ assert.equal(f.host.getState().tasks.length,2);
+ assert.ok(f.host.getState().tasks.every(task=>task.status==='todo'));
+ assert.doesNotMatch(html,/data-import-review="[^"]+:storage:/);
 });
 
 test('retrying a real teaching failure also sends only the server run identity',async()=>{
@@ -215,7 +231,8 @@ test('retrying a real teaching failure also sends only the server run identity',
  await ui.click({dataset:{importRetry:source.run.request_id}});
  const calls=f.calls.filter(call=>['/api/recognition/batches','/api/recognition/retry'].includes(call.path)&&call.method==='POST');
  assert.deepEqual(calls.map(call=>({path:call.path,body:call.body})),[{path:'/api/recognition/batches',body:source.run},{path:'/api/recognition/retry',body:source.run}]);
- assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
+ const automatic=f.calls.filter(call=>call.path.endsWith('/resolve'));
+ assert.equal(automatic.length,1);assert.deepEqual(automatic[0].body,{action:'create',auto_apply:true,version:1});
 });
 
 test('configuration, credentials, and connection failures give different next steps',()=>{
@@ -260,4 +277,43 @@ test('credential storage errors remain visible in the connection dialog',async()
  const form=fakeForm('credentials',{username:'campus-user',password:'campus-password'});
  await ui.submit(form);assert.match(form.error.textContent,/缺少连接保存组件/);assert.equal(form.error.hidden,false);
  assert.doesNotMatch(form.error.textContent,/campus-user|campus-password/);
+});
+
+test('terminal reprocessing refresh keeps text and teaching imports blocked until results are current',{timeout:3000},async(t)=>{
+ const root='/api/recognition/reprocessing/',version='reprocessing/0.1';
+ const saved={input_id:'saved-notice',label:'合成保存通知',course_or_project:'测试课程',result_status:'success',policy_version:null};
+ let state='queued',created=false,operationId,blockRefresh=false,entered,release;
+ const ready=new Promise(resolve=>entered=resolve),waiting=new Promise(resolve=>release=resolve);
+ const run=()=>({
+  contract_version:version,run_id:'saved-run',operation_id:operationId,source_account_id:'saved-source',
+  state,revision:state==='queued'?1:2,created_at:'2026-10-14T12:00:00Z',updated_at:'2026-10-14T12:00:01Z',
+  counts:{total:1,queued:state==='queued'?1:0,running:0,succeeded:state==='succeeded'?1:0,failed:0,cancelled:0,interrupted:0,superseded:0},
+  records:[{input_id:saved.input_id,state,previous_available:true,old_result_retained:true,decision_summary:{preserved:0,replaced:0,new_pending:0,unresolved:0},policy_version:null,error:null}],
+ });
+ const f=fixture({async intercept(path,body,method){
+  if(path===root+'sources')return {contract_version:version,accounts:[{source_account_id:'saved-source',label:'已保存来源',records:[saved]}],next_cursor:null};
+  if(path===root+'runs'&&method==='GET')return {contract_version:version,runs:created?[run()]:[],next_cursor:null};
+  if(path===root+'runs'&&method==='POST'){created=true;operationId=body.operation_id;return run();}
+  if(path==='/api/workspace'&&blockRefresh){blockRefresh=false;entered();await waiting;}
+ }});
+ await f.login();
+ const ui=createImportUI(f.host);t.after(()=>{release();ui.reset();});await ui.load();
+ await ui.toggle({target:{open:true,isConnected:true,matches:selector=>selector==='[data-reprocess-panel]'}});
+ ui.input({target:{dataset:{reprocessRecord:saved.input_id},checked:true}});
+ await ui.click({dataset:{reprocessAction:'start'}});
+ assert.match(ui.render(),/排队中/);
+ state='succeeded';blockRefresh=true;
+ const refreshing=ui.click({dataset:{reprocessAction:'load'}});
+ await ready;
+ const before=f.calls.length;
+ await ui.submit(fakeForm('text',{text:'刷新期间的合成通知',published:'2026-10-14T12:00:00'}));
+ await ui.click({dataset:{importAction:'sync'}});
+ assert.equal(f.calls.length,before,'the completion refresh must retain the shared import lock');
+ release();await refreshing;
+ assert.match(ui.render(),/识别结果已刷新/);
+ await ui.submit(fakeForm('text',{text:'刷新完成后的合成通知',published:'2026-10-14T12:00:00'}));
+ await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
+ const writes=f.calls.slice(before).filter(call=>call.method==='POST');
+ assert.equal(writes.filter(call=>call.path==='/api/recognition/batches'&&call.body.contract_version==='0.2').length,1);
+ assert.equal(writes.filter(call=>call.path==='/api/sources/sync').length,1);
 });
