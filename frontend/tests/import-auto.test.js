@@ -314,7 +314,7 @@ check('stopping an active automatic resolve aborts it and prevents the remaining
   assert.equal(f.automaticCalls().length, 1);
   assert.equal(f.accounts.A.tasks.length, 0);
   assert.ok(f.accounts.A.batches[0].items.every(item => item.state === 'pending'));
-  assert.match(ui.render(), /已停止等待/);
+  assert.match(ui.render(), /已停止导入/);
   await sync(ui);
   assert.equal(f.accounts.A.tasks.length, 2);
   assert.equal(f.modelCalls.length, 1, 'resume uses the saved recognition result');
@@ -328,7 +328,7 @@ check('a recognition response arriving after stop cannot start automatic writes'
   assert.equal(f.automaticCalls().length, 0);
   assert.equal(f.accounts.A.tasks.length, 0);
   assert.equal(f.modelCalls.length, 1, 'the remote recognition may finish after stopping the wait');
-  assert.match(ui.render(), /已停止等待/);
+  assert.match(ui.render(), /已停止导入/);
 });
 
 check('switching accounts prevents a late response from auto-applying or exposing the previous account', async () => {
