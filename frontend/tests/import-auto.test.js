@@ -260,6 +260,8 @@ check('retrying a failed background record sends only stored request identity an
   const entry = teaching(), f = fixture({failedRequests: [entry.run.request_id]}), ui = await ready(f, t);await sync(ui);
   const failedRun = f.accounts.A.runs[0];assert.equal(f.state.tasks.length, 1);
   assert.doesNotMatch(ui.render(), new RegExp(`data-import-retry="${entry.run.request_id}"`));
+  assert.doesNotMatch(ui.render(), /import-failure|历史导入 · 识别未完成/);
+  assert.doesNotMatch(ui.render().split('class="import-results"')[1], /已处理 ·|class="error"/);
   await ui.click({dataset: {sourceSyncAction: 'retry', sourceSyncRun: failedRun.run_id, sourceSyncRequest: entry.run.request_id}});
   const retry = f.calls.find(call => call.path.endsWith('/retry'));
   assert.deepEqual(retry.body.request_ids, [entry.run.request_id]);assert.equal(Object.hasOwn(retry.body, 'records'), false);

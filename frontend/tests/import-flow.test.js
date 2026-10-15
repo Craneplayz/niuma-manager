@@ -250,7 +250,7 @@ test('a teaching run with two server-created tasks refreshes both as normal task
  const source=teachingCase('two-tasks'),f=fixture({syncCases:[source]});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
  const html=ui.render();
- for(const candidate of source.result.tasks)assert.ok(html.includes(escapeHtml(candidate.title)));
+ assert.doesNotMatch(html.split('class="import-results"')[1],/已处理 ·|:storage:/);
  assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,0);
  assert.equal(f.host.getState().tasks.length,2);
  assert.ok(f.host.getState().tasks.every(task=>task.status==='todo'));
@@ -261,8 +261,11 @@ test('retrying a saved teaching failure outside background runs sends its identi
  const source=teachingCase('date-only'),f=fixture({syncCases:[source]});
  f.batches.A.push({request:structuredClone(source.request),result:{...structuredClone(source.result),status:'failed',tasks:[],errors:[{code:'agent_timeout',message:'agent_timeout',retryable:true}]},items:[]});
  await f.login();const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});
- assert.ok(ui.render().includes(`data-import-retry="${source.run.request_id}"`));
- assert.match(ui.render(),/识别服务连接失败或超时/);
+ const html=ui.render();
+ assert.match(html,/<details class="import-history"><summary>历史导入 · 识别未完成 1<\/summary>/);
+ assert.ok(html.includes(`data-import-retry="${source.run.request_id}"`));
+ assert.match(html,/识别服务连接失败或超时/);
+ assert.doesNotMatch(html.split('class="import-results"')[1],/import-failure|data-import-retry/);
  await ui.click({dataset:{importRetry:source.run.request_id}});
  const calls=f.calls.filter(call=>['/api/recognition/batches','/api/recognition/retry'].includes(call.path)&&call.method==='POST');
  assert.deepEqual(calls.map(call=>({path:call.path,body:call.body})),[{path:'/api/recognition/retry',body:source.run}]);
