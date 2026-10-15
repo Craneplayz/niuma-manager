@@ -125,6 +125,7 @@ function fixture({entries = [teaching(), teaching('no-deadline')], manualRequest
       if (body.version !== db.version) return rejection(409, '任务已变化');
       db.tasks = clone(body.value);db.version++;return response({version: db.version});
     }
+    if (path === '/api/sources/sync-schedule') return response({contract_version:'source-sync/0.1', enabled:false, available:true, interval_minutes:180, revision:0});
     if (path === '/api/sources/credentials') {
       await pause('credentials', call);
       return response({configured: true, username: `${who}-campus`});
@@ -190,7 +191,7 @@ function makeUI(f, t) {
 async function ready(f, t) {
   await f.login();const ui = makeUI(f, t);await ui.load();await ui.loadSourceSync();await ui.click({dataset: {importSource: 'teaching'}});await new Promise(r=>setImmediate(r));return ui;
 }
-const sync = async ui => {ui.input({target:{id:'teaching-sync-consent',checked:true}});return ui.click({dataset: {importAction: 'sync'}});};
+const sync = async ui => {return ui.click({dataset: {importAction: 'sync'}});};
 const noClientRecognition = f => {
   assert.equal(f.calls.some(call => call.path === '/api/sources/sync' || call.path.endsWith('/resolve') || call.path.includes('/planning/')), false);
   assert.equal(f.calls.some(call => call.method === 'POST' && ['/api/recognition/batches','/api/recognition/retry'].includes(call.path) && call.body.contract_version !== '0.2'), false);
