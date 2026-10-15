@@ -141,16 +141,6 @@
   font-size: 10px;
 }
 
-.calendar-kind-key {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 18px;
-  margin: 0 0 16px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.8;
-}
-
 .calendar-view .calendar-task-title {
   display: block;
   min-width: 0;
