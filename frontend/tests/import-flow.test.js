@@ -387,3 +387,43 @@ test('a delayed ordinary refresh cannot replace newer background recognition res
  assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
  assert.match(ui.render(),/data-import-reopen="candidate-A"/);
 });
+
+test('active teaching sync permits navigation, text recognition and candidate review but not another sync',async(t)=>{
+ const {syncRun}=await import('./sync-fixtures.js');
+ const f=fixture({intercept(path,body,method){
+  if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[syncRun({state:'recognizing',states:['running']})]};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.loadSourceSync();
+ await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));
+ let html=ui.render();
+ assert.match(html,/data-import-action="sync" disabled/);
+ assert.match(html,/data-import-action="credentials" disabled/);
+ assert.doesNotMatch(html,/data-import-(?:review|ignore)="candidate-A" disabled/);
+ for(const name of ['text','files','public','teaching']) {
+  await ui.click({dataset:{importSource:name}});
+  if(name==='text')assert.match(ui.render(),/data-import-form="text"/);
+  if(name==='files')assert.match(ui.render(),/id="material-files"/);
+  if(name==='public')assert.match(ui.render(),/data-public-action="start"/);
+ }
+ await ui.click({dataset:{importReview:'candidate-A'}});assert.match(f.dialog,/核对任务/);
+ const form=fakeForm('review',{action:'create',title:'提交报告',description:'明确要求',course:'概率论',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});
+ await ui.submit(form);assert.equal(f.state.tasks.length,1);assert.equal(f.dialog,'');
+ await ui.submit(fakeForm('text',{text:'独立文本识别',published:'2026-10-14T12:00:00'}));
+ ui.input({target:{id:'teaching-sync-consent',checked:true}});await ui.click({dataset:{importAction:'sync'}});
+ assert.equal(f.calls.filter(c=>c.path==='/api/recognition/batches'&&c.method==='POST').length,1);
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/sync-runs'&&c.method==='POST').length,0);
+});
+
+test('a delayed background read cannot resurrect a candidate resolved during sync',async(t)=>{
+ const {syncRun}=await import('./sync-fixtures.js');
+ const f=fixture({intercept(path,body,method){
+  if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[syncRun({state:'recognizing',states:['running']})]};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const gate=f.defer(),reading=ui.loadSourceSync();t.after(gate.release);await gate.entered;
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ gate.release();await reading;
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+ assert.doesNotMatch(ui.render(),/导入结果已保存，刷新失败/);
+});
