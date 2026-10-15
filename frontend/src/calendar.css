@@ -42,7 +42,7 @@
 }
 
 .calendar-view .calendar-day.is-selected {
-  background: var(--calendar-selected, #eef3f6);
+  background: #eef3f6;
 }
 
 .calendar-view .calendar-month-grid .calendar-day {
@@ -79,7 +79,7 @@
 
 .calendar-view .is-today .calendar-day-number {
   color: var(--ink);
-  background: var(--calendar-today, #e6edf2);
+  background: #e6edf2;
   font-weight: 650;
 }
 
@@ -410,11 +410,6 @@
   line-height: 1.7;
 }
 
-.day-panel {
-  padding-left: 26px;
-  border-left: 1px solid var(--line);
-}
-
 .calendar-pane-switch {
   display: inline-flex;
   align-items: center;
@@ -607,9 +602,6 @@
   }
 
   .day-panel {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 24px 0 0;
     margin-top: 26px;
   }
 }

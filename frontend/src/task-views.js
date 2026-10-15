@@ -61,7 +61,7 @@ export function renderTaskList(
   return `<div class="task-list">${groupTasks(tasks, today)
     .map(
       (group) =>
-        `<section class="task-group tone-${group.tone}"><h2 class="task-group-heading">${labels?.[group.tone] || group.label}<span>${group.tasks.length}</span></h2>${group.tasks.map((task) => renderTaskRow(task, options)).join("")}</section>`,
+        `<section class="task-group"><h2 class="task-group-heading">${labels?.[group.tone] || group.label}<span>${group.tasks.length}</span></h2>${group.tasks.map((task) => renderTaskRow(task, options)).join("")}</section>`,
     )
     .join("")}</div>`;
 }
