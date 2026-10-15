@@ -16,6 +16,7 @@ import recognition
 import source_sync
 import teaching
 import usage
+import task_relations
 
 CONCURRENCY = 4
 RUN_LIMIT = 4
@@ -274,6 +275,7 @@ def process(path, uid, run_id, ApiError):
                 with connection(path) as db:
                     response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
                                                    guard=lambda current: guard(current, uid, run_id, ApiError))
+                    task_relations.refresh_completions(db,uid)
                     if len(response['requests']) > 1000: raise ApiError(413,'单轮待识别通知超过 1000 条，请缩小采集范围')
                     run = get(db, uid, run_id, ApiError)
                     run['records'] = [record(r) for r in response['requests']]
@@ -308,6 +310,8 @@ def process(path, uid, run_id, ApiError):
                 bad = any(r['state'] != 'succeeded' for r in run['records'])
                 good = any(r['state'] == 'succeeded' for r in run['records'])
                 save(db, run, ('partial_success' if good else 'failed') if bad else 'succeeded')
+                relation_job=task_relations.start(db,uid,'sync:'+run_id) if run['state'] in ('succeeded','partial_success') else None
+            task_relations.launch(path,uid,relation_job,ApiError)
     except Exception as exc:
         with connection(path) as db:
             db.execute('BEGIN IMMEDIATE')

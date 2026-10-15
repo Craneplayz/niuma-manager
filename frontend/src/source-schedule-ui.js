@@ -52,7 +52,7 @@ export function syncSchedulePanel(){
  <label><input type="checkbox" data-sync-schedule-field="enabled" ${draft.enabled?'checked':''} ${disabled||!state.available&&!draft.enabled?'disabled':''}>启用定时同步</label>
  <label>同步间隔（分钟）<input type="number" min="15" max="10080" step="1" data-sync-schedule-field="minutes" value="${esc(draft.minutes)}" ${blocked?'disabled':''}></label>
  <label><input type="checkbox" data-sync-schedule-field="teaching" ${draft.teaching?'checked':''} ${blocked?'disabled':''}>教学网</label>
- <label class="source-import-consent"><input type="checkbox" data-sync-schedule-field="consent" ${draft.consent?'checked':''} ${blocked?'disabled':''}>我同意定期获取上述来源，并将待识别内容发送给识别服务。</label>
+ <label class="source-import-consent"><input type="checkbox" data-sync-schedule-field="consent" ${draft.consent?'checked':''} ${blocked?'disabled':''}>我同意定期获取上述来源，与当前账号内相关已保存内容一起发送给识别服务，用于识别及跨来源关联。</label>
  <button class="btn" data-sync-schedule-action="save" ${disabled?'disabled':''}>${saving?'正在保存…':'保存定时设置'}</button>
  <p>${state.enabled&&state.available&&state.next_run_at?'下次同步：'+esc(new Date(state.next_run_at*1000).toLocaleString()):'当前没有启用可运行的定时计划。'} 同步进度和失败记录见下方。</p>`:'<p>正在读取设置…</p>'}</section>`;
 }

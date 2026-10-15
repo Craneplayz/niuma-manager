@@ -1,0 +1,65 @@
+{
+  "description": "合成行为验收数据；expected 是人工判定，不是模型输出。action ID 代表独立交付，source ID 代表来源。",
+  "cases": [
+    {
+      "name": "same_chapter_distinct_deliveries",
+      "nodes": [
+        {"id":"a","kind":"task","text":"算法第4章书面作业，提交PDF到教学网。"},
+        {"id":"b","kind":"task","text":"算法第4章在线编程作业，提交到CodeJudge。"},
+        {"id":"c","kind":"task","text":"算法第4章网络测验，在MOOC作答。"}
+      ],
+      "expected": {"groups":[]}
+    },
+    {
+      "name": "many_content_pages_one_delivery",
+      "nodes": [
+        {"id":"a","kind":"task","text":"实验原理 第12次研讨题与报告题；附件实验原理-第12次.pdf。","course":"实验原理"},
+        {"id":"b","kind":"candidate","text":"实验原理 第13次研讨题与报告题；附件实验原理-第13次.pdf。","course":"实验原理"},
+        {"id":"s","kind":"source","text":"第12-13次报告，附件实验原理-第12次.pdf、实验原理-第13次.pdf；只提交报告题，不做研讨题。截止2026-11-08 18:00。","course":"实验实践班","submission_state":"active"}
+      ],
+      "expected":{"groups":[["a","b"]],"due":"2026-11-08","due_time":"18:00","apply":true,"complete_sources":["s"],"manual_scope_check":"最终内容明确排除研讨题"}
+    },
+    {
+      "name": "only_receiving_page_submitted",
+      "nodes": [
+        {"id":"a","kind":"candidate","text":"产品方案甲：规格设计稿甲.pdf，按交付单提交设计稿。","submission_state":"unknown"},
+        {"id":"b","kind":"candidate","text":"产品方案乙：规格设计稿乙.pdf，按交付单提交设计稿。","submission_state":"unknown"},
+        {"id":"s","kind":"source","text":"交付单D7：一次提交规格设计稿甲.pdf与规格设计稿乙.pdf，截止2026-12-01。","submission_state":"submitted"}
+      ],
+      "expected":{"groups":[["a","b"]],"complete_sources":["s"],"due":"2026-12-01","due_time":null,"apply":true}
+    },
+    {
+      "name": "independent_action_survives_submission",
+      "nodes": [
+        {"id":"a","kind":"candidate","text":"项目8：完成报告并在报告入口提交。"},
+        {"id":"b","kind":"task","text":"项目8：下周参加现场安全培训并签到；与报告提交相互独立。"},
+        {"id":"s","kind":"source","text":"项目8报告提交入口，仅收报告，不覆盖安全培训签到。","submission_state":"submitted"}
+      ],
+      "expected":{"groups":[["a"]],"complete_sources":["s"],"apply":true}
+    },
+    {
+      "name":"explicit_deadline_update",
+      "nodes":[
+        {"id":"a","kind":"task","text":"实验9报告截止2026-11-02 18:00，提交教学网。","published_at":"2026-10-20"},
+        {"id":"b","kind":"candidate","text":"更正：实验9报告提交截止改为2026-11-04 20:00，原11月2日时间作废。","published_at":"2026-10-25"}
+      ],
+      "expected":{"groups":[["a","b"]],"due":"2026-11-04","due_time":"20:00","apply":true}
+    },
+    {
+      "name":"identical_title_different_round",
+      "nodes":[
+        {"id":"a","kind":"task","text":"2025秋概率课作业1，提交概率平台。","course_term":"2025秋"},
+        {"id":"b","kind":"task","text":"2026秋概率课作业1，提交概率平台。","course_term":"2026秋"}
+      ],
+      "expected":{"groups":[]}
+    },
+    {
+      "name":"unresolved_conflicting_instructions",
+      "nodes":[
+        {"id":"a","kind":"task","text":"热学作业5，发给助教，截止11月8日；未标发布年份或发布时间。"},
+        {"id":"b","kind":"candidate","text":"热学作业5，发给助教，截止11月10日；未标发布年份或发布时间，也没有更正说明。"}
+      ],
+      "expected":{"groups":[["a","b"]],"review":true}
+    }
+  ]
+}

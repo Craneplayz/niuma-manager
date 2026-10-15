@@ -17,6 +17,7 @@ import planning
 import source_sync
 import source_jobs
 import submission_runtime
+import task_relations
 import public_sources
 import source_schedule
 import wechat_media
@@ -72,6 +73,7 @@ def initialize(recover=True):
         if manual_materials.enabled():
             manual_materials.initialize(db,recover=recover and not wechat_enabled())
         task_decomposition.initialize(db)
+        task_relations.initialize(db,recover=recover)
     if recover and wechat_enabled() and runtime_environment.allow_background_recovery():
         wechat_media.resume(DB)
 
@@ -234,6 +236,7 @@ class Handler(BaseHTTPRequestHandler):
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if submission_runtime.route(self,db,uid,path,body,ApiError): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
+            if task_relations.route(self,db,uid,path,body,ApiError,DB): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
@@ -331,6 +334,7 @@ class Handler(BaseHTTPRequestHandler):
                     old=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
                     self.usage_tasks=json.loads(old['value']) if old else []
                     submission_runtime.manual_task_write(db,uid,value)
+                    task_relations.manual_write(db,uid,value)
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 return self.reply(200,dict(version=version+1))
             if path=='/api/planning/proposals' and self.command=='POST':

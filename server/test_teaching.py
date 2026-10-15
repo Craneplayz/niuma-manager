@@ -121,6 +121,10 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertEqual(evidence['platform'],'teaching_web')
 
     def setUp(self):
+        import task_relations
+        from contracts.task_relations import VERSION
+        relation_patch=patch.object(task_relations,'model',side_effect=lambda r:dict(contract_version=VERSION,context_digest=r['context_digest'],groups=[]))
+        relation_patch.start();self.addCleanup(relation_patch.stop)
         self.tmp=tempfile.TemporaryDirectory(); self.old_db=app.DB
         # Crawler execution is mocked below; its availability check must not
         # depend on a developer's node_modules (the server CI does not install it).
@@ -139,6 +143,8 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.drafts={}
 
     def tearDown(self):
+        import task_relations
+        task_relations.wait_for_jobs(app.DB)
         self.server.shutdown(); self.server.server_close();self.thread.join();app.DB=self.old_db;self.tmp.cleanup()
 
     def call(self,path,body=None):

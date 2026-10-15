@@ -6,6 +6,7 @@
 
 ```text
 ddl_text/
+├── task_relations.py      # 独立后台关联模型调用、限时与一次格式修复
 ├── README.md             # 模块用途、运行和检查入口
 ├── __init__.py           # Python 包入口
 ├── __main__.py           # CLI 参数、输入文件和输出
@@ -40,6 +41,8 @@ ddl_text/
 ├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
+│   ├── task-relations/
+│   │   └── SKILL.md      # 按实际交付判断重复、互补、更正与精确完成覆盖
 │   ├── teaching-file-reading/
 │   │   └── SKILL.md      # 教学网附件逐页阅读、可见文字和质量缺口
 │   ├── teaching-task-extraction/
@@ -53,6 +56,8 @@ ddl_text/
 │           ├── examples.md     # 识别正反例
 │           └── time-sources.md # 日期规则的参考资料
 ├── tests/                # 离线单元测试及本机模拟服务测试
+│   ├── test_task_relations.py # 关联契约、伪造引用、重复输出及超时边界
+│   ├── run_relations_smoke.py # 共享合成场景经真实模型的显式验收
 │   ├── fixtures/         # 模块内部回放数据，跨模块 v0.2 样例另见 contracts/
 │   │   ├── text-contract-v0.1.json # 旧 CLI 的 17 个契约回归样例
 │   │   ├── text-runner-config.json # CLI 运行参数样例
@@ -101,6 +106,7 @@ ddl_text/
     ├── policy-version.md # #112 规则版本使用方式与后端重识别交接
     ├── teaching-draft.md # 教学网 v0.4 调用、信任边界、策略版本和接入依赖
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
+        ├── 2026-10-15-task-relations-live.json # 七组跨来源关联的合成输入和真实模型输出
         ├── 2026-10-06-issue94-images.json # 最初五组生成图片的真实模型输入、草稿与输出
         ├── 2026-10-06-issue94-chinese-images.json # 五组中文合成图片的真实输入、草稿与输出
         ├── 2026-10-06-issue94-pdf.json # PDF 合成测试的真实输入、草稿与输出
@@ -117,6 +123,8 @@ ddl_text/
 新增可选 [v0.3.1 附件识别入口](docs/image-input.md)：支持静态 JPG/PNG、普通 PDF 可见页面、DOCX 正文/表格/内嵌图片和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，文件证据依正式契约保留待审核。
 
 ## 输入输出与规则
+
+教学网跨来源关联使用独立 [关联 skill](skills/task-relations/SKILL.md) 与 [task-relations/0.1](../contracts/docs/task-relations-v0.1.md)，由服务端在同步后运行；输入上下文检索、事务写入及用户决定保护不由模型负责。真实模型验收见 [合成输入输出](docs/archive/2026-10-15-task-relations-live.json)。
 
 - [共享接口协议](../docs/backend-harness-alignment.md)：v0.2 输入输出及确认流程。
 - [输入样例](../contracts/source-to-text/text-frontend-v02-request.json)、[离线草稿](tests/fixtures/text-frontend-v02-drafts.json)、[输出样例](../contracts/text-to-app/text-frontend-v02-output.json)；交接方向与文件说明见 [contracts](../contracts/README.md)。

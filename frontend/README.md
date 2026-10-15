@@ -35,6 +35,7 @@ frontend/
 │   ├── admin-usage.js        独立后台统计、日期筛选和反馈列表
 │   ├── admin-usage.css       独立后台的桌面与手机样式
 │   ├── import-ui.js          文本、教学网采集与候选核对
+│   ├── task-relations-ui.js  跨来源关联进度、依据、确认、保持分开和撤回
 │   ├── import-evidence.js    摘录、完整通知、来源链接和失败身份
 │   ├── reprocessing-ui.js   已保存通知选择、重识别进度与停止
 │   ├── materials-ui.js       主动上传、文件任务恢复及失败重试
@@ -55,6 +56,8 @@ frontend/
 │   ├── id.js                 浏览器兼容的随机任务 ID
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
+│   ├── task-relations.test.js 关联状态恢复、账号隔离、安全渲染和操作
+│   ├── relations-smoke.mjs  同步后自动整合、提交完成、证据及撤回的浏览器验收
 │   ├── task-model.test.js    筛选、截止分组、月周日历和安全渲染
 │   ├── import-flow.test.js   通知时间、候选确认、教学网和账号隔离
 │   ├── import-auto.test.js   后台导入、幂等恢复、停止与账号隔离
@@ -76,6 +79,8 @@ frontend/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
     ├── screenshots/
+    │   ├── task-relations-desktop.png 跨来源整合与依据的桌面验收
+    │   ├── task-relations-mobile.png  跨来源整合与依据的手机验收
     │   ├── task-list-desktop.jpg
     │   ├── calendar-desktop.jpg
     │   ├── calendar-mobile.jpg
@@ -99,6 +104,9 @@ frontend/
 ```
 
 ## 新入口与验收
+
+- 教学网同步后自动分析当前账号的相关原文、任务和提交状态；“跨来源整合”可查看证据、确认疑点、保持分开、撤回及重新分析，不阻塞其他导入入口。
+- `node tests/relations-smoke.mjs` 使用下述相同依赖与临时服务验证关联完整流程；环境变量用法同 `interface-smoke.mjs`，截图为 `task-relations-*.png`。
 
 - 导入 → 教学网：同意后启动后台同步；刷新可恢复进度，失败记录可单条或批量重试，缺正文/附件时重新获取来源。
 - 同页“定时同步”：设置 15～10080 分钟间隔并明确同意；管理员须先在环境配置启用 `scheduled_sync`，关闭页面仍执行。

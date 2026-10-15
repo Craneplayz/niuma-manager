@@ -84,6 +84,8 @@ def recognize(request, ApiError):
 
 
 def initialize(db):
+    import task_relations
+    task_relations.initialize(db)
     usage.initialize(db)
     db.executescript('''
     CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
@@ -173,6 +175,8 @@ def route(handler,db,uid,path,body,ApiError):
                 request=teaching.request_view(request)
             record=next((r for r in request.get('records',[]) if r.get('input_id')==item.get('input_id')),{})
             evidence.append(dict(action=history.get('action'),quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
+        import task_relations
+        evidence.extend(task_relations.evidence_entries(db,uid,task['id']))
         handler.reply(200,dict(evidence=evidence));return True
     if path=='/api/recognition/imports' and handler.command=='POST':
         ids=body.get('request_ids')
@@ -349,6 +353,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
                 target['sourceRequirements']=c['prerequisites']
         else: target['status']='cancelled'
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
+        import task_relations
+        if auto: task_relations.remember(db,uid,target)
+        else: task_relations.manual_write(db,uid,tasks)
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))

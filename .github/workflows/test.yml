@@ -19,6 +19,7 @@ jobs:
       - run: python contracts/check_v031_examples.py
       - run: python contracts/check_v03_examples.py
       - run: python -m contracts.public_import --check
+      - run: python -m contracts.task_relations --check
       - run: python -m unittest discover -s contracts/tests -p 'test_*.py' -v
 
   text:

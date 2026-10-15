@@ -1,0 +1,442 @@
+{
+  "model": "deepseek/deepseek-v4.1-flash",
+  "synthetic": true,
+  "cases": [
+    {
+      "name": "same_chapter_distinct_deliveries",
+      "input": [
+        {
+          "id": "a",
+          "kind": "task",
+          "text": "算法第4章书面作业，提交PDF到教学网。"
+        },
+        {
+          "id": "b",
+          "kind": "task",
+          "text": "算法第4章在线编程作业，提交到CodeJudge。"
+        },
+        {
+          "id": "c",
+          "kind": "task",
+          "text": "算法第4章网络测验，在MOOC作答。"
+        }
+      ],
+      "expected": {
+        "groups": []
+      },
+      "output": {
+        "contract_version": "task-relations/0.1",
+        "context_digest": "85ad601545acc36c01f1cd2fc75b4ca02c4ecaf43f12cca5a7d15159d3422306",
+        "groups": []
+      },
+      "errors": []
+    },
+    {
+      "name": "many_content_pages_one_delivery",
+      "input": [
+        {
+          "id": "a",
+          "kind": "task",
+          "text": "实验原理 第12次研讨题与报告题；附件实验原理-第12次.pdf。",
+          "course": "实验原理"
+        },
+        {
+          "id": "b",
+          "kind": "candidate",
+          "text": "实验原理 第13次研讨题与报告题；附件实验原理-第13次.pdf。",
+          "course": "实验原理"
+        },
+        {
+          "id": "s",
+          "kind": "source",
+          "text": "第12-13次报告，附件实验原理-第12次.pdf、实验原理-第13次.pdf；只提交报告题，不做研讨题。截止2026-11-08 18:00。",
+          "course": "实验实践班",
+          "submission_state": "active"
+        }
+      ],
+      "expected": {
+        "groups": [
+          [
+            "a",
+            "b"
+          ]
+        ],
+        "due": "2026-11-08",
+        "due_time": "18:00",
+        "apply": true,
+        "complete_sources": [
+          "s"
+        ],
+        "manual_scope_check": "最终内容明确排除研讨题"
+      },
+      "output": {
+        "contract_version": "task-relations/0.1",
+        "context_digest": "71980101843e405e44de9c86d7970ec8e7120ce81a2c0cf9e9df7327d84053e9",
+        "groups": [
+          {
+            "relation": "combine",
+            "disposition": "apply",
+            "members": [
+              "a",
+              "b",
+              "s"
+            ],
+            "result": {
+              "title": "实验原理 第12-13次报告（提交入口：实验实践班）",
+              "description": "完成并提交实验原理第12次、第13次报告题，附件为实验原理-第12次.pdf、实验原理-第13次.pdf。提交入口只收报告题，研讨题不需要提交。截止2026-11-08 18:00。",
+              "course": "实验原理",
+              "content_type": "task",
+              "due": {
+                "date": "2026-11-08",
+                "time": "18:00"
+              }
+            },
+            "reason": "提交入口明确列出第12、13次两份同一附件材料，并限定范围只收报告题；两者共享一个提交入口和同一截止时间，合并为一次交付。研讨题被提交要求明确排除，故不纳入。",
+            "evidence": [
+              {
+                "node_id": "a",
+                "quote": "实验原理 第12次研讨题与报告题；附件实验原理-第12次.pdf。"
+              },
+              {
+                "node_id": "b",
+                "quote": "实验原理 第13次研讨题与报告题；附件实验原理-第13次.pdf。"
+              },
+              {
+                "node_id": "s",
+                "quote": "第12-13次报告，附件实验原理-第12次.pdf、实验原理-第13次.pdf；只提交报告题，不做研讨题。截止2026-11-08 18:00。"
+              }
+            ],
+            "completion": [
+              {
+                "source_id": "s",
+                "covers": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "errors": []
+    },
+    {
+      "name": "only_receiving_page_submitted",
+      "input": [
+        {
+          "id": "a",
+          "kind": "candidate",
+          "text": "产品方案甲：规格设计稿甲.pdf，按交付单提交设计稿。",
+          "submission_state": "unknown"
+        },
+        {
+          "id": "b",
+          "kind": "candidate",
+          "text": "产品方案乙：规格设计稿乙.pdf，按交付单提交设计稿。",
+          "submission_state": "unknown"
+        },
+        {
+          "id": "s",
+          "kind": "source",
+          "text": "交付单D7：一次提交规格设计稿甲.pdf与规格设计稿乙.pdf，截止2026-12-01。",
+          "submission_state": "submitted"
+        }
+      ],
+      "expected": {
+        "groups": [
+          [
+            "a",
+            "b"
+          ]
+        ],
+        "complete_sources": [
+          "s"
+        ],
+        "due": "2026-12-01",
+        "due_time": null,
+        "apply": true
+      },
+      "output": {
+        "contract_version": "task-relations/0.1",
+        "context_digest": "b6e1a1e413d070828b532d16d286c7ba165b4ad0915f7b9a6974bfcd2482b07b",
+        "groups": [
+          {
+            "relation": "combine",
+            "disposition": "apply",
+            "members": [
+              "a",
+              "b",
+              "s"
+            ],
+            "result": {
+              "title": "提交产品方案规格设计稿甲与设计稿乙",
+              "description": "按交付单D7，一次提交规格设计稿甲.pdf与规格设计稿乙.pdf两份材料。",
+              "course": null,
+              "content_type": "task",
+              "due": {
+                "date": "2026-12-01",
+                "time": null
+              }
+            },
+            "reason": "交付单D7明确要求一次提交规格设计稿甲.pdf与规格设计稿乙.pdf两份材料，两个候选分别描述其中一份设计稿，合并后为同一提交入口下的一次共同交付。",
+            "evidence": [
+              {
+                "node_id": "a",
+                "quote": "产品方案甲：规格设计稿甲.pdf，按交付单提交设计稿。"
+              },
+              {
+                "node_id": "b",
+                "quote": "产品方案乙：规格设计稿乙.pdf，按交付单提交设计稿。"
+              },
+              {
+                "node_id": "s",
+                "quote": "交付单D7：一次提交规格设计稿甲.pdf与规格设计稿乙.pdf，截止2026-12-01。"
+              }
+            ],
+            "completion": [
+              {
+                "source_id": "s",
+                "covers": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "errors": []
+    },
+    {
+      "name": "independent_action_survives_submission",
+      "input": [
+        {
+          "id": "a",
+          "kind": "candidate",
+          "text": "项目8：完成报告并在报告入口提交。"
+        },
+        {
+          "id": "b",
+          "kind": "task",
+          "text": "项目8：下周参加现场安全培训并签到；与报告提交相互独立。"
+        },
+        {
+          "id": "s",
+          "kind": "source",
+          "text": "项目8报告提交入口，仅收报告，不覆盖安全培训签到。",
+          "submission_state": "submitted"
+        }
+      ],
+      "expected": {
+        "groups": [
+          [
+            "a"
+          ]
+        ],
+        "complete_sources": [
+          "s"
+        ],
+        "apply": true
+      },
+      "output": {
+        "contract_version": "task-relations/0.1",
+        "context_digest": "7abe0485b069b8debbc33c3b394f0b651cb4290be109379a3dd6239f6ac61170",
+        "groups": [
+          {
+            "relation": "combine",
+            "disposition": "apply",
+            "members": [
+              "a",
+              "s"
+            ],
+            "result": {
+              "title": "项目8：完成报告并提交",
+              "description": "完成项目8报告，并在项目8报告提交入口提交。该提交入口仅收报告，不覆盖安全培训签到。",
+              "course": null,
+              "content_type": "task",
+              "due": null
+            },
+            "reason": "候选行动要求完成报告并提交，来源节点是同一项目8的报告提交入口且仅收报告；两者对应同一次报告交付，提交入口不覆盖独立的安全培训签到。",
+            "evidence": [
+              {
+                "node_id": "a",
+                "quote": "项目8：完成报告并在报告入口提交。"
+              },
+              {
+                "node_id": "s",
+                "quote": "项目8报告提交入口，仅收报告，不覆盖安全培训签到。"
+              }
+            ],
+            "completion": [
+              {
+                "source_id": "s",
+                "covers": [
+                  "a"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "errors": []
+    },
+    {
+      "name": "explicit_deadline_update",
+      "input": [
+        {
+          "id": "a",
+          "kind": "task",
+          "text": "实验9报告截止2026-11-02 18:00，提交教学网。",
+          "published_at": "2026-10-20"
+        },
+        {
+          "id": "b",
+          "kind": "candidate",
+          "text": "更正：实验9报告提交截止改为2026-11-04 20:00，原11月2日时间作废。",
+          "published_at": "2026-10-25"
+        }
+      ],
+      "expected": {
+        "groups": [
+          [
+            "a",
+            "b"
+          ]
+        ],
+        "due": "2026-11-04",
+        "due_time": "20:00",
+        "apply": true
+      },
+      "output": {
+        "contract_version": "task-relations/0.1",
+        "context_digest": "85aae68537638a62f85b463abf171474ea43f9269995789158ac6e8d710f3548",
+        "groups": [
+          {
+            "relation": "update",
+            "disposition": "apply",
+            "members": [
+              "a",
+              "b"
+            ],
+            "result": {
+              "title": "实验9报告",
+              "description": "提交实验9报告至教学网。原截止2026-11-02 18:00已作废，更正后的截止为2026-11-04 20:00。",
+              "course": null,
+              "content_type": "task",
+              "due": {
+                "date": "2026-11-04",
+                "time": "20:00"
+              }
+            },
+            "reason": "b明确更正a的实验9报告截止时间，并声明原11月2日时间作废。",
+            "evidence": [
+              {
+                "node_id": "a",
+                "quote": "实验9报告截止2026-11-02 18:00，提交教学网。"
+              },
+              {
+                "node_id": "b",
+                "quote": "更正：实验9报告提交截止改为2026-11-04 20:00，原11月2日时间作废。"
+              }
+            ],
+            "completion": []
+          }
+        ]
+      },
+      "errors": []
+    },
+    {
+      "name": "identical_title_different_round",
+      "input": [
+        {
+          "id": "a",
+          "kind": "task",
+          "text": "2025秋概率课作业1，提交概率平台。",
+          "course_term": "2025秋"
+        },
+        {
+          "id": "b",
+          "kind": "task",
+          "text": "2026秋概率课作业1，提交概率平台。",
+          "course_term": "2026秋"
+        }
+      ],
+      "expected": {
+        "groups": []
+      },
+      "output": {
+        "contract_version": "task-relations/0.1",
+        "context_digest": "b8725020a13c1e75eb5980fd6bee727bb2983ce46a18e1035eba6ffb6412a6b1",
+        "groups": []
+      },
+      "errors": []
+    },
+    {
+      "name": "unresolved_conflicting_instructions",
+      "input": [
+        {
+          "id": "a",
+          "kind": "task",
+          "text": "热学作业5，发给助教，截止11月8日；未标发布年份或发布时间。"
+        },
+        {
+          "id": "b",
+          "kind": "candidate",
+          "text": "热学作业5，发给助教，截止11月10日；未标发布年份或发布时间，也没有更正说明。"
+        }
+      ],
+      "expected": {
+        "groups": [
+          [
+            "a",
+            "b"
+          ]
+        ],
+        "review": true
+      },
+      "output": {
+        "contract_version": "task-relations/0.1",
+        "context_digest": "579546e7530c36734bb48ddd1f5eeec1b7572bf23d9d39e3e2ba6c7e560cfb8c",
+        "groups": [
+          {
+            "relation": "update",
+            "disposition": "review",
+            "members": [
+              "a",
+              "b"
+            ],
+            "result": {
+              "title": "热学作业5",
+              "description": "热学作业5，发给助教。两个来源分别给出截止11月8日和11月10日，且均未标注发布年份或发布时间，也没有更正说明，无法确定哪一日期有效。",
+              "course": "热学",
+              "content_type": "task",
+              "due": null
+            },
+            "reason": "两条来源均指向“热学作业5，发给助教”这一交付，但截止日期分别为11月8日和11月10日，均无发布年份/发布时间，也无明确更正指向，先后与有效要求不清楚。",
+            "evidence": [
+              {
+                "node_id": "a",
+                "quote": "热学作业5，发给助教，截止11月8日"
+              },
+              {
+                "node_id": "b",
+                "quote": "热学作业5，发给助教，截止11月10日"
+              }
+            ],
+            "completion": []
+          }
+        ]
+      },
+      "errors": []
+    }
+  ],
+  "skill_sha256": "b655fc56cf3320073df795ba603ac64ac52cdf7115f513689209f4c91d1c229f",
+  "tested_at": "2026-10-15",
+  "manual_checks": [
+    {
+      "case": "many_content_pages_one_delivery",
+      "check": "交付只包含两次报告题；研讨题明确不在提交范围",
+      "passed": true
+    }
+  ]
+}

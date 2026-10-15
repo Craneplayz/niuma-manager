@@ -31,6 +31,18 @@ GROUP = obj(dict(relation=dict(enum=['duplicate', 'combine', 'update']), disposi
 OUTPUT = dict(obj(dict(contract_version=dict(const=VERSION), context_digest=string(64, 64),
                        groups=dict(type='array', items=GROUP, maxItems=12))),
               **{'$schema': 'https://json-schema.org/draft/2020-12/schema'})
+API_LIST = obj(dict(contract_version=dict(const=VERSION),
+    jobs=dict(type='array',maxItems=10,items=obj(dict(id=ID,origin=string(200),
+        state=dict(enum=['running','succeeded','failed','interrupted','stopped']),
+        error=dict(anyOf=[dict(type='null'),string(1024)]),created_at=string(64)))),
+    proposals=dict(type='array',maxItems=100,items=obj(dict(id=ID,
+        state=dict(enum=['review','applied','ignored','undone']),result=GROUP,
+        before=dict(type='array',maxItems=MAX_NODES,items=dict(type='object')))))))
+
+
+def check_list(value):
+    Draft202012Validator(API_LIST).validate(value)
+    return value
 
 
 def canonical(value):
@@ -89,6 +101,8 @@ def check_pair(request, result):
         if not actions or used.intersection(actions):
             raise ValueError('missing or overlapping actions')
         used.update(actions)
+        if not group['result']['title'].strip() or not group['reason'].strip():
+            raise ValueError('empty title or reason')
         check_due(group['result']['due'])
         cited = set()
         for quote in group['evidence']:
@@ -114,8 +128,9 @@ def check_pair(request, result):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(); parser.add_argument('--check', action='store_true'); args = parser.parse_args()
-    path = Path(__file__).parent / 'schemas/task-relations-v0.1.schema.json'
-    text = json.dumps(OUTPUT, ensure_ascii=False, indent=2) + '\n'
-    if args.check:
-        if path.read_text(encoding='utf-8') != text: raise SystemExit('regenerate task-relations schema')
-    else: path.write_text(text, encoding='utf-8')
+    for name,schema in [('task-relations-v0.1',OUTPUT),('task-relations-list-v0.1',API_LIST)]:
+        path = Path(__file__).parent / ('schemas/'+name+'.schema.json')
+        text = json.dumps(schema, ensure_ascii=False, indent=2) + '\n'
+        if args.check:
+            if path.read_text(encoding='utf-8') != text: raise SystemExit('regenerate task-relations schema')
+        else: path.write_text(text, encoding='utf-8')

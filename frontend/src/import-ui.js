@@ -11,6 +11,7 @@ import { candidateEvidenceMarkup, failureSourcesMarkup } from "./import-evidence
 import { createReprocessingUI } from "./reprocessing-ui.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createSubmissionsUI } from "./submissions-ui.js";
+import { createTaskRelationsUI } from "./task-relations-ui.js";
 import { createPublicSourcesUI } from "./public-sources-ui.js";
 import { createSourceSyncUI } from "./source-sync-ui.js";
 import { configureSyncSchedule, resetSyncSchedule, syncSchedulePanel, syncScheduleInput, syncScheduleClick } from "./source-schedule-ui.js";
@@ -318,7 +319,7 @@ export function createImportUI(host) {
     isAuthenticated: () => Boolean(session.user && !session.changing),
     isImportBusy: () => busy || reprocessing.isBusy(),
     render: refresh,
-    onChanged: refreshResults,
+    onChanged: async current => { const result = await refreshResults(current); void relations.load(); return result; },
   });
   const syncIsActive = () => sourceSync.isBusy();
   const syncOwnsRequest = id => sourceSync.ownsRequest(id);
@@ -326,6 +327,8 @@ export function createImportUI(host) {
   const sourceSyncPanel = () => sourceSync.render();
   configureSyncSchedule({ render: refresh });
   const submissions = createSubmissionsUI({...host, isDemo: demo});
+  const relations = createTaskRelationsUI({...host, isDemo: demo, changed: refreshResults,
+    isVisible:()=>source==='teaching'&&(host.isImportVisible?.()??true)});
   const publicSources = createPublicSourcesUI({...host, isDemo: demo, isVisible:()=>source==='public'&&(host.isImportVisible?.()??true)});
   const materials = createMaterialsUI({
     ...host, isDemo: demo, isVisible: () => source === "files" && (host.isImportVisible?.() ?? true),
@@ -395,6 +398,7 @@ export function createImportUI(host) {
     sourceSync.reset(); resetSyncSchedule(); syncConsent = false;
     materials.reset();
     submissions.reset();
+    relations.reset();
     publicSources.reset();
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
@@ -417,7 +421,7 @@ export function createImportUI(host) {
     loading = false;
     loaded = true;
     refresh();
-    if (source === "teaching") void refreshSourceSync();
+    if (source === "teaching") { void refreshSourceSync(); void relations.load(); }
     if (source === "files") void materials.load();
     if (source === "public") void publicSources.load();
   }
@@ -452,7 +456,7 @@ export function createImportUI(host) {
     const failures = batches.filter((batch) =>
       !syncOwnsRequest(batch.request.request_id) && ["failed", "partial_success"].includes(batch.result?.status),
     );
-    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading"><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}">文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}">教学网</button><button type="button" class="btn ${source === "files" ? "selected" : "quiet"}" data-import-source="files" aria-pressed="${source === "files"}">图片与文件</button><button type="button" class="btn quiet" data-import-source="public">公开活动</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "public" ? publicSources.render() : source === "files" ? materials.render() : source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${blocked() || loading || syncIsActive() ? "disabled" : ""}>${syncIsActive() ? "后台同步中" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<label class="sync-consent"><input id="teaching-sync-consent" type="checkbox" ${syncConsent ? "checked" : ""}>我同意获取教学网所选内容（含附件），并发送给识别服务。</label><button class="btn quiet" type="button" data-import-action="credentials" ${credentialsBlocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}${source === "teaching" && !demo() ? syncSchedulePanel() + sourceSyncPanel() + submissions.render() : ""}${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map((batch) => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${batch.request.contract_version === "0.3.1" ? `<button class="btn quiet" data-import-source="files">查看文件处理</button>` : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}</section>${reprocessing.render()}</div>`;
+    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading"><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}">文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}">教学网</button><button type="button" class="btn ${source === "files" ? "selected" : "quiet"}" data-import-source="files" aria-pressed="${source === "files"}">图片与文件</button><button type="button" class="btn quiet" data-import-source="public">公开活动</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "public" ? publicSources.render() : source === "files" ? materials.render() : source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${blocked() || loading || syncIsActive() ? "disabled" : ""}>${syncIsActive() ? "后台同步中" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<label class="sync-consent"><input id="teaching-sync-consent" type="checkbox" ${syncConsent ? "checked" : ""}>我同意获取教学网所选内容（含附件），与当前账号内相关已保存内容一起发送给识别服务，用于识别及跨来源关联。</label><button class="btn quiet" type="button" data-import-action="credentials" ${credentialsBlocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}${source === "teaching" && !demo() ? syncSchedulePanel() + sourceSyncPanel() + relations.render() + submissions.render() : ""}${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map((batch) => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${batch.request.contract_version === "0.3.1" ? `<button class="btn quiet" data-import-source="files">查看文件处理</button>` : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}</section>${reprocessing.render()}</div>`;
   }
   function dialogHeader(title) {
     return `<header class="dialog-header"><h2>${esc(title)}</h2><button class="icon-button" type="button" data-import-action="close" aria-label="关闭">${host.icon("close")}</button></header>`;
@@ -726,13 +730,14 @@ export function createImportUI(host) {
     if (d.syncScheduleAction) { if (allowed()) await syncScheduleClick(button); return true; }
     if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
     if (d.submissionAction) { if (allowed()) await submissions.click(button); return true; }
+    if (d.relationAction) { if (allowed()) await relations.click(button); return true; }
     if (d.publicAction) { if (allowed()) await publicSources.click(button); return true; }
     if (d.reprocessAction) return reprocessing.click(button);
     if (d.importSource) {
         source = d.importSource;
         error = "";
         notice = "";
-        if (source === "teaching" && allowed()) void refreshSourceSync();
+        if (source === "teaching" && allowed()) { void refreshSourceSync(); void relations.load(); }
         if (source === "files" && allowed()) void materials.load();
         if (source === "public" && allowed()) void publicSources.load();
         refresh();
@@ -989,5 +994,5 @@ export function createImportUI(host) {
     sourceSync.setVisible(visible);
     reprocessing.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || reprocessing.toggle(event) };
+  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => relations.toggle(event) || sourceSync.toggle(event) || reprocessing.toggle(event) };
 }

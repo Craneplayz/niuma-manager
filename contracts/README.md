@@ -2,6 +2,11 @@
 
 ```text
 contracts/
+├── task_relations.py                # 跨来源关联结构、证据引用、完成覆盖及列表校验
+├── schemas/task-relations-v0.1.schema.json # 模型关联结果的独立根 Schema
+├── schemas/task-relations-list-v0.1.schema.json # 关联运行与提案列表的独立根 Schema
+├── examples/task-relations-v01.json  # 独立交付、跨课程、多对一、更正与完成范围合成样例
+├── docs/task-relations-v0.1.md       # 账号范围、模型职责、自动写入、撤回及 API
 ├── README.md                         # 交接方向、样例用途及校验入口
 ├── public_import.py                  # 公开活动采集、预览、选择导入的独立根及一致性校验
 ├── schemas/public-import-v0.1.schema.json # 公开活动自包含 Schema 包

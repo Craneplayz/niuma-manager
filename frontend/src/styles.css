@@ -1711,3 +1711,11 @@ dialog p {
 .public-sources .check-field { display:flex; align-items:flex-start; gap:10px; margin:16px 0; }
 .public-sources .check-field input { flex:none; margin-top:4px; }
 .public-sources .check-field small { display:block; margin-top:5px; line-height:1.6; }
+.relation-panel { overflow-wrap:anywhere; }
+.relation-panel .candidate-row { color:var(--ink); font-size:15px; line-height:1.6; }
+.relation-panel blockquote { margin:12px 0; padding-left:14px; border-left:3px solid var(--line); }
+.relation-panel .btn { margin:8px 8px 8px 0; }
+@media (max-width:700px) {
+  .teaching-import .import-form-actions { flex-wrap:wrap; }
+  .teaching-import .sync-consent { flex-basis:100%; order:2; }
+}
