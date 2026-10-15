@@ -43,6 +43,7 @@ export function createSourceSyncUI(host) {
   let runs = [], loaded = false, loading = false, writing = false, refreshing = false, visible = false;
   let error = null, notice = "", timer = null, generation = 0, readSequence = 0, refreshSequence = 0;
   let account = host.accountVersion(), readController = null, writeController = null;
+  let renderedWhileLoading = false;
   let pendingOperation = null, consumed = null, showHistory = false;
   const details = new Map();
   const active = () => runs.some((run) => ACTIVE.has(run.state));
@@ -69,7 +70,7 @@ export function createSourceSyncUI(host) {
     showHistory = false; details.clear();
   }
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
-  function isBusy() { syncAccount(); return loading || writing || refreshing || active(); }
+  function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
   function ownsRequest(id) { syncAccount(); return runs.some((run) => run.records.some((record) => record.request_id === id)); }
   function allowed() {
     syncAccount();
@@ -144,7 +145,7 @@ export function createSourceSyncUI(host) {
     const value = stamp(), sequence = ++readSequence, controller = new AbortController();
     const valid = () => current(value) && sequence === readSequence;
     const previous = JSON.stringify(runs), wasLoaded = loaded, hadError = Boolean(error);
-    readController = controller; loading = true; error = null;
+    readController = controller; loading = true; renderedWhileLoading = false; error = null;
     try {
       const response = await host.api(API, undefined, "GET", { signal: controller.signal });
       if (!valid()) return false;
@@ -157,7 +158,7 @@ export function createSourceSyncUI(host) {
     } finally {
       if (valid()) {
         loading = false; readController = null;
-        if (error || hadError || !wasLoaded || previous !== JSON.stringify(runs)) redraw();
+        if (renderedWhileLoading || error || hadError || !wasLoaded || previous !== JSON.stringify(runs)) redraw();
         poll();
       }
     }

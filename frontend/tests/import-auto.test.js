@@ -125,7 +125,10 @@ function fixture({entries = [teaching(), teaching('no-deadline')], manualRequest
       if (body.version !== db.version) return rejection(409, '任务已变化');
       db.tasks = clone(body.value);db.version++;return response({version: db.version});
     }
-    if (path === '/api/sources/credentials') return response({configured: true, username: `${who}-campus`});
+    if (path === '/api/sources/credentials') {
+      await pause('credentials', call);
+      return response({configured: true, username: `${who}-campus`});
+    }
     if (path === root && method === 'GET') {
       const snapshot = {contract_version: version, runs: clone(db.runs)};
       await pause('runs', call);return response(snapshot);
@@ -195,6 +198,37 @@ const noClientRecognition = f => {
 function textForm(text) {
   return {dataset: {importForm: 'text'}, values: {text, published: '2026-10-14T12:00:00'}, querySelector() {return null;}, querySelectorAll() {return [];}};
 }
+
+check('returning to import unlocks controls for either read order with empty or completed progress', async t => {
+  for (const withHistory of [false, true]) for (const progressLast of [true, false]) {
+    const f = fixture();
+    let onRender = () => {};
+    f.host.render = () => onRender();
+    const ui = await ready(f, t);
+    if (withHistory) await sync(ui);
+    let visible = false, html = '';
+    onRender = () => {
+      ui.setVisible(visible);
+      if (visible) html = ui.render();
+    };
+    f.host.render();
+    const gate = f.pauseNext(progressLast ? 'runs' : 'credentials'); t.after(gate.release);
+    visible = true; f.host.render();
+    const loading = ui.load();
+    await gate.entered;
+    if (progressLast) await loading;
+    else await new Promise(resolve => setImmediate(resolve));
+    for (const control of ['data-import-source="text"', 'data-import-source="teaching"', 'data-import-action="sync"', 'data-import-action="refresh"'])
+      assert.match(html, new RegExp(control + '[^>]*disabled'), control + ' is locked while progress is loading');
+    const reads = f.calls.filter(call => call.path === '/api/workspace').length;
+    gate.release(); await loading; await new Promise(resolve => setImmediate(resolve));
+    for (const control of ['data-import-source="text"', 'data-import-source="teaching"', 'data-import-action="sync"', 'data-import-action="refresh"'])
+      assert.doesNotMatch(html, new RegExp(control + '[^>]*disabled'), control + ' unlocks after unchanged progress');
+    assert.equal(f.calls.filter(call => call.path === '/api/workspace').length, reads, 'unchanged progress does not reload the workspace');
+    assert.equal(f.starts().length, Number(withHistory), 'returning never starts another import');
+    ui.setVisible(false);
+  }
+});
 
 check('teaching start sends consent and operation identity while backend-applied tasks retain source evidence', async t => {
   const f = fixture(), ui = await ready(f, t);await sync(ui);
