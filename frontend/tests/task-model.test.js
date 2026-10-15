@@ -292,6 +292,35 @@ test("near and completed scopes include notices while all tasks remains task-onl
   assert.equal(mixed[2].status, "done");
 });
 
+test("notice lists keep ascending key times across source order, filters and read status without mutating stored order", () => {
+  const notice = (id, due, dueTime = "", status = "todo", course = "数据结构") => ({
+    id, title: `合成通知 ${id}`, content_type: "notice", due, dueTime, status, course,
+  });
+  const notices = [
+    notice("20", "", "", "done", "物理"),
+    notice("9", "2026-12-29"),
+    notice("5", today),
+    notice("4", today, "18:00", "done", "物理"),
+    notice("10", today, "08:30", "todo", "物理"),
+    notice("2", today, "08:30", "done"),
+    notice("1", "2026-12-27", "18:00"),
+    notice("30", "2026-02-30"),
+  ];
+  const saved = structuredClone(notices);
+  const expected = ["1", "2", "10", "4", "5", "9", "20", "30"];
+  const renderedIds = rows => [...renderTaskList(rows, { today }).matchAll(/data-task-open="([^"]+)"/g)]
+    .map(match => match[1]);
+  const filtered = filterTasks(notices, { scope: "notices", today });
+  assert.deepEqual(ids(filtered), expected);
+  assert.deepEqual(renderedIds(filtered), expected);
+  assert.deepEqual(renderedIds(notices), expected);
+  assert.deepEqual(notices, saved);
+  assert.deepEqual(renderedIds(filterTasks(notices, { scope: "notices", query: "合成通知", course: "物理", today })), ["10", "4", "20"]);
+  assert.deepEqual(renderedIds(filterTasks(notices, { scope: "notices", dateFrom: today, dateTo: today, today })), ["2", "10", "4", "5"]);
+  const readChanged = notices.map(row => ({ ...row, status: row.status === "done" ? "todo" : "done" }));
+  assert.deepEqual(renderedIds(filterTasks(readChanged, { scope: "notices", today })), expected);
+});
+
 test("notice lists and details expose synchronized reversible read controls without task completion wording", () => {
   const notice = { id: "notice", title: "停课通知", content_type: "notice", status: "done", due: "2026-12-27", notes: "课程暂停" };
   const list = renderTaskList([notice], { today });
