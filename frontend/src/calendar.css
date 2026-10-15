@@ -325,14 +325,6 @@
   margin-top: 3px;
 }
 
-.task-row .notice-mark {
-  display: grid;
-  place-items: center;
-  min-height: 44px;
-  margin-top: 3px;
-  color: #78828b;
-}
-
 .task-row .task-complete-mark {
   display: grid;
   place-items: center;
@@ -349,7 +341,8 @@
   background: var(--selected);
 }
 
-.task-row.is-completed .task-complete-mark {
+.task-row.is-completed .task-complete-mark,
+.task-row.is-read .task-complete-mark {
   background: var(--ink);
   border-color: var(--ink);
   color: white;

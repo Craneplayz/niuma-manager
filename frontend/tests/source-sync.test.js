@@ -118,12 +118,17 @@ check('unchanged progress neither refreshes the workspace again nor rerenders ed
   assert.equal(f.ui.isBusy(), false); assert.deepEqual(f.locks, [true]);
 });
 
-check('a host render during an unchanged read releases the visible loading lock', async () => {
-  const f = fixture();await f.ui.load();
-  const gate = deferred();f.setAPI(async (call, fallback) => { await gate.wait;return fallback(call); });
-  const loading = f.ui.load();assert.equal(f.ui.isBusy(),true);
-  const before = f.renders;gate.resolve();await loading;
-  assert.equal(f.ui.isBusy(),false);assert.equal(f.renders,before+1);
+check('an unchanged read redraws controls when its loading state was rendered', async () => {
+  const f = fixture(); await f.ui.load();
+  const gate = deferred();
+  f.setAPI(async (call, normal) => { await gate.wait; return normal(call); });
+  const loading = f.ui.load();
+  assert.equal(f.ui.isBusy(), true);
+  const renders = f.renders;
+  gate.resolve(); await loading;
+  assert.equal(f.ui.isBusy(), false);
+  assert.equal(f.renders, renders + 1);
+  assert.equal(f.refreshes, 0);
 });
 
 check('start waits for local saves and sends only the durable teaching operation contract', async () => {

@@ -15,6 +15,7 @@ from server.model_queue import cancel_if
 import recognition
 import source_sync
 import teaching
+import usage
 
 CONCURRENCY = 4
 RUN_LIMIT = 4
@@ -70,6 +71,8 @@ def error(code, message, retryable=False):
 
 
 def save(db, run, state=None):
+    previous = db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?', (run['run_id'],)).fetchone()
+    previous = json.loads(previous['snapshot']) if previous else {}
     if state: run['state'] = state
     run['revision'] += 1
     run['updated_at'] = stamp()
@@ -78,6 +81,14 @@ def save(db, run, state=None):
                          added=sum(r['added'] for r in run['records']))
     db.execute('UPDATE source_sync_runs SET state=?,snapshot=? WHERE user_id=? AND run_id=?',
                (run['state'], json.dumps(run), run['user_id'], run['run_id']))
+    old_records = {r['request_id']:r for r in previous.get('records',[])}
+    for item in run['records']:
+        if (item['state'] in ('succeeded','failed','incomplete') and item.get('seconds') is not None
+                and old_records.get(item['request_id'],{}).get('state') in ('queued','running')):
+            usage.record(db,run['user_id'],'recognition',item['state']!='failed',item['seconds']*1000)
+    if previous.get('state') in contract.ACTIVE and run['state'] in contract.FINAL:
+        duration=(datetime.fromisoformat(run['updated_at'])-datetime.fromisoformat(run['created_at'])).total_seconds()*1000
+        usage.record(db,run['user_id'],'sync',run['state']=='succeeded',duration)
 
 
 def view(run):

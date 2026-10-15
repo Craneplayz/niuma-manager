@@ -155,6 +155,30 @@ test("completion dates survive save and reload and clear when the task reopens",
   assert.equal(f.tasks[0].completedAt, "2026-09-20");
 });
 
+test("notice read status persists across refreshes and can be reversed without changing its type or source", async () => {
+  const original = task("readable-notice", { content_type: "notice", planningExcluded: true, source: "教学网", sourceUrl: "https://example.test/notice", recognitionHistory: [{ candidateId: "notice-source" }] });
+  const f = fixture("notice-read-status", [original]);
+  let state = await initSession();
+  assert.equal(state.tasks[0].status, "todo");
+  state.tasks[0].status = "done";
+  saveStore(state); await flushStore();
+  state = await refreshStore();
+  assert.equal(state.tasks[0].status, "done");
+  assert.equal(f.tasks[0].status, "completed");
+  assert.match(f.tasks[0].completedAt, /^\d{4}-\d{2}-\d{2}$/);
+  state.tasks[0].title = "已阅读后编辑通知";
+  saveStore(state); await flushStore();
+  assert.equal(f.tasks[0].status, "completed");
+  state.tasks[0].status = "todo";
+  saveStore(state); await flushStore();
+  state = await refreshStore();
+  assert.equal(state.tasks[0].status, "todo");
+  assert.equal(state.tasks[0].completedAt, "");
+  assert.equal(f.tasks[0].status, "not_started");
+  for (const field of ["content_type", "planningExcluded", "source", "sourceUrl", "recognitionHistory"]) assert.deepEqual(f.tasks[0][field], original[field]);
+  for (const field of ["readAt", "isRead"]) assert.equal(Object.hasOwn(f.tasks[0], field), false);
+});
+
 test("moving tasks to trash and restoring only changes their visibility and saved status", async () => {
   const original = [
     task("active", { status: "in_progress", source: "教学网", serverMetadata: { opaque: true }, plans: [{ id: "untouched" }], subtasks: [{ id: "untouched-step" }] }),

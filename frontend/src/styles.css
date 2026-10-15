@@ -246,9 +246,6 @@ button .icon {
   gap: 4px;
 }
 
-.notice-nav {
-  margin-top: 12px;
-}
 .nav-item {
   border: 0;
   display: grid;
@@ -987,6 +984,70 @@ dialog p {
 }
 .drawer-footer .btn {
   min-height: 42px;
+}
+.notice-read-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.notice-read-control:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.notice-read-control input {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.account-feedback {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.account-feedback h3 {
+  margin: 0 0 14px;
+  font-size: 14px;
+}
+.usage-rating {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  max-width: calc(100vw - 32px);
+  padding: 20px;
+  background: var(--surface, #fff);
+  color: var(--text, #282a2d);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px #0002;
+  z-index: 80;
+}
+.usage-rating strong {
+  display: block;
+  margin-right: 22px;
+}
+.usage-rating [data-rating-dismiss] {
+  float: right;
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  color: inherit;
+  cursor: pointer;
+}
+.usage-rating [data-rating] {
+  margin: 12px 6px 0 0;
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid #b9cfc0;
+  border-radius: var(--radius);
+  background: #eef4ef;
+  color: #285c3d;
+  cursor: pointer;
 }
 #task-edit-form {
   display: flex;

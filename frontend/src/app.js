@@ -31,6 +31,7 @@ import { loadTaskEvidence } from "./task-evidence.js";
 import { demoWorkspace } from "./demo.js";
 import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
+import { feedbackBox } from "./usage-feedback.js";
 import { describeEnvironment } from "./environment-badge.js";
 
 const esc = (value) =>
@@ -101,6 +102,7 @@ const host = {
   isImportVisible: () => ui.page === "import",
   navigateTasks: () => navigatePage("tasks"),
   showReview: () => document.querySelector(".import-results")?.scrollIntoView({behavior: "smooth"}),
+  feedbackBox: () => demo ? "" : feedbackBox(),
   setState(next) {
     state = next;
     demo = false;
@@ -205,6 +207,7 @@ function sidebar() {
   };
   return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry ${ui.page === "import" ? "current" : ""}" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
+    ["notices", "通知", "info"],
     ["near", "临近截止", "clock"],
     ["done", "已完成", "check"],
   ]
@@ -214,7 +217,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}<button type="button" class="nav-item notice-nav ${ui.page === "tasks" && ui.scope === "notices" ? "active" : ""}" data-scope="notices" aria-label="通知" data-sidebar-label="通知" ${ui.page === "tasks" && ui.scope === "notices" ? 'aria-current="page"' : ""}>${icon("info")}<span class="nav-text">通知</span><span class="nav-count">${counts.notices}</span></button></nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
 }
 function hideSidebarTooltip() {
   clearTimeout(sidebarTooltipTimer);
@@ -268,8 +271,9 @@ function saveLabel() {
   );
 }
 function toolbar() {
-  const searchLabel = ui.scope === "notices" ? "搜索通知" : taskView() === "calendar" ? "搜索任务与通知" : "搜索任务";
-  const dateLabel = ui.scope === "notices" ? "关键日期" : taskView() === "calendar" ? "日期范围" : "截止日期";
+  const mixed = ui.scope === "near" || ui.scope === "done" || taskView() === "calendar";
+  const searchLabel = ui.scope === "notices" ? "搜索通知" : mixed ? "搜索任务与通知" : "搜索任务";
+  const dateLabel = ui.scope === "notices" ? "关键日期" : mixed ? "日期范围" : "截止日期";
   return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
     .map(
       (c) =>
@@ -300,7 +304,7 @@ function calendarTools() {
 function taskResults() {
   const tasks = filtered();
   if (taskView() === "list")
-    return renderTaskList(tasks, { escapeHtml: esc, icon, today, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : "没有符合条件的任务" });
+    return renderTaskList(tasks, { escapeHtml: esc, icon, today, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" });
   const items = calendarItems();
   return `${calendarTools()}<p class="calendar-kind-key"><span>任务截止</span><span><span class="notice-label">通知</span>关键时间 · ${items.filter(isNotice).length} 条</span></p><div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
 }
@@ -339,6 +343,7 @@ function focusToken(el) {
       "action",
       "taskOpen",
       "taskComplete",
+      "noticeRead",
       "scope",
       "page",
       "view",
@@ -354,7 +359,7 @@ function restoreFocus(token) {
   if (!token) return;
   const el = token.id
     ? document.getElementById(token.id)
-    : [...document.querySelectorAll("button")].find(
+    : [...document.querySelectorAll("button,input")].find(
         (el) => el.dataset[token.key] === token.value,
       );
   if (el && !el.disabled) el.focus({ preventScroll: true });
@@ -464,7 +469,10 @@ async function toggleTask(id) {
   if (taskBusy || !requireAccount()) return;
   const epoch = accountVersion(),
     task = state.tasks.find((t) => t.id === id);
-  if (!task || isNotice(task)) return;
+  if (!task) return;
+  const notice = isNotice(task);
+  const readFocus = notice ? focusToken(document.activeElement) : null;
+  const origin = { page: ui.page, scope: ui.scope, drawerId, drawerOpen: drawer.open };
   const previous = { status: task.status, completedAt: task.completedAt || "" };
   task.status = task.status === "done" ? "todo" : "done";
   task.completedAt = task.status === "done" ? today : "";
@@ -476,13 +484,15 @@ async function toggleTask(id) {
     await persist();
     if (epoch !== accountVersion()) return;
     toast(
-      task.status === "done" ? "任务已完成" : "任务已重新打开",
+      notice
+        ? task.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
+        : task.status === "done" ? "任务已完成" : "任务已重新打开",
       async () => {
         if (taskBusy) throw new Error("正在保存，请稍候再撤销");
         const currentTask = state.tasks.find((item) => item.id === id);
         if (!currentTask || currentTask.status !== applied.status ||
             (currentTask.completedAt || "") !== applied.completedAt)
-          throw new Error("任务状态已变化，无法撤销这次操作");
+          throw new Error(`${notice ? "通知" : "任务"}状态已变化，无法撤销这次操作`);
         taskBusy = true;
         Object.assign(currentTask, previous);
         render();
@@ -502,6 +512,14 @@ async function toggleTask(id) {
     taskBusy = false;
     render();
     if (drawer.open) updateDrawer();
+    if (readFocus && epoch === accountVersion() &&
+        ui.page === origin.page && ui.scope === origin.scope &&
+        drawerId === origin.drawerId && drawer.open === origin.drawerOpen &&
+        (document.activeElement === document.body || document.activeElement === drawer)) {
+      restoreFocus(readFocus);
+      if (document.activeElement === document.body && !drawer.open)
+        document.getElementById("page-title")?.focus({ preventScroll: true });
+    }
   }
 }
 async function trashTask() {
@@ -739,6 +757,10 @@ document.addEventListener("input", (e) => {
   imports.input?.(e);
 });
 document.addEventListener("change", (e) => {
+  if (e.target.dataset.noticeRead) {
+    void toggleTask(e.target.dataset.noticeRead);
+    return;
+  }
   if (imports.input?.(e)) return;
   const id = e.target.id,
     value = e.target.value;
