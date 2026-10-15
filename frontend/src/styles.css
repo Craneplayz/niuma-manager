@@ -246,9 +246,6 @@ button .icon {
   gap: 4px;
 }
 
-.notice-nav {
-  margin-top: 12px;
-}
 .nav-item {
   border: 0;
   display: grid;
@@ -987,6 +984,26 @@ dialog p {
 }
 .drawer-footer .btn {
   min-height: 42px;
+}
+.notice-read-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.notice-read-control:focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+.notice-read-control input {
+  flex: 0 0 auto;
+  margin: 0;
 }
 #task-edit-form {
   display: flex;

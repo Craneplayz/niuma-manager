@@ -276,7 +276,7 @@ test("task and day renderers use string ids, expose completion, and keep complet
   assert.doesNotMatch(undated, /data-task-open="today-early"/);
 });
 
-test("content type separates notices from task scopes regardless of dates or historical completion", () => {
+test("near and completed scopes include notices while all tasks remains task-only", () => {
   const mixed = [
     { id: "undated-task", title: "加群", status: "todo", due: "" },
     { id: "dated-notice", title: "公示结果", content_type: "notice", status: "todo", due: today },
@@ -284,22 +284,33 @@ test("content type separates notices from task scopes regardless of dates or his
     { id: "done-task", title: "提交作业", content_type: "task", status: "done", due: today },
   ];
   assert.deepEqual(ids(filterTasks(mixed, { scope: "all", today })), ["undated-task"]);
-  assert.deepEqual(filterTasks(mixed, { scope: "near", today }), []);
-  assert.deepEqual(ids(filterTasks(mixed, { scope: "done", today })), ["done-task"]);
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "near", today })), ["dated-notice"]);
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "done", today })), ["done-task", "old-notice"]);
   assert.deepEqual(ids(filterTasks(mixed, { scope: "notices", today })), ["dated-notice", "old-notice"]);
   assert.deepEqual(ids(filterTasks(mixed, { scope: "calendar", today })), ["dated-notice", "old-notice", "undated-task"]);
   assert.deepEqual(ids(filterTasks(mixed, { scope: "notices", query: "公示", dateFrom: today, today })), ["dated-notice"]);
   assert.equal(mixed[2].status, "done");
 });
 
-test("notice lists and details identify key times without task completion or overdue controls", () => {
+test("notice lists and details expose synchronized reversible read controls without task completion wording", () => {
   const notice = { id: "notice", title: "停课通知", content_type: "notice", status: "done", due: "2026-12-27", notes: "课程暂停" };
   const list = renderTaskList([notice], { today });
   assert.match(list, /notice-label|关键时间/);
-  assert.doesNotMatch(list, /data-task-complete|is-completed|is-overdue|已逾期/);
+  assert.match(list, /data-task-complete="notice"[^>]*role="checkbox"[^>]*aria-checked="true"/);
+  assert.match(list, /标记未阅读：停课通知/);
+  assert.match(list, /is-read/);
+  assert.doesNotMatch(list, /is-completed|is-overdue|已逾期|完成任务/);
   const drawer = renderTaskDrawer({ task: notice, escapeHtml: String, icon: () => "", deadlineLabel });
   assert.match(drawer, /通知详情|关键时间/);
-  assert.doesNotMatch(drawer, /data-task-complete|完成任务|未完成/);
+  assert.match(drawer, /type="checkbox"[^>]*data-notice-read="notice"[^>]*checked/);
+  assert.match(drawer, /已阅读/);
+  assert.doesNotMatch(drawer, /完成任务|未完成/);
+  const unread = { ...notice, status: "todo" };
+  assert.match(renderTaskRow(unread, { today }), /role="checkbox"[^>]*aria-checked="false"/);
+  assert.match(renderTaskRow(unread, { today }), /标记已阅读：停课通知/);
+  const unreadDrawer = renderTaskDrawer({ task: unread, escapeHtml: String, icon: () => "", deadlineLabel });
+  assert.match(unreadDrawer, /未阅读/);
+  assert.doesNotMatch(unreadDrawer, /data-notice-read="notice"[^>]*checked/);
   const editing = renderTaskDrawer({ task: notice, editing: true, escapeHtml: String, icon: () => "", deadlineLabel });
   assert.match(editing, /编辑通知|关键日期|保存通知/);
   assert.doesNotMatch(editing, /截止日期|保存任务/);
@@ -316,10 +327,28 @@ test("month, week and day panels distinguish dated notices and retain undated no
   }
   const panel = renderDayPanel({ tasks: mixed, selectedDate: today, today });
   assert.match(panel, /data-task-complete="today-late"/);
-  assert.doesNotMatch(panel, /data-task-complete="notice"/);
+  assert.match(panel, /data-task-complete="notice"[^>]*role="checkbox"[^>]*aria-checked="true"/);
   const undated = renderDayPanel({ tasks: mixed, selectedDate: today, pane: "undated", today });
   assert.match(undated, /data-task-open="undated-notice"/);
-  assert.doesNotMatch(undated, /data-task-complete/);
+  assert.match(undated, /data-task-complete="undated-notice"[^>]*role="checkbox"[^>]*aria-checked="false"/);
+});
+
+test("mixed near lists honor notice dates, read status and combined filters without calling notice times overdue", () => {
+  const notices = [
+    { id: "past-notice", title: "教室调整", content_type: "notice", status: "todo", due: shiftDay(today, -1), course: "物理", source: "教学网" },
+    { id: "week-notice", title: "分组公示", content_type: "notice", status: "todo", due: shiftDay(today, 7), course: "物理", source: "教学网" },
+    { id: "future-notice", content_type: "notice", status: "todo", due: shiftDay(today, 8) },
+    { id: "undated-notice", content_type: "notice", status: "todo", due: "" },
+    { id: "invalid-notice", content_type: "notice", status: "todo", due: "2026-02-30" },
+    { id: "read-notice", content_type: "notice", status: "done", due: today },
+  ];
+  const near = filterTasks([...tasks, ...notices], { scope: "near", today });
+  assert.deepEqual(ids(near.filter(item => item.content_type === "notice")), ["past-notice", "week-notice"]);
+  assert.deepEqual(ids(filterTasks(notices, { scope: "near", query: "公示", course: "物理", source: "教学网", dateFrom: today, dateTo: shiftDay(today, 7), today })), ["week-notice"]);
+  const markup = renderTaskList(near, { today });
+  assert.match(markup, /早于今天/);
+  assert.doesNotMatch(markup, />已逾期</);
+  assert.match(markup, /data-task-complete="past-notice"/);
 });
 
 test('task edits reject changed or removed records while allowing independent status and metadata updates',async()=>{

@@ -27,7 +27,7 @@ export function renderTaskRow(
   } = {},
 ) {
   const notice = isNotice(task);
-  const done = !notice && task.status === "done";
+  const done = task.status === "done";
   const overdue = !notice && !done && Boolean(task.due) && task.due < today;
   const meta = [...new Set([task.course, task.source].filter(Boolean))];
   if (!notice && task.status === "doing") meta.push("进行中");
@@ -38,10 +38,11 @@ export function renderTaskRow(
     : notice
       ? task.due ? `关键时间：${deadlineLabel(task, today)}` : "未注明时间"
       : deadlineLabel(task, today);
-  const marker = notice
-    ? `<span class="notice-mark" aria-hidden="true">${icon("info")}</span>`
-    : `<button type="button" class="task-complete" data-task-complete="${escapeHtml(task.id)}" aria-label="${done ? "恢复任务：" : "完成任务："}${escapeHtml(task.title)}" aria-pressed="${done}"><span class="task-complete-mark">${done ? icon("check") : ""}</span></button>`;
-  return `<article class="task-row${notice ? " is-notice" : ""}${compact ? " is-compact" : ""}${done ? " is-completed" : ""}${overdue ? " is-overdue" : ""}" data-task-id="${escapeHtml(task.id)}">${marker}<button type="button" class="task-open" data-task-open="${escapeHtml(task.id)}"><span class="task-title">${notice ? '<span class="notice-label">通知</span>' : ""}${escapeHtml(task.title)}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${due ? `<span class="task-deadline">${escapeHtml(due)}</span>` : ""}</article>`;
+  const action = notice
+    ? done ? "标记未阅读：" : "标记已阅读："
+    : done ? "恢复任务：" : "完成任务：";
+  const marker = `<button type="button" class="task-complete" data-task-complete="${escapeHtml(task.id)}" aria-label="${action}${escapeHtml(task.title)}" ${notice ? `role="checkbox" aria-checked="${done}"` : `aria-pressed="${done}"`}><span class="task-complete-mark">${done ? icon("check") : ""}</span></button>`;
+  return `<article class="task-row${notice ? " is-notice" : ""}${compact ? " is-compact" : ""}${done ? notice ? " is-read" : " is-completed" : ""}${overdue ? " is-overdue" : ""}" data-task-id="${escapeHtml(task.id)}">${marker}<button type="button" class="task-open" data-task-open="${escapeHtml(task.id)}"><span class="task-title">${notice ? '<span class="notice-label">通知</span>' : ""}${escapeHtml(task.title)}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${due ? `<span class="task-deadline">${escapeHtml(due)}</span>` : ""}</article>`;
 }
 
 export function renderTaskList(
@@ -54,10 +55,13 @@ export function renderTaskList(
     return `<div class="task-list">${sortTasks(tasks)
       .map((task) => renderTaskRow(task, options))
       .join("")}</div>`;
+  const labels = tasks.some(isNotice)
+    ? { overdue: "早于今天", today: "今天", tomorrow: "明天", upcoming: "未来 7 天", future: "之后", undated: "无日期" }
+    : null;
   return `<div class="task-list">${groupTasks(tasks, today)
     .map(
       (group) =>
-        `<section class="task-group tone-${group.tone}"><h2 class="task-group-heading">${group.label}<span>${group.tasks.length}</span></h2>${group.tasks.map((task) => renderTaskRow(task, options)).join("")}</section>`,
+        `<section class="task-group tone-${group.tone}"><h2 class="task-group-heading">${labels?.[group.tone] || group.label}<span>${group.tasks.length}</span></h2>${group.tasks.map((task) => renderTaskRow(task, options)).join("")}</section>`,
     )
     .join("")}</div>`;
 }
