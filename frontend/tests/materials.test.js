@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 globalThis.window=new EventTarget();
 const {session}=await import('../src/team-store.js');
 const {createMaterialsUI,buildMaterialRequest}=await import('../src/materials-ui.js');
+const {createImportUI}=await import('../src/import-ui.js');
 const response=value=>({ok:true,json:async()=>structuredClone(value)});
 const receipt={contract_version:'manual-materials/0.1',file_name:'合成通知.png',file_ref:'asset:one',mime_type:'image/png',size_bytes:3,sha256:'a'.repeat(64)};
 function setup(t,{lost=false}={}){
@@ -72,4 +73,42 @@ test('refresh cannot race file submission and hide its newly accepted job',async
  const reads=()=>f.calls.filter(c=>c.path.endsWith('/imports')&&!c.body).length;
  const before=reads();await f.ui.click({dataset:{materialAction:'refresh'}});assert.equal(reads(),before);
  release();await upload;assert.match(f.ui.render(),/排队中/);assert.equal(reads(),before+1);
+});
+
+test('switching sources during upload cannot hide the accepted job behind an older empty list',async t=>{
+ session.user={id:'test'};
+ let jobs=[],uploadStarted=false,submitted=false,resolveAsset,resolveOldList,assetEntered,jobAccepted;
+ const assetGate=new Promise(resolve=>resolveAsset=resolve),listGate=new Promise(resolve=>resolveOldList=resolve);
+ const uploading=new Promise(resolve=>assetEntered=resolve),accepted=new Promise(resolve=>jobAccepted=resolve);
+ t.after(()=>{resolveAsset();resolveOldList();});
+ globalThis.fetch=async(path,options={})=>{
+  if(path==='/api/sources/credentials')return response({configured:true,username:'synthetic'});
+  if(path==='/api/recognition/batches')return response([]);
+  if(path==='/api/materials/limits')return response({limits:{asset_bytes:20971520}});
+  if(path==='/api/materials/assets'){
+   uploadStarted=true;assetEntered();await assetGate;return response(receipt);
+  }
+  if(path==='/api/materials/imports'&&options.body){
+   jobs=[{job_id:'accepted-file',request_id:JSON.parse(options.body).request_id,status:'queued',sources:{},items:[]}];
+   submitted=true;jobAccepted();return response(jobs[0]);
+  }
+  if(path==='/api/materials/imports'){
+   const captured=structuredClone(jobs);
+   if(uploadStarted&&!submitted)await listGate;
+   return response({jobs:captured});
+  }
+  throw new Error(path);
+ };
+ const ui=createImportUI({escapeHtml:String,render(){},toast(){},openDialog(){},closeDialog(){},
+  isDemo:()=>false,isImportVisible:()=>true,getState:()=>({tasks:[]}),refresh:async()=>{}});
+ t.after(()=>ui.reset());
+ await ui.load();await ui.click({dataset:{importSource:'files'}});await new Promise(resolve=>setImmediate(resolve));
+ ui.input({target:{id:'material-files',files:[new File(['abc'],receipt.file_name,{type:'image/png'})]}});
+ ui.input({target:{id:'material-consent',checked:true}});
+ const upload=ui.click({dataset:{materialAction:'upload'}});await uploading;
+ await ui.click({dataset:{importSource:'text'}});await ui.click({dataset:{importSource:'files'}});
+ resolveAsset();await accepted;await new Promise(resolve=>setImmediate(resolve));
+ resolveOldList();await upload;
+ assert.equal(jobs.length,1);assert.match(ui.render(),/排队中/);
+ assert.match(ui.render(),/data-material-action="refresh"/);
 });

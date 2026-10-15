@@ -38,6 +38,11 @@ export function createMaterialsUI(host) {
     if (!busy && visible() && (jobs.some(active) || jobs.length && fingerprint() !== observed)) { timer = setTimeout(load, 2000); timer.unref?.(); }
   }
   function load() {
+    // Source switches must not start a list read before the write is accepted.
+    if (busy) return loadingPromise || Promise.resolve();
+    return readJobs();
+  }
+  function readJobs() {
     if (loadingPromise) return loadingPromise;
     const pending = loadOnce(); loadingPromise = pending;
     pending.finally(() => { if (loadingPromise === pending) loadingPromise = null; });
@@ -109,7 +114,7 @@ export function createMaterialsUI(host) {
         if (!valid(value)) return true;
         retryIds.delete(id); notice = "已重试失败部分，成功结果保留。";
       }
-      await load();
+      await readJobs();
     } catch (cause) { if (valid(value)) error = cause.message; }
     finally { if (valid(value)) { busy = false; controller = null; host.render(); poll(); } }
     return true;
