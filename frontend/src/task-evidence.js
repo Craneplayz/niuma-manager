@@ -15,7 +15,7 @@ function evidenceQuote(evidence,entry){
  return `<blockquote>${labels.filter(Boolean).length?`<small>${labels.filter(Boolean).map(esc).join(' · ')}</small>`:''}${esc(evidence.quote)}</blockquote>`;
 }
 export function evidenceMarkup(entries){
- if(!entries.length)return '<p class="evidence-empty">这项任务没有保存识别证据，可能是手动创建或旧记录。</p>';
+ if(!entries.length)return '<p class="evidence-empty">这项任务没有保存识别证据。</p>';
  return entries.map(entry=>{
  const original=entry.original||'';
  const seen=new Set();

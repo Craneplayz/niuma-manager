@@ -90,15 +90,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call(a,'/auth/login','POST',dict(email='a@test.local',password='Test-password-2026'))[0],200)
         self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),1)
 
-    def test_calendar_editor_store_http_save_preserves_released_completed_history(self):
+    def test_deadline_calendar_store_http_edits_preserve_completed_history(self):
         node=shutil.which('node')
         if not node:self.skipTest('Node.js is required for the frontend HTTP integration')
-        client=self.client();self.register(client,'manual-calendar-http@test.local')
+        client=self.client();self.register(client,'deadline-calendar-http@test.local')
         date='2099-10-08'
         completed_plan=dict(id='released',title='已完成安排',startAt=date+'T19:00:00+08:00',endAt=date+'T20:00:00+08:00',origin='ai',isLocked=True)
         active_plan=dict(id='active-plan',title='学习',startAt=date+'T21:00:00+08:00',endAt=date+'T22:00:00+08:00',origin='ai')
-        tasks=[dict(id='done',title='已完成任务',status='completed',plans=[completed_plan],subtasks=[],due=None),
-               dict(id='active',title='未完成任务',status='not_started',plans=[active_plan],subtasks=[],due=None)]
+        tasks=[dict(id='done',title='已完成任务',status='completed',completedAt=date,plans=[completed_plan],subtasks=[],due=dict(date=date,precision='date')),
+               dict(id='active',title='未完成任务',status='not_started',plans=[active_plan],subtasks=[],due=dict(date='2099-10-09',time='18:30',precision='datetime'))]
         self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=tasks,version=0))[0],200)
         jar=next(handler.cookiejar for handler in client.handlers if isinstance(handler,HTTPCookieProcessor))
         environment=dict(app.os.environ,NIUMA_TEST_API=self.base.rsplit('/api',1)[0],
@@ -106,43 +106,71 @@ class ApiTests(unittest.TestCase):
         script='''
 import assert from 'node:assert/strict';
 globalThis.window=new EventTarget();globalThis.document=new EventTarget();
-globalThis.requestAnimationFrame=()=>0;
-globalThis.FormData=class {constructor(form){return new Map(Object.entries(form.values));}};
-Date.now=()=>Date.parse('2099-10-08T12:00:00+08:00');
+globalThis.CustomEvent ||= class extends Event {constructor(type){super(type);}};
 const realFetch=fetch;
 globalThis.fetch=(path,options={})=>realFetch(process.env.NIUMA_TEST_API+path,
  {...options,headers:{...options.headers,Cookie:process.env.NIUMA_TEST_COOKIE}});
 const root=process.argv[1];
-const {initSession,saveStore,api}=await import(root+'/store.js');
-const {calendarPage,calendarClick}=await import(root+'/team-calendar-ui.js');
-const {configureScheduleEditor,scheduleEditorSubmit}=await import(root+'/schedule-editor.js');
+const {initSession,saveStore,flushStore,api}=await import(root+'/team-store.js');
+const {renderCalendar}=await import(root+'/calendar.js');
 const state=await initSession();
-calendarClick({dataset:{calendarDay:'2099-10-08'}},()=>{});
-assert.doesNotMatch(calendarPage(state,0),/data-schedule-id="released"/);
-const error={textContent:''},form={id:'schedule-form',dataset:{planId:'active-plan',taskId:'active'},
- values:{date:'2099-10-08',start:'19:00',endDate:'2099-10-08',end:'20:00',label:'学习'},
- querySelector:()=>error,querySelectorAll:()=>[]};
-let finish,timer;const finished=new Promise(resolve=>{finish=resolve;});
-configureScheduleEditor({getState:()=>state,persist:()=>saveStore(state),closeDialog:()=>{},render:()=>{},toast:finish});
-assert.equal(scheduleEditorSubmit(form),true);
-try{assert.equal(await Promise.race([finished,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(error.textContent||'editor save timed out')),10000);})]),'学习时段已保存');}
-finally{clearTimeout(timer);}
-assert.equal(error.textContent,'');
-const saved=await api('/api/workspace');
-assert.equal(saved.tasks.version,2);
-assert.equal(saved.tasks.value.find(task=>task.id==='active').plans[0].startAt,'2099-10-08T19:00:00+08:00');
+const originalPlans=new Map(state.tasks.map(task=>[task.id,structuredClone(task.plans)]));
+const originalSchedule=structuredClone(state.schedule);
+const active=state.tasks.find(task=>task.id==='active');
+function calendar(current,mode){
+ // Hiding completed tasks is a view filter; the full state is always saved.
+ return renderCalendar({tasks:current.tasks.filter(task=>task.status!=='done'),
+  anchorDate:'2099-10-08',selectedDate:'2099-10-08',today:'2099-10-08',mode});
+}
+function day(markup,date){
+ return [...markup.matchAll(/<section\\b[^>]*>[\\s\\S]*?<\\/section>/g)]
+  .find(([section])=>section.includes(`data-calendar-day="${date}"`))?.[0]||'';
+}
+function assertCalendar(current,dueDate,title,time){
+ for(const mode of ['month','week']){
+  const markup=calendar(current,mode);
+  assert.doesNotMatch(markup,/data-task-open="done"|data-schedule-id|已完成安排|>学习</);
+  assert.doesNotMatch(day(markup,'2099-10-08'),/data-task-open="active"/);
+  assert.match(day(markup,dueDate),/data-task-open="active"/);
+  assert.ok(day(markup,dueDate).includes(title));
+  assert.ok(day(markup,dueDate).includes(time));
+ }
+}
+function assertPlans(saved,version){
+ assert.equal(saved.tasks.version,version);
+ assert.equal(saved.tasks.value.length,2);
+ for(const task of saved.tasks.value)assert.deepEqual(task.plans,originalPlans.get(task.id));
+ assert.equal(saved.tasks.value.find(task=>task.id==='done').status,'completed');
+ assert.deepEqual(state.schedule,originalSchedule);
+}
+assertCalendar(state,'2099-10-09','未完成任务','18:30');
+active.title='更新后的任务';
+assert.equal(saveStore(state),true);await flushStore();
+const renamed=await api('/api/workspace');
+assertPlans(renamed,2);
+assert.equal(renamed.tasks.value.find(task=>task.id==='active').title,'更新后的任务');
+assert.deepEqual(renamed.tasks.value.find(task=>task.id==='active').due,{date:'2099-10-09',time:'18:30',precision:'datetime'});
+active.due='2099-10-10';active.dueTime='23:59';
+assert.equal(saveStore(state),true);await flushStore();
+const saved=await api('/api/workspace');assertPlans(saved,3);
+assert.deepEqual(saved.tasks.value.find(task=>task.id==='active').due,{date:'2099-10-10',time:'23:59',precision:'datetime'});
+const reloaded=await initSession();
+assertCalendar(reloaded,'2099-10-10','更新后的任务','23:59');
+assert.deepEqual(reloaded.schedule,originalSchedule);
+for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mode),'2099-10-09'),/data-task-open="active"/);
 '''
         result=subprocess.run([node,'--input-type=module','-e',script,
             (Path(__file__).resolve().parent.parent/'frontend/src').as_uri()],
             env=environment,capture_output=True,text=True,encoding='utf-8',timeout=20)
         self.assertEqual(result.returncode,0,result.stderr)
         stored=self.call(client,'/workspace')[1]['tasks']
-        self.assertEqual(stored['version'],2)
+        self.assertEqual(stored['version'],3)
         by_id={task['id']:task for task in stored['value']}
         self.assertEqual(by_id['done']['plans'],[completed_plan])
         self.assertEqual(by_id['done']['status'],'completed')
-        self.assertEqual(by_id['active']['plans'][0]['id'],'active-plan')
-        self.assertEqual(by_id['active']['plans'][0]['origin'],'manual')
+        self.assertEqual(by_id['active']['plans'],[active_plan])
+        self.assertEqual(by_id['active']['title'],'更新后的任务')
+        self.assertEqual(by_id['active']['due'],dict(date='2099-10-10',time='23:59',precision='datetime'))
 
     def test_task_delete_permanently_removes_task_plans_feedback_and_dependencies(self):
         client=self.client();self.register(client,'delete@test.local')

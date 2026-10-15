@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 globalThis.window=new EventTarget();globalThis.document=new EventTarget();
 globalThis.CustomEvent=class extends Event{constructor(name){super(name);}};
 document.querySelector=()=>null;
-const {session,initSession,authenticate}=await import('../src/store.js');
+const {session,initSession,authenticate}=await import('../src/team-store.js');
 const {feedbackBox,usageVisit}=await import('../src/usage-feedback.js');
 test('feedback box is voluntary, login-only, and has no dashboard link',()=>{
  session.user=null;assert.equal(feedbackBox(),'');

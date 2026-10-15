@@ -1,7 +1,7 @@
-import {api,session} from './store.js';
+import {api,session} from './team-store.js';
 let offeredFor=null;
 export function feedbackBox(){
- return session.user?`<section class="panel"><h2>使用反馈</h2><form id="usage-feedback-form"><label>有什么可以改进？<textarea name="message" maxlength="2000" required rows="3" placeholder="写下你的建议…"></textarea></label><button class="btn" type="submit">发送反馈</button><p role="status" data-feedback-status></p></form></section>`:'';
+ return session.user?`<section class="account-feedback"><h3>使用反馈</h3><form id="usage-feedback-form"><label class="field">有什么可以改进？<textarea name="message" maxlength="2000" required rows="3" placeholder="写下你的建议…"></textarea></label><button class="btn" type="submit">发送反馈</button><p role="status" data-feedback-status></p></form></section>`:'';
 }
 export async function usageVisit(){
  if(document.visibilityState==='hidden')return;

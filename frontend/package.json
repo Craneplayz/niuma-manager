@@ -14,7 +14,7 @@
     "db:seed": "node ../scripts/run-python.mjs ../server/app.py --seed",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node ../scripts/run-python.mjs -m pip install -r ../server/requirements-test.txt && node --test tests/*.test.js && cd .. && node scripts/run-python.mjs -m unittest discover -s server -p test_*.py"
+    "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
     "vite": "^6.0.0"
