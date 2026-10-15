@@ -321,3 +321,14 @@ test("month, week and day panels distinguish dated notices and retain undated no
   assert.match(undated, /data-task-open="undated-notice"/);
   assert.doesNotMatch(undated, /data-task-complete/);
 });
+
+test('task edits reject changed or removed records while allowing independent status and metadata updates',async()=>{
+ const {taskEditSnapshot,assertCurrentTaskEdit}=await import('../src/task-model.js');
+ const original={id:'task',title:'报告',notes:'提交 PDF',course:'概率论',due:'2026-10-20',dueTime:'18:00',status:'todo'};
+ const snapshot=taskEditSnapshot(original);
+ assert.doesNotThrow(()=>assertCurrentTaskEdit({...original,status:'done',serverMetadata:{updated:true}},snapshot));
+ for(const change of [{title:'新标题'},{notes:'新的原文要求'},{course:'新课程'},{due:'2026-10-21'},{dueTime:'20:00'}]){
+  assert.throws(()=>assertCurrentTaskEdit({...original,...change},snapshot),/内容已变化/);
+ }
+ assert.throws(()=>assertCurrentTaskEdit(undefined,snapshot),/内容已变化/);
+});

@@ -500,3 +500,63 @@ test("saving an older task list cannot erase a task restored after that list was
   assert.ok(f.tasks.some(item => item.id === "restored" && !item.recycleBin));
   assert.equal(f.tasks.find(item => item.id === "kept").title, "保留另一项任务的修改");
 });
+
+test("retrying a failed trash write actually retries the pending deletion", async () => {
+  const f = fixture("retry-trash", [task("task")]);
+  await initSession();
+  const originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (path, options) => {
+    if (path === "/api/data/tasks" && fail) {
+      fail = false;
+      return { ok: false, status: 503, json: async () => ({ error: "临时保存失败" }) };
+    }
+    return originalFetch(path, options);
+  };
+  await assert.rejects(trashStoredTasks(["task"]), /临时保存失败/);
+  await assert.rejects(flushStore(), /临时保存失败/);
+  await retrySave();
+  assert.ok(f.tasks[0].recycleBin);
+  assert.equal(f.tasks[0].status, "cancelled");
+  assert.equal(session.sync, "saved");
+});
+
+test("retry restores the failed item before saving edits made after that failure", async () => {
+  const f = fixture("retry-restore", [task("restored"), task("other")]);
+  await initSession(); await trashStoredTasks(["restored"]);
+  const older = await refreshStore(), originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (path, options) => {
+    if (path === "/api/data/tasks" && fail) {
+      fail = false;
+      return { ok: false, status: 503, json: async () => ({ error: "恢复暂时失败" }) };
+    }
+    return originalFetch(path, options);
+  };
+  await assert.rejects(restoreStoredTasks(["restored"]), /恢复暂时失败/);
+  older.tasks[0].title = "后续标题修改";
+  saveStore(older);
+  await retrySave();
+  assert.ok(f.tasks.some(item => item.id === "restored" && !item.recycleBin));
+  assert.equal(f.tasks.find(item => item.id === "other").title, "后续标题修改");
+});
+
+test("explicit rereading discards a failed mutation instead of replaying it later", async () => {
+  const f = fixture("discard-failed-trash", [task("task")]);
+  await initSession();
+  const originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (path, options) => {
+    if (path === "/api/data/tasks" && fail) {
+      fail = false;
+      return { ok: false, status: 503, json: async () => ({ error: "删除暂时失败" }) };
+    }
+    return originalFetch(path, options);
+  };
+  await assert.rejects(trashStoredTasks(["task"]), /删除暂时失败/);
+  const state = await reloadStore();
+  assert.equal(state.tasks.length, 1);
+  await retrySave();
+  assert.equal(f.writes.length, 0);
+  assert.equal(f.tasks[0].recycleBin, undefined);
+});

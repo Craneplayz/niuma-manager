@@ -12,7 +12,8 @@ let canonicalTasks = [],
   taskVersion = 0,
   queue = Promise.resolve(),
   latest = null,
-  failed = false;
+  failed = false,
+  pendingChange = null;
 const clone = (value) => structuredClone(value);
 let accountEpoch = 0, editRevision = 0;
 const requests = new Set();
@@ -27,6 +28,7 @@ function resetAccount() {
   taskVersion = 0;
   latest = null;
   failed = false;
+  pendingChange = null;
   session.conflict = false;
   window.dispatchEvent(new CustomEvent("niuma:account-reset"));
 }
@@ -164,6 +166,7 @@ async function loadSession(discardPending = false) {
       if (discardPending) {
         latest = null;
         failed = false;
+        pendingChange = null;
         session.conflict = false;
       }
       report("saved");
@@ -266,9 +269,12 @@ async function changeStoredTasks(transform) {
       taskVersion = result.version;
       canonicalTasks = clone(value);
       session.conflict = false;
-      report("saved");
+      pendingChange = null;
+      report(latest ? "saving" : "saved");
     } catch (error) {
       if (epoch === accountEpoch) {
+        failed = true;
+        pendingChange = transform;
         session.conflict = error.status === 409;
         report("error", error.message);
       }
@@ -328,8 +334,12 @@ export async function flushStore() {
   if (failed) throw new Error(session.error || "还有未保存的数据");
 }
 export async function retrySave() {
+  const epoch = accountEpoch;
+  await drainWrites();
+  if (epoch !== accountEpoch) throw new Error("账号已切换");
   if (session.conflict) throw new Error("数据已被其他页面修改，请刷新后再编辑");
   failed = false;
+  if (pendingChange) await changeStoredTasks(pendingChange);
   if (latest) await enqueue(latest);
   await flushStore();
 }

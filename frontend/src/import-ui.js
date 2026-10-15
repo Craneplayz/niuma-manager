@@ -279,10 +279,16 @@ export function createImportUI(host) {
     request = null,
     modal = null,
     controller = null,
-    revision = 0;
+    revision = 0,
+    batchesRevision = 0;
   const current = () => ({ epoch: accountVersion(), revision });
   const valid = (stamp) =>
     stamp.epoch === accountVersion() && stamp.revision === revision;
+  function acceptBatches(next) {
+    if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
+    batches = next;
+    batchesRevision++;
+  }
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
   const reprocessing = createReprocessingUI({
@@ -296,7 +302,7 @@ export function createImportUI(host) {
       const next = await api("/api/recognition/batches");
       if (!isCurrent()) return;
       if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
-      batches = next;
+      acceptBatches(next);
       loaded = true;
       refresh();
     },
@@ -313,13 +319,13 @@ export function createImportUI(host) {
       const next = await api("/api/recognition/batches");
       if (!isCurrent()) return false;
       if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
-      batches = next;
+      acceptBatches(next);
       loaded = true;
       refresh();
       return true;
     },
   });
-  const blocked = () => busy || reprocessing.isBusy() || sourceSync.isBusy();
+  const blocked = () => loading || busy || reprocessing.isBusy() || sourceSync.isBusy();
   const allowed = () => {
     if (demo()) {
       host.toast("示例预览暂不发送，请登录后导入");
@@ -367,7 +373,7 @@ export function createImportUI(host) {
   globalThis.window?.addEventListener("niuma:account-reset", reset);
   async function load() {
     if (loading || busy || !session.user || demo()) return;
-    const stamp = current();
+    const stamp = current(), previousBatchesRevision = batchesRevision;
     loading = true;
     error = "";
     refresh();
@@ -376,9 +382,9 @@ export function createImportUI(host) {
       api("/api/sources/credentials"),
     ]);
     if (!valid(stamp)) return;
-    if (results[0].status === "fulfilled" && Array.isArray(results[0].value))
-      batches = results[0].value;
-    else error = describeImportError(results[0].reason || "导入结果暂时无法读取");
+    if (results[0].status === "fulfilled" && Array.isArray(results[0].value)) {
+      if (previousBatchesRevision === batchesRevision) acceptBatches(results[0].value);
+    } else error = describeImportError(results[0].reason || "导入结果暂时无法读取");
     if (results[1].status === "fulfilled") credentials = results[1].value;
     else if (!error) error = describeImportError(results[1].reason);
     loading = false;
@@ -533,7 +539,7 @@ export function createImportUI(host) {
       refresh();
       const next = await recognize(request.body);
       if (!valid(stamp)) return;
-      batches = next;
+      acceptBatches(next);
       loaded = true;
       const result = next.find(
         (batch) => batch.request.request_id === request.body.request_id,
@@ -586,7 +592,7 @@ export function createImportUI(host) {
         { action, version: item.version },
       );
       if (valid(stamp)) {
-        batches = result.batches;
+        acceptBatches(result.batches);
         host.toast(action === "ignore" ? "已忽略" : "已恢复待核对");
       }
     } catch (e) {
@@ -624,7 +630,7 @@ export function createImportUI(host) {
         );
         if (!valid(stamp)) return { applied, failed };
         if (!Array.isArray(result.batches)) throw new Error("导入结果暂时无法读取");
-        batches = result.batches;
+        acceptBatches(result.batches);
         applied++;
       } catch (e) {
         if (!valid(stamp)) return { applied, failed };
@@ -649,7 +655,7 @@ export function createImportUI(host) {
     try {
       const next = await recognize(batch.request, true);
       if (!valid(stamp)) return;
-      batches = next;
+      acceptBatches(next);
       await applyRetryTasks(batch.request.request_id, stamp);
       if (!valid(stamp)) return;
       await host.refresh();
@@ -864,7 +870,7 @@ export function createImportUI(host) {
           body,
         );
         if (!valid(stamp)) return true;
-        batches = result.batches;
+        acceptBatches(result.batches);
         modal = null;
         host.closeDialog();
         try {

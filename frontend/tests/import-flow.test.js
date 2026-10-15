@@ -358,3 +358,31 @@ test('terminal reprocessing refresh keeps text and teaching imports blocked unti
  assert.equal(writes.filter(call=>call.path==='/api/recognition/batches'&&call.body.contract_version==='0.2').length,1);
  assert.equal(writes.filter(call=>call.path==='/api/sources/sync-runs').length,1);
 });
+
+test('refreshing candidates prevents a concurrent ignore from being overwritten by an old read',async()=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
+ const gate=f.defer(),reading=ui.load();await gate.entered;
+ const disabled=/data-import-ignore="candidate-A" disabled/.test(ui.render());
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ const premature=f.calls.filter(call=>call.path.endsWith('/resolve')).length;
+ gate.release();await reading;
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ assert.equal(disabled,true);
+ assert.equal(premature,0);
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+});
+
+test('a delayed ordinary refresh cannot replace newer background recognition results',async()=>{
+ const {syncRun}=await import('./sync-fixtures.js');
+ const f=fixture({intercept(path,body,method){
+  if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[syncRun()]};
+ }});
+ await f.login();const ui=createImportUI(f.host);await ui.load();
+ const gate=f.defer(),reading=ui.load();await gate.entered;
+ Object.assign(f.batches.A[0].items[0],{state:'ignored',version:4});
+ await ui.loadSourceSync();
+ gate.release();await reading;
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+});

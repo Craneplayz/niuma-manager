@@ -19,6 +19,8 @@ import {
   shiftDay,
   filterTasks,
   isNotice,
+  taskEditSnapshot,
+  assertCurrentTaskEdit,
   deadlineLabel,
 } from "./task-model.js";
 import { renderTaskList, renderDayPanel } from "./task-views.js";
@@ -452,7 +454,8 @@ function closeDrawer() {
 async function persist() {
   if (demo) return;
   if (!saveStore(state)) throw new Error(session.error || "保存失败");
-  await flushStore();
+  if (session.sync === "error" && !session.conflict) await retrySave();
+  else await flushStore();
 }
 async function toggleTask(id) {
   if (taskBusy || !requireAccount()) return;
@@ -602,7 +605,7 @@ const actions = {
   "retry-save": async () => {
     try {
       await retrySave();
-      render();
+      await refresh();
       toast("已保存");
     } catch (e) {
       toast(e.message);
@@ -767,6 +770,15 @@ document.addEventListener("submit", async (e) => {
       error.textContent = "请先填写截止日期";
       return;
     }
+    const existing = state.tasks.find((t) => t.id === form.dataset.id);
+    if (form.dataset.id) {
+      try {
+        assertCurrentTaskEdit(existing, form.dataset.taskEditSnapshot);
+      } catch (cause) {
+        error.textContent = cause.message;
+        return;
+      }
+    }
     const epoch = accountVersion();
     taskBusy = true;
     form.querySelectorAll("button,input,textarea").forEach((field) => {
@@ -774,19 +786,19 @@ document.addEventListener("submit", async (e) => {
     });
     const draftId = form.dataset.id || newId();
     form.dataset.id = draftId;
-    const existing = state.tasks.find((t) => t.id === draftId),
-      task = {
-        ...(existing || {
-          id: draftId,
-          status: "todo",
-          source: "手动添加",
-        }),
-        ...values,
-        title: values.title.trim(),
-        course: values.course.trim(),
-      };
+    const task = {
+      ...(existing || {
+        id: draftId,
+        status: "todo",
+        source: "手动添加",
+      }),
+      ...values,
+      title: values.title.trim(),
+      course: values.course.trim(),
+    };
     if (existing) Object.assign(existing, task);
     else state.tasks.push(task);
+    form.dataset.taskEditSnapshot = taskEditSnapshot(task);
     try {
       await persist();
       if (epoch !== accountVersion()) return;

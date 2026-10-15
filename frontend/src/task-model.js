@@ -2,6 +2,15 @@ const DAY_MS = 86_400_000;
 
 export const isNotice = (task) => task.content_type === "notice";
 
+export const taskEditSnapshot = (task) => JSON.stringify([
+  task.title || "", task.course || "", task.due || "", task.dueTime || "", task.notes || "",
+]);
+
+export function assertCurrentTaskEdit(task, snapshot) {
+  if (!task || taskEditSnapshot(task) !== snapshot)
+    throw new Error("任务内容已变化，请取消编辑后重新打开；当前草稿仍保留。");
+}
+
 function readDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
   const date = new Date(`${value}T00:00:00.000Z`);
