@@ -919,5 +919,9 @@ export function createImportUI(host) {
     }
     return false;
   }
-  return { render, click, submit, input, reset, load, setVisible: (visible) => sourceSync.setVisible(visible), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || reprocessing.toggle(event) };
+  function setVisible(visible) {
+    sourceSync.setVisible(visible);
+    reprocessing.setVisible(visible);
+  }
+  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || reprocessing.toggle(event) };
 }

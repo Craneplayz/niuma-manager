@@ -16,7 +16,7 @@ export function createReprocessingUI(host) {
   const esc = host.escapeHtml || escape;
   const setTimer = host.setTimer || globalThis.setTimeout;
   const clearTimer = host.clearTimer || globalThis.clearTimeout;
-  let expanded = false, loaded = false, loading = false, writing = false;
+  let expanded = false, loaded = false, loading = false, writing = false, visible = true;
   let accounts = [], runs = [], source = "", selected = new Set(), error = "", notice = "";
   let generation = 0, account = host.accountVersion(), readSequence = 0;
   let readController = null, writeController = null, timer = null, pendingOperation = null;
@@ -63,7 +63,7 @@ export function createReprocessingUI(host) {
   }
   function poll() {
     clearPoll();
-    if (expanded && active() && !loading && !writing && current(stamp())) {
+    if (visible && expanded && active() && !loading && !writing && current(stamp())) {
       timer = setTimer(() => { timer = null; void load({ directory: false }); }, 2000);
     }
   }
@@ -107,7 +107,7 @@ export function createReprocessingUI(host) {
   }
   async function finished(value, valid = () => current(value)) {
     const terminal = runs.filter((run) => !ACTIVE.has(run.state) && tracked.has(run.run_id) && !reported.has(run.run_id));
-    if (!terminal.length || !valid()) return;
+    if (!visible || !terminal.length || !valid()) return;
     terminal.forEach((run) => reported.add(run.run_id));
     try {
       await host.onFinished(valid);
@@ -231,5 +231,12 @@ export function createReprocessingUI(host) {
     else if (action === "stop") await stop(button.dataset.reprocessRun);
     return true;
   }
-  return { render, click, input, toggle, reset, load, isBusy };
+  function setVisible(value) {
+    syncAccount();
+    const entering = Boolean(value) && !visible;
+    visible = Boolean(value);
+    if (!visible) { cancelRead(); return; }
+    if (entering && expanded) return load({ directory: !loaded });
+  }
+  return { render, click, input, toggle, reset, load, isBusy, setVisible };
 }

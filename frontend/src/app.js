@@ -462,6 +462,7 @@ async function toggleTask(id) {
   const previous = { status: task.status, completedAt: task.completedAt || "" };
   task.status = task.status === "done" ? "todo" : "done";
   task.completedAt = task.status === "done" ? today : "";
+  const applied = { status: task.status, completedAt: task.completedAt };
   taskBusy = true;
   render();
   if (drawer.open) updateDrawer();
@@ -471,10 +472,22 @@ async function toggleTask(id) {
     toast(
       task.status === "done" ? "任务已完成" : "任务已重新打开",
       async () => {
-        Object.assign(task, previous);
-        await persist();
+        if (taskBusy) throw new Error("正在保存，请稍候再撤销");
+        const currentTask = state.tasks.find((item) => item.id === id);
+        if (!currentTask || currentTask.status !== applied.status ||
+            (currentTask.completedAt || "") !== applied.completedAt)
+          throw new Error("任务状态已变化，无法撤销这次操作");
+        taskBusy = true;
+        Object.assign(currentTask, previous);
         render();
         if (drawer.open) updateDrawer();
+        try {
+          await persist();
+        } finally {
+          taskBusy = false;
+          render();
+          if (drawer.open) updateDrawer();
+        }
       },
     );
   } catch (e) {
