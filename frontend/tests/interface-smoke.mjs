@@ -37,12 +37,12 @@ try{
  let runs=await until(async()=>{const v=await get('/sources/sync-runs');return v.runs[0]?.state==='partial_success'&&v;});
  assert.equal(runs.runs[0].counts.added,1);assert.equal(runs.runs[0].counts.failed,1);
  await page.reload();await page.locator('[data-page="import"]').click();await page.locator('[data-import-source="teaching"]').click();
- await page.locator('[data-source-sync-action="retry"]').first().click();
+ await page.locator('[data-source-sync-history] > summary').click();
+ await page.locator('[data-source-sync-action="retry"]:visible').first().click();
  await until(async()=>{const v=await get('/sources/sync-runs');return v.runs[0]?.parent_run_id&&v.runs[0].state==='succeeded';});
  assert.equal((await get('/workspace')).tasks.value.length,2);
- await page.locator('[data-sync-schedule-action="open"]').click();
- await page.locator('[data-sync-schedule-field="enabled"]').check();await page.locator('[data-sync-schedule-field="interval"]').selectOption('60');
- await page.locator('[data-sync-schedule-field="consent"]').check();await page.locator('[data-import-form="schedule"] button[type="submit"]').click();
+ await page.locator('[data-sync-schedule-field="interval"]').selectOption('60');
+ await page.locator('[data-sync-schedule-field="consent"]').check();await page.locator('[data-import-action="sync"]').click();
  await until(async()=>{const s=await get('/sources/sync-schedule');return s.enabled&&s.interval_minutes===60;});
  await page.getByText('作业与提交状态',{exact:true}).click();
  await page.locator('[data-submission-action="detail"]').first().click();

@@ -13,7 +13,7 @@
 | `import-ui.js` | 文本通知、教学网连接与采集、候选确认和失败重试 |
 | `import-evidence.js` | 候选摘录、完整原文、安全来源链接和失败来源身份 |
 | `reprocessing-ui.js` | 已保存通知选择、重识别运行、轮询与停止 |
-| `source-schedule-ui.js` | 自动同步摘要、设置弹窗和明确授权 |
+| `source-schedule-ui.js` | 单次 / 定时统一启动、频率与明确授权 |
 | `materials-ui.js` | 文件选择、持久作业、幂等重试与历史记录 |
 | `submissions-ui.js` | 作业目录与提交关联弹窗、原文和行动控制 |
 | `source-sync-ui.js` | 后台教学网同步、运行恢复、停止与逐条 / 批量重试 |
@@ -80,7 +80,7 @@ npm run build
 - `import-auto.test.js`：后台导入集成、任务刷新、保存保护、停止与账号切换。
 - `import-evidence.test.js`：摘录和全文同时可读、失败来源身份及安全链接。
 - `reprocessing-flow.test.js`：主动运行、选择与分页、轮询停止、离开页面暂停与返回恢复、幂等和账号隔离。
-- `source-schedule.test.js`：频率、明确授权、关闭、冲突及弹窗和账号隔离。
+- `source-schedule.test.js`：单次与定时切换、明确授权、停止、冲突、重复点击和账号隔离。
 - `materials.test.js`：文件回执、稳定重试、结果刷新与重试耗尽。
 - `submissions.test.js`：提交关联、稳定操作身份、弹窗关闭、账号切换与目录分页。
 - `source-sync.test.js`：后台运行、失败重试、刷新恢复、幂等和账号隔离。

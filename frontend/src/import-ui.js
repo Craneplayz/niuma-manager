@@ -321,11 +321,11 @@ export function createImportUI(host) {
   const syncIsActive = () => sourceSync.isBusy();
   const syncOwnsRequest = id => sourceSync.ownsRequest(id);
   const refreshSourceSync = () => sourceSync.load();
-  const sourceSyncPanel = () => sourceSync.render();
   const schedule = createSyncScheduleUI({
     ...host, isDemo: demo, isConnected: () => Boolean(credentials?.configured),
-    openDialog(html) { modal = { kind: "schedule" }; host.openDialog(html); },
-    closeDialog() { modal = null; host.closeDialog(); },
+    isBusy: () => blocked() || sourceSync.isBusy(),
+    isRunning: () => sourceSync.isRunning(),
+    start: () => sourceSync.start(),
   });
   const submissions = createSubmissionsUI({
     ...host, isDemo: demo,
@@ -354,7 +354,7 @@ export function createImportUI(host) {
   });
   // Background teaching runs own their start/stop controls, not the whole import page.
   const blocked = () => loading || busy || reprocessing.isBusy();
-  const credentialsBlocked = () => blocked() || sourceSync.isBusy();
+  const credentialsBlocked = () => blocked() || sourceSync.isBusy() || schedule.isBusy();
   const allowed = () => {
     if (demo()) {
       host.toast("示例预览暂不发送，请登录后导入");
@@ -448,7 +448,7 @@ export function createImportUI(host) {
   }
   function teachingPanel() {
     const connected = credentials?.configured;
-    return `<section class="teaching-source"><div class="teaching-import"><div><h2>教学网</h2><p class="status-note">${connected ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号，获取课程作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${blocked() || loading || syncIsActive() ? "disabled" : ""}>${syncIsActive() ? "同步中…" : connected ? "同步并识别" : "连接教学网"}</button>${connected ? `<button class="btn quiet" type="button" data-import-action="credentials" ${credentialsBlocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>${schedule.render()}</section>`;
+    return `<section class="teaching-source"><div class="teaching-import"><div class="teaching-account"><h2>教学网</h2><div class="teaching-connection"><span class="status-note">${connected ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号，获取课程作业与通知"}</span>${connected ? `<button class="btn quiet" type="button" data-import-action="credentials" ${credentialsBlocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>${schedule.render()}</div>${sourceSync.renderProgress()}</section>`;
   }
   function render() {
     if (session.user && !demo() && !loaded && !loading && !busy) queueMicrotask(load);
@@ -465,7 +465,7 @@ export function createImportUI(host) {
       <div class="import-source-tabs" role="group" aria-label="导入来源">${tabs}<button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div>
       <section class="import-input">${panel}
         ${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}
-        ${source === "teaching" && !demo() ? sourceSyncPanel() + (credentials?.configured ? submissions.render() : "") : ""}
+        ${source === "teaching" && !demo() ? sourceSync.renderHistory() + (credentials?.configured ? submissions.render() : "") : ""}
         ${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map(batch => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${batch.request.contract_version === "0.3.1" ? '<button class="btn quiet" data-import-source="files">查看文件处理</button>' : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}
         ${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}
       </section>
@@ -659,14 +659,7 @@ export function createImportUI(host) {
   async function sync() {
     if (blocked() || syncIsActive() || !allowed()) return;
     if (!credentials?.configured) { openCredentials(); return; }
-    const stamp = current();
-    try {
-      await flushStore();
-      if (!valid(stamp)) return;
-    await sourceSync.start();
-      if (valid(stamp)) error = "";
-    } catch (cause) { if (valid(stamp)) error = describeImportError(cause); }
-    finally { if (valid(stamp)) refresh(); }
+    await schedule.start();
   }
   async function resolveSmall(item, action) {
     if (
@@ -736,9 +729,11 @@ export function createImportUI(host) {
   async function click(button) {
     const d = button.dataset;
     if (d.sourceSyncAction) {
-      if (d.sourceSyncAction === 'tasks') host.navigateTasks?.();
-      else if (d.sourceSyncAction === 'review') host.showReview?.();
-      else if (allowed()) await sourceSync.click(button);
+      if (allowed()) {
+        const stamp = current();
+        if (d.sourceSyncAction === "stop") await schedule.stop();
+        if (valid(stamp)) await sourceSync.click(button);
+      }
       return true;
     }
     if (d.syncScheduleAction) return schedule.click(button);
@@ -864,7 +859,6 @@ export function createImportUI(host) {
     return false;
   }
   async function submit(form) {
-    if (form.dataset.importForm === "schedule") return schedule.submit(form);
     const kind = form.dataset.importForm;
     if (!kind) return false;
     if (blocked() || !allowed()) return true;
