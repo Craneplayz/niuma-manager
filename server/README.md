@@ -31,6 +31,11 @@ server/
 ├── teaching_assets.py        暂存收据校验、账号隔离原件、读取缓存与证据补全。
 ├── test_teaching_assets.py   文件同步到自动入库、重试、缓存、变更与隔离回归。
 ├── run_teaching_attachment_smoke.py  合成 PDF/扫描 PDF/图片/DOCX 的真实 API 验收。
+├── submission_runtime.py    提交状态永久行动关联、完成/重开、持久幂等与原子更新。
+├── test_submission_runtime.py 提交生命周期、独立行动、手动重开及陈旧操作回归。
+├── public_sources.py        公开活动后台采集、账号预览和显式通知导入。
+├── test_public_sources.py   公开活动幂等、版本冲突、限定来源与失败可见测试。
+├── run_interface_fixture.py 浏览器验收专用临时 HTTP 服务，外部服务全为合成替身。
 ├── teaching_submission.py   可信原生状态、未知行动关联保护及持续来源核对。
 ├── test_teaching_submission.py  共享提交策略一致性和旧自动撤出记录恢复测试。
 ├── test_teaching.py          教学网同步、自动入库、重试和来源变化的 HTTP 回归。
@@ -84,7 +89,7 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 已读部分无任务但内容不完整时标记“来源待补全”，相同快照不重复调用模型；补全正文/附件后重新同步，模型失败仍可重试。
 真实 API 合成验收在仓库根运行 `.venv/Scripts/python.exe server/run_teaching_smoke.py --output local-data/teaching-smoke.json`；只发送合成内容，独立临时数据库，不访问校园网账号。
 追加 `--env-file <测试模型配置文件> --reprocess` 验证旧批次显式重识别及自动入库；输出路径必须不存在，包含两次真实模型输出和最终任务结果，不启动生产服务。
-原生 submitted 来源尚无永久行动映射时继续识别并保留候选，提交范围待核对，不能整条跳过或自动入库；submitted 后状态变化会持久暂停模型及自动入库，再次 submitted/重启不解除，已有候选仍可人工处理。逐行动映射与显式解除来源核对仍待 #110，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
+原生 submitted 来源尚无永久行动映射时继续识别并保留候选，提交范围待核对，不能整条跳过或自动入库；submitted 后状态变化会持久暂停模型及自动入库，再次 submitted/重启不解除，已有候选仍可人工处理。逐行动映射、手动重开暂停、恢复来源自动完成与显式解除核对已接入导入页，边界见 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。
 教学网 DeepSeek 调用显式关闭 thinking；真实调用用原文片段编号填回证据，错误区分输出截断、JSON、字段与证据错误，不记录私人模型响应。
 原生教学网可在来源管理中定向重识别已保存通知。同步时下载同源教师附件，识别时自动读取 PNG/JPEG、DOCX（含内嵌图片）及需要视觉阅读的 PDF；完整 PDF 文本层和 UTF-8 TXT 仍在采集器提取。文件内容与正文、课程名共同参与模型分类，截止日期只在附件中也能进入任务清单。
 附件与读取缓存按本系统用户和教学网账号隔离，保存在当前环境 SQLite 的 `teaching_asset_files` / `teaching_asset_refs` 中；模型只接收清理后的图片或文本，不接收 Cookie、凭据、私有文件路径。切换或移除教学网账号会清除对应文件缓存，旧版本原件随快照替换清理；已保存的任务证据保留。
@@ -104,7 +109,7 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 两种规划通道仍使用规划 2.0 和同一结果校验，预览只保存提案，用户确认后按账号与任务版本写日历；DDL、任务状态和已有计划不因生成预览而改变。
 `POST /api/planning/proposals` 可带 `taskIds` 限定本账号有 DDL、未完成且未安排的新增任务；无匹配任务返回 400，提案仍须通过 `/api/planning/apply` 确认。
 同一接口可带 `replan: true` 纳入已有安排的任务，格式见 [规划接口约定](../contracts/task-planning/README.md)；使用 `taskIds` 时只重新规划选中任务。共享规划 2.0 输入输出不变，服务端记录待替换的时段 ID，确认时原子替换有新时段的任务尚未开始的安排；无新时段、模型失败、取消预览或版本冲突保留原安排，等待期间原时段已经开始时拒绝应用。
-在 `frontend/` 运行 `npm test` 执行前端与业务 API 测试；规划模块另在仓库根运行 `python -m unittest discover -s task_planning/tests -t . -q`。
+在 `frontend/` 运行 `npm test` 执行前端测试；业务 API 在仓库根运行 `python -m unittest discover -s server -p 'test_*.py' -q`；规划模块另运行 `python -m unittest discover -s task_planning/tests -t . -q`。旧规划 API 保留，当前新版界面不提供规划入口。
 完整业务测试需 Python 3.10+，`npm test` 安装共享附件运行依赖，Windows/Linux CI 均实际执行图片读取测试。
 已完成任务的未来安排不占用新规划的可用时间，原计划保留在任务历史中；任务完成更新版本后拒绝应用此前生成的旧提案。
 直调识别保留 90 秒整批预算，HTTP 传输保持 95 秒；前端识别、规划和拆解最多等待 280 秒，包含最长 180 秒排队，代理 330 秒等待保持不变；独立 Harness 和模型供应商的并发/额度限制仍由对应服务决定。
@@ -123,6 +128,7 @@ Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为
 
 Docker 部署禁用 `/api/sources/wechat/`；`NIUMA_ENABLE_MANUAL_MATERIALS=1` 仅开放 `/api/materials/` 登录会话入口，允许用户主动提交未加密 JSON 和附件，不获取微信内容、不解密、不恢复旧采集任务。
 主动上传回执使用业务版本 `manual-materials/0.1`，识别请求和结果沿用共享 v0.3.1；原件类型、大小和哈希由服务器核验，未支持格式明确标为无法读取。
+材料列表额外返回每项 `retry_remaining`（最多 3 次重试）；用尽后保留结果，界面提示检查原因并仅重新上传失败文件。
 
 本业务 API 接收材料并进行账号鉴权、存储、识别调用和候选管理，不启动或登录微信客户端，不读取微信聊天数据库、不提取客户端密钥；独立来源采集模块为 `wechat/`，模型识别模块为 `ddl_text/`。
 业务导入凭证仅授权本项目接口，不证明上传材料的来源合法、第三方已同意或腾讯已许可相应采集方式。
@@ -171,3 +177,9 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 重识别目录同时支持旧 v0.2 与当前校园账号的 v0.4，使用独立来源 ID；新增 `reprocessing_teaching_sources`、`reprocessing_request_sources` 表由启动初始化，无需改写旧数据。v0.4 新候选和自动任务在同一事务保存，失败/中断保留旧结果，用户决定按账号及来源版本关联保留；部署前备份数据库，回滚不得删除已有任务或新表。
 教学网重识别保留原始采集正文，并在同一事务迁移附件绑定；读取结果只写入识别批次，连续重识别、正常同步清理和重启仍可读取原件，换号或移除凭据才清理对应附件。
+
+提交控制路由见 [submission-operations/0.1](../contracts/docs/submission-operations-v0.1.md)：原生状态只影响已精确关联的提交行动，独立行动、删除/忽略和手改内容保留。每次同步在增量缓存前处理状态；正文或附件摘要变化会解除整份来源确认，新行动不按标题猜测关联；控制变化时拒绝迟到模型结果。完整来源无法提供时不接受整份 `submission_only` 确认，逐项控制仍可用。
+
+公开活动路由见 [public-import/0.1](../contracts/docs/public-import-v0.1.md)：仅开放三个现有网站，不接受任意 URL；最多 2 轮公开采集并行、每账号 1 轮，每轮最多 6 页/150 秒。预览不建任务，用户选中后按任务版本原子写入通知；重复导入不复制、不复活回收站记录。
+
+接线回归：`python -m unittest server.test_submission_runtime server.test_public_sources server.test_source_jobs server.test_source_schedule server.test_teaching_reprocessing server.test_manual_materials -q`（`PYTHONPATH` 包含仓库根及 `server`）；浏览器完整入口验收按 [前端说明](../frontend/README.md) 执行，合成外部服务与真实模型联调须分别记录。

@@ -130,6 +130,9 @@ export function createSourceSyncUI(host) {
     try {
       const refreshed = await host.onChanged(valid);
       if (!valid()) return false;
+      // A concurrent manual operation superseded this read; poll again without
+      // reporting a network failure or consuming an out-of-date snapshot.
+      if (refreshed === null) return false;
       if (refreshed === false) throw new Error("refresh incomplete");
       consumed = fingerprint;
       return true;

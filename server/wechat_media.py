@@ -898,6 +898,8 @@ def route(handler, db, uid, path, body, data_dir):
             origin = db.execute('SELECT request_id FROM wechat_jobs WHERE id=? AND user_id=?',(_origin_job(db,row['id']),uid)).fetchone()
             items = [dict(id=item['id'],candidate_id=json.loads(item['candidate'])['candidate_id'],state=item['state'],version=item['version']) for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,origin['request_id']))]
             jobs.append(dict(_job(row,db),sources=_sources(json.loads(row['request'])),items=items,last_attempt_errors=json.loads(attempt['errors']) if attempt and attempt['errors'] else []))
+            if getattr(handler,'user_materials',False):
+                jobs[-1]['retry_remaining']=max(0,3-row['attempts'])
         handler.reply(200, dict(jobs=jobs))
         return True
     if path == '/api/sources/wechat/imports' and handler.command == 'POST':
@@ -960,6 +962,14 @@ def route(handler, db, uid, path, body, data_dir):
                 handler.reply(200, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status=accepted['status']))
                 return True
             previous = json.loads(row['result']) if row['result'] else None
+            if (previous and not previous['record_results'] and not previous['tasks'] and previous['errors']
+                    and all(e['input_id'] is None and e['code']=='agent_unavailable' and e['retryable'] for e in previous['errors'])):
+                # No record ever succeeded: materialize bounded identities for a
+                # recoverable request failure. Partial results retain their history.
+                request=json.loads(row['request'])
+                try: previous=_combine_records(request,[_interrupted_record(request,r,'上次处理未完成，可重试此记录。') for r in request['records']])
+                except (ValueError,ValidationError,KeyError,TypeError):
+                    raise MediaError(413,'limit_exceeded','失败内容超过恢复容量，请拆分重新导入') from None
             selected = retryable_records(previous) if previous else set()
             if (row['status'] not in ('failed','partial_failed') or row['attempts'] >= 3 or not previous
                     or not selected):
@@ -969,7 +979,7 @@ def route(handler, db, uid, path, body, data_dir):
             if db.execute("SELECT COUNT(*) FROM wechat_jobs WHERE status IN ('queued','running')").fetchone()[0] >= MAX_JOBS:
                 raise MediaError(503,'queue_busy','导入队列已满，请稍后重试',True)
             db.execute('INSERT INTO wechat_retries(job_id,retry_id,targets,status) VALUES(?,?,?,?)', (row['id'],retry_id,json.dumps(sorted(selected)),'queued'))
-            db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (row['result'], retry_id, row['id']))
+            db.execute("UPDATE wechat_jobs SET status='queued',result=NULL,previous_result=?,retry_id=?,attempts=attempts+1 WHERE id=?", (json.dumps(previous), retry_id, row['id']))
             db.commit()
             _start_job(handler.media_db_path, row['id'])
             handler.reply(202, dict(contract_version='0.3.1', job_id=row['id'], request_id=row['request_id'], status='queued'))

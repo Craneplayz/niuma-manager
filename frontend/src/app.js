@@ -100,6 +100,9 @@ const host = {
   refresh,
   getState: () => state,
   isDemo: () => demo,
+  isImportVisible: () => ui.page === "import",
+  navigateTasks: () => navigatePage("tasks"),
+  showReview: () => document.querySelector(".import-results")?.scrollIntoView({behavior: "smooth"}),
   feedbackBox: () => demo ? "" : feedbackBox(),
   setState(next) {
     state = next;
@@ -830,7 +833,7 @@ document.addEventListener("submit", async (e) => {
     }
     const epoch = accountVersion();
     taskBusy = true;
-    form.querySelectorAll("button,input,textarea").forEach((field) => {
+    form.querySelectorAll("button,input,textarea,select").forEach((field) => {
       field.disabled = true;
     });
     const draftId = form.dataset.id || newId();
@@ -866,7 +869,7 @@ document.addEventListener("submit", async (e) => {
     } finally {
       taskBusy = false;
       if (form.isConnected) {
-        form.querySelectorAll("button,input,textarea").forEach((field) => {
+        form.querySelectorAll("button,input,textarea,select").forEach((field) => {
           field.disabled = false;
         });
       }

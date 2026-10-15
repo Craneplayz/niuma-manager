@@ -155,7 +155,8 @@ def register(db, uid, username, requests, *, assets=None):
             teaching_assets.prune(db,uid)
             teaching_assets.store(db,uid,account(username),request['request_id'],files)
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
-                                       old_request_id=row['request_id'] if row else None)
+                                       old_request_id=row['request_id'] if row else None,source=entry['source'],
+                                       assets=teaching_assets.identity(files))
             if submission.skip_model(state):
                 skipped += 1
                 continue
@@ -241,6 +242,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
     if guard: guard(db)
     request = resolve_snapshot(db,uid,body['request_id'],ApiError)
     captured = deepcopy(request)
+    control_token = submission.controls.token(db,uid,request['request_id'])
     attachments = attachment_context(db,uid,request['request_id'])
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
     if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')): return
@@ -254,6 +256,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
         db.execute('BEGIN IMMEDIATE')
         if guard: guard(db)
         if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
+        if submission.controls.token(db,uid,request['request_id'])!=control_token: raise ApiError(409,'作业关联在识别期间发生变化，请重新同步')
         now = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
         if now and (not previous or now['result']!=previous['result']): return
         # Every stored teaching request is a single record. Failed/incomplete attempts have no cards.
@@ -268,5 +271,6 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
                 (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
         db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
             (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
+        submission.controls.refresh_request(db,uid,request['request_id'])
     finally:
         recognition._ACTIVE.release()

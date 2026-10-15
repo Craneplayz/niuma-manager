@@ -16,7 +16,7 @@
 
 ## 目录结构
 
-`src/` 当前包含 22 个文件；测试覆盖当前前端功能与接口适配。
+`src/` 按入口拆分模块；测试覆盖当前前端功能与接口适配。
 
 ```text
 frontend/
@@ -37,6 +37,10 @@ frontend/
 │   ├── import-ui.js          文本、教学网采集与候选核对
 │   ├── import-evidence.js    摘录、完整通知、来源链接和失败身份
 │   ├── reprocessing-ui.js   已保存通知选择、重识别进度与停止
+│   ├── materials-ui.js       主动上传、文件任务恢复及失败重试
+│   ├── public-sources-ui.js  公开活动预览、选择和幂等加入通知
+│   ├── submissions-ui.js     提交状态、完整来源和永久行动关联
+│   ├── source-schedule-ui.js 定时来源、间隔与明确同意设置
 │   ├── source-sync-ui.js    后台教学网同步、进度恢复与失败重试
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
@@ -56,6 +60,12 @@ frontend/
 │   ├── import-auto.test.js   后台导入、幂等恢复、停止与账号隔离
 │   ├── import-evidence.test.js 原文、来源身份与安全渲染
 │   ├── reprocessing-flow.test.js 通知选择、持久化运行与停止
+│   ├── interface-smoke.mjs  真实浏览器到临时 HTTP/数据库的合成流程验收
+│   ├── import-background.test.js 后台同步、保存排队与账号切换回归
+│   ├── materials.test.js     上传回执、丢失响应幂等与不支持格式
+│   ├── public-sources.test.js 公开活动选择导入和账号隔离
+│   ├── submissions.test.js  来源完整展示、快照版本与操作重试
+│   ├── source-schedule.test.js 定时间隔、同意、版本与关闭
 │   ├── source-sync.test.js   后台同步、运行恢复、停止和重试
 │   ├── sync-fixtures.js     后台同步契约的合成运行样例
 │   ├── team-store.test.js    任务保存、账号隔离、冲突与删除恢复
@@ -73,6 +83,8 @@ frontend/
     │   ├── import-desktop.jpg
     │   ├── import-evidence-desktop.jpg
     │   ├── background-sync-desktop.jpg
+    │   ├── integration-teaching-desktop.png
+    │   ├── integration-public-mobile.png
     │   ├── reprocessing-desktop.jpg
     │   ├── notice-proposal-desktop.jpg
     │   ├── notice-proposal-calendar.jpg
@@ -85,6 +97,18 @@ frontend/
     │   └── 2026-10-14-admin-usage-mobile.png 后台手机布局
     └── archive/              历史文档与截图，不代表当前功能
 ```
+
+## 新入口与验收
+
+- 导入 → 教学网：同意后启动后台同步；刷新可恢复进度，失败记录可单条或批量重试，缺正文/附件时重新获取来源。
+- 同页“定时同步”：设置 15～10080 分钟间隔并明确同意；管理员须先在环境配置启用 `scheduled_sync`，关闭页面仍执行。
+- 同页“教学网提交状态与任务关联”：先查看完整来源与全部行动，逐项关联提交行动；后续同步自动完成对应任务并撤下对应候选，用户重新打开任务会暂停来源自动完成。
+- 导入 → 图片与文件：选择 PNG/JPEG/PDF/DOCX、同意上传后后台处理，失败部分单独重试，候选在同页核对；管理员须启用 `manual_materials`，此入口不连接微信。
+- 导入 → 公开活动：从计算机、生科、教育学院获取近期讲座，预览后选择加入通知；活动时间放在说明，不写成作业 DDL。
+- 导入页底部“重新识别已有通知”支持原生教学网；保留已确认、修改、忽略的决定，不重新采集缺失来源。
+- 任务编辑可选择“任务/通知”，两者暂共用清单和截止日历；通知允许有截止日期。
+
+真实浏览器合成验收：安装前端依赖、`server/requirements-test.txt`、爬虫依赖及 Playwright 浏览器，在 `frontend/` 执行 `node tests/interface-smoke.mjs`；可用 `NIUMA_TEST_PYTHON` 指定 Python、`NIUMA_TEST_BROWSER=msedge` 使用已安装 Edge。脚本自动启动随机端口的 Vite/临时 API，采集与模型全部为合成替身，结束关闭服务；不接触现有账号、数据库或生产配置。截图写到 `docs/screenshots/integration-*.png`，这不代替真实校园网/模型验收。
 
 ## 本地启动
 
@@ -107,7 +131,7 @@ npm run dev:api
 
 教学网采集依赖单独安装在 `crawler/`，安装与浏览器要求见 [采集器说明](../crawler/README.md)。账号连接由用户在导入页管理；缺依赖、缺模型配置与连接失败会显示各自原因，单纯刷新不能代替安装或配置。
 
-教学网同步使用 `/api/sources/sync-runs` 创建后台运行，前端只提交来源选择、操作身份和明确同意；后端负责采集、识别及任务保存，关闭网页不停止运行。旧保存通知的直接重试仅使用服务端 `request_id`，不会回传来源正文。前端不提供定时同步配置入口。
+教学网同步使用 `/api/sources/sync-runs` 创建后台运行，前端只提交来源选择、操作身份和明确同意；后端负责采集、识别及任务保存，关闭网页不停止运行。旧保存通知的直接重试仅使用服务端 `request_id`，不会回传来源正文。定时配置位于同页下方，需管理员启用环境功能开关。
 
 数据库、凭据、密钥和本地配置不提交到仓库。
 

@@ -538,6 +538,27 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
         self.assertNotIn('sources',self.call(b,'/workspace')[1])
         self.assertEqual(self.call(a,'/data/sources','PUT',dict(value=['wechat'],version=1))[0],400)
 
+    def test_reviewed_deadline_update_keeps_one_target_and_distinct_same_day_assignment(self):
+        client=self.client();self.register(client,'same-day-assignments@test.local')
+        self.call(client,'/recognition/demo','POST',{})
+        uid=self.call(client,'/auth/me')[1]['user']['id']
+        original=dict(id='poj-four',title='完成POJ第四章作业',description='原作业要求',status='not_started',plans=[],subtasks=[],due=dict(date='2026-10-21',precision='date'),recognitionHistory=[dict(storageId='original',action='create')])
+        separate=dict(id='mooc-four',title='完成MOOC第四章作业',status='not_started',plans=[],subtasks=[],due=dict(date='2026-11-03',precision='datetime',time='23:30'))
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[original,separate],version=0))[0],200)
+        with app.connection() as db:
+            candidate=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? LIMIT 1',(uid,)).fetchone()['candidate'])
+            candidate.update(title='POJ第四章作业延期',notice_type='update')
+            db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',('poj-update',uid,'demo:text-contract:0.2',json.dumps(candidate)))
+        body=dict(action='update',version=1,tasks_version=1,reviewed=True,target_id='poj-four',draft=dict(title='POJ第四章作业（延期）',description='截止时间延至11月3日',due=dict(date='2026-11-03',precision='datetime',time='23:59')))
+        for _ in range(2):
+            self.assertEqual(self.call(client,'/recognition/candidates/poj-update/resolve','POST',body)[0],200)
+        tasks=self.call(client,'/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),2)
+        self.assertEqual(tasks[1],separate)
+        self.assertEqual(tasks[0]['id'],'poj-four')
+        self.assertEqual(tasks[0]['due'],body['draft']['due'])
+        self.assertEqual([h['storageId'] for h in tasks[0]['recognitionHistory']],['original','poj-update'])
+
     def test_recognition_change_matching_and_preservation(self):
         a=self.client();self.register(a,'text-change@test.local')
         self.call(a,'/recognition/demo','POST',{})

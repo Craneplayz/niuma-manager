@@ -16,6 +16,8 @@ import recognition
 import planning
 import source_sync
 import source_jobs
+import submission_runtime
+import public_sources
 import source_schedule
 import wechat_media
 import manual_materials
@@ -63,6 +65,7 @@ def initialize(recover=True):
         source_sync.initialize(db)
         source_jobs.initialize(db, recover=recover)
         source_schedule.initialize(db)
+        public_sources.initialize(db,recover=recover)
         reprocessing.initialize(db,recover=recover)
         if wechat_enabled() or manual_materials.enabled():
             wechat_media.initialize(db,recover=recover and wechat_enabled())
@@ -227,7 +230,9 @@ class Handler(BaseHTTPRequestHandler):
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
             if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
             if source_schedule.route(self,db,uid,path,body,ApiError): return
+            if public_sources.route(self,db,uid,path,body,ApiError,DB): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
+            if submission_runtime.route(self,db,uid,path,body,ApiError): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
@@ -325,6 +330,7 @@ class Handler(BaseHTTPRequestHandler):
                 if name=='tasks':
                     old=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
                     self.usage_tasks=json.loads(old['value']) if old else []
+                    submission_runtime.manual_task_write(db,uid,value)
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 return self.reply(200,dict(version=version+1))
             if path=='/api/planning/proposals' and self.command=='POST':
@@ -399,7 +405,10 @@ class Handler(BaseHTTPRequestHandler):
             with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
         except ApiError as e:
-            if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
+            if self.path.startswith('/api/sources/submissions'):
+                code={401:'unauthorized',403:'unauthorized',404:'not_found',409:'conflict',503:'unavailable'}.get(e.status,'invalid_request')
+                self.reply(e.status,dict(contract_version='submission-operations/0.1',code=code,message=e.message))
+            elif self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 code={401:'unauthorized',403:'forbidden',404:'not_found',413:'limit_exceeded',503:'queue_busy'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
             else: self.reply(e.status,dict(error=e.message))

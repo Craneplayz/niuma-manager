@@ -50,8 +50,8 @@ export async function api(path, body, method = "POST", options = {}) {
     const response = await fetch(path, {
       method: body === undefined ? "GET" : method,
       credentials: "same-origin",
-      headers: body === undefined ? {} : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined || options.formData ? {} : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : options.formData ? body : JSON.stringify(body),
       signal: controller.signal,
     });
     const data = await response.json();
@@ -92,6 +92,7 @@ const canonicalStatus = {
 function toView(task) {
   return {
     ...task,
+    content_type: task.content_type || "task",
     due: task.due?.date || "",
     dueTime: task.due?.time || "",
     course: task.course || "",
@@ -106,6 +107,8 @@ function toCanonical(task, previous = {}) {
     title: task.title,
     description: task.notes || "",
     course: task.course || null,
+    content_type: task.content_type || previous.content_type || "task",
+    planningExcluded: task.content_type === "notice" || (previous.content_type === "notice" && task.content_type === "task" ? false : Boolean(task.planningExcluded)),
     status: canonicalStatus[task.status] || "not_started",
     completedAt:
       task.status === "done"
@@ -244,6 +247,11 @@ export function saveStore(data) {
   if (!session.user || session.changing) {
     report("error", "请先登录账号，或等待账号切换完成");
     return false;
+  }
+  const previous = new Map((latest?.tasks || canonicalTasks).map(task => [task.id, task]));
+  for (const task of data.tasks) {
+    if (task.content_type === "notice") task.planningExcluded = true;
+    else if (previous.get(task.id)?.content_type === "notice" && task.content_type === "task") task.planningExcluded = false;
   }
   editRevision++;
   latest = clone(data);
