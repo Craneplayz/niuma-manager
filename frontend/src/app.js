@@ -46,11 +46,12 @@ const app = document.querySelector("#app"),
   dialog = document.querySelector("#dialog"),
   drawer = document.querySelector("#task-drawer"),
   sidebarTooltip = document.querySelector("#sidebar-tooltip");
-const params = new URLSearchParams(location.search),
-  today = todayKey();
-const dateLabel = new Intl.DateTimeFormat("zh-CN", {
+const params = new URLSearchParams(location.search);
+let today = todayKey(), dayTimer;
+const dateFormat = new Intl.DateTimeFormat("zh-CN", {
   month: "long", day: "numeric", weekday: "long",
-}).format(new Date(today + "T12:00:00"));
+});
+const dateLabel = () => dateFormat.format(new Date(today + "T12:00:00"));
 let demo = params.get("demo") === "1",
   state = demo ? demoWorkspace(today) : readStore(),
   loading = !demo,
@@ -364,7 +365,32 @@ function restoreFocus(token) {
       );
   if (el && !el.disabled) el.focus({ preventScroll: true });
 }
+function refreshToday() {
+  const next = todayKey();
+  if (next === today) return false;
+  today = next;
+  if (drawer.open && !drawerEditing) updateDrawer();
+  return true;
+}
+function syncToday() {
+  if (document.visibilityState !== "hidden" && refreshToday()) {
+    if (ui.page === "tasks") render();
+    else {
+      // Keep the import form and any unsaved review draft intact.
+      const label = document.querySelector(".main-date");
+      if (label) {
+        label.dateTime = today;
+        label.textContent = dateLabel();
+      }
+    }
+  }
+  clearTimeout(dayTimer);
+  const now = new Date();
+  dayTimer = setTimeout(syncToday,
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now);
+}
 function render() {
+  refreshToday();
   hideSidebarTooltip();
   imports.setVisible(ui.page === "import" && !demo && !loading);
   const focus = document.activeElement,
@@ -372,7 +398,7 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : ui.scope === "notices" ? "通知" : "我的任务"}</span><time class="main-date" datetime="${today}">${esc(dateLabel)}</time></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
+  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : ui.scope === "notices" ? "通知" : "我的任务"}</span><time class="main-date" datetime="${today}">${esc(dateLabel())}</time></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
@@ -391,6 +417,7 @@ function render() {
     document.querySelector(".account-entry").title = environment.detail;
 }
 function renderResults() {
+  if (refreshToday()) return render();
   const dayFocus = document.activeElement?.dataset.calendarDay;
   const results = document.querySelector("#task-results");
   if (!results) return;
@@ -438,7 +465,7 @@ function updateDrawer() {
     editing: drawerEditing,
     escapeHtml: esc,
     icon,
-    deadlineLabel: (t) => deadlineLabel(t, today),
+    deadlineLabel,
   });
   if (!drawerEditing && task.id) {
     const evidence = drawer.querySelector("#task-evidence");
@@ -475,7 +502,7 @@ async function toggleTask(id) {
   const origin = { page: ui.page, scope: ui.scope, drawerId, drawerOpen: drawer.open };
   const previous = { status: task.status, completedAt: task.completedAt || "" };
   task.status = task.status === "done" ? "todo" : "done";
-  task.completedAt = task.status === "done" ? today : "";
+  task.completedAt = task.status === "done" ? todayKey() : "";
   const applied = { status: task.status, completedAt: task.completedAt };
   taskBusy = true;
   render();
@@ -617,8 +644,8 @@ const actions = {
   "calendar-prev": () => calendarStep(-1),
   "calendar-next": () => calendarStep(1),
   "calendar-today": () => {
-    ui.anchor = today;
-    ui.selectedDate = today;
+    ui.anchor = todayKey();
+    ui.selectedDate = ui.anchor;
     ui.pane = "day";
     renderResults();
   },
@@ -941,7 +968,11 @@ matchMedia("(max-width: 700px)").addEventListener("change", () => {
   ui.mobileMenu = false;
   render();
 });
+document.addEventListener("visibilitychange", syncToday);
+window.addEventListener("focus", syncToday);
+window.addEventListener("pageshow", syncToday);
 render();
+syncToday();
 async function initialize() {
   if (!demo) {
     try {
