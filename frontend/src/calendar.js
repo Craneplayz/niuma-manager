@@ -1,3 +1,5 @@
+import { isNotice } from "./task-model.js";
+
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const DAY_MS = 86400000;
 
@@ -58,7 +60,7 @@ export function renderCalendar({
   const byDate = new Map();
 
   for (const task of Array.isArray(tasks) ? tasks : []) {
-    if (task.status === "done" || !readDate(task.due)) continue;
+    if ((!isNotice(task) && task.status === "done") || !readDate(task.due)) continue;
     if (!byDate.has(task.due)) byDate.set(task.due, []);
     byDate.get(task.due).push(task);
   }
@@ -74,8 +76,9 @@ export function renderCalendar({
 
   function taskButton(task, date) {
     const time = task.dueTime ? String(task.dueTime) : "";
-    const label = `${task.title}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
-    return `<button type="button" class="calendar-task" data-task-open="${escapeHtml(task.id)}" aria-label="${escapeHtml(label)}">${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}<span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
+    const notice = isNotice(task);
+    const label = `${notice ? "通知关键时间：" : "任务截止："}${task.title}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
+    return `<button type="button" class="calendar-task${notice ? " is-notice" : ""}" data-task-open="${escapeHtml(task.id)}" aria-label="${escapeHtml(label)}">${notice ? '<span class="notice-label">通知</span>' : ""}${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}<span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
   }
 
   function day(date, index) {
@@ -93,7 +96,8 @@ export function renderCalendar({
     ]
       .filter(Boolean)
       .join(" ");
-    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} 项任务` : "暂无任务"}`;
+    const unit = members.some(isNotice) ? "条内容" : "项任务";
+    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "暂无内容"}`;
     const weekday = isWeek
       ? `<span class="calendar-day-weekday">星期${WEEKDAYS[index]}</span>`
       : "";
@@ -107,7 +111,7 @@ export function renderCalendar({
     const visible = isWeek ? members : members.slice(0, 2);
     const overflow =
       !isWeek && members.length > 2
-        ? `<button type="button" class="calendar-more" data-calendar-day="${iso}" aria-label="查看 ${accessibleDate(date)}的全部 ${members.length} 项任务">+${members.length - 2} 项</button>`
+        ? `<button type="button" class="calendar-more" data-calendar-day="${iso}" aria-label="查看 ${accessibleDate(date)}的全部 ${members.length} ${unit}">+${members.length - 2} 项</button>`
         : "";
     const empty =
       isWeek && !members.length

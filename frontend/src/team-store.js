@@ -12,13 +12,15 @@ let canonicalTasks = [],
   taskVersion = 0,
   queue = Promise.resolve(),
   latest = null,
-  failed = false;
+  failed = false,
+  pendingChange = null;
 const clone = (value) => structuredClone(value);
-let accountEpoch = 0;
+let accountEpoch = 0, editRevision = 0;
 const requests = new Set();
 export const accountVersion = () => accountEpoch;
 function resetAccount() {
   accountEpoch++;
+  editRevision++;
   for (const controller of requests) controller.abort();
   requests.clear();
   session.user = null;
@@ -26,6 +28,7 @@ function resetAccount() {
   taskVersion = 0;
   latest = null;
   failed = false;
+  pendingChange = null;
   session.conflict = false;
   window.dispatchEvent(new CustomEvent("niuma:account-reset"));
 }
@@ -139,24 +142,39 @@ function view() {
 async function loadSession(discardPending = false) {
   let epoch = accountEpoch;
   try {
-    const result = await api("/api/auth/me");
-    if (epoch !== accountEpoch) throw new Error("账号已切换");
-    if (session.user && session.user.id !== result.user.id) {
-      resetAccount();
-      epoch = accountEpoch;
+    while (true) {
+      await drainWrites();
+      if (epoch !== accountEpoch) throw new Error("账号已切换");
+      if (!discardPending && failed) throw new Error(session.error || "还有未保存的数据");
+      let revision = editRevision;
+      const result = await api("/api/auth/me");
+      if (epoch !== accountEpoch) throw new Error("账号已切换");
+      if (session.user && session.user.id !== result.user.id) {
+        resetAccount();
+        epoch = accountEpoch;
+        revision = editRevision;
+      }
+      const next = await api("/api/workspace");
+      if (epoch !== accountEpoch) throw new Error("账号已切换");
+      if (revision !== editRevision || latest && !discardPending) {
+        // A read started before a local edit must wait for that edit and read again.
+        discardPending = false;
+        continue;
+      }
+      session.user = result.user;
+      if ((next.tasks?.version || 0) >= taskVersion) {
+        canonicalTasks = clone(next.tasks?.value || []);
+        taskVersion = next.tasks?.version || 0;
+      }
+      if (discardPending) {
+        latest = null;
+        failed = false;
+        pendingChange = null;
+        session.conflict = false;
+      }
+      report("saved");
+      return view();
     }
-    const next = await api("/api/workspace");
-    if (epoch !== accountEpoch) throw new Error("账号已切换");
-    session.user = result.user;
-    canonicalTasks = clone(next.tasks?.value || []);
-    taskVersion = next.tasks?.version || 0;
-    if (discardPending) {
-      latest = null;
-      failed = false;
-      session.conflict = false;
-    }
-    report("saved");
-    return view();
   } catch (error) {
     if (epoch !== accountEpoch) throw error;
     if (error.status === 401) {
@@ -180,15 +198,17 @@ export async function refreshStore() {
 export async function reloadStore() {
   if (session.changing) throw new Error("正在切换账号，请稍后重新读取");
   const epoch = accountEpoch;
-  await queue;
+  await drainWrites();
   if (epoch !== accountEpoch) throw new Error("账号已切换");
   // Explicitly replace a failed local draft only after fresh data has arrived.
   return loadSession(true);
 }
 function taskPayload(data) {
   const previous = new Map(canonicalTasks.map((task) => [task.id, task]));
+  const incoming = new Set(data.tasks.map((task) => task.id));
   return [
-    ...canonicalTasks.filter((task) => task.status === "cancelled" || task.recycleBin),
+    // Deletion is explicit; absence from an older UI snapshot must not erase a task.
+    ...canonicalTasks.filter((task) => task.status === "cancelled" || task.recycleBin || !incoming.has(task.id)),
     ...data.tasks
       .filter((task) => !previous.get(task.id)?.recycleBin)
       .map((task) => toCanonical(task, previous.get(task.id))),
@@ -232,6 +252,7 @@ export function saveStore(data) {
     if (task.content_type === "notice") task.planningExcluded = true;
     else if (previous.get(task.id)?.content_type === "notice" && task.content_type === "task") task.planningExcluded = false;
   }
+  editRevision++;
   latest = clone(data);
   if (!failed) enqueue(latest);
   return true;
@@ -240,6 +261,7 @@ async function changeStoredTasks(transform) {
   if (!session.user || session.changing)
     throw new Error("请先登录账号，或等待账号切换完成");
   const epoch = accountEpoch;
+  editRevision++;
   const update = queue.then(async () => {
     if (failed) throw new Error(session.error || "还有未保存的数据");
     if (epoch !== accountEpoch) throw new Error("账号已切换");
@@ -255,9 +277,12 @@ async function changeStoredTasks(transform) {
       taskVersion = result.version;
       canonicalTasks = clone(value);
       session.conflict = false;
-      report("saved");
+      pendingChange = null;
+      report(latest ? "saving" : "saved");
     } catch (error) {
       if (epoch === accountEpoch) {
+        failed = true;
+        pendingChange = transform;
         session.conflict = error.status === 409;
         report("error", error.message);
       }
@@ -305,13 +330,24 @@ export function restoreStoredTasks(ids) {
     });
   });
 }
+async function drainWrites() {
+  let pending;
+  do {
+    pending = queue;
+    await pending;
+  } while (pending !== queue);
+}
 export async function flushStore() {
-  await queue;
+  await drainWrites();
   if (failed) throw new Error(session.error || "还有未保存的数据");
 }
 export async function retrySave() {
+  const epoch = accountEpoch;
+  await drainWrites();
+  if (epoch !== accountEpoch) throw new Error("账号已切换");
   if (session.conflict) throw new Error("数据已被其他页面修改，请刷新后再编辑");
   failed = false;
+  if (pendingChange) await changeStoredTasks(pendingChange);
   if (latest) await enqueue(latest);
   await flushStore();
 }

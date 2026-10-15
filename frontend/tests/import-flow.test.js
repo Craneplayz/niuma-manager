@@ -50,6 +50,18 @@ test('review retains date precision and requires explicit confirmation for chang
  assert.deepEqual(candidateDue({...deadline,precision:'datetime',value:'2026-10-20T12:30:45+08:00'}),{date:'2026-10-20',time:''});
 });
 
+test('candidate confirmation retains notice classification and never changes the selected target type',()=>{
+ const values={action:'create',title:'地点调整',description:'上课地点更改',course:'',date:'',time:'',reviewed:'on'};
+ const notice={...item,candidate:{...candidate,content_type:'notice'}};
+ assert.equal(buildCandidateResolution(notice,values,[],7).draft.content_type,'notice');
+ assert.equal(buildCandidateResolution(item,values,[],7).draft.content_type,'task');
+ const update={...item,candidate:{...candidate,notice_type:'update'}};
+ const target={id:'target',title:'原通知',content_type:'notice',notes:'原说明'};
+ assert.equal(buildCandidateResolution(update,{...values,action:'update',target_id:'target'},[target],7).draft.content_type,'notice');
+ const incomingNotice={...notice,candidate:{...notice.candidate,notice_type:'update'}};
+ assert.equal(buildCandidateResolution(incomingNotice,{...values,action:'update',target_id:'target'},[{...target,content_type:'task'}],7).draft.content_type,'task');
+});
+
 function fakeForm(kind,values,extra={}){
  const error={textContent:'',hidden:true},retry={hidden:true},submit={textContent:'确认',disabled:false,dataset:{}};
  const fields=[submit,{disabled:false,dataset:{}}];
@@ -238,7 +250,7 @@ test('a teaching run with two server-created tasks refreshes both as normal task
  const source=teachingCase('two-tasks'),f=fixture({syncCases:[source]});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});ui.input({target:{id:'teaching-sync-consent',checked:true}});await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
  const html=ui.render();
- for(const candidate of source.result.tasks)assert.ok(html.includes(escapeHtml(candidate.title)));
+ assert.doesNotMatch(html.split('class="import-results"')[1],/已处理 ·|:storage:/);
  assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,0);
  assert.equal(f.host.getState().tasks.length,2);
  assert.ok(f.host.getState().tasks.every(task=>task.status==='todo'));
@@ -249,8 +261,11 @@ test('retrying a saved teaching failure outside background runs sends its identi
  const source=teachingCase('date-only'),f=fixture({syncCases:[source]});
  f.batches.A.push({request:structuredClone(source.request),result:{...structuredClone(source.result),status:'failed',tasks:[],errors:[{code:'agent_timeout',message:'agent_timeout',retryable:true}]},items:[]});
  await f.login();const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});
- assert.ok(ui.render().includes(`data-import-retry="${source.run.request_id}"`));
- assert.match(ui.render(),/识别服务连接失败或超时/);
+ const html=ui.render();
+ assert.match(html,/<details class="import-history"><summary>历史导入 · 识别未完成 1<\/summary>/);
+ assert.ok(html.includes(`data-import-retry="${source.run.request_id}"`));
+ assert.match(html,/识别服务连接失败或超时/);
+ assert.doesNotMatch(html.split('class="import-results"')[1],/import-failure|data-import-retry/);
  await new Promise(r=>setImmediate(r));
  await ui.click({dataset:{importRetry:source.run.request_id}});
  const calls=f.calls.filter(call=>['/api/recognition/batches','/api/recognition/retry'].includes(call.path)&&call.method==='POST');
@@ -343,4 +358,32 @@ test('terminal reprocessing refresh keeps text and teaching imports blocked unti
  const writes=f.calls.slice(before).filter(call=>call.method==='POST');
  assert.equal(writes.filter(call=>call.path==='/api/recognition/batches'&&call.body.contract_version==='0.2').length,1);
  assert.equal(writes.filter(call=>call.path==='/api/sources/sync-runs').length,1);
+});
+
+test('refreshing candidates prevents a concurrent ignore from being overwritten by an old read',async()=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
+ const gate=f.defer(),reading=ui.load();await gate.entered;
+ const disabled=/data-import-ignore="candidate-A" disabled/.test(ui.render());
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ const premature=f.calls.filter(call=>call.path.endsWith('/resolve')).length;
+ gate.release();await reading;
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ assert.equal(disabled,true);
+ assert.equal(premature,0);
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+});
+
+test('a delayed ordinary refresh cannot replace newer background recognition results',async()=>{
+ const {syncRun}=await import('./sync-fixtures.js');
+ const f=fixture({intercept(path,body,method){
+  if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[syncRun()]};
+ }});
+ await f.login();const ui=createImportUI(f.host);await ui.load();
+ const gate=f.defer(),reading=ui.load();await gate.entered;
+ Object.assign(f.batches.A[0].items[0],{state:'ignored',version:4});
+ await ui.loadSourceSync();
+ gate.release();await reading;
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
 });

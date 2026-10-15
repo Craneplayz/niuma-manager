@@ -68,6 +68,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Install backend test dependencies
+        run: python -m pip install -r ../server/requirements-test.txt
+      - name: Run backend regressions
+        working-directory: .
+        run: python -m unittest discover -s server -p "test_*.py"
 
   crawler:
     name: 爬虫 crawler (${{ matrix.os }}, Node ${{ matrix.node }})

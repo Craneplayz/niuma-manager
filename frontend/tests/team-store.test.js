@@ -119,6 +119,21 @@ test("notice edits retain type and explicit dates through consecutive saves and 
  assert.equal(f.tasks[0].due.date,'2026-10-23');
 });
 
+test("editing and recycling notices retains content type and existing status without read or archive fields", async () => {
+  const original = task("notice", { content_type: "notice", status: "completed", planningExcluded: true, completedAt: "2026-10-12" });
+  const f = fixture("notice-preservation", [original]);
+  const state = await initSession();
+  state.tasks[0].title = "修改通知标题";
+  saveStore(state); await flushStore();
+  assert.equal(f.tasks[0].content_type, "notice");
+  assert.equal(f.tasks[0].status, "completed");
+  assert.equal(f.tasks[0].completedAt, original.completedAt);
+  await trashStoredTasks(["notice"]); await restoreStoredTasks(["notice"]);
+  assert.equal(f.tasks[0].content_type, "notice");
+  assert.equal(f.tasks[0].status, "completed");
+  for (const field of ["readAt", "archivedAt", "isRead"]) assert.equal(Object.hasOwn(f.tasks[0], field), false);
+});
+
 test("completion dates survive save and reload and clear when the task reopens", async () => {
   const f = fixture("completion", [task("task")]);
   let state = await initSession();
@@ -394,4 +409,163 @@ test("explicit reload waits for an in-flight write before reading the workspace"
   assert.equal(reads, 2);
   assert.equal(next.tasks[0].title, "先完成的保存");
   assert.equal(session.sync, "saved");
+});
+
+test("a late workspace response cannot roll back an edit saved during refresh", async () => {
+  const f = fixture("late-workspace", [task("task")]);
+  const state = await initSession();
+  const originalFetch = globalThis.fetch;
+  let release, started, hold = true;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { started = resolve; });
+  globalThis.fetch = async (path, options) => {
+    const response = await originalFetch(path, options);
+    if (path === "/api/workspace" && hold) {
+      hold = false;
+      const snapshot = await response.json();
+      started(); await waiting;
+      return reply(snapshot);
+    }
+    return response;
+  };
+  const refreshing = refreshStore();
+  await entered;
+  state.tasks[0].title = "刷新期间保存的新标题";
+  saveStore(state); await flushStore();
+  release();
+  const next = await refreshing;
+  assert.equal(next.tasks[0].title, "刷新期间保存的新标题");
+  assert.equal(getTaskVersion(), 2);
+  next.tasks[0].notes = "后续修改仍能保存";
+  saveStore(next); await flushStore();
+  assert.equal(f.tasks[0].title, "刷新期间保存的新标题");
+  assert.equal(f.tasks[0].description, "后续修改仍能保存");
+});
+
+test("an older concurrent workspace read cannot replace a newer server version", async () => {
+  fixture("concurrent-reads", [task("task")]);
+  await initSession();
+  let release, started, reads = 0;
+  const waiting = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { started = resolve; });
+  globalThis.fetch = async path => {
+    if (path === "/api/auth/me") return reply({ user: { id: "concurrent-reads" } });
+    if (path === "/api/workspace") {
+      if (++reads === 1) {
+        started(); await waiting;
+        return reply({ tasks: { value: [task("task", { title: "旧的读取" })], version: 1 } });
+      }
+      return reply({ tasks: { value: [task("task", { title: "新的服务端结果" })], version: 2 } });
+    }
+    throw new Error(path);
+  };
+  const older = refreshStore();
+  await entered;
+  const newer = await refreshStore();
+  assert.equal(newer.tasks[0].title, "新的服务端结果");
+  release();
+  const next = await older;
+  assert.equal(next.tasks[0].title, "新的服务端结果");
+  assert.equal(getTaskVersion(), 2);
+});
+
+test("flush waits for task writes added while an earlier save is in flight", async () => {
+  const f = fixture("flush-latest", [task("task")]);
+  const state = await initSession(), originalFetch = globalThis.fetch;
+  let startFirst, startSecond, releaseFirst, releaseSecond, writes = 0;
+  const firstEntered = new Promise(resolve => { startFirst = resolve; });
+  const secondEntered = new Promise(resolve => { startSecond = resolve; });
+  const firstWait = new Promise(resolve => { releaseFirst = resolve; });
+  const secondWait = new Promise(resolve => { releaseSecond = resolve; });
+  globalThis.fetch = async (path, options) => {
+    if (path === "/api/data/tasks") {
+      if (++writes === 1) { startFirst(); await firstWait; }
+      else { startSecond(); await secondWait; }
+    }
+    return originalFetch(path, options);
+  };
+  state.tasks[0].title = "第一次修改";
+  saveStore(state); await firstEntered;
+  let flushed = false;
+  const flushing = flushStore().then(() => { flushed = true; });
+  state.tasks[0].title = "第二次修改";
+  saveStore(state); releaseFirst(); await secondEntered;
+  await new Promise(resolve => setImmediate(resolve));
+  const finishedEarly = flushed;
+  releaseSecond(); await flushing; await flushStore();
+  assert.equal(finishedEarly, false);
+  assert.equal(f.tasks[0].title, "第二次修改");
+});
+
+test("saving an older task list cannot erase a task restored after that list was read", async () => {
+  const f = fixture("restored-during-edit", [task("kept"), task("restored")]);
+  await initSession();
+  await trashStoredTasks(["restored"]);
+  const older = await refreshStore();
+  assert.deepEqual(older.tasks.map(item => item.id), ["kept"]);
+  await restoreStoredTasks(["restored"]);
+  older.tasks[0].title = "保留另一项任务的修改";
+  saveStore(older); await flushStore();
+  assert.ok(f.tasks.some(item => item.id === "restored" && !item.recycleBin));
+  assert.equal(f.tasks.find(item => item.id === "kept").title, "保留另一项任务的修改");
+});
+
+test("retrying a failed trash write actually retries the pending deletion", async () => {
+  const f = fixture("retry-trash", [task("task")]);
+  await initSession();
+  const originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (path, options) => {
+    if (path === "/api/data/tasks" && fail) {
+      fail = false;
+      return { ok: false, status: 503, json: async () => ({ error: "临时保存失败" }) };
+    }
+    return originalFetch(path, options);
+  };
+  await assert.rejects(trashStoredTasks(["task"]), /临时保存失败/);
+  await assert.rejects(flushStore(), /临时保存失败/);
+  await retrySave();
+  assert.ok(f.tasks[0].recycleBin);
+  assert.equal(f.tasks[0].status, "cancelled");
+  assert.equal(session.sync, "saved");
+});
+
+test("retry restores the failed item before saving edits made after that failure", async () => {
+  const f = fixture("retry-restore", [task("restored"), task("other")]);
+  await initSession(); await trashStoredTasks(["restored"]);
+  const older = await refreshStore(), originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (path, options) => {
+    if (path === "/api/data/tasks" && fail) {
+      fail = false;
+      return { ok: false, status: 503, json: async () => ({ error: "恢复暂时失败" }) };
+    }
+    return originalFetch(path, options);
+  };
+  await assert.rejects(restoreStoredTasks(["restored"]), /恢复暂时失败/);
+  older.tasks[0].title = "后续标题修改";
+  saveStore(older);
+  await retrySave();
+  assert.ok(f.tasks.some(item => item.id === "restored" && !item.recycleBin));
+  assert.equal(f.tasks.find(item => item.id === "other").title, "后续标题修改");
+});
+
+test("explicit rereading discards a failed mutation instead of replaying it later", async () => {
+  const f = fixture("discard-failed-trash", [task("task")]);
+  await initSession();
+  const originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (path, options) => {
+    if (path === "/api/data/tasks" && fail) {
+      fail = false;
+      return { ok: false, status: 503, json: async () => ({ error: "删除暂时失败" }) };
+    }
+    return originalFetch(path, options);
+  };
+  await assert.rejects(trashStoredTasks(["task"]), /删除暂时失败/);
+  const state = await reloadStore();
+  assert.equal(state.tasks.length, 1);
+  await retrySave();
+  assert.equal(f.writes.length, 0);
+  assert.equal(f.tasks[0].recycleBin, undefined);
 });

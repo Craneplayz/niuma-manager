@@ -1,6 +1,7 @@
 import {
   deadlineLabel,
   groupTasks,
+  isNotice,
   shiftDay,
   sortTasks,
   todayKey,
@@ -25,26 +26,31 @@ export function renderTaskRow(
     compact = false,
   } = {},
 ) {
-  const done = task.status === "done";
-  const overdue = !done && Boolean(task.due) && task.due < today;
+  const notice = isNotice(task);
+  const done = !notice && task.status === "done";
+  const overdue = !notice && !done && Boolean(task.due) && task.due < today;
   const meta = [...new Set([task.course, task.source].filter(Boolean))];
-  if (task.content_type === "notice") meta.push("通知");
-  if (task.status === "doing") meta.push("进行中");
+  if (!notice && task.status === "doing") meta.push("进行中");
   const due = compact
     ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(task.dueTime || "")
       ? task.dueTime
       : ""
-    : deadlineLabel(task, today);
-  return `<article class="task-row${compact ? " is-compact" : ""}${done ? " is-completed" : ""}${overdue ? " is-overdue" : ""}" data-task-id="${escapeHtml(task.id)}"><button type="button" class="task-complete" data-task-complete="${escapeHtml(task.id)}" aria-label="${done ? "恢复任务：" : "完成任务："}${escapeHtml(task.title)}" aria-pressed="${done}"><span class="task-complete-mark">${done ? icon("check") : ""}</span></button><button type="button" class="task-open" data-task-open="${escapeHtml(task.id)}"><span class="task-title">${escapeHtml(task.title)}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${due ? `<span class="task-deadline">${escapeHtml(due)}</span>` : ""}</article>`;
+    : notice
+      ? task.due ? `关键时间：${deadlineLabel(task, today)}` : "未注明时间"
+      : deadlineLabel(task, today);
+  const marker = notice
+    ? `<span class="notice-mark" aria-hidden="true">${icon("info")}</span>`
+    : `<button type="button" class="task-complete" data-task-complete="${escapeHtml(task.id)}" aria-label="${done ? "恢复任务：" : "完成任务："}${escapeHtml(task.title)}" aria-pressed="${done}"><span class="task-complete-mark">${done ? icon("check") : ""}</span></button>`;
+  return `<article class="task-row${notice ? " is-notice" : ""}${compact ? " is-compact" : ""}${done ? " is-completed" : ""}${overdue ? " is-overdue" : ""}" data-task-id="${escapeHtml(task.id)}">${marker}<button type="button" class="task-open" data-task-open="${escapeHtml(task.id)}"><span class="task-title">${notice ? '<span class="notice-label">通知</span>' : ""}${escapeHtml(task.title)}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${due ? `<span class="task-deadline">${escapeHtml(due)}</span>` : ""}</article>`;
 }
 
 export function renderTaskList(
   tasks,
-  { escapeHtml = escape, icon = noIcon, today = todayKey() } = {},
+  { escapeHtml = escape, icon = noIcon, today = todayKey(), emptyLabel = "没有符合条件的任务" } = {},
 ) {
-  if (!tasks.length) return '<p class="task-empty">没有符合条件的任务</p>';
+  if (!tasks.length) return `<p class="task-empty">${escapeHtml(emptyLabel)}</p>`;
   const options = { escapeHtml, icon, today };
-  if (tasks.every((task) => task.status === "done"))
+  if (tasks.every(isNotice) || tasks.every((task) => task.status === "done"))
     return `<div class="task-list">${sortTasks(tasks)
       .map((task) => renderTaskRow(task, options))
       .join("")}</div>`;
@@ -69,10 +75,12 @@ export function renderDayPanel({
   const undated = tasks.filter((task) => !shiftDay(task.due, 0));
   const dated = tasks.filter((task) => task.due === date);
   const visible = sortTasks(isUndated ? undated : dated);
+  const hasNotices = tasks.some(isNotice);
+  const kind = hasNotices ? "内容" : "任务";
   const [year, month, day] = date.split("-");
   const dateText = `${year === today.slice(0, 4) ? "" : `${year} 年 `}${Number(month)} 月 ${Number(day)} 日`;
   const weekday = ["日", "一", "二", "三", "四", "五", "六"][
     new Date(`${date}T00:00:00Z`).getUTCDay()
   ];
-  return `<aside class="day-panel" aria-label="${isUndated ? "无日期任务" : `${escapeHtml(dateText)}截止任务`}"><div class="calendar-pane-switch" role="group" aria-label="日历任务范围"><button type="button" data-calendar-pane="day" class="${isUndated ? "" : "is-selected"}" aria-pressed="${!isUndated}">当日任务${dated.length ? `<span>${dated.length}</span>` : ""}</button><button type="button" data-calendar-pane="undated" class="${isUndated ? "is-selected" : ""}" aria-pressed="${isUndated}">无日期${undated.length ? `<span>${undated.length}</span>` : ""}</button></div><header class="day-panel-heading"><h2>${isUndated ? "无截止日期" : escapeHtml(dateText)}</h2>${isUndated ? "" : `<span>${date === today ? "今天 · " : ""}星期${weekday}</span>`}</header><div class="day-panel-tasks">${visible.length ? visible.map((task) => renderTaskRow(task, { escapeHtml, icon, today, compact: true })).join("") : `<p class="task-empty">${isUndated ? "没有无日期任务" : "当天没有截止任务"}</p>`}</div></aside>`;
+  return `<aside class="day-panel" aria-label="${isUndated ? `无日期${kind}` : `${escapeHtml(dateText)}${hasNotices ? "任务与通知" : "截止任务"}`}"><div class="calendar-pane-switch" role="group" aria-label="日历内容范围"><button type="button" data-calendar-pane="day" class="${isUndated ? "" : "is-selected"}" aria-pressed="${!isUndated}">当日${kind}${dated.length ? `<span>${dated.length}</span>` : ""}</button><button type="button" data-calendar-pane="undated" class="${isUndated ? "is-selected" : ""}" aria-pressed="${isUndated}">无日期${undated.length ? `<span>${undated.length}</span>` : ""}</button></div><header class="day-panel-heading"><h2>${isUndated ? hasNotices ? "无日期内容" : "无截止日期" : escapeHtml(dateText)}</h2>${isUndated ? "" : `<span>${date === today ? "今天 · " : ""}星期${weekday}</span>`}</header><div class="day-panel-tasks">${visible.length ? visible.map((task) => renderTaskRow(task, { escapeHtml, icon, today, compact: true })).join("") : `<p class="task-empty">${isUndated ? `没有无日期${kind}` : `当天没有${hasNotices ? "任务与通知" : "截止任务"}`}</p>`}</div></aside>`;
 }

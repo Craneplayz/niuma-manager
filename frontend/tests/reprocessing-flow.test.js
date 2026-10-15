@@ -316,3 +316,20 @@ test("an account change during terminal refresh invalidates its callback and suc
   assert.equal(f.refreshes, 0);
   assert.doesNotMatch(f.ui.render(), /识别结果已刷新|课程报告通知/);
 });
+
+test("leaving the import page pauses reprocessing polls and returning refreshes completion", async t => {
+  const f = fixture(t);
+  await f.ui.toggle(toggle(true));
+  f.ui.input(select(records[0].input_id));
+  await f.ui.click(click("start"));
+  assert.equal(f.timers.size, 1);
+  f.ui.setVisible(false);
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.ui.isBusy(), true, "hiding the page must not stop the backend run");
+  f.setRuns([run("succeeded", 2, [records[0].input_id])]);
+  assert.equal(f.refreshes, 0);
+  await f.ui.setVisible(true);
+  assert.equal(f.refreshes, 1);
+  assert.equal(f.ui.isBusy(), false);
+  assert.equal(f.requests.filter(request => request.method === "POST").length, 1);
+});

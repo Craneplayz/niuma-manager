@@ -9,6 +9,7 @@ import {
   todayKey,
 } from "../src/task-model.js";
 import { renderCalendar } from "../src/calendar.js";
+import { renderTaskDrawer } from "../src/task-drawer.js";
 import {
   renderDayPanel,
   renderTaskList,
@@ -273,4 +274,61 @@ test("task and day renderers use string ids, expose completion, and keep complet
   });
   assert.match(undated, /data-task-open="undated"/);
   assert.doesNotMatch(undated, /data-task-open="today-early"/);
+});
+
+test("content type separates notices from task scopes regardless of dates or historical completion", () => {
+  const mixed = [
+    { id: "undated-task", title: "加群", status: "todo", due: "" },
+    { id: "dated-notice", title: "公示结果", content_type: "notice", status: "todo", due: today },
+    { id: "old-notice", title: "上课地点", content_type: "notice", status: "done", due: "" },
+    { id: "done-task", title: "提交作业", content_type: "task", status: "done", due: today },
+  ];
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "all", today })), ["undated-task"]);
+  assert.deepEqual(filterTasks(mixed, { scope: "near", today }), []);
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "done", today })), ["done-task"]);
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "notices", today })), ["dated-notice", "old-notice"]);
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "calendar", today })), ["dated-notice", "old-notice", "undated-task"]);
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "notices", query: "公示", dateFrom: today, today })), ["dated-notice"]);
+  assert.equal(mixed[2].status, "done");
+});
+
+test("notice lists and details identify key times without task completion or overdue controls", () => {
+  const notice = { id: "notice", title: "停课通知", content_type: "notice", status: "done", due: "2026-12-27", notes: "课程暂停" };
+  const list = renderTaskList([notice], { today });
+  assert.match(list, /notice-label|关键时间/);
+  assert.doesNotMatch(list, /data-task-complete|is-completed|is-overdue|已逾期/);
+  const drawer = renderTaskDrawer({ task: notice, escapeHtml: String, icon: () => "", deadlineLabel });
+  assert.match(drawer, /通知详情|关键时间/);
+  assert.doesNotMatch(drawer, /data-task-complete|完成任务|未完成/);
+  const editing = renderTaskDrawer({ task: notice, editing: true, escapeHtml: String, icon: () => "", deadlineLabel });
+  assert.match(editing, /编辑通知|关键日期|保存通知/);
+  assert.doesNotMatch(editing, /截止日期|保存任务/);
+});
+
+test("month, week and day panels distinguish dated notices and retain undated notices", () => {
+  const mixed = [tasks[2], { id: "notice", title: "考试地点", content_type: "notice", status: "done", due: today }, { id: "undated-notice", title: "上课教室", content_type: "notice", status: "todo", due: "" }];
+  for (const mode of ["month", "week"]) {
+    const markup = renderCalendar({ tasks: mixed, anchorDate: today, today, mode });
+    assert.match(markup, /calendar-task is-notice/);
+    assert.match(markup, /通知关键时间：考试地点/);
+    assert.match(markup, /任务截止：提交实验/);
+    assert.doesNotMatch(markup, /data-task-open="undated-notice"/);
+  }
+  const panel = renderDayPanel({ tasks: mixed, selectedDate: today, today });
+  assert.match(panel, /data-task-complete="today-late"/);
+  assert.doesNotMatch(panel, /data-task-complete="notice"/);
+  const undated = renderDayPanel({ tasks: mixed, selectedDate: today, pane: "undated", today });
+  assert.match(undated, /data-task-open="undated-notice"/);
+  assert.doesNotMatch(undated, /data-task-complete/);
+});
+
+test('task edits reject changed or removed records while allowing independent status and metadata updates',async()=>{
+ const {taskEditSnapshot,assertCurrentTaskEdit}=await import('../src/task-model.js');
+ const original={id:'task',title:'报告',notes:'提交 PDF',course:'概率论',due:'2026-10-20',dueTime:'18:00',status:'todo'};
+ const snapshot=taskEditSnapshot(original);
+ assert.doesNotThrow(()=>assertCurrentTaskEdit({...original,status:'done',serverMetadata:{updated:true}},snapshot));
+ for(const change of [{title:'新标题'},{notes:'新的原文要求'},{course:'新课程'},{due:'2026-10-21'},{dueTime:'20:00'}]){
+  assert.throws(()=>assertCurrentTaskEdit({...original,...change},snapshot),/内容已变化/);
+ }
+ assert.throws(()=>assertCurrentTaskEdit(undefined,snapshot),/内容已变化/);
 });

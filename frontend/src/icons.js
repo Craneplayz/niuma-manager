@@ -7,6 +7,7 @@ const paths = {
   plus: "M12 5v14M5 12h14",
   search: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14M15 15l6 6",
   clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2",
+  info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 11v6M12 7h.01",
   check: "M5 12l4 4L19 6",
   chevron: "M9 5l7 7-7 7",
   close: "M6 6l12 12M6 18L18 6",
