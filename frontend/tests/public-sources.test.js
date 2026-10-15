@@ -39,3 +39,45 @@ test('public start retries reuse identity; resetting account discards late resul
  releases.forEach(release=>release());await reading;
  assert.doesNotMatch(ui.render(),/合成公开讲座/);
 });
+
+test('an older public directory read cannot erase a newly started collection',async t=>{
+ session.user={id:'synthetic'};let release;
+ const pending=new Promise(resolve=>release=resolve);
+ globalThis.fetch=async(path,opts={})=>{
+  if(opts.body)return response({...examples.run,run_id:'new-run',state:'running',result:null,error:null});
+  if(path.endsWith('/catalog'))return response(examples.catalog);
+  await pending;return response({runs:[]});
+ };
+ const ui=createPublicSourcesUI({escapeHtml:String,render(){},isDemo:()=>false,isVisible:()=>false,refresh:async()=>{}});t.after(()=>{release();ui.reset();});
+ const reading=ui.load();await ui.click({dataset:{publicAction:'start'}});
+ release();await reading;
+ assert.match(ui.render(),/后台采集中/);
+ assert.match(ui.render(),/data-public-action="start" disabled/);
+});
+
+test('a task version conflict refreshes the workspace and waits for explicit reconfirmation',async t=>{
+ session.user={id:'synthetic'};let refreshed=0,writes=0;
+ globalThis.fetch=async(path,opts={})=>{
+  if(path.endsWith('/catalog'))return response(examples.catalog);
+  if(path.endsWith('/runs'))return response(examples.runs);
+  writes++;return {ok:false,status:409,json:async()=>({error:'任务已变化，请刷新后重试'})};
+ };
+ const ui=createPublicSourcesUI({escapeHtml:String,render(){},isDemo:()=>false,isVisible:()=>false,refresh:async()=>refreshed++});t.after(()=>ui.reset());
+ await ui.load();ui.input({target:{dataset:{publicEvent:'evt_synthetic',run:examples.run.run_id},checked:true}});
+ await ui.click({dataset:{publicAction:'import',run:examples.run.run_id}});
+ assert.equal(refreshed,1);assert.equal(writes,1);
+ assert.match(ui.render(),/重新确认/);
+});
+
+test('polling during a pending public start cannot capture a pre-start directory',async t=>{
+ session.user={id:'synthetic'};let reads=0,release,enter;
+ const gate=new Promise(resolve=>release=resolve),entered=new Promise(resolve=>enter=resolve);t.after(release);
+ globalThis.fetch=async(path,opts={})=>{
+  if(opts.body){enter();await gate;return response({...examples.run,state:'running',result:null,error:null});}
+  reads++;return response(path.endsWith('/catalog')?examples.catalog:{runs:[]});
+ };
+ const ui=createPublicSourcesUI({escapeHtml:String,render(){},isDemo:()=>false,isVisible:()=>false,refresh:async()=>{}});t.after(()=>ui.reset());
+ await ui.load();const start=ui.click({dataset:{publicAction:'start'}});await entered;
+ const before=reads;await ui.load();assert.equal(reads,before);
+ release();await start;assert.match(ui.render(),/后台采集中/);
+});

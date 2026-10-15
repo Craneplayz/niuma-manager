@@ -297,25 +297,28 @@ export function createImportUI(host) {
   }
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
+  async function refreshResults(isCurrent = () => true) {
+    const stamp = current(), previousBatchesRevision = batchesRevision;
+    const superseded = () => busy || previousBatchesRevision !== batchesRevision;
+    if (superseded()) return null;
+    await flushStore();
+    if (!valid(stamp) || !isCurrent()) return false;
+    await host.refresh();
+    if (!valid(stamp) || !isCurrent()) return false;
+    if (superseded()) return null;
+    const next = await api("/api/recognition/batches");
+    if (!valid(stamp) || !isCurrent()) return false;
+    if (superseded()) return null;
+    acceptBatches(next); loaded = true;
+    refresh(); return true;
+  }
   const sourceSync = createSourceSyncUI({
     ...host, api, flushStore, accountVersion, isDemo: demo,
     describeError: describeImportError,
     isAuthenticated: () => Boolean(session.user && !session.changing),
     isImportBusy: () => busy || reprocessing.isBusy(),
     render: refresh,
-    async onChanged(isCurrent) {
-      const stamp = current(), previousBatchesRevision = batchesRevision;
-      if (busy) return null;
-      await host.refresh();
-      if (!valid(stamp) || !isCurrent()) return false;
-      if (busy || previousBatchesRevision !== batchesRevision) return null;
-      const next = await api("/api/recognition/batches");
-      if (!valid(stamp) || !isCurrent()) return false;
-      if (busy || previousBatchesRevision !== batchesRevision) return null;
-      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
-      acceptBatches(next); loaded = true;
-      refresh(); return true;
-    },
+    onChanged: refreshResults,
   });
   const syncIsActive = () => sourceSync.isBusy();
   const syncOwnsRequest = id => sourceSync.ownsRequest(id);
@@ -326,17 +329,7 @@ export function createImportUI(host) {
   const publicSources = createPublicSourcesUI({...host, isDemo: demo, isVisible:()=>source==='public'&&(host.isImportVisible?.()??true)});
   const materials = createMaterialsUI({
     ...host, isDemo: demo, isVisible: () => source === "files" && (host.isImportVisible?.() ?? true),
-    async changed() {
-      const stamp = current();
-      await flushStore();
-      if (!valid(stamp)) return;
-      await host.refresh();
-      if (!valid(stamp)) return;
-      const next = await api("/api/recognition/batches");
-      if (!valid(stamp)) return;
-      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
-      acceptBatches(next); loaded = true; refresh();
-    },
+    changed: refreshResults,
   });
   const reprocessing = createReprocessingUI({
     ...host, api, flushStore, accountVersion,

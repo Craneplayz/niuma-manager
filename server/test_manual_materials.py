@@ -184,6 +184,12 @@ class ManualMaterialTests(unittest.TestCase):
             previous=json.loads(row['previous_result'])
         wechat_media.check_pair(body,previous)
         self.assertEqual(wechat_media.retryable_records(previous),{body['records'][0]['input_id']})
+        self.assertEqual(self.call('/materials/imports')[1]['jobs'][0]['retry_remaining'],2)
+        with app.connection() as db:
+            db.execute("UPDATE wechat_jobs SET attempts=3,status='failed',result=?,previous_result=NULL WHERE id=?",(json.dumps(previous),accepted['job_id']))
+        self.assertEqual(self.call('/materials/imports')[1]['jobs'][0]['retry_remaining'],0)
+        self.assertEqual(self.call(path,dict(retry_id='over-limit'))[0],409)
+        self.assertEqual(self.call(path,dict(retry_id='synthetic-retry'))[0],200)
 
 
 if __name__=='__main__':unittest.main()

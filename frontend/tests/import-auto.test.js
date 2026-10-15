@@ -218,8 +218,10 @@ check('returning to import unlocks controls for either read order with empty or 
     await gate.entered;
     if (progressLast) await loading;
     else await new Promise(resolve => setImmediate(resolve));
-    for (const control of ['data-import-source="text"', 'data-import-source="teaching"', 'data-import-action="sync"', 'data-import-action="refresh"'])
-      assert.match(html, new RegExp(control + '[^>]*disabled'), control + ' is locked while progress is loading');
+    for (const control of ['data-import-source="text"', 'data-import-source="teaching"'])
+      assert.doesNotMatch(html, new RegExp(control + '[^>]*disabled'), control + ' remains navigable during loading');
+    assert.match(html,/data-import-action="sync"[^>]*disabled/);
+    if (!progressLast) assert.match(html,/data-import-action="refresh"[^>]*disabled/);
     const reads = f.calls.filter(call => call.path === '/api/workspace').length;
     gate.release(); await loading; await new Promise(resolve => setImmediate(resolve));
     for (const control of ['data-import-source="text"', 'data-import-source="teaching"', 'data-import-action="sync"', 'data-import-action="refresh"'])

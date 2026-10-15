@@ -27,6 +27,7 @@ export function createMaterialsUI(host) {
   const stamp = () => [generation, accountVersion()];
   const valid = value => value[0] === generation && value[1] === accountVersion() && session.user && !host.isDemo();
   const visible = () => host.isVisible?.() !== false;
+  const fingerprint = () => JSON.stringify(jobs.map(j => [j.job_id, j.status, j.items]));
   function reset() {
     generation++; controller?.abort(); clearTimeout(timer); timer = controller = null;
     files = []; consent = false; limits = null; jobs = []; loading = busy = false;
@@ -34,7 +35,7 @@ export function createMaterialsUI(host) {
   }
   function poll() {
     clearTimeout(timer); timer = null;
-    if (visible() && jobs.some(active)) { timer = setTimeout(load, 2000); timer.unref?.(); }
+    if (!busy && visible() && (jobs.some(active) || jobs.length && fingerprint() !== observed)) { timer = setTimeout(load, 2000); timer.unref?.(); }
   }
   function load() {
     if (loadingPromise) return loadingPromise;
@@ -50,11 +51,12 @@ export function createMaterialsUI(host) {
       if (!valid(value)) return;
       if (!Array.isArray(list.jobs)) throw new Error("文件处理状态暂时无法读取");
       limits = settings.limits; jobs = list.jobs; error = "";
-      const fingerprint = JSON.stringify(jobs.map(j => [j.job_id, j.status, j.items]));
-      if (fingerprint !== observed) {
-        await host.changed();
+      const snapshot = fingerprint();
+      if (snapshot !== observed) {
+        const refreshed = await host.changed();
         if (!valid(value)) return;
-        observed = fingerprint;
+        if (refreshed === false) throw new Error("文件结果已保存，但列表刷新失败，请刷新文件状态重试。");
+        if (refreshed !== null) observed = snapshot;
       }
     } catch (cause) { if (valid(value)) error = cause.status === 403 ? "当前环境未开放文件上传，请联系管理员。" : cause.message; }
     finally { if (valid(value)) { loading = false; host.render(); poll(); } }
@@ -70,9 +72,11 @@ export function createMaterialsUI(host) {
   async function click(button) {
     const action = button.dataset.materialAction;
     if (!action) return false;
+    if (busy) return true;
     if (action === "refresh") { await load(); return true; }
     if (busy || !session.user || host.isDemo()) return true;
     const value = stamp(); busy = true; error = notice = ""; controller = new AbortController(); host.render();
+    clearTimeout(timer); timer = null;
     try {
       if (loadingPromise) await loadingPromise;
       await flushStore();
@@ -108,11 +112,12 @@ export function createMaterialsUI(host) {
   }
   function render() {
     if (session.user && !host.isDemo() && !limits && !loading && !error) queueMicrotask(load);
-    return `<section class="materials-panel"><h2>图片与文件</h2><p class="status-note">支持 PNG、JPEG、PDF、DOCX。所选文件会上传并发送给识别服务；只选择你有权提供的材料。当前入口不连接微信。</p><label class="field">选择文件<input id="material-files" type="file" multiple ${busy ? "disabled" : ""}></label>${files.length ? `<p>${files.map(f => esc(f.name)).join("、")}</p>` : ""}<label class="sync-consent"><input id="material-consent" type="checkbox" ${consent ? "checked" : ""} ${busy ? "disabled" : ""}>我同意上传并识别所选文件。</label><div class="import-form-actions"><button class="btn primary" data-material-action="upload" ${busy || !limits || !session.user || host.isDemo() ? "disabled" : ""}>${busy ? "正在提交…" : "上传并识别"}</button><button class="btn quiet" data-material-action="refresh" ${loading ? "disabled" : ""}>刷新文件状态</button></div>${limits ? `<p class="status-note">单文件最多 ${limits.asset_bytes / 1048576} MiB，账号最多 ${limits.account_bytes / 1048576} MiB。</p>` : ""}${error ? `<p class="error" role="alert">${esc(error)}</p>` : ""}${notice ? `<p role="status">${esc(notice)}</p>` : ""}${jobs.map(j => {
+    return `<section class="materials-panel"><h2>图片与文件</h2><p class="status-note">支持 PNG、JPEG、PDF、DOCX。所选文件会上传并发送给识别服务；只选择你有权提供的材料。当前入口不连接微信。</p><label class="field">选择文件<input id="material-files" type="file" multiple ${busy ? "disabled" : ""}></label>${files.length ? `<p>${files.map(f => esc(f.name)).join("、")}</p>` : ""}<label class="sync-consent"><input id="material-consent" type="checkbox" ${consent ? "checked" : ""} ${busy ? "disabled" : ""}>我同意上传并识别所选文件。</label><div class="import-form-actions"><button class="btn primary" data-material-action="upload" ${busy || !limits || !session.user || host.isDemo() ? "disabled" : ""}>${busy ? "正在提交…" : "上传并识别"}</button><button class="btn quiet" data-material-action="refresh" ${loading || busy ? "disabled" : ""}>刷新文件状态</button></div>${limits ? `<p class="status-note">单文件最多 ${limits.asset_bytes / 1048576} MiB，账号最多 ${limits.account_bytes / 1048576} MiB。</p>` : ""}${error ? `<p class="error" role="alert">${esc(error)}</p>` : ""}${notice ? `<p role="status">${esc(notice)}</p>` : ""}${jobs.map(j => {
       const errors = [...(j.result?.errors || []), ...(j.last_attempt_errors || [])];
-      const retry = !active(j) && errors.some(e => e.retryable);
+      const exhausted = j.retry_remaining === 0 && !active(j) && errors.some(e => e.retryable);
+      const retry = !active(j) && j.retry_remaining !== 0 && errors.some(e => e.retryable);
       const assets = (j.result?.record_results || []).flatMap(r => (r.attachments || []).map(a => `<li>${esc(j.sources?.[r.input_id]?.assets?.[a.asset_id] || "附件")}：${esc(a.status)}${a.coverage?.unread_locations?.length ? " · " + esc(a.coverage.unread_locations.join("；")) : ""}</li>`));
-      return `<article class="candidate-row"><div><h3>${esc(Object.values(j.sources || {}).flatMap(s => Object.values(s.assets || {})).join("、") || "文件导入")} · ${esc(labels[j.status] || j.status)}</h3>${errors.map(e => `<p class="error">${esc(e.message)}</p>`).join("")}${assets.length ? `<details><summary>附件读取情况</summary><ul>${assets.join("")}</ul></details>` : ""}${j.result?.status === "no_tasks" ? '<p>本次未发现任务，请结合读取情况确认是否有缺失内容。</p>' : ""}${retry ? `<button class="btn" data-material-action="retry" data-job="${esc(j.job_id)}" ${busy ? "disabled" : ""}>重试失败部分</button>` : ""}</div></article>`;
+      return `<article class="candidate-row"><div><h3>${esc(Object.values(j.sources || {}).flatMap(s => Object.values(s.assets || {})).join("、") || "文件导入")} · ${esc(labels[j.status] || j.status)}</h3>${errors.map(e => `<p class="error">${esc(e.message)}</p>`).join("")}${assets.length ? `<details><summary>附件读取情况</summary><ul>${assets.join("")}</ul></details>` : ""}${j.result?.status === "no_tasks" ? '<p>本次未发现任务，请结合读取情况确认是否有缺失内容。</p>' : ""}${exhausted ? '<p class="status-note">本次导入的重试次数已用完；请检查失败原因，仅重新上传失败的文件，成功结果已保留。</p>' : ""}${retry ? `<button class="btn" data-material-action="retry" data-job="${esc(j.job_id)}" ${busy ? "disabled" : ""}>重试失败部分</button>` : ""}</div></article>`;
     }).join("")}</section>`;
   }
   return { render, input, click, load, reset, owns: id => jobs.some(j => j.request_id === id) };

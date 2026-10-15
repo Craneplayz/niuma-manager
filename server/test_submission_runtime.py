@@ -125,3 +125,30 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
             status,_=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
         self.assertEqual(status,409)
         self.assertEqual(self.call('/recognition/batches')[1],[])
+
+    def test_runtime_combining_known_submission_and_unknown_action_does_not_inherit_completion(self):
+        view=self.sync_native(self.mixed_capture('active'))['requests'][0]
+        items=self.run_request(view)['items']
+        detail=self.details();actions=detail['observation']['actions']
+        body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation='assignment_submission' if i==0 else 'unknown') for i,a in enumerate(actions)])
+        self.assertEqual(self.apply(body)[0],201)
+        for candidate in items:
+            self.assertEqual(self.call('/recognition/candidates/'+candidate['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        saved=self.call('/workspace')[1]['tasks']
+        first,second=saved['value'];first['recognitionHistory']+=second['recognitionHistory']
+        saved['value']=[first]
+        self.assertEqual(self.call('/data/tasks',saved,method='PUT')[0],200)
+        # Neither saved task has been independently associated. Its combined
+        # history must not inherit only the one known candidate's relationship.
+        merged=next(a for a in self.details()['observation']['actions'] if a['kind']=='task')
+        self.assertEqual(merged['relation'],'unknown')
+        self.sync_native(self.mixed_capture('submitted','2026-10-10T11:00:00+08:00'))
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'][0]['status'],'not_started')
+
+    def test_runtime_confirmed_candidate_relationship_survives_becoming_a_task(self):
+        view=self.sync_native(self.native_capture('active'))['requests'][0]
+        candidate=self.run_request(view)['items'][0]
+        self.link_all(self.details())
+        self.assertEqual(self.call('/recognition/candidates/'+candidate['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.sync_native(self.native_capture('submitted','2026-10-10T11:00:00+08:00'))
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'][0]['status'],'completed')

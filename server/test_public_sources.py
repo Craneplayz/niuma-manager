@@ -1,6 +1,8 @@
 import json
 import time
 import unittest
+from http.cookiejar import CookieJar
+from urllib.request import build_opener, HTTPCookieProcessor, Request
 from pathlib import Path
 from unittest.mock import patch
 import test_teaching
@@ -32,6 +34,16 @@ class PublicSourcesAPI(test_teaching.TeachingIntegrationTests):
         choice['tasks_version']=1;self.assertEqual(self.call(route,choice)[1]['already_imported'],1)
         self.assertEqual(self.call(route,dict(choice,event_ids=['forged']))[0],400)
         self.assertEqual(self.call('/sources/public/runs',dict(body,source_id='bio'))[0],409)
+        # Deletion must not remove the persistent import marker.
+        with self.client.open(Request(self.base+'/data/tasks',data=json.dumps(dict(value=[],version=1)).encode(),headers={'Content-Type':'application/json'},method='PUT')) as response:
+            self.assertEqual(response.status,200)
+        choice['tasks_version']=2
+        self.assertEqual(self.call(route,choice)[1]['already_imported'],1)
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'],[])
+        self.client=build_opener(HTTPCookieProcessor(CookieJar()))
+        self.assertEqual(self.call('/auth/register',dict(name='Other',email='public-other@example.test',password='Synthetic-Test-2026!'))[0],200)
+        self.assertEqual(self.call('/sources/public/runs')[1]['runs'],[])
+        self.assertEqual(self.call(route,choice)[0],404)
 
     def test_public_invalid_arbitrary_urls_and_failed_collections_are_visible(self):
         self.assertEqual(self.call('/sources/public/runs',dict(contract_version=contract.VERSION,source_id='http://127.0.0.1',operation_id='bad'))[0],400)

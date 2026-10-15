@@ -898,6 +898,8 @@ def route(handler, db, uid, path, body, data_dir):
             origin = db.execute('SELECT request_id FROM wechat_jobs WHERE id=? AND user_id=?',(_origin_job(db,row['id']),uid)).fetchone()
             items = [dict(id=item['id'],candidate_id=json.loads(item['candidate'])['candidate_id'],state=item['state'],version=item['version']) for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,origin['request_id']))]
             jobs.append(dict(_job(row,db),sources=_sources(json.loads(row['request'])),items=items,last_attempt_errors=json.loads(attempt['errors']) if attempt and attempt['errors'] else []))
+            if getattr(handler,'user_materials',False):
+                jobs[-1]['retry_remaining']=max(0,3-row['attempts'])
         handler.reply(200, dict(jobs=jobs))
         return True
     if path == '/api/sources/wechat/imports' and handler.command == 'POST':

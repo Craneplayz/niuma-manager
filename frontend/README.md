@@ -85,7 +85,7 @@ frontend/
     │   ├── background-sync-desktop.jpg
     │   ├── integration-teaching-desktop.png
     │   ├── integration-public-mobile.png
-    │   └── reprocessing-desktop.jpg
+    │   ├── reprocessing-desktop.jpg
     │   ├── notice-proposal-desktop.jpg
     │   ├── notice-proposal-calendar.jpg
     │   ├── notice-proposal-mobile.jpg

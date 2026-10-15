@@ -484,3 +484,17 @@ test('a delayed background read cannot resurrect a candidate resolved during syn
  assert.match(ui.render(),/data-import-reopen="candidate-A"/);
  assert.doesNotMatch(ui.render(),/导入结果已保存，刷新失败/);
 });
+
+test('a delayed file-job refresh cannot resurrect an ignored candidate',async t=>{
+ const f=fixture({intercept(path){
+  if(path==='/api/materials/limits')return {limits:{asset_bytes:20971520,account_bytes:209715200}};
+  if(path==='/api/materials/imports')return {jobs:[{job_id:'file-one',status:'succeeded',items:[]}]};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const gate=f.defer();t.after(gate.release);
+ await ui.click({dataset:{importSource:'files'}});await gate.entered;
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ gate.release();await new Promise(resolve=>setImmediate(resolve));
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+});

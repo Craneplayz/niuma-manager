@@ -80,7 +80,7 @@ npm run build
 - `import-evidence.test.js`：摘录和全文同时可读、失败来源身份及安全链接。
 - `reprocessing-flow.test.js`：主动运行、选择与分页、轮询停止、离开页面暂停与返回恢复、幂等和账号隔离。
 - `source-sync.test.js`：后台运行、失败重试、刷新恢复、幂等和账号隔离。
-- `source-schedule.test.js` / `materials.test.js` / `submissions.test.js` / `public-sources.test.js`：定时设置、上传重试协议、提交关联和公开活动选择。
+- `source-schedule.test.js` / `materials.test.js` / `submissions.test.js` / `public-sources.test.js`：定时设置、上传重试与刷新恢复、提交关联、公开采集迟到响应与版本冲突恢复。
 - `interface-smoke.mjs`：真实浏览器与临时 HTTP/SQLite 端到端验收，外部采集和模型用合成替身；执行方式见 README。
 - `team-store.test.js`：任务保存、通知阅读与取消阅读的持久化、接口要求的字段透传、账号隔离、冲突重试、刷新与保存交错、迟到版本保护及删除恢复。
 - `usage-feedback.test.js`：主动反馈入口、每日访问去重、跨北京时间日期、只读会话恢复、键盘使用和失败重试，以及后台入口隔离。

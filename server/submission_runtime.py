@@ -73,10 +73,12 @@ def linked_actions(db, row, detail):
                    and h.get('storageId') in by_id and by_id[h['storageId']]['state'] == 'applied']
         if not history: continue
         aid = identity('task', task['id']); prior = old.get(aid)
-        # An explicitly linked pending candidate retains its link when confirmed.
-        inherited = [old.get(identity('candidate', h['storageId'])) for h in history]
-        inherited = [a for a in inherited if a and a['relation'] != 'unknown']
-        if not prior and inherited and len({a['relation'] for a in inherited}) == 1: prior = inherited[0]
+        # Only inherit when every contributing action has the same explicit
+        # relationship. Dropping unknown/foreign history can mark an independent
+        # action completed just because it was combined with a submission.
+        inherited = [old.get(identity('candidate', h.get('storageId'))) for h in task.get('recognitionHistory', []) if isinstance(h,dict) and isinstance(h.get('storageId'),str)]
+        if (not prior and inherited and all(a and a['relation'] != 'unknown' for a in inherited)
+                and len({a['relation'] for a in inherited}) == 1): prior = inherited[0]
         deleted = task.get('recycleBin') or task['status'] == 'cancelled'
         completed = task['status'] == 'completed' and not deleted
         relation = prior['relation'] if prior else 'unknown'

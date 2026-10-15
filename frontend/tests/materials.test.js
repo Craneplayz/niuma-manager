@@ -46,3 +46,30 @@ test('failed file jobs use a retry identity accepted by the runtime',async t=>{
  await ui.load();await ui.click({dataset:{materialAction:'retry',job:'job-synthetic'}});
  assert.deepEqual(Object.keys(retry),['retry_id']);assert.match(retry.retry_id,/\S/);
 });
+
+test('a deferred or failed terminal refresh is retried even when the job is unchanged',async t=>{
+ session.user={id:'test'};let changed=0;
+ globalThis.fetch=async path=>response(path.endsWith('/limits')?{limits:{asset_bytes:20*1048576}}:{jobs:[{job_id:'terminal',status:'succeeded',items:[]}]});
+ const ui=createMaterialsUI({escapeHtml:String,render(){},changed:async()=>{changed++;if(changed===1)return null;if(changed===2)throw Error('temporary refresh failure');return true;},isDemo:()=>false,isVisible:()=>false});t.after(()=>ui.reset());
+ await ui.load();await ui.load();await ui.load();await ui.load();
+ assert.equal(changed,3);
+ assert.doesNotMatch(ui.render(),/temporary refresh failure/);
+});
+
+test('exhausted file retries provide recovery instructions instead of a broken retry button',async t=>{
+ session.user={id:'test'};
+ globalThis.fetch=async path=>response(path.endsWith('/limits')?{limits:{asset_bytes:20971520}}:{jobs:[{job_id:'exhausted',status:'failed',retry_remaining:0,result:{errors:[{retryable:true,message:'synthetic failure'}]}}]});
+ const ui=createMaterialsUI({escapeHtml:String,render(){},changed:async()=>{},isDemo:()=>false,isVisible:()=>false});t.after(()=>ui.reset());
+ await ui.load();assert.doesNotMatch(ui.render(),/data-material-action="retry"/);assert.match(ui.render(),/重试次数已用完/);
+});
+
+test('refresh cannot race file submission and hide its newly accepted job',async t=>{
+ const f=setup(t);await f.ui.load();f.choose();
+ const fetch=globalThis.fetch;let release,enter;
+ const gate=new Promise(resolve=>release=resolve),entered=new Promise(resolve=>enter=resolve);t.after(release);
+ globalThis.fetch=async(path,opts)=>{if(path.endsWith('/assets')){enter();await gate;}return fetch(path,opts);};
+ const upload=f.ui.click({dataset:{materialAction:'upload'}});await entered;
+ const reads=()=>f.calls.filter(c=>c.path.endsWith('/imports')&&!c.body).length;
+ const before=reads();await f.ui.click({dataset:{materialAction:'refresh'}});assert.equal(reads(),before);
+ release();await upload;assert.match(f.ui.render(),/排队中/);assert.equal(reads(),before+1);
+});

@@ -3,14 +3,14 @@ import {newId} from './id.js';
 const root='/api/sources/public',version='public-import/0.1';
 export function createPublicSourcesUI(host){
  const esc=host.escapeHtml;let catalog=[],runs=[],source='cs',loading=false,busy=false,error='',notice='',generation=0,timer=null,operation=null;
- const selected=new Map();
+ const selected=new Map();let mutationRevision=0;
  const stamp=()=>[generation,accountVersion()],valid=s=>s[0]===generation&&s[1]===accountVersion()&&session.user&&!host.isDemo();
  function reset(){generation++;clearTimeout(timer);catalog=[];runs=[];source='cs';loading=busy=false;error=notice='';operation=null;selected.clear();}
  function poll(){clearTimeout(timer);if(host.isVisible()&&runs.some(r=>r.state==='running')){timer=setTimeout(load,2000);timer.unref?.();}}
  async function load(){
-  if(loading||!session.user||host.isDemo())return;const s=stamp();loading=true;
-  try{const [c,r]=await Promise.all([api(root+'/catalog'),api(root+'/runs')]);if(valid(s)){catalog=c.sources;runs=r.runs;error='';}}
-  catch(e){if(valid(s))error=e.message;}
+  if(loading||busy||!session.user||host.isDemo())return;const s=stamp(),revision=mutationRevision;loading=true;
+  try{const [c,r]=await Promise.all([api(root+'/catalog'),api(root+'/runs')]);if(valid(s)){catalog=c.sources;if(revision===mutationRevision){runs=r.runs;error='';}}}
+  catch(e){if(valid(s)&&revision===mutationRevision)error=e.message;}
   finally{if(valid(s)){loading=false;host.render();poll();}}
  }
  function input(e){
@@ -25,6 +25,7 @@ export function createPublicSourcesUI(host){
   const s=stamp();busy=true;error=notice='';host.render();
   try{
    if(action==='start'){
+    mutationRevision++;
     operation??={contract_version:version,source_id:source,operation_id:newId()};
     const run=await api(root+'/runs',operation);if(!valid(s))return true;operation=null;runs=[run,...runs.filter(r=>r.run_id!==run.run_id)];
    }else if(action==='import'){
@@ -34,7 +35,13 @@ export function createPublicSourcesUI(host){
     if(!valid(s))return true;await host.refresh();if(!valid(s))return true;
     selected.delete(id);notice=`已加入 ${out.added.length} 条通知，${out.already_imported} 条此前已加入；删除的通知可在回收站恢复。`;
    }
-  }catch(e){if(valid(s))error=e.message;}
+  }catch(e){if(valid(s)){
+   error=e.message;
+   if(action==='import'&&e.status===409){
+    try{await host.refresh();if(valid(s))error='任务已变化，已读取最新版本；请重新确认所选活动后加入。';}
+    catch{if(valid(s))error='任务已变化且刷新失败，请刷新任务列表后重试。';}
+   }
+  }}
   finally{if(valid(s)){busy=false;host.render();poll();}}return true;
  }
  function render(){
