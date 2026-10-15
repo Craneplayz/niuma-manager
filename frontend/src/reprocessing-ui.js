@@ -1,4 +1,5 @@
 import { newId } from "./id.js";
+import { userErrorMarkup } from "./user-errors.js";
 
 const API = "/api/recognition/reprocessing/";
 const VERSION = "reprocessing/0.1";
@@ -139,7 +140,7 @@ export function createReprocessingUI(host) {
       return valid();
     } catch (cause) {
       controller.abort();
-      if (valid()) error = cause.message || "无法读取重识别记录，请刷新重试。";
+      if (valid()) error = cause;
       return false;
     } finally {
       if (valid()) {
@@ -169,7 +170,7 @@ export function createReprocessingUI(host) {
       notice = "已开始重新识别所选通知。"; succeeded = true;
       await finished(value);
     } catch (cause) {
-      if (current(value)) error = cause.message || "重新识别未能开始，请重试。";
+      if (current(value)) error = cause;
     } finally {
       if (current(value)) { writing = false; writeController = null; redraw(); poll(); }
     }
@@ -188,7 +189,7 @@ export function createReprocessingUI(host) {
       acceptRuns([stopped]); notice = "停止请求已提交。";
       await finished(value);
     } catch (cause) {
-      if (current(value)) error = cause.message || "停止失败，请重试。";
+      if (current(value)) error = cause;
     } finally {
       if (current(value)) { writing = false; writeController = null; redraw(); poll(); }
     }
@@ -196,12 +197,12 @@ export function createReprocessingUI(host) {
   function runMarkup(run) {
     const counts = run.counts, done = counts.total - counts.queued - counts.running;
     const sourceRecords = accounts.find((item) => item.source_account_id === run.source_account_id)?.records || [];
-    return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(LABELS[run.state] || run.state)} · ${done} / ${counts.total}</p><progress max="${counts.total}" value="${done}" aria-label="已结束 ${done} / ${counts.total} 条通知"></progress><details class="import-history"><summary>处理详情</summary>${run.records.map((record) => `<p class="status-note">${esc(sourceRecords.find((item) => item.input_id === record.input_id)?.label || record.input_id)} · ${esc(LABELS[record.state] || record.state)}${record.old_result_retained ? " · 保留旧结果" : ""}${record.decision_summary?.unresolved ? " · 新差异待核对" : ""}${record.error ? " · " + esc(record.error.message) : ""}</p>`).join("")}</details></div>${ACTIVE.has(run.state) ? `<div class="candidate-actions"><button type="button" class="btn quiet" id="reprocessing-stop-${esc(run.run_id)}" data-reprocess-action="stop" data-reprocess-run="${esc(run.run_id)}" ${writing || run.state === "stopping" ? "disabled" : ""}>${run.state === "stopping" ? "正在停止…" : "停止识别"}</button></div>` : ""}</article>`;
+    return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(LABELS[run.state] || run.state)} · ${done} / ${counts.total}</p><progress max="${counts.total}" value="${done}" aria-label="已结束 ${done} / ${counts.total} 条通知"></progress>${userErrorMarkup(run.error, "notice_reprocessing", JSON.stringify(["reprocessing", run.run_id]))}<details class="import-history"><summary>处理详情</summary>${run.records.map((record) => `<p class="status-note">${esc(sourceRecords.find((item) => item.input_id === record.input_id)?.label || record.input_id)} · ${esc(LABELS[record.state] || record.state)}${record.old_result_retained ? " · 保留旧结果" : ""}${record.decision_summary?.unresolved ? " · 新差异待核对" : ""}</p>${userErrorMarkup(record.error, "notice_reprocessing", JSON.stringify(["reprocessing", run.run_id, record.input_id]))}`).join("")}</details></div>${ACTIVE.has(run.state) ? `<div class="candidate-actions"><button type="button" class="btn quiet" id="reprocessing-stop-${esc(run.run_id)}" data-reprocess-action="stop" data-reprocess-run="${esc(run.run_id)}" ${writing || run.state === "stopping" ? "disabled" : ""}>${run.state === "stopping" ? "正在停止…" : "停止识别"}</button></div>` : ""}</article>`;
   }
   function render() {
     syncAccount();
     const blocked = loading || writing || active() || host.isImportBusy();
-    return `<details class="import-history reprocessing-panel" data-reprocess-panel ${expanded ? "open" : ""}><summary id="reprocessing-toggle">重新识别已有通知${active() ? " · 进行中" : ""}</summary><p class="status-note">可按当前规则重新识别下方已保存的通知。</p>${error ? `<p class="error" role="alert">${esc(error)}</p>` : ""}${notice ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}<div class="section-heading"><span class="status-note">${loaded ? `${currentRecords().length} 条可选通知` : "选择服务端已保存的通知"}</span><button type="button" class="btn quiet" id="reprocessing-load" data-reprocess-action="load" ${loading || writing ? "disabled" : ""}>${loading ? "读取中…" : loaded ? "刷新记录" : "读取记录"}</button></div>${loaded ? `${accounts.length > 1 ? `<label class="field">来源<select id="reprocessing-source" data-reprocess-source ${blocked ? "disabled" : ""}>${accounts.map((item) => `<option value="${esc(item.source_account_id)}" ${item.source_account_id === source ? "selected" : ""}>${esc(item.label)}</option>`).join("")}</select></label>` : ""}${currentRecords().length ? `<div style="max-height:280px;overflow-y:auto">${currentRecords().map((item, index) => `<label class="field check-field"><input type="checkbox" id="reprocessing-record-${index}" data-reprocess-record="${esc(item.input_id)}" ${selected.has(item.input_id) ? "checked" : ""} ${blocked ? "disabled" : ""}><span class="reprocessing-record-copy"><strong>${esc(item.label)}</strong><small class="status-note">${esc([item.course_or_project, RESULT_LABELS[item.result_status] || item.result_status].filter(Boolean).join(" · "))}</small></span></label>`).join("")}</div><button type="button" class="btn" id="reprocessing-start" data-reprocess-action="start" ${blocked || !selected.size ? "disabled" : ""}>${writing ? "正在处理…" : `重新识别所选 ${selected.size} 条`}</button>` : '<p class="status-note">暂无已保存通知。</p>'}` : ""}${runs.slice(0, 5).map(runMarkup).join("")}</details>`;
+    return `<details class="import-history reprocessing-panel" data-reprocess-panel ${expanded ? "open" : ""}><summary id="reprocessing-toggle">重新识别已有通知${active() ? " · 进行中" : ""}</summary><p class="status-note">可按当前规则重新识别下方已保存的通知。</p>${userErrorMarkup(error, "notice_reprocessing")}${notice ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}<div class="section-heading"><span class="status-note">${loaded ? `${currentRecords().length} 条可选通知` : "选择服务端已保存的通知"}</span><button type="button" class="btn quiet" id="reprocessing-load" data-reprocess-action="load" ${loading || writing ? "disabled" : ""}>${loading ? "读取中…" : loaded ? "刷新记录" : "读取记录"}</button></div>${loaded ? `${accounts.length > 1 ? `<label class="field">来源<select id="reprocessing-source" data-reprocess-source ${blocked ? "disabled" : ""}>${accounts.map((item) => `<option value="${esc(item.source_account_id)}" ${item.source_account_id === source ? "selected" : ""}>${esc(item.label)}</option>`).join("")}</select></label>` : ""}${currentRecords().length ? `<div style="max-height:280px;overflow-y:auto">${currentRecords().map((item, index) => `<label class="field check-field"><input type="checkbox" id="reprocessing-record-${index}" data-reprocess-record="${esc(item.input_id)}" ${selected.has(item.input_id) ? "checked" : ""} ${blocked ? "disabled" : ""}><span class="reprocessing-record-copy"><strong>${esc(item.label)}</strong><small class="status-note">${esc([item.course_or_project, RESULT_LABELS[item.result_status] || item.result_status].filter(Boolean).join(" · "))}</small></span></label>`).join("")}</div><button type="button" class="btn" id="reprocessing-start" data-reprocess-action="start" ${blocked || !selected.size ? "disabled" : ""}>${writing ? "正在处理…" : `重新识别所选 ${selected.size} 条`}</button>` : '<p class="status-note">暂无已保存通知。</p>'}` : ""}${runs.slice(0, 5).map(runMarkup).join("")}</details>`;
   }
   async function toggle(event) {
     const target = event.target;

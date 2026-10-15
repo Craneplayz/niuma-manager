@@ -14,9 +14,11 @@
     "db:seed": "node ../scripts/run-python.mjs ../server/app.py --seed",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:browser": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "vite": "^6.0.0"
   }
 }
