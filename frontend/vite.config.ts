@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  build: { rollupOptions: { input: { app: 'index.html', admin: 'admin.html' } } },
   server: {
     port: Number(process.env.NIUMA_WEB_PORT || 1331),
     strictPort: true,

@@ -65,6 +65,12 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(self.start()['run_id'],first['run_id'])
         jobs.wait_for_jobs(app.DB)
         self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),6)
+        with app.connection() as db:
+            events=[dict(r) for r in db.execute('SELECT * FROM usage_events WHERE actor=?',(app.usage.actor(self.uid),))]
+        self.assertEqual(sum(r['quantity'] for r in events if r['event']=='task_created'),6)
+        self.assertEqual(sum(r['event']=='recognition' for r in events),6)
+        self.assertEqual(sum(r['event']=='sync' for r in events),1)
+        self.assertTrue(all(r['success'] for r in events if r['event'] in ('sync','recognition')))
 
     def test_stop_discards_inflight_results_without_removing_saved_results(self):
         request,drafts=example(('explicit-complete',)*5);self.drafts.update(drafts)
@@ -90,6 +96,10 @@ class SourceJobsTests(unittest.TestCase):
         result=self.until(run['run_id'],lambda r:r['state']=='partial_success')
         self.assertEqual(result['counts']['failed'],1);self.assertEqual(result['counts']['added'],2)
         self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),2)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT success FROM usage_events WHERE event="sync"').fetchone()[0],0)
+            self.assertEqual(db.execute('SELECT count(*) FROM usage_events WHERE event="recognition" AND success=0').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT sum(quantity) FROM usage_events WHERE event="task_created"').fetchone()[0],2)
 
     def test_switched_credentials_invalidate_late_collection(self):
         request,_=example();gate=threading.Event();entered=threading.Event()

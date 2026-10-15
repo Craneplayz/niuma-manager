@@ -1,4 +1,5 @@
 import {newId} from './id.js';
+import {feedbackBox} from './usage-feedback.js';
 import {showEnvironmentBadge} from './environment-badge.js';
 import {loadTaskEvidence} from './task-evidence.js';
 import {syncImportPageSize} from './import-journey.js';
@@ -75,7 +76,7 @@ function render(){
  const pages={agent:assistantPage,tasks,trash:trashPage,decompose:decompositionPage,plan:plannerPage,calendar,book:courses,settings};
  if(!Object.hasOwn(pages,page)){page='agent';history.replaceState(null,'','#agent');}
  document.title=({agent:'通知导入',tasks:'任务中心',trash:'回收站',decompose:'AI 拆解',plan:'智能规划',calendar:'学习日程',book:'课程与资料',settings:'账号与数据'})[page]+' · 牛马管理器';
- motionUpdate(()=>{app.innerHTML=storyShell({page,user:session.user,saveLabel:saveLabel(),saveAlert:saveAlert(),content:pages[page](),focus:focusPill()});});syncImportPageSize();syncReviewDestination();
+ motionUpdate(()=>{app.innerHTML=storyShell({page,user:session.user,saveLabel:saveLabel(),saveAlert:saveAlert(),content:pages[page]()+(page==='settings'?feedbackBox():''),focus:focusPill()});});syncImportPageSize();syncReviewDestination();
 }
 
 function enhanceThemeUI(){

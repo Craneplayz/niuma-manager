@@ -3,8 +3,10 @@ import hashlib
 import json
 import os
 if __package__:
+    from . import usage
     from .runtime_environment import model_env_path
 else:
+    import usage
     from runtime_environment import model_env_path
 import secrets
 import re
@@ -82,6 +84,7 @@ def recognize(request, ApiError):
 
 
 def initialize(db):
+    usage.initialize(db)
     db.executescript('''
     CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
@@ -346,5 +349,6 @@ def resolve_candidate(db, uid, cid, body, ApiError):
         else: target['status']='cancelled'
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
+        usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
     return

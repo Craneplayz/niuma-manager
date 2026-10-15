@@ -13,12 +13,15 @@ frontend/
 ├── .gitignore                 排除依赖、构建结果和本地运行数据。
 ├── .nvmrc                     固定推荐的 Node.js 主版本。
 ├── index.html                 加载应用脚本与样式。
+├── admin.html                 管理员独立入口，不出现在普通用户导航。
 ├── favicon.svg                提供浏览器页签图标。
 ├── package.json               定义开发、构建和测试命令。
 ├── package-lock.json          锁定前端依赖版本。
 ├── vite.config.ts             配置开发端口与 API 代理。
 ├── src/
 │   ├── app.js                 组织页面、路由与主要交互。
+│   ├── admin-usage.js / admin-usage.css 后台图表、日期筛选、反馈列表和移动端布局。
+│   ├── usage-feedback.js       设置中的主动反馈与连续次日使用时的一次非阻塞评分窗。
 │   ├── environment-badge.js   显示运行环境及前后端版本不一致提示。
 │   ├── id.js                  在 HTTPS、localhost 和 HTTP IP 环境生成随机 UUID。
 │   ├── import-journey.js      追踪本次导入、历史批次分组、上下滑动吸附与任务高亮交接。
@@ -76,6 +79,15 @@ frontend/
             ├── calendar-desktop.png 桌面显示未完成任务占用已释放的未来时段。
             └── calendar-mobile.png 390px 窄屏显示相同日程且无横向溢出。
 ```
+
+## 使用反馈与后台
+
+- 登录用户在「账号与数据」页面主动填写使用反馈，无额外通知弹窗。
+- 连续次日使用时右下角出现一次1–5分评分窗，可直接关闭，不遮挡任务编辑，不再重复提醒。
+- 成功恢复会话、登录完成、前台恢复和键盘交互会补记当天访问；隐藏页面不记录，每个账号每天去重，失败不影响读取任务。
+- 后台视觉参考未合并 PR #156 的最新规格（foolyuyu，`ef0abea`）：黑白文字、浅暖灰、少量雾蓝、8px圆角及统一标题层级，不引入该分支待修复的业务改动。
+- 管理员访问 `/admin.html` 查看使用统计，服务端逐请求校验权限，普通页面不加载后台图表脚本。
+- 后台仅展示启用统计后的记录和聚合数据，空数据明确显示暂无记录，不生成模拟趋势或历史行为。
 
 本目录以 **潘勇圳（Yongzhen23）** 的 [niuma-frontend](https://github.com/Yongzhen23/niuma-frontend) 为主界面，参考提交 `18d5421`；当前版本接入小组仓库的账号数据库、文本识别和模型规划能力。维护前请阅读 [维护指南](docs/maintenance.md)、[贡献说明](CONTRIBUTIONS.md) 和 [小组协作规范](../CONTRIBUTING.md)。业务后端位于 `server/`。
 

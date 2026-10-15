@@ -22,6 +22,7 @@ import manual_materials
 import task_decomposition
 import reprocessing
 import runtime_environment
+import usage
 from server import model_queue
 
 
@@ -58,6 +59,7 @@ def initialize(recover=True):
         CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
         ''')
         recognition.initialize(db)
+        usage.initialize(db)
         source_sync.initialize(db)
         source_jobs.initialize(db, recover=recover)
         source_schedule.initialize(db)
@@ -101,13 +103,29 @@ def allowed_origins():
     configured=os.environ.get('NIUMA_ALLOWED_ORIGINS')
     return configured.split() if configured is not None else ['http://localhost:1331','http://127.0.0.1:1331']
 
-def session_cookie(token, max_age):
+def session_cookie(token, max_age, admin=False):
     secure='; Secure' if os.environ.get('NIUMA_COOKIE_SECURE')=='1' else ''
-    return runtime_environment.cookie_name()+'='+token+'; HttpOnly; SameSite=Strict; Path=/api; Max-Age='+str(max_age)+secure
+    name=runtime_environment.cookie_name()+('_admin' if admin else '')
+    return name+'='+token+'; HttpOnly; SameSite=Strict; Path='+('/api/admin' if admin else '/api')+'; Max-Age='+str(max_age)+secure
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, value, cookie=None):
         data=b'' if status==204 else json.dumps(value,ensure_ascii=False).encode()
+        if getattr(self,'usage_uid',None) and not getattr(self,'usage_recorded',False):
+            event=usage.operation(self.path.split('?')[0]) if self.command=='POST' else None
+            if event:
+                # Recognition can return HTTP 200 with a failed business result.
+                success=usage.successful(status,value,getattr(self,'usage_request_id',None))
+                if status<400:
+                    usage.record(self.db,self.usage_uid,event,success,(time.monotonic()-self.usage_started)*1000)
+                else:
+                    with connection() as metrics_db:
+                        usage.record(metrics_db,self.usage_uid,event,success,(time.monotonic()-self.usage_started)*1000)
+                self.usage_recorded=True
+        if status<400 and getattr(self,'usage_uid',None) and getattr(self,'usage_tasks',None) is not None:
+            current=self.db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(self.usage_uid,)).fetchone()
+            usage.workspace_changes(self.db,self.usage_uid,self.usage_tasks,json.loads(current['value']) if current else [])
+            self.usage_tasks=None
         if status<400 and getattr(self,'db',None) is not None:
             self.db.commit()
         self.send_response(status)
@@ -138,7 +156,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def user(self,db):
         cookie=SimpleCookie(self.headers.get('Cookie',''))
-        raw=cookie.get(runtime_environment.cookie_name())
+        raw=cookie.get(runtime_environment.cookie_name()+('_admin' if self.path.startswith('/api/admin/') else ''))
         token=hashlib.sha256(raw.value.encode()).hexdigest() if raw else ''
         row=db.execute('SELECT users.id,email,name FROM sessions JOIN users ON user_id=users.id WHERE token=? AND expires>?',(token,time.time())).fetchone()
         if not row: raise ApiError(401,'登录已失效，请重新登录')
@@ -156,6 +174,7 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection=True
             raise ApiError(403,'此部署未开放微信接入')
         body=self.body() if self.command in ['POST','PUT','DELETE'] and not (path in ('/api/sources/wechat/assets','/api/materials/assets') and self.headers.get('Content-Type','').startswith('multipart/form-data;')) else {}
+        self.usage_request_id=body.get('request_id')
         if path.startswith('/api/recognition/') and manual_materials.enabled() and isinstance(body.get('records'),list):
             for record in body['records']:
                 if isinstance(record,dict) and record.get('platform')=='manual' and isinstance(record.get('text'),str):
@@ -172,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,dict(status='ok'))
             if path=='/api/version' and self.command=='GET':
                 return self.reply(200,runtime_environment.public_version())
-            if path in ['/api/auth/register','/api/auth/login'] and self.command=='POST':
+            if path in ['/api/auth/register','/api/auth/login','/api/admin/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
                 if not 8<=len(password)<=128 or '@' not in email or len(email)>254: raise ApiError(400,'请输入有效邮箱和至少 8 位密码')
@@ -186,16 +205,24 @@ class Handler(BaseHTTPRequestHandler):
                     row=db.execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
                 elif not row or not hmac.compare_digest(row['hash'],password_hash(password,row['salt'])):
                     raise ApiError(401,'邮箱或密码不正确')
+                administrator=path.startswith('/api/admin/')
+                if administrator and not usage.admin(row['id'],db): raise ApiError(403,'此账号没有后台访问权限')
                 token=secrets.token_urlsafe(32)
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
-                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400))
+                usage.record(db,row['id'],'register' if path.endswith('register') else 'login')
+                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400,administrator))
             bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
             if bearer:
                 uid,token,user=bearer,None,None
             else:
                 user,token=self.user(db)
                 uid=user['id']
+            self.usage_uid=uid
+            if path=='/api/admin/auth/logout' and self.command=='POST':
+                db.execute('DELETE FROM sessions WHERE token=?',(token,))
+                return self.reply(200,{},session_cookie('',0,True))
+            if usage.route(self,db,uid,path,body,ApiError): return
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
             if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
@@ -295,6 +322,9 @@ class Handler(BaseHTTPRequestHandler):
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()
                 version=row['version'] if row else 0
                 if body.get('version')!=version: raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
+                if name=='tasks':
+                    old=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+                    self.usage_tasks=json.loads(old['value']) if old else []
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 return self.reply(200,dict(version=version+1))
             if path=='/api/planning/proposals' and self.command=='POST':
@@ -340,6 +370,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not proposal or not row: raise ApiError(404,'规划不存在')
                 if proposal['applied']: raise ApiError(409,'规划已应用，请刷新')
                 if row['version']!=proposal['version']: raise ApiError(409,'任务已变化，请重新规划')
+                self.usage_tasks=json.loads(row['value'])
                 tasks=json.loads(row['value'])
                 result=json.loads(proposal['result'])
                 for task in tasks:
@@ -360,6 +391,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self): self.handle_request()
     def do_DELETE(self): self.handle_request()
     def handle_request(self):
+        self.usage_started=time.monotonic()
+        self.usage_uid=None
+        self.usage_recorded=False
+        self.usage_tasks=None
         try:
             with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
