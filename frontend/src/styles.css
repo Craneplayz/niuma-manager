@@ -1445,6 +1445,7 @@ dialog p {
 }
 .import-source-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 20px;
   border-bottom: 1px solid var(--line);
@@ -1803,3 +1804,57 @@ dialog p {
   width: 16px;
   height: 16px;
 }
+
+.source-title { margin:18px 0 10px; font-size:19px; font-weight:600; }
+.source-intro { margin:0 0 24px; font-size:13px; color:#75828c; line-height:1.8; }
+.source-empty { margin:30px 0; color:#8a959d; font-size:13px; line-height:1.8; }
+.source-disclosure { margin:12px 0; color:#75828c; font-size:12px; line-height:1.8; }
+.source-disclosure summary { cursor:pointer; min-height:32px; }
+.source-disclosure p { white-space:pre-wrap; overflow-wrap:anywhere; margin:10px 0; color:#626e78; }
+.source-disclosure h4 { margin:14px 0 4px; font-weight:500; }
+.source-consent { display:flex; align-items:flex-start; gap:10px; margin:20px 0 0; font-size:12px; line-height:1.8; color:#64727d; }
+.source-consent input { flex-shrink:0; width:16px; height:16px; margin:3px 0 0; accent-color:#627e95; }
+.material-picker { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:140px; border:1px dashed #cbd2d7; border-radius:8px; background:#fafbf9; text-align:center; cursor:pointer; padding:24px 16px; }
+.material-picker:focus-within { outline:2px solid #7e9db7; outline-offset:3px; }
+.material-picker input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.material-picker:has(input:disabled) { opacity:.55; }
+.material-picker strong { font-size:15px; font-weight:550; }
+.material-picker span { font-size:12px; color:#81909b; line-height:1.8; }
+.material-selection { list-style:none; padding:0; margin:16px 0 0; }
+.material-selection li { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); padding:9px 0; }
+.material-selection li > div { min-width:0; display:grid; gap:4px; }
+.material-selection strong { font-size:14px; font-weight:500; overflow-wrap:anywhere; }
+.material-selection .status-note { font-size:12px; }
+.material-selection button { flex-shrink:0; min-width:44px; min-height:44px; }
+.material-jobs { margin-top:24px; }
+.material-job { border-top:1px solid var(--line); padding:16px 0; overflow-wrap:anywhere; }
+.material-job-heading { display:flex; justify-content:space-between; align-items:baseline; gap:18px; margin-bottom:10px; }
+.material-job-heading h3 { font-size:14px; font-weight:550; min-width:0; }
+.material-job-heading .status-note { flex-shrink:0; font-size:12px; }
+.material-job p,.material-job .btn { font-size:12px; line-height:1.8; }
+.material-job ul { padding-left:18px; }
+.material-job li .status-note { display:block; }
+@media (max-width:440px) {
+  .material-job-heading { align-items:flex-start; gap:12px; }
+  .material-job-heading .status-note { max-width:70px; }
+}
+.submission-directory-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:16px 0 8px; }
+.submission-directory-heading p { line-height:1.8; }
+.submission-record { display:flex; align-items:center; justify-content:space-between; gap:18px; width:100%; padding:14px 0; text-align:left; border:0; border-bottom:1px solid var(--line); background:transparent; }
+.submission-record > span:first-child { min-width:0; }
+.submission-record strong { display:block; color:var(--ink); font-size:14px; font-weight:500; line-height:1.7; overflow-wrap:anywhere; }
+.submission-record small { display:block; color:#81909b; font-size:12px; margin-top:5px; }
+.submission-record > .status-note { flex-shrink:0; font-size:12px; }
+.submission-dialog .dialog-header { margin-bottom:18px; }
+.submission-dialog .dialog-header h2 { margin-bottom:0; }
+.submission-name { font-size:16px; font-weight:550; line-height:1.7; margin-bottom:8px; overflow-wrap:anywhere; }
+.submission-dialog > .status-note { font-size:12px; }
+.submission-dialog .source-intro { margin:20px 0 12px; }
+.submission-dialog .source-disclosure { margin:16px 0; }
+.submission-action { border-top:1px solid var(--line); padding:16px 0; }
+.submission-action > strong { font-size:14px; font-weight:550; line-height:1.7; }
+.submission-action > p { font-size:12px; margin-top:6px; }
+.submission-action .field { margin:14px 0 0; }
+.submission-action > .btn { margin-top:12px; font-size:12px; }
+.submission-review { padding:12px 0; color:#82644b; font-size:13px; line-height:1.8; }
+.submission-dialog select { max-width:100%; }

@@ -224,7 +224,7 @@ test('ignored candidates can be restored using the newest candidate version',asy
 
 test('teaching collection starts a background run and reads its server-created tasks without planning',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
- await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
+ await ui.click({dataset:{importSource:'teaching'}});ui.input({target:{id:'teaching-sync-consent',checked:true}});await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
  const sync=f.calls.find(call=>call.path==='/api/sources/sync-runs'&&call.method==='POST');assert.deepEqual(sync.body.sources,['teaching_web']);assert.equal(sync.body.consent,true);
  assert.equal(f.calls.filter(call=>call.path==='/api/recognition/batches'&&call.method==='POST').length,0);
  assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,0);
@@ -305,7 +305,7 @@ test('real teaching candidates retain date-only, absent, and unknown-year deadli
 
 test('a teaching run with two server-created tasks refreshes both as normal tasks',async()=>{
  const source=teachingCase('two-tasks'),f=fixture({syncCases:[source]});await f.login();
- const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
+ const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});ui.input({target:{id:'teaching-sync-consent',checked:true}});await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
  const html=ui.render();
  assert.doesNotMatch(html.split('class="import-results"')[1],/已处理 ·|:storage:/);
  assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,0);
@@ -323,6 +323,7 @@ test('retrying a saved teaching failure outside background runs sends its identi
  assert.ok(html.includes(`data-import-retry="${source.run.request_id}"`));
  assert.match(html,/识别服务连接失败或超时/);
  assert.doesNotMatch(html.split('class="import-results"')[1],/import-failure|data-import-retry/);
+ await new Promise(r=>setImmediate(r));
  await ui.click({dataset:{importRetry:source.run.request_id}});
  const calls=f.calls.filter(call=>['/api/recognition/batches','/api/recognition/retry'].includes(call.path)&&call.method==='POST');
  assert.deepEqual(calls.map(call=>({path:call.path,body:call.body})),[{path:'/api/recognition/retry',body:source.run}]);
@@ -352,7 +353,7 @@ test('configuration, credentials, and connection failures give different next st
 
 test('a missing crawler component is visible with technical steps collapsed',async()=>{
  const f=fixture({syncError:{status:503,message:'教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install'}});await f.login();
- const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
+ const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});ui.input({target:{id:'teaching-sync-consent',checked:true}});await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
  const html=ui.render(),main=html.match(/<p class="error" role="alert">([^<]+)<\/p>/)?.[1];
  assert.match(main,/缺少教学网采集组件.*安装后重新采集/);
  assert.doesNotMatch(main,/crawler|pnpm|Node/);
@@ -405,12 +406,12 @@ test('terminal reprocessing refresh keeps text and teaching imports blocked unti
  await ready;
  const before=f.calls.length;
  await ui.submit(fakeForm('text',{text:'刷新期间的合成通知',published:'2026-10-14T12:00:00'}));
- await ui.click({dataset:{importAction:'sync'}});
+ ui.input({target:{id:'teaching-sync-consent',checked:true}});await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
  assert.equal(f.calls.length,before,'the completion refresh must retain the shared import lock');
  release();await refreshing;
  assert.match(ui.render(),/识别结果已刷新/);
  await ui.submit(fakeForm('text',{text:'刷新完成后的合成通知',published:'2026-10-14T12:00:00'}));
- await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
+ await ui.click({dataset:{importSource:'teaching'}});ui.input({target:{id:'teaching-sync-consent',checked:true}});await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
  const writes=f.calls.slice(before).filter(call=>call.method==='POST');
  assert.equal(writes.filter(call=>call.path==='/api/recognition/batches'&&call.body.contract_version==='0.2').length,1);
  assert.equal(writes.filter(call=>call.path==='/api/sources/sync-runs').length,1);
@@ -442,4 +443,74 @@ test('a delayed ordinary refresh cannot replace newer background recognition res
  gate.release();await reading;
  assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
  assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+});
+
+test('active teaching sync permits navigation, text recognition and candidate review but not another sync',async(t)=>{
+ const {syncRun}=await import('./sync-fixtures.js');
+ const f=fixture({intercept(path,body,method){
+  if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[syncRun({state:'recognizing',states:['running']})]};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.loadSourceSync();
+ await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));
+ let html=ui.render();
+ assert.match(html,/data-import-action="sync" disabled/);
+ assert.match(html,/data-import-action="credentials" disabled/);
+ assert.doesNotMatch(html,/data-import-(?:review|ignore)="candidate-A" disabled/);
+ for(const name of ['text','files','teaching']) {
+  await ui.click({dataset:{importSource:name}});
+  if(name==='text')assert.match(ui.render(),/data-import-form="text"/);
+  if(name==='files')assert.match(ui.render(),/id="material-files"/);
+ }
+ await ui.click({dataset:{importReview:'candidate-A'}});assert.match(f.dialog,/核对任务/);
+ const form=fakeForm('review',{action:'create',title:'提交报告',description:'明确要求',course:'概率论',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});
+ await ui.submit(form);assert.equal(f.state.tasks.length,1);assert.equal(f.dialog,'');
+ await ui.submit(fakeForm('text',{text:'独立文本识别',published:'2026-10-14T12:00:00'}));
+ ui.input({target:{id:'teaching-sync-consent',checked:true}});await ui.click({dataset:{importAction:'sync'}});
+ assert.equal(f.calls.filter(c=>c.path==='/api/recognition/batches'&&c.method==='POST').length,1);
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/sync-runs'&&c.method==='POST').length,0);
+});
+
+test('a delayed background read cannot resurrect a candidate resolved during sync',async(t)=>{
+ const {syncRun}=await import('./sync-fixtures.js');
+ const f=fixture({intercept(path,body,method){
+  if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[syncRun({state:'recognizing',states:['running']})]};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const gate=f.defer(),reading=ui.loadSourceSync();t.after(gate.release);await gate.entered;
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ gate.release();await reading;
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+ assert.doesNotMatch(ui.render(),/导入结果已保存，刷新失败/);
+});
+
+test('a delayed file-job refresh cannot resurrect an ignored candidate',async t=>{
+ const f=fixture({intercept(path){
+  if(path==='/api/materials/limits')return {limits:{asset_bytes:20971520,account_bytes:209715200}};
+  if(path==='/api/materials/imports')return {jobs:[{job_id:'file-one',status:'succeeded',items:[]}]};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const gate=f.defer();t.after(gate.release);
+ await ui.click({dataset:{importSource:'files'}});await gate.entered;
+ await ui.click({dataset:{importIgnore:'candidate-A'}});
+ gate.release();await new Promise(resolve=>setImmediate(resolve));
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+ assert.match(ui.render(),/data-import-reopen="candidate-A"/);
+});
+
+test('submission disclosure reaches its handler before asynchronous reprocessing and loads once',async t=>{
+ const f=fixture({intercept(path){
+  if(path==='/api/sources/credentials')return {configured:true,username:'synthetic-campus',source_account_id:'source:synthetic'};
+  if(path.startsWith('/api/sources/submissions?'))return {records:[],next_cursor:null};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ await ui.click({dataset:{importSource:'teaching'}});await new Promise(resolve=>setImmediate(resolve));
+ const target={dataset:{submissionDirectory:''},open:true,isConnected:true,matches:()=>false};
+ assert.equal(await ui.toggle({target}),true);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.calls.filter(call=>call.path.startsWith('/api/sources/submissions?')).length,1);
+ assert.match(ui.render(),/data-submission-directory open/);
+ await ui.toggle({target});await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.calls.filter(call=>call.path.startsWith('/api/sources/submissions?')).length,1);
+ target.open=false;await ui.toggle({target});
+ assert.doesNotMatch(ui.render(),/data-submission-directory open/);
 });

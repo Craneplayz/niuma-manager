@@ -130,6 +130,7 @@ export function createSourceSyncUI(host) {
     try {
       const refreshed = await host.onChanged(valid);
       if (!valid()) return false;
+      if (refreshed === null) return false;
       if (refreshed === false) throw new Error("refresh incomplete");
       consumed = fingerprint;
       return true;

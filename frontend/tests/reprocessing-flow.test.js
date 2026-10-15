@@ -79,7 +79,7 @@ test("the compact entry stays folded and rendering never fetches records or runs
   const f = fixture(t);
   const html = f.ui.render();
   assert.match(html, /<details[^>]*data-reprocess-panel >.*<summary[^>]*>重新识别已有通知<\/summary>/);
-  assert.match(html, /按当前规则重新识别下方已保存的通知/);
+  assert.match(html, /重新发送所选已保存内容，不重新抓取网页或附件/);
   assert.doesNotMatch(html, /暂不支持此入口/);
   assert.doesNotMatch(html, /v0\.2|v0\.4/);
   assert.equal(f.requests.length, 0);

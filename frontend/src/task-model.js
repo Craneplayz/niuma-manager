@@ -3,7 +3,7 @@ const DAY_MS = 86_400_000;
 export const isNotice = (task) => task.content_type === "notice";
 
 export const taskEditSnapshot = (task) => JSON.stringify([
-  task.title || "", task.course || "", task.due || "", task.dueTime || "", task.notes || "",
+  task.title || "", task.course || "", task.due || "", task.dueTime || "", task.notes || "", task.content_type || "task",
 ]);
 
 export function assertCurrentTaskEdit(task, snapshot) {
