@@ -1502,7 +1502,7 @@ dialog p {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 20px 0 28px;
+  padding: 20px 0 12px;
 }
 .teaching-import h2 {
   font-size: 19px;
@@ -1513,6 +1513,8 @@ dialog p {
 .teaching-connection .btn { padding: 0; min-height: 32px; font-size: 12px; }
 .teaching-controls { max-width: 420px; min-width: 0; }
 .teaching-action-row { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.teaching-action-row .primary { min-width: 128px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.teaching-stop-icon { width: 9px; height: 9px; background: currentColor; border-radius: 1px; flex-shrink: 0; }
 .teaching-action-row select,
 .teaching-custom input { border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); min-height: 40px; font-size: 13px; padding: 8px 10px; }
 .teaching-action-row select { min-width: 125px; max-width: 100%; }
@@ -1522,8 +1524,9 @@ dialog p {
 .teaching-consent input { flex-shrink: 0; margin: 4px 0 0; }
 .teaching-controls > .status-note,
 .teaching-controls > .error { margin-top: 12px; font-size: 12px; }
-.teaching-progress { padding: 4px 0 14px; }
+.teaching-progress { padding: 0 0 14px; }
 .sync-run { color: var(--ink); padding: 12px 0; }
+.sync-run-current { padding: 0; }
 .sync-run + .sync-run { border-top: 1px solid var(--line); }
 .sync-run-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sync-run-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; flex: 1; }

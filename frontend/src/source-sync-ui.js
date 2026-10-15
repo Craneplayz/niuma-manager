@@ -72,6 +72,7 @@ export function createSourceSyncUI(host) {
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
   function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
   function isRunning() { syncAccount(); return writing || active(); }
+  function canStop() { syncAccount(); return active() && !writing; }
   function ownsRequest(id) { syncAccount(); return runs.some((run) => run.records.some((record) => record.request_id === id)); }
   function allowed() {
     syncAccount();
@@ -218,6 +219,11 @@ export function createSourceSyncUI(host) {
     }
   }
   const start = () => act("start");
+  function stop() {
+    syncAccount();
+    const run = runs.find(run => ACTIVE.has(run.state));
+    return run ? act("stop", run.run_id) : Promise.resolve(true);
+  }
   function guidance(record) {
     if (needsCollection(record)) return "请重新获取来源；重试识别不会补齐原文或附件。";
     if (record.error?.code === "model_configuration" || record.error?.code === "agent_unavailable" && !record.error.retryable) return "请修复模型配置后重新获取来源。";
@@ -239,7 +245,8 @@ export function createSourceSyncUI(host) {
     const blocked = isBusy() || host.isImportBusy();
     const summary = [counts.total ? `已处理 ${done} / ${counts.total}` : "", counts.added ? `新增 ${counts.added} 项` : "", counts.failed ? `失败 ${counts.failed} 条` : "", counts.incomplete ? `待补全 ${counts.incomplete} 条` : "", counts.skipped ? `跳过 ${counts.skipped} 条` : ""].filter(Boolean).join(" · ");
     const progress = ACTIVE.has(run.state) ? `<progress ${counts.total && run.state !== "crawling" ? `max="${counts.total}" value="${done}"` : ""} aria-label="${esc(counts.total ? `已处理 ${done} / ${counts.total} 条通知` : LABELS[run.state])}"></progress>` : "";
-    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(LABELS[run.state])}</strong>${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div><div class="candidate-actions">${ACTIVE.has(run.state) ? `<button class="btn quiet" type="button" data-source-sync-action="stop" data-source-sync-run="${esc(run.run_id)}" ${writing ? "disabled" : ""}>停止导入</button>` : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`}</div></div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${run.records.length ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${run.records.length}</summary>${run.records.map((record) => recordMarkup(record, run, latest)).join("")}</details>` : ""}</article>`;
+    const actions = ACTIVE.has(run.state) ? "" : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`;
+    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(LABELS[run.state])}</strong>${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${run.records.length ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${run.records.length}</summary>${run.records.map((record) => recordMarkup(record, run, latest)).join("")}</details>` : ""}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun &&
@@ -265,7 +272,7 @@ export function createSourceSyncUI(host) {
     if (!action) return false;
     if (action === "refresh") await load();
     else if (action === "collect") await start();
-    else if (action === "stop" || action === "retry") await act(action, data.sourceSyncRun, data.sourceSyncRequest ? [data.sourceSyncRequest] : null);
+    else if (action === "retry") await act(action, data.sourceSyncRun, data.sourceSyncRequest ? [data.sourceSyncRequest] : null);
     return true;
   }
   function toggle(event) {
@@ -284,5 +291,5 @@ export function createSourceSyncUI(host) {
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { renderProgress, renderHistory, click, toggle, reset, load, start, isBusy, isRunning, ownsRequest, setVisible };
+  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, ownsRequest, setVisible };
 }

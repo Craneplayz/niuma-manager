@@ -276,6 +276,7 @@ export function createImportUI(host) {
     loaded = false,
     loading = false,
     busy = false,
+    stopping = false,
     error = "",
     notice = "",
     progress = "",
@@ -322,8 +323,10 @@ export function createImportUI(host) {
   const refreshSourceSync = () => sourceSync.load();
   const schedule = createSyncScheduleUI({
     ...host, isDemo: demo, isConnected: () => Boolean(credentials?.configured),
-    isBusy: () => blocked() || sourceSync.isBusy(),
+    isBusy: () => blocked() || stopping || sourceSync.isBusy(),
     isRunning: () => sourceSync.isRunning(),
+    canStop: () => sourceSync.canStop(),
+    isStopping: () => stopping,
     start: () => sourceSync.start(),
   });
   const submissions = createSubmissionsUI({
@@ -337,7 +340,7 @@ export function createImportUI(host) {
   });
   // Background teaching runs own their start/stop controls, not the whole import page.
   const blocked = () => loading || busy;
-  const credentialsBlocked = () => blocked() || sourceSync.isBusy() || schedule.isBusy();
+  const credentialsBlocked = () => blocked() || stopping || sourceSync.isBusy() || schedule.isBusy();
   const allowed = () => {
     if (demo()) {
       host.toast("示例预览暂不发送，请登录后导入");
@@ -374,6 +377,7 @@ export function createImportUI(host) {
     loaded = false;
     loading = false;
     busy = false;
+    stopping = false;
     error = "";
     notice = "";
     progress = "";
@@ -638,7 +642,20 @@ export function createImportUI(host) {
     }
   }
   async function sync() {
-    if (blocked() || syncIsActive() || !allowed()) return;
+    if (stopping || !allowed()) return;
+    if (sourceSync.canStop()) {
+      const stamp = current();
+      stopping = true;
+      refresh();
+      try {
+        await schedule.stop();
+        if (valid(stamp)) await sourceSync.stop();
+      } finally {
+        if (valid(stamp)) { stopping = false; refresh(); }
+      }
+      return;
+    }
+    if (blocked() || syncIsActive()) return;
     if (!credentials?.configured) { openCredentials(); return; }
     await schedule.start();
   }
@@ -710,11 +727,7 @@ export function createImportUI(host) {
   async function click(button) {
     const d = button.dataset;
     if (d.sourceSyncAction) {
-      if (allowed()) {
-        const stamp = current();
-        if (d.sourceSyncAction === "stop") await schedule.stop();
-        if (valid(stamp)) await sourceSync.click(button);
-      }
+      if (allowed()) await sourceSync.click(button);
       return true;
     }
     if (d.syncScheduleAction) return schedule.click(button);

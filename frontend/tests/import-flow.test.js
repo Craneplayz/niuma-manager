@@ -411,11 +411,12 @@ test('active teaching sync permits navigation, text recognition and candidate re
  const {syncRun}=await import('./sync-fixtures.js');
  const f=fixture({intercept(path,body,method){
   if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[syncRun({state:'recognizing',states:['running']})]};
+  if(path.endsWith('/stop'))return syncRun({state:'stopped',states:['interrupted']});
  }});
  await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.loadSourceSync();
  await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));
  let html=ui.render();
- assert.match(html,/data-import-action="sync" disabled/);
+ assert.match(html,/data-import-action="sync" >.*停止导入/);
  assert.match(html,/data-import-action="credentials" disabled/);
  assert.doesNotMatch(html,/data-import-(?:review|ignore)="candidate-A" disabled/);
  for(const name of ['text','files','teaching']) {
@@ -430,6 +431,7 @@ test('active teaching sync permits navigation, text recognition and candidate re
  await ui.click({dataset:{importAction:'sync'}});
  assert.equal(f.calls.filter(c=>c.path==='/api/recognition/batches'&&c.method==='POST').length,1);
  assert.equal(f.calls.filter(c=>c.path==='/api/sources/sync-runs'&&c.method==='POST').length,0);
+ assert.equal(f.calls.filter(c=>c.path.endsWith('/stop')).length,1);
 });
 
 test('a delayed background read cannot resurrect a candidate resolved during sync',async(t)=>{

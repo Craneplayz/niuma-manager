@@ -11,7 +11,7 @@ const settings = (extra = {}) => ({ contract_version: "source-sync/0.1", enabled
 function fixture(t, extra = {}) {
   session.user = { id: "synthetic" };
   session.changing = false;
-  let saved = settings(extra), connected = true, busy = false, running = false, starts = 0;
+  let saved = settings(extra), connected = true, busy = false, running = false, stopping = false, starts = 0;
   const requests = [], messages = [], events = [];
   const fetch = async (path, options) => {
     assert.equal(path, "/api/sources/sync-schedule");
@@ -25,12 +25,14 @@ function fixture(t, extra = {}) {
   const ui = createSyncScheduleUI({
     escapeHtml: value => String(value ?? ""), render() {},
     isDemo: () => false, isConnected: () => connected, isBusy: () => busy, isRunning: () => running,
+    canStop: () => running, isStopping: () => stopping,
     async start() { starts++; events.push("start"); return true; }, toast: message => messages.push(message),
   });
   t.after(() => ui.reset());
   return { ui, requests, messages, events, fetch, get starts() { return starts; },
     field: (key, value) => ui.input({ target: { dataset: { syncScheduleField: key }, value, checked: value } }),
     disconnect() { connected = false; }, setBusy(value) { busy = value; running = value; },
+    setStopping(value) { stopping = value; },
   };
 }
 
@@ -127,15 +129,30 @@ test("repeated clicks during a save cannot duplicate runs and active runs keep c
   f.field("interval", "once");
   release(response(settings({ enabled: true, interval_minutes: 15, revision: 1 }))); await saving;
   assert.equal(f.starts, 1); assert.match(f.ui.render(), /value="15" selected/);
-  f.setBusy(true); assert.match(f.ui.render(), /识别中…/);
+  f.setBusy(true);
+  assert.match(f.ui.render(), /data-import-action="sync" >.*停止同步/);
+  assert.match(f.ui.render(), /data-sync-schedule-field="interval" disabled/);
   await f.ui.start(); assert.equal(f.starts, 1);
   f.setBusy(false); f.disconnect(); await f.ui.start(); assert.equal(f.starts, 1);
 });
 
-test("stopping from progress disables the service even while recognition is active", async t => {
+test("stopping disables the service even while recognition is active", async t => {
   const f = fixture(t, { enabled: true, interval_minutes: 15 }); await f.ui.load(); f.setBusy(true);
   assert.equal(await f.ui.stop(), true);
   assert.equal(f.requests[0].enabled, false); assert.equal(f.starts, 0);
+});
+
+test("single import exposes an enabled primary stop action; pending stop keeps its position and locks it", async t => {
+  const f = fixture(t); await f.ui.load(); f.setBusy(true);
+  assert.match(f.ui.render(), /data-import-action="sync" >.*停止导入/);
+  f.setStopping(true);
+  assert.match(f.ui.render(), /data-import-action="sync" disabled>正在停止…/);
+});
+
+test("an active scheduled run uses the saved service state even when the draft was changed", async t => {
+  const f = fixture(t, {enabled: true, interval_minutes: 15}); await f.ui.load();
+  f.field("interval", "once"); f.setBusy(true);
+  assert.match(f.ui.render(), /data-import-action="sync" >.*停止同步/);
 });
 
 test("editing an existing custom interval changes the action and asks for new consent without losing the field identity", async t => {

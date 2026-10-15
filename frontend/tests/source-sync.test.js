@@ -238,7 +238,7 @@ check('stop is a server POST, preserves saved results and discards an older in-f
     if (call.path === API && call.method === 'GET') { captured = call; return delayed.wait; }
     return normal(call);
   });
-  const polling = f.ui.load(); await f.ui.click(button('stop', run.run_id));
+  const polling = f.ui.load(); assert.equal(f.ui.canStop(), true); await f.ui.stop();
   assert.deepEqual(f.posts()[0].body, {contract_version: VERSION});
   assert.equal(f.posts()[0].path, `${API}/${encodeURIComponent(run.run_id)}/stop`); assert.equal(captured.signal.aborted, true);
   delayed.resolve({contract_version: VERSION, runs: [run]}); await polling;
@@ -307,7 +307,8 @@ check('progress connection errors preserve active state and retry polling withou
   const f = fixture([syncRun({state: 'recognizing', states: ['running']})]); await f.ui.setVisible(true);
   f.setAPI(() => { throw new Error('offline'); }); await f.tick();
   assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /后台可能仍在运行/);
-  assert.match(markup(f.ui), /停止导入/); assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
+  assert.equal(f.ui.canStop(), true); assert.doesNotMatch(markup(f.ui), /data-source-sync-action="stop"/);
+  assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
 });
 
 check('history and detail expansion survive polling and clear on account reset', async () => {
