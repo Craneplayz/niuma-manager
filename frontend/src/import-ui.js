@@ -464,7 +464,7 @@ export function createImportUI(host) {
     return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading">
       <div class="import-source-tabs" role="group" aria-label="导入来源">${tabs}<button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div>
       <section class="import-input">${panel}
-        ${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}
+        ${busy && progress ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress)}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}
         ${source === "teaching" && !demo() ? sourceSync.renderHistory() + (credentials?.configured ? submissions.render() : "") : ""}
         ${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map(batch => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${batch.request.contract_version === "0.3.1" ? '<button class="btn quiet" data-import-source="files">查看文件处理</button>' : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}
         ${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}
