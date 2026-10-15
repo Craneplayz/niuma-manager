@@ -186,6 +186,75 @@ class TaskRelationsTests(unittest.TestCase):
             saved=dict(db.execute('SELECT * FROM task_relation_jobs WHERE id=?',(job,)).fetchone())
         self.assertEqual(saved['state'],'failed');self.assertNotIn('private error',saved['error'])
 
+    def test_one_failed_window_does_not_abort_later_valid_window(self):
+        request,group=self.seed('submitted',False)
+        result=dict(contract_version=contract.VERSION,context_digest=request['context_digest'],groups=[group])
+        with app.connection() as db:job=runtime.start(db,self.uid,'test')
+        with patch.object(ctx,'windows',return_value=iter([request,request])),patch.object(runtime,'model',side_effect=[ValueError('private'),result]) as model:
+            runtime.process(app.DB,self.uid,job,app.ApiError)
+        self.assertEqual(model.call_count,2)
+        self.assertEqual(self.tasks()[0]['status'],'completed')
+        with app.connection() as db:
+            windows=[dict(r) for r in db.execute('SELECT * FROM task_relation_windows WHERE job_id=? ORDER BY window_index',(job,))]
+            jobrow=db.execute('SELECT state,error FROM task_relation_jobs WHERE id=?',(job,)).fetchone()
+            self.assertEqual(db.execute('SELECT count(*) FROM task_relation_cache').fetchone()[0],1)
+        self.assertEqual([w['state'] for w in windows],['failed','succeeded'])
+        self.assertEqual(jobrow['state'],'failed');self.assertIn('1/2',jobrow['error'])
+        self.assertNotIn('private',json.dumps(windows))
+
+    def receiving_capture(self,index,state):
+        capture=deepcopy(self.captures[index])
+        body=capture.get('request',capture)
+        r=body['records'][0]['record']
+        r['collected_at']='2026-10-16T11:00:00+08:00'
+        return dict(contract_version='teaching-capture/0.1',request=body,assignment=dict(state=state,
+            basis='review_submission_history_title' if state=='submitted' else 'active_assignment_page',
+            course_id=r['course_id'],content_id=r['source_item_id']))
+
+    def joint_proposal(self,last_state='active'):
+        self.seed(last_state)
+        with app.connection() as db:
+            teaching.register(db,self.uid,'synthetic-course-user',[self.receiving_capture(0,'submitted')])
+        request,group=self.proposal()
+        other=ctx.source_id(self.account,self.input_ids[0]);group['members'].append(other)
+        group['evidence'].append(dict(node_id=other,quote=next(n['text'] for n in request['nodes'] if n['id']==other)))
+        old=group['completion'][0]
+        group['completion']=[dict(source_ids=[old['source_id'],other],covers=old['covers'])]
+        contract.check_pair(request,dict(contract_version=contract.VERSION,context_digest=request['context_digest'],groups=[group]))
+        return request,group
+
+    def test_joint_coverage_waits_for_all_receivers_and_honors_manual_reopen(self):
+        request,group=self.joint_proposal();self.assertTrue(self.apply(request,group))
+        self.assertEqual(self.tasks()[0]['status'],'not_started')
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM task_relation_links').fetchone()[0],0)
+            teaching.register(db,self.uid,'synthetic-course-user',[self.receiving_capture(2,'submitted')])
+            runtime.refresh_completions(db,self.uid)
+        self.assertEqual(self.tasks()[0]['status'],'completed')
+        tasks=self.tasks();tasks[0]['status']='not_started'
+        with app.connection() as db:
+            runtime.manual_write(db,self.uid,tasks);runtime.write_tasks(db,self.uid,tasks,7)
+            runtime.refresh_completions(db,self.uid)
+            self.assertEqual(db.execute('SELECT paused FROM task_relation_completion_sets').fetchone()[0],1)
+        self.assertEqual(self.tasks()[0]['status'],'not_started')
+
+    def test_joint_coverage_completes_immediately_and_undo_removes_mapping(self):
+        request,group=self.joint_proposal('submitted');before=self.tasks()
+        self.assertTrue(self.apply(request,group));self.assertEqual(self.tasks()[0]['status'],'completed')
+        with app.connection() as db:
+            runtime.undo(db,self.uid,db.execute('SELECT * FROM task_relation_proposals WHERE id="p1"').fetchone(),app.ApiError)
+            self.assertEqual(db.execute('SELECT count(*) FROM task_relation_completion_sets').fetchone()[0],0)
+            runtime.refresh_completions(db,self.uid)
+        self.assertEqual(self.tasks(),before)
+
+    def test_joint_coverage_cannot_ignore_changed_source_or_user_pause(self):
+        request,group=self.joint_proposal();self.apply(request,group)
+        with app.connection() as db:
+            teaching.register(db,self.uid,'synthetic-course-user',[self.receiving_capture(2,'submitted')])
+            db.execute('UPDATE submission_controls SET content_digest="changed" WHERE user_id=? AND input_id=?',(self.uid,self.input_ids[0]))
+            runtime.refresh_completions(db,self.uid)
+        self.assertEqual(self.tasks()[0]['status'],'not_started')
+
     def test_sync_automatically_integrates_and_http_undo_restores(self):
         import source_jobs
         request,group=self.seed('submitted',False)

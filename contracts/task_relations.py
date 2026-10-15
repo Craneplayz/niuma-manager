@@ -24,10 +24,12 @@ IDS = dict(type='array', items=ID, uniqueItems=True, maxItems=MAX_NODES)
 DUE = dict(anyOf=[dict(type='null'), obj(dict(date=string(10, 10), time=dict(anyOf=[dict(type='null'), string(5, 5)])))])
 RESULT = obj(dict(title=string(512, 1), description=string(4096), course=dict(anyOf=[dict(type='null'), string(512)]),
                   content_type=dict(enum=['task', 'notice']), due=DUE))
+COMPLETION = dict(oneOf=[obj(dict(source_id=ID, covers=dict(IDS, minItems=1))),
+    obj(dict(source_ids=dict(IDS, minItems=2), covers=dict(IDS, minItems=1)))])
 GROUP = obj(dict(relation=dict(enum=['duplicate', 'combine', 'update']), disposition=dict(enum=['apply', 'review']),
                  members=dict(IDS, minItems=2), result=RESULT, reason=string(1024, 1),
                  evidence=dict(type='array', minItems=1, maxItems=24, items=obj(dict(node_id=ID, quote=string(1200, 1)))),
-                 completion=dict(type='array', maxItems=24, items=obj(dict(source_id=ID, covers=dict(IDS, minItems=1))))))
+                 completion=dict(type='array', maxItems=24, items=COMPLETION)))
 OUTPUT = dict(obj(dict(contract_version=dict(const=VERSION), context_digest=string(64, 64),
                        groups=dict(type='array', items=GROUP, maxItems=12))),
               **{'$schema': 'https://json-schema.org/draft/2020-12/schema'})
@@ -116,13 +118,21 @@ def check_pair(request, result):
             raise ValueError('uncited action')
         completion_sources = set()
         for link in group['completion']:
-            identity = link['source_id']
-            if identity in completion_sources or identity not in members or nodes[identity]['kind'] != 'source':
+            identities = completion_sources_for(link)
+            key = tuple(sorted(identities))
+            if key in completion_sources:
+                raise ValueError('duplicate completion requirement')
+            if any(i not in members or nodes[i]['kind'] != 'source' for i in identities):
                 raise ValueError('invalid completion source')
-            if identity not in cited or not set(link['covers']) <= actions:
+            if not set(identities) <= cited or not set(link['covers']) <= actions:
                 raise ValueError('invalid completion scope')
-            completion_sources.add(identity)
+            completion_sources.add(key)
     return result
+
+
+def completion_sources_for(link):
+    """One alternative requires ALL its sources; alternatives are never unioned."""
+    return link['source_ids'] if 'source_ids' in link else [link['source_id']]
 
 
 if __name__ == '__main__':

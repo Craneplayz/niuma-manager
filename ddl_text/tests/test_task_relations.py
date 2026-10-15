@@ -4,7 +4,7 @@ import json
 import unittest
 from jsonschema import ValidationError
 from contracts import task_relations as c
-from ddl_text.task_relations import RelationAdapter
+from ddl_text.task_relations import RelationAdapter,evidence_context,model_schema
 from ddl_text.adapters import AgentError
 
 
@@ -82,6 +82,68 @@ class RelationsContractTests(unittest.TestCase):
             with self.subTest(raw=raw),self.assertRaises(AgentError) as error:
                 RelationAdapter(Client(raw)).extract(request,None,0)
             self.assertEqual(error.exception.code,'invalid_agent_output')
+
+    def test_context_only_noise_does_not_discard_action_groups(self):
+        request,result=example();noisy=deepcopy(result)
+        noisy['groups'].extend([dict(members=['s']), dict(members=['s','s'],reason='context only')])
+        self.assertEqual(RelationAdapter(Client(json.dumps(noisy))).extract(request,None,0),[result])
+        for members in (['a'],['unknown'],['s','unknown']):
+            bad=deepcopy(result);bad['groups'].append(dict(members=members))
+            with self.assertRaises(AgentError):RelationAdapter(Client(json.dumps(bad))).extract(request,None,0)
+
+    def test_excerpt_references_resolve_to_original_not_summary(self):
+        request,result=example();wire,catalog=evidence_context(request)
+        response=deepcopy(result)
+        for item in response['groups'][0]['evidence']:
+            item.pop('quote');item['excerpt_id']='e0'
+        self.assertEqual(RelationAdapter(Client(json.dumps(response))).extract(request,None,0),[result])
+        self.assertNotIn('text',wire['nodes'][0])
+        self.assertIn('excerpt_id',model_schema()['properties']['groups']['items']['properties']['evidence']['items']['properties'])
+        for identity in ('unknown','e1'):
+            bad=deepcopy(response);bad['groups'][0]['evidence'][0]['excerpt_id']=identity
+            with self.assertRaises(AgentError):RelationAdapter(Client(json.dumps(bad))).extract(request,None,0)
+        for raw in ('null','[]','{"groups":[null]}'):
+            with self.assertRaises(AgentError):RelationAdapter(Client(raw)).extract(request,None,0)
+
+    def test_model_short_ids_are_resolved_before_database_contract(self):
+        request,result=example()
+        class AliasClient:
+            def complete_json(self,instructions,payload,settings):
+                nodes=json.loads(payload)['context']['nodes'];ids=[n['id'] for n in nodes]
+                answer=deepcopy(result);g=answer['groups'][0]
+                g['members']=ids;g['evidence']=[dict(node_id=i,excerpt_id='e0') for i in ids]
+                g['completion']=[dict(source_id=ids[2],covers=ids[:2])]
+                return json.dumps(answer)
+        self.assertEqual(RelationAdapter(AliasClient()).extract(request,None,0),[result])
+
+    def test_own_source_rewording_does_not_promote_review_candidate(self):
+        request,result=example();request['nodes'][0]['sources']=['s'];request=c.context(request['nodes'])
+        result['context_digest']=request['context_digest'];g=result['groups'][0]
+        g['members']=['a','s'];g['completion']=[];g['evidence']=[q for q in g['evidence'] if q['node_id']!='b']
+        answer=RelationAdapter(Client(json.dumps(result))).extract(request,None,0)[0]
+        self.assertEqual(answer['groups'],[])
+        g['completion']=[dict(source_id='s',covers=['a'])]
+        self.assertEqual(RelationAdapter(Client(json.dumps(result))).extract(request,None,0),[result])
+
+    def test_omitted_excerpt_is_not_selectable(self):
+        request=c.context([dict(id='s',kind='source',text='x'*6000)])
+        wire,catalog=evidence_context(request)
+        self.assertEqual([e['id'] for e in wire['nodes'][0]['excerpts']],['e0','e1','e2','e8','e9'])
+        self.assertNotIn(('s','e3'),catalog)
+        self.assertEqual(wire['nodes'][0]['omitted_middle_excerpts'],5)
+
+    def test_explicit_joint_sources_require_each_citation(self):
+        request,result=example()
+        request=c.context(request['nodes']+[dict(id='s2',kind='source',text='第二份报告的接收入口。')])
+        result['context_digest']=request['context_digest'];g=result['groups'][0]
+        g['members'].append('s2');g['evidence'].append(dict(node_id='s2',quote='第二份报告的接收入口。'))
+        g['completion']=[dict(source_ids=['s','s2'],covers=['a','b'])]
+        c.check_pair(request,result)
+        for ids in (['s'],['s','s'],['s','a'],['s','foreign']):
+            bad=deepcopy(result);bad['groups'][0]['completion'][0]['source_ids']=ids
+            with self.assertRaises((ValueError,ValidationError)):c.check_pair(request,bad)
+        g['evidence'].pop()
+        with self.assertRaises(ValueError):c.check_pair(request,result)
 
 
 if __name__=='__main__':unittest.main()

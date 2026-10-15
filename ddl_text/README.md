@@ -6,7 +6,7 @@
 
 ```text
 ddl_text/
-├── task_relations.py      # 独立后台关联模型调用、限时与一次格式修复
+├── task_relations.py      # 后台关联模型调用、原文片段引用、限时与一次格式修复
 ├── README.md             # 模块用途、运行和检查入口
 ├── __init__.py           # Python 包入口
 ├── __main__.py           # CLI 参数、输入文件和输出

@@ -212,30 +212,66 @@
                 "type": "array",
                 "maxItems": 24,
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "source_id": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 160
-                    },
-                    "covers": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 160
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "source_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 160
+                        },
+                        "covers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 160
+                          },
+                          "uniqueItems": true,
+                          "maxItems": 24,
+                          "minItems": 1
+                        }
                       },
-                      "uniqueItems": true,
-                      "maxItems": 24,
-                      "minItems": 1
+                      "required": [
+                        "source_id",
+                        "covers"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "source_ids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 160
+                          },
+                          "uniqueItems": true,
+                          "maxItems": 24,
+                          "minItems": 2
+                        },
+                        "covers": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 160
+                          },
+                          "uniqueItems": true,
+                          "maxItems": 24,
+                          "minItems": 1
+                        }
+                      },
+                      "required": [
+                        "source_ids",
+                        "covers"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": [
-                    "source_id",
-                    "covers"
-                  ],
-                  "additionalProperties": false
+                  ]
                 }
               }
             },

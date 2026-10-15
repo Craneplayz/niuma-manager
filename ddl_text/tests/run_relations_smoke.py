@@ -20,7 +20,10 @@ def assess(case,result):
     for source in expected.get('complete_sources',[]):
         for group in result['groups']:
             actions={i for i in group['members'] if kinds[i]!='source'}
-            if not any(c['source_id']==source and set(c['covers'])==actions for c in group['completion']):errors.append('completion_scope')
+            if not any(c.get('source_id')==source and set(c['covers'])==actions for c in group['completion']):errors.append('completion_scope')
+    for sources in expected.get('joint_complete_sources',[]):
+        if not any(set(c.get('source_ids',[]))==set(sources) and set(c['covers'])=={i for i in g['members'] if kinds[i]!='source'}
+                   for g in result['groups'] for c in g['completion']):errors.append('joint_completion_scope')
     return sorted(set(errors))
 
 

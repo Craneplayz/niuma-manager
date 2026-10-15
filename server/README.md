@@ -1,6 +1,6 @@
 ```text
 server/
-├── task_relations.py         跨来源关联后台运行、审计、自动整合、完成及撤回。
+├── task_relations.py         跨来源关联逐批恢复、审计、联合提交完成及撤回。
 ├── relation_context.py       当前账号的有界原文、附件标识和任务检索，不决定语义合并。
 ├── test_task_relations.py    HTTP/SQLite 自动接线、提交覆盖、账号切换、证据及撤回回归。
 ├── run_relations_fixture.py  临时账号的浏览器关联验收，采集和模型使用合成替身。

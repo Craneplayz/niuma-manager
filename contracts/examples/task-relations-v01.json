@@ -2,6 +2,16 @@
   "description": "合成行为验收数据；expected 是人工判定，不是模型输出。action ID 代表独立交付，source ID 代表来源。",
   "cases": [
     {
+      "name":"aggregate_reminder_needs_all_receiving_endpoints",
+      "nodes":[
+        {"id":"a","kind":"task","text":"请提交项目第一、第二期报告。两期分别上传到对应接收入口。"},
+        {"id":"b","kind":"task","text":"项目配套在线测验，在测验平台独立完成。"},
+        {"id":"s1","kind":"source","text":"项目第一期报告接收页，只收第一期报告。","submission_state":"submitted"},
+        {"id":"s2","kind":"source","text":"项目第二期报告接收页，只收第二期报告。","submission_state":"active"}
+      ],
+      "expected":{"groups":[["a"]],"apply":true,"joint_complete_sources":[["s1","s2"]]}
+    },
+    {
       "name": "same_chapter_distinct_deliveries",
       "nodes": [
         {"id":"a","kind":"task","text":"算法第4章书面作业，提交PDF到教学网。"},

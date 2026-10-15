@@ -46,6 +46,7 @@ def inventory(db,uid):
             source_digest=row['digest'],attachments=attachments,course=entry['source'].get('course_or_project'),
             published_at=record.get('published_at'),course_term=record.get('course_term'),
             submission_state=state['snapshot']['state'] if state else 'unknown',
+            submission_basis=state['snapshot']['basis'] if state else 'unknown',
             control_revision=state['control_revision'] if state else None,
             source_paused=bool(state and (state['review_pending'] or any(a.get('source_completion_paused') for a in state['actions']))),
             source_snapshot=state['snapshot']['snapshot_id'] if state else None)
@@ -108,18 +109,27 @@ def terms(node):
 
 def windows(nodes):
     """Bound model payloads; every action is an anchor, including low-similarity ones."""
-    actions=[n for n in nodes.values() if n['kind']!='source']
+    actions=[n for n in nodes.values() if n['kind']!='source' and n.get('status') not in ('completed','cancelled')]
     token={n['id']:terms(n) for n in nodes.values()}
+    headings={n['id']:terms(dict(text=n.get('summary',{}).get('title') or n['text'].split('\n',1)[0])) for n in nodes.values()}
+    hashes={n['id']:{a['sha256'] for a in n.get('attachments',[]) if a.get('sha256')} for n in nodes.values()}
     frequencies=Counter(t for ts in token.values() for t in ts)
     def score(a,b):
         shared=token[a]&token[b]
-        return sum(math.log(1+len(nodes)/frequencies[t]) for t in shared)/math.sqrt(max(1,len(token[a])*len(token[b])))
+        body=sum(math.log(1+len(nodes)/frequencies[t]) for t in shared)/math.sqrt(max(1,len(token[a])*len(token[b])))
+        title=len(headings[a]&headings[b])/math.sqrt(max(1,len(headings[a])*len(headings[b])))
+        material=len(hashes[a]&hashes[b])/max(1,len(hashes[a]|hashes[b]))
+        # Retrieval only: identical materials help bring content and receiving
+        # pages together; the model still decides whether delivery scopes match.
+        return body*.2+title+material*2
     used=set()
     for action in sorted(actions,key=lambda n:n['id']):
         if action['id'] in used:continue
         ranked=sorted(actions,key=lambda n:(n['id']!=action['id'],-score(action['id'],n['id']),n['id']))
+        best=max((score(action['id'],n['id']) for n in ranked if n['id']!=action['id']),default=0)
         selected={};chosen=[]
         for other in ranked:
+            if other['id']!=action['id'] and score(action['id'],other['id'])<max(.25,best*.55):continue
             related=sorted(other['sources'],key=lambda sid:(-score(other['id'],sid),sid))
             group=[other['id']]+related[:8]
             if len(set(selected)|set(group))>18:continue
@@ -127,12 +137,13 @@ def windows(nodes):
             for key in group:selected[key]=nodes[key]
             if len(chosen)==5:break
         relevance=lambda source:max(score(a,source) for a in chosen)
+        best_source={a:max((score(a,n['id']) for n in nodes.values() if n['kind']=='source'),default=0) for a in chosen}
         sources=sorted((n for n in nodes.values() if n['kind']=='source'),
                        key=lambda n:(-relevance(n['id']),n['id']))
         for source in sources:
             if source['id'] in selected:continue
-            if len(selected)>=20:break
-            if relevance(source['id'])>0:selected[source['id']]=source
+            if len(selected)>=12:break
+            if any(score(a,source['id'])>=max(.2,best_source[a]*.5) for a in chosen):selected[source['id']]=source
         used.update(chosen)
         if len(selected)>1:
             # UTF-8 budget also applies for non-ASCII texts.

@@ -38,6 +38,11 @@ def initialize(db,recover=False):
       CREATE TABLE IF NOT EXISTS task_relation_links(user_id TEXT,account TEXT,input_id TEXT,
         content_digest TEXT,task_id TEXT,task_digest TEXT,paused INTEGER DEFAULT 0,
         PRIMARY KEY(user_id,account,input_id,task_id));
+      CREATE TABLE IF NOT EXISTS task_relation_completion_sets(user_id TEXT,account TEXT,set_id TEXT,
+        task_id TEXT,requirements TEXT,task_digest TEXT,paused INTEGER DEFAULT 0,
+        PRIMARY KEY(user_id,account,set_id,task_id));
+      CREATE TABLE IF NOT EXISTS task_relation_windows(job_id TEXT,window_index INTEGER,
+        state TEXT,error_code TEXT,PRIMARY KEY(job_id,window_index));
     ''')
     if recover:db.execute("UPDATE task_relation_jobs SET state='interrupted',error='服务重启，已保存整合结果保留；可继续分析。' WHERE state='running'")
 
@@ -52,6 +57,7 @@ def manual_write(db,uid,tasks):
         if task['id'] not in old or context.task_hash(old[task['id']])!=context.task_hash(task):
             db.execute('DELETE FROM task_relation_managed WHERE user_id=? AND task_id=?',(uid,task['id']))
             db.execute('UPDATE task_relation_links SET paused=1 WHERE user_id=? AND task_id=?',(uid,task['id']))
+            db.execute('UPDATE task_relation_completion_sets SET paused=1 WHERE user_id=? AND task_id=?',(uid,task['id']))
 
 
 def source_evidence(db,uid,task_id,account=None):
@@ -116,9 +122,26 @@ def refresh_completions(db,uid):
         row=controls.find(db,uid,account,link['input_id'])
         if not task or task['status'] in ('completed','cancelled') or task.get('recycleBin'):continue
         if context.task_hash(task)!=link['task_digest'] or not row or row['content_digest']!=link['content_digest']:continue
-        if not completion_ready(db,uid,account,link['input_id']):continue
+        if not requirements_ready(db,uid,account,[dict(link)]):continue
+        complete(task);remember(db,uid,task);changed=True
+    for link in db.execute('SELECT * FROM task_relation_completion_sets WHERE user_id=? AND account=? AND paused=0',(uid,account)).fetchall():
+        task=next((t for t in tasks if t['id']==link['task_id']),None)
+        if not task or task['status'] in ('completed','cancelled') or task.get('recycleBin'):continue
+        if context.task_hash(task)!=link['task_digest']:continue
+        if not requirements_ready(db,uid,account,json.loads(link['requirements'])):continue
         complete(task);remember(db,uid,task);changed=True
     if changed:write_tasks(db,uid,tasks,version)
+
+
+def requirements_ready(db,uid,account,requirements):
+    if not requirements:return False
+    for item in requirements:
+        row=controls.find(db,uid,account,item['input_id'])
+        if not row or row['content_digest']!=item['content_digest']:return False
+        observation=json.loads(row['detail'])['observation']
+        if any(a.get('source_completion_paused') for a in observation['actions']):return False
+        if not completion_ready(db,uid,account,item['input_id']):return False
+    return True
 
 
 def new_task(result):
@@ -179,6 +202,7 @@ def apply_group(db,uid,pid,request,group,ApiError,manual=False):
         if not manual:return False
         raise ApiError(409,'任务已有完成用时记录，请保留原任务并手动调整，避免丢失统计关联')
     old_links=[dict(r) for r in db.execute('SELECT * FROM task_relation_links WHERE user_id=?',(uid,)) if r['task_id'] in affected]
+    old_sets=[dict(r) for r in db.execute('SELECT * FROM task_relation_completion_sets WHERE user_id=?',(uid,)) if r['task_id'] in affected]
     candidate_rows=[bindings[a['id']]['candidate'] for a in actions if a['kind']=='candidate']
     survivor=next((t for t in tasks if t['id'] in {a['id'][5:] for a in actions if a['kind']=='task'}),None)
     if not survivor:survivor=new_task(group['result']);tasks.append(survivor)
@@ -201,28 +225,38 @@ def apply_group(db,uid,pid,request,group,ApiError,manual=False):
                    (json.dumps(dict(action='task_relation',proposal_id=pid,target_id=survivor['id'])),row['id'],uid))
     tasks=[t for t in tasks if t['id'] not in merged_ids]
     action_ids={a['id'] for a in actions}
-    new_links=[]
+    new_links=[];new_sets=[]
     # Each stored link covers the WHOLE survivor, never just one component.
     # Multiple partial submission endpoints cannot be unioned into false completion.
     for coverage in group['completion']:
         if set(coverage['covers'])!=action_ids:continue
-        source=bindings[coverage['source_id']]
-        native=controls.find(db,uid,account,source['input_id'])
-        if not native:continue
-        obs=json.loads(native['detail'])['observation']
-        paused=obs['review_pending'] or any(a.get('source_completion_paused') for a in obs['actions'])
-        if paused:continue
-        new_links.append(dict(input_id=source['input_id'],content_digest=native['content_digest']))
-        if completion_ready(db,uid,account,source['input_id']):complete(survivor)
-    before=dict(tasks=old_tasks,candidates=candidate_rows,links=old_links)
+        requirements=[]
+        for identity in contract.completion_sources_for(coverage):
+            source=bindings[identity]
+            native=controls.find(db,uid,account,source['input_id'])
+            if not native:break
+            obs=json.loads(native['detail'])['observation']
+            paused=obs['review_pending'] or any(a.get('source_completion_paused') for a in obs['actions'])
+            if paused:break
+            requirements.append(dict(input_id=source['input_id'],content_digest=native['content_digest']))
+        if len(requirements)!=len(contract.completion_sources_for(coverage)):continue
+        if len(requirements)==1:new_links.extend(requirements)
+        else:new_sets.append(requirements)
+        if requirements_ready(db,uid,account,requirements):complete(survivor)
+    before=dict(tasks=old_tasks,candidates=candidate_rows,links=old_links,completion_sets=old_sets)
     after_candidates=[dict(db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(r['id'],uid)).fetchone()) for r in candidate_rows]
     after=dict(tasks=[deepcopy(survivor)],candidates=after_candidates)
     write_tasks(db,uid,tasks,version);remember(db,uid,survivor)
     for identity in affected:
         db.execute('DELETE FROM task_relation_links WHERE user_id=? AND task_id=?',(uid,identity))
+        db.execute('DELETE FROM task_relation_completion_sets WHERE user_id=? AND task_id=?',(uid,identity))
     for link in new_links:
         db.execute('INSERT OR REPLACE INTO task_relation_links VALUES(?,?,?,?,?,?,0)',
             (uid,account,link['input_id'],link['content_digest'],survivor['id'],context.task_hash(survivor)))
+    for requirements in new_sets:
+        db.execute('INSERT OR REPLACE INTO task_relation_completion_sets VALUES(?,?,?,?,?,?,0)',
+            (uid,account,contract.digest(sorted(r['input_id'] for r in requirements)),survivor['id'],
+             json.dumps(requirements),context.task_hash(survivor)))
     db.execute("UPDATE task_relation_proposals SET state='applied',before_state=?,after_state=? WHERE id=? AND user_id=?",
                (json.dumps(before),json.dumps(after),pid,uid))
     return True
@@ -247,10 +281,14 @@ def undo(db,uid,row,ApiError):
             (candidate['state'],candidate['resolution'],candidate['id'],uid))
     for task in after['tasks']:
         db.execute('DELETE FROM task_relation_links WHERE user_id=? AND task_id=?',(uid,task['id']))
+        db.execute('DELETE FROM task_relation_completion_sets WHERE user_id=? AND task_id=?',(uid,task['id']))
         db.execute('DELETE FROM task_relation_managed WHERE user_id=? AND task_id=?',(uid,task['id']))
     for link in before.get('links',[]):
         db.execute('INSERT OR REPLACE INTO task_relation_links VALUES(?,?,?,?,?,?,1)',
                    tuple(link[k] for k in ('user_id','account','input_id','content_digest','task_id','task_digest')))
+    for link in before.get('completion_sets',[]):
+        db.execute('INSERT OR REPLACE INTO task_relation_completion_sets VALUES(?,?,?,?,?,?,1)',
+                   tuple(link[k] for k in ('user_id','account','set_id','task_id','requirements','task_digest')))
     # Restored tasks are deliberately user-owned: do not auto-merge again.
     write_tasks(db,uid,tasks,version)
     db.execute("UPDATE task_relation_proposals SET state='undone' WHERE id=?",(row['id'],))
@@ -259,7 +297,7 @@ def undo(db,uid,row,ApiError):
 def model(request):
     options=live_options(model_env_path(Path(__file__).resolve().parent.parent))
     if options['provider']!='qiniu' or not options['key'].strip():raise ValueError('model_configuration')
-    settings=Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=90,max_retries=0,
+    settings=Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=120,max_retries=0,
                       thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
     if not ACTIVE.acquire():raise TimeoutError('model queue')
     try:return relate(request['nodes'],client=ChatClient(options['key']),settings=settings)
@@ -275,7 +313,7 @@ def fingerprint(request):
     for node in stable['nodes']:
         node.pop('source_snapshot',None)
         node.pop('control_revision',None)
-    return contract.digest([stable,SKILL.read_text(encoding='utf-8').replace('\r\n','\n'),contract.OUTPUT,model_identity])
+    return contract.digest([stable,SKILL.read_text(encoding='utf-8').replace('\r\n','\n'),contract.OUTPUT,model_identity,'excerpt-reference-roles-v1'])
 
 
 def dismissed(db,uid,account,request,group):
@@ -308,42 +346,70 @@ def guard(db,uid,job):
     return row and row['state']=='running' and row['account']==controls.current_account(db,uid) and row['credential']==source_jobs.credential(db,uid)
 
 
+def process_window(path,uid,job,request,ApiError):
+    import source_jobs
+    with source_jobs.connection(path) as db:
+        if not guard(db,uid,job):return
+        fresh=context.refresh_context(db,uid,request)
+        if not fresh:
+            nodes,_=context.inventory(db,uid)
+            remaining=[nodes[n['id']] for n in request['nodes'] if n['id'] in nodes]
+            if not any(n['kind']!='source' for n in remaining):return
+            fresh=contract.context(remaining)
+        remaining=[n for n in fresh['nodes'] if n.get('status') not in ('completed','cancelled')]
+        if not any(n['kind']!='source' for n in remaining):return
+        request=contract.context(remaining);key=fingerprint(request);account=controls.current_account(db,uid)
+        if db.execute('SELECT 1 FROM task_relation_cache WHERE user_id=? AND account=? AND digest=?',(uid,account,key)).fetchone():return
+    def cancelled():
+        with source_jobs.connection(path) as db:return not guard(db,uid,job)
+    with cancel_if(cancelled):result=model(request)
+    contract.check_pair(request,result)
+    with source_jobs.connection(path) as db:
+        db.execute('BEGIN IMMEDIATE')
+        if not guard(db,uid,job):return
+        if context.refresh_context(db,uid,request)!=request:
+            raise ApiError(409,'关联分析期间来源或任务发生变化，请重新分析')
+        for group in result['groups']:
+            if dismissed(db,uid,account,request,group):continue
+            pid=secrets.token_hex(16)
+            db.execute('INSERT INTO task_relation_proposals VALUES(?,?,?,?,?,?,?,?,?,?)',
+                (pid,uid,account,job,'review',json.dumps(request),json.dumps(group),None,None,stamp()))
+            apply_group(db,uid,pid,request,group,ApiError)
+        db.execute('INSERT OR IGNORE INTO task_relation_cache VALUES(?,?,?)',(uid,account,key))
+
+
+def failure_code(error):
+    from ddl_text.adapters import AgentError
+    if isinstance(error,AgentError):
+        return error.code if error.code in ('invalid_agent_output','agent_timeout','agent_unavailable') else 'model_failure'
+    if isinstance(error,TimeoutError):return 'timeout'
+    if getattr(error,'status',None)==409:return 'context_changed'
+    return 'validation_or_write_failure'
+
+
 def process(path,uid,job,ApiError):
     import source_jobs
+    failed=0
     try:
         with source_jobs.connection(path) as db:
             if not guard(db,uid,job):return
             refresh_completions(db,uid)
             requests=list(context.windows(context.inventory(db,uid)[0]))
-        for request in requests:
+        for index,request in enumerate(requests):
             with source_jobs.connection(path) as db:
                 if not guard(db,uid,job):return
-                fresh=context.refresh_context(db,uid,request)
-                if not fresh:
-                    nodes,_=context.inventory(db,uid)
-                    remaining=[nodes[n['id']] for n in request['nodes'] if n['id'] in nodes]
-                    if not any(n['kind']!='source' for n in remaining):continue
-                    fresh=contract.context(remaining)
-                request=fresh;key=fingerprint(request);account=controls.current_account(db,uid)
-                if db.execute('SELECT 1 FROM task_relation_cache WHERE user_id=? AND account=? AND digest=?',(uid,account,key)).fetchone():continue
-            def cancelled():
-                with source_jobs.connection(path) as db:return not guard(db,uid,job)
-            with cancel_if(cancelled):result=model(request)
-            contract.check_pair(request,result)
+            code=None
+            try:process_window(path,uid,job,request,ApiError)
+            except Exception as error:
+                failed+=1;code=failure_code(error)
             with source_jobs.connection(path) as db:
-                db.execute('BEGIN IMMEDIATE')
                 if not guard(db,uid,job):return
-                if context.refresh_context(db,uid,request)!=request:
-                    raise ApiError(409,'关联分析期间来源或任务发生变化，请重新分析')
-                for group in result['groups']:
-                    if dismissed(db,uid,account,request,group):continue
-                    pid=secrets.token_hex(16)
-                    db.execute('INSERT INTO task_relation_proposals VALUES(?,?,?,?,?,?,?,?,?,?)',
-                        (pid,uid,account,job,'review',json.dumps(request),json.dumps(group),None,None,stamp()))
-                    apply_group(db,uid,pid,request,group,ApiError)
-                db.execute('INSERT OR IGNORE INTO task_relation_cache VALUES(?,?,?)',(uid,account,key))
+                db.execute('INSERT OR REPLACE INTO task_relation_windows VALUES(?,?,?,?)',
+                           (job,index,'failed' if code else 'succeeded',code))
         with source_jobs.connection(path) as db:
-            if guard(db,uid,job):db.execute("UPDATE task_relation_jobs SET state='succeeded' WHERE id=?",(job,))
+            if guard(db,uid,job):
+                error=f'关联分析有 {failed}/{len(requests)} 组上下文未完成；已成功整合的结果保留，可重新分析失败部分。' if failed else None
+                db.execute('UPDATE task_relation_jobs SET state=?,error=? WHERE id=?',('failed' if failed else 'succeeded',error,job))
     except Exception:
         with source_jobs.connection(path) as db:
             db.execute("UPDATE task_relation_jobs SET state='failed',error='关联分析未完成，已识别的任务和已保存整合均保留；可以重新分析。' WHERE id=? AND state='running'",(job,))
