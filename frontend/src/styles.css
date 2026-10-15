@@ -1623,19 +1623,6 @@ dialog p {
   flex: 1;
   min-width: 0;
 }
-.reprocessing-panel .check-field {
-  min-height: 44px;
-}
-.reprocessing-record-copy {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-.reprocessing-record-copy strong {
-  font-size: 14px;
-  font-weight: 550;
-  color: var(--ink);
-}
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

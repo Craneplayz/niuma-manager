@@ -8,7 +8,6 @@ import {
 import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
 import { candidateEvidenceMarkup, failureSourcesMarkup } from "./import-evidence.js";
-import { createReprocessingUI } from "./reprocessing-ui.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createSubmissionsUI } from "./submissions-ui.js";
 import { createSourceSyncUI } from "./source-sync-ui.js";
@@ -314,7 +313,7 @@ export function createImportUI(host) {
     ...host, api, flushStore, accountVersion, isDemo: demo,
     describeError: describeImportError,
     isAuthenticated: () => Boolean(session.user && !session.changing),
-    isImportBusy: () => busy || reprocessing.isBusy(),
+    isImportBusy: () => busy,
     render: refresh,
     onChanged: refreshResults,
   });
@@ -336,24 +335,8 @@ export function createImportUI(host) {
     ...host, isDemo: demo, isVisible: () => source === "files" && (host.isImportVisible?.() ?? true),
     changed: refreshResults,
   });
-  const reprocessing = createReprocessingUI({
-    ...host, api, flushStore, accountVersion,
-    isDemo: demo,
-    isAuthenticated: () => Boolean(session.user && !session.changing),
-    isImportBusy: () => busy || syncIsActive(),
-    async onFinished(isCurrent) {
-      await host.refresh();
-      if (!isCurrent()) return;
-      const next = await api("/api/recognition/batches");
-      if (!isCurrent()) return;
-      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
-      acceptBatches(next);
-      loaded = true;
-      refresh();
-    },
-  });
   // Background teaching runs own their start/stop controls, not the whole import page.
-  const blocked = () => loading || busy || reprocessing.isBusy();
+  const blocked = () => loading || busy;
   const credentialsBlocked = () => blocked() || sourceSync.isBusy() || schedule.isBusy();
   const allowed = () => {
     if (demo()) {
@@ -396,7 +379,6 @@ export function createImportUI(host) {
     progress = "";
     request = null;
     modal = null;
-    reprocessing.reset();
     sourceSync.reset(); schedule.reset();
     materials.reset();
     submissions.reset();
@@ -470,7 +452,6 @@ export function createImportUI(host) {
         ${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}
       </section>
       <section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}</section>
-      ${["text", "teaching"].includes(source) ? reprocessing.render() : ""}
     </div>`;
   }
   function dialogHeader(title) {
@@ -739,7 +720,6 @@ export function createImportUI(host) {
     if (d.syncScheduleAction) return schedule.click(button);
     if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
     if (d.submissionAction) { if (allowed()) await submissions.click(button); return true; }
-    if (d.reprocessAction) return reprocessing.click(button);
     if (d.importSource) {
         if (!["text", "teaching", "files"].includes(d.importSource)) return true;
         source = d.importSource;
@@ -974,7 +954,6 @@ export function createImportUI(host) {
     if (submissions.input(event)) return true;
     if (materials.input(event)) return true;
     if (schedule.input(event)) return true;
-    if (reprocessing.input(event)) return true;
     const target = event.target;
     if (target.id === "import-text") {
       text = target.value;
@@ -999,7 +978,6 @@ export function createImportUI(host) {
   }
   function setVisible(visible) {
     sourceSync.setVisible(visible);
-    reprocessing.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) || submissions.toggle(event) || reprocessing.toggle(event) };
+  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) || submissions.toggle(event) };
 }

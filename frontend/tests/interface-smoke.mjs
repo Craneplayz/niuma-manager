@@ -53,10 +53,7 @@ try{
  await page.locator('[data-submission-action="close"]').last().click();
  await until(()=>page.locator('[data-import-action="sync"]').isEnabled());
  const screenshots=join(root,'frontend/docs/screenshots');await mkdir(screenshots,{recursive:true});
- await page.screenshot({path:join(screenshots,'integration-teaching-desktop.png'),fullPage:true});
- await page.locator('#reprocessing-toggle').click();await page.locator('#reprocessing-load').click();
- await page.locator('[data-reprocess-record]').first().check();await page.locator('#reprocessing-start').click();
- await until(async()=>{const v=await get('/recognition/reprocessing/runs');return v.runs[0]?.state==='succeeded';});
+ await page.screenshot({path:join(screenshots,'teaching-sync-progress-desktop.png'),fullPage:true});
  await page.locator('[data-import-source="files"]').click();await page.locator('#material-files').setInputFiles(info.image);
  await page.locator('#material-consent').check();await page.locator('[data-material-action="upload"]').click();
  await until(async()=>{const v=await get('/materials/imports');return v.jobs[0]?.status==='failed';});
@@ -77,7 +74,7 @@ try{
  await page.setViewportSize({width:320,height:844});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'320px mobile overflow: '+JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(-12).map(e=>[e.tagName,e.className,e.getBoundingClientRect().right]))));
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({passed:['background sync','reload and targeted recovery','schedule settings','submission association','native reprocessing','multipart upload and file retry','file candidate confirmation'],tasks:tasks.length,external_services:'synthetic',browser:'Chromium'},null,2));
+ console.log(JSON.stringify({passed:['background sync','reload and targeted recovery','schedule settings','submission association','multipart upload and file retry','file candidate confirmation'],tasks:tasks.length,external_services:'synthetic',browser:'Chromium'},null,2));
 }catch(error){if(browser){const pages=browser.contexts().flatMap(c=>c.pages());if(pages[0]){diagnostic+='\n'+(await pages[0].locator('body').innerText()).slice(-6000);await pages[0].screenshot({path:join(temporary,'failure.png'),fullPage:true});}}console.error(diagnostic);throw error;}
 finally{
  await browser?.close();await writeFile(join(temporary,'ready.stop'),'stop');

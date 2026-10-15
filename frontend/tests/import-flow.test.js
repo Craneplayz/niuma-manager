@@ -379,45 +379,6 @@ test('credential storage errors remain visible in the connection dialog',async()
  assert.doesNotMatch(form.error.textContent,/campus-user|campus-password/);
 });
 
-test('terminal reprocessing refresh keeps text and teaching imports blocked until results are current',{timeout:3000},async(t)=>{
- const root='/api/recognition/reprocessing/',version='reprocessing/0.1';
- const saved={input_id:'saved-notice',label:'合成保存通知',course_or_project:'测试课程',result_status:'success',policy_version:null};
- let state='queued',created=false,operationId,blockRefresh=false,entered,release;
- const ready=new Promise(resolve=>entered=resolve),waiting=new Promise(resolve=>release=resolve);
- const run=()=>({
-  contract_version:version,run_id:'saved-run',operation_id:operationId,source_account_id:'saved-source',
-  state,revision:state==='queued'?1:2,created_at:'2026-10-14T12:00:00Z',updated_at:'2026-10-14T12:00:01Z',
-  counts:{total:1,queued:state==='queued'?1:0,running:0,succeeded:state==='succeeded'?1:0,failed:0,cancelled:0,interrupted:0,superseded:0},
-  records:[{input_id:saved.input_id,state,previous_available:true,old_result_retained:true,decision_summary:{preserved:0,replaced:0,new_pending:0,unresolved:0},policy_version:null,error:null}],
- });
- const f=fixture({async intercept(path,body,method){
-  if(path===root+'sources')return {contract_version:version,accounts:[{source_account_id:'saved-source',label:'已保存来源',records:[saved]}],next_cursor:null};
-  if(path===root+'runs'&&method==='GET')return {contract_version:version,runs:created?[run()]:[],next_cursor:null};
-  if(path===root+'runs'&&method==='POST'){created=true;operationId=body.operation_id;return run();}
-  if(path==='/api/workspace'&&blockRefresh){blockRefresh=false;entered();await waiting;}
- }});
- await f.login();
- const ui=createImportUI(f.host);t.after(()=>{release();ui.reset();});await ui.load();
- await ui.toggle({target:{open:true,isConnected:true,matches:selector=>selector==='[data-reprocess-panel]'}});
- ui.input({target:{dataset:{reprocessRecord:saved.input_id},checked:true}});
- await ui.click({dataset:{reprocessAction:'start'}});
- assert.match(ui.render(),/排队中/);
- state='succeeded';blockRefresh=true;
- const refreshing=ui.click({dataset:{reprocessAction:'load'}});
- await ready;
- const before=f.calls.length;
- await ui.submit(fakeForm('text',{text:'刷新期间的合成通知',published:'2026-10-14T12:00:00'}));
- await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
- assert.equal(f.calls.length,before,'the completion refresh must retain the shared import lock');
- release();await refreshing;
- assert.match(ui.render(),/识别结果已刷新/);
- await ui.submit(fakeForm('text',{text:'刷新完成后的合成通知',published:'2026-10-14T12:00:00'}));
- await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));await ui.click({dataset:{importAction:'sync'}});
- const writes=f.calls.slice(before).filter(call=>call.method==='POST');
- assert.equal(writes.filter(call=>call.path==='/api/recognition/batches'&&call.body.contract_version==='0.2').length,1);
- assert.equal(writes.filter(call=>call.path==='/api/sources/sync-runs').length,1);
-});
-
 test('refreshing candidates prevents a concurrent ignore from being overwritten by an old read',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
  const gate=f.defer(),reading=ui.load();await gate.entered;
@@ -499,7 +460,7 @@ test('a delayed file-job refresh cannot resurrect an ignored candidate',async t=
  assert.match(ui.render(),/data-import-reopen="candidate-A"/);
 });
 
-test('submission disclosure reaches its handler before asynchronous reprocessing and loads once',async t=>{
+test('submission disclosure loads its directory only on first expansion',async t=>{
  const f=fixture({intercept(path){
   if(path==='/api/sources/credentials')return {configured:true,username:'synthetic-campus',source_account_id:'source:synthetic'};
   if(path.startsWith('/api/sources/submissions?'))return {records:[],next_cursor:null};
