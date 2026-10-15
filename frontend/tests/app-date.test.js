@@ -113,9 +113,9 @@ test("an action after sleeping past midnight saves the actual completion and rea
 
 test("returning after a date change preserves filters, calendar position and an editor draft", async t => {
   const f = await fixture(t);
+  await f.doc.emit("input", { id: "task-search", value: "合成任务" });
   await f.click({ view: "calendar" });
   await f.doc.emit("change", { id: "calendar-jump", value: "2026-12-01", dataset: {} });
-  await f.doc.emit("input", { id: "task-search", value: "合成任务" });
   await f.click({ taskOpen: "task" });
   f.drawer.querySelector = () => ({ focus() {} });
   await f.click({ action: "drawer-edit" });
@@ -124,10 +124,13 @@ test("returning after a date change preserves filters, calendar position and an 
   await f.win.emit("focus");
   assert.match(f.app.innerHTML, /datetime="2026-10-18"/);
   assert.match(f.app.innerHTML, /value="2026-12-01"/);
-  assert.match(f.app.innerHTML, /id="task-search"[^>]*value="合成任务"/);
+  assert.doesNotMatch(f.app.innerHTML, /id="task-search"|class="query-toolbar"|id="advanced-filters"/);
   assert.equal(f.drawer.innerHTML, "未保存的任务草稿");
   await f.click({ action: "calendar-today" });
   assert.match(f.results.innerHTML, /data-calendar-day="2026-10-18"[^>]*aria-pressed="true"/);
+  assert.match(f.results.innerHTML, /合成通知/);
+  await f.click({ view: "list" });
+  assert.match(f.app.innerHTML, /id="task-search"[^>]*value="合成任务"/);
 });
 
 test("visible restoration updates the date without replacing import or dialog drafts", async t => {

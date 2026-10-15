@@ -447,7 +447,7 @@ export function createImportUI(host) {
     const textPanel = `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>`;
     const panel = source === "text" ? textPanel : source === "teaching" ? teachingPanel()
       : materials.render();
-    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading">
+    return `${(host.renderPageHeading || renderPageHeading)({ title: "导入", escapeHtml: esc })}<div class="page-reading">
       <div class="import-source-tabs" role="group" aria-label="导入来源">${tabs}<button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div>
       <section class="import-input">${panel}
         ${busy && progress ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress)}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}

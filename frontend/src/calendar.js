@@ -135,5 +135,5 @@ export function renderCalendar({
   const start = mondayOf(first);
   const count =
     Math.ceil(((last.getTime() - start.getTime()) / DAY_MS + 1) / 7) * 7;
-  return `<div class="calendar-view calendar-month" aria-label="${anchor.getUTCFullYear()} 年 ${anchor.getUTCMonth() + 1} 月任务日历"><div class="calendar-weekdays" aria-hidden="true">${WEEKDAYS.map((weekday) => `<span>${weekday}</span>`).join("")}</div><div class="calendar-month-grid" role="list">${Array.from({ length: count }, (_, index) => day(addDays(start, index), index % 7)).join("")}</div></div>`;
+  return `<div class="calendar-view calendar-month" style="--calendar-weeks: ${count / 7}" aria-label="${anchor.getUTCFullYear()} 年 ${anchor.getUTCMonth() + 1} 月任务日历"><div class="calendar-weekdays" aria-hidden="true">${WEEKDAYS.map((weekday) => `<span>${weekday}</span>`).join("")}</div><div class="calendar-month-grid" role="list">${Array.from({ length: count }, (_, index) => day(addDays(start, index), index % 7)).join("")}</div></div>`;
 }
