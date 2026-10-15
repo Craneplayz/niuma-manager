@@ -170,6 +170,7 @@ async function loadSession(discardPending = false) {
         session.conflict = false;
       }
       report("saved");
+      window.dispatchEvent(new CustomEvent("niuma:session-ready"));
       return view();
     }
   } catch (error) {

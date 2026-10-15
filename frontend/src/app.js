@@ -31,6 +31,7 @@ import { loadTaskEvidence } from "./task-evidence.js";
 import { demoWorkspace } from "./demo.js";
 import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
+import { feedbackBox } from "./usage-feedback.js";
 import { describeEnvironment } from "./environment-badge.js";
 
 const esc = (value) =>
@@ -98,6 +99,7 @@ const host = {
   refresh,
   getState: () => state,
   isDemo: () => demo,
+  feedbackBox: () => demo ? "" : feedbackBox(),
   setState(next) {
     state = next;
     demo = false;

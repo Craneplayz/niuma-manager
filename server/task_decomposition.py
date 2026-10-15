@@ -149,6 +149,7 @@ def route(handler, db, user_id, path, body, ApiError):
         if row['version'] != proposal['version']:
             raise ApiError(409, '任务已经变化，请重新拆解')
         tasks = json.loads(row['value'])
+        handler.usage_tasks = json.loads(row['value'])
         task = next((item for item in tasks if item.get('id') == proposal['task_id']), None)
         if not task:
             raise ApiError(404, '任务不存在')

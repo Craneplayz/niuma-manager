@@ -16,13 +16,14 @@
 
 ## 目录结构
 
-`src/` 当前包含 19 个文件；测试覆盖当前前端功能与接口适配。
+`src/` 当前包含 22 个文件；测试覆盖当前前端功能与接口适配。
 
 ```text
 frontend/
 ├── README.md
 ├── CONTRIBUTIONS.md          历史贡献与当前设计来源
 ├── index.html                应用、通用弹窗和任务抽屉
+├── admin.html                独立管理员入口
 ├── favicon.svg
 ├── package.json / package-lock.json
 ├── vite.config.ts            开发端口与同源 API 代理
@@ -30,6 +31,9 @@ frontend/
 │   ├── app.js                页面组织、筛选、日历导航和任务交互
 │   ├── page-layout.js        共用单行标题、控件与操作渲染器
 │   ├── account-ui.js         登录、注册、昵称和密码表单
+│   ├── usage-feedback.js     账号中的主动反馈与非阻塞评分
+│   ├── admin-usage.js        独立后台统计、日期筛选和反馈列表
+│   ├── admin-usage.css       独立后台的桌面与手机样式
 │   ├── import-ui.js          文本、教学网采集与候选核对
 │   ├── import-evidence.js    摘录、完整通知、来源链接和失败身份
 │   ├── reprocessing-ui.js   已保存通知选择、重识别进度与停止
@@ -55,6 +59,7 @@ frontend/
 │   ├── source-sync.test.js   后台同步、运行恢复、停止和重试
 │   ├── sync-fixtures.js     后台同步契约的合成运行样例
 │   ├── team-store.test.js    任务保存、账号隔离、冲突与删除恢复
+│   ├── usage-feedback.test.js 访问去重、主动反馈及后台隔离
 │   ├── task-evidence.test.js 来源链接和证据展示
 │   └── environment-badge.test.js 环境识别与版本差异
 └── docs/
@@ -75,7 +80,9 @@ frontend/
     │   ├── notice-read-desktop.png  列表与详情同步勾选已阅读
     │   ├── notice-read-mobile.png   手机通知阅读详情
     │   ├── notice-near-desktop.png  近期任务与通知混合展示
-    │   └── notice-done-desktop.png  已完成任务与已阅读通知混合展示
+    │   ├── notice-done-desktop.png  已完成任务与已阅读通知混合展示
+    │   ├── 2026-10-14-admin-usage-desktop.png 后台桌面布局
+    │   └── 2026-10-14-admin-usage-mobile.png 后台手机布局
     └── archive/              历史文档与截图，不代表当前功能
 ```
 
@@ -103,6 +110,13 @@ npm run dev:api
 教学网同步使用 `/api/sources/sync-runs` 创建后台运行，前端只提交来源选择、操作身份和明确同意；后端负责采集、识别及任务保存，关闭网页不停止运行。旧保存通知的直接重试仅使用服务端 `request_id`，不会回传来源正文。前端不提供定时同步配置入口。
 
 数据库、凭据、密钥和本地配置不提交到仓库。
+
+## 使用反馈与后台
+
+- 登录后在底部账号入口主动填写使用反馈；连续次日使用时出现一次可关闭的评分窗，不遮挡任务编辑。
+- 成功恢复会话、登录完成、前台恢复和键盘交互按账号和北京时间日期补记访问，失败不影响任务读取；合成预览不记录访问。
+- 管理员通过 `/admin.html` 独立登录查看使用统计；普通页面不加载后台图表脚本，服务端逐请求校验权限。
+- 后台只展示启用统计后的记录及聚合数据，空数据不生成模拟趋势；通知阅读不计入任务完成指标。
 
 ## 合成预览
 
