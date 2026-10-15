@@ -333,3 +333,56 @@ test("leaving the import page pauses reprocessing polls and returning refreshes 
   assert.equal(f.ui.isBusy(), false);
   assert.equal(f.requests.filter(request => request.method === "POST").length, 1);
 });
+
+test("returning retries a completion refresh interrupted by leaving the import page", async t => {
+  for (const failWhileHidden of [false, true]) {
+    let enter, release, attempts = 0;
+    const entered = new Promise(resolve => { enter = resolve; });
+    const waiting = new Promise(resolve => { release = resolve; });
+    t.after(release);
+    const f = fixture(t, { async finished() {
+      if (++attempts === 1) {
+        enter(); await waiting;
+        if (failWhileHidden) throw new Error("temporary refresh failure");
+      }
+    } });
+    await f.ui.toggle(toggle(true));
+    f.ui.input(select(records[0].input_id));
+    await f.ui.click(click("start"));
+    f.setRuns([run("succeeded", 2, [records[0].input_id])]);
+    const refreshing = f.ui.load({ directory: false });
+    await entered;
+    f.ui.setVisible(false); release(); await refreshing;
+    assert.equal(f.refreshes, 0, "the interrupted callback did not apply both result lists");
+    await f.ui.setVisible(true);
+    assert.equal(attempts, 2, "returning retries the same completed run");
+    assert.equal(f.refreshes, 1);
+    assert.match(f.ui.render(), /任务与识别结果已刷新/);
+    await f.ui.load();
+    assert.equal(f.refreshes, 1, "a successfully applied refresh is consumed only once");
+    assert.equal(f.requests.filter(request => request.method === "POST").length, 1);
+  }
+});
+
+test("a stale completion callback cannot consume a newer refresh after returning", async t => {
+  let enter, release, attempts = 0;
+  const entered = new Promise(resolve => { enter = resolve; });
+  const waiting = new Promise(resolve => { release = resolve; });
+  t.after(release);
+  const f = fixture(t, { async finished() {
+    if (++attempts === 1) { enter(); await waiting; }
+  } });
+  await f.ui.toggle(toggle(true));
+  f.ui.input(select(records[0].input_id));
+  await f.ui.click(click("start"));
+  f.setRuns([run("succeeded", 2, [records[0].input_id])]);
+  const older = f.ui.load({ directory: false });
+  await entered; f.ui.setVisible(false);
+  await f.ui.setVisible(true);
+  assert.equal(f.refreshes, 1, "the new read applies results while the older callback is still pending");
+  release(); await older; await f.ui.load();
+  assert.equal(attempts, 2);
+  assert.equal(f.refreshes, 1);
+  assert.equal(f.ui.isBusy(), false);
+  assert.equal(f.requests.filter(request => request.method === "POST").length, 1);
+});

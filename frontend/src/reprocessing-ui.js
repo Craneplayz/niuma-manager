@@ -108,13 +108,14 @@ export function createReprocessingUI(host) {
   async function finished(value, valid = () => current(value)) {
     const terminal = runs.filter((run) => !ACTIVE.has(run.state) && tracked.has(run.run_id) && !reported.has(run.run_id));
     if (!visible || !terminal.length || !valid()) return;
-    terminal.forEach((run) => reported.add(run.run_id));
     try {
       await host.onFinished(valid);
-      if (valid()) notice = "任务与识别结果已刷新。";
+      if (valid()) {
+        terminal.forEach((run) => reported.add(run.run_id));
+        notice = "任务与识别结果已刷新。";
+      }
     } catch (cause) {
       if (valid()) {
-        terminal.forEach((run) => reported.delete(run.run_id));
         error = "运行已结束，刷新结果失败，请点刷新记录重试。";
       }
     }
