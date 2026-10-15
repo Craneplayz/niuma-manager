@@ -37,7 +37,6 @@ frontend/
 │   ├── import-ui.js          文本、教学网采集与候选核对
 │   ├── task-relations-ui.js  跨来源关联进度、依据、确认、保持分开和撤回
 │   ├── import-evidence.js    摘录、完整通知、来源链接和失败身份
-│   ├── reprocessing-ui.js   已保存通知选择、重识别进度与停止
 │   ├── materials-ui.js       主动上传、文件任务恢复及失败重试
 │   ├── public-sources-ui.js  公开活动预览、选择和幂等加入通知
 │   ├── submissions-ui.js     提交状态、完整来源和永久行动关联
@@ -62,7 +61,6 @@ frontend/
 │   ├── import-flow.test.js   通知时间、候选确认、教学网和账号隔离
 │   ├── import-auto.test.js   后台导入、幂等恢复、停止与账号隔离
 │   ├── import-evidence.test.js 原文、来源身份与安全渲染
-│   ├── reprocessing-flow.test.js 通知选择、持久化运行与停止
 │   ├── interface-smoke.mjs  真实浏览器到临时 HTTP/数据库的合成流程验收
 │   ├── import-background.test.js 后台同步、保存排队与账号切换回归
 │   ├── materials.test.js     上传回执、丢失响应幂等与不支持格式
@@ -90,7 +88,6 @@ frontend/
     │   ├── background-sync-desktop.jpg
     │   ├── integration-teaching-desktop.png
     │   ├── integration-public-mobile.png
-    │   ├── reprocessing-desktop.jpg
     │   ├── notice-proposal-desktop.jpg
     │   ├── notice-proposal-calendar.jpg
     │   ├── notice-proposal-mobile.jpg
@@ -113,7 +110,6 @@ frontend/
 - 同页“教学网提交状态与任务关联”：先查看完整来源与全部行动，逐项关联提交行动；后续同步自动完成对应任务并撤下对应候选，用户重新打开任务会暂停来源自动完成。
 - 导入 → 图片与文件：选择 PNG/JPEG/PDF/DOCX、同意上传后后台处理，失败部分单独重试，候选在同页核对；管理员须启用 `manual_materials`，此入口不连接微信。
 - 导入 → 公开活动：从计算机、生科、教育学院获取近期讲座，预览后选择加入通知；活动时间放在说明，不写成作业 DDL。
-- 导入页底部“重新识别已有通知”支持原生教学网；保留已确认、修改、忽略的决定，不重新采集缺失来源。
 - 任务编辑可选择“任务/通知”，两者暂共用清单和截止日历；通知允许有截止日期。
 
 真实浏览器合成验收：安装前端依赖、`server/requirements-test.txt`、爬虫依赖及 Playwright 浏览器，在 `frontend/` 执行 `node tests/interface-smoke.mjs`；可用 `NIUMA_TEST_PYTHON` 指定 Python、`NIUMA_TEST_BROWSER=msedge` 使用已安装 Edge。脚本自动启动随机端口的 Vite/临时 API，采集与模型全部为合成替身，结束关闭服务；不接触现有账号、数据库或生产配置。截图写到 `docs/screenshots/integration-*.png`，这不代替真实校园网/模型验收。
