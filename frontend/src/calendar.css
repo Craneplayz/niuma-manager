@@ -550,6 +550,39 @@
   }
 }
 
+/* A shorter mouse-only month header leaves more room for task previews. */
+@media (min-width: 701px) and (pointer: fine) {
+  .calendar-view.calendar-month .calendar-date-button {
+    min-height: 32px;
+  }
+  .calendar-view.calendar-month .calendar-day-number {
+    width: 24px;
+    height: 24px;
+  }
+  @container calendar-day (min-height: 105px) and (max-height: 116px) {
+    .calendar-month .calendar-day-tasks .calendar-task:not(:first-child) {
+      display: flex;
+    }
+    .calendar-month .calendar-day-tasks .calendar-more {
+      display: block;
+    }
+    .calendar-month .calendar-day-mobile-count {
+      display: none;
+    }
+  }
+  @container calendar-day (min-height: 63px) and (max-height: 88px) {
+    .calendar-month .calendar-day-tasks {
+      display: block;
+    }
+    .calendar-month .calendar-date-button {
+      height: auto;
+      flex-direction: row;
+      justify-content: space-between;
+      gap: 0;
+    }
+  }
+}
+
 @media (max-width: 700px) {
   .calendar-view .calendar-weekdays {
     padding-bottom: 6px;
