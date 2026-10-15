@@ -1445,7 +1445,6 @@ dialog p {
 }
 .import-source-tabs {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 20px;
   border-bottom: 1px solid var(--line);
@@ -1510,6 +1509,119 @@ dialog p {
 }
 .teaching-import .import-form-actions {
   margin: 0;
+}
+.teaching-schedule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.teaching-schedule-copy {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  min-width: 0;
+}
+.teaching-schedule-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.teaching-schedule .status-note,
+.teaching-schedule .btn {
+  font-size: 12px;
+}
+.schedule-next {
+  display: inline-block;
+  margin-left: 14px;
+}
+.teaching-schedule > .btn {
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.schedule-form [hidden] {
+  display: none;
+}
+.schedule-form .dialog-header {
+  margin-bottom: 12px;
+}
+.schedule-form .dialog-header h2 {
+  margin-bottom: 0;
+}
+.schedule-description {
+  margin: 2px 0 24px;
+  color: #75828c;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.schedule-enable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 44px;
+  margin-bottom: 22px;
+  font-size: 14px;
+}
+.schedule-form .schedule-enable input {
+  appearance: none;
+  width: 38px;
+  height: 23px;
+  flex-shrink: 0;
+  margin: 0;
+  border: 1px solid #cbd0d3;
+  border-radius: 20px;
+  background: #e1e4e5;
+  cursor: pointer;
+}
+.schedule-enable input::before {
+  content: "";
+  display: block;
+  width: 17px;
+  height: 17px;
+  margin: 2px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 2px #0002;
+  transition: transform 0.15s;
+}
+.schedule-enable input:checked {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.schedule-enable input:checked::before {
+  transform: translateX(15px);
+}
+.schedule-enable input:focus-visible {
+  outline: 2px solid #526371;
+  outline-offset: 4px;
+}
+.schedule-enable input:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.schedule-form .check-field {
+  color: #64727d;
+  margin-bottom: 10px;
+}
+.schedule-hint {
+  color: #75828c;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0 0 24px;
+}
+@media (max-width: 440px) {
+  .schedule-next {
+    display: block;
+    margin-left: 0;
+    margin-top: 4px;
+  }
+  .teaching-schedule-copy {
+    display: grid;
+    gap: 5px;
+  }
 }
 .import-results {
   border-top: 1px solid var(--line);
@@ -1691,23 +1803,3 @@ dialog p {
   width: 16px;
   height: 16px;
 }
-
-/* Integrated sources use the current import page's spacing and controls. */
-.agent-source-sync,.materials-panel { margin:24px 0; overflow-wrap:anywhere; }
-.agent-source-sync h2,.materials-panel h2 { font-size:20px; margin:18px 0; }
-.agent-source-sync progress { width:100%; max-width:100%; accent-color:var(--ink); }
-.agent-source-sync .draft-card { border-top:1px solid var(--line); padding:20px 0; }
-.agent-source-sync .btn { white-space:normal; margin:8px 8px 8px 0; }
-.agent-source-sync li { margin:12px 0; }
-.sync-run-id { font-size:12px; opacity:.7; }
-.sync-recovery { padding:12px; border:1px solid var(--line); border-radius:8px; }
-.source-schedule label,.sync-consent { display:flex;align-items:center;gap:10px;margin:12px 0; }
-.source-schedule input[type=number] { width:110px; min-height:40px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
-.sync-consent input,.source-schedule input[type=checkbox] { flex-shrink:0; width:20px; height:20px; }
-.materials-panel input[type=file] { max-width:100%; }
-.public-sources,.submission-detail { overflow-wrap:anywhere; }
-.public-sources h2 { margin-bottom:14px; }
-.public-sources .draft-card { border-top:1px solid var(--line); margin-top:22px; padding-top:18px; }
-.public-sources .check-field { display:flex; align-items:flex-start; gap:10px; margin:16px 0; }
-.public-sources .check-field input { flex:none; margin-top:4px; }
-.public-sources .check-field small { display:block; margin-top:5px; line-height:1.6; }

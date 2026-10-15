@@ -14,10 +14,6 @@
 | `import-evidence.js` | 候选摘录、完整原文、安全来源链接和失败来源身份 |
 | `reprocessing-ui.js` | 已保存通知选择、重识别运行、轮询与停止 |
 | `source-sync-ui.js` | 后台教学网同步、运行恢复、停止与逐条 / 批量重试 |
-| `source-schedule-ui.js` | 定时同步来源、间隔、明确同意与版本冲突 |
-| `materials-ui.js` | 会话内主动上传、持久文件作业和失败恢复 |
-| `public-sources-ui.js` | 现有公开网站的预览、勾选和通知入库 |
-| `submissions-ui.js` | 完整来源核对、逐项提交关联和手动重开 |
 | `account-ui.js` | 登录、注册、退出、昵称和密码表单 |
 | `usage-feedback.js` | 账号中的主动反馈、按账号与北京时间日期去重的访问及非阻塞评分 |
 | `admin-usage.js` / `admin-usage.css` | 管理员独立入口的统计、日期筛选、反馈与手机布局 |
@@ -26,8 +22,7 @@
 | `styles.css` | 共用页面与阅读区坐标、侧栏、查询控件、表单与弹窗 |
 | `icons.js` / `id.js` / `environment-badge.js` | 当前入口使用的图标、浏览器兼容 ID、环境和版本描述 |
 
-导入页提供文本、教学网、主动上传文件和公开活动，教学网下提供定时设置与提交状态关联；既有通知可主动重新识别。邮箱保持禁用占位，微信自动采集和旧规划页面不恢复。新增功能应先更新 [产品规格](design.md)。
-后台使用独立入口，不加载进普通页面。
+当前源文件共 22 个。普通界面提供文本和教学网导入、任务与通知管理及月周截止日历，导入页折叠入口复用既有已保存通知重识别；邮箱保持禁用占位。后台使用独立入口，不加载进普通页面。新增功能应先更新 [产品规格](design.md)。
 
 ## 数据与边界
 
@@ -83,8 +78,6 @@ npm run build
 - `import-evidence.test.js`：摘录和全文同时可读、失败来源身份及安全链接。
 - `reprocessing-flow.test.js`：主动运行、选择与分页、轮询停止、离开页面暂停与返回恢复、幂等和账号隔离。
 - `source-sync.test.js`：后台运行、失败重试、刷新恢复、幂等和账号隔离。
-- `source-schedule.test.js` / `materials.test.js` / `submissions.test.js` / `public-sources.test.js`：定时设置、上传重试与刷新恢复、提交关联、公开采集迟到响应与版本冲突恢复。
-- `interface-smoke.mjs`：真实浏览器与临时 HTTP/SQLite 端到端验收，外部采集和模型用合成替身；执行方式见 README。
 - `team-store.test.js`：任务保存、通知阅读与取消阅读的持久化、接口要求的字段透传、账号隔离、冲突重试、刷新与保存交错、迟到版本保护及删除恢复。
 - `usage-feedback.test.js`：主动反馈入口、每日访问去重、跨北京时间日期、只读会话恢复、键盘使用和失败重试，以及后台入口隔离。
 - `task-evidence.test.js`：来源 URL 校验、原文和证据摘录。
