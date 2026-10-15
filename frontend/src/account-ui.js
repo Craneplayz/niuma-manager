@@ -8,6 +8,7 @@ import {
 
 export function createAccountUI(host) {
   const esc = host.escapeHtml;
+  const formIsOpen = (form) => form?.isConnected !== false && form?.closest?.("dialog")?.open !== false;
   let mode = "login",
     busy = false,
     error = "",
@@ -166,7 +167,7 @@ export function createAccountUI(host) {
         });
         if (!current()) return true;
         session.user = result.user;
-        host.closeDialog();
+        if (formIsOpen(form)) host.closeDialog();
         host.render();
         host.toast("昵称已更新");
       } else if (kind === "password") {
@@ -175,7 +176,7 @@ export function createAccountUI(host) {
           newPassword: values.newPassword,
         });
         if (!current()) return true;
-        host.closeDialog();
+        if (formIsOpen(form)) host.closeDialog();
         host.toast("密码已更新");
       }
     } catch (e) {

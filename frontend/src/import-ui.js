@@ -265,6 +265,7 @@ function batchErrorReport(batch) {
 
 export function createImportUI(host) {
   const esc = host.escapeHtml;
+  const formIsOpen = (form) => form?.isConnected !== false && form?.closest?.("dialog")?.open !== false;
   let source = "text",
     text = "",
     published = shanghaiNow(),
@@ -745,7 +746,7 @@ export function createImportUI(host) {
         if (valid(stamp)) {
           credentials = result;
           modal = null;
-          host.closeDialog();
+          if (formIsOpen(form)) host.closeDialog();
           host.toast("教学网连接已移除");
         }
       } catch (e) {
@@ -764,15 +765,18 @@ export function createImportUI(host) {
     }
     if (action === "refresh-review") {
       if (blocked() || !allowed()) return true;
-      const id = modal?.id,
+      const review = modal,
         stamp = current(),
         form = button.closest?.("form");
+      if (review?.kind !== "review") return true;
+      const currentReview = () => valid(stamp) && modal === review && formIsOpen(form);
+      if (form) lockForm(form, true);
       try {
         await host.refresh();
-        if (!valid(stamp)) return true;
+        if (!currentReview()) return true;
         await load();
-        if (valid(stamp)) {
-          const item = itemById(id);
+        if (currentReview()) {
+          const item = itemById(review.id);
           if (item?.state === "pending") openReview(item);
           else {
             modal = null;
@@ -781,11 +785,13 @@ export function createImportUI(host) {
           }
         }
       } catch (e) {
-        if (valid(stamp)) {
+        if (currentReview()) {
           if (form) formError(form, describeImportError(e), true);
           else error = describeImportError(e);
           refresh();
         }
+      } finally {
+        if (form) lockForm(form, false);
       }
       return true;
     }
@@ -814,7 +820,7 @@ export function createImportUI(host) {
         if (valid(stamp)) {
           credentials = result;
           modal = null;
-          host.closeDialog();
+          if (formIsOpen(form)) host.closeDialog();
           host.toast("教学网已连接");
         }
       } catch (e) {
@@ -872,7 +878,7 @@ export function createImportUI(host) {
         if (!valid(stamp)) return true;
         acceptBatches(result.batches);
         modal = null;
-        host.closeDialog();
+        if (formIsOpen(form)) host.closeDialog();
         try {
           await host.refresh();
           if (valid(stamp)) {

@@ -170,6 +170,48 @@ test('a task version change prevents a stale confirmation and offers rereading',
  assert.match(form.error.textContent,/刷新/);assert.equal(form.error.hidden,false);assert.equal(form.retry.hidden,false);
 });
 
+test('a late review reread cannot replace another candidate draft',async()=>{
+ const f=fixture();await f.login();
+ const other=f.batch('A','another-request');other.items[0].id='another-candidate';other.items[0].candidate.title='另一项待核对任务';f.batches.A.push(other);
+ const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
+ let enter,release;const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
+ f.host.refresh=async()=>{enter();await waiting;};
+ const oldForm=fakeForm('review',{});oldForm.isConnected=true;
+ const rereading=ui.click({dataset:{importAction:'refresh-review'},closest:()=>oldForm});
+ await entered;await ui.click({dataset:{importAction:'close'}});oldForm.isConnected=false;
+ await ui.click({dataset:{importReview:'another-candidate'}});
+ const draft=fakeForm('review',{action:'create',title:'保留这份新草稿',description:'仍在编辑',course:'概率论',date:'2026-10-20',time:'',reviewed:''});
+ ui.input({target:{dataset:{importField:'title'},closest:()=>draft}});
+ const expected=f.dialog;assert.match(expected,/保留这份新草稿/);
+ release();await rereading;
+ assert.equal(f.dialog,expected);
+});
+
+test('review rereading locks its form and cannot reopen a dialog dismissed with Escape',async()=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
+ let enter,release;const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
+ f.host.refresh=async()=>{enter();await waiting;};
+ const dialog={open:true},form=fakeForm('review',{});form.isConnected=true;form.closest=()=>dialog;
+ const rereading=ui.click({dataset:{importAction:'refresh-review'},closest:()=>form});
+ await entered;const locked=form.submit.disabled;
+ dialog.open=false;f.host.closeDialog();release();await rereading;
+ assert.equal(f.dialog,'');
+ assert.equal(locked,true);
+ assert.equal(form.submit.disabled,false);
+});
+
+test('a completed candidate save cannot close a different dialog opened while it was pending',async()=>{
+ let enter,release;const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
+ const f=fixture({async intercept(path){if(path.endsWith('/resolve')){enter();await waiting;}}});await f.login();
+ const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
+ const form=fakeForm('review',{action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});form.isConnected=true;
+ const saving=ui.submit(form);await entered;form.isConnected=false;f.host.openDialog('<form>另一个窗口的草稿</form>');
+ release();await saving;
+ assert.equal(f.dialog,'<form>另一个窗口的草稿</form>');
+ assert.equal(f.state.tasks.length,1);
+ assert.ok(f.messages.includes('已加入任务'));
+});
+
 test('ignored candidates can be restored using the newest candidate version',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
  await ui.click({dataset:{importIgnore:'candidate-A'}});
@@ -219,6 +261,21 @@ test('password mismatch is visible and does not send a request',async()=>{
  const f=fixture();await f.login();const ui=createAccountUI(f.host),form=fakeForm('',{currentPassword:'old',newPassword:'new-password',confirmPassword:'different'});
  form.dataset={accountForm:'password'};const before=f.calls.length;await ui.submit(form);
  assert.equal(f.calls.length,before);assert.match(form.error.textContent,/不一致/);assert.equal(form.error.hidden,false);
+});
+
+test('account saves retain their result without closing a replacement dialog',async()=>{
+ for(const kind of ['profile','password']){
+  let enter,release;const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
+  const f=fixture({async intercept(path){if(path==='/api/auth/'+kind){enter();await waiting;}}});await f.login();
+  const ui=createAccountUI(f.host);await ui.click({dataset:{accountAction:kind}});
+  const values=kind==='profile'?{name:'保存的新昵称'}:{currentPassword:'old-password',newPassword:'new-password',confirmPassword:'new-password'};
+  const form=fakeForm('',values);form.dataset={accountForm:kind};form.isConnected=true;
+  const saving=ui.submit(form);await entered;form.isConnected=false;f.host.openDialog('<form>保留其他窗口的草稿</form>');
+  release();await saving;
+  assert.equal(f.dialog,'<form>保留其他窗口的草稿</form>');
+  assert.ok(f.messages.includes(kind==='profile'?'昵称已更新':'密码已更新'));
+  if(kind==='profile')assert.equal(store.session.user.name,'保存的新昵称');
+ }
 });
 
 test('real teaching workspace views become identity-only server run requests',()=>{
