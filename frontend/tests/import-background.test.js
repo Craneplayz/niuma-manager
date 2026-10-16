@@ -103,10 +103,10 @@ test('the primary action stays disabled through both stop requests and repeated 
  f.ui.input({target:{dataset:{syncScheduleField:'consent'},checked:true}});
  await f.ui.click({dataset:{importAction:'sync'}});
  const stopping=f.ui.click({dataset:{importAction:'sync'}});await scheduleReady;
- assert.match(f.ui.render(),/data-import-action="sync" disabled>正在停止…/);
+ assert.match(f.ui.render(),/data-import-action="sync" disabled>.*正在停止…/);
  await f.ui.click({dataset:{importAction:'sync'}});
  releaseSchedule();await stopReady;
- assert.match(f.ui.render(),/data-import-action="sync" disabled>正在停止…/);
+ assert.match(f.ui.render(),/data-import-action="sync" disabled>.*正在停止…/);
  await f.ui.click({dataset:{importAction:'sync'}});
  releaseStop();await stopping;
  assert.equal(f.calls.filter(c=>c.method==='PUT'&&!c.body.enabled).length,1);

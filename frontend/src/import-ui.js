@@ -284,6 +284,7 @@ export function createImportUI(host) {
     ...host, isDemo: demo, isConnected: () => Boolean(credentials?.configured),
     isBusy: () => blocked() || stopping || sourceSync.isBusy(),
     isRunning: () => sourceSync.isRunning(),
+    getProgressLabel: () => sourceSync.progressLabel(),
     canStop: () => sourceSync.canStop(),
     isStopping: () => stopping,
     start: () => sourceSync.start(),

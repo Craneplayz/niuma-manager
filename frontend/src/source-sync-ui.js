@@ -102,6 +102,13 @@ export function createSourceSyncUI(host) {
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
   function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
   function isRunning() { syncAccount(); return writing || active(); }
+  function progressLabel() {
+    syncAccount();
+    const run = runs.find(run => ACTIVE.has(run.state));
+    if (!run) return writing ? actionInFlight === "stop" ? "正在停止导入…" : "正在启动识别…" : "";
+    const counts = run.counts, done = counts.total - counts.queued - counts.running;
+    return LABELS[run.state] + (counts.total ? `，已处理 ${done} / ${counts.total} 条通知` : "");
+  }
   function canStop() { syncAccount(); return active() && !writing; }
   function ownsRequest(id) { syncAccount(); return runs.some((run) => run.records.some((record) => record.request_id === id)); }
   function allowed() {
@@ -329,16 +336,17 @@ export function createSourceSyncUI(host) {
     return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"更新",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
   }
   function runMarkup(run, latest, compact = false) {
-    const counts = run.counts, done = counts.total - counts.queued - counts.running;
+    const counts = run.counts;
     const plan = recoveryPlan(run, latest);
     const blocked = isBusy() || host.isImportBusy();
     const groups = [["added", "新增", counts.added, "项"], ["review", "待核对", counts.review, "项"], ["updated", "更新", counts.updated, "项"], ["error", "错误", problemsFor(run).length, "条"]].filter(([, , count]) => count > 0);
     const selected = categories.get(run.run_id);
     const category = groups.some(([key]) => key === selected) ? selected : null;
     const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${label} ${count} ${unit}</button>`).join("");
-    const progress = ACTIVE.has(run.state) ? `<progress ${counts.total && run.state !== "crawling" ? `max="${counts.total}" value="${done}"` : ""} aria-label="${esc(counts.total ? `已处理 ${done} / ${counts.total} 条通知` : LABELS[run.state])}"></progress>` : "";
+    const running = ACTIVE.has(run.state);
+    if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
-    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status"><strong role="status">${esc(LABELS[run.state])}</strong>${ACTIVE.has(run.state) && counts.total ? `<span class="status-note">已处理 ${done} / ${counts.total}</span>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
+    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
@@ -349,7 +357,8 @@ export function createSourceSyncUI(host) {
     const run = currentRun(), starting = ["start", "retry", "recover"].includes(actionInFlight);
     if (!run && !error && !starting && !lastCheck) return "";
     const checked = lastCheck && !run && !starting ? `<p class="status-note" data-source-sync-last-check>上次检查 <time datetime="${esc(lastCheck.updated_at)}">${esc(new Date(lastCheck.updated_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</time> · ${lastCheck.state === "succeeded" ? lastCheck.changed ? "有新结果" : "无新内容" : esc(LABELS[lastCheck.state])}</p>` : "";
-    return `<div class="teaching-progress" data-source-sync-progress aria-label="教学网导入进度">${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${starting && !run ? '<p class="status-note" role="status">正在启动识别…</p>' : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}${checked}</div>`;
+    const content = `${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}${checked}`;
+    return content ? `<div class="teaching-progress" data-source-sync-progress aria-label="教学网导入结果">${content}</div>` : "";
   }
   function renderHistory({ entries = [], includeSync = true } = {}) {
     syncAccount();
@@ -411,5 +420,5 @@ export function createSourceSyncUI(host) {
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, ownsRequest, setVisible };
+  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, progressLabel, ownsRequest, setVisible };
 }
