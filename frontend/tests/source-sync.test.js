@@ -132,7 +132,7 @@ check('entering restores active progress by GET and leaving pauses polling witho
   assert.equal(f.ui.isBusy(), true); assert.equal(f.ui.ownsRequest('sync:0'), true);
   assert.match(f.ui.progressLabel(), /正在识别，已处理 1 \/ 3/);
   assert.match(markup(f.ui), /新增 1 项/);
-  assert.doesNotMatch(markup(f.ui), /<progress|已处理 1 \/ 3|正在识别/); assert.equal(f.view.tasks[0].id, 'saved-task');
+  assert.doesNotMatch(markup(f.ui), /<progress|<span class="status-note">已处理 1 \/ 3|<strong[^>]*>正在识别/); assert.equal(f.view.tasks[0].id, 'saved-task');
   assert.equal([...f.timers.values()][0].ms, 2000);
   await f.tick(); assert.equal(f.posts().length, 0);
   const reads = f.sourceCalls().length;
