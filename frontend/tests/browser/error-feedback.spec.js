@@ -58,7 +58,7 @@ test("a failed report remains retryable and retries the same incident", async ({
   const reports = await openApp(page, { workspaceFailure: true, failReportOnce: true });
   const alert = page.locator("#sync-alert");
   await alert.getByRole("button", { name: "反馈此问题" }).click();
-  await expect(alert.getByText("反馈未能确认提交，请稍后重试。")).toBeVisible();
+  await expect(alert.getByText("无法确认反馈是否已提交，请稍后重试。")).toBeVisible();
   await expect(alert.getByText("已提交，感谢反馈。")).toHaveCount(0);
   await alert.getByRole("button", { name: "重试反馈" }).click();
   await expect(alert.getByText("已提交，感谢反馈。")).toBeVisible();
@@ -70,7 +70,7 @@ test("save failures keep the report control after the task view redraws", async 
   const reports = await openApp(page);
   await page.getByRole("button", { name: "完成任务：合成任务", exact: true }).click();
   const alert = page.locator("#sync-alert");
-  await expect(alert.getByText("这次修改未能确认保存，请重试保存。")).toBeVisible();
+  await expect(alert.getByText("无法确认修改是否已保存，请重试保存。")).toBeVisible();
   await alert.getByRole("button", { name: "反馈此问题" }).click();
   await expect(alert.getByText("已提交，感谢反馈。")).toBeVisible();
   expect(reports[0].action).toBe("tasks_save");
@@ -81,7 +81,7 @@ test("feedback stays inside an open task dialog and remains clickable after dele
   await page.getByRole("button", { name: "合成任务", exact: true }).click();
   const drawer = page.locator("#task-drawer");
   await drawer.getByRole("button", { name: "移入回收站" }).click();
-  await expect(drawer.getByText("暂时无法删除，请稍后重试。")).toBeVisible();
+  await expect(drawer.getByText("暂时无法删除任务，请稍后重试。")).toBeVisible();
   await drawer.getByRole("button", { name: "反馈此问题" }).click();
   await expect(drawer.getByText("已提交，感谢反馈。")).toBeVisible();
   expect(reports[0].action).toBe("tasks_delete");
@@ -92,7 +92,7 @@ test("restore failures keep feedback inside the recycle-bin dialog", async ({ pa
   await page.getByRole("button", { name: /回收站/ }).click();
   const dialog = page.locator("#dialog");
   await dialog.getByRole("button", { name: "恢复", exact: true }).click();
-  await expect(dialog.getByText("暂时无法恢复，请稍后重试。")).toBeVisible();
+  await expect(dialog.getByText("暂时无法恢复任务，请稍后重试。")).toBeVisible();
   await dialog.getByRole("button", { name: "反馈此问题" }).click();
   await expect(dialog.getByText("已提交，感谢反馈。")).toBeVisible();
   expect(reports[0].action).toBe("tasks_restore");
@@ -106,7 +106,7 @@ test("login system errors can be reported without erasing the entered email", as
   await dialog.getByLabel("邮箱", { exact: true }).fill("synthetic@example.test");
   await dialog.getByLabel("密码", { exact: true }).fill("Synthetic-2026!");
   await dialog.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(dialog.getByText("这次账号操作未完成，请稍后重试。")).toBeVisible();
+  await expect(dialog.getByText("账号操作未完成，请稍后重试。")).toBeVisible();
   await dialog.getByRole("button", { name: "反馈此问题" }).click();
   await expect(dialog.getByText("已提交，感谢反馈。")).toBeVisible();
   await expect(dialog.getByLabel("邮箱", { exact: true })).toHaveValue("synthetic@example.test");

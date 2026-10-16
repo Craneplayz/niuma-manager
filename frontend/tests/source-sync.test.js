@@ -192,7 +192,7 @@ check('start waits for local saves and sends only the durable teaching operation
 check('a failed local save blocks starting and reports the saving problem accurately', async () => {
   const f = fixture(); f.setFlush(() => { throw new Error('save conflict'); });
   assert.equal(await f.ui.start(), false); assert.equal(f.posts().length, 0);
-  assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /任务修改还未保存/);
+  assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /任务修改尚未保存/);
 });
 
 check('a network-uncertain start reuses its operation id without render resubmissions', async () => {
@@ -235,7 +235,7 @@ check('workspace or candidate refresh failures keep the saved run and retry unch
     const f = fixture([syncRun({added: 1})]); let fail = true;
     f.remote.tasks = [{id: 'saved'}];
     f.setAPI((call, normal) => { if (call.path === failedPath && fail) { fail = false; throw new Error('temporary read failure'); } return normal(call); });
-    assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /结果已保存.*暂时无法更新页面/);
+    assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /结果已保存.*页面更新失败/);
     assert.match(markup(f.ui), /新增 1 项/); assert.equal(f.ui.isBusy(), false);
     assert.equal(await f.ui.load(), true); assert.equal(f.refreshes, 2); assert.equal(f.view.tasks[0].id, 'saved');
     await f.ui.load(); assert.equal(f.refreshes, 2); assert.equal(f.posts().length, 0);
@@ -350,7 +350,7 @@ check('recognition-only recovery reuses the captured source and targets just rec
 check('progress connection errors preserve active state and retry polling without automatic writes', async () => {
   const f = fixture([syncRun({state: 'recognizing', states: ['running']})]); await f.ui.setVisible(true);
   f.setAPI(() => { throw new Error('offline'); }); await f.tick();
-  assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /导入可能继续/);
+  assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /导入可能仍在进行/);
   assert.equal(f.ui.canStop(), true); assert.doesNotMatch(markup(f.ui), /data-source-sync-action="stop"/);
   assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
 });

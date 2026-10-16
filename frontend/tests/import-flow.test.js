@@ -326,7 +326,7 @@ test('retrying a saved teaching failure outside background runs sends its identi
  assert.ok(html.includes(`data-import-history-retry="${source.run.request_id}"`));
  await ui.click({dataset:{importHistoryCategory:'error',importHistoryBatch:source.run.request_id}});
  await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:source.run.request_id}});
- assert.match(ui.render(),/未能完成任务识别/);
+ assert.match(ui.render(),/任务识别未完成/);
  assert.doesNotMatch(html.split('class="import-results"')[1],/import-failure|data-import-retry/);
  await new Promise(r=>setImmediate(r));
  await ui.click({dataset:{importHistoryRetry:source.run.request_id}});
@@ -403,7 +403,7 @@ test('configuration, credentials, and connection failures give different next st
   ['无法解密教学网凭据；请重新保存账号和密码','credential_storage',/重新保存账号和密码/],
   ['文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥','model_configuration',/需要维护人员处理/],
   ['教学网识别配置不可用，请检查当前环境的七牛云模型配置并重启后端','teaching_model_configuration',/需要维护人员处理/],
-  ['教学网采集失败；请检查账号、密码、浏览器及校园网连接','teaching_connection',/核对教学网账号和密码/],
+  ['教学网采集失败；请检查账号、密码、浏览器及校园网连接','teaching_connection',/核对账号和密码后重试/],
   ['无法连接服务，请检查后端','service_connection',/检查网络后重试/],
   ['模型请求排队已满或等待超时，请稍后重试；未开始模型调用','model_busy',/稍后重试/],
  ];
