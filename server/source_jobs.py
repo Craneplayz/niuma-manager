@@ -147,17 +147,21 @@ def useful_run(run):
 
 
 def compact(db, run):
+    current = db.execute('SELECT credential FROM source_sync_runs WHERE user_id=? AND run_id=?',
+                         (run['user_id'],run['run_id'])).fetchone()
+    succeeded_sources = {input_identity(db,run['user_id'],item) for item in run['records'] if item['state'] == 'succeeded'} - {None}
     succeeded = {item['request_id'] for item in run['records'] if item['state'] == 'succeeded'}
     succeeded.update(old for new, old in run.get('recovery_replacements', {}).items() if new in succeeded)
     if succeeded:
         older_runs = [json.loads(row['snapshot']) for row in db.execute('''SELECT snapshot FROM source_sync_runs WHERE user_id=? AND run_id<>?
-            AND state IN ('failed','partial_success','stopped','interrupted') ORDER BY rowid DESC''', (run['user_id'], run['run_id'])).fetchall()]
+            AND credential=? AND state IN ('failed','partial_success','stopped','interrupted') ORDER BY rowid DESC''',
+            (run['user_id'], run['run_id'], current['credential'] if current else '')).fetchall()]
         # A source can need several fresh snapshots before it becomes complete.
         # Resolve its recorded predecessor chain before updating older receipts.
         for older in older_runs:
             succeeded.update(old for new, old in older.get('recovery_replacements', {}).items() if new in succeeded)
         for older in older_runs:
-            recovered = [item for item in older['records'] if item['request_id'] in succeeded and
+            recovered = [item for item in older['records'] if (item['request_id'] in succeeded or input_identity(db,run['user_id'],item) in succeeded_sources) and
                          item['state'] in ('failed', 'incomplete', 'cancelled', 'interrupted') and not item.get('recovered')]
             if recovered:
                 for item in recovered: item['recovered'] = True
@@ -233,6 +237,9 @@ def input_identity(db, uid, item):
     if row:
         first = json.loads(row['request'])['records'][0]
         return first.get('record',first).get('input_id')
+    bindings = db.execute('SELECT DISTINCT input_id FROM teaching_submission_requests WHERE user_id=? AND request_id=?',
+                          (uid,item['request_id'])).fetchall()
+    if len(bindings) == 1: return bindings[0]['input_id']
 
 
 def history(db, uid):

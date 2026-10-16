@@ -507,6 +507,43 @@ class SourceJobsTests(unittest.TestCase):
             db.execute('UPDATE source_sync_runs SET user_id=? WHERE run_id=?',('different-user',first['run_id']))
         self.assertFalse(self.call('/recognition/batches')[1][0]['sourceSyncManaged'])
 
+    def test_normal_sync_completed_snapshot_recovers_old_incomplete_source(self):
+        request,drafts=example();record=request['records'][0]['record']
+        record['body_status']='partial'
+        self.drafts[record['input_id']]=empty_reply(record,'incomplete')
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            first=self.start();jobs.wait_for_jobs(app.DB)
+            old=self.call('/sources/sync-runs/'+first['run_id'])[1]
+            self.assertEqual(old['counts']['incomplete'],1)
+            record['body_status']='complete';record['text']+='\n正文现已补齐。'
+            self.drafts.update(drafts)
+            crawler.return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))
+            second=self.start('normal:completed');jobs.wait_for_jobs(app.DB)
+        latest=self.call('/sources/sync-runs/'+second['run_id'])[1]
+        self.assertEqual(latest['counts']['added'],1)
+        self.assertNotEqual(old['records'][0]['request_id'],latest['records'][0]['request_id'])
+        self.assertTrue(self.call('/sources/sync-runs/'+first['run_id'])[1]['records'][0].get('recovered'))
+        self.assertEqual([r['run_id'] for r in self.call('/sources/sync-runs')[1]['runs']],[second['run_id']])
+        app.initialize()
+        self.assertEqual([r['run_id'] for r in self.call('/sources/sync-runs')[1]['runs']],[second['run_id']])
+
+    def test_normal_snapshot_recovery_is_scoped_to_credential_and_source(self):
+        def store(db,operation,identity,state):
+            run=jobs.start(db,self.uid,dict(contract_version='source-sync/0.1',operation_id=operation,sources=['teaching_web'],consent=True),app.ApiError)
+            run['records']=[dict(request_id=operation,input_id=identity,label='相同标题',course=None,state=state,added=0,review=0,seconds=None,
+                error=jobs.error('source_incomplete','正文不完整',False) if state=='incomplete' else None)]
+            jobs.save(db,run,'failed' if state=='incomplete' else 'succeeded')
+            return run
+        with app.connection() as db:
+            same=store(db,'old:same','source:a','incomplete')
+            foreign=store(db,'old:credential','source:a','incomplete')
+            db.execute('UPDATE source_sync_runs SET credential=? WHERE run_id=?',('other-credential',foreign['run_id']))
+            other=store(db,'old:source','source:b','incomplete')
+            store(db,'fresh:success','source:a','succeeded')
+        self.assertTrue(self.call('/sources/sync-runs/'+same['run_id'])[1]['records'][0].get('recovered'))
+        self.assertFalse(self.call('/sources/sync-runs/'+foreign['run_id'])[1]['records'][0].get('recovered'))
+        self.assertFalse(self.call('/sources/sync-runs/'+other['run_id'])[1]['records'][0].get('recovered'))
+
     def test_history_keeps_latest_retry_failure_without_changing_recovery_receipts(self):
         request,_=example()
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(502,'合成失败')):
