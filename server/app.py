@@ -26,6 +26,7 @@ import task_decomposition
 import reprocessing
 import runtime_environment
 import usage
+import error_reports
 from server import model_queue
 
 
@@ -63,6 +64,7 @@ def initialize(recover=True):
         ''')
         recognition.initialize(db)
         usage.initialize(db)
+        error_reports.initialize(db)
         source_sync.initialize(db)
         source_jobs.initialize(db, recover=recover)
         source_schedule.initialize(db)
@@ -172,6 +174,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.command!='GET' and origin and origin not in allowed_origins():
             raise ApiError(403,'不允许的请求来源')
         path=self.path.split('?')[0]
+        if path=='/api/error-reports' and int(self.headers.get('Content-Length','0'))>4096:
+            self.close_connection=True
+            raise ApiError(413,'问题报告过大')
         if path.startswith('/api/materials/') and (not manual_materials.enabled() or self.headers.get('Authorization')):
             self.close_connection=True
             raise wechat_media.MediaError(403,'forbidden','此入口仅接受已登录用户主动上传的材料')
@@ -196,6 +201,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,dict(status='ok'))
             if path=='/api/version' and self.command=='GET':
                 return self.reply(200,runtime_environment.public_version())
+            if path=='/api/error-reports' and self.command=='POST':
+                try:
+                    report_user,_=self.user(db)
+                except ApiError as error:
+                    if error.status!=401: raise
+                    report_user=None
+                return self.reply(200,error_reports.save(db,body,report_user['id'] if report_user else None,self.client_address[0],ApiError))
             if path in ['/api/auth/register','/api/auth/login','/api/admin/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))

@@ -1,3 +1,4 @@
+import { describeUserError, userErrorMarkup } from "./user-errors.js";
 import {
   api,
   session,
@@ -193,55 +194,8 @@ export function buildRecognitionRequest(request) {
   throw new Error("采集记录格式暂不受支持，请更新服务后重新采集");
 }
 
-export function describeImportError(error) {
-  const text = String(error?.message || error || "操作未完成，请重试");
-  const code = typeof error?.code === "string" ? error.code : "";
-  const report = (kind, message, details = "") => ({kind,message,details});
-  if (/账号已切换/.test(text)) return report("account_changed", "");
-  if (code === "incomplete_source" || /来源待补全|来源内容.*不完整/.test(text))
-    return report("incomplete_source", "通知内容未完整取得，请补全原文后重新采集。", "重试识别只会读取已保存的内容，不会重新获取附件或网页。");
-  if (/来源.*变化|凭据已移除/.test(text))
-    return report("source_changed", "教学网来源已变化，请重新采集后核对。");
-  if (error?.status === 409) return report("conflict", "内容刚刚发生变化，请刷新后重新核对");
-  if (/凭据加密依赖.*未安装/.test(text))
-    return report("credential_dependency", "缺少连接保存组件，请安装后重新保存教学网连接。", "安装 server/requirements.txt 中的凭据加密依赖，然后重启服务。");
-  if (/无法解密|凭据加密密钥.*(缺失|无效)/.test(text))
-    return report("credential_storage", "教学网连接无法读取，请重新保存连接。", "重新保存仍失败时，检查服务的凭据加密配置。");
-  if (/教学网采集依赖.*未安装|(?:crawler|tsx).*(?:未安装|not found|cannot find)|cannot find.*(?:tsx|playwright)/i.test(text))
-    return report("crawler_dependency", "缺少教学网采集组件，请安装后重新采集。", "在 crawler/ 安装依赖（pnpm install），确认采集浏览器已安装，然后重启服务。");
-  if (/教学网识别配置不可用/.test(text))
-    return report("teaching_model_configuration", "教学网识别的模型配置不可用，请完成配置后重试。", "检查当前环境的七牛云模型名称、服务地址和调用密钥，配置后重启服务。模型文件路径可通过 NIUMA_MODEL_ENV 指定。");
-  if (/文本识别配置不可用|模型.*(?:未配置|缺少配置|配置不可用)|missing (?:model )?credential/i.test(text))
-    return report("model_configuration", "任务识别的模型配置不可用，请完成配置后重试。", "检查当前环境的模型名称、服务地址和调用密钥，配置后重启服务。模型文件路径可通过 NIUMA_MODEL_ENV 指定。");
-  if (/识别规则.*不一致/.test(text))
-    return report("recognition_rules", "识别规则已更新，请重启服务后重试。");
-  if (/排队.*(?:已满|超时)|正在处理其他请求/.test(text))
-    return report("model_busy", "识别请求较多，请稍后重试。");
-  if (error?.status === 401 || /请先登录|登录.*过期/.test(text))
-    return report("session", "登录已过期，请重新登录后再导入。");
-  if (/请填写有效的教学网账号和密码|请先.*保存教学网账号/.test(text))
-    return report("teaching_credentials", "请保存教学网账号和密码后再采集。");
-  if (/教学网采集失败|教学网.*登录失败/.test(text))
-    return report("teaching_connection", "教学网连接失败，请核对账号密码及校园网后重试。", "可以通过“管理连接”更正教学网账号；同时确认服务所在机器能访问教学网。");
-  if (/教学网采集无法启动或超时/.test(text))
-    return report("crawler_runtime", "教学网采集未完成，请检查校园网和采集环境后重试。", "检查 Node 运行环境、采集浏览器是否安装，以及服务所在机器的校园网连接。");
-  if (/尚未提供.*接口|接口不存在/.test(text) || error?.status === 404)
-    return report("service_version", "当前服务版本不支持这项导入，请更新服务后重试。");
-  if (code === "agent_timeout" || /文本识别服务不可用或超时|识别.*超时/.test(text))
-    return report("model_connection", "识别服务连接失败或超时，请检查模型服务后重试。", "检查模型服务地址、网络连接及调用权限；较长通知可分段识别。");
-  if (code === "agent_unavailable")
-    return report("model_connection", "识别服务无法连接，请检查模型配置和网络后重试。", "模型调用未成功（agent_unavailable）。检查服务地址、可用模型及调用权限。");
-  if (/无法连接服务|Failed to fetch|NetworkError/i.test(text))
-    return report("service_connection", "无法连接服务，请确认服务正在运行后重试。");
-  if (/请求超时/.test(text))
-    return report("timeout", "等待已超时，请刷新结果后再重试。");
-  if (code === "invalid_agent_output" || /v0\.|契约|协议|JSON|contract|request_id|结果未通过证据和版本校验/i.test(text))
-    return report("invalid_result", "识别结果未通过校验，请重试；仍失败时检查模型配置。", "服务未保存未通过内容、证据或版本校验的识别结果。");
-  // Display only known validation text; upstream exceptions may contain credentials.
-  if (!/(?:api[_-]?key|authorization|bearer|password|secret|token|sk-[a-z0-9]|(?:密码|密钥)\s*[:=])/i.test(text) && /^(?:请(?:填写|选择|确认|核对)|每次最多识别|填写时刻前|新增任务无需|处理方式已经改变|导入记录暂时无法读取|教学网导入记录缺少识别编号|采集记录格式暂不受支持)/.test(text))
-    return report("validation", text);
-  return report("unknown", "操作未完成，请重试；仍失败时检查服务连接。", Number.isInteger(error?.status) ? `服务返回状态 ${error.status}。` : "");
-}
+export const describeImportError = describeUserError;
+
 const taskFingerprint = (task) =>
   JSON.stringify(
     task && [
@@ -358,13 +312,8 @@ export function createImportUI(host) {
       (batch.items || []).map((item) => ({ ...item, batch })),
     );
   const itemById = (id) => allItems().find((item) => item.id === id);
-  function errorDetailsMarkup(report, attribute="") {
-    return report.details ? `<details class="import-error-details" ${attribute}><summary>查看原因</summary><p class="status-note">${esc(report.details)}</p></details>` : "";
-  }
-  function errorMarkup(value) {
-    if(!value)return "";
-    const report=typeof value==="string"?{message:value,details:""}:value;
-    return report.message?`<p class="error" role="alert">${esc(report.message)}</p>${errorDetailsMarkup(report)}`:"";
+  function errorMarkup(value, action = source === "teaching" ? "teaching_sync" : "text_import", context) {
+    return userErrorMarkup(value, action, context);
   }
   function reset() {
     revision++;
@@ -452,7 +401,7 @@ export function createImportUI(host) {
       <section class="import-input">${panel}
         ${busy && progress ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress)}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}
         ${source === "teaching" && !demo() ? sourceSync.renderHistory() + relations.render() + (credentials?.configured ? submissions.render() : "") : ""}
-        ${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map(batch => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch))}</div>${batch.request.contract_version === "0.3.1" ? '<button class="btn quiet" data-import-source="files">查看文件处理</button>' : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}
+        ${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map(batch => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch), batch.request.records?.some(record => record.platform === "teaching_web") ? "teaching_sync" : "text_import", JSON.stringify(["recognition", batch.request.request_id]))}</div>${batch.request.contract_version === "0.3.1" ? '<button class="btn quiet" data-import-source="files">查看文件处理</button>' : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}
         ${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}
       </section>
       <section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}</section>
@@ -464,7 +413,7 @@ export function createImportUI(host) {
   function openCredentials() {
     modal = null;
     host.openDialog(
-      `<form data-import-form="credentials">${dialogHeader("连接教学网")}<label class="field">教学网账号<input name="username" required maxlength="200" autocomplete="username" value="${esc(credentials?.username || "")}"></label><label class="field">教学网密码<input name="password" type="password" required maxlength="200" autocomplete="current-password"></label><p class="error" data-import-error role="alert" hidden></p><div class="dialog-actions"><button class="btn primary" type="submit">保存连接</button>${credentials?.configured ? '<button class="btn quiet" type="button" data-import-action="remove-credentials">移除连接</button>' : ""}</div></form>`,
+      `<form data-import-form="credentials">${dialogHeader("连接教学网")}<label class="field">教学网账号<input name="username" required maxlength="200" autocomplete="username" value="${esc(credentials?.username || "")}"></label><label class="field">教学网密码<input name="password" type="password" required maxlength="200" autocomplete="current-password"></label><div class="error" data-import-error hidden></div><div class="dialog-actions"><button class="btn primary" type="submit">保存连接</button>${credentials?.configured ? '<button class="btn quiet" type="button" data-import-action="remove-credentials">移除连接</button>' : ""}</div></form>`,
     );
   }
   function openReview(item) {
@@ -517,24 +466,23 @@ export function createImportUI(host) {
               )
               .join("")}</select></label>`
           : `<input type="hidden" name="action" value="${esc(action)}">`
-      }${action && action !== "create" ? `<label class="field">目标任务<select name="target_id" required data-import-field="target"><option value="">选择已有任务</option>${tasks.map((task) => `<option value="${esc(task.id)}" ${task.id === v.target_id ? "selected" : ""}>${esc(task.title)}</option>`).join("")}</select></label>${target ? `<p class="status-note">当前任务：${esc(target.title)}${target.due ? " · " + esc(target.due) + (target.dueTime ? " " + esc(target.dueTime) : "") : ""}</p>` : ""}` : ""}${["create", "update"].includes(action) ? `<label class="field">任务名称<input name="title" required maxlength="180" value="${esc(v.title)}"></label><label class="field">课程<input name="course" maxlength="200" value="${esc(v.course)}" placeholder="可不填写"></label><label class="field">说明<textarea name="description" rows="3">${esc(v.description)}</textarea></label>` : ""}${action && action !== "cancel" ? `<div class="form-grid"><label class="field">截止日期<input name="date" type="date" value="${esc(v.date)}" ${action === "postpone" ? "required" : ""}></label><label class="field">截止时刻<input name="time" type="time" value="${esc(v.time)}"></label></div><p class="status-note">${exact ? "原文时间包含秒，请确认要保存的时刻。" : "原文只有日期时，时刻可以留空。"}</p>` : ""}${action === "cancel" ? '<p class="status-note">确认后将取消所选任务，原记录保留。</p>' : ""}${evidence(item)}<label class="field check-field"><input name="reviewed" type="checkbox" required ${v.reviewed === "on" ? "checked" : ""}>我已核对原文${action && action !== "create" ? "、目标任务" : ""}和变更</label><p class="error" data-import-error role="alert" hidden></p><div class="dialog-actions"><button class="btn primary" type="submit" ${!action ? "disabled" : ""}>${action === "create" ? "确认加入任务" : action === "cancel" ? "确认取消任务" : "确认保存"}</button><button class="btn quiet" type="button" data-import-action="refresh-review" hidden>刷新后重新核对</button></div></form>`,
+      }${action && action !== "create" ? `<label class="field">目标任务<select name="target_id" required data-import-field="target"><option value="">选择已有任务</option>${tasks.map((task) => `<option value="${esc(task.id)}" ${task.id === v.target_id ? "selected" : ""}>${esc(task.title)}</option>`).join("")}</select></label>${target ? `<p class="status-note">当前任务：${esc(target.title)}${target.due ? " · " + esc(target.due) + (target.dueTime ? " " + esc(target.dueTime) : "") : ""}</p>` : ""}` : ""}${["create", "update"].includes(action) ? `<label class="field">任务名称<input name="title" required maxlength="180" value="${esc(v.title)}"></label><label class="field">课程<input name="course" maxlength="200" value="${esc(v.course)}" placeholder="可不填写"></label><label class="field">说明<textarea name="description" rows="3">${esc(v.description)}</textarea></label>` : ""}${action && action !== "cancel" ? `<div class="form-grid"><label class="field">截止日期<input name="date" type="date" value="${esc(v.date)}" ${action === "postpone" ? "required" : ""}></label><label class="field">截止时刻<input name="time" type="time" value="${esc(v.time)}"></label></div><p class="status-note">${exact ? "原文时间包含秒，请确认要保存的时刻。" : "原文只有日期时，时刻可以留空。"}</p>` : ""}${action === "cancel" ? '<p class="status-note">确认后将取消所选任务，原记录保留。</p>' : ""}${evidence(item)}<label class="field check-field"><input name="reviewed" type="checkbox" required ${v.reviewed === "on" ? "checked" : ""}>我已核对原文${action && action !== "create" ? "、目标任务" : ""}和变更</label><div class="error" data-import-error hidden></div><div class="dialog-actions"><button class="btn primary" type="submit" ${!action ? "disabled" : ""}>${action === "create" ? "确认加入任务" : action === "cancel" ? "确认取消任务" : "确认保存"}</button><button class="btn quiet" type="button" data-import-action="refresh-review" hidden>刷新后重新核对</button></div></form>`,
     );
   }
   function formError(form, message, conflict = false) {
-    const report=typeof message==="string"?{message,details:""}:message;
+    const report = message ? describeUserError(message) : null;
     const node = form.querySelector("[data-import-error]");
     if (node) {
-      node.textContent = report.message;
-      node.hidden = !report.message;
-      const details=form.querySelector("[data-import-error-details]");
-      if(details){details.hidden=!report.details;details.open=false;const text=details.querySelector("p");if(text)text.textContent=report.details;}
-      else if(report.details)node.insertAdjacentHTML?.("afterend",errorDetailsMarkup(report,"data-import-error-details"));
+      node.textContent = report?.message || "";
+      node.innerHTML = userErrorMarkup(report, form.dataset.importForm === "credentials" ? "teaching_sync" : "import_review");
+      node.hidden = !report;
     }
     const retry = form.querySelector('[data-import-action="refresh-review"]');
     if (retry) retry.hidden = !conflict;
   }
   function lockForm(form, lock) {
     form.querySelectorAll("input,textarea,select,button").forEach((field) => {
+      if (field.dataset.errorFeedback) return;
       if (lock) {
         field.dataset.wasDisabled = String(field.disabled);
         field.disabled = true;

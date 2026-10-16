@@ -1,3 +1,4 @@
+import { userErrorMarkup } from './user-errors.js';
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function sourceLink(url,label='打开教学网原页面'){
  try{const u=new URL(url);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)return '';return `<a class="story-link" href="${esc(u.href)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`;}catch{return '';}
@@ -32,5 +33,5 @@ export function evidenceMarkup(entries){
 }
 export async function loadTaskEvidence(taskId,container,request){
  try{const result=await request('/api/recognition/task-evidence',{task_id:taskId});if(container.isConnected)container.innerHTML=evidenceMarkup(result.evidence||[]);}
- catch(error){if(container.isConnected)container.innerHTML=`<p class="error">${esc(error.message)}</p><button type="button" class="btn" data-task-evidence="${esc(taskId)}">重试查看证据</button>`;}
+ catch(error){if(container.isConnected)container.innerHTML=`${userErrorMarkup(error,'task_evidence')}<button type="button" class="btn" data-task-evidence="${esc(taskId)}">重试查看原文</button>`;}
 }

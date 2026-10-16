@@ -1,4 +1,5 @@
 import { newId } from "./id.js";
+import { userErrorMarkup } from "./user-errors.js";
 
 const API = "/api/sources/sync-runs";
 const VERSION = "source-sync/0.1";
@@ -86,9 +87,8 @@ export function createSourceSyncUI(host) {
     if (/^(导入服务版本不匹配|导入进度暂时无法读取)/.test(cause?.message || "")) return { message: cause.message, details: "" };
     return { message: fallback, details: "" };
   }
-  function errorMarkup(value) {
-    if (!value?.message) return "";
-    return `<p class="error" role="alert">${esc(value.message)}</p>${value.details ? `<details class="import-error-details"><summary>查看原因</summary><p class="status-note">${esc(value.details)}</p></details>` : ""}`;
+  function errorMarkup(value, context) {
+    return userErrorMarkup(value, "teaching_sync", context);
   }
   function poll() {
     clearPoll();
@@ -228,7 +228,7 @@ export function createSourceSyncUI(host) {
   function recordMarkup(record, run, latest) {
     const newest = latest.get(record.request_id), superseded = newest?.run !== run;
     const problem = !superseded && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
-    return `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(record.label)}</h3><p class="status-note">${esc([record.course, RECORD_LABELS[record.state]].filter(Boolean).join(" · "))}${superseded ? " · 后续" + esc(RECORD_LABELS[newest.record.state]) : ""}</p>${problem ? errorMarkup(report(record.error, guidance(record))) : ""}</div>${problem && !ACTIVE.has(run.state) && retryable(record) ? `<div class="candidate-actions"><button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${isBusy() || host.isImportBusy() ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button></div>` : ""}</div>`;
+    return `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(record.label)}</h3><p class="status-note">${esc([record.course, RECORD_LABELS[record.state]].filter(Boolean).join(" · "))}${superseded ? " · 后续" + esc(RECORD_LABELS[newest.record.state]) : ""}</p>${problem ? errorMarkup(report(record.error, guidance(record)), JSON.stringify(["source-sync", run.run_id, record.request_id])) : ""}</div>${problem && !ACTIVE.has(run.state) && retryable(record) ? `<div class="candidate-actions"><button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${isBusy() || host.isImportBusy() ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button></div>` : ""}</div>`;
   }
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts, done = counts.total - counts.queued - counts.running;
@@ -242,7 +242,7 @@ export function createSourceSyncUI(host) {
     const association = run.association;
     const associationText = !association ? "" : association.state === "running" ? "已识别，正在关联同一作业与提交状态；当前列表尚未整合完毕。" : association.state === "succeeded" ? (association.review ? `关联分析已完成，仍有 ${association.review} 项关系需核对，原任务已保留。` : "跨来源关联已完成。") : (association.error || "关联尚未完成，原任务已保留。") + " 请在跨来源关联中重试。";
     const heading = run.state === "succeeded" && association && association.state !== "succeeded" ? "识别完成，关联尚未完成" : LABELS[run.state];
-    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(heading)}</strong>${associationText ? `<p class="status-note" role="status">${esc(associationText)}</p>` : ""}${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div><div class="candidate-actions">${ACTIVE.has(run.state) ? `<button class="btn quiet" type="button" data-source-sync-action="stop" data-source-sync-run="${esc(run.run_id)}" ${writing ? "disabled" : ""}>停止导入</button>` : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`}</div></div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${run.records.length ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${run.records.length}</summary>${run.records.map((record) => recordMarkup(record, run, latest)).join("")}</details>` : ""}</article>`;
+    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(heading)}</strong>${associationText ? `<p class="status-note" role="status">${esc(associationText)}</p>` : ""}${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div><div class="candidate-actions">${ACTIVE.has(run.state) ? `<button class="btn quiet" type="button" data-source-sync-action="stop" data-source-sync-run="${esc(run.run_id)}" ${writing ? "disabled" : ""}>停止导入</button>` : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`}</div></div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。"), JSON.stringify(["source-sync", run.run_id])) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${run.records.length ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${run.records.length}</summary>${run.records.map((record) => recordMarkup(record, run, latest)).join("")}</details>` : ""}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun &&

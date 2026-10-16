@@ -11,6 +11,8 @@ server/
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
+├── error_reports.py          用户主动错误报告、受限字段、去重、限流与保留。
+├── test_error_reports.py     真实 HTTP 提交、匿名反馈、权限与私人字段拒绝回归。
 ├── test_usage.py             后台权限、反馈评分、去重、数据最小化与保留期测试。
 ├── runtime_environment.py    环境身份、数据目录归属、会话名称及版本信息。
 ├── manage_environment.py     初始化、检查并启动开发 / 测试 / 生产环境。
@@ -67,11 +69,14 @@ server/
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
 
-关联失败不会回滚已成功识别的原任务。`source-sync/0.1` 的可选 `association` 返回该同步轮次的关联作业状态、处理窗口数与失败数；客户端应在关联运行期间继续读取，不能仅用 `state=succeeded` 宣告全部整合完成。`task_relation_diagnostics` 只保存固定诊断分类，不写私人原文或模型响应。模型复核不通过的提议进入核对，原任务及已知日期保持不变。
+关联失败不会回滚已成功识别的原任务。`source-sync/0.1` 的可选 `association` 返回该同步轮次的关联作业状态、处理窗口数与失败数；客户端应在关联运行期间继续读取，不能仅用 `state=succeeded` 宣告全部整合完成。`task_relation_diagnostics` 只保存固定诊断分类，不写私人原文或模型响应。复核明确证伪的提议丢弃，仅证据不足等疑点进入核对，原任务及已知日期保持不变。
 
 `recognition/batches` 中原生已提交但尚待自动关联的条目带 `processing=association_pending`，仍在数据库和关联上下文中，不作为普通人工核对项。已应用的单接收入口完整关联会同步显示为 `link_basis=model_verified`；多个提交入口全部完成的联合条件仍由关联引擎处理，不能拆成“任一提交即完成”。
 
 过期七天以上的导入任务以 `recycleBin.reason=expired_retention` 可恢复归档，来源、候选和证据不删除；显式恢复写入 `retentionOverride=true`，尊重用户继续处理的选择。只有日期未确定的明确任务可直接收录，原始日期状态在证据中保留。
+## 错误报告
+
+`POST /api/error-reports` 接收用户点击提交的受限报告，沿用 [error-report/0.1](../contracts/docs/error-reports-v0.1.md)；允许未登录反馈登录故障，限制请求大小和频率、按问题编号去重，不收集原始异常或私人正文。现有管理员后台按收到日期展示最近 100 条报告，保留 90 天，普通用户无列表读取权限。
 
 ## 使用数据后台
 

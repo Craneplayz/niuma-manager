@@ -27,8 +27,8 @@
 | 文本识别 | `ddl_text/` | 从文本中识别任务与 DDL，输出候选 | [文本识别说明](ddl_text/README.md) |
 | 数据契约 | `contracts/` | 模块之间的数据格式与样例 | [契约说明](contracts/README.md) |
 | 任务规划 | `task_planning/`（建立中，#65） | 任务拆解、作业排程规则与排程提案 | [任务规划说明](task_planning/README.md) |
-| 前端 | `frontend/` | 文本 / 教学网导入、任务清单与截止日历 | [前端说明与启动指南](frontend/README.md) |
-| 后端 | `server/` | 账号、SQLite 存储、候选确认与规划 API | [后端说明](server/README.md) |
+| 前端 | `frontend/` | 文本 / 教学网导入、任务清单、截止日历与错误反馈 | [前端说明与启动指南](frontend/README.md) |
+| 后端 | `server/` | 账号、SQLite 存储、候选确认、错误报告与规划 API | [后端说明](server/README.md) |
 
 - 前端命令在 `frontend/` 中使用 npm；爬虫命令在 `crawler/` 中使用 pnpm。
 - 模块之间的数据格式以 `contracts/` 为准，接口说明见[前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md)。
