@@ -23,7 +23,7 @@ def schema():
         basis=dict(enum=['review_submission_history_title','active_assignment_page','unknown'])))
     action=obj(dict(action_id=ID,kind=dict(enum=['candidate','task']),
         relation=dict(enum=['assignment_submission','other','unknown']),
-        link_basis=dict(enum=['server_exact','user_confirmed','unresolved']),
+        link_basis=dict(enum=['server_exact','model_verified','user_confirmed','unresolved']),
         decision=dict(enum=['pending','confirmed','edited','completed','ignored','deleted']),
         completion_origin=dict(enum=[None,'manual','source_submission']),
         source_completion_paused=dict(type='boolean')))

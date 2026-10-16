@@ -95,6 +95,25 @@ check('rendering is read-only and hidden, demo or signed-out components make no 
   assert.equal(f.calls.length, 0); assert.equal(f.ui.render(), '');
 });
 
+check('successful extraction keeps polling association and surfaces its failure without claiming completion', async () => {
+  const run=syncRun({id:'run:association',state:'succeeded',states:['succeeded']});
+  run.association={job_id:'job',state:'running',error:null,processed:0,failed:0};
+  const f=fixture([run]);await f.ui.setVisible(true);
+  assert.match(f.ui.render(),/识别完成，关联尚未完成/);
+  assert.match(f.ui.render(),/当前列表尚未整合完毕/);
+  assert.equal([...f.timers.values()][0].ms,2000);
+  run.association={...run.association,state:'failed',error:'关联有一组未完成',processed:2,failed:1};
+  f.setRuns([run]);await f.tick();
+  assert.match(f.ui.render(),/关联有一组未完成/);
+  assert.match(f.ui.render(),/跨来源关联中重试/);
+  run.association.state='succeeded';run.association.error=null;f.setRuns([run]);await f.tick();
+  assert.match(f.ui.render(),/跨来源关联已完成/);
+  run.association.review=2;f.setRuns([run]);await f.tick();
+  assert.match(f.ui.render(),/仍有 2 项关系需核对/);
+  assert.doesNotMatch(f.ui.render(),/跨来源关联已完成/);
+  f.ui.reset();assert.equal(f.timers.size,0);
+});
+
 check('entering restores active progress by GET and leaving pauses polling without stopping the server', async () => {
   const run = syncRun({state: 'recognizing', states: ['succeeded','running','queued'], added: 1}), f = fixture([run]);
   f.remote.tasks = [{id: 'saved-task'}];

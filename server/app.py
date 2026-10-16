@@ -259,6 +259,8 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
                 return self.reply(200,{})
             if path=='/api/workspace' and self.command=='GET':
+                import task_retention
+                task_retention.sweep(db,uid)
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
                 return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
             if path=='/api/data/tasks' and self.command=='DELETE':

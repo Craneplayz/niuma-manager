@@ -9,6 +9,7 @@ from .config import Settings
 
 # Only fixed labels may cross the worker boundary, never provider/validator text.
 OUTPUT_DIAGNOSTICS = {
+    'relation_verification': '关联事实复核未完成，原任务已保留，可重试关联。',
     'output_truncated': '模型输出达到长度上限，尚未生成完整结果，请重试。',
     'provider_response': '模型服务返回的响应不完整或格式异常，请重试。',
     'draft_json': '模型没有返回有效的任务 JSON，请重试。',

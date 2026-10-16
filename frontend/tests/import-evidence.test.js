@@ -3,7 +3,21 @@ import assert from "node:assert/strict";
 import {
   candidateEvidenceMarkup,
   failureSourcesMarkup,
+  createEvidenceState,
 } from "../src/import-evidence.js";
+
+test("evidence and complete original stay open across polling renders and reset with account", () => {
+  const state=createEvidenceState(), candidate={...item(),id:'stable-id'};
+  state.toggle({target:{dataset:{candidateEvidence:'stable-id:evidence'},open:true,isConnected:true}});
+  state.toggle({target:{dataset:{candidateEvidence:'stable-id:original'},open:true,isConnected:true}});
+  assert.equal((candidateEvidenceMarkup(structuredClone(candidate),state).match(/ open/g)||[]).length,2);
+  state.toggle({target:{dataset:{candidateEvidence:'stable-id:evidence'},open:false,isConnected:false}});
+  assert.equal((candidateEvidenceMarkup(candidate,state).match(/ open/g)||[]).length,2);
+  assert.doesNotMatch(candidateEvidenceMarkup({...candidate,id:'another'},state),/ open/);
+  state.toggle({target:{dataset:{candidateEvidence:'stable-id:original'},open:false,isConnected:true}});
+  assert.equal((candidateEvidenceMarkup(candidate,state).match(/ open/g)||[]).length,1);
+  state.reset();assert.doesNotMatch(candidateEvidenceMarkup(candidate,state),/ open/);
+});
 
 const record = (input_id, overrides = {}) => ({
   input_id,

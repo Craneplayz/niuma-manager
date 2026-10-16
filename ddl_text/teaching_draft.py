@@ -178,8 +178,8 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             if route == 'task':
                 if reason or draft['notice_type'] != 'create' or assessment['action']['state'] != 'supported':
                     raise ValueError('task classification contradicts action or operation')
-                if assessment['deadline']['derivation'] == 'unresolved':
-                    raise ValueError('task cannot claim an unresolved deadline is ready')
+                # An actionable task may have an unresolved date. Preserve the
+                # unknown date instead of turning date-only uncertainty into a gate.
             if route == 'filtered' and (draft['notice_type'] != 'create' or not (
                     assessment['action']['evidence'] or relevance['evidence'])):
                 raise ValueError('filtered classification requires evidence and cannot modify existing tasks')

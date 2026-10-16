@@ -35,6 +35,12 @@ SCHEMAS['run'] = obj({'contract_version': {'const': VERSION}, 'run_id': ID, 'ope
                      'skipped': COUNT, 'records': {'type': 'array', 'items': RECORD, 'maxItems': 1000},
                      'counts': obj({key: COUNT for key in (*ITEM_STATES, 'total', 'skipped', 'added')}), 'error': ERROR})
 SCHEMAS['runs'] = obj({'contract_version': {'const': VERSION}, 'runs': {'type': 'array', 'items': SCHEMAS['run'], 'maxItems': 20}})
+# Optional for compatibility with persisted runs and older clients. Extraction
+# success alone does not imply that cross-source association has completed.
+SCHEMAS['run']['properties']['association']=obj(dict(job_id=ID,
+    state=dict(enum=['running','succeeded','failed','interrupted','stopped']),
+    error=dict(type=['string','null']),processed=COUNT,failed=COUNT))
+SCHEMAS['run']['properties']['association']['properties']['review']=COUNT
 SCHEDULE = {'contract_version': {'const': VERSION}, 'enabled': {'type': 'boolean'},
             'interval_minutes': {'type': 'integer', 'minimum': 15, 'maximum': 10080},
             'sources': {'const': ['teaching_web']}, 'revision': COUNT}

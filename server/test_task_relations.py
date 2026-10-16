@@ -89,6 +89,41 @@ class TaskRelationsTests(unittest.TestCase):
         with app.connection() as db:
             self.assertEqual(db.execute("SELECT count(*) FROM recognition_candidates WHERE state='pending'").fetchone()[0],0)
 
+    def test_submission_controls_show_automatic_receiver_link(self):
+        request,group=self.seed('submitted');self.assertTrue(self.apply(request,group))
+        with app.connection() as db:
+            row=runtime.controls.find(db,self.uid,self.account,self.input_ids[2])
+            detail,refs=runtime.controls.refresh(db,row)
+            actions=detail['observation']['actions']
+            self.assertEqual(len(actions),1)
+            self.assertEqual((actions[0]['relation'],actions[0]['link_basis'],actions[0]['decision'],actions[0]['completion_origin']),
+                ('assignment_submission','model_verified','completed','source_submission'))
+
+    def test_merge_cannot_clear_existing_deadline(self):
+        self.seed()
+        with app.connection() as db:
+            tasks,version=runtime.controls.workspace(db,self.uid)
+            tasks[0]['due']=dict(date='2026-11-03',precision='datetime',time='23:30')
+            runtime.remember(db,self.uid,tasks[0]);runtime.write_tasks(db,self.uid,tasks,version)
+        request,group=self.proposal();group['result']['due']=None
+        self.assertFalse(self.apply(request,group))
+        self.assertEqual(len(self.tasks()),2)
+        self.assertEqual(self.tasks()[0]['due']['time'],'23:30')
+
+    def test_workspace_read_archives_old_import_without_losing_history(self):
+        self.seed()
+        with app.connection() as db:
+            tasks,version=runtime.controls.workspace(db,self.uid)
+            tasks[0]['due']=dict(date='2000-01-01',precision='date')
+            history=deepcopy(tasks[0]['recognitionHistory'])
+            runtime.write_tasks(db,self.uid,tasks,version)
+        status,result=self.call('/workspace');self.assertEqual(status,200)
+        archived=result['tasks']['value'][0]
+        self.assertEqual(archived['status'],'cancelled')
+        self.assertEqual(archived['recycleBin']['reason'],'expired_retention')
+        self.assertEqual(archived['recognitionHistory'],history)
+        self.assertEqual(result['tasks']['value'][1]['status'],'not_started')
+
     def test_receiver_evidence_survives_in_task_and_next_analysis(self):
         request,group=self.seed();self.apply(request,group)
         task=self.tasks()[0]
@@ -185,6 +220,33 @@ class TaskRelationsTests(unittest.TestCase):
         with app.connection() as db:
             saved=dict(db.execute('SELECT * FROM task_relation_jobs WHERE id=?',(job,)).fetchone())
         self.assertEqual(saved['state'],'failed');self.assertNotIn('private error',saved['error'])
+
+    def test_new_sync_supersedes_older_relation_inventory(self):
+        self.seed()
+        with app.connection() as db:
+            old=runtime.start(db,self.uid,'sync:first')
+            self.assertEqual(runtime.start(db,self.uid,'manual'),old)
+            new=runtime.start(db,self.uid,'sync:second')
+            self.assertNotEqual(old,new)
+            self.assertFalse(runtime.guard(db,self.uid,old))
+            self.assertTrue(runtime.guard(db,self.uid,new))
+            self.assertEqual(runtime.start(db,self.uid,'sync:second'),new)
+
+    def test_receiving_bundle_retrieves_all_components_before_similar_noise(self):
+        self.seed()
+        with app.connection() as db:nodes,_=ctx.inventory(db,self.uid)
+        sources=[ctx.source_id(self.account,i) for i in self.input_ids]
+        actions=[n for n in nodes.values() if n['kind']!='source']
+        for i in range(2):
+            attachment=dict(sha256=str(i)*64)
+            nodes[sources[i]]['attachments']=[attachment]
+            actions[i]['attachments']=[attachment]
+            nodes[sources[2]]['attachments'].append(attachment)
+        # The two components have no shared title or topic; the receiving
+        # endpoint's actual file identities bring them into the same context.
+        actions[0]['text']='无机实验独立说明';actions[1]['text']='机械设计另一份材料'
+        selected=list(ctx.windows(nodes))[0]['nodes']
+        self.assertTrue({n['id'] for n in actions}|{sources[2]} <= {n['id'] for n in selected})
 
     def test_one_failed_window_does_not_abort_later_valid_window(self):
         request,group=self.seed('submitted',False)

@@ -7,7 +7,7 @@ import {
 } from "./team-store.js";
 import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
-import { candidateEvidenceMarkup, failureSourcesMarkup } from "./import-evidence.js";
+import { candidateEvidenceMarkup, failureSourcesMarkup, createEvidenceState } from "./import-evidence.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createSubmissionsUI } from "./submissions-ui.js";
 import { createTaskRelationsUI } from "./task-relations-ui.js";
@@ -268,6 +268,7 @@ function batchErrorReport(batch) {
 }
 
 export function createImportUI(host) {
+  const evidenceState = createEvidenceState();
   const esc = host.escapeHtml;
   const formIsOpen = (form) => form?.isConnected !== false && form?.closest?.("dialog")?.open !== false;
   let source = "text",
@@ -361,6 +362,7 @@ export function createImportUI(host) {
     return report.message?`<p class="error" role="alert">${esc(report.message)}</p>${errorDetailsMarkup(report)}`:"";
   }
   function reset() {
+    evidenceState.reset();
     revision++;
     controller?.abort();
     controller = null;
@@ -419,7 +421,7 @@ export function createImportUI(host) {
     );
   }
   function evidence(item) {
-    return candidateEvidenceMarkup(item);
+    return candidateEvidenceMarkup(item, evidenceState);
   }
   function candidateRow(item) {
     const c = item.candidate,
@@ -433,7 +435,7 @@ export function createImportUI(host) {
     if (session.user && !demo() && !loaded && !loading && !busy)
       queueMicrotask(load);
     const items = allItems(),
-      pending = items.filter((item) => item.state === "pending"),
+      pending = items.filter((item) => item.state === "pending" && item.processing !== "association_pending"),
       ignored = items.filter((item) => item.state === "ignored");
     const failures = batches.filter((batch) =>
       !syncOwnsRequest(batch.request.request_id) && ["failed", "partial_success"].includes(batch.result?.status),
@@ -973,5 +975,5 @@ export function createImportUI(host) {
   function setVisible(visible) {
     sourceSync.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => relations.toggle(event) || sourceSync.toggle(event) };
+  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => evidenceState.toggle(event) || relations.toggle(event) || sourceSync.toggle(event) };
 }

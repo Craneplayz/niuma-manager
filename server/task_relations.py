@@ -43,6 +43,8 @@ def initialize(db,recover=False):
         PRIMARY KEY(user_id,account,set_id,task_id));
       CREATE TABLE IF NOT EXISTS task_relation_windows(job_id TEXT,window_index INTEGER,
         state TEXT,error_code TEXT,PRIMARY KEY(job_id,window_index));
+      CREATE TABLE IF NOT EXISTS task_relation_diagnostics(job_id TEXT,window_index INTEGER,
+        diagnostic TEXT,PRIMARY KEY(job_id,window_index));
     ''')
     if recover:db.execute("UPDATE task_relation_jobs SET state='interrupted',error='服务重启，已保存整合结果保留；可继续分析。' WHERE state='running'")
 
@@ -181,6 +183,10 @@ def apply_group(db,uid,pid,request,group,ApiError,manual=False):
     if not checked:raise ApiError(409,'关联依据或任务已变化，请重新分析')
     nodes,bindings=checked
     actions=[nodes[i] for i in group['members'] if nodes[i]['kind']!='source']
+    # Known deadlines may be replaced by a verified update, never silently
+    # cleared by a merge. Keep the originals and proposal available for review.
+    if not manual and group['result']['due'] is None and any(a.get('summary',{}).get('due') for a in actions):
+        return False
     if any(a.get('protected') for a in actions) and not manual:return False
     if group['disposition']=='review' and not manual:return False
     # Automatic grouping cannot erase an existing separate plan, subtasks or a
@@ -313,7 +319,8 @@ def fingerprint(request):
     for node in stable['nodes']:
         node.pop('source_snapshot',None)
         node.pop('control_revision',None)
-    return contract.digest([stable,SKILL.read_text(encoding='utf-8').replace('\r\n','\n'),contract.OUTPUT,model_identity,'excerpt-reference-roles-v1'])
+    return contract.digest([stable,SKILL.read_text(encoding='utf-8').replace('\r\n','\n'),
+        (SKILL.parent/'VERIFY.md').read_text(encoding='utf-8').replace('\r\n','\n'),contract.OUTPUT,model_identity,'global-references-verified-v2'])
 
 
 def dismissed(db,uid,account,request,group):
@@ -331,8 +338,12 @@ def start(db,uid,origin):
     if not account:return None
     credential=source_jobs.credential(db,uid)
     db.execute("UPDATE task_relation_jobs SET state='interrupted',error='账号凭据变化，旧关联已停止。' WHERE user_id=? AND state='running' AND (account<>? OR credential<>?)",(uid,account,credential))
-    prior=db.execute("SELECT id FROM task_relation_jobs WHERE user_id=? AND state='running'",(uid,)).fetchone()
-    if prior:return prior['id']
+    prior=db.execute("SELECT id,origin FROM task_relation_jobs WHERE user_id=? AND state='running'",(uid,)).fetchone()
+    if prior:
+        if not origin.startswith('sync:') or prior['origin']==origin:return prior['id']
+        # A later sync has new sources: its completion must not point to a job
+        # that captured an older inventory. In-flight writes check this guard.
+        db.execute("UPDATE task_relation_jobs SET state='interrupted',error='新的同步已完成，关联分析由新一轮接续。' WHERE id=?",(prior['id'],))
     job=secrets.token_hex(16)
     full=db.execute("SELECT count(*) FROM task_relation_jobs WHERE state='running'").fetchone()[0]>=4
     db.execute('INSERT INTO task_relation_jobs VALUES(?,?,?,?,?,?,?,?)',
@@ -350,13 +361,14 @@ def process_window(path,uid,job,request,ApiError):
     import source_jobs
     with source_jobs.connection(path) as db:
         if not guard(db,uid,job):return
-        fresh=context.refresh_context(db,uid,request)
-        if not fresh:
-            nodes,_=context.inventory(db,uid)
-            remaining=[nodes[n['id']] for n in request['nodes'] if n['id'] in nodes]
-            if not any(n['kind']!='source' for n in remaining):return
-            fresh=contract.context(remaining)
-        remaining=[n for n in fresh['nodes'] if n.get('status') not in ('completed','cancelled')]
+        nodes,_=context.inventory(db,uid)
+        # Do not feed a previous window's rewritten action into another window
+        # as fresh evidence. All windows belong to one immutable action snapshot.
+        remaining=[nodes[n['id']] for n in request['nodes'] if n['id'] in nodes
+                   and (n['kind']=='source' or n.get('revision')==nodes[n['id']].get('revision'))
+                   and nodes[n['id']].get('status') not in ('completed','cancelled')]
+        clipped={n['id'] for n in request['nodes'] if n.get('truncated') and len(n['text'])==2000}
+        remaining=[dict(n,text=n['text'][:2000],truncated=True) if n['id'] in clipped else n for n in remaining]
         if not any(n['kind']!='source' for n in remaining):return
         request=contract.context(remaining);key=fingerprint(request);account=controls.current_account(db,uid)
         if db.execute('SELECT 1 FROM task_relation_cache WHERE user_id=? AND account=? AND digest=?',(uid,account,key)).fetchone():return
@@ -398,14 +410,17 @@ def process(path,uid,job,ApiError):
         for index,request in enumerate(requests):
             with source_jobs.connection(path) as db:
                 if not guard(db,uid,job):return
-            code=None
+            code=None;diagnostic=None
             try:process_window(path,uid,job,request,ApiError)
             except Exception as error:
                 failed+=1;code=failure_code(error)
+                from ddl_text.adapters import AgentError
+                diagnostic=AgentError(diagnostic=getattr(error,'diagnostic',None)).diagnostic
             with source_jobs.connection(path) as db:
                 if not guard(db,uid,job):return
                 db.execute('INSERT OR REPLACE INTO task_relation_windows VALUES(?,?,?,?)',
                            (job,index,'failed' if code else 'succeeded',code))
+                db.execute('INSERT OR REPLACE INTO task_relation_diagnostics VALUES(?,?,?)',(job,index,diagnostic))
         with source_jobs.connection(path) as db:
             if guard(db,uid,job):
                 error=f'关联分析有 {failed}/{len(requests)} 组上下文未完成；已成功整合的结果保留，可重新分析失败部分。' if failed else None

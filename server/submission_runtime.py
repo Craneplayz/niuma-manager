@@ -59,6 +59,25 @@ def workspace(db, uid):
     return (json.loads(row['value']), row['version']) if row else ([], 0)
 
 
+def semantic_link(db,row,task):
+    """Bridge the applied relation ledger into the same submission control view.
+
+    Only a single receiving endpoint covering the whole task authorizes this
+    control. Joint completion sets remain in the relation engine; exposing them
+    here as individual links would wrongly complete all parts after one upload.
+    """
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='task_relation_links'").fetchone():return None
+    link=db.execute('SELECT * FROM task_relation_links WHERE user_id=? AND account=? AND input_id=? AND task_id=?',
+        (row['user_id'],row['account'],row['input_id'],task['id'])).fetchone()
+    if not link or link['content_digest']!=row['content_digest']:return None
+    from relation_context import task_hash
+    # A completed task changes its digest as a result of source completion.
+    # Its managed digest is updated at the same time; never accept user edits.
+    managed=db.execute('SELECT digest FROM task_relation_managed WHERE user_id=? AND task_id=?',(row['user_id'],task['id'])).fetchone()
+    if link['task_digest']!=task_hash(task) and (not managed or managed['digest']!=task_hash(task)):return None
+    return dict(link)
+
+
 def linked_actions(db, row, detail):
     """Use saved candidate IDs and task history, never title/course similarity."""
     old = {a['action_id']: a for a in detail['observation']['actions']}
@@ -69,9 +88,10 @@ def linked_actions(db, row, detail):
     by_id = {c['id']: c for c in candidates}
     actions, refs, used = [], {}, set()
     for task in workspace(db, row['user_id'])[0]:
+        semantic=semantic_link(db,row,task)
         history = [h for h in task.get('recognitionHistory', []) if isinstance(h, dict)
                    and h.get('storageId') in by_id and by_id[h['storageId']]['state'] == 'applied']
-        if not history: continue
+        if not history and not semantic: continue
         aid = identity('task', task['id']); prior = old.get(aid)
         # Only inherit when every contributing action has the same explicit
         # relationship. Dropping unknown/foreign history can mark an independent
@@ -83,6 +103,9 @@ def linked_actions(db, row, detail):
         completed = task['status'] == 'completed' and not deleted
         relation = prior['relation'] if prior else 'unknown'
         origin = (prior.get('completion_origin') if prior else None) or 'manual'
+        if semantic and (not prior or prior['link_basis'] in ('unresolved','model_verified')):
+            relation='assignment_submission';origin='source_submission'
+            prior=dict(relation=relation,link_basis='model_verified',source_completion_paused=bool(semantic['paused']))
         action = dict(action_id=aid, kind='task', relation=relation,
                       link_basis=prior['link_basis'] if prior else 'unresolved',
                       decision='deleted' if deleted else 'completed' if completed else 'confirmed',

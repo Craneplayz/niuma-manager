@@ -126,16 +126,23 @@ class TeachingDraftTests(unittest.TestCase):
         self.assertNotEqual(decisions[0]['pair']['assessment']['candidate_id'],decisions[1]['pair']['assessment']['candidate_id'])
 
     def test_missing_or_inconsistent_classifications_fail_instead_of_entering_review(self):
-        for error in ('missing_route','missing_reason','unknown_route','unresolved_task','filter_without_evidence'):
+        for error in ('missing_route','missing_reason','unknown_route','filter_without_evidence'):
             def change(record,task):
                 if error=='missing_route':task.pop('recommendation')
                 elif error=='missing_reason':task.update(recommendation='candidate',reason=' ')
                 elif error=='unknown_route':task['recommendation']='maybe'
-                elif error=='unresolved_task':task['assessment']['deadline'].update(value=None,precision='unknown',derivation='unresolved',anchor=None)
                 else:
                     task.update(recommendation='filtered',reason='No action')
                     task['assessment']['action'].update(state='uncertain',evidence=[])
             with self.subTest(error=error),self.assertRaises(AgentError):self.compile('explicit-complete',change)
+
+    def test_supported_action_keeps_unresolved_date_without_forcing_review(self):
+        def change(record,task):
+            task['assessment']['deadline'].update(value=None,precision='unknown',derivation='unresolved',anchor=None)
+        decision=self.compile('explicit-complete',change)[0]
+        self.assertEqual(decision['recommendation'],'task')
+        self.assertEqual(decision['pair']['assessment']['deadline']['derivation'],'unresolved')
+        self.assertIsNone(decision['pair']['assessment']['deadline']['value'])
 
     def test_change_marked_ready_keeps_new_deadline_and_waits_for_linking(self):
         for operation in ('update', 'postpone', 'cancel', 'uncertain'):

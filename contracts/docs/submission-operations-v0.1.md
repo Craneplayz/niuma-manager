@@ -1,5 +1,7 @@
 # 教学网提交状态操作接口 v0.1
 
+`observation.actions[].link_basis=model_verified` 表示后台跨来源关联已经完成事实复核并应用；该字段与 `server_exact`、`user_confirmed` 区分来源。只对完整覆盖任务的单一接收入口投影到此接口，联合提交条件不能变成任一入口可单独完成任务。
+
 `submission-operations/0.1` 是 #110 的业务接口契约，复用 [submission-policy/0.1](submission-policy-v0.1.md)，不改识别输入 v0.2/v0.3.1；运行端由 `server/submission_runtime.py` 和前端导入页实现，本目录保留格式和纯转换参考。
 
 ## 查询与操作

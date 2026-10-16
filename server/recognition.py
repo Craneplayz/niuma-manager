@@ -95,6 +95,9 @@ def initialize(db):
     ''')
 
 def batches(db,uid):
+    import task_retention
+    task_retention.sweep(db,uid)
+    associating=bool(db.execute("SELECT 1 FROM task_relation_jobs WHERE user_id=? AND state='running'",(uid,)).fetchone())
     result=[]
     for row in db.execute('SELECT * FROM recognition_batches WHERE user_id=? ORDER BY rowid DESC',(uid,)):
         metadata=db.execute('SELECT * FROM recognition_import_records WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
@@ -117,6 +120,10 @@ def batches(db,uid):
                     for field in ('notice_type','needs_review','review_reasons'):
                         card[field]=item['candidate'][field]
                 item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],card)
+                state=teaching.submission.for_request(db,uid,row['request_id'])
+                if (associating and item['state']=='pending' and item['version']==1 and state and not state['review_pending']
+                        and state['state']=='submitted' and state.get('scope')=='unknown'):
+                    item['processing']='association_pending'
             request = teaching.request_view(request)
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None))
     return result
@@ -138,7 +145,7 @@ def can_auto_apply(candidate, request, demo=False):
         request=teaching.request_view(request)
     source=next((r for r in request['records'] if r['input_id']==candidate['input_id']),None)
     d=candidate['deadline']
-    valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
+    valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status'] in ('not_provided','unknown') and d['value'] is None)
     if valid_due and d['precision']=='datetime':
         stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
         valid_due=stamp.second==0 and stamp.microsecond==0
@@ -353,6 +360,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
                 target['sourceRequirements']=c['prerequisites']
         else: target['status']='cancelled'
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
+        if auto:
+            import task_retention
+            task_retention.archive(target)
         import task_relations
         if auto: task_relations.remember(db,uid,target)
         else: task_relations.manual_write(db,uid,tasks)

@@ -28,6 +28,18 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(status, 202, run)
         return run
 
+    def test_run_view_exposes_separate_association_progress(self):
+        with app.connection() as db:
+            run=jobs.start(db,self.uid,dict(contract_version='source-sync/0.1',sources=['teaching_web'],consent=True,operation_id='synthetic:association'),app.ApiError)
+            jobs.save(db,run,'succeeded')
+            job=jobs.task_relations.start(db,self.uid,'sync:'+run['run_id'])
+            db.execute('INSERT INTO task_relation_windows VALUES(?,?,?,?)',(job,0,'failed','invalid_agent_output'))
+            db.execute("UPDATE task_relation_jobs SET state='failed',error='关联未完成' WHERE id=?",(job,))
+            view=jobs.view(run,db);check('run',view)
+            self.assertEqual(view['state'],'succeeded')
+            self.assertEqual((view['association']['state'],view['association']['failed']),('failed',1))
+            self.assertNotIn('credential',view['association'])
+
     def until(self, run_id, predicate):
         for _ in range(250):
             status, run = self.call('/sources/sync-runs/'+run_id)

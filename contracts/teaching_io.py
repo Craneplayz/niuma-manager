@@ -126,7 +126,7 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
                 if route=='candidate':require(all(x.strip() for x in decision['review_reasons']), 'candidate needs concrete reason')
                 if route=='task':
                     a=pair['assessment']
-                    require(a['action']['state']=='supported' and a['deadline']['derivation']!='unresolved', 'task contradicts its own assessment')
+                    require(a['action']['state']=='supported', 'task contradicts its own assessment')
                 if route=='filtered':require(decision['filter_reason'].strip() and bool(pair['assessment']['action']['evidence'] or rel['evidence']), 'filtered needs reason and captured evidence')
     require(result['status']==aggregate_status(rows),'batch status mismatch')
     return result

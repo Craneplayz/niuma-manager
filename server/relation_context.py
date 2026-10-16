@@ -122,20 +122,31 @@ def windows(nodes):
         # Retrieval only: identical materials help bring content and receiving
         # pages together; the model still decides whether delivery scopes match.
         return body*.2+title+material*2
+    # Database UUIDs change after a fresh import; they must not change which
+    # source family is analyzed first or which equally ranked context is seen.
+    stable=lambda n:(tuple(sorted(n.get('sources',[]))),n['kind'],n.get('summary',{}).get('title',''),n['id'])
     used=set()
-    for action in sorted(actions,key=lambda n:n['id']):
+    for action in sorted(actions,key=stable):
         if action['id'] in used:continue
-        ranked=sorted(actions,key=lambda n:(n['id']!=action['id'],-score(action['id'],n['id']),n['id']))
+        # Retrieve the other components of an explicit receiving endpoint first.
+        # This only widens model context; shared files never authorize a merge.
+        endpoints=[n for n in nodes.values() if n['kind']=='source'
+                   and n.get('submission_state') in ('active','submitted')
+                   and hashes[action['id']] & hashes[n['id']]]
+        endpoint=max(endpoints,key=lambda n:score(action['id'],n['id']),default=None)
+        companion=lambda n:bool(endpoint and (hashes[n['id']] & hashes[endpoint['id']] or endpoint['id'] in n['sources']))
+        ranked=sorted(actions,key=lambda n:(n['id']!=action['id'],not companion(n),-score(action['id'],n['id']),stable(n)))
         best=max((score(action['id'],n['id']) for n in ranked if n['id']!=action['id']),default=0)
         selected={};chosen=[]
         for other in ranked:
-            if other['id']!=action['id'] and score(action['id'],other['id'])<max(.25,best*.55):continue
+            if other['id']!=action['id'] and not companion(other) and score(action['id'],other['id'])<max(.25,best*.55):continue
             related=sorted(other['sources'],key=lambda sid:(-score(other['id'],sid),sid))
             group=[other['id']]+related[:8]
             if len(set(selected)|set(group))>18:continue
             chosen.append(other['id'])
             for key in group:selected[key]=nodes[key]
-            if len(chosen)==5:break
+            if len(chosen)==8:break
+        if endpoint and endpoint['id'] not in selected and len(selected)<18:selected[endpoint['id']]=endpoint
         relevance=lambda source:max(score(a,source) for a in chosen)
         best_source={a:max((score(a,n['id']) for n in nodes.values() if n['kind']=='source'),default=0) for a in chosen}
         sources=sorted((n for n in nodes.values() if n['kind']=='source'),

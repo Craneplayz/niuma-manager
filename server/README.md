@@ -1,5 +1,7 @@
 ```text
 server/
+├── task_retention.py        导入任务七天保留期、可恢复归档与手动恢复优先。
+├── test_task_retention.py   日期精度、七天边界、完整历史保留和恢复回归。
 ├── task_relations.py         跨来源关联逐批恢复、审计、联合提交完成及撤回。
 ├── relation_context.py       当前账号的有界原文、附件标识和任务检索，不决定语义合并。
 ├── test_task_relations.py    HTTP/SQLite 自动接线、提交覆盖、账号切换、证据及撤回回归。
@@ -63,6 +65,12 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+关联失败不会回滚已成功识别的原任务。`source-sync/0.1` 的可选 `association` 返回该同步轮次的关联作业状态、处理窗口数与失败数；客户端应在关联运行期间继续读取，不能仅用 `state=succeeded` 宣告全部整合完成。`task_relation_diagnostics` 只保存固定诊断分类，不写私人原文或模型响应。模型复核不通过的提议进入核对，原任务及已知日期保持不变。
+
+`recognition/batches` 中原生已提交但尚待自动关联的条目带 `processing=association_pending`，仍在数据库和关联上下文中，不作为普通人工核对项。已应用的单接收入口完整关联会同步显示为 `link_basis=model_verified`；多个提交入口全部完成的联合条件仍由关联引擎处理，不能拆成“任一提交即完成”。
+
+过期七天以上的导入任务以 `recycleBin.reason=expired_retention` 可恢复归档，来源、候选和证据不删除；显式恢复写入 `retentionOverride=true`，尊重用户继续处理的选择。只有日期未确定的明确任务可直接收录，原始日期状态在证据中保留。
 
 ## 使用数据后台
 

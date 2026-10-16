@@ -28,8 +28,9 @@ COMPLETION = dict(oneOf=[obj(dict(source_id=ID, covers=dict(IDS, minItems=1))),
     obj(dict(source_ids=dict(IDS, minItems=2), covers=dict(IDS, minItems=1)))])
 GROUP = obj(dict(relation=dict(enum=['duplicate', 'combine', 'update']), disposition=dict(enum=['apply', 'review']),
                  members=dict(IDS, minItems=2), result=RESULT, reason=string(1024, 1),
-                 evidence=dict(type='array', minItems=1, maxItems=24, items=obj(dict(node_id=ID, quote=string(1200, 1)))),
+                 evidence=dict(type='array', minItems=1, maxItems=48, items=obj(dict(node_id=ID, quote=string(1200, 1)))),
                  completion=dict(type='array', maxItems=24, items=COMPLETION)))
+GROUP['properties']['waived_actions']=IDS
 OUTPUT = dict(obj(dict(contract_version=dict(const=VERSION), context_digest=string(64, 64),
                        groups=dict(type='array', items=GROUP, maxItems=12))),
               **{'$schema': 'https://json-schema.org/draft/2020-12/schema'})
@@ -100,6 +101,7 @@ def check_pair(request, result):
         if not members <= nodes.keys():
             raise ValueError('unknown relation member')
         actions = {i for i in members if nodes[i]['kind'] != 'source'}
+        if not set(group.get('waived_actions',[]))<=actions:raise ValueError('invalid waived scope')
         if not actions or used.intersection(actions):
             raise ValueError('missing or overlapping actions')
         used.update(actions)

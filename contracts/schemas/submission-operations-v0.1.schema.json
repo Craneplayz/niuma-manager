@@ -221,6 +221,7 @@
                   "link_basis": {
                     "enum": [
                       "server_exact",
+                      "model_verified",
                       "user_confirmed",
                       "unresolved"
                     ]
@@ -617,6 +618,7 @@
                       "link_basis": {
                         "enum": [
                           "server_exact",
+                          "model_verified",
                           "user_confirmed",
                           "unresolved"
                         ]

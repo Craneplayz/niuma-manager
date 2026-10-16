@@ -42,7 +42,21 @@ function sourceLinks(record, sources, showLabels = true) {
     .join("<br>");
 }
 
-export function candidateEvidenceMarkup(item) {
+export function createEvidenceState() {
+  const opened = new Set();
+  return {
+    reset: () => opened.clear(),
+    has: (key) => opened.has(key),
+    toggle(event) {
+      const node = event.target, key = node?.dataset?.candidateEvidence;
+      if (!key || node.isConnected === false) return false;
+      if (node.open) opened.add(key); else opened.delete(key);
+      return true;
+    },
+  };
+}
+
+export function candidateEvidenceMarkup(item, state) {
   const candidate = item?.candidate || {};
   const record = list(item?.batch?.request?.records).find(
     (record) => record.input_id === candidate.input_id,
@@ -55,12 +69,14 @@ export function candidateEvidenceMarkup(item) {
     ),
   ];
   const original = text(record?.text);
+  const key = text(item?.id);
+  const attributes = (part) => key ? ` data-candidate-evidence="${esc(key + ':' + part)}"${state?.has(key + ':' + part) ? ' open' : ''}` : '';
   const links = sourceLinks(record, candidate.sources);
   const basis = text(candidate.deadline?.basis);
   const reasons = [
     ...new Set([basis, ...list(candidate.review_reasons).map(text)]),
   ].filter(Boolean);
-  return `<details class="candidate-evidence"><summary>查看原文</summary><div class="task-evidence-entry">${links ? `<div class="task-evidence-links">${links}</div>` : ""}${quotes.length ? `<section class="task-evidence-quotes"><p class="status-note">识别摘录</p>${quotes.map((quote) => `<blockquote>${esc(quote)}</blockquote>`).join("")}</section>` : ""}${original.trim() ? `<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>` : '<p class="status-note">原文暂不可用</p>'}${reasons.map((reason) => `<p class="status-note">${esc(reason)}</p>`).join("")}</div></details>`;
+  return `<details class="candidate-evidence"${attributes('evidence')}><summary>查看原文</summary><div class="task-evidence-entry">${links ? `<div class="task-evidence-links">${links}</div>` : ""}${quotes.length ? `<section class="task-evidence-quotes"><p class="status-note">识别摘录</p>${quotes.map((quote) => `<blockquote>${esc(quote)}</blockquote>`).join("")}</section>` : ""}${original.trim() ? `<details${attributes('original')}><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>` : '<p class="status-note">原文暂不可用</p>'}${reasons.map((reason) => `<p class="status-note">${esc(reason)}</p>`).join("")}</div></details>`;
 }
 
 export function failureSourcesMarkup(batch) {

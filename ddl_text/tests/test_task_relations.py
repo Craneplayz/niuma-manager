@@ -26,7 +26,11 @@ def example():
 
 class Client:
     def __init__(self, response): self.response = response
-    def complete_json(self, instructions, payload, settings): return self.response
+    def complete_json(self, instructions, payload, settings):
+        value=json.loads(payload)
+        if 'proposals' in value:
+            return json.dumps(dict(checks=[dict(index=p['index'],approved=True,reason='合成交付证据完整') for p in value['proposals']]))
+        return self.response
 
 
 class RelationsContractTests(unittest.TestCase):
@@ -98,7 +102,7 @@ class RelationsContractTests(unittest.TestCase):
             item.pop('quote');item['excerpt_id']='e0'
         self.assertEqual(RelationAdapter(Client(json.dumps(response))).extract(request,None,0),[result])
         self.assertNotIn('text',wire['nodes'][0])
-        self.assertIn('excerpt_id',model_schema()['properties']['groups']['items']['properties']['evidence']['items']['properties'])
+        self.assertIn('ref',model_schema()['properties']['groups']['items']['properties']['evidence']['items']['properties'])
         for identity in ('unknown','e1'):
             bad=deepcopy(response);bad['groups'][0]['evidence'][0]['excerpt_id']=identity
             with self.assertRaises(AgentError):RelationAdapter(Client(json.dumps(bad))).extract(request,None,0)
@@ -109,12 +113,77 @@ class RelationsContractTests(unittest.TestCase):
         request,result=example()
         class AliasClient:
             def complete_json(self,instructions,payload,settings):
+                if 'proposals' in json.loads(payload):return Client('').complete_json(instructions,payload,settings)
                 nodes=json.loads(payload)['context']['nodes'];ids=[n['id'] for n in nodes]
                 answer=deepcopy(result);g=answer['groups'][0]
                 g['members']=ids;g['evidence']=[dict(node_id=i,excerpt_id='e0') for i in ids]
                 g['completion']=[dict(source_id=ids[2],covers=ids[:2])]
                 return json.dumps(answer)
         self.assertEqual(RelationAdapter(AliasClient()).extract(request,None,0),[result])
+
+    def test_global_reference_binds_node_and_excerpt_without_cross_pair_guess(self):
+        request,result=example()
+        class GlobalClient(Client):
+            def complete_json(self,instructions,payload,settings):
+                data=json.loads(payload)
+                if 'proposals' in data:return super().complete_json(instructions,payload,settings)
+                answer=deepcopy(result);answer.pop('context_digest');answer.pop('contract_version')
+                g=answer['groups'][0];nodes=data['context']['nodes']
+                g.pop('members')
+                g['actions']=[dict(id=n['id'],outcome='required') for n in nodes[:2]]
+                g['evidence']=[dict(ref=n['excerpts'][0]['id']) for n in nodes if n['kind']=='source']
+                g['completion']=[dict(source_id=nodes[2]['id'],covers=[n['id'] for n in nodes[:2]])]
+                self_ids=[e['id'] for n in nodes for e in n.get('excerpts',[])]
+                assert len(self_ids)==len(set(self_ids))
+                assert all('excerpts' not in n for n in nodes[:2])
+                return json.dumps(answer)
+        answer=RelationAdapter(GlobalClient('')).extract(request,None,0)[0]
+        self.assertEqual(answer['groups'][0]['completion'],result['groups'][0]['completion'])
+        self.assertEqual({e['node_id'] for e in answer['groups'][0]['evidence']},{'a','b','s'})
+
+    def test_verifier_can_reject_structurally_valid_destructive_merge(self):
+        request,result=example()
+        class Reject(Client):
+            def complete_json(self,instructions,payload,settings):
+                if 'proposals' in json.loads(payload):
+                    return json.dumps(dict(checks=[dict(index=p['index'],approved=False,reason='独立提交要求，不属于同一交付') for p in json.loads(payload)['proposals']]))
+                return self.response
+        checked=RelationAdapter(Reject(json.dumps(result))).extract(request,None,0)[0]
+        self.assertEqual(checked['groups'][0]['disposition'],'review')
+        self.assertIn('独立提交',checked['groups'][0]['reason'])
+
+    def test_single_json_fence_is_accepted_but_extra_prose_and_duplicate_keys_are_not(self):
+        request,result=example()
+        answer=RelationAdapter(Client('```json\n'+json.dumps(result)+'\n```')).extract(request,None,0)[0]
+        self.assertEqual(answer,result)
+        for raw in ('explanation\n'+json.dumps(result),'```json\n{"groups":[],"groups":[]}\n```'):
+            with self.assertRaises(AgentError):RelationAdapter(Client(raw)).extract(request,None,0)
+
+    def test_missing_verification_never_falls_back_to_apply(self):
+        request,result=example()
+        class Broken(Client):
+            def complete_json(self,instructions,payload,settings):
+                if 'proposals' in json.loads(payload):return '{"checks":[]}'
+                return self.response
+        with self.assertRaises(AgentError) as error:RelationAdapter(Broken(json.dumps(result))).extract(request,None,0)
+        self.assertEqual(error.exception.diagnostic,'relation_verification')
+
+    def test_compiler_derives_members_and_keeps_explicit_receiver_waivers(self):
+        request,result=example()
+        class SelectionClient(Client):
+            def complete_json(self,instructions,payload,settings):
+                data=json.loads(payload)
+                if 'proposals' in data:return super().complete_json(instructions,payload,settings)
+                nodes=data['context']['nodes'];g=deepcopy(result['groups'][0]);g.pop('members')
+                g['actions']=[dict(id=nodes[0]['id'],outcome='required'),dict(id=nodes[1]['id'],outcome='waived_by_receiver')]
+                g['evidence']=[dict(ref=nodes[2]['excerpts'][0]['id'])]
+                g['completion']=[dict(source_id=nodes[2]['id'],covers=[n['id'] for n in nodes[:2]])]
+                return json.dumps(dict(groups=[g]))
+        answer=RelationAdapter(SelectionClient('')).extract(request,None,0)[0]
+        c.check_pair(request,answer)
+        self.assertEqual(set(answer['groups'][0]['members']),{'a','b','s'})
+        self.assertEqual(answer['groups'][0]['waived_actions'],['b'])
+        self.assertEqual({q['node_id'] for q in answer['groups'][0]['evidence']},{'a','b','s'})
 
     def test_own_source_rewording_does_not_promote_review_candidate(self):
         request,result=example();request['nodes'][0]['sources']=['s'];request=c.context(request['nodes'])

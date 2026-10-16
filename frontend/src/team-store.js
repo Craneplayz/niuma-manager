@@ -327,7 +327,7 @@ export function restoreStoredTasks(ids) {
     return tasks.map((task) => {
       if (!selected.has(task.id)) return task;
       const { recycleBin, ...restored } = task;
-      return { ...restored, status: recycleBin.status };
+      return { ...restored, status: recycleBin.status, ...(recycleBin.reason === 'expired_retention' ? { retentionOverride: true } : {}) };
     });
   });
 }

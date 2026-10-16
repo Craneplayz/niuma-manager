@@ -42,8 +42,16 @@ class TeachingIOTests(unittest.TestCase):
             elif bad=='false_date':d['pair']['assessment']['deadline']['value']='2026-02-30'
             elif bad=='wrong_snapshot':d['pair']['record']['text']='forged'
             elif bad=='old_mode':result.pop('classification_mode')
-            elif bad=='contradiction':d['pair']['assessment']['deadline'].update(value=None,precision='unknown',derivation='unresolved',anchor=None)
+            elif bad=='contradiction':d['pair']['assessment']['action']['state']='uncertain'
             with self.subTest(bad=bad),self.assertRaises(Exception):self.check(request,result,bad!='unverified')
+
+    def test_supported_action_can_be_direct_task_with_unresolved_date(self):
+        cases=json.loads((ROOT/'examples/teaching-model-routing-v04-cases.json').read_text(encoding='utf-8'))['cases']
+        case=deepcopy(cases[1]);request,result=case['request'],case['expected']
+        decision=result['record_results'][0]['decisions'][0]
+        decision['pair']['assessment']['deadline'].update(value=None,precision='unknown',derivation='unresolved',anchor=None)
+        self.assertEqual(decision['recommendation'],'task')
+        self.check(request,result)
 
     def sample(self):
         case=deepcopy(CASES[0]);return case['request'],case['expected']

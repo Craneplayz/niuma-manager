@@ -1,5 +1,6 @@
 """HTTP integration: captured v0.4 snapshot, recognition, cards, auto-apply and retries."""
 from copy import deepcopy
+from datetime import datetime
 import json
 import tempfile
 import threading
@@ -47,9 +48,14 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertIn('理教408',json.dumps(evidence,ensure_ascii=False))
 
     def test_real_synthetic_model_results_replay_through_http_and_workspace(self):
+        # Replay historical semantic fixtures at their captured time; retention
+        # aging has separate HTTP coverage and must not age these fixtures out.
+        clock_patch=patch('task_retention.datetime',wraps=datetime)
+        clock=clock_patch.start();self.addCleanup(clock_patch.stop)
         fixtures=json.loads((Path(__file__).parents[1]/'contracts/examples/teaching-model-routing-v04-cases.json').read_text(encoding='utf-8'))['cases']
         added=0
         for case in fixtures:
+            clock.now.return_value=datetime.fromisoformat(case['request']['records'][0]['record']['collected_at'])
             with self.subTest(case=case['name']):
                 with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[case['request']])
                 view=sync['requests'][0]

@@ -207,6 +207,14 @@ test("moving tasks to trash and restoring only changes their visibility and save
   await assert.rejects(restoreStoredTasks(["active"]), /回收站任务不存在/);
 });
 
+test("restoring an automatically expired task opts it out of repeated retention", async () => {
+  const f=fixture('retention',[task('old',{status:'cancelled',due:{date:'2026-09-01',precision:'date'},recycleBin:{deletedAt:'2026-10-16T00:00:00Z',status:'not_started',reason:'expired_retention'}})]);
+  await initSession();await restoreStoredTasks(['old']);
+  assert.equal(f.tasks[0].retentionOverride,true);
+  assert.equal(f.tasks[0].status,'not_started');
+  assert.equal(f.tasks[0].recycleBin,undefined);
+});
+
 test("save snapshots are serialized with the newest task version", async () => {
   const f = fixture("queue", [task("task")]);
   const state = await initSession();

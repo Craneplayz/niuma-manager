@@ -92,8 +92,17 @@ def save(db, run, state=None):
         usage.record(db,run['user_id'],'sync',run['state']=='succeeded',duration)
 
 
-def view(run):
-    return {k: v for k, v in run.items() if k not in ('user_id', 'retry_selection')}
+def view(run,db=None):
+    result={k: v for k, v in run.items() if k not in ('user_id', 'retry_selection')}
+    if db is not None:
+        row=db.execute("SELECT * FROM task_relation_jobs WHERE user_id=? AND origin=? ORDER BY rowid DESC LIMIT 1",
+                       (run['user_id'],'sync:'+run['run_id'])).fetchone()
+        if row:
+            windows=db.execute('SELECT state,error_code FROM task_relation_windows WHERE job_id=?',(row['id'],)).fetchall()
+            result['association']=dict(job_id=row['id'],state=row['state'],error=row['error'],
+                processed=len(windows),failed=sum(w['state']=='failed' for w in windows),
+                review=db.execute("SELECT count(*) FROM task_relation_proposals WHERE job_id=? AND state='review'",(row['id'],)).fetchone()[0])
+    return result
 
 
 def can_retry(item):
@@ -355,10 +364,10 @@ def route(handler, db, uid, path, body, ApiError, database):
         handler.reply(202, view(run)); return True
     if path==root and handler.command=='GET':
         rows = db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? ORDER BY rowid DESC LIMIT 20', (uid,)).fetchall()
-        handler.reply(200, dict(contract_version=contract.VERSION, runs=[view(json.loads(r['snapshot'])) for r in rows])); return True
+        handler.reply(200, dict(contract_version=contract.VERSION, runs=[view(json.loads(r['snapshot']),db) for r in rows])); return True
     run_id, *suffix = path[len(root)+1:].split('/')
     if handler.command=='GET' and not suffix:
-        handler.reply(200, view(get(db, uid, run_id, ApiError))); return True
+        handler.reply(200, view(get(db, uid, run_id, ApiError),db)); return True
     if handler.command=='POST' and suffix==['stop']:
         contract.check('stop',body); db.execute('BEGIN IMMEDIATE')
         run = get(db, uid, run_id, ApiError)

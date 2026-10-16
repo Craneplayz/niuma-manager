@@ -1,5 +1,7 @@
 # 后台来源同步 v0.1
 
+运行响应可附带 `association={job_id,state,error,processed,failed,review}`，表示同轮识别之后的自动关联状态，review 是仍需核对的关系数量（可选）。它独立于识别状态；客户端在 `association.state=running` 时继续轮询，在 failed/interrupted/stopped 时显示未整合完成，保留任务并提供关联恢复入口。旧响应可不含此字段。
+
 唯一契约为 `contracts/source_sync.py`，`root_schema(kind)` 提供无外部注册依赖的 JSON Schema；`check` 同时校验身份唯一和计数。模型输入仍使用教学网 v0.4，本契约仅管理业务运行。
 
 | 接口 | 请求 / 响应 | 用途 |
