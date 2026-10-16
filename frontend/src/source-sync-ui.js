@@ -17,8 +17,10 @@ const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "
 const needsCollection = (record) => record.state === "incomplete" || ["source_incomplete", "source_changed", "source_missing"].includes(record.error?.code);
 const retryable = (record) => !record.recovered && !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
 const recoverable = record => !record.recovered && (retryable(record) || needsCollection(record));
-const usefulRecord = record => record.added > 0 || record.review > 0 || ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
-const usefulRun = run => Boolean(run.error || ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
+const unresolved = record => !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
+const usefulRecord = record => record.added > 0 || record.review > 0 || unresolved(record);
+const runError = run => run.error && !run.records.some(record => record.recovered && record.error?.code === run.error.code && record.error?.message === run.error.message) ? run.error : null;
+const usefulRun = run => Boolean(runError(run) || !run.records.length && ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
 const validItems = (items, count, added = false) => items === undefined || Array.isArray(items) && items.length === count &&
   new Set(items.map(item => item?.candidate_id)).size === count && items.every(item => item &&
     typeof item.candidate_id === "string" && item.candidate_id && typeof item.label === "string" &&
@@ -288,9 +290,9 @@ export function createSourceSyncUI(host) {
     return retryable(record) ? "识别暂时失败，可重试。" : "请检查服务后重新获取来源。";
   }
   function problemsFor(run) {
-    const problems = run.records.filter(record => ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state));
-    if (run.error && !problems.some(record => record.error?.code === run.error.code && record.error?.message === run.error.message))
-      problems.push({ label: "本轮导入", error: run.error, state: "failed" });
+    const problems = run.records.filter(unresolved), failure = runError(run);
+    if (failure && !problems.some(record => record.error?.code === failure.code && record.error?.message === failure.message))
+      problems.push({ label: "本轮导入", error: failure, state: "failed" });
     return problems;
   }
   function resultItems(run, category) {
@@ -329,7 +331,6 @@ export function createSourceSyncUI(host) {
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts, done = counts.total - counts.queued - counts.running;
     const plan = recoveryPlan(run, latest);
-    const recovered = run.records.filter(record => record.recovered || record.state !== "succeeded" && latest.get(record.request_id)?.run !== run && latest.get(record.request_id)?.record.state === "succeeded").length;
     const blocked = isBusy() || host.isImportBusy();
     const groups = [["added", "新增", counts.added, "项"], ["review", "待核对", counts.review, "项"], ["updated", "更新", counts.updated, "项"], ["error", "错误", problemsFor(run).length, "条"]].filter(([, , count]) => count > 0);
     const selected = categories.get(run.run_id);
@@ -337,7 +338,7 @@ export function createSourceSyncUI(host) {
     const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${label} ${count} ${unit}</button>`).join("");
     const progress = ACTIVE.has(run.state) ? `<progress ${counts.total && run.state !== "crawling" ? `max="${counts.total}" value="${done}"` : ""} aria-label="${esc(counts.total ? `已处理 ${done} / ${counts.total} 条通知` : LABELS[run.state])}"></progress>` : "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
-    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status"><strong role="status">${esc(LABELS[run.state])}</strong>${ACTIVE.has(run.state) && counts.total ? `<span class="status-note">已处理 ${done} / ${counts.total}</span>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
+    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status"><strong role="status">${esc(LABELS[run.state])}</strong>${ACTIVE.has(run.state) && counts.total ? `<span class="status-note">已处理 ${done} / ${counts.total}</span>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));

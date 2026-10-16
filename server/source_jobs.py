@@ -226,6 +226,63 @@ def needs_collection(item):
     return item['state'] == 'incomplete' or (item.get('error') or {}).get('code') in ('source_incomplete', 'source_changed', 'source_missing')
 
 
+def input_identity(db, uid, item):
+    if item.get('input_id'): return item['input_id']
+    row = db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND request_id=?', (uid,item['request_id'])).fetchone()
+    if not row: row = db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?', (uid,item['request_id'])).fetchone()
+    if row:
+        first = json.loads(row['request'])['records'][0]
+        return first.get('record',first).get('input_id')
+
+
+def history(db, uid):
+    """Project visible results without changing receipts used by retry/recovery."""
+    rows = db.execute('''SELECT r.snapshot,r.credential FROM source_sync_runs r
+        LEFT JOIN source_sync_quiet_runs q ON r.run_id=q.run_id
+        WHERE r.user_id=? AND q.run_id IS NULL ORDER BY r.rowid DESC''', (uid,))
+    result, seen, identities = [], set(), {}
+    for row in rows:
+        run = json.loads(row['snapshot'])
+        if run['state'] in contract.ACTIVE:
+            result.append(view(run))
+        else:
+            original = run['records']
+            visible = []
+            for item in original:
+                if item['state'] not in ('failed','incomplete','cancelled','interrupted'):
+                    visible.append(item)
+                    continue
+                rid = item['request_id']
+                if rid not in identities: identities[rid] = input_identity(db,uid,item) or rid
+                key = (row['credential'],identities[rid],(item.get('error') or {}).get('code') or item['state'])
+                hidden = item.get('recovered') or key in seen
+                seen.add(key)
+                if not hidden: visible.append(item)
+                elif item['added'] or item.get('review'):
+                    visible.append(dict(item,state='succeeded',error=None))
+            # A whole-run error can repeat the per-source error. Do not bring it
+            # back after the corresponding source has been hidden or recovered.
+            failure = run.get('error')
+            if failure and any(item.get('error') == failure for item in original):
+                run['error'] = None
+            elif failure or not original and run['state'] in ('failed','interrupted'):
+                key = (row['credential'],None,failure['code'] if failure else run['state'])
+                if key in seen:
+                    run['error'] = None
+                    if not original and not run.get('updated_tasks'): continue
+                seen.add(key)
+            run['records'] = visible
+            useful = bool(run.get('updated_tasks') or run['error'] or any(useful_record(item) for item in visible))
+            if not useful and not original and run['state'] in ('failed','interrupted'): useful = True
+            if not useful: continue
+            if (original or run.get('updated_tasks')) and not run['error'] and not any(item['state'] != 'succeeded' for item in visible) and run['state'] in ('failed','partial_success'):
+                run['state'] = 'succeeded'
+            run['counts'] = counts(run)
+            result.append(view(run))
+        if len(result) == 20: break
+    return result
+
+
 def recovery_records(db, uid, old, selection, ApiError):
     selected = set(selection) if selection is not None else {item['request_id'] for item in old['records']}
     if not selected.issubset({item['request_id'] for item in old['records']}): raise ApiError(400,'所选记录不属于本轮同步')
@@ -238,13 +295,7 @@ def recovery_records(db, uid, old, selection, ApiError):
         rid = original['request_id']
         if rid not in selected or latest.get(rid) != old['run_id'] or original.get('recovered'): continue
         if not (can_retry(original) or needs_collection(original)): continue
-        identity = original.get('input_id')
-        if not identity:
-            row = db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND request_id=?', (uid,rid)).fetchone()
-            if not row: row = db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?', (uid,rid)).fetchone()
-            if row:
-                first = json.loads(row['request'])['records'][0]
-                identity = first.get('record',first).get('input_id')
+        identity = input_identity(db,uid,original)
         if not identity: raise ApiError(409,'异常来源标识已失效，请从顶部重新获取教学网内容')
         item = deepcopy(original)
         targets[rid] = dict(input_id=identity, needs_collection=needs_collection(original))
@@ -572,10 +623,8 @@ def route(handler, db, uid, path, body, ApiError, database):
         if run['state'] in contract.ACTIVE: launch(database, uid, run['run_id'], ApiError)
         handler.reply(202, view(run)); return True
     if path==root and handler.command=='GET':
-        rows = db.execute('''SELECT r.snapshot FROM source_sync_runs r LEFT JOIN source_sync_quiet_runs q ON r.run_id=q.run_id
-            WHERE r.user_id=? AND q.run_id IS NULL ORDER BY r.rowid DESC LIMIT 20''', (uid,)).fetchall()
         last = db.execute('SELECT snapshot FROM source_sync_checks WHERE user_id=?', (uid,)).fetchone()
-        handler.reply(200, dict(contract_version=contract.VERSION, runs=[view(json.loads(r['snapshot'])) for r in rows],
+        handler.reply(200, dict(contract_version=contract.VERSION, runs=history(db,uid),
                                 last_check=json.loads(last['snapshot']) if last else None)); return True
     run_id, *suffix = path[len(root)+1:].split('/')
     if handler.command=='GET' and not suffix:

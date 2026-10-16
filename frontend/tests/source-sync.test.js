@@ -273,7 +273,7 @@ check('single and batch retry select only the latest recoverable attempts', asyn
   const old = syncRun({state: 'failed', states: ['failed','failed','incomplete']}), child = syncRun({id: 'run:child'});
   child.parent_run_id = old.run_id;
   const f = fixture([child, old]); await f.ui.load();
-  assert.match(markup(f.ui), /后续已恢复 1 条/); assert.match(markup(f.ui), /处理未完成 · 2/);
+  assert.doesNotMatch(markup(f.ui), /后续已恢复|本轮记录保留/); assert.match(markup(f.ui), /处理未完成 · 2/);
   await category(f.ui, old.run_id, 'error'); await problem(f.ui, old.run_id, 1);
   assert.match(markup(f.ui), /data-source-sync-request="sync:1"/);
   assert.doesNotMatch(markup(f.ui), /data-source-sync-request="sync:0"|data-source-sync-request="sync:2"/);
@@ -450,6 +450,16 @@ check('a collection error remains visible even with no created tasks and no reco
 check('a recovered no-task retry does not leave an actionable old error after its quiet receipt is hidden', async () => {
   const old=syncRun({state:'failed',states:['failed']});old.records[0].recovered=true;
   const f=fixture([old]);await f.ui.load();
-  assert.match(markup(f.ui),/后续已恢复 1 条/);assert.doesNotMatch(markup(f.ui),/data-source-sync-action="retry"|失败 1 条/);
+  assert.equal(f.ui.renderHistory(),'');assert.doesNotMatch(markup(f.ui),/后续已恢复|本轮记录保留|data-source-sync-action="retry"|错误 1 条/);
   await f.ui.click(button('retry',old.run_id));assert.equal(f.posts().length,0);
+});
+
+check('resolved errors disappear while genuine additions and pending review remain accessible', async () => {
+  const run=syncRun({state:'partial_success',states:['succeeded','succeeded','failed'],added:1});
+  run.records[1].review=1;run.counts.review=1;
+  run.records[2].recovered=true;run.error=run.records[2].error;
+  const f=fixture([run]);await f.ui.load();
+  const html=f.ui.renderHistory();
+  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);
+  assert.doesNotMatch(html,/错误|后续已恢复|本轮记录保留|处理未完成/);
 });
