@@ -337,6 +337,43 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(len(self.call('/sources/sync-runs')[1]['runs']),1)
         tasks=self.call('/workspace')[1]['tasks']['value']
         self.assertTrue(any(task['content_type']=='notice' for task in tasks))
+        receipts=[item for record in result['records'] for item in record['added_items']]
+        self.assertEqual({item['task_id'] for item in receipts},{task['id'] for task in tasks})
+        self.assertEqual({item['label'] for item in receipts},{task['title'] for task in tasks})
+        reviews=[item for record in result['records'] for item in record['review_items']]
+        candidates=[item for batch in self.call('/recognition/batches')[1] for item in batch['items'] if item['state']=='pending']
+        self.assertEqual({item['candidate_id'] for item in reviews},{item['id'] for item in candidates})
+        self.assertEqual({item['label'] for item in reviews},{item['candidate']['title'] for item in candidates})
+
+    def test_split_results_have_individual_receipts_and_upgrade_preserves_workspace(self):
+        request,drafts=example();rid=request['records'][0]['record']['input_id']
+        draft=json.loads(drafts[rid]);second=json.loads(json.dumps(draft['tasks'][0]))
+        draft['tasks'][0]['title']='第一项任务';second['title']='第二项任务'
+        draft['tasks'].append(second);self.drafts[rid]=json.dumps(draft)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            run=self.start();jobs.wait_for_jobs(app.DB)
+        result=self.until(run['run_id'],lambda r:r['state']=='succeeded')
+        self.assertEqual(len(result['records']),1)
+        self.assertEqual(result['counts']['added'],2)
+        receipts=result['records'][0]['added_items']
+        self.assertEqual({item['label'] for item in receipts},{'第一项任务','第二项任务'})
+        workspace=self.call('/workspace')[1]
+        with app.connection() as db:
+            raw=json.loads(db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?',(run['run_id'],)).fetchone()[0])
+            for record in raw['records']:
+                record.pop('added_items');record.pop('review_items')
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(json.dumps(raw),run['run_id']))
+        app.initialize()
+        restored=self.call('/sources/sync-runs/'+run['run_id'])[1]
+        self.assertEqual(restored['records'][0]['added_items'],receipts)
+        self.assertEqual(self.call('/workspace')[1],workspace)
+        # Once saved, receipt names remain a historical snapshot after user edits.
+        with app.connection() as db:
+            tasks=json.loads(db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(self.uid,)).fetchone()[0])
+            tasks[0]['title']='用户后来修改的名字'
+            db.execute('UPDATE workspace SET value=? WHERE user_id=? AND name="tasks"',(json.dumps(tasks),self.uid))
+        app.initialize()
+        self.assertEqual(self.call('/sources/sync-runs/'+run['run_id'])[1]['records'][0]['added_items'],receipts)
 
     def test_recovery_without_tasks_resolves_old_errors_after_quiet_receipt_expires(self):
         request,drafts=example();rid=request['records'][0]['record']['input_id']
@@ -368,6 +405,7 @@ class SourceJobsTests(unittest.TestCase):
         result=self.until(run['run_id'],lambda r:r['state']=='succeeded')
         self.assertEqual(result['counts']['updated'],1);self.assertEqual(result['counts']['added'],0)
         self.assertEqual(result['updated_tasks'][0]['task_id'],'existing')
+        self.assertEqual(result['updated_tasks'][0]['changed_fields'],['status'])
         self.assertEqual(len(self.call('/sources/sync-runs')[1]['runs']),1)
         self.assertTrue(self.call('/sources/sync-runs')[1]['last_check']['changed'])
 

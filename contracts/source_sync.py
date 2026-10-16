@@ -29,8 +29,15 @@ RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'typ
               'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})
 RECORD['properties'].update(review=COUNT, recovered={'type': 'boolean'})
-UPDATE = obj({'task_id': {'type': 'string'}, 'label': {'type': 'string', 'maxLength': 160},
+RESULT_ITEM = {'candidate_id': {'type': 'string', 'minLength': 1}, 'label': {'type': 'string', 'maxLength': 200},
+               'course': {'type': ['string', 'null']}}
+RECORD['properties'].update(
+    added_items={'type': 'array', 'items': obj(dict(RESULT_ITEM, task_id={'type': ['string', 'null']}))},
+    review_items={'type': 'array', 'items': obj(RESULT_ITEM)})
+UPDATE = obj({'task_id': {'type': 'string'}, 'label': {'type': 'string', 'maxLength': 200},
               'course': {'type': ['string', 'null']}})
+UPDATE['properties']['changed_fields'] = {'type': 'array', 'uniqueItems': True, 'items': {'enum': [
+    'title', 'description', 'course', 'due', 'status', 'completedAt', 'recycleBin', 'content_type']}}
 LAST_CHECK = obj({'run_id': ID, 'state': {'enum': list(FINAL)}, 'updated_at': {'type': 'string'},
                   'trigger': {'enum': ['manual', 'scheduled', 'retry']}, 'changed': {'type': 'boolean'}})
 SCHEMAS['run'] = obj({'contract_version': {'const': VERSION}, 'run_id': ID, 'operation_id': ID,
@@ -59,6 +66,11 @@ def check(kind, value):
         for run in value['runs']: check('run', run)
     if kind == 'run':
         records = value['records']
+        for record in records:
+            for field, count in (('added_items', record['added']), ('review_items', record.get('review', 0))):
+                if field in record and (len(record[field]) != count or
+                        len({item['candidate_id'] for item in record[field]}) != count):
+                    raise ValueError('同步结果名称与计数不一致')
         expected = {state: sum(r['state']==state for r in records) for state in ITEM_STATES}
         expected.update(total=len(records), skipped=value['skipped'], added=sum(r['added'] for r in records))
         if 'review' in value['counts']: expected['review'] = sum(r.get('review', 0) for r in records)

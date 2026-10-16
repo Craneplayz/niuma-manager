@@ -317,6 +317,12 @@ export function createImportUI(host) {
     isImportBusy: () => busy,
     render: refresh,
     onChanged: refreshResults,
+    openReview(id) {
+      const item = itemById(id);
+      if (blocked()) { host.toast("正在处理，请稍候"); return; }
+      if (item?.state === "pending") openReview(item);
+      else host.toast(item ? "这条内容已核对处理" : "这条待核对内容已不在当前列表中");
+    },
   });
   const syncIsActive = () => sourceSync.isBusy();
   const syncOwnsRequest = id => sourceSync.ownsRequest(id);

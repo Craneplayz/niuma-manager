@@ -9,6 +9,8 @@ const clone = value => structuredClone(value);
 const markup = ui => ui.renderProgress() + ui.renderHistory();
 const check = (name, fn) => test(name, {timeout: 3000}, fn);
 const button = (action, run, request) => ({dataset: {sourceSyncAction: action, sourceSyncRun: run, sourceSyncRequest: request}});
+const category = (ui, run, value) => ui.click({dataset: {sourceSyncAction: 'category', sourceSyncRun: run, sourceSyncCategory: value}});
+const problem = (ui, run, value) => ui.click({dataset: {sourceSyncAction: 'problem', sourceSyncRun: run, sourceSyncItem: String(value)}});
 function deferred() {
   let resolve, reject;
   const wait = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -272,6 +274,7 @@ check('single and batch retry select only the latest recoverable attempts', asyn
   child.parent_run_id = old.run_id;
   const f = fixture([child, old]); await f.ui.load();
   assert.match(markup(f.ui), /后续已恢复 1 条/); assert.match(markup(f.ui), /继续未完成 · 1/);
+  await category(f.ui, old.run_id, 'error'); await problem(f.ui, old.run_id, 1);
   assert.match(markup(f.ui), /data-source-sync-request="sync:1"/);
   assert.doesNotMatch(markup(f.ui), /data-source-sync-request="sync:0"|data-source-sync-request="sync:2"/);
   await f.ui.click(button('retry', old.run_id, 'sync:0')); assert.equal(f.posts().length, 0);
@@ -299,6 +302,7 @@ check('incomplete or changed sources offer recollection and configuration failur
   run.records[1].error = {code: 'source_changed', message: '来源变化', retryable: true};
   run.records[2].error = {code: 'model_configuration', message: '配置不可用', retryable: false};
   const f = fixture([run]); await f.ui.load();
+  await category(f.ui, run.run_id, 'error'); await problem(f.ui, run.run_id, 0);
   const html = markup(f.ui);
   assert.match(html, /data-source-sync-action="collect"/); assert.doesNotMatch(html, /data-source-sync-action="retry"/);
   assert.match(html, /重试识别不会补齐|修复模型配置/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
@@ -313,15 +317,15 @@ check('progress connection errors preserve active state and retry polling withou
   assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
 });
 
-check('history and detail expansion survive polling and clear on account reset', async () => {
+check('history and selected category survive polling and clear on account reset', async () => {
   const old = syncRun({id: 'run:older', state: 'failed', states: ['failed']}), newest = syncRun();
   old.records[0].request_id = 'older:source';
   const f = fixture([newest, old]); await f.ui.load();
   f.ui.toggle({target: {dataset: {sourceSyncHistory: ''}, open: true}});
-  f.ui.toggle({target: {dataset: {sourceSyncDetails: old.run_id}, open: false}});
+  await category(f.ui, old.run_id, 'error');
   await f.ui.load();
   assert.match(markup(f.ui), /data-source-sync-history open/);
-  assert.doesNotMatch(markup(f.ui), /data-source-sync-details="run:older" open/);
+  assert.match(markup(f.ui), /data-source-sync-category="error" aria-expanded="true"/);
   f.switchAccount(); assert.equal(f.ui.ownsRequest('older:source'), false); assert.equal(markup(f.ui), '');
 });
 
@@ -356,16 +360,45 @@ check('optional error formatting keeps technical recovery details folded', async
 check('history shows only added content, review candidates, updates and problems within a mixed run', async () => {
   const run = syncRun({states:['succeeded','succeeded','succeeded','failed'],state:'partial_success',added:1,skipped:52,updates:[{task_id:'existing',label:'<延期的报告>',course:'合成课程'}]});
   run.records[1].review=1;run.counts.review=1;
+  run.records[0].added_items=[{candidate_id:'created',task_id:'task',label:'实际新增的作业',course:null}];
+  run.records[1].review_items=[{candidate_id:'pending',label:'需要核对的作业',course:null}];
   const f=fixture([run]);await f.ui.load();
   const html=markup(f.ui);
-  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);assert.match(html,/更新 1 项/);assert.match(html,/失败 1 条/);
-  assert.match(html,/处理详情 · 4/);assert.match(html,/合成通知 0|合成通知 1|合成通知 3/);
-  assert.doesNotMatch(html,/合成通知 2|跳过|<延期的报告>/);assert.match(html,/&lt;延期的报告&gt;/);
+  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);assert.match(html,/更新 1 项/);assert.match(html,/错误 1 条/);
+  assert.doesNotMatch(html,/处理详情|candidate-row|实际新增的作业|需要核对的作业|延期的报告/);
+  await category(f.ui,run.run_id,'added');assert.match(markup(f.ui),/实际新增的作业/);assert.doesNotMatch(markup(f.ui),/需要核对的作业|合成通知/);
+  await category(f.ui,run.run_id,'review');assert.match(markup(f.ui),/需要核对的作业/);assert.doesNotMatch(markup(f.ui),/实际新增的作业/);
+  await category(f.ui,run.run_id,'updated');assert.match(markup(f.ui),/&lt;延期的报告&gt;/);assert.doesNotMatch(markup(f.ui),/<延期的报告>/);
+  await category(f.ui,run.run_id,'error');assert.match(markup(f.ui),/合成通知 3/);assert.doesNotMatch(markup(f.ui),/合成通知 2|跳过|合成通知 0|合成通知 1/);
+  await category(f.ui,run.run_id,'error');assert.doesNotMatch(markup(f.ui),/合成通知 3|sync-result-list/);
 });
 
 check('a run that only updates an existing task is still a useful result', async () => {
   const f=fixture([syncRun({states:[],updates:[{task_id:'task',label:'作业完成状态已同步',course:null}]})]);
   await f.ui.load();assert.match(f.ui.renderHistory(),/历史导入 · 1|更新 1 项|任务已更新/);
+});
+
+check('result names open their stable task or candidate identity and updates show actual changed fields', async () => {
+  const run=syncRun({added:2,review:1,updates:[{task_id:'updated',label:'更新的报告',course:null,changed_fields:['due','status']}]});
+  run.records[0].added_items=[{candidate_id:'a',task_id:'task:a',label:'<报告 A>',course:null},{candidate_id:'b',task_id:null,label:'已删除的报告',course:null}];
+  run.records[0].review_items=[{candidate_id:'pending:a',label:'核对报告',course:null}];
+  const f=fixture([run]), opened=[];f.host.openTask=id=>opened.push(['task',id]);f.host.openReview=id=>opened.push(['review',id]);
+  await f.ui.load();await category(f.ui,run.run_id,'added');
+  assert.match(markup(f.ui),/&lt;报告 A&gt;/);assert.doesNotMatch(markup(f.ui),/待核对 0|更新 0|错误 0|合成通知/);
+  for(const [action,id] of [['open-task','task:a'],['open-review','pending:a'],['open-task','updated'],['open-task','forged']])
+    await f.ui.click({dataset:{sourceSyncAction:action,sourceSyncRun:run.run_id,sourceSyncItem:id}});
+  assert.deepEqual(opened,[['task','task:a'],['review','pending:a'],['task','updated']]);
+  assert.equal(f.posts().length,0);assert.equal(f.messages.length,1);
+  await category(f.ui,run.run_id,'updated');assert.match(markup(f.ui),/日期、状态已更新/);
+  await category(f.ui,run.run_id,'added');await f.ui.load();assert.match(markup(f.ui),/&lt;报告 A&gt;/);
+  await category(f.ui,run.run_id,'added');assert.doesNotMatch(markup(f.ui),/报告 A/);
+});
+
+check('legacy names are not fabricated and inconsistent result receipts are rejected', async () => {
+  const run=syncRun({added:3});const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'added');
+  assert.match(markup(f.ui),/3 项旧记录未保存具体名称/);assert.doesNotMatch(markup(f.ui),/合成通知/);
+  run.records[0].added_items=[{candidate_id:'only',task_id:'task',label:'名称',course:null}];
+  f.setRuns([run]);assert.equal(await f.ui.load(),false);assert.match(markup(f.ui),/版本不匹配/);
 });
 
 check('quiet scheduled checks only update last-check status and never create a history row or toast', async () => {

@@ -173,6 +173,7 @@ def task_snapshot(db, uid):
 def task_updates(before, after):
     # Compare inside collection's write transaction, excluding concurrent user edits and source-only metadata.
     fields = ('title', 'description', 'course', 'due', 'status', 'completedAt', 'recycleBin', 'content_type')
-    return [dict(task_id=identity, label=str(task.get('title', '任务'))[:160], course=task.get('course'))
+    return [dict(task_id=identity, label=str(task.get('title', '任务'))[:200], course=task.get('course'),
+                 changed_fields=[field for field in fields if task.get(field) != before[identity].get(field)])
             for identity, task in after.items() if identity in before and
             any(task.get(field) != before[identity].get(field) for field in fields)]

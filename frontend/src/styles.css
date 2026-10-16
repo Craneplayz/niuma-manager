@@ -1577,7 +1577,23 @@ dialog p {
 .sync-run-status .status-note { font-size: 12px; }
 .sync-run-status progress { width: 120px; height: 4px; accent-color: var(--ink); }
 .sync-run-heading .candidate-actions { margin: 0; }
-.sync-run-current .import-history { margin: 12px 0 0; }
+.sync-categories { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.sync-category { border: 0; border-bottom: 1px solid transparent; padding: 5px 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.sync-category:hover, .sync-category[aria-expanded="true"] { color: var(--ink); border-bottom-color: currentColor; }
+.sync-category[aria-expanded="true"] { font-weight: 600; }
+.sync-results { margin-top: 10px; }
+.sync-result-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 2px 20px; margin: 0; padding: 0; list-style: none; }
+.sync-result-list li { min-width: 0; }
+.sync-result-name { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 32px; padding: 4px 0; border: 0; border-radius: 3px; background: none; color: var(--ink); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.sync-result-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-result-name small { flex-shrink: 0; color: var(--muted); font-size: 11px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-result-name:hover > span { text-decoration: underline; text-underline-offset: 3px; }
+.sync-category:focus-visible, .sync-result-name:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.sync-problem { margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--line); overflow-wrap: anywhere; font-size: 13px; }
+.sync-problem p { margin: 6px 0; }
+@media (max-width: 700px), (pointer: coarse) {
+  .sync-category, .sync-result-name { min-height: 44px; }
+}
 .import-results {
   border-top: 1px solid var(--line);
   padding-top: 24px;

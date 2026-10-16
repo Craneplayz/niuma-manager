@@ -102,6 +102,10 @@ const host = {
   closeDialog,
   isDialogOpen: selector => dialog.open && Boolean(dialog.querySelector(selector)),
   refresh,
+  openTask(id) {
+    if (state.tasks.some(task => task.id === id && !task.recycleBin)) openTask(id);
+    else toast("这条任务或通知已不在当前列表中");
+  },
   getState: () => state,
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",

@@ -46,5 +46,17 @@ class SourceSyncContractTests(unittest.TestCase):
             value=deepcopy(EXAMPLES['run']);value['counts'][name]+=1
             with self.assertRaises(ValueError):check('run',value)
 
+    def test_optional_named_results_must_match_counts_and_have_unique_candidate_identities(self):
+        value=deepcopy(EXAMPLES['run'])
+        record=value['records'][0]
+        record['added_items']=[dict(candidate_id='created',task_id='task',label='实际任务',course=None)]
+        record['added']=1;value['counts']['added']=sum(item['added'] for item in value['records'])
+        check('run',value)
+        record['added_items']=[]
+        with self.assertRaises(ValueError):check('run',value)
+        record['added']=2;value['counts']['added']+=1
+        record['added_items']=[dict(candidate_id='same',task_id=None,label='重复',course=None)]*2
+        with self.assertRaises(ValueError):check('run',value)
+
 
 if __name__=='__main__':unittest.main()

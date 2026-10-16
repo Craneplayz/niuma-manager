@@ -18,6 +18,11 @@ const needsCollection = (record) => record.state === "incomplete" || record.erro
 const retryable = (record) => !record.recovered && !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
 const usefulRecord = record => record.added > 0 || record.review > 0 || ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
 const usefulRun = run => Boolean(run.error || ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
+const validItems = (items, count, added = false) => items === undefined || Array.isArray(items) && items.length === count &&
+  new Set(items.map(item => item?.candidate_id)).size === count && items.every(item => item &&
+    typeof item.candidate_id === "string" && item.candidate_id && typeof item.label === "string" &&
+    (item.course == null || typeof item.course === "string") && (!added || item.task_id === null || typeof item.task_id === "string"));
+const UPDATE_FIELDS = { title: "名称", description: "说明", course: "课程", due: "日期", status: "状态", completedAt: "完成时间", recycleBin: "回收状态", content_type: "内容类型" };
 
 function checkRun(run) {
   if (run?.contract_version !== VERSION || !/^[A-Za-z0-9_.:-]{1,160}$/.test(run.run_id || "") ||
@@ -25,9 +30,11 @@ function checkRun(run) {
       !Array.isArray(run.records) || !run.counts || run.records.some((record) =>
         typeof record.request_id !== "string" || !record.request_id || !STATES.includes(record.state) ||
         record.review !== undefined && (!Number.isInteger(record.review) || record.review < 0) ||
-        record.recovered !== undefined && typeof record.recovered !== "boolean") ||
+        record.recovered !== undefined && typeof record.recovered !== "boolean" ||
+        !validItems(record.added_items, record.added, true) || !validItems(record.review_items, record.review || 0)) ||
       run.updated_tasks !== undefined && (!Array.isArray(run.updated_tasks) || run.updated_tasks.some(task =>
-        typeof task.task_id !== "string" || typeof task.label !== "string" || task.course != null && typeof task.course !== "string"))) {
+        typeof task.task_id !== "string" || typeof task.label !== "string" || task.course != null && typeof task.course !== "string" ||
+        task.changed_fields !== undefined && (!Array.isArray(task.changed_fields) || task.changed_fields.some(field => !Object.hasOwn(UPDATE_FIELDS, field)))))) {
     throw new Error("导入服务版本不匹配，请刷新或更新服务。");
   }
   const expected = Object.fromEntries(STATES.map((state) => [state, run.records.filter((record) => record.state === state).length]));
@@ -61,7 +68,7 @@ export function createSourceSyncUI(host) {
   let account = host.accountVersion(), readController = null, writeController = null;
   let renderedWhileLoading = false;
   let pendingOperation = null, consumed = null, showHistory = false, focusedRun = null, actionInFlight = null;
-  const details = new Map();
+  const categories = new Map(), selectedProblems = new Map();
   let lastCheck = null;
   const manualRuns = new Set(), announced = new Set();
   const active = () => runs.some((run) => ACTIVE.has(run.state));
@@ -85,7 +92,7 @@ export function createSourceSyncUI(host) {
     account = host.accountVersion();
     runs = []; loaded = writing = refreshing = false;
     error = null; pendingOperation = consumed = focusedRun = actionInFlight = null;
-    showHistory = false; details.clear();
+    showHistory = false; categories.clear(); selectedProblems.clear();
     lastCheck = null; manualRuns.clear(); announced.clear();
   }
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
@@ -267,25 +274,59 @@ export function createSourceSyncUI(host) {
     if (record.error?.code === "agent_timeout") return "识别超时，可稍后重试。";
     return retryable(record) ? "识别暂时失败，可重试。" : "请检查服务后重新获取来源。";
   }
-  function recordMarkup(record, run, latest) {
-    const newest = latest.get(record.request_id), superseded = newest?.run !== run;
-    const problem = !superseded && !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
-    const outcome = [record.added ? `新增 ${record.added} 项` : "", record.review ? `待核对 ${record.review} 项` : ""].filter(Boolean).join(" · ") || RECORD_LABELS[record.state];
-    return `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(record.label)}</h3><p class="status-note">${esc([record.course, record.recovered ? "后续已恢复" : outcome].filter(Boolean).join(" · "))}${superseded ? " · 后续" + esc(RECORD_LABELS[newest.record.state]) : ""}</p>${problem ? errorMarkup(report(record.error, guidance(record))) : ""}</div>${problem && !ACTIVE.has(run.state) && retryable(record) ? `<div class="candidate-actions"><button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${isBusy() || host.isImportBusy() ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button></div>` : ""}</div>`;
+  function problemsFor(run) {
+    const problems = run.records.filter(record => ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state));
+    if (run.error && !problems.some(record => record.error?.code === run.error.code && record.error?.message === run.error.message))
+      problems.push({ label: "本轮导入", error: run.error, state: "failed" });
+    return problems;
+  }
+  function resultItems(run, category) {
+    if (category === "updated") return { items: run.updated_tasks || [], missing: 0 };
+    if (category === "error") return { items: problemsFor(run), missing: 0 };
+    const field = category === "added" ? "added_items" : "review_items";
+    let missing = 0;
+    const items = run.records.flatMap(record => {
+      if (!record[field]) missing += record[category] || 0;
+      return record[field] || [];
+    });
+    return { items, missing };
+  }
+  function problemMarkup(record, run, latest) {
+    const newest = record.request_id && latest.get(record.request_id);
+    const superseded = newest && newest.run !== run;
+    const recovered = record.recovered || superseded && newest.record.state === "succeeded";
+    const blocked = isBusy() || host.isImportBusy();
+    const formatted = report(record.error, guidance(record));
+    const message = recovered ? "后续已恢复。" : superseded ? `后续${RECORD_LABELS[newest.record.state]}。` : record.error?.message || guidance(record);
+    return `<div class="sync-problem" role="region" aria-label="${esc(record.label)}的处理情况"><strong>${esc(record.label)}</strong><p class="${recovered || superseded ? "status-note" : "error"}">${esc(message)}</p>${!recovered && !superseded ? `<p class="status-note">${esc(guidance(record))}</p>${formatted.details ? `<p class="status-note">${esc(formatted.details)}</p>` : ""}${!ACTIVE.has(run.state) && retryable(record) && record.request_id ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${blocked ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button>` : ""}` : ""}</div>`;
+  }
+  function resultMarkup(run, category, latest) {
+    const { items, missing } = resultItems(run, category);
+    const list = items.map((item, index) => {
+      const action = category === "error" ? "problem" : category === "review" ? "open-review" : "open-task";
+      const identity = category === "error" ? String(index) : category === "review" ? item.candidate_id : item.task_id;
+      const changes = category === "updated" ? [...new Set((item.changed_fields || []).map(field => UPDATE_FIELDS[field]))].join("、") : "";
+      const note = changes ? `${changes}已更新` : category === "error" && item.recovered ? "已恢复" : "";
+      const title = [item.label, item.course, note].filter(Boolean).join(" · ");
+      return `<li><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}><span>${esc(item.label)}</span>${note ? `<small>${esc(note)}</small>` : ""}</button></li>`;
+    }).join("");
+    const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
+    return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"更新",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
   }
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts, done = counts.total - counts.queued - counts.running;
-    const records = run.records.filter((record) => latest.get(record.request_id)?.run === run);
-    const pending = records.filter(retryable), problems = records.filter((record) => !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state));
-    const recovered = run.records.filter((record) => record.recovered || record.state !== "succeeded" && latest.get(record.request_id)?.run !== run && latest.get(record.request_id)?.record.state === "succeeded").length;
+    const records = run.records.filter(record => latest.get(record.request_id)?.run === run);
+    const pending = records.filter(retryable);
+    const recovered = run.records.filter(record => record.recovered || record.state !== "succeeded" && latest.get(record.request_id)?.run !== run && latest.get(record.request_id)?.record.state === "succeeded").length;
     const recollect = records.some(needsCollection) || Boolean(run.error) || !records.length && ["stopped", "interrupted"].includes(run.state);
     const blocked = isBusy() || host.isImportBusy();
-    const summary = [ACTIVE.has(run.state) && counts.total ? `已处理 ${done} / ${counts.total}` : "", counts.added ? `新增 ${counts.added} 项` : "", counts.review ? `待核对 ${counts.review} 项` : "", counts.updated ? `更新 ${counts.updated} 项` : "", problems.some(r => r.state === "failed") ? `失败 ${problems.filter(r => r.state === "failed").length} 条` : "", counts.incomplete ? `待补全 ${counts.incomplete} 条` : ""].filter(Boolean).join(" · ");
-    const shown = run.records.filter(usefulRecord);
-    const updates = (run.updated_tasks || []).map(task => `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(task.label)}</h3><p class="status-note">${esc([task.course, "任务已更新"].filter(Boolean).join(" · "))}</p></div></div>`).join("");
+    const groups = [["added", "新增", counts.added, "项"], ["review", "待核对", counts.review, "项"], ["updated", "更新", counts.updated, "项"], ["error", "错误", problemsFor(run).length, "条"]].filter(([, , count]) => count > 0);
+    const selected = categories.get(run.run_id);
+    const category = groups.some(([key]) => key === selected) ? selected : null;
+    const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${label} ${count} ${unit}</button>`).join("");
     const progress = ACTIVE.has(run.state) ? `<progress ${counts.total && run.state !== "crawling" ? `max="${counts.total}" value="${done}"` : ""} aria-label="${esc(counts.total ? `已处理 ${done} / ${counts.total} 条通知` : LABELS[run.state])}"></progress>` : "";
     const actions = ACTIVE.has(run.state) ? "" : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`;
-    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(LABELS[run.state])}</strong>${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${shown.length || updates ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${shown.length + (run.updated_tasks?.length || 0)}</summary>${shown.map((record) => recordMarkup(record, run, latest)).join("")}${updates}</details>` : ""}</article>`;
+    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status"><strong role="status">${esc(LABELS[run.state])}</strong>${ACTIVE.has(run.state) && counts.total ? `<span class="status-note">已处理 ${done} / ${counts.total}</span>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
@@ -309,6 +350,33 @@ export function createSourceSyncUI(host) {
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;
     if (!action) return false;
+    if (["category", "problem", "open-task", "open-review"].includes(action)) {
+      syncAccount();
+      const run = runs.find(item => item.run_id === data.sourceSyncRun);
+      if (!run) return true;
+      if (action === "category") {
+        const category = data.sourceSyncCategory;
+        if (!["added", "review", "updated", "error"].includes(category) || !resultItems(run, category).items.length && !resultItems(run, category).missing) return true;
+        categories.set(run.run_id, categories.get(run.run_id) === category ? null : category);
+        selectedProblems.delete(run.run_id);
+        redraw();
+      } else if (action === "problem") {
+        const index = Number(data.sourceSyncItem);
+        const record = problemsFor(run)[index];
+        if (!record) return true;
+        const identity = record.request_id || "run";
+        selectedProblems.set(run.run_id, selectedProblems.get(run.run_id) === identity ? null : identity);
+        redraw();
+      } else if (action === "open-task") {
+        const item = [...resultItems(run, "added").items, ...(run.updated_tasks || [])].find(item => item.task_id && item.task_id === data.sourceSyncItem);
+        if (item) host.openTask?.(item.task_id);
+        else host.toast?.("这条任务或通知已不在当前列表中");
+      } else {
+        const item = resultItems(run, "review").items.find(item => item.candidate_id === data.sourceSyncItem);
+        if (item) await host.openReview?.(item.candidate_id);
+      }
+      return true;
+    }
     if (action === "refresh") await load();
     else if (action === "collect") await start();
     else if (action === "retry") await act(action, data.sourceSyncRun, data.sourceSyncRequest ? [data.sourceSyncRequest] : null);
@@ -318,7 +386,6 @@ export function createSourceSyncUI(host) {
     const target = event.target;
     if (target?.isConnected === false) return false;
     if (target?.dataset?.sourceSyncHistory !== undefined) { showHistory = target.open; return true; }
-    if (target?.dataset?.sourceSyncDetails) { details.set(target.dataset.sourceSyncDetails, target.open); return true; }
     return false;
   }
   function setVisible(value) {

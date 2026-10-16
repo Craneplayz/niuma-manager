@@ -64,6 +64,11 @@ def initialize(db, recover=True):
             run['revision'] += 1
             db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(run), run['run_id']))
             remember_check(db, run)
+        # Backfill names only when stable candidate/task identities reconcile the
+        # historical count. Never turn one source label into several task names.
+        if run['state'] in contract.FINAL and backfill_items(db, run):
+            run['revision'] += 1
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(run), run['run_id']))
     prune_quiet(db)
     if recover:
         for row in db.execute("SELECT * FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchall():
@@ -90,16 +95,46 @@ def counts(run):
     return result
 
 
-def review_count(db, uid, request_id):
+def review_items(db, uid, request_id):
     batch = db.execute('SELECT request,result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
-    if not batch: return 0
+    if not batch: return []
     request, result = json.loads(batch['request']), json.loads(batch['result'])
     cards = None
     if request.get('contract_version') == '0.4':
         projected = teaching.submission.project_result(db, uid, request_id, teaching.result_view(request, result))
         cards = {card['candidate_id'] for card in projected['tasks']}
-    return sum(cards is None or json.loads(row['candidate'])['candidate_id'] in cards for row in db.execute(
-        'SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending"', (uid, request_id)))
+    return [dict(candidate_id=row['id'], label=card['title'][:200], course=card.get('course_or_project'))
+            for row in db.execute('SELECT id,candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending"', (uid, request_id))
+            for card in [json.loads(row['candidate'])] if cards is None or card['candidate_id'] in cards]
+
+
+def added_items(db, uid, request_id, candidate_ids=None):
+    tasks = source_sync.task_snapshot(db, uid).values()
+    targets = {entry.get('storageId'): task for task in tasks for entry in task.get('recognitionHistory', [])
+               if entry.get('requestId') == request_id and entry.get('action') == 'create'}
+    result = []
+    for row in db.execute('SELECT id,candidate,resolution FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="applied"', (uid, request_id)):
+        resolution = json.loads(row['resolution'] or '{}')
+        if candidate_ids is not None and row['id'] not in candidate_ids: continue
+        if resolution.get('action') != 'create' or resolution.get('auto_apply') is not True: continue
+        card, task = json.loads(row['candidate']), targets.get(row['id'])
+        result.append(dict(candidate_id=row['id'], task_id=task['id'] if task else None,
+                           label=str(task['title'] if task else card['title'])[:200],
+                           course=task.get('course') if task else card.get('course_or_project')))
+    return result
+
+
+def backfill_items(db, run):
+    changed = False
+    for item in run['records']:
+        for key, count, values in (
+            ('added_items', item['added'], added_items), ('review_items', item.get('review', 0), review_items)):
+            if key in item: continue
+            receipts = values(db, run['user_id'], item['request_id']) if count else []
+            if len(receipts) == count:
+                item[key] = receipts
+                changed = True
+    return changed
 
 
 def useful_record(item):
@@ -125,7 +160,8 @@ def compact(db, run):
                 db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(older), row['run_id']))
     for item in run['records']:
         if 'review' not in item or item['state'] == 'succeeded':
-            item['review'] = review_count(db, run['user_id'], item['request_id'])
+            item['review_items'] = review_items(db, run['user_id'], item['request_id'])
+            item['review'] = len(item['review_items'])
     run['records'] = [item for item in run['records'] if useful_record(item)]
     run['skipped'] = 0
     if not useful_run(run):
@@ -205,7 +241,7 @@ def retry_records(db, uid, old, selection, ApiError):
         except ApiError as exc:
             if exc.status==409: continue  # removed, replaced or already submitted
             raise
-        item = deepcopy(original); item.update(state='queued', added=0, error=None, seconds=None)
+        item = deepcopy(original); item.update(state='queued', added=0, review=0, added_items=[], review_items=[], error=None, seconds=None)
         records.append(item)
     if not records: raise ApiError(409, '所选记录已恢复、来源已变化或不可重试；请刷新进度，需要补全内容时重新获取来源')
     return records
@@ -293,15 +329,15 @@ def cancelled(path, uid, run_id, ApiError):
 def auto_apply(db, uid, request_id, ApiError):
     batch = db.execute('SELECT request,demo FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
     request = json.loads(batch['request'])
-    added = 0
+    applied = set()
     for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1', (uid, request_id)).fetchall():
         candidate = json.loads(item['candidate'])
         if not recognition.can_auto_apply(candidate, request, batch['demo']): continue
         # Same submission/ownership/user-decision checks as the interactive endpoint.
         if teaching.submission.review_reason(teaching.submission.for_request(db, uid, request_id)): continue
         recognition.resolve_candidate(db, uid, item['id'], dict(action='create', auto_apply=True, version=1), ApiError)
-        added += 1
-    return added
+        applied.add(item['id'])
+    return added_items(db, uid, request_id, applied)
 
 
 def process_record(path, uid, run_id, request_id, ApiError):
@@ -324,7 +360,10 @@ def process_record(path, uid, run_id, request_id, ApiError):
             if teaching.needs_source_completion(result):
                 item.update(state='incomplete', error=error('source_incomplete', '来源尚未完整取得，请重新获取来源或查看原文。'))
             elif result['status'] in ('success', 'no_tasks'):
-                item.update(state='succeeded', added=auto_apply(db, uid, request_id, ApiError), error=None)
+                receipts = auto_apply(db, uid, request_id, ApiError)
+                review = review_items(db, uid, request_id)
+                item.update(state='succeeded', added=len(receipts), added_items=receipts,
+                            review=len(review), review_items=review, error=None)
             else:
                 failure = next((r.get('error') for r in result['record_results'] if r.get('error')), {})
                 item.update(state='failed', error=error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)))
