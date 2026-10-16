@@ -12,8 +12,8 @@ test('submission controls show all actions and use current snapshot/revision and
  globalThis.fetch=async(path,opts={})=>{
   if(opts.body){writes.push(JSON.parse(opts.body));if(lost){lost=false;throw Error('lost');}return response({});}
   if(path.endsWith('/credentials'))return response({source_account_id:'source:teaching'});
+  if(path.includes('/source?'))return response({records:[{text:'整份合成原文',text_quality:'complete',source_url:null,upstream_hints:{references:[]}}]});
   if(path.includes('?'))return response({records:[Object.fromEntries(['record_id','label','course_or_project'].map(key=>[key,sample.record[key]]))],next_cursor:null});
-  if(path.endsWith('/source'))return response({records:[{text:'整份合成原文',text_quality:'complete',source_url:null,upstream_hints:{references:[]}}]});
   return response(sample.record);
  };
  const ui=createSubmissionsUI({escapeHtml:s=>String(s??''),render(){},isDemo:()=>false,openDialog:html=>{dialog=html;},closeDialog(){dialog="";},refresh:async()=>changed++});t.after(()=>ui.reset());
@@ -33,7 +33,7 @@ test('submission controls show all actions and use current snapshot/revision and
 test('a delayed detail read cannot reopen a dismissed dialog',async t=>{
  session.user={id:'synthetic'};let release,opens=0;
  const gate=new Promise(resolve=>release=resolve);t.after(release);
- globalThis.fetch=async path=>{await gate;return response(path.endsWith('/source')?{records:[]}:sample.record);};
+ globalThis.fetch=async path=>{await gate;return response(path.includes('/source?')?{records:[]}:sample.record);};
  const ui=createSubmissionsUI({escapeHtml:String,render(){},isDemo:()=>false,openDialog(){opens++;},closeDialog(){},refresh:async()=>{}});t.after(()=>ui.reset());
  const reading=ui.click({dataset:{submissionAction:'detail',record:sample.record.record_id}});
  await new Promise(resolve=>setImmediate(resolve));
@@ -66,4 +66,26 @@ test('a failed directory read waits for an explicit retry instead of a toggle lo
  ui.toggle(event);await new Promise(resolve=>setImmediate(resolve));
  assert.equal(reads,1);assert.match(ui.render(),/请先同步教学网/);
  await ui.click({dataset:{submissionAction:'load'}});assert.equal(reads,2);
+});
+
+test('source updates between reads cannot authorize unseen content',async t=>{
+ session.user={id:'synthetic'};let dialog='',changed=true,writes=0;const paths=[];
+ globalThis.fetch=async(path,opts={})=>{
+  paths.push(path);if(opts.body){writes++;return response({});}
+  if(path.includes('/source?') || path.endsWith('/source')){
+   const params=new URL(path,'http://local.test').searchParams;
+   assert.equal(params.get('expected_snapshot_id'),sample.record.observation.snapshot.snapshot_id);
+   assert.equal(params.get('expected_control_revision'),String(sample.record.observation.control_revision));
+   if(changed)return {ok:false,status:409,json:async()=>({error:'来源或操作版本已变化，请重新打开作业核对'})};
+   return response({records:[{text:'完整的新原文含独立阅读',text_quality:'complete',upstream_hints:{references:[]}}]});
+  }
+  return response(sample.record);
+ };
+ const ui=createSubmissionsUI({escapeHtml:String,render(){},isDemo:()=>false,openDialog:html=>dialog=html,closeDialog(){},refresh:async()=>{}});t.after(()=>ui.reset());
+ await ui.click({dataset:{submissionAction:'detail',record:sample.record.record_id}});
+ assert.equal(paths.length,2);assert.match(paths[1],/expected_snapshot_id=/);
+ assert.match(dialog,/版本已变化/);assert.doesNotMatch(dialog,/data-submission-action="associate_actions"/);
+ await ui.click({dataset:{submissionAction:'associate_actions'}});assert.equal(writes,0);
+ changed=false;await ui.click({dataset:{submissionAction:'detail',record:sample.record.record_id}});
+ assert.match(dialog,/完整的新原文含独立阅读/);assert.match(dialog,/data-submission-action="associate_actions"/);
 });

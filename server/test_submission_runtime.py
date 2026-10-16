@@ -10,7 +10,7 @@ import teaching
 import test_teaching
 from urllib.request import Request
 from urllib.error import HTTPError
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from contracts import submission_operations as ops
 
 
@@ -45,6 +45,44 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         body=self.operation(detail,scope='submission_only',links=[dict(action_id=a['action_id'],relation='assignment_submission') for a in detail['observation']['actions']])
         status,out=self.apply(body);self.assertEqual(status,201,out);ops.check('receipt',out)
         return out,body
+
+    def test_runtime_completion_date_uses_shanghai_day(self):
+        view=self.sync_native(self.native_capture('active'))['requests'][0]
+        candidate=self.run_request(view)['items'][0]
+        self.assertEqual(self.call('/recognition/candidates/'+candidate['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.link_all(self.details())
+        class Clock(datetime):
+            @classmethod
+            def now(cls,tz=None):
+                return datetime(2026,10,10,17,30,tzinfo=timezone.utc).astimezone(tz)
+        with patch('submission_runtime.datetime',Clock):
+            self.sync_native(self.native_capture('submitted','2026-10-11T01:30:00+08:00'))
+        task=self.call('/workspace')[1]['tasks']['value'][0]
+        self.assertEqual(task['status'],'completed')
+        self.assertEqual(task['completedAt'],'2026-10-11')
+
+    def test_runtime_source_read_rejects_changed_snapshot_or_controls(self):
+        self.sync_native(self.native_capture('submitted'))
+        detail=self.details()
+        def source_url(current):
+            obs=current['observation']
+            return '/sources/submissions/'+quote(current['record_id'],safe='')+'/source?'+urlencode(dict(
+                expected_snapshot_id=obs['snapshot']['snapshot_id'],expected_control_revision=obs['control_revision']))
+        original_url=source_url(detail)
+        self.assertEqual(self.call(original_url)[0],200)
+        capture=self.native_capture('submitted','2026-10-10T11:00:00+08:00')
+        capture['request']['records'][0]['record']['text']+=' 新增独立阅读要求。'
+        self.sync_native(capture)
+        self.assertEqual(self.call(original_url)[0],409)
+        stale=self.operation(detail,scope='submission_only',links=[])
+        self.assertEqual(self.apply(stale)[0],409)
+        current=self.details();updated_url=source_url(current)
+        code,source=self.call(updated_url)
+        self.assertEqual(code,200)
+        self.assertIn('新增独立阅读要求',source['records'][0]['text'])
+        self.assertEqual(self.apply(self.operation(current,scope='mixed',links=[]))[0],201)
+        self.assertEqual(self.call(updated_url)[0],409)
+        self.assertTrue(self.sync_native(capture)['requests'])
 
     def test_runtime_completed_task_releases_future_plans_and_manual_reopen_pauses(self):
         view=self.sync_native(self.native_capture('active'))['requests'][0]

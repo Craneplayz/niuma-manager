@@ -10,12 +10,14 @@
 | --- | --- | --- |
 | GET `/api/sources/submissions?source_account_id=...&cursor=...` | directory | 必填账号内 source_account_id，cursor 可省略；每页最多 100 条受控教学网作业记录，不限于已生成任务的记录。 |
 | GET `/api/sources/submissions/{record_id}` | detail | 返回当前快照、控制版本、范围和所有永久行动及显示标题。 |
-| GET `/api/sources/submissions/{record_id}/source` | teaching-workspace/0.1 请求展示根 | 当前账号的完整已保存正文与引用，供整份范围核对；未读取部分明确标注。 |
+| GET `/api/sources/submissions/{record_id}/source` | teaching-workspace/0.1 请求展示根 | 当前账号的完整已保存正文与引用；用于关联确认时携带详情中的 `expected_snapshot_id`、`expected_control_revision` 查询参数，任一版本不符返回 409。未读取部分明确标注。 |
 | POST `/api/sources/submissions/{record_id}/operations` | operation → receipt | 原子应用显式用户操作，首次成功 201，同一请求重放 200。 |
 
 record_id 是服务器分配的稳定、不透明 ID；既有 input_id 原样保存在 observation.snapshot 中，不能截短、trim、拼进路由或按标题猜测。record_id 绑定登录用户、source_account_id、input_id、course_id、content_id；详情与操作都须再次按用户查询全部行动。跨账号资源和不存在资源均返回 404，分页游标也必须绑定登录用户与来源账号，不能从另一账号延续。
 
 detail.observation 复用内部根，仅用于显示；客户端操作不得携带 state、basis、sequence、link_basis、完成状态、verified_digest 或 actor，也不能回传整个详情授权自动完成。action_labels 与 observation.actions 必须一一对应，课程名未知时 course_or_project=null；界面需结合已有来源原文查看入口显示完整来源与所有行动，不能只显示用户选中的部分。
+
+关联界面先读取 detail，再使用其中两个版本字段条件读取 source；服务端在同一事务中比较版本并读取原文。发生 409 时丢弃本次详情，重新打开核对，不允许用新版版本配旧原文继续保存。无查询参数的 source 读取保留为只读兼容接口，不能作为关联确认依据；来源在读取后再次更新时由 POST 的版本检查拒绝陈旧确认。
 
 每个信封规范 JSON UTF-8 至多 250 KB，其中 observation 沿用 200 KB 上限；最多 100 个行动，显示标题至多 512 字符且无控制字符。服务端请求读入即限制体积，超限返回 400，不静默截短 input_id、丢弃行动或分页后冒充整份来源；无法完整提供来源/行动时不开放整份 submission_only 确认。
 
@@ -41,6 +43,7 @@ associate_actions 必须覆盖当前记录全部行动，每个 action_id 恰好
 5. 新采集的 snapshot_id/sequence 由服务端生成；普通重复采集可保留已审计的永久行动关系，但正文或附件集合变化时，不能直接沿用此前人工确认的整份 submission_only 范围。课程/作业身份变化必须分配新 record_id，不迁移旧行动关系；原记录的手动暂停和 review_pending 始终保留，新的或无法精确对应的行动保持 unknown；所有影响控制或行动选择的变化须推进控制版本。
 6. 本接口只修改控制与关联；下次受控来源观察再按内部 decide 规则处理 submitted，不得将客户端确认变成 submitted 事实。来源流程须读取新控制版本，不能被“正文未改变”的识别缓存跳过；结果落库也须比较快照和控制版本，防止迟到识别覆盖用户操作。
 7. 后端真正执行自动完成时，与任务完成状态、未来规划释放和旧提案失效在同一事务中提交；保留历史安排。候选退出活动区须保存审计，不等于删除来源缓存。
+8. 教学网自动完成的 `completedAt` 使用北京时间的业务日期，审计时刻及规划比较仍使用 UTC 时刻。
 
 400 invalid_request：格式、路径/正文不符、重复/缺失/未知行动或当前状态不允许操作；401 unauthorized：未登录；404 not_found：账号/记录不可访问；409 conflict：同幂等键不同请求、快照/控制版本过期；503 unavailable：事务或服务暂不可用。错误文本不包含私密原文、其他账号标识或内部异常；重试 503 沿用原 operation_id，409 刷新后由用户重新确认并使用新 operation_id。
 

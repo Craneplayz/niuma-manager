@@ -32,7 +32,14 @@ export function createSubmissionsUI(host) {
     return result;
   }
   async function read(id, current) {
-    const [next, original] = await Promise.all([api(API + "/" + encodeURIComponent(id)), api(API + "/" + encodeURIComponent(id) + "/source")]);
+    detail = source = null; operation = null;
+    const path = API + "/" + encodeURIComponent(id);
+    const next = await api(path);
+    if (!current()) return;
+    const observation = next.observation;
+    const expected = new URLSearchParams({expected_snapshot_id: observation.snapshot.snapshot_id,
+      expected_control_revision: String(observation.control_revision)});
+    const original = await api(path + "/source?" + expected);
     if (!current()) return;
     detail = next; source = original; scope = next.observation.scope;
     links = Object.fromEntries(next.observation.actions.map(action => [action.action_id, action.relation]));

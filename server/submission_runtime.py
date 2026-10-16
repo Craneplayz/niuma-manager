@@ -5,12 +5,13 @@ import secrets
 import re
 from jsonschema import ValidationError
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit, parse_qs, unquote
 
 from contracts import submission_policy as policy, submission_operations as operations
 
 BASES = {'submitted': 'review_submission_history_title', 'active': 'active_assignment_page', 'unknown': 'unknown'}
+TEACHING_TIMEZONE = timezone(timedelta(hours=8))
 
 
 class ActionLimitError(ValueError):
@@ -160,7 +161,7 @@ def observe(db, uid, account, record, assignment, previous, *, source=None, asse
     tasks, version=workspace(db,uid); changed=False; now=datetime.now(timezone.utc)
     for aid in decision['complete_action_ids']:
         task=next(t for t in tasks if t['id']==refs[aid]);task['status']='completed'
-        task['completedAt']=now.date().isoformat()
+        task['completedAt']=now.astimezone(TEACHING_TIMEZONE).date().isoformat()
         kept=[]
         for plan in task.get('plans',[]):
             try: future=datetime.fromisoformat(plan['startAt'].replace('Z','+00:00'))>now
@@ -250,6 +251,12 @@ def route(handler,db,uid,path,body,ApiError):
     if path==root+'/'+rid and handler.command=='GET':handler.reply(200,detail);return True
     if path==root+'/'+rid+'/source' and handler.command=='GET':
         from teaching import request_view
+        args=parse_qs(urlsplit(handler.path).query,keep_blank_values=True)
+        if 'expected_snapshot_id' in args or 'expected_control_revision' in args:
+            obs=detail['observation']
+            if (args.get('expected_snapshot_id') != [obs['snapshot']['snapshot_id']] or
+                    args.get('expected_control_revision') != [str(obs['control_revision'])]):
+                raise ApiError(409,'来源或操作版本已变化，请重新打开作业核对')
         saved=db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',(uid,account,row['input_id'])).fetchone()
         if not saved:raise ApiError(404,'来源原文已移除')
         handler.reply(200,request_view(json.loads(saved['request'])));return True
