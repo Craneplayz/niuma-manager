@@ -3,7 +3,7 @@ import { icon } from "./icons.js";
 // Resolve receipt names against the current workspace; receipt totals stay historical.
 export function importResultStatus(item, category, host) {
   if (category === "error") return item.recovered
-    ? { label: "已恢复", tone: "success" } : { label: "错误", tone: "error" };
+    ? { label: "已恢复", tone: "muted" } : { label: "错误", tone: "error" };
   const state = host.getState?.() || {};
   const matches = task => item.task_id && task.id === item.task_id || item.candidate_id &&
     (task.recognitionHistory || []).some(event => event.storageId === item.candidate_id);
@@ -23,4 +23,11 @@ export function importResultStatus(item, category, host) {
 
 export function importStatusMarkup(status) {
   return `<small class="sync-item-status sync-item-status-${status.tone}">${status.icon === "trash" ? icon("trash") : ""}${status.label}</small>`;
+}
+
+export function importErrorSummaryMarkup(items) {
+  const recovered = items.filter(item => item.recovered).length;
+  const all = recovered === items.length;
+  const status = recovered ? `<span class="sync-error-summary-${all ? "success" : "review"}">${all ? "全部已恢复" : `部分已恢复 ${recovered} / ${items.length}`}</span>` : "";
+  return `<span class="sync-error-count-${all ? "muted" : "error"}">错误 ${items.length} 条</span>${status ? ` · ${status}` : ""}`;
 }

@@ -646,6 +646,99 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(listing['runs'][1]['counts']['updated'],1);self.assertEqual(listing['runs'][1]['state'],'succeeded')
         self.assertEqual(self.call('/sources/sync-runs/'+ids[0])[0],200)
 
+    def test_full_collection_recovers_old_connection_error_even_when_recognition_fails(self):
+        request,_=example()
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout='')):
+            first=self.start('collection:failure');jobs.wait_for_jobs(app.DB)
+        old=self.until(first['run_id'],lambda r:r['state']=='failed')
+        self.assertEqual(old['records'],[]);self.assertEqual(old['error']['code'],'collection_failed')
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(502,'合成模型失败')):
+            later=self.start('collection:connected');jobs.wait_for_jobs(app.DB)
+        raw=self.call('/sources/sync-runs/'+first['run_id'])[1];check('run',raw)
+        self.assertEqual(raw['state'],'failed');self.assertEqual(raw['error'],old['error'])
+        self.assertEqual(raw['recovered_by'],dict(run_id=later['run_id']))
+        listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+        projected=next(run for run in listing['runs'] if run['run_id']==first['run_id'])
+        self.assertEqual(projected['state'],'succeeded');self.assertEqual(projected['error'],old['error'])
+        self.assertEqual(listing['runs'][0]['counts']['failed'],1)
+        self.assertNotIn('collection_completed',json.dumps(listing))
+
+    def test_quiet_collection_recovery_persists_after_target_expiry_and_restart(self):
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout='')):
+            first=self.start('quiet-recovery:failed');jobs.wait_for_jobs(app.DB)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='')):
+            later=self.start('quiet-recovery:checked');jobs.wait_for_jobs(app.DB)
+        listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+        self.assertEqual([run['run_id'] for run in listing['runs']],[first['run_id']])
+        self.assertEqual(listing['runs'][0]['recovered_by'],dict(run_id=later['run_id']))
+        self.assertFalse(listing['last_check']['changed'])
+        with app.connection() as db:jobs.prune_quiet(db,now=time.time()+jobs.QUIET_RECEIPT_SECONDS+1)
+        app.initialize()
+        self.assertEqual(self.call('/sources/sync-runs/'+later['run_id'])[0],404)
+        listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+        self.assertEqual(listing['runs'][0]['recovered_by'],dict(run_id=later['run_id']))
+        self.assertEqual(self.call('/sources/sync-runs/'+first['run_id'])[1]['state'],'failed')
+
+    def test_model_retry_scoped_recovery_and_other_credentials_do_not_clear_collection_error(self):
+        body=dict(contract_version='source-sync/0.1',operation_id='whole:failure',sources=['teaching_web'],consent=True)
+        with app.connection() as db:
+            first=jobs.start(db,self.uid,body,app.ApiError)
+            first['error']=jobs.error('collection_failed','旧连接失败',True);jobs.save(db,first,'failed')
+            for scoped in (False,True):
+                retry=dict(contract_version='source-sync/0.1',operation_id='retry:'+str(scoped),consent=True)
+                later=jobs.start(db,self.uid,retry,app.ApiError,parent=first['run_id'],
+                                 recovery_targets={} if scoped else None,trigger='retry')
+                later['collection_completed']=True
+                jobs.save(db,later,'succeeded')
+            foreign=jobs.start(db,self.uid,dict(body,operation_id='foreign:credential'),app.ApiError)
+            db.execute('UPDATE source_sync_runs SET credential=? WHERE run_id=?',('another-credential',foreign['run_id']))
+            foreign['collection_completed']=True;jobs.save(db,foreign,'succeeded')
+            # A later collection for another account has no effect on this account.
+            foreign_user=dict(foreign,user_id='another-user',run_id='another-user-run',operation_id='another-user-operation')
+            db.execute('INSERT INTO source_sync_runs VALUES(?,?,?,?,?,?)',('another-user',foreign_user['run_id'],foreign_user['operation_id'],jobs.credential(db,self.uid),'succeeded',json.dumps(foreign_user)))
+            jobs.recover_collection_errors(db,foreign_user)
+        listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+        old=next(run for run in listing['runs'] if run['run_id']==first['run_id'])
+        self.assertEqual(old['state'],'failed');self.assertNotIn('recovered_by',old)
+        self.assertNotIn('recovered_by',self.call('/sources/sync-runs/'+first['run_id'])[1])
+
+    def test_legacy_collection_recovery_backfills_before_quiet_receipt_pruning(self):
+        body=dict(contract_version='source-sync/0.1',operation_id='legacy:failed',sources=['teaching_web'],consent=True)
+        with app.connection() as db:
+            first=jobs.start(db,self.uid,body,app.ApiError)
+            first['error']=jobs.error('collection_failed','历史采集失败',True);jobs.save(db,first,'failed')
+            later=jobs.start(db,self.uid,dict(body,operation_id='legacy:success'),app.ApiError)
+            jobs.save(db,later,'succeeded')
+            later.pop('collection_completed')
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(json.dumps(later),later['run_id']))
+            db.execute('UPDATE source_sync_quiet_runs SET expires_at=0 WHERE run_id=?',(later['run_id'],))
+            # List reconciliation is read-only and can use quiet legacy successes.
+            listing=jobs.history(db,self.uid)
+            self.assertEqual(listing[0]['recovered_by'],dict(run_id=later['run_id']))
+            self.assertNotIn('recovered_by',jobs.get(db,self.uid,first['run_id'],app.ApiError))
+        app.initialize()
+        old=self.call('/sources/sync-runs/'+first['run_id'])[1];check('run',old)
+        self.assertEqual(old['recovered_by'],dict(run_id=later['run_id']))
+        self.assertEqual(self.call('/sources/sync-runs/'+later['run_id'])[0],404)
+
+    def test_collection_recovery_keeps_latest_receipt_and_older_mixed_outputs(self):
+        body=dict(contract_version='source-sync/0.1',operation_id='whole:mixed',sources=['teaching_web'],consent=True)
+        with app.connection() as db:
+            first=jobs.start(db,self.uid,body,app.ApiError)
+            first['error']=jobs.error('collection_failed','首次失败',True)
+            first['updated_tasks']=[dict(task_id='updated',label='实际更新任务',course=None)]
+            jobs.save(db,first,'failed')
+            latest=jobs.start(db,self.uid,dict(body,operation_id='whole:latest'),app.ApiError)
+            latest['error']=jobs.error('collection_failed','最近失败',True);jobs.save(db,latest,'failed')
+            later=jobs.start(db,self.uid,dict(body,operation_id='whole:done'),app.ApiError)
+            later['collection_completed']=True;jobs.save(db,later,'succeeded')
+        listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+        self.assertEqual([run['run_id'] for run in listing['runs']],[latest['run_id'],first['run_id']])
+        self.assertEqual(listing['runs'][0]['recovered_by'],dict(run_id=later['run_id']))
+        self.assertEqual(listing['runs'][1]['counts']['updated'],1)
+        self.assertIsNone(listing['runs'][1]['error']);self.assertNotIn('recovered_by',listing['runs'][1])
+        self.assertEqual(self.call('/sources/sync-runs/'+first['run_id'])[1]['recovered_by'],dict(run_id=later['run_id']))
+
     def test_collection_updates_are_kept_even_when_every_source_is_skipped(self):
         request,_=example()
         task=dict(id='existing',title='合成任务',status='not_started',due=None,plans=[],subtasks=[])

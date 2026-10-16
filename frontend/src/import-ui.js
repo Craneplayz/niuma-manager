@@ -12,7 +12,7 @@ import { candidateEvidenceMarkup, failureSources } from "./import-evidence.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createSourceSyncUI } from "./source-sync-ui.js";
 import { createSyncScheduleUI } from "./source-schedule-ui.js";
-import { importResultStatus, importStatusMarkup } from "./import-result-status.js";
+import { importResultStatus, importStatusMarkup, importErrorSummaryMarkup } from "./import-result-status.js";
 
 const actions = {
   create: "新增任务",
@@ -428,7 +428,7 @@ export function createImportUI(host) {
     const selected = historyCategories.get(group.id), category = collections[selected]?.length ? selected : null;
     const token = encodeURIComponent(group.id), region = `import-batch-${token}`;
     const summary = Object.entries(collections).filter(([, items]) => items.length).map(([key, items]) =>
-      `<button id="${esc(region)}-${key}" class="sync-category" type="button" data-import-history-category="${key}" data-import-history-batch="${esc(group.id)}" aria-expanded="${category === key}" aria-controls="${esc(region)}">${labels[key]} ${items.length} ${key === "error" ? "条" : "项"}</button>`).join("");
+      `<button id="${esc(region)}-${key}" class="sync-category" type="button" data-import-history-category="${key}" data-import-history-batch="${esc(group.id)}" aria-expanded="${category === key}" aria-controls="${esc(region)}">${key === "error" ? importErrorSummaryMarkup(items) : `${labels[key]} ${items.length} 项`}</button>`).join("");
     const items = collections[category] || [];
     const names = items.map((item, index) => {
       const status = importResultStatus(item, category, { ...host, getCandidate: itemById });

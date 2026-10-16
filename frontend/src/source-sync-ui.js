@@ -1,6 +1,6 @@
 import { newId } from "./id.js";
 import { describeUserError, userErrorMarkup } from "./user-errors.js";
-import { importResultStatus, importStatusMarkup } from "./import-result-status.js";
+import { importResultStatus, importStatusMarkup, importErrorSummaryMarkup } from "./import-result-status.js";
 
 const API = "/api/sources/sync-runs";
 const VERSION = "source-sync/0.1";
@@ -32,6 +32,8 @@ const UPDATE_FIELDS = { title: "名称", description: "说明", course: "课程"
 function checkRun(run) {
   if (run?.contract_version !== VERSION || !/^[A-Za-z0-9_.:-]{1,160}$/.test(run.run_id || "") ||
       !Object.hasOwn(LABELS, run.state) || !Number.isInteger(run.revision) || run.revision < 0 ||
+      run.recovered_by !== undefined && (!/^[A-Za-z0-9_.:-]{1,160}$/.test(run.recovered_by?.run_id || "") ||
+        run.recovered_by.run_id === run.run_id || run.error?.code !== "collection_failed" || run.records?.length !== 0 || ACTIVE.has(run.state)) ||
       !Array.isArray(run.records) || !run.counts || run.records.some((record) =>
         typeof record.request_id !== "string" || !record.request_id || !STATES.includes(record.state) ||
         record.review !== undefined && (!Number.isInteger(record.review) || record.review < 0) ||
@@ -299,7 +301,7 @@ export function createSourceSyncUI(host) {
   }
   function recoveryPlan(run, latest = latestAttempts()) {
     const records = run.records.filter(record => latest.get(record.request_id)?.run === run && recoverable(record));
-    return { records, whole: !run.records.length && Boolean(run.error || ["stopped", "interrupted"].includes(run.state)) };
+    return { records, whole: !run.recovered_by && !run.records.length && Boolean(run.error || ["stopped", "interrupted"].includes(run.state)) };
   }
   function recover(id, request = null) {
     syncAccount();
@@ -319,7 +321,7 @@ export function createSourceSyncUI(host) {
   function problemsFor(run) {
     const problems = run.records.filter(record => unresolved(record) || record.recovered), failure = runError(run);
     if (failure && !problems.some(record => record.error?.code === failure.code && record.error?.message === failure.message))
-      problems.push({ label: "本轮导入", error: failure, state: "failed" });
+      problems.push({ label: "本轮导入", error: failure, state: "failed", recovered: Boolean(run.recovered_by), recovered_by: run.recovered_by });
     return problems;
   }
   async function locateRecovery(run, index) {
@@ -332,10 +334,10 @@ export function createSourceSyncUI(host) {
       let target = runs.find(item => item.run_id === link.run_id);
       if (!target) target = checkRun(await host.api(`${API}/${encodeURIComponent(link.run_id)}`, undefined, "GET", { signal: controller.signal }));
       if (!valid()) return;
-      const source = target.records.find(item => item.request_id === link.request_id);
-      if (target.run_id !== link.run_id || source && source.state !== "succeeded" || !source && target.state !== "succeeded")
+      const source = link.request_id ? target.records.find(item => item.request_id === link.request_id) : null;
+      if (target.run_id !== link.run_id || link.request_id && (source ? source.state !== "succeeded" : target.state !== "succeeded"))
         throw new Error("recovery unavailable");
-      const category = source?.added ? "added" : source?.review ? "review" : target.updated_tasks?.length ? "updated" : null;
+      const category = !link.request_id ? null : source?.added ? "added" : source?.review ? "review" : target.updated_tasks?.length ? "updated" : null;
       const key = category === "updated" ? "task_id" : "candidate_id";
       const receipt = category === "added" ? source?.added_items?.[0] : category === "review" ? source?.review_items?.[0] :
         category === "updated" ? target.updated_tasks.find(item => {
@@ -388,9 +390,10 @@ export function createSourceSyncUI(host) {
       const status = importResultStatus(item, category, host);
       const title = [item.label, item.course, status.label, note].filter(Boolean).join(" · ");
       const link = category === "error" && item.recovered && item.recovered_by;
+      const recoveryLabel = link?.request_id ? "查看成功批次" : "查看后续采集批次";
       const hint = recoveryHint?.runId === run.run_id && recoveryHint.category === category && recoveryHint.key &&
         recoveryHint.key === (category === "updated" ? item.task_id : item.candidate_id);
-      return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}><span>${esc(item.label)}</span>${hint ? recoveryHintMarkup() : ""}${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，查看成功批次" title="查看成功批次">已恢复</button>` : ""}</li>`;
+      return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}><span>${esc(item.label)}</span>${hint ? recoveryHintMarkup() : ""}${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
     }).join("");
     const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
     return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"更新",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
@@ -405,7 +408,7 @@ export function createSourceSyncUI(host) {
     const groups = [["added", "新增", counts.added, "项"], ["review", "待核对", counts.review, "项"], ["updated", "更新", counts.updated, "项"], ["error", "错误", problemsFor(run).length, "条"]].filter(([, , count]) => count > 0);
     const selected = categories.get(run.run_id);
     const category = groups.some(([key]) => key === selected) ? selected : null;
-    const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${label} ${count} ${unit}</button>`).join("");
+    const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${key === "error" ? importErrorSummaryMarkup(problemsFor(run)) : `${label} ${count} ${unit}`}</button>`).join("");
     const running = ACTIVE.has(run.state);
     if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";

@@ -467,11 +467,13 @@ check('a collection error remains visible even with no created tasks and no reco
   await f.ui.click(button('recover',run.run_id));assert.equal(f.posts()[0].path,API);
 });
 
-check('a recovered no-task retry keeps a green receipt without an exception action', async () => {
+check('a recovered no-task retry keeps a gray receipt and a green summary without an exception action', async () => {
   const old=syncRun({state:'failed',states:['failed']});old.records[0].recovered=true;
   const f=fixture([old]);await f.ui.load();
   await category(f.ui,old.run_id,'error');
-  assert.match(markup(f.ui),/sync-item-status-success">已恢复/);
+  assert.match(markup(f.ui),/sync-item-status-muted">已恢复/);
+  assert.match(markup(f.ui),/sync-error-count-muted">错误 1 条/);
+  assert.match(markup(f.ui),/sync-error-summary-success">全部已恢复/);
   assert.doesNotMatch(markup(f.ui),/处理未完成|data-source-sync-action="recover"|sync-item-status-error/);
   await f.ui.click(button('retry',old.run_id));assert.equal(f.posts().length,0);
 });
@@ -484,7 +486,66 @@ check('resolved errors stay within the original batch alongside additions and re
   const html=f.ui.renderHistory();
   assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);
   assert.match(html,/错误 1 条/);assert.doesNotMatch(html,/处理未完成/);
-  await category(f.ui,run.run_id,'error');assert.match(markup(f.ui),/sync-item-status-success">已恢复/);
+  await category(f.ui,run.run_id,'error');assert.match(markup(f.ui),/sync-item-status-muted">已恢复/);
+});
+
+check('eight recovered errors keep their historical total with an all-recovered summary', async () => {
+  const run=syncRun({state:'succeeded',states:Array(8).fill('failed')});
+  run.records.forEach(record=>record.recovered=true);
+  const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'error');
+  const html=markup(f.ui);
+  assert.match(html,/导入完成/);assert.match(html,/sync-error-count-muted">错误 8 条/);
+  assert.match(html,/sync-error-summary-success">全部已恢复/);
+  assert.equal((html.match(/sync-item-status-muted">已恢复/g)||[]).length,8);
+  assert.doesNotMatch(html,/处理未完成|sync-error-count-error|sync-item-status-error/);
+});
+
+check('partial recovery preserves additions and review totals with an amber summary and remaining retry', async () => {
+  const run=syncRun({state:'partial_success',states:['succeeded','failed','failed'],added:1,review:1});
+  run.records[1].recovered=true;
+  const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'error');
+  const html=markup(f.ui);
+  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);
+  assert.match(html,/sync-error-count-error">错误 2 条/);
+  assert.match(html,/sync-error-summary-review">部分已恢复 1 \/ 2/);
+  assert.match(html,/sync-item-status-muted">已恢复/);assert.match(html,/sync-item-status-error">错误/);
+  assert.match(html,/处理未完成 · 1/);assert.doesNotMatch(html,/全部已恢复/);
+  await f.ui.click(button('recover',run.run_id));
+  assert.deepEqual(f.posts()[0].body.request_ids,[run.records[2].request_id]);
+});
+
+check('unresolved errors keep red status and do not claim recovery', async () => {
+  const run=syncRun({state:'failed',states:['failed']});
+  const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'error');
+  assert.match(markup(f.ui),/sync-error-count-error">错误 1 条/);
+  assert.match(markup(f.ui),/sync-item-status-error">错误/);
+  assert.doesNotMatch(markup(f.ui),/全部已恢复|部分已恢复/);
+});
+
+check('a recovered collection error keeps its receipt, hides stale guidance and locates the later batch', async () => {
+  const old=syncRun({id:'collection:failed',states:[],state:'succeeded'});
+  old.error={code:'collection_failed',message:'核对密码并重新获取',retryable:true};
+  const target=syncRun({id:'collection:completed',states:['failed'],state:'failed'});
+  old.recovered_by={run_id:target.run_id};
+  const f=fixture([target,old]);await f.ui.load();await category(f.ui,old.run_id,'error');
+  await problem(f.ui,old.run_id,0);
+  let html=markup(f.ui);
+  assert.match(html,/sync-error-summary-success">全部已恢复/);assert.match(html,/后续已恢复/);
+  assert.doesNotMatch(html,/核对密码并重新获取/);
+  assert.doesNotMatch(html,new RegExp(`data-source-sync-action="recover" data-source-sync-run="${old.run_id}"`));
+  await f.ui.click(button('recover',old.run_id));assert.equal(f.posts().length,0);
+  await f.ui.click({dataset:{sourceSyncAction:'locate-recovery',sourceSyncRun:old.run_id,sourceSyncItem:'0'}});
+  assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);assert.equal(f.posts().length,0);
+});
+
+check('a recovered whole collection can locate a quiet check without starting another import', async () => {
+  const old=syncRun({id:'collection:old',states:[],state:'succeeded'});
+  old.error={code:'collection_failed',message:'旧采集失败',retryable:true};old.recovered_by={run_id:'quiet:success'};
+  const target=syncRun({id:'quiet:success',states:[]}), f=fixture([old]);
+  f.setAPI((call,next)=>call.path===`${API}/${encodeURIComponent(target.run_id)}`?clone(target):next(call));
+  await f.ui.load();await f.ui.click({dataset:{sourceSyncAction:'locate-recovery',sourceSyncRun:old.run_id,sourceSyncItem:'0'}});
+  assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
+  assert.match(markup(f.ui),/这次处理已完成，没有新增任务或待核对内容/);assert.equal(f.posts().length,0);
 });
 
 check('receipt statuses and confirmed-candidate links follow current tasks without changing totals', async () => {

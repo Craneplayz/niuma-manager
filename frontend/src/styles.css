@@ -1573,6 +1573,10 @@ dialog p {
 .sync-category { border: 0; border-bottom: 1px solid transparent; padding: 5px 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
 .sync-category:hover, .sync-category[aria-expanded="true"] { color: var(--ink); border-bottom-color: currentColor; }
 .sync-category[aria-expanded="true"] { font-weight: 600; }
+.sync-error-count-muted { color: var(--muted); }
+.sync-error-count-error { color: #b63939; }
+.sync-error-summary-success { color: #247044; }
+.sync-error-summary-review { color: #946000; }
 .sync-results { margin-top: 10px; }
 .sync-result-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 2px 20px; margin: 0; padding: 0; list-style: none; }
 .sync-result-list li { min-width: 0; }
@@ -1587,7 +1591,7 @@ dialog p {
 .sync-result-name .sync-item-status-error { color: #b63939; }
 .sync-result-entry { display: flex; align-items: center; gap: 6px; }
 .sync-result-entry .sync-result-name { width: auto; }
-.sync-recovery-link { flex-shrink: 0; border: 0; background: none; color: #247044; padding: 3px 0; font: inherit; font-size: 11px; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
+.sync-recovery-link { flex-shrink: 0; border: 0; background: none; color: var(--muted); padding: 3px 0; font: inherit; font-size: 11px; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 .sync-recovery-link:hover { text-decoration-style: solid; }
 .sync-recovery-hint, .sync-result-name .sync-recovery-hint { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; max-width: none; }
 .sync-result-name:hover > span { text-decoration: underline; text-underline-offset: 3px; }
