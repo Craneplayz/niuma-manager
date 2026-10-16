@@ -130,8 +130,6 @@
 
 ![教学网单次识别入口](screenshots/teaching-sync-desktop.png)
 
-![教学网按钮内方形轨迹进度与原位停止](screenshots/teaching-button-progress.png)
-
 ![手机教学网主按钮停止同步](screenshots/teaching-sync-stop-mobile.png)
 
 ![教学网定时频率与授权](screenshots/teaching-sync-frequency-desktop.png)
