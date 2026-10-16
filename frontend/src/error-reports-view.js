@@ -1,0 +1,6 @@
+const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const operations = { tasks_load: "读取任务", tasks_save: "保存任务", tasks_delete: "删除任务", tasks_restore: "恢复任务", text_import: "文本导入", teaching_sync: "教学网导入", import_review: "核对通知", notice_reprocessing: "重新识别通知", task_evidence: "查看通知原文", account: "账号操作", feedback: "提交使用反馈", general: "其他操作" };
+
+export function renderErrorReports(reports = []) {
+  return `<article class="admin-error-reports"><h2>用户错误报告</h2><p class="empty">用户主动提交；只包含错误分类、操作、时间和版本，不包含通知正文或账号密码。</p>${reports.length ? `<div class="table-wrap"><table><thead><tr><th>收到时间</th><th>操作</th><th>错误分类</th><th>状态</th><th>页面 / 服务版本</th><th>报告编号</th></tr></thead><tbody>${reports.map(report => `<tr><td>${escape(report.received_at?.slice(0, 19).replace("T", " "))}</td><td>${escape(operations[report.action] || "其他操作")}</td><td>${escape(report.code)}</td><td>${escape(report.status ?? "未取得响应")}</td><td>${escape(report.frontend_revision)} / ${escape(report.backend_revision)}</td><td>${escape(report.report_id)}</td></tr>`).join("")}</tbody></table></div>` : '<p class="empty">此时间范围暂无错误报告</p>'}<small>按收到时间筛选，最多显示最近 100 条，保留 90 天。</small></article>`;
+}

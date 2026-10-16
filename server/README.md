@@ -4,6 +4,8 @@ server/
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
+├── error_reports.py          用户主动错误报告、受限字段、去重、限流与保留。
+├── test_error_reports.py     真实 HTTP 提交、匿名反馈、权限与私人字段拒绝回归。
 ├── test_usage.py             后台权限、反馈评分、去重、数据最小化与保留期测试。
 ├── runtime_environment.py    环境身份、数据目录归属、会话名称及版本信息。
 ├── manage_environment.py     初始化、检查并启动开发 / 测试 / 生产环境。
@@ -59,6 +61,10 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+## 错误报告
+
+`POST /api/error-reports` 接收用户点击提交的受限报告，沿用 [error-report/0.1](../contracts/docs/error-reports-v0.1.md)；允许未登录反馈登录故障，限制请求大小和频率、按问题编号去重，不收集原始异常或私人正文。现有管理员后台按收到日期展示最近 100 条报告，保留 90 天，普通用户无列表读取权限。
 
 ## 使用数据后台
 
@@ -180,7 +186,7 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 重识别目录同时支持旧 v0.2 与当前校园账号的 v0.4，使用独立来源 ID；新增 `reprocessing_teaching_sources`、`reprocessing_request_sources` 表由启动初始化，无需改写旧数据。v0.4 新候选和自动任务在同一事务保存，失败/中断保留旧结果，用户决定按账号及来源版本关联保留；部署前备份数据库，回滚不得删除已有任务或新表。
 教学网重识别保留原始采集正文，并在同一事务迁移附件绑定；读取结果只写入识别批次，连续重识别、正常同步清理和重启仍可读取原件，换号或移除凭据才清理对应附件。
 
-提交控制路由见 [submission-operations/0.1](../contracts/docs/submission-operations-v0.1.md)：原生状态只影响已精确关联的提交行动，独立行动、删除/忽略和手改内容保留。每次同步在增量缓存前处理状态；正文或附件摘要变化会解除整份来源确认，新行动不按标题猜测关联；控制变化时拒绝迟到模型结果。完整来源无法提供时不接受整份 `submission_only` 确认，逐项控制仍可用。
+提交控制路由见 [submission-operations/0.1](../contracts/docs/submission-operations-v0.1.md)：原生状态只影响已精确关联的提交行动，独立行动、删除/忽略和手改内容保留。每次同步在增量缓存前处理状态；正文或附件摘要变化会解除整份来源确认，新行动不按标题猜测关联；控制变化时拒绝迟到模型结果。原文条件读取在同一事务中核对快照与控制版本，变化时返回 409；自动完成日期使用北京时间，审计保留 UTC。完整来源无法提供时不接受整份 `submission_only` 确认，逐项控制仍可用。
 
 公开活动路由见 [public-import/0.1](../contracts/docs/public-import-v0.1.md)：仅开放三个现有网站，不接受任意 URL；最多 2 轮公开采集并行、每账号 1 轮，每轮最多 6 页/150 秒。预览不建任务，用户选中后按任务版本原子写入通知；重复导入不复制、不复活回收站记录。
 

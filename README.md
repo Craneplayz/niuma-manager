@@ -21,8 +21,8 @@
 | 文本识别 | `ddl_text/` | 从文本中识别任务与 DDL，输出候选 | [文本识别说明](ddl_text/README.md) |
 | 数据契约 | `contracts/` | 模块之间的数据格式与样例 | [契约说明](contracts/README.md) |
 | 任务规划 | `task_planning/`（建立中，#65） | 任务拆解、作业排程规则与排程提案 | [任务规划说明](task_planning/README.md) |
-| 前端 | `frontend/` | 文本 / 教学网导入、任务清单与截止日历 | [前端说明与启动指南](frontend/README.md) |
-| 后端 | `server/` | 账号、SQLite 存储、候选确认与规划 API | [后端说明](server/README.md) |
+| 前端 | `frontend/` | 文本 / 教学网导入、任务清单、截止日历与错误反馈 | [前端说明与启动指南](frontend/README.md) |
+| 后端 | `server/` | 账号、SQLite 存储、候选确认、错误报告与规划 API | [后端说明](server/README.md) |
 
 - 前端命令在 `frontend/` 中使用 npm；爬虫命令在 `crawler/` 中使用 pnpm。
 - 模块之间的数据格式以 `contracts/` 为准，接口说明见[前端 / 后端 / Harness 协作协议](docs/backend-harness-alignment.md)。
@@ -65,6 +65,8 @@
 教学网原生 v0.4 使用 [model-v1 直接分类](ddl_text/docs/teaching-draft.md)：模型在同一次识别中给出任务、待核实或过滤及依据；程序校验格式、证据和来源身份，不再因 partial、未读补充附件或补年方式强制审核。旧记录保留原结果，手工 v0.2 和微信 v0.3.1 沿用原有规则。
 
 前端暂不提供“重新识别已有通知”入口；保留常规同步、失败记录重试及缺失来源重新获取，已保存通知的批量重识别后端接口保留。
+
+作业提交关联按同一来源快照读取原文与控制状态，变化后需重新核对；教学网自动完成日期使用北京时间。
 
 教学网“同步并识别”已接入教师附件：完整 PDF/TXT 提取文本，图片、扫描 PDF、DOCX（含内嵌图片）复用共享读取器，连同正文识别任务和截止日期；失败可重试，已读附件缓存复用。旧通知没有保存原件时需重新同步一次。当前文件类型、大小/页数限制和合成端到端测试见 [后端说明](server/README.md)。
 

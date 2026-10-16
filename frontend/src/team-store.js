@@ -4,6 +4,7 @@ export const session = {
   user: null,
   sync: "saved",
   error: "",
+  failure: null,
   conflict: false,
   changing: false,
 };
@@ -34,7 +35,8 @@ function resetAccount() {
 }
 function report(sync, error = "") {
   session.sync = sync;
-  session.error = error;
+  session.error = typeof error === "string" ? error : error.message;
+  session.failure = error || null;
   window.dispatchEvent(new CustomEvent("niuma:sync"));
 }
 export async function api(path, body, method = "POST", options = {}) {
@@ -63,12 +65,13 @@ export async function api(path, body, method = "POST", options = {}) {
           : data.error || data.message || "请求失败",
       );
       error.status = response.status;
+      error.code = typeof data.error === "object" ? data.error?.code : undefined;
       throw error;
     }
     return data;
   } catch (error) {
     if (error.name === "AbortError") throw new Error("请求超时，请重试");
-    if (error instanceof TypeError) throw new Error("无法连接服务，请检查后端");
+    if (error instanceof TypeError) throw new Error("无法连接服务，请检查网络后重试");
     throw error;
   } finally {
     clearTimeout(timer);
@@ -186,7 +189,7 @@ async function loadSession(discardPending = false) {
       report("saved");
       return empty();
     }
-    report("error", error.message);
+    report("error", error);
     throw error;
   }
 }
@@ -241,7 +244,7 @@ function enqueue(snapshot) {
       if (epoch !== accountEpoch) return;
       failed = true;
       session.conflict = error.status === 409;
-      report("error", error.message);
+      report("error", error);
     }
   });
   return queue;
@@ -290,7 +293,7 @@ async function changeStoredTasks(transform, { retryOnFailure = true } = {}) {
         if (retryOnFailure || session.conflict) {
           failed = true;
           pendingChange = retryOnFailure ? transform : null;
-          report("error", error.message);
+          report("error", error);
         } else report(latest ? "saving" : "saved");
       }
       throw error;

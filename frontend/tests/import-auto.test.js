@@ -290,7 +290,7 @@ check('a task save conflict prevents background start until the workspace is exp
   const f = fixture(), ui = await ready(f, t);f.accounts.A.version++;
   t.after(() => store.reloadStore());store.saveStore({tasks: [{id: 'unsaved', title: '未保存编辑', status: 'todo'}]});
   await assert.rejects(store.flushStore(), /任务已变化/);await sync(ui);
-  assert.equal(f.starts().length, 0);assert.equal(f.accounts.A.tasks.length, 0);assert.match(ui.render(), /class="error" role="alert"/);
+  assert.equal(f.starts().length, 0);assert.equal(f.accounts.A.tasks.length, 0);assert.match(ui.render(), /class="user-error" role="alert"/);
 });
 
 check('retrying a failed background record sends only stored request identity and refreshes backend-applied tasks', async t => {

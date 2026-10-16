@@ -1,4 +1,5 @@
 import { newId } from "./id.js";
+import { describeUserError, userErrorMarkup } from "./user-errors.js";
 
 const API = "/api/sources/sync-runs";
 const VERSION = "source-sync/0.1";
@@ -111,14 +112,13 @@ export function createSourceSyncUI(host) {
     redraw(); return false;
   }
   function report(cause, fallback) {
-    const formatted = host.describeError?.(cause);
+    const formatted = host.describeError?.(cause) || describeUserError(cause, "teaching_sync");
     if (formatted?.message && formatted.kind !== "unknown") return formatted;
     if (/^(导入服务版本不匹配|导入进度暂时无法读取)/.test(cause?.message || "")) return { message: cause.message, details: "" };
     return { message: fallback, details: "" };
   }
-  function errorMarkup(value) {
-    if (!value?.message) return "";
-    return `<p class="error" role="alert">${esc(value.message)}</p>${value.details ? `<details class="import-error-details"><summary>查看原因</summary><p class="status-note">${esc(value.details)}</p></details>` : ""}`;
+  function errorMarkup(value, context) {
+    return userErrorMarkup(value, "teaching_sync", context);
   }
   function poll() {
     clearPoll();
@@ -311,9 +311,9 @@ export function createSourceSyncUI(host) {
     const superseded = newest && newest.run !== run;
     const recovered = record.recovered || superseded && newest.record.state === "succeeded";
     const blocked = isBusy() || host.isImportBusy();
-    const formatted = report(record.error, guidance(record));
-    const message = recovered ? "后续已恢复。" : superseded ? `后续${RECORD_LABELS[newest.record.state]}。` : record.error?.message || guidance(record);
-    return `<div class="sync-problem" role="region" aria-label="${esc(record.label)}的处理情况"><strong>${esc(record.label)}</strong><p class="${recovered || superseded ? "status-note" : "error"}">${esc(message)}</p>${!recovered && !superseded ? `<p class="status-note">${esc(guidance(record))}</p>${formatted.details ? `<p class="status-note">${esc(formatted.details)}</p>` : ""}${!ACTIVE.has(run.state) && recoverable(record) && record.request_id ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${blocked ? "disabled" : ""}>处理本条</button>` : ""}` : ""}</div>`;
+    const formatted = report(needsCollection(record) ? { ...record.error, code: "source_incomplete" } : record.error, guidance(record));
+    const status = recovered ? "后续已恢复。" : superseded ? `后续${RECORD_LABELS[newest.record.state]}。` : null;
+    return `<div class="sync-problem" role="region" aria-label="${esc(record.label)}的处理情况"><strong>${esc(record.label)}</strong>${status ? `<p class="status-note">${esc(status)}</p>` : errorMarkup(formatted, JSON.stringify(["source-sync", run.run_id, record.request_id]))}${!status && !ACTIVE.has(run.state) && recoverable(record) && record.request_id ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${blocked ? "disabled" : ""}>处理本条</button>` : ""}</div>`;
   }
   function resultMarkup(run, category, latest) {
     const { items, missing } = resultItems(run, category);

@@ -122,7 +122,7 @@ test('a failed stop restores the enabled primary stop action and retries without
  });
  await f.ui.click({dataset:{importAction:'sync'}});
  await f.ui.click({dataset:{importAction:'sync'}});
- assert.match(f.ui.render(),/停止导入未完成/);
+ assert.match(f.ui.render(),/无法确认导入已停止/);
  assert.match(f.ui.render(),/data-import-action="sync" >.*停止导入/);
  await f.ui.click({dataset:{importAction:'sync'}});
  assert.match(f.ui.render(),/已停止导入/);

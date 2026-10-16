@@ -177,7 +177,7 @@ check('start waits for local saves and sends only the durable teaching operation
 check('a failed local save blocks starting and reports the saving problem accurately', async () => {
   const f = fixture(); f.setFlush(() => { throw new Error('save conflict'); });
   assert.equal(await f.ui.start(), false); assert.equal(f.posts().length, 0);
-  assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /任务修改尚未保存/);
+  assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /任务修改还未保存/);
 });
 
 check('a network-uncertain start reuses its operation id without render resubmissions', async () => {
@@ -220,7 +220,7 @@ check('workspace or candidate refresh failures keep the saved run and retry unch
     const f = fixture([syncRun({added: 1})]); let fail = true;
     f.remote.tasks = [{id: 'saved'}];
     f.setAPI((call, normal) => { if (call.path === failedPath && fail) { fail = false; throw new Error('temporary read failure'); } return normal(call); });
-    assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /结果已保存.*刷新失败/);
+    assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /结果已保存.*暂时无法更新页面/);
     assert.match(markup(f.ui), /新增 1 项/); assert.equal(f.ui.isBusy(), false);
     assert.equal(await f.ui.load(), true); assert.equal(f.refreshes, 2); assert.equal(f.view.tasks[0].id, 'saved');
     await f.ui.load(); assert.equal(f.refreshes, 2); assert.equal(f.posts().length, 0);
@@ -305,7 +305,7 @@ check('incomplete or changed sources offer recollection and configuration failur
   await category(f.ui, run.run_id, 'error'); await problem(f.ui, run.run_id, 0);
   const html = markup(f.ui);
   assert.match(html, /data-source-sync-action="recover"/); assert.doesNotMatch(html, /data-source-sync-action="retry"|data-source-sync-action="collect"/);
-  assert.match(html, /先重新获取这条来源/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
+  assert.match(html, /完整通知/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
   await f.ui.click(button('recover',run.run_id)); assert.equal(f.posts()[0].path, `${API}/${encodeURIComponent(run.run_id)}/recover`);
   assert.deepEqual(f.posts()[0].body.request_ids,['sync:0','sync:1']);
 });
@@ -335,7 +335,7 @@ check('recognition-only recovery reuses the captured source and targets just rec
 check('progress connection errors preserve active state and retry polling without automatic writes', async () => {
   const f = fixture([syncRun({state: 'recognizing', states: ['running']})]); await f.ui.setVisible(true);
   f.setAPI(() => { throw new Error('offline'); }); await f.tick();
-  assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /后台可能仍在运行/);
+  assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /导入可能继续/);
   assert.equal(f.ui.canStop(), true); assert.doesNotMatch(markup(f.ui), /data-source-sync-action="stop"/);
   assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
 });
@@ -367,16 +367,16 @@ check('older revisions and invalid service responses cannot replace saved progre
   const stale = syncRun({state: 'recognizing', states: ['running']}); stale.revision = 3;
   f.setRuns([stale]); await f.ui.load(); assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /新增 1 项/);
   f.setAPI(() => ({contract_version: 'source-sync/unknown', runs: []}));
-  assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /版本不匹配/); assert.match(markup(f.ui), /新增 1 项/);
+  assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /功能暂时不可用/); assert.match(markup(f.ui), /新增 1 项/);
 });
 
-check('optional error formatting keeps technical recovery details folded', async () => {
+check('technical recovery errors use the shared user guidance and feedback control', async () => {
   const f = fixture();
   f.host.describeError = cause => ({kind: 'crawler_dependency', message: '缺少教学网采集组件，请安装后重新采集。', details: cause.message.includes('crawler') ? '在 crawler/ 安装依赖（pnpm install）。' : ''});
   f.setAPI(() => { throw new Error('crawler dependency unavailable'); });
   await f.ui.start();
   const html = markup(f.ui);
-  assert.match(html, /缺少教学网采集组件/); assert.match(html, /<details class="import-error-details"><summary>查看原因/);
+  assert.match(html, /暂时无法从教学网获取通知/); assert.match(html, /data-error-feedback=/); assert.doesNotMatch(html, /pnpm install/);
   assert.doesNotMatch(html, /<details class="import-error-details"[^>]*\bopen\b/);
 });
 
@@ -421,7 +421,7 @@ check('legacy names are not fabricated and inconsistent result receipts are reje
   const run=syncRun({added:3});const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'added');
   assert.match(markup(f.ui),/3 项旧记录未保存具体名称/);assert.doesNotMatch(markup(f.ui),/合成通知/);
   run.records[0].added_items=[{candidate_id:'only',task_id:'task',label:'名称',course:null}];
-  f.setRuns([run]);assert.equal(await f.ui.load(),false);assert.match(markup(f.ui),/版本不匹配/);
+  f.setRuns([run]);assert.equal(await f.ui.load(),false);assert.match(markup(f.ui),/功能暂时不可用/);
 });
 
 check('quiet scheduled checks only update last-check status and never create a history row or toast', async () => {

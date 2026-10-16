@@ -92,7 +92,6 @@ export function renderCalendar({
       isToday && "is-today",
       isSelected && "is-selected",
       isOtherMonth && "is-other-month",
-      !members.length && "is-empty",
     ]
       .filter(Boolean)
       .join(" ");

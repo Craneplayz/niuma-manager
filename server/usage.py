@@ -7,6 +7,10 @@ import math
 from statistics import median
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
+if __package__:
+    from . import error_reports
+else:
+    import error_reports
 
 TZ = timezone(timedelta(hours=8))
 OPERATIONS = {
@@ -146,6 +150,7 @@ def route(handler, db, uid, path, body, error):
             if start>end or (end-start).days>89: raise ValueError()
         except ValueError: raise error(400,'请选择不超过90天的有效日期范围')
         result=summary(db,start.isoformat(),end.isoformat())
+        result['errorReports']=error_reports.recent(db,start.isoformat(),end.isoformat())
         db.execute('INSERT INTO usage_admin_audit VALUES(?,?,?,?)',(secrets.token_hex(16),actor(uid),datetime.now(TZ).isoformat(),'usage_read'))
         return handler.reply(200,result) or True
     return False
