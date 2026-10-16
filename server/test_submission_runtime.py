@@ -6,6 +6,7 @@ from uuid import uuid4
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import teaching
 import test_teaching
 from urllib.request import Request
@@ -21,7 +22,22 @@ def load_tests(loader, tests, pattern):
 
 
 class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
+    def setUp(self):
+        try:
+            super().setUp()
+        except BaseException:
+            # unittest skips tearDown when setup fails, including registration.
+            if hasattr(self,'server'):
+                if hasattr(self,'thread') and self.thread.is_alive():
+                    self.server.shutdown();self.thread.join()
+                self.server.server_close()
+            if hasattr(self,'old_db'):app.DB=self.old_db
+            if hasattr(self,'tmp'):self.tmp.cleanup()
+            raise
+
     def call(self,path,body=None,method=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request:self.call('/auth/email-code',request))
         request=Request(self.base+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'},method=method)
         try:
             with self.client.open(request,timeout=20) as response:return response.status,json.load(response)

@@ -15,6 +15,18 @@ export function describeUserError(error, action = "general") {
     normalized.add(value);
     return value;
   };
+  const emailMessages = {
+    email_not_configured: "邮件服务暂未启用，请稍后再试。",
+    email_send_failed: "验证码邮件发送失败，请稍后重试。",
+    email_code_invalid: "验证码不正确或已失效，请核对或重新发送。",
+    email_code_expired: "验证码已过期，请重新发送。",
+    email_code_rate_limited: "验证码请求较多，请稍后再试。",
+    email_already_verified: "当前邮箱已验证，请重新打开账号查看。",
+    email_invalid: "请填写有效的邮箱地址。",
+    email_registered: "该邮箱已注册，请直接登录。",
+  };
+  if (Object.hasOwn(emailMessages, code))
+    return report(["email_not_configured", "email_send_failed"].includes(code) ? "service_connection" : "validation", emailMessages[code]);
   if (["incomplete_source", "source_incomplete", "source_changed"].includes(code) || /通知内容.*不完整|来源待补全|incomplete_source|重试识别不会补齐/.test(text))
     return report("incomplete_source", "没有获取到完整通知，请重新获取来源，或粘贴完整通知内容。", "重新识别只会处理已取得的内容，不会补充缺少的网页或附件。");
   if (/^(邮箱或密码不正确|该邮箱已注册|两次输入.*不一致|新密码不能与当前密码相同)$/.test(text))

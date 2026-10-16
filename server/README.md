@@ -3,6 +3,12 @@ server/
 ├── README.md                 本目录的文件说明与启动命令。
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
+├── email_verification.py     邮箱验证码、一次性消费、持久限流及已有账号验证状态。
+├── mail_delivery.py          阿里云邮件推送 TLS SMTP 适配，不记录凭据或验证码。
+├── test_email_verification.py 注册、补验证、重放、并发、限流和旧数据保留回归。
+├── test_mail_delivery.py     SMTP TLS、凭据隔离、地址校验与错误脱敏测试。
+├── test_mail_environment.py  三环境邮件配置隔离、缺省兼容及 Compose 字面量测试。
+├── auth_test_support.py      仅用于测试和合成验收的验证码投递替身与旧账号夹具。
 ├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
 ├── error_reports.py          用户主动错误报告、受限字段、去重、限流与保留。
 ├── test_error_reports.py     真实 HTTP 提交、匿名反馈、权限与私人字段拒绝回归。
@@ -51,6 +57,7 @@ server/
 ├── deploy/                   Docker 全栈、HTTPS 代理与持久数据部署配置。
 │   ├── ENVIRONMENTS.md        三环境启动、旧生产接管、验收与回滚步骤。
 │   ├── TEAM_GUIDE.md          团队本机开发、SSH 测试和协作发布的简明指南。
+│   ├── EMAIL.md               阿里云发信准备、配置、验收与旧账号升级说明。
 │   └── environments/         本机私有环境配置，不提交也不进入镜像。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。
@@ -61,6 +68,12 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+## 邮箱注册与验证
+
+新账号创建前必须通过邮箱验证码；旧账号保持原有登录和数据权限，在账号入口补验证当前邮箱。本次不提供找回密码或邮箱换绑；接口见 [email-auth/0.1](../contracts/docs/email-auth-v0.1.md)，阿里云发信及环境配置见 [邮箱服务部署](deploy/EMAIL.md)。未配置邮件时发码返回 503，不提供跳过验证的注册模式。
+
+运行 `python -m unittest discover -s server -p 'test_email_verification.py' -v` 与 `python -m unittest discover -s server -p 'test_mail*.py' -v` 使用临时数据库和合成邮件，不会真实发信。
 
 ## 错误报告
 

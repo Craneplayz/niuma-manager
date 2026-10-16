@@ -7,6 +7,7 @@ globalThis.CustomEvent ||= class extends Event {
 };
 const {
   api,
+  authenticate,
   initSession,
   readStore,
   saveStore,
@@ -602,4 +603,35 @@ test('manual file tasks display their actual origin while preserving canonical s
  state.tasks[0].title='编辑后的文件任务';saveStore(state);await flushStore();
  assert.equal(f.tasks[0].source,'微信');assert.deepEqual(f.tasks[0].recognitionHistory,history);
  assert.equal((await refreshStore()).tasks[0].source,'图片与文件');
+});
+
+
+test("registration forwards the email challenge while login keeps its original request shape", async () => {
+  const calls = [];
+  globalThis.fetch = async (path, options = {}) => {
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    calls.push({ path, body });
+    if (path === "/api/auth/register" || path === "/api/auth/login") return reply({});
+    if (path === "/api/auth/me") return reply({ user: { id: "verified-registration", email: "synthetic@example.test", emailVerified: true } });
+    if (path === "/api/workspace") return reply({ tasks: { value: [], version: 1 } });
+    throw new Error("unexpected request " + path);
+  };
+  const credentials = { email: "synthetic@example.test", password: "Synthetic-2026!", displayName: "合成账号", challengeId: "synthetic-challenge", code: "123456" };
+  await authenticate("register", credentials);
+  assert.deepEqual(calls.find(call => call.path === "/api/auth/register").body, {
+    email: credentials.email, password: credentials.password, name: credentials.displayName, challengeId: credentials.challengeId, code: credentials.code,
+  });
+  assert.equal(session.user.emailVerified, true);
+  await authenticate("login", credentials);
+  assert.deepEqual(calls.find(call => call.path === "/api/auth/login").body, { email: credentials.email, password: credentials.password });
+});
+
+test("API preserves top-level email error codes and retry intervals", async () => {
+  globalThis.fetch = async () => ({ ok: false, status: 429, json: async () => ({ error: "验证码请求较多", code: "email_code_rate_limited", retryAfter: 120 }) });
+  await assert.rejects(api("/api/auth/email-code", { purpose: "register", email: "synthetic@example.test" }), error => {
+    assert.equal(error.code, "email_code_rate_limited");
+    assert.equal(error.status, 429);
+    assert.equal(error.retryAfter, 120);
+    return true;
+  });
 });

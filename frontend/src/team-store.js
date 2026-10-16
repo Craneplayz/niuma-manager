@@ -65,7 +65,8 @@ export async function api(path, body, method = "POST", options = {}) {
           : data.error || data.message || "请求失败",
       );
       error.status = response.status;
-      error.code = typeof data.error === "object" ? data.error?.code : undefined;
+      error.code = typeof data.error === "object" ? data.error?.code : data.code;
+      if (Number.isFinite(data.retryAfter)) error.retryAfter = data.retryAfter;
       throw error;
     }
     return data;
@@ -371,6 +372,8 @@ export async function authenticate(mode, credentials) {
             email: credentials.email,
             password: credentials.password,
             name: credentials.displayName,
+            challengeId: credentials.challengeId,
+            code: credentials.code,
           }
         : { email: credentials.email, password: credentials.password },
     );

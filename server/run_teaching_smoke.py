@@ -13,6 +13,7 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor
 from urllib.error import HTTPError
 
 import app
+from auth_test_support import registration_payload
 import teaching
 import reprocessing
 
@@ -40,7 +41,9 @@ def main():
             except HTTPError as response:
                 raise RuntimeError(f'{path}: {response.code}: {response.read().decode()}') from None
         try:
-            call('/auth/register',dict(name='合成验收',email='smoke@example.test',password='Synthetic-Smoke-2026!'))
+            account=registration_payload(dict(name='合成验收',email='smoke@example.test',password='Synthetic-Smoke-2026!'),
+                                         lambda body:(200,call('/auth/email-code',body)))
+            call('/auth/register',account)
             call('/sources/credentials',dict(username='synthetic-source',password='synthetic-only'))
             with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='\n'.join(json.dumps(r) for r in requests))):
                 pending=call('/sources/sync',dict(sources=['teaching_web']))

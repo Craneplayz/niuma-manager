@@ -26,6 +26,8 @@ import reprocessing
 import runtime_environment
 import usage
 import error_reports
+import email_verification
+import ipaddress
 from server import model_queue
 
 
@@ -61,6 +63,7 @@ def initialize(recover=True):
         CREATE TABLE IF NOT EXISTS workspace(user_id TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(user_id,name));
         CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
         ''')
+        email_verification.initialize(db)
         recognition.initialize(db)
         usage.initialize(db)
         error_reports.initialize(db)
@@ -113,6 +116,10 @@ def session_cookie(token, max_age, admin=False):
     name=runtime_environment.cookie_name()+('_admin' if admin else '')
     return name+'='+token+'; HttpOnly; SameSite=Strict; Path='+('/api/admin' if admin else '/api')+'; Max-Age='+str(max_age)+secure
 
+def public_user(db, row):
+    return dict(id=row['id'], name=row['name'], email=row['email'],
+                emailVerified=email_verification.verified(db, row['id']))
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, value, cookie=None):
         data=b'' if status==204 else json.dumps(value,ensure_ascii=False).encode()
@@ -138,6 +145,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control','no-store')
         self.send_header('Content-Length',str(len(data)))
         if cookie: self.send_header('Set-Cookie',cookie)
+        if getattr(self, 'retry_after', None): self.send_header('Retry-After', str(self.retry_after))
         self.end_headers()
         self.wfile.write(data)
 
@@ -165,7 +173,18 @@ class Handler(BaseHTTPRequestHandler):
         token=hashlib.sha256(raw.value.encode()).hexdigest() if raw else ''
         row=db.execute('SELECT users.id,email,name FROM sessions JOIN users ON user_id=users.id WHERE token=? AND expires>?',(token,time.time())).fetchone()
         if not row: raise ApiError(401,'登录已失效，请重新登录')
-        return dict(row),token
+        return public_user(db, row),token
+
+    def email_client_ip(self):
+        # Compose exposes only Caddy, which overwrites this private header.
+        value = self.client_address[0]
+        if os.environ.get('NIUMA_TRUST_PROXY_CLIENT_IP') == '1':
+            forwarded = self.headers.get('X-Niuma-Client-IP', '')
+            try:
+                value = str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                pass
+        return value
 
     def route(self):
         origin=self.headers.get('Origin')
@@ -206,17 +225,46 @@ class Handler(BaseHTTPRequestHandler):
                     if error.status!=401: raise
                     report_user=None
                 return self.reply(200,error_reports.save(db,body,report_user['id'] if report_user else None,self.client_address[0],ApiError))
+            if path=='/api/auth/email-code' and self.command=='POST':
+                purpose = body.get('purpose')
+                if purpose == 'register':
+                    email = email_verification.normalize_email(body.get('email'))
+                    if db.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone():
+                        raise email_verification.VerificationError(409, 'email_registered', '该邮箱已注册，请登录后验证邮箱')
+                    uid = ''
+                elif purpose == 'verify_email':
+                    user, _ = self.user(db)
+                    uid, email = user['id'], user['email']
+                    if user['emailVerified']:
+                        raise email_verification.VerificationError(409, 'email_already_verified', '当前邮箱已经验证')
+                else:
+                    raise email_verification.VerificationError(400, 'email_code_invalid', '验证码用途不正确')
+                result = email_verification.request_code(db, email, purpose, uid, self.email_client_ip(), DB.parent / 'email-verification.key')
+                return self.reply(200, result)
             if path in ['/api/auth/register','/api/auth/login','/api/admin/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
                 if not 8<=len(password)<=128 or '@' not in email or len(email)>254: raise ApiError(400,'请输入有效邮箱和至少 8 位密码')
                 row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
+                if not row and not path.endswith('register'):
+                    # Preserve legacy logins while accepting the canonical IDNA address of new accounts.
+                    try:
+                        canonical_email=email_verification.normalize_email(email)
+                    except email_verification.VerificationError:
+                        canonical_email=email
+                    row=db.execute('SELECT * FROM users WHERE email=?',(canonical_email,)).fetchone()
                 if path.endswith('register'):
+                    email = email_verification.normalize_email(body.get('email'))
                     name=str(body.get('name','')).strip()
                     if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
+                    db.execute('BEGIN IMMEDIATE')
+                    row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
                     if row: raise ApiError(409,'该邮箱已注册')
+                    email_verification.consume_code(db, email, 'register', '', body.get('challengeId'), body.get('code'),
+                                                    self.email_client_ip(), DB.parent / 'email-verification.key')
                     uid,salt=secrets.token_hex(16),secrets.token_hex(16)
                     db.execute('INSERT INTO users VALUES(?,?,?,?,?)',(uid,email,name,salt,password_hash(password,salt)))
+                    email_verification.mark_verified(db, uid)
                     row=db.execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
                 elif not row or not hmac.compare_digest(row['hash'],password_hash(password,row['salt'])):
                     raise ApiError(401,'邮箱或密码不正确')
@@ -226,7 +274,7 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
                 usage.record(db,row['id'],'register' if path.endswith('register') else 'login')
-                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400,administrator))
+                return self.reply(200,dict(user=public_user(db, row)),session_cookie(token,86400,administrator))
             bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
             if bearer:
                 uid,token,user=bearer,None,None
@@ -234,6 +282,13 @@ class Handler(BaseHTTPRequestHandler):
                 user,token=self.user(db)
                 uid=user['id']
             self.usage_uid=uid
+            if path=='/api/auth/verify-email' and self.command=='POST':
+                if user['emailVerified']:
+                    raise email_verification.VerificationError(409, 'email_already_verified', '当前邮箱已经验证')
+                email_verification.consume_code(db, user['email'], 'verify_email', uid, body.get('challengeId'), body.get('code'),
+                                                self.email_client_ip(), DB.parent / 'email-verification.key')
+                email_verification.mark_verified(db, uid)
+                return self.reply(200, dict(user=public_user(db, user)))
             if path=='/api/admin/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
                 return self.reply(200,{},session_cookie('',0,True))
@@ -413,9 +468,15 @@ class Handler(BaseHTTPRequestHandler):
         self.usage_uid=None
         self.usage_recorded=False
         self.usage_tasks=None
+        self.retry_after=None
         try:
             with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
+        except email_verification.VerificationError as e:
+            self.retry_after=e.retry_after
+            value=dict(error=e.message, code=e.code)
+            if e.retry_after is not None: value['retryAfter']=e.retry_after
+            self.reply(e.status, value)
         except ApiError as e:
             if self.path.startswith('/api/sources/submissions'):
                 code={401:'unauthorized',403:'unauthorized',404:'not_found',409:'conflict',503:'unavailable'}.get(e.status,'invalid_request')
