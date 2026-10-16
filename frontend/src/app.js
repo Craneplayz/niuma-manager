@@ -101,6 +101,14 @@ const host = {
   toast,
   render,
   renderPageHeading: workspaceHeading,
+  revealImportResult(id) {
+    const target = document.getElementById(id);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  },
+  clearImportResultHint() {
+    document.querySelectorAll("[data-source-sync-hint]").forEach(hint => hint.remove());
+  },
   openDialog,
   closeDialog,
   isDialogOpen: selector => dialog.open && Boolean(dialog.querySelector(selector)),
@@ -807,10 +815,15 @@ document.addEventListener("focusin", (event) => {
   }
 });
 document.addEventListener("focusout", hideSidebarTooltip);
-document.addEventListener("pointerdown", hideSidebarTooltip);
+document.addEventListener("pointerdown", () => {
+  hideSidebarTooltip();
+  imports.dismissRecoveryHint();
+});
+window.addEventListener("wheel", () => imports.dismissRecoveryHint(), { passive: true });
 window.addEventListener("scroll", hideSidebarTooltip, true);
 window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
+  imports.dismissRecoveryHint();
   const button = e.target.closest("button");
   if (!button) return;
   if (button.dataset.errorFeedback) {
@@ -892,6 +905,7 @@ document.addEventListener("click", async (e) => {
   }
 });
 document.addEventListener("input", (e) => {
+  imports.dismissRecoveryHint();
   if (e.target.id === "task-search") {
     ui.query = e.target.value;
     renderResults();
@@ -901,6 +915,7 @@ document.addEventListener("input", (e) => {
   imports.input?.(e);
 });
 document.addEventListener("change", (e) => {
+  imports.dismissRecoveryHint();
   if (e.target.dataset.noticeRead) {
     void toggleTask(e.target.dataset.noticeRead);
     return;
@@ -1001,6 +1016,7 @@ document.addEventListener("submit", async (e) => {
   }
 });
 document.addEventListener("keydown", (e) => {
+  imports.dismissRecoveryHint();
   if (e.key === "Escape") hideSidebarTooltip();
   const modalOpen = dialog.open || drawer.open;
   if (e.key === "Tab" && ui.mobileMenu && !modalOpen) {

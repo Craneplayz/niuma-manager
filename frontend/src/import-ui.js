@@ -12,6 +12,7 @@ import { candidateEvidenceMarkup, failureSources } from "./import-evidence.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createSourceSyncUI } from "./source-sync-ui.js";
 import { createSyncScheduleUI } from "./source-schedule-ui.js";
+import { importResultStatus, importStatusMarkup } from "./import-result-status.js";
 
 const actions = {
   create: "新增任务",
@@ -270,9 +271,12 @@ export function createImportUI(host) {
     isImportBusy: () => busy,
     render: refresh,
     onChanged: refreshResults,
+    getCandidate: id => itemById(id),
     openReview(id) {
       const item = itemById(id);
       if (blocked()) { host.toast("正在处理，请稍候"); return; }
+      const status = importResultStatus({ candidate_id: id }, "review", { ...host, getCandidate: itemById });
+      if (status.taskId) { host.openTask?.(status.taskId); return; }
       if (item?.state === "pending") openReview(item);
       else host.toast(item ? "这条内容已核对处理" : "这条待核对内容已不在当前列表中");
     },
@@ -397,13 +401,18 @@ export function createImportUI(host) {
     }
     return [...groups.values()].map(group => {
       const ids = new Set(group.batches.map(batch => batch.request.request_id));
-      const added = [], updated = [];
+      const receipts = group.batches.flatMap(batch => batch.items || []);
+      const knownCandidates = new Set(receipts.map(item => item.id));
+      const added = receipts.filter(item => item.autoApplied === true).map(item => ({
+        label: item.candidate.title, candidate_id: item.id,
+        task_id: tasks.find(task => task.recognitionHistory?.some(event => event.storageId === item.id))?.id,
+      })), updated = [];
       for (const task of tasks) {
-        const events = (task.recognitionHistory || []).filter(event => ids.has(event.requestId));
+        const events = (task.recognitionHistory || []).filter(event => ids.has(event.requestId) && !knownCandidates.has(event.storageId));
         if (events.some(event => event.action === "create")) added.push({ label: task.title, task_id: task.id });
         else if (events.length) updated.push({ label: task.title, task_id: task.id });
       }
-      const review = group.batches.flatMap(batch => (batch.items || []).filter(item => item.state === "pending")
+      const review = group.batches.flatMap(batch => (batch.items || []).filter(item => item.autoApplied !== true)
         .map(item => ({ label: item.candidate.title, candidate_id: item.id })));
       const problems = group.batches.filter(batch => ["failed", "partial_success"].includes(batch.result?.status)).flatMap(batch => {
         const sources = failureSources(batch);
@@ -420,7 +429,10 @@ export function createImportUI(host) {
     const summary = Object.entries(collections).filter(([, items]) => items.length).map(([key, items]) =>
       `<button id="${esc(region)}-${key}" class="sync-category" type="button" data-import-history-category="${key}" data-import-history-batch="${esc(group.id)}" aria-expanded="${category === key}" aria-controls="${esc(region)}">${labels[key]} ${items.length} ${key === "error" ? "条" : "项"}</button>`).join("");
     const items = collections[category] || [];
-    const names = items.map((item, index) => `<li><button id="${esc(region)}-${category}-${index}" class="sync-result-name" type="button" data-import-history-item="${index}" data-import-history-batch="${esc(group.id)}" title="${esc([item.label,item.course].filter(Boolean).join(" · "))}" ${category === "error" ? `aria-expanded="${historyProblems.get(group.id) === index}"` : ""}>${esc(item.label)}</button></li>`).join("");
+    const names = items.map((item, index) => {
+      const status = importResultStatus(item, category, { ...host, getCandidate: itemById });
+      return `<li><button id="${esc(region)}-${category}-${index}" class="sync-result-name" type="button" data-import-history-item="${index}" data-import-history-batch="${esc(group.id)}" title="${esc([item.label,item.course,status.label].filter(Boolean).join(" · "))}" ${category === "error" ? `aria-expanded="${historyProblems.get(group.id) === index}"` : ""}><span>${esc(item.label)}</span>${importStatusMarkup(status)}</button></li>`;
+    }).join("");
     const problem = category === "error" ? items[historyProblems.get(group.id)] : null;
     const detail = problem ? `<div class="sync-problem" role="region" aria-label="${esc(problem.label)}的处理情况"><strong>${esc(problem.label)}</strong>${errorMarkup(batchErrorReport(problem.batch), source === "teaching" ? "teaching_sync" : "text_import", JSON.stringify(["recognition",problem.batch.request.request_id,problem.input_id]))}${problem.links ? `<p class="status-note">${problem.links}</p>` : ""}</div>` : "";
     const retry = group.batches.filter(batch => ["failed", "partial_success"].includes(batch.result?.status) && !incomplete(batch));
@@ -752,7 +764,9 @@ export function createImportUI(host) {
           historyProblems.set(group.id, historyProblems.get(group.id) === index ? null : index); refresh();
         } else if (category === "review") {
           const candidate = itemById(item.candidate_id);
-          if (!blocked() && candidate?.state === "pending") openReview(candidate);
+          const status = importResultStatus(item, category, { ...host, getCandidate: itemById });
+          if (status.taskId) host.openTask?.(status.taskId);
+          else if (!blocked() && candidate?.state === "pending") openReview(candidate);
         } else host.openTask?.(item.task_id);
       }
       return true;
@@ -1004,5 +1018,5 @@ export function createImportUI(host) {
   function setVisible(visible) {
     sourceSync.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
+  return { render, click, submit, input, reset, load, setVisible, dismissRecoveryHint: () => sourceSync.dismissRecoveryHint(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
 }

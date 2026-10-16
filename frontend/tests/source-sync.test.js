@@ -20,8 +20,8 @@ function deferred() {
 function fixture(initial = []) {
   let account = 1, authenticated = true, demo = false, otherBusy = false;
   let runs = clone(initial), lastCheck = null, renders = 0, refreshes = 0, flushes = 0, handler = null, changed = null, flush = null;
-  let serial = 0, timerId = 0, view = {tasks: [], batches: []};
-  const calls = [], timers = new Map(), locks = [], callbacks = [], messages = [];
+  let serial = 0, timerId = 0, hintClears = 0, view = {tasks: [], batches: []};
+  const calls = [], timers = new Map(), locks = [], callbacks = [], messages = [], revealed = [];
   const remote = {tasks: [], batches: []};
   const defaultAPI = call => {
     if (call.path === '/api/workspace') return {tasks: clone(remote.tasks)};
@@ -34,6 +34,7 @@ function fixture(initial = []) {
     const id = decodeURIComponent(call.path.slice(API.length + 1).split('/')[0]);
     const parent = runs.find(run => run.run_id === id);
     assert.ok(parent, 'write targets a known server run');
+    if (call.method === 'GET') return clone(parent);
     if (call.path.endsWith('/stop')) {
       const stopped = clone(parent); stopped.state = 'stopped'; stopped.revision++;
       stopped.records.forEach(record => {
@@ -56,7 +57,11 @@ function fixture(initial = []) {
   const host = {
     accountVersion: () => account, isAuthenticated: () => authenticated, isDemo: () => demo,
     toast: message => messages.push(message),
+    revealImportResult: id => revealed.push(id),
+    clearImportResultHint: () => hintClears++,
     isImportBusy: () => otherBusy, render: () => renders++,
+    getState: () => view,
+    getCandidate: id => view.batches.flatMap(batch => batch.items || []).find(item => item.id === id),
     async api(path, body, method = 'GET', options = {}) {
       const call = {path, body: clone(body), method, signal: options.signal, account};
       calls.push(call);
@@ -78,9 +83,9 @@ function fixture(initial = []) {
   };
   ui = createSourceSyncUI(host);
   return {
-    ui, host, calls, remote, timers, locks, callbacks, messages,
+    ui, host, calls, remote, timers, locks, callbacks, messages, revealed,
     setLastCheck(value) { lastCheck = clone(value); },
-    get view() { return view; }, get renders() { return renders; }, get refreshes() { return refreshes; }, get flushes() { return flushes; },
+    get view() { return view; }, get renders() { return renders; }, get refreshes() { return refreshes; }, get flushes() { return flushes; }, get hintClears() { return hintClears; },
     sourceCalls: () => calls.filter(call => call.path.startsWith(API)),
     posts: () => calls.filter(call => call.method === 'POST'),
     setRuns(value) { runs = clone(value); }, setAPI(value) { handler = value; }, setChanged(value) { changed = value; }, setFlush(value) { flush = value; },
@@ -447,19 +452,156 @@ check('a collection error remains visible even with no created tasks and no reco
   await f.ui.click(button('recover',run.run_id));assert.equal(f.posts()[0].path,API);
 });
 
-check('a recovered no-task retry does not leave an actionable old error after its quiet receipt is hidden', async () => {
+check('a recovered no-task retry keeps a green receipt without an exception action', async () => {
   const old=syncRun({state:'failed',states:['failed']});old.records[0].recovered=true;
   const f=fixture([old]);await f.ui.load();
-  assert.equal(f.ui.renderHistory(),'');assert.doesNotMatch(markup(f.ui),/后续已恢复|本轮记录保留|data-source-sync-action="retry"|错误 1 条/);
+  await category(f.ui,old.run_id,'error');
+  assert.match(markup(f.ui),/sync-item-status-success">已恢复/);
+  assert.doesNotMatch(markup(f.ui),/处理未完成|data-source-sync-action="recover"|sync-item-status-error/);
   await f.ui.click(button('retry',old.run_id));assert.equal(f.posts().length,0);
 });
 
-check('resolved errors disappear while genuine additions and pending review remain accessible', async () => {
+check('resolved errors stay within the original batch alongside additions and review receipts', async () => {
   const run=syncRun({state:'partial_success',states:['succeeded','succeeded','failed'],added:1});
   run.records[1].review=1;run.counts.review=1;
   run.records[2].recovered=true;run.error=run.records[2].error;
   const f=fixture([run]);await f.ui.load();
   const html=f.ui.renderHistory();
   assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);
-  assert.doesNotMatch(html,/错误|后续已恢复|本轮记录保留|处理未完成/);
+  assert.match(html,/错误 1 条/);assert.doesNotMatch(html,/处理未完成/);
+  await category(f.ui,run.run_id,'error');assert.match(markup(f.ui),/sync-item-status-success">已恢复/);
+});
+
+check('receipt statuses and confirmed-candidate links follow current tasks without changing totals', async () => {
+  const run=syncRun({added:1,review:1});
+  run.records[0].added_items=[{candidate_id:'auto',task_id:'task',label:'原始任务名称',course:null}];
+  run.records[0].review_items=[{candidate_id:'manual',label:'需要核对的任务',course:null}];
+  const f=fixture([run]);
+  f.remote.tasks=[{id:'task',status:'todo'}];
+  f.remote.batches=[{items:[{id:'manual',state:'pending'}]}];
+  await f.ui.load();await category(f.ui,run.run_id,'added');
+  assert.match(markup(f.ui),/sync-item-status-muted">未完成/);
+  f.view.tasks[0].status='done';
+  assert.match(markup(f.ui),/sync-item-status-success">✓ 已完成/);
+  await category(f.ui,run.run_id,'review');assert.match(markup(f.ui),/sync-item-status-review">待核对/);
+  f.view.batches[0].items[0].state='applied';
+  f.view.tasks.push({id:'confirmed',status:'done',recognitionHistory:[{storageId:'manual',action:'create'}]});
+  assert.match(markup(f.ui),/sync-item-status-success">✓ 已完成/);
+  assert.doesNotMatch(markup(f.ui),/sync-item-status-review/);
+  assert.match(markup(f.ui),/新增 1 项/);assert.match(markup(f.ui),/待核对 1 项/);
+  await category(f.ui,run.run_id,'added');f.view.tasks=[];
+  assert.match(markup(f.ui),/任务已移除/);assert.doesNotMatch(markup(f.ui),/">未完成<|进行中/);
+  await category(f.ui,run.run_id,'error');
+  assert.equal(f.posts().length,0);
+});
+
+function linkedRecovery() {
+  const old=syncRun({id:'old:failure',state:'failed',states:['failed']});
+  const target=syncRun({id:'recovery:success',added:1});
+  target.records[0].added_items=[{candidate_id:'repaired',task_id:'repaired-task',label:'恢复后加入的任务',course:null}];
+  old.records[0].recovered=true;
+  old.records[0].recovered_by={run_id:target.run_id,request_id:target.records[0].request_id};
+  return {old,target};
+}
+const locate=(ui,run)=>ui.click({dataset:{sourceSyncAction:'locate-recovery',sourceSyncRun:run.run_id,sourceSyncItem:'0'}});
+
+check('only the recovered status locates and expands its successful batch without importing again', async () => {
+  const {old,target}=linkedRecovery(),f=fixture([target,old]);await f.ui.load();
+  await category(f.ui,old.run_id,'error');
+  assert.match(markup(f.ui),/class="sync-recovery-link"[^>]*data-source-sync-action="locate-recovery"/);
+  await problem(f.ui,old.run_id,0);assert.deepEqual(f.revealed,[]);
+  await locate(f.ui,old);
+  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-0`]);
+  assert.match(markup(f.ui),/data-source-sync-history open/);
+  assert.match(markup(f.ui),/data-source-sync-hint>↳ 恢复结果/);
+  assert.doesNotMatch(markup(f.ui),/sync-run-located/);
+  assert.match(markup(f.ui),/data-source-sync-category="added" aria-expanded="true"/);
+  assert.match(markup(f.ui),/恢复后加入的任务/);assert.equal(f.posts().length,0);
+});
+
+check('the recovery hint expires once without rerendering the page or returning on refresh', async () => {
+  const {old,target}=linkedRecovery(),f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
+  const [id,timer]=[...f.timers].find(([,timer])=>timer.ms===3000);
+  const renders=f.renders;
+  markup(f.ui);markup(f.ui);
+  assert.equal([...f.timers.values()].filter(timer=>timer.ms===3000).length,1);
+  f.timers.delete(id);timer.fn();
+  assert.equal(f.renders,renders);assert.equal(f.hintClears,1);
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint|sync-run-located/);
+  await f.ui.load();
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint|sync-run-located/);
+  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-0`]);
+});
+
+check('the next action dismisses the hint and an old timer cannot erase a fresh navigation hint', async () => {
+  const {old,target}=linkedRecovery(),f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
+  const oldTimer=[...f.timers.values()].find(timer=>timer.ms===3000);
+  await category(f.ui,old.run_id,'error');
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint/);
+  assert.equal(f.hintClears,1);
+  await locate(f.ui,old);oldTimer.fn();
+  assert.match(markup(f.ui),/data-source-sync-hint/);
+  f.ui.dismissRecoveryHint();
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint/);
+  assert.equal(f.hintClears,2);
+  await f.ui.load();assert.doesNotMatch(markup(f.ui),/data-source-sync-hint/);
+});
+
+check('recovery navigation points at its own source result rather than the first task in a batch', async () => {
+  const {old,target}=linkedRecovery();
+  const second=clone(target.records[0]);second.request_id='source:second';
+  second.added_items=[{candidate_id:'second',task_id:'second-task',label:'真正的恢复结果',course:null}];
+  target.records.push(second);target.counts.total++;target.counts.succeeded++;target.counts.added++;
+  old.records[0].recovered_by.request_id=second.request_id;
+  const f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
+  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-1`]);
+  const html=markup(f.ui);
+  assert.match(html,/真正的恢复结果<\/span><small class="sync-recovery-hint"/);
+  assert.doesNotMatch(html,/恢复后加入的任务<\/span><small class="sync-recovery-hint"/);
+});
+
+check('another interaction cancels delayed navigation without late scrolling or a stale hint', async () => {
+  const {old,target}=linkedRecovery(),f=fixture([old]),gate=deferred();
+  f.setAPI((call,fallback)=>call.path===API+'/'+encodeURIComponent(target.run_id)?gate.wait:fallback(call));
+  await f.ui.load();const locating=locate(f.ui,old);
+  f.ui.dismissRecoveryHint();gate.resolve(target);await locating;
+  assert.deepEqual(f.revealed,[]);assert.deepEqual(f.messages,[]);
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint|恢复后加入的任务/);
+});
+
+check('recovery navigation fetches a batch outside the recent twenty and keeps it visible', async () => {
+  const {old,target}=linkedRecovery();target.created_at='2020-01-01T00:00:00Z';
+  const f=fixture([old,...Array.from({length:19},(_,i)=>syncRun({id:'filler:'+i,added:1}))]);
+  f.setAPI((call,fallback)=>call.path===API+'/'+encodeURIComponent(target.run_id)?clone(target):fallback(call));
+  await f.ui.load();await locate(f.ui,old);
+  assert.match(f.ui.renderHistory(),/历史导入 · 20/);
+  assert.match(f.ui.renderHistory(),/id="sync-run-recovery:success"/);
+  assert.match(f.ui.renderHistory(),/恢复后加入的任务/);
+  assert.equal(f.calls.filter(call=>call.path===API+'/'+encodeURIComponent(target.run_id)).length,1);
+  assert.equal(f.posts().length,0);
+});
+
+check('account switches discard a delayed recovery navigation response', async () => {
+  const {old,target}=linkedRecovery(),f=fixture([old]),gate=deferred();
+  f.setAPI((call,fallback)=>call.path===API+'/'+encodeURIComponent(target.run_id)?gate.wait:fallback(call));
+  await f.ui.load();const locating=locate(f.ui,old);f.switchAccount();gate.resolve(target);await locating;
+  assert.equal(markup(f.ui),'');assert.deepEqual(f.revealed,[]);assert.deepEqual(f.messages,[]);
+});
+
+check('expired recovery receipts leave saved results intact and never trigger another import', async () => {
+  const {old,target}=linkedRecovery(),f=fixture([old]);
+  f.setAPI((call,fallback)=>{if(call.path===API+'/'+encodeURIComponent(target.run_id))throw {status:404};return fallback(call);});
+  await f.ui.load();await locate(f.ui,old);
+  assert.match(f.messages[0],/已归档/);assert.deepEqual(f.revealed,[]);assert.equal(f.posts().length,0);
+});
+
+check('trash status reuses the shared trash icon and returns to task status after restoring', async () => {
+  const run=syncRun({added:1});run.records[0].added_items=[{candidate_id:'auto',task_id:'removed',label:'放入回收站的任务',course:null}];
+  const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'added');
+  f.view.trash=[{id:'removed',status:'done'}];
+  const html=markup(f.ui);
+  assert.match(html,/sync-item-status-trash"><svg[^>]*aria-hidden="true"/);
+  assert.match(html,/已移至回收站/);assert.doesNotMatch(html,/✓ 已完成|">未完成</);
+  f.view.tasks=f.view.trash;f.view.trash=[];
+  assert.match(markup(f.ui),/✓ 已完成/);assert.doesNotMatch(markup(f.ui),/已移至回收站/);
 });

@@ -30,6 +30,7 @@ RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'typ
               'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})
 RECORD['properties'].update(review=COUNT, recovered={'type': 'boolean'})
+RECORD['properties']['recovered_by'] = obj({'run_id': ID, 'request_id': {'type': 'string', 'minLength': 1, 'maxLength': 256}})
 RECORD['properties']['input_id'] = {'type': 'string', 'minLength': 1}
 RESULT_ITEM = {'candidate_id': {'type': 'string', 'minLength': 1}, 'label': {'type': 'string', 'maxLength': 200},
                'course': {'type': ['string', 'null']}}
@@ -69,6 +70,8 @@ def check(kind, value):
     if kind == 'run':
         records = value['records']
         for record in records:
+            if 'recovered_by' in record and record.get('recovered') is not True:
+                raise ValueError('恢复批次只能关联已恢复记录')
             for field, count in (('added_items', record['added']), ('review_items', record.get('review', 0))):
                 if field in record and (len(record[field]) != count or
                         len({item['candidate_id'] for item in record[field]}) != count):

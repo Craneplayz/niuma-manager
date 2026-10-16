@@ -58,5 +58,14 @@ class SourceSyncContractTests(unittest.TestCase):
         record['added_items']=[dict(candidate_id='same',task_id=None,label='重复',course=None)]*2
         with self.assertRaises(ValueError):check('run',value)
 
+    def test_recovery_link_requires_a_recovered_receipt_and_explicit_run_and_request(self):
+        value=deepcopy(EXAMPLES['run']);record=value['records'][1]
+        record.update(recovered=True,recovered_by=dict(run_id='successful:run',request_id='successful:request'))
+        check('run',value)
+        record['recovered']=False
+        with self.assertRaises(ValueError):check('run',value)
+        record['recovered']=True;record['recovered_by']['run_id']=''
+        with self.assertRaises(ValueError):check('run',value)
+
 
 if __name__=='__main__':unittest.main()
