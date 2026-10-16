@@ -26,12 +26,14 @@ function fixture(t, extra = {}) {
     escapeHtml: value => String(value ?? ""), render() {},
     isDemo: () => false, isConnected: () => connected, isBusy: () => busy, isRunning: () => running,
     canStop: () => running, isStopping: () => stopping,
+    getProgressLabel: () => running ? "正在识别，已处理 1 / 3 条通知" : "",
     async start() { starts++; events.push("start"); return true; }, toast: message => messages.push(message),
   });
   t.after(() => ui.reset());
   return { ui, requests, messages, events, fetch, get starts() { return starts; },
     field: (key, value) => ui.input({ target: { dataset: { syncScheduleField: key }, value, checked: value } }),
     disconnect() { connected = false; }, setBusy(value) { busy = value; running = value; },
+    setReading(value) { busy = value; running = false; },
     setStopping(value) { stopping = value; },
   };
 }
@@ -166,7 +168,28 @@ test("single import exposes an enabled primary stop action; pending stop keeps i
   const f = fixture(t); await f.ui.load(); f.setBusy(true);
   assert.match(f.ui.render(), /data-import-action="sync" >.*停止导入/);
   f.setStopping(true);
-  assert.match(f.ui.render(), /data-import-action="sync" disabled>正在停止…/);
+  assert.match(f.ui.render(), /data-import-action="sync" disabled>.*正在停止…/);
+});
+
+test("the active action combines a spinning arc with its stop icon and stays clickable until stopping", async t => {
+  const f=fixture(t);await f.ui.load();f.setBusy(true);
+  let html=f.ui.render(),button=html.match(/<button[^>]*data-import-action="sync"[^>]*>.*?<\/button>/)[0];
+  assert.match(button,/aria-busy="true"/);assert.match(button,/teaching-progress-ring/);
+  assert.match(button,/teaching-stop-icon/);assert.match(button,/停止导入/);assert.doesNotMatch(button,/ disabled/);
+  assert.match(html,/id="teaching-run-status" class="sr-only" role="status">正在识别，已处理 1 \/ 3 条通知/);
+  f.setStopping(true);html=f.ui.render();
+  assert.match(html,/data-import-action="sync" disabled>.*teaching-progress-ring.*正在停止…/);
+  f.setStopping(false);f.setBusy(false);html=f.ui.render();
+  assert.doesNotMatch(html,/teaching-progress-ring|teaching-run-status/);assert.match(html,/开始识别/);
+});
+
+test("scheduled waiting and polling use a static stop icon, with rotation only during the actual run", async t => {
+  const f=fixture(t,{enabled:true,interval_minutes:15});await f.ui.load();
+  assert.match(f.ui.render(),/停止同步/);assert.match(f.ui.render(),/teaching-stop-icon/);
+  assert.doesNotMatch(f.ui.render(),/teaching-progress-ring/);
+  f.setBusy(true);assert.match(f.ui.render(),/teaching-progress-ring/);assert.match(f.ui.render(),/停止同步/);
+  f.setReading(true);assert.doesNotMatch(f.ui.render(),/teaching-progress-ring/);
+  f.setReading(false);assert.match(f.ui.render(),/停止同步/);assert.doesNotMatch(f.ui.render(),/teaching-progress-ring/);
 });
 
 test("an active scheduled run uses the saved service state even when the draft was changed", async t => {

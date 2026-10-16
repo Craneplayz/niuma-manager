@@ -156,9 +156,14 @@ export function createSyncScheduleUI(host) {
     const label = stopping ? "正在停止…" : canStop ? state?.enabled ? "停止同步" : "停止导入"
       : !connected ? "连接教学网" : phase === "starting" || host.isRunning() ? "正在启动…"
       : unchanged() ? "停止同步" : minutes() === null || !draft ? "开始识别" : "启动并识别";
+    const spinning = Boolean(stopping || phase === "starting" || host.isRunning());
+    const progress = spinning ? stopping ? "正在停止导入…" : host.getProgressLabel?.() || "正在启动识别…" : "";
+    const stopIcon = canStop || unchanged() || stopping;
+    const indicator = spinning || stopIcon ? `<span class="teaching-action-indicator" aria-hidden="true">${spinning ? '<span class="teaching-progress-ring"></span>' : ""}${stopIcon ? '<span class="teaching-stop-icon"></span>' : ""}</span>` : "";
     return `<div class="teaching-controls"><div class="teaching-action-row">
       ${connected ? `<select id="teaching-frequency" aria-label="执行频率" data-sync-schedule-field="interval" ${disabled || !draft ? "disabled" : ""}><option value="once" ${!draft || draft.interval === "once" ? "selected" : ""}>单次</option>${INTERVALS.map(([n, text]) => `<option value="${n}" ${draft?.interval === String(n) ? "selected" : ""} ${state && !state.available ? "disabled" : ""}>${text}</option>`).join("")}<option value="custom" ${draft?.interval === "custom" ? "selected" : ""} ${state && !state.available ? "disabled" : ""}>自定义间隔</option></select>${draft?.interval === "custom" ? `<label class="teaching-custom"><input id="teaching-interval" aria-label="间隔分钟数" type="number" min="15" max="10080" step="1" value="${esc(draft.minutes)}" data-sync-schedule-field="minutes" ${disabled ? "disabled" : ""}>分钟</label>` : ""}` : ""}
-      <button class="btn primary" type="button" data-import-action="sync" ${actionDisabled ? "disabled" : ""}>${!stopping && (canStop || unchanged()) ? '<span class="teaching-stop-icon" aria-hidden="true"></span>' : ""}${label}</button></div>
+      <button class="btn primary" type="button" aria-busy="${spinning}" ${progress ? `aria-describedby="teaching-run-status" title="${esc(progress)}"` : ""} data-import-action="sync" ${actionDisabled ? "disabled" : ""}>${indicator}${label}</button></div>
+      ${progress ? `<span id="teaching-run-status" class="sr-only" role="status">${esc(progress)}</span>` : ""}
       ${connected && draft?.interval !== "once" && draft && !unchanged() ? `<label class="teaching-consent"><input id="teaching-consent" type="checkbox" data-sync-schedule-field="consent" ${draft.consent ? "checked" : ""} ${disabled ? "disabled" : ""}><span>允许定期获取教学网内容（含附件）用于识别，关闭网页后仍会运行。</span></label>` : ""}
       ${connected && state && !state.available ? '<p class="status-note">定时同步暂不可用，可进行单次识别。</p>' : ""}
       ${connected && state?.error && !error ? `<p class="status-note">${esc(state.error.message)}</p>` : ""}

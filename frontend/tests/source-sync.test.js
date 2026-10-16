@@ -113,13 +113,14 @@ check('only useful completed runs remain in collapsed history; empty stops and s
   assert.doesNotMatch(f.ui.renderHistory(), /data-source-sync-history open|已处理 0 \/ 0|<h2>|跳过|已停止导入/);
 });
 
-check('starting reveals progress immediately; active and completed results share the same compact area', async () => {
+check('running status moves into the action while only actual results occupy the compact area', async () => {
   const f = fixture(), gate = deferred(); f.setFlush(() => gate.wait);
   const starting = f.ui.start();
-  assert.match(f.ui.renderProgress(), /正在启动识别/);
-  assert.doesNotMatch(f.ui.renderProgress(), /<h2>|0 \/ 0/);
+  assert.match(f.ui.progressLabel(), /正在启动识别/);
+  assert.equal(f.ui.renderProgress(), '');
   gate.resolve(); await starting;
-  assert.match(f.ui.renderProgress(), /<progress  aria-label="等待导入"/);
+  assert.equal(f.ui.progressLabel(), '等待导入');
+  assert.equal(f.ui.renderProgress(), '');
   assert.equal(f.ui.renderHistory(), '');
   f.setRuns([syncRun({id: 'run:1', added: 1})]); await f.ui.load();
   assert.match(f.ui.renderProgress(), /新增 1 项/);
@@ -134,7 +135,9 @@ check('entering restores active progress by GET and leaving pauses polling witho
   f.remote.tasks = [{id: 'saved-task'}];
   await f.ui.setVisible(true);
   assert.equal(f.ui.isBusy(), true); assert.equal(f.ui.ownsRequest('sync:0'), true);
-  assert.match(markup(f.ui), /已处理 1 \/ 3/); assert.equal(f.view.tasks[0].id, 'saved-task');
+  assert.match(f.ui.progressLabel(), /正在识别，已处理 1 \/ 3/);
+  assert.match(markup(f.ui), /新增 1 项/);
+  assert.doesNotMatch(markup(f.ui), /<progress|<span class="status-note">已处理 1 \/ 3|<strong[^>]*>正在识别/); assert.equal(f.view.tasks[0].id, 'saved-task');
   assert.equal([...f.timers.values()][0].ms, 2000);
   await f.tick(); assert.equal(f.posts().length, 0);
   const reads = f.sourceCalls().length;
@@ -142,6 +145,18 @@ check('entering restores active progress by GET and leaving pauses polling witho
   assert.equal(f.sourceCalls().length, reads); assert.equal(f.ui.isBusy(), true);
   await f.ui.setVisible(true); assert.equal(f.sourceCalls().length, reads + 1);
   assert.equal(f.posts().length, 0);
+});
+
+check('queued, crawling and recognizing remain active without creating a separate progress row', async () => {
+  for (const [state,label] of [['queued','等待导入'],['crawling','正在采集'],['recognizing','正在识别']]) {
+    const f=fixture([syncRun({state,states:state==='recognizing'?['succeeded','running']:[]})]);
+    await f.ui.load();
+    assert.equal(f.ui.canStop(),true);assert.equal(f.ui.isRunning(),true);
+    assert.match(f.ui.progressLabel(),new RegExp(label));
+    assert.equal(f.ui.renderProgress(),'');
+    if(state==='recognizing') assert.match(f.ui.progressLabel(),/已处理 1 \/ 2/);
+    f.ui.reset();assert.equal(f.ui.progressLabel(),'');
+  }
 });
 
 check('unchanged progress neither refreshes the workspace again nor rerenders editable forms', async () => {

@@ -1546,6 +1546,10 @@ dialog p {
 .teaching-action-row { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .teaching-action-row .primary { min-width: 128px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .teaching-stop-icon { width: 9px; height: 9px; background: currentColor; border-radius: 1px; flex-shrink: 0; }
+.teaching-action-indicator { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; }
+.teaching-progress-ring { position: absolute; inset: 0; border: 1.5px solid transparent; border-top-color: currentColor; border-right-color: currentColor; border-radius: 50%; animation: teaching-progress-spin 1s linear infinite; }
+@keyframes teaching-progress-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .teaching-progress-ring { animation: none; } }
 .teaching-action-row select,
 .teaching-custom input { border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); min-height: 40px; font-size: 13px; padding: 8px 10px; }
 .teaching-action-row select { min-width: 125px; max-width: 100%; }
@@ -1563,7 +1567,6 @@ dialog p {
 .sync-run-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; flex: 1; }
 .sync-run-status strong { font-size: 14px; font-weight: 500; }
 .sync-run-status .status-note { font-size: 12px; }
-.sync-run-status progress { width: 120px; height: 4px; accent-color: var(--ink); }
 .sync-run-heading .candidate-actions { margin: 0; }
 .sync-categories { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .sync-category { border: 0; border-bottom: 1px solid transparent; padding: 5px 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
@@ -1740,7 +1743,6 @@ dialog p {
   .teaching-action-row { justify-content: flex-start; }
   .sync-run-heading { align-items: flex-start; }
   .sync-run-status { flex-direction: column; align-items: flex-start; gap: 6px; }
-  .sync-run-status progress { width: 100%; max-width: 180px; }
   .candidate-row {
     flex-direction: column;
     gap: 5px;
