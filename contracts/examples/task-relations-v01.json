@@ -1,75 +1,112 @@
 {
-  "description": "合成行为验收数据；expected 是人工判定，不是模型输出。action ID 代表独立交付，source ID 代表来源。",
-  "cases": [
+  "description":"合成行为验收数据；expected 是人工判定，不是模型输出。action ID 代表已有识别条目，未必是独立交付；source ID 代表原始来源。",
+  "cases":[
     {
       "name":"aggregate_reminder_needs_all_receiving_endpoints",
       "nodes":[
-        {"id":"a","kind":"task","text":"请提交项目第一、第二期报告。两期分别上传到对应接收入口。"},
-        {"id":"b","kind":"task","text":"项目配套在线测验，在测验平台独立完成。"},
+        {"id":"a","kind":"task","text":"请提交项目第一、第二期报告。两期分别上传到对应接收入口。","sources":["origin-a"]},
+        {"id":"b","kind":"task","text":"项目配套在线测验，在测验平台独立完成。","sources":["origin-b"]},
         {"id":"s1","kind":"source","text":"项目第一期报告接收页，只收第一期报告。","submission_state":"submitted"},
-        {"id":"s2","kind":"source","text":"项目第二期报告接收页，只收第二期报告。","submission_state":"active"}
+        {"id":"s2","kind":"source","text":"项目第二期报告接收页，只收第二期报告。","submission_state":"active"},
+        {"id":"origin-a","kind":"source","text":"请提交项目第一、第二期报告。两期分别上传到对应接收入口。"},
+        {"id":"origin-b","kind":"source","text":"项目配套在线测验，在测验平台独立完成。"}
       ],
       "expected":{"groups":[["a"]],"apply":true,"joint_complete_sources":[["s1","s2"]]}
     },
     {
-      "name": "same_chapter_distinct_deliveries",
-      "nodes": [
-        {"id":"a","kind":"task","text":"算法第4章书面作业，提交PDF到教学网。"},
-        {"id":"b","kind":"task","text":"算法第4章在线编程作业，提交到CodeJudge。"},
-        {"id":"c","kind":"task","text":"算法第4章网络测验，在MOOC作答。"}
+      "name":"same_chapter_distinct_deliveries",
+      "nodes":[
+        {"id":"a","kind":"task","text":"算法第4章书面作业，提交PDF到教学网。","sources":["origin-a"]},
+        {"id":"b","kind":"task","text":"算法第4章在线编程作业，提交到CodeJudge。","sources":["origin-b"]},
+        {"id":"c","kind":"task","text":"算法第4章网络测验，在MOOC作答。","sources":["origin-c"]},
+        {"id":"origin-a","kind":"source","text":"算法第4章书面作业，提交PDF到教学网。"},
+        {"id":"origin-b","kind":"source","text":"算法第4章在线编程作业，提交到CodeJudge。"},
+        {"id":"origin-c","kind":"source","text":"算法第4章网络测验，在MOOC作答。"}
       ],
-      "expected": {"groups":[]}
+      "expected":{"groups":[]}
     },
     {
-      "name": "many_content_pages_one_delivery",
-      "nodes": [
-        {"id":"a","kind":"task","text":"实验原理 第12次研讨题与报告题；附件实验原理-第12次.pdf。","course":"实验原理"},
-        {"id":"b","kind":"candidate","text":"实验原理 第13次研讨题与报告题；附件实验原理-第13次.pdf。","course":"实验原理"},
-        {"id":"s","kind":"source","text":"第12-13次报告，附件实验原理-第12次.pdf、实验原理-第13次.pdf；只提交报告题，不做研讨题。截止2026-11-08 18:00。","course":"实验实践班","submission_state":"active"}
+      "name":"many_content_pages_one_delivery",
+      "nodes":[
+        {"id":"a","kind":"task","text":"实验原理 第12次研讨题与报告题；附件实验原理-第12次.pdf。","course":"实验原理","sources":["origin-a"]},
+        {"id":"b","kind":"candidate","text":"实验原理 第13次研讨题与报告题；附件实验原理-第13次.pdf。","course":"实验原理","sources":["origin-b"]},
+        {"id":"s","kind":"source","text":"第12-13次报告，附件实验原理-第12次.pdf、实验原理-第13次.pdf；只提交报告题，不做研讨题。截止2026-11-08 18:00。","course":"实验实践班","submission_state":"active"},
+        {"id":"origin-a","kind":"source","text":"实验原理 第12次研讨题与报告题；附件实验原理-第12次.pdf。","course":"实验原理"},
+        {"id":"origin-b","kind":"source","text":"实验原理 第13次研讨题与报告题；附件实验原理-第13次.pdf。","course":"实验原理"}
       ],
       "expected":{"groups":[["a","b"]],"due":"2026-11-08","due_time":"18:00","apply":true,"complete_sources":["s"],"manual_scope_check":"最终内容明确排除研讨题"}
     },
     {
-      "name": "only_receiving_page_submitted",
-      "nodes": [
-        {"id":"a","kind":"candidate","text":"产品方案甲：规格设计稿甲.pdf，按交付单提交设计稿。","submission_state":"unknown"},
-        {"id":"b","kind":"candidate","text":"产品方案乙：规格设计稿乙.pdf，按交付单提交设计稿。","submission_state":"unknown"},
-        {"id":"s","kind":"source","text":"交付单D7：一次提交规格设计稿甲.pdf与规格设计稿乙.pdf，截止2026-12-01。","submission_state":"submitted"}
+      "name":"only_receiving_page_submitted",
+      "nodes":[
+        {"id":"a","kind":"candidate","text":"产品方案甲：规格设计稿甲.pdf，按交付单提交设计稿。","submission_state":"unknown","sources":["origin-a"]},
+        {"id":"b","kind":"candidate","text":"产品方案乙：规格设计稿乙.pdf，按交付单提交设计稿。","submission_state":"unknown","sources":["origin-b"]},
+        {"id":"s","kind":"source","text":"交付单D7：一次提交规格设计稿甲.pdf与规格设计稿乙.pdf，截止2026-12-01。","submission_state":"submitted"},
+        {"id":"origin-a","kind":"source","text":"产品方案甲：规格设计稿甲.pdf，按交付单提交设计稿。"},
+        {"id":"origin-b","kind":"source","text":"产品方案乙：规格设计稿乙.pdf，按交付单提交设计稿。"}
       ],
       "expected":{"groups":[["a","b"]],"complete_sources":["s"],"due":"2026-12-01","due_time":null,"apply":true}
     },
     {
-      "name": "independent_action_survives_submission",
-      "nodes": [
-        {"id":"a","kind":"candidate","text":"项目8：完成报告并在报告入口提交。"},
-        {"id":"b","kind":"task","text":"项目8：下周参加现场安全培训并签到；与报告提交相互独立。"},
-        {"id":"s","kind":"source","text":"项目8报告提交入口，仅收报告，不覆盖安全培训签到。","submission_state":"submitted"}
+      "name":"independent_action_survives_submission",
+      "nodes":[
+        {"id":"a","kind":"candidate","text":"项目8：完成报告并在报告入口提交。","sources":["origin-a"]},
+        {"id":"b","kind":"task","text":"项目8：下周参加现场安全培训并签到；与报告提交相互独立。","sources":["origin-b"]},
+        {"id":"s","kind":"source","text":"项目8报告提交入口，仅收报告，不覆盖安全培训签到。","submission_state":"submitted"},
+        {"id":"origin-a","kind":"source","text":"项目8：完成报告并在报告入口提交。"},
+        {"id":"origin-b","kind":"source","text":"项目8：下周参加现场安全培训并签到；与报告提交相互独立。"}
       ],
       "expected":{"groups":[["a"]],"complete_sources":["s"],"apply":true}
     },
     {
       "name":"explicit_deadline_update",
       "nodes":[
-        {"id":"a","kind":"task","text":"实验9报告截止2026-11-02 18:00，提交教学网。","published_at":"2026-10-20"},
-        {"id":"b","kind":"candidate","text":"更正：实验9报告提交截止改为2026-11-04 20:00，原11月2日时间作废。","published_at":"2026-10-25"}
+        {"id":"a","kind":"task","text":"实验9报告截止2026-11-02 18:00，提交教学网。","published_at":"2026-10-20","sources":["origin-a"]},
+        {"id":"b","kind":"candidate","text":"更正：实验9报告提交截止改为2026-11-04 20:00，原11月2日时间作废。","published_at":"2026-10-25","sources":["origin-b"]},
+        {"id":"origin-a","kind":"source","text":"实验9报告截止2026-11-02 18:00，提交教学网。"},
+        {"id":"origin-b","kind":"source","text":"更正：实验9报告提交截止改为2026-11-04 20:00，原11月2日时间作废。"}
       ],
       "expected":{"groups":[["a","b"]],"due":"2026-11-04","due_time":"20:00","apply":true}
     },
     {
       "name":"identical_title_different_round",
       "nodes":[
-        {"id":"a","kind":"task","text":"2025秋概率课作业1，提交概率平台。","course_term":"2025秋"},
-        {"id":"b","kind":"task","text":"2026秋概率课作业1，提交概率平台。","course_term":"2026秋"}
+        {"id":"a","kind":"task","text":"2025秋概率课作业1，提交概率平台。","course_term":"2025秋","sources":["origin-a"]},
+        {"id":"b","kind":"task","text":"2026秋概率课作业1，提交概率平台。","course_term":"2026秋","sources":["origin-b"]},
+        {"id":"origin-a","kind":"source","text":"2025秋概率课作业1，提交概率平台。","course_term":"2025秋"},
+        {"id":"origin-b","kind":"source","text":"2026秋概率课作业1，提交概率平台。","course_term":"2026秋"}
       ],
       "expected":{"groups":[]}
     },
     {
       "name":"unresolved_conflicting_instructions",
       "nodes":[
-        {"id":"a","kind":"task","text":"热学作业5，发给助教，截止11月8日；未标发布年份或发布时间。"},
-        {"id":"b","kind":"candidate","text":"热学作业5，发给助教，截止11月10日；未标发布年份或发布时间，也没有更正说明。"}
+        {"id":"a","kind":"task","text":"热学作业5，发给助教，截止11月8日；未标发布年份或发布时间。","sources":["origin-a"]},
+        {"id":"b","kind":"candidate","text":"热学作业5，发给助教，截止11月10日；未标发布年份或发布时间，也没有更正说明。","sources":["origin-b"]},
+        {"id":"origin-a","kind":"source","text":"热学作业5，发给助教，截止11月8日；未标发布年份或发布时间。"},
+        {"id":"origin-b","kind":"source","text":"热学作业5，发给助教，截止11月10日；未标发布年份或发布时间，也没有更正说明。"}
       ],
       "expected":{"groups":[["a","b"]],"review":true}
+    },
+    {
+      "name":"receiver_scope_corrects_generated_material_obligations",
+      "nodes":[
+        {"id":"a","kind":"task","text":"技术写作练习第8期：报告题及演示题。","sources":["material"],"course":"技术写作","summary":{"title":"完成第8期报告与演示"}},
+        {"id":"b","kind":"task","text":"第8期演示题。","sources":["material"],"course":"技术写作","summary":{"title":"准备第8期演示"}},
+        {"id":"material","kind":"source","text":"第8期练习材料.pdf\n报告题：撰写实验总结。演示题：制作说明视频。","course":"技术写作","attachments":[{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mime_type":"application/pdf"}]},
+        {"id":"receiver","kind":"source","text":"第8期练习接收入口\n附：第8期练习材料.pdf。只交报告，不用做演示题。","course":"项目实践","attachments":[{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mime_type":"application/pdf"}],"submission_state":"submitted"}
+      ],
+      "expected":{"groups":[["a","b"]],"apply":true,"complete_sources":["receiver"],"waived_actions":["b"]}
+    },
+    {
+      "name":"no_upload_does_not_waive_independent_oral_presentation",
+      "nodes":[
+        {"id":"a","kind":"task","text":"完成第8期报告。","sources":["material"],"course":"技术写作"},
+        {"id":"b","kind":"task","text":"在下一次课堂现场演示本次实验，这是独立考核。","sources":["material"],"course":"技术写作"},
+        {"id":"material","kind":"source","text":"第8期练习材料.pdf\n完成报告并上传到项目实践接收入口。另外必须在下次技术写作课堂现场演示，这是独立考核，不以线上提交代替。","course":"技术写作","attachments":[{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mime_type":"application/pdf"}]},
+        {"id":"receiver","kind":"source","text":"第8期练习接收入口\n附：第8期练习材料.pdf。这里只需上传报告，不用上传演示视频；现场演示仍按原要求进行。","course":"项目实践","attachments":[{"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mime_type":"application/pdf"}],"submission_state":"submitted"}
+      ],
+      "expected":{"groups":[["a"]],"apply":true,"complete_sources":["receiver"],"waived_actions":[]}
     }
   ]
 }

@@ -90,7 +90,9 @@ def reference_context(request):
             continue
         for excerpt in node['excerpts']:
             identity='r'+str(len(references))
-            references[identity]=dict(node_id=aliases[node['id']],quote=excerpt['text'])
+            # Keep wire IDs until compile_groups resolves every reference once.
+            # A canonical source ID may itself look like another wire ID (s2).
+            references[identity]=dict(node_id=node['id'],quote=excerpt['text'])
             excerpt['id']=identity
     return wire,aliases,legacy,references
 
@@ -145,10 +147,25 @@ def compile_groups(result,request,aliases):
                 if identity not in group['members']:group['members'].append(identity)
                 if not any(q['node_id']==identity for q in group['evidence']):
                     group['evidence'].append(dict(node_id=identity,quote=nodes[identity]['text'][:1200]))
+        expand_explicit_conditions(group)
         # Server-bound action originals identify exactly which saved actions are
         # replaced; the independently selected source citations prove the claim.
         group['evidence'].extend(dict(node_id=i,quote=nodes[i]['text'][:1200]) for i in ids)
     return result
+
+
+def expand_explicit_conditions(group):
+    """Compute coverage implied by an ALREADY explicit condition.
+
+    If {S1,S2,S3} completes the aggregate and S1 completes its duplicate part,
+    the explicit joint condition also covers that part. Never invent a union
+    of separate alternatives: without an explicit joint set nothing is added.
+    """
+    conditions=[(set(contract.completion_sources_for(c)),set(c['covers']))
+                for c in group.get('completion',[])]
+    for link,(satisfied,_) in zip(group.get('completion',[]),conditions):
+        covered=set().union(*(actions for required,actions in conditions if required<=satisfied))
+        link['covers']=sorted(covered)
 
 
 def alias_context(wire):
@@ -252,9 +269,10 @@ class RelationAdapter:
                 result = actionable_result(request, compile_groups(result,request,aliases))
                 result = resolve_evidence(result,catalog)
                 contract.check_pair(request, result)
-                verified=self.verify(request,deepcopy(result),settings)
-                rejected=[dict(index=i,reason=g['reason']) for i,g in enumerate(verified['groups'])
-                          if result['groups'][i]['disposition']=='apply' and g['disposition']=='review']
+                verified,rejected,invalid=self.verify(request,deepcopy(result),settings)
+                # A disproved relationship is not a useful user-review proposal.
+                # Keep its original actions; only genuine uncertainty is queued.
+                verified['groups']=[g for i,g in enumerate(verified['groups']) if i not in invalid]
                 if rejected and not repair:
                     repair+=1;fallback=verified
                     payload=json.dumps(dict(context=wire,verification_errors=rejected,previous_output=response[:80_000],
@@ -283,7 +301,7 @@ class RelationAdapter:
         reverse={identity:alias for alias,identity in aliases.items()}
         proposed=[dict(index=i,members=g['members'],result=g['result'],completion=g['completion'],waived_actions=g.get('waived_actions',[]))
                   for i,g in enumerate(result['groups']) if g['disposition']=='apply']
-        if not proposed:return result
+        if not proposed:return result,[],set()
         for group in proposed:
             group['members']=[reverse[i] for i in group['members']]
             group['waived_actions']=[reverse[i] for i in group['waived_actions']]
@@ -302,28 +320,47 @@ class RelationAdapter:
             for identity in group['members']:
                 if by_id[identity]['kind']=='source':continue
                 checks.append(dict(index=len(checks),group_index=group['index'],
-                    action=dict(by_id[identity],original_text=originals[identity]),
+                    action=dict(by_id[identity],captured_context=originals[identity]),
                     waived=identity in group['waived_actions'],result=group['result'],
                     completion=[link for link in group['completion'] if identity in link['covers']]))
+        # Each check must see the whole proposed delivery. Otherwise another
+        # member's legitimate requirements look like unsupported scope expansion.
+        groups=[dict(group, actions=[by_id[i] for i in group['members']
+                                    if by_id[i]['kind']!='source']) for group in proposed]
         proposed=checks
+        # These are content-identity facts, not permission to merge. Expose them
+        # directly so the model need not compare long digest strings by eye.
+        assets={n['id']:{a['sha256'] for a in n.get('attachments',[]) if a.get('sha256')}
+                for n in wire['nodes'] if n['kind']=='source'}
+        material_matches=[dict(sources=[left,right],sha256=sorted(assets[left]&assets[right]))
+                          for i,left in enumerate(assets) for right in list(assets)[i+1:]
+                          if assets[left]&assets[right]]
         schema=contract.obj(dict(checks=dict(type='array',items=contract.obj(dict(
             index=dict(enum=[g['index'] for g in proposed]),approved=dict(type='boolean'),
+            failure_kind=dict(enum=[None,'contradiction','insufficient_evidence']),
             reason=contract.string(800,1))),minItems=len(proposed),maxItems=len(proposed))))
         instructions=(SKILL.parent/'VERIFY.md').read_text(encoding='utf-8')+'\nJSON Schema:\n'+json.dumps(schema)
-        payload=json.dumps(dict(nodes=[n for n in wire['nodes'] if n['kind']=='source'],proposals=proposed),ensure_ascii=False)
+        payload=json.dumps(dict(operation='Replace every group action with ONE result; old actions are removed, not retained.',
+                                nodes=[n for n in wire['nodes'] if n['kind']=='source'],
+                                groups=groups,material_matches=material_matches,proposals=proposed),ensure_ascii=False)
         raw=self.client.complete_json(instructions,payload,settings)
         try:
             checked=response_json(raw)
             from jsonschema import Draft202012Validator
             Draft202012Validator(schema).validate(checked)
             if {c['index'] for c in checked['checks']}!={g['index'] for g in proposed}:raise ValueError('coverage')
+            if any(c['approved']!=(c['failure_kind'] is None) for c in checked['checks']):raise ValueError('verdict')
         except (ValueError,TypeError,KeyError,ValidationError):
             raise AgentError('invalid_agent_output',True,'relation_verification') from None
+        rejected=[];invalid=set()
         for check in checked['checks']:
             if not check['approved']:
-                group=result['groups'][proposed[check['index']]['group_index']]
+                index=proposed[check['index']]['group_index']
+                group=result['groups'][index]
                 group.update(disposition='review',reason='关联未自动应用：'+check['reason'])
-        return result
+                rejected.append(dict(index=index,reason=check['reason']))
+                if check['failure_kind']=='contradiction':invalid.add(index)
+        return result,rejected,invalid
 
 
 def relate(nodes, *, client, settings):

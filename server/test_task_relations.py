@@ -99,6 +99,109 @@ class TaskRelationsTests(unittest.TestCase):
             self.assertEqual((actions[0]['relation'],actions[0]['link_basis'],actions[0]['decision'],actions[0]['completion_origin']),
                 ('assignment_submission','model_verified','completed','source_submission'))
 
+    def late_receiver_candidate(self):
+        with app.connection() as db:
+            source=db.execute('SELECT * FROM teaching_sources WHERE user_id=? AND input_id=?',(self.uid,self.input_ids[2])).fetchone()
+            db.execute('INSERT OR IGNORE INTO recognition_batches VALUES(?,?,?,?,?,0)',
+                       (self.uid,source['request_id'],'late',source['request'],'{}'))
+            card=dict(candidate_id='late-card',title='实验12和13报告提交',description='只交报告题，不含研讨题。',
+                      course_or_project='实验实践',deadline={},review_reasons=[],notice_type='create')
+            db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state) VALUES(?,?,?,?,?)',
+                       ('late-candidate',self.uid,source['request_id'],json.dumps(card),'pending'))
+            nodes,_=ctx.inventory(db,self.uid)
+        action=nodes['candidate:late-candidate'];source=nodes[action['sources'][0]]
+        request=contract.context([action,source])
+        group=dict(relation='combine',disposition='apply',members=[action['id'],source['id']],
+            result=dict(title=card['title'],description=card['description'],course='实验实践',content_type='task',due=None),
+            reason='接收入口所收取的同一份作业',evidence=[dict(node_id=n['id'],quote=n['text'][:1000]) for n in [action,source]],
+            completion=[dict(source_id=source['id'],covers=[action['id']])])
+        return request,group
+
+    def test_late_candidate_joins_existing_verified_completed_delivery(self):
+        request,group=self.seed('submitted');self.apply(request,group)
+        original=deepcopy(self.tasks()[0])
+        request,group=self.late_receiver_candidate()
+        self.assertTrue(self.apply(request,group,'late'))
+        tasks=self.tasks();self.assertEqual(len(tasks),1)
+        self.assertEqual(tasks[0]['id'],original['id'])
+        self.assertEqual(tasks[0]['title'],original['title'])
+        self.assertEqual(tasks[0]['due'],original['due'])
+        self.assertEqual(tasks[0]['status'],'completed')
+        self.assertEqual(len(tasks[0]['recognitionHistory']),3)
+        with app.connection() as db:
+            row=db.execute('SELECT * FROM task_relation_proposals WHERE id="late"').fetchone()
+            runtime.undo(db,self.uid,row,app.ApiError)
+        self.assertEqual(self.tasks(),[original])
+
+    def test_late_candidate_does_not_overwrite_user_changed_delivery(self):
+        request,group=self.seed('submitted');self.apply(request,group)
+        with app.connection() as db:
+            tasks,version=runtime.controls.workspace(db,self.uid)
+            tasks[0]['title']='用户保留的标题';runtime.manual_write(db,self.uid,tasks)
+            runtime.write_tasks(db,self.uid,tasks,version)
+        request,group=self.late_receiver_candidate();self.assertFalse(self.apply(request,group,'late'))
+        self.assertEqual(len(self.tasks()),1)
+        self.assertEqual(self.tasks()[0]['title'],'用户保留的标题')
+
+    def test_deleted_delivery_is_not_recreated_by_late_source(self):
+        request,group=self.seed('submitted');self.apply(request,group)
+        with app.connection() as db:
+            tasks,version=runtime.controls.workspace(db,self.uid)
+            tasks[0].update(status='cancelled',recycleBin=dict(deletedAt='2026-10-15',status='completed'))
+            runtime.manual_write(db,self.uid,tasks);runtime.write_tasks(db,self.uid,tasks,version)
+        request,group=self.late_receiver_candidate();self.assertFalse(self.apply(request,group,'late'))
+        self.assertEqual(len(self.tasks()),1)
+        self.assertTrue(self.tasks()[0]['recycleBin'])
+
+    def test_transient_invalid_model_output_gets_only_one_fresh_attempt(self):
+        from ddl_text.adapters import AgentError
+        self.seed()
+        with app.connection() as db:job=runtime.start(db,self.uid,'bounded-recovery-test')
+        calls=[]
+        def fail_once(request):
+            calls.append(request)
+            if len(calls)==1:raise AgentError('invalid_agent_output',True,'output_truncated')
+            return dict(contract_version=contract.VERSION,context_digest=request['context_digest'],groups=[])
+        with patch.object(runtime,'model',side_effect=fail_once):runtime.process(app.DB,self.uid,job,app.ApiError)
+        self.assertEqual(len(calls),2)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT state FROM task_relation_jobs WHERE id=?',(job,)).fetchone()[0],'succeeded')
+
+    def test_omitted_submitted_candidate_receives_one_focused_scope_check(self):
+        request,group=self.seed('submitted');self.apply(request,group)
+        request,group=self.late_receiver_candidate()
+        with app.connection() as db:job=runtime.start(db,self.uid,'focused-test')
+        calls=[]
+        def model(current):
+            calls.append(current)
+            groups=[] if len(calls)==1 else [group]
+            return dict(contract_version=contract.VERSION,context_digest=current['context_digest'],groups=groups)
+        with patch.object(runtime,'model',side_effect=model):runtime.process(app.DB,self.uid,job,app.ApiError)
+        self.assertEqual(len(calls),2)
+        self.assertEqual({n['id'] for n in calls[1]['nodes']},{n['id'] for n in request['nodes']})
+        self.assertEqual(len(self.tasks()),1)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT state FROM recognition_candidates WHERE id="late-candidate"').fetchone()[0],'applied')
+
+    def test_relation_completion_uses_shanghai_date(self):
+        from datetime import datetime,timezone
+        class Clock:
+            @staticmethod
+            def now(tz=None):return datetime(2026,10,10,17,30,tzinfo=timezone.utc)
+        task=dict(plans=[])
+        with patch.object(runtime,'datetime',Clock):runtime.complete(task)
+        self.assertEqual(task['completedAt'],'2026-10-11')
+        task['completedAt']='2026-10-09'
+        with patch.object(runtime,'datetime',Clock):runtime.complete(task)
+        self.assertEqual(task['completedAt'],'2026-10-09')
+
+    def test_payload_clipping_does_not_change_short_source_revision(self):
+        short=dict(id='short',kind='source',text='明确的提交要求',truncated=False)
+        nodes=[dict(id=str(i),kind='source',text='长'*6000,truncated=False) for i in range(12)]+[short]
+        result=ctx.bounded_context(nodes)
+        self.assertEqual(result['nodes'][-1],short)
+        self.assertTrue(all(n['truncated'] and len(n['text'])==2000 for n in result['nodes'][:-1]))
+
     def test_merge_cannot_clear_existing_deadline(self):
         self.seed()
         with app.connection() as db:

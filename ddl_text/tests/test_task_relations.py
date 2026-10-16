@@ -4,7 +4,7 @@ import json
 import unittest
 from jsonschema import ValidationError
 from contracts import task_relations as c
-from ddl_text.task_relations import RelationAdapter,evidence_context,model_schema
+from ddl_text.task_relations import RelationAdapter,evidence_context,model_schema,expand_explicit_conditions
 from ddl_text.adapters import AgentError
 
 
@@ -29,11 +29,24 @@ class Client:
     def complete_json(self, instructions, payload, settings):
         value=json.loads(payload)
         if 'proposals' in value:
-            return json.dumps(dict(checks=[dict(index=p['index'],approved=True,reason='合成交付证据完整') for p in value['proposals']]))
+            return json.dumps(dict(checks=[dict(index=p['index'],approved=True,failure_kind=None,reason='合成交付证据完整') for p in value['proposals']]))
         return self.response
 
 
 class RelationsContractTests(unittest.TestCase):
+    def test_explicit_joint_completion_also_covers_duplicate_parts(self):
+        group=dict(completion=[dict(source_id='s1',covers=['part1']),
+            dict(source_id='s2',covers=['part2']),dict(source_ids=['s1','s2'],covers=['total'])])
+        expand_explicit_conditions(group)
+        self.assertEqual(group['completion'][2]['covers'],['part1','part2','total'])
+        self.assertEqual(group['completion'][0]['covers'],['part1'])
+        self.assertEqual(group['completion'][1]['covers'],['part2'])
+
+    def test_separate_partial_conditions_never_invent_joint_completion(self):
+        group=dict(completion=[dict(source_id='s1',covers=['part1']),dict(source_id='s2',covers=['part2'])])
+        before=deepcopy(group);expand_explicit_conditions(group)
+        self.assertEqual(group,before)
+
     def test_many_to_one_cross_course(self):
         request,result=example()
         self.assertEqual(c.check_pair(request,result),result)
@@ -146,11 +159,44 @@ class RelationsContractTests(unittest.TestCase):
         class Reject(Client):
             def complete_json(self,instructions,payload,settings):
                 if 'proposals' in json.loads(payload):
-                    return json.dumps(dict(checks=[dict(index=p['index'],approved=False,reason='独立提交要求，不属于同一交付') for p in json.loads(payload)['proposals']]))
+                    return json.dumps(dict(checks=[dict(index=p['index'],approved=False,failure_kind='insufficient_evidence',reason='缺少共同交付证据') for p in json.loads(payload)['proposals']]))
                 return self.response
         checked=RelationAdapter(Reject(json.dumps(result))).extract(request,None,0)[0]
         self.assertEqual(checked['groups'][0]['disposition'],'review')
-        self.assertIn('独立提交',checked['groups'][0]['reason'])
+        self.assertIn('缺少共同交付证据',checked['groups'][0]['reason'])
+
+    def test_canonical_source_ids_can_collide_with_wire_aliases(self):
+        request=c.context([dict(id='a0',kind='task',text='交付两份报告'),
+            dict(id='s2',kind='source',text='接收第一份',submission_state='submitted'),
+            dict(id='s1',kind='source',text='接收第二份',submission_state='active')])
+        class Collision(Client):
+            def complete_json(self,instructions,payload,settings):
+                data=json.loads(payload)
+                if 'proposals' in data:return super().complete_json(instructions,payload,settings)
+                nodes=data['context']['nodes']
+                _,template=example();g=deepcopy(template['groups'][0]);g.pop('members')
+                g['actions']=[dict(id=nodes[0]['id'],outcome='required')]
+                g['evidence']=[dict(ref=n['excerpts'][0]['id']) for n in nodes[1:]]
+                g['completion']=[dict(source_ids=[n['id'] for n in nodes[1:]],covers=[nodes[0]['id']])]
+                return json.dumps(dict(groups=[g]))
+        result=RelationAdapter(Collision('')).extract(request,None,0)[0]
+        c.check_pair(request,result)
+        quotes={q['node_id']:q['quote'] for q in result['groups'][0]['evidence']}
+        self.assertEqual(quotes['s2'],'接收第一份')
+        self.assertEqual(quotes['s1'],'接收第二份')
+        self.assertEqual(result['groups'][0]['completion'][0]['source_ids'],['s2','s1'])
+
+    def test_disproved_proposal_is_discarded_without_mutating_original_actions(self):
+        request,result=example();before=deepcopy(request)
+        class Disproved(Client):
+            def complete_json(self,instructions,payload,settings):
+                data=json.loads(payload)
+                if 'proposals' in data:
+                    return json.dumps(dict(checks=[dict(index=p['index'],approved=False,failure_kind='contradiction',reason='原文明确不同交付，替换会删除独立要求') for p in data['proposals']]))
+                return self.response
+        checked=RelationAdapter(Disproved(json.dumps(result))).extract(request,None,0)[0]
+        self.assertEqual(checked['groups'],[])
+        self.assertEqual(request,before)
 
     def test_single_json_fence_is_accepted_but_extra_prose_and_duplicate_keys_are_not(self):
         request,result=example()
@@ -167,6 +213,28 @@ class RelationsContractTests(unittest.TestCase):
                 return self.response
         with self.assertRaises(AgentError) as error:RelationAdapter(Broken(json.dumps(result))).extract(request,None,0)
         self.assertEqual(error.exception.diagnostic,'relation_verification')
+
+    def test_verification_sees_sibling_actions_and_exact_material_identity(self):
+        request,result=example()
+        nodes=request['nodes']
+        nodes[0]['sources']=['publisher']
+        nodes.append(dict(id='publisher',kind='source',text='实验甲报告及演示素材。',
+                          attachments=[dict(sha256='a'*64)]))
+        nodes[2]['attachments']=[dict(sha256='a'*64),dict(sha256='b'*64)]
+        request=c.context(nodes);result['context_digest']=request['context_digest']
+        class Inspect(Client):
+            def complete_json(inner,instructions,payload,settings):
+                data=json.loads(payload)
+                if 'proposals' in data:
+                    self.assertEqual(len(data['groups'][0]['actions']),2)
+                    self.assertEqual(len(data['material_matches']),1)
+                    self.assertEqual(data['material_matches'][0]['sha256'],['a'*64])
+                    self.assertNotIn('original_text',data['proposals'][0]['action'])
+                    self.assertEqual(data['proposals'][0]['action']['captured_context'],'完成实验甲报告。')
+                    self.assertEqual(data['proposals'][0]['group_index'],data['groups'][0]['index'])
+                return super().complete_json(instructions,payload,settings)
+        answer=RelationAdapter(Inspect(json.dumps(result))).extract(request,None,0)[0]
+        self.assertEqual(answer,result)
 
     def test_compiler_derives_members_and_keeps_explicit_receiver_waivers(self):
         request,result=example()

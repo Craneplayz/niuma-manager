@@ -31,7 +31,7 @@ try{
  await page.locator('[data-account-form="login"] button[type="submit"]').click();
  await page.locator('[data-page="import"]').click();await page.locator('[data-import-source="teaching"]').click();
  assert.equal((await get('/workspace')).tasks.value.length,2);
- await page.locator('#teaching-sync-consent').check();await page.locator('[data-import-action="sync"]').click();
+ await page.locator('[data-import-action="sync"]').click();
  await until(async()=>{const r=await get('/recognition/relations');return r.jobs[0]?.state==='succeeded';});
  const tasks=(await get('/workspace')).tasks.value;assert.equal(tasks.length,1);assert.equal(tasks[0].status,'completed');assert.equal(tasks[0].due.date,'2026-11-08');
  await page.getByText('跨来源整合',{exact:true}).click();await page.locator('[data-relation-action="load"]').click();

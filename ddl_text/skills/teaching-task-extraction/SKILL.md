@@ -14,7 +14,7 @@ description: 从教学网已取得的正文、附件与课程上下文提取任�
 - task：需要用户执行的具体行动；没有截止时间也可以是任务。加群、填写分组表、改昵称、完成作业都是行动，不能因它们来自通知或没有 DDL 而归为 notice。
 - notice：用户完全不看就会受到直接影响的告知信息，本身不要求执行具体行动，例如考试安排、考核规则、上课地点调整、停课、报名结果或资格变动。说明具体影响；只有学习价值、资料新鲜度或“可能有用”不满足收录条件。保留原意，不把地点信息改写成“到某地上课”，也不编造“查看/确认通知”等行动。
 - task 和 notice 都可以有截止日期，内容类型不由日期决定。notice 可保留公示截止、通知有效期限等；考试/活动的关键提醒时间也可填入 deadline，并在 description 说明它是开始、结束还是有效期。多个时间选择最需要关注的一项，其余保留在说明中；不把无关参考日期当作截止日期。明确要求用户执行的提交/报名等行动仍归为 task。
-- 同一原文可以包含任务和通知，独立信息才拆分，不能把同一要求复制成两份。无关闲聊、重复无价值信息、已经失效的通知仍可 filtered；不因为 notice 没有截止时间而永久保留明显失效的信息，也不能仅凭发布时间旧排除仍有效的信息。
+- 同一原文可以包含任务和通知，独立信息才拆分，不能把同一要求复制成两份。无关闲聊、重复无价值信息、原文明示已撤回或被替代的通知可 filtered。日期早于采集时间由程序统一处理，不属于模型 filtered 的依据。
 
 兼容当前接口，tasks 数组可同时装 task 与 notice，recommendation=task 表示“直接收录到当前列表”，并不决定 content_type。notice 的 assessment.action 是沿用的内容证据槽：supported 表示通知内容有已取得的原文支持，不表示要求行动；证据引用支持通知事实，不能伪造动作。有真实疑点才 candidate；有或没有 DDL 都不单独成为审核理由。
 
@@ -22,7 +22,7 @@ description: 从教学网已取得的正文、附件与课程上下文提取任�
 
 - task：适用于用户的行动或通知事实明确，已知信息足以建立有用的条目。reason=""。只新增条目，notice_type=create。无期限或暂时无法推导期限都可以直接收录。前者 deadline=not_provided，后者 deadline=unresolved；在 description 保留原文的时间要求，不猜日期。
 - candidate：存在会影响任务是否适用或要做什么的具体疑点；只有日期未知不阻止创建任务。reason 用一句话指出缺失/冲突及其影响。不使用“信息可能不全”“建议用户核实”等没有实质内容的理由。
-- filtered：既无待执行行动也无值得保留的相关通知，或内容已失效。reason 简述依据，保留引用供用户找回。不能只因发布时间旧就过滤仍有效的行动；没有把握时 candidate，不能默默漏掉。
+- filtered：既无待执行行动也无值得保留的相关通知，或原文明示内容已撤回/被替代。reason 简述语义依据，保留引用供用户找回。不能只因发布日期或截止日期旧就过滤；即使期限已过，也按原文输出条目和日期交给程序处理。
 
 body_status=partial、附件未读、课程名缺失、年份省略，**都不能单独成为 candidate 的理由**。判断已取得内容是否足以支持当前行动与期限。例如已明确“10月23日前交报告”，未读附件只是题目或参考资料，则 task；“提交日期见附件”，附件未读但提交内容已明确，则 task，deadline=unresolved，并说明日期尚待补全。
 
@@ -46,7 +46,7 @@ body_status=partial、附件未读、课程名缺失、年份省略，**都不�
 
 ## 时间
 
-按语义直接生成标准日期，不使用原文格式白名单。只有日期用 YYYY-MM-DD，不补 23:59；有时刻用来源时区 ISO datetime。尽快等催促语不与明确截止冲突，活动时间不冒充作业提交期限；通知可按上述规则保留其关键时间。
+按语义直接生成标准日期，不使用原文格式白名单。只有日期用 YYYY-MM-DD，不补 23:59；有时刻用来源时区 ISO datetime。尽快等催促语不与明确截止冲突。deadline 在此接口表示条目的关键行动时间：提交任务用提交期限，一次性活动及其准备步骤用活动开始时间，并在 description 写明是活动时间；无关的参考资料日期不使用。不要把已知的活动日期只写在 reason/description 却输出 deadline=null。
 
 已过滤的条目也保留原文可确定的截止日期及证据，不因 filtered 或 notice 就清空已知日期。
 
@@ -63,16 +63,18 @@ body_status=partial、附件未读、课程名缺失、年份省略，**都不�
 
 真实调用提供 record_metadata 和 evidence_catalog；按编号顺序连接同 part 的片段就是已取得原文。证据仅选 {"span_id":"q编号"}，程序恢复原文。离线回放也支持 part_id+quote 连续原文。所有证据槽都可引用已取得的正文、附件及 source_metadata，按实际含义选择支持结论的片段；课程元数据可解释适用范围或内容不足，但课程名本身不证明作业要求或截止日期。不伪造文字或引用未取得内容。
 
-assessment.action 表示内容是否有依据，deadline 表示时间。relevance 说明 current/ongoing/historical/uncertain；这些信息应与最终 recommendation 一致。unread_relations 只需记录影响当前结论的附件及 supplementary/required/unknown 关系，可为空；不为凑齐清单编造证据，不因为 unknown 自动 candidate。other_review_reasons 保持 []，审核理由只写一次到 reason。description 简述行动或通知内容，不复述全文、不解题、不写推理过程。
+assessment.action 表示内容是否有依据，deadline 表示时间。relevance=current 表示原文仍布置该事项，不表示日期必须在未来；ongoing 表示明确继续有效；historical 仅用于原文明示已撤回/替代的事项，不能因为截止已过而使用；uncertain 表示具体适用性疑点。unread_relations 只需记录影响当前结论的附件及 supplementary/required/unknown 关系，可为空；不为凑齐清单编造证据，不因为 unknown 自动 candidate。other_review_reasons 保持 []，审核理由只写一次到 reason。description 简述行动或通知内容，不复述全文、不解题、不写推理过程。
 
-既没有行动也没有值得保留的相关通知时输出 tasks=[] 和 empty_decision={status:"no_tasks",reason:"简短原因",evidence:[原文引用]}，即使存在无关未读附件也可如此；若已取得内容不足以判断，输出 tasks=[] 和 empty_decision={status:"incomplete",reason:"具体缺少什么",evidence:[已有引用或空数组]}。tasks 非空时 empty_decision 省略或为 null。filtered 也可用于有明确证据的历史行动或失效通知，保留分类依据。
+既没有行动也没有值得保留的相关通知时输出 tasks=[] 和 empty_decision={status:"no_tasks",reason:"简短原因",evidence:[原文引用]}，即使存在无关未读附件也可如此；若已取得内容不足以判断，输出 tasks=[] 和 empty_decision={status:"incomplete",reason:"具体缺少什么",evidence:[已有引用或空数组]}。tasks 非空时 empty_decision 省略或为 null。过期天数不由模型判断，不能以时间已过为理由返回空或 filtered。
 
 ## 示例判断
 
 - “请于2026.9.29 9:00前交课程回顾，请大家尽快完成”：采集日在9月25日 → task，2026-09-29T09:00:00+08:00。
 - “MOOC第五、六、七章作业截止2026-11-17 23:30”，正文标为partial但已读句子明确 → task。
 - “本次作业deadline为10.23”，当前是2026年10月，没有旧通知证据 → task，2026-10-23。
-- “Assignment1截止9.29”，当前是同年10月9日，没有补交要求 → filtered。
+- “报告截止9.29”，当前是同年10月9日 → task，保留原日期；程序再按七天规则从活动列表移出。
+- “报告截止10.11”，采集日为10月16日 → task，保留10.11；程序保留最近一周的逾期事项。
+- 9月15日发布“明晚18:40首次实验课，请提前查收分组并加入本次活动群” → 一项 task，关键时间为9月16日18:40，说明是活动开始时间。采集时间再晚也不把它变成无期限任务。
 - “完成实验报告，提交日期以尚未读取的附件更正为准” → task，deadline=unresolved，说明缺少最终截止依据。
 - “10月16日上午停课一次”，采集日为10月13日，没有已知任务需要变更 → content_type=notice、recommendation=task、notice_type=create；日期保留在说明中，不创建“完成停课”或虚构取消目标。
 - “本学期上课地点调整为理教408” → notice，无截止；“请扫码加入课程群并填写分组表” → task，无截止。

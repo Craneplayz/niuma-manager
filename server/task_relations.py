@@ -107,7 +107,8 @@ def completion_ready(db,uid,account,input_id):
 
 def complete(task):
     now=datetime.now(timezone.utc)
-    task.update(status='completed',completedAt=now.date().isoformat())
+    completed=task.get('completedAt') if task.get('status')=='completed' else None
+    task.update(status='completed',completedAt=completed or now.astimezone(controls.TEACHING_TIMEZONE).date().isoformat())
     # Preserve completed plans; future reservations should no longer occupy time.
     def past(plan):
         try:return datetime.fromisoformat(plan['startAt'].replace('Z','+00:00'))<=now
@@ -198,6 +199,29 @@ def apply_group(db,uid,pid,request,group,ApiError,manual=False):
             if (t.get('plans') or t.get('subtasks')) and not manual:return False
     tasks,version=controls.workspace(db,uid)
     old_tasks=[deepcopy(bindings[a['id']]['task']) for a in actions if a['kind']=='task']
+    from relation_delivery import requirements,existing
+    condition=requirements(db,uid,account,group,bindings,[a['id'] for a in actions])
+    prior=existing(db,uid,account,condition,tasks) if not manual else []
+    if prior is None:return False  # A protected delivery must not reappear under a new ID.
+    # A later window/source can rediscover an already completed delivery. Keep
+    # one task and all histories instead of creating another completed copy.
+    for task in prior:
+        if task.get('plans') or task.get('subtasks'):return False
+        if task['id'] not in {t['id'] for t in old_tasks}:old_tasks.append(deepcopy(task))
+    result=deepcopy(group['result'])
+    if condition and len(condition)==1 and not manual:
+        row=controls.find(db,uid,account,condition[0]['input_id'])
+        label=json.loads(row['detail']).get('label','').strip()
+        if 0<len(label)<=512:result['title']=label
+    if prior:
+        known=[t['due'] for t in prior if t.get('due')]
+        normalized=[dict(date=d['date'],time=d.get('time')) for d in known]
+        if result['due']:normalized.append(result['due'])
+        if normalized and any(d!=normalized[0] for d in normalized):return False
+        if normalized:result['due']=normalized[0]
+        result['title']=prior[0]['title']
+        result['description']='\n\n'.join(dict.fromkeys([t.get('description','') for t in prior]+[result['description']]))
+        if len(result['description'])>4096:return False
     affected={t['id'] for t in old_tasks}
     focus=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="focus"',(uid,)).fetchone()
     if focus and json.loads(focus['value']).get('taskId') in affected:
@@ -210,9 +234,9 @@ def apply_group(db,uid,pid,request,group,ApiError,manual=False):
     old_links=[dict(r) for r in db.execute('SELECT * FROM task_relation_links WHERE user_id=?',(uid,)) if r['task_id'] in affected]
     old_sets=[dict(r) for r in db.execute('SELECT * FROM task_relation_completion_sets WHERE user_id=?',(uid,)) if r['task_id'] in affected]
     candidate_rows=[bindings[a['id']]['candidate'] for a in actions if a['kind']=='candidate']
-    survivor=next((t for t in tasks if t['id'] in {a['id'][5:] for a in actions if a['kind']=='task'}),None)
+    survivor=next((t for t in tasks if t['id'] in affected),None)
     if not survivor:survivor=new_task(group['result']);tasks.append(survivor)
-    update_fields(survivor,group['result'])
+    update_fields(survivor,result)
     history=survivor.setdefault('recognitionHistory',[])
     merged_ids={t['id'] for t in old_tasks if t['id']!=survivor['id']}
     for task in old_tasks:
@@ -407,11 +431,21 @@ def process(path,uid,job,ApiError):
             if not guard(db,uid,job):return
             refresh_completions(db,uid)
             requests=list(context.windows(context.inventory(db,uid)[0]))
-        for index,request in enumerate(requests):
+        def run_window(index,request):
+            nonlocal failed
             with source_jobs.connection(path) as db:
                 if not guard(db,uid,job):return
             code=None;diagnostic=None
-            try:process_window(path,uid,job,request,ApiError)
+            try:
+                from ddl_text.adapters import AgentError
+                for attempt in range(2):
+                    try:
+                        process_window(path,uid,job,request,ApiError)
+                        break
+                    except AgentError as error:
+                        if attempt or not error.retryable:raise
+                        # One fresh bounded attempt for transport/truncated or
+                        # malformed model output. No semantic veto is overridden.
             except Exception as error:
                 failed+=1;code=failure_code(error)
                 from ddl_text.adapters import AgentError
@@ -421,9 +455,17 @@ def process(path,uid,job,ApiError):
                 db.execute('INSERT OR REPLACE INTO task_relation_windows VALUES(?,?,?,?)',
                            (job,index,'failed' if code else 'succeeded',code))
                 db.execute('INSERT OR REPLACE INTO task_relation_diagnostics VALUES(?,?,?)',(job,index,diagnostic))
+        for index,request in enumerate(requests):run_window(index,request)
+        # Broad retrieval is allowed to leave unrelated actions out. A submitted
+        # native entry must still get its own scope check, even if a broad model
+        # response omitted it. This is one bounded pass, not a retry loop.
+        with source_jobs.connection(path) as db:
+            nodes,_=context.inventory(db,uid)
+            remaining=list(context.submitted_windows(nodes))
+        for index,request in enumerate(remaining,start=len(requests)):run_window(index,request)
         with source_jobs.connection(path) as db:
             if guard(db,uid,job):
-                error=f'关联分析有 {failed}/{len(requests)} 组上下文未完成；已成功整合的结果保留，可重新分析失败部分。' if failed else None
+                error=f'关联分析有 {failed}/{len(requests)+len(remaining)} 组上下文未完成；已成功整合的结果保留，可重新分析失败部分。' if failed else None
                 db.execute('UPDATE task_relation_jobs SET state=?,error=? WHERE id=?',('failed' if failed else 'succeeded',error,job))
     except Exception:
         with source_jobs.connection(path) as db:

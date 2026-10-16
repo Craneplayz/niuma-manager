@@ -49,8 +49,11 @@ def routing_cases():
     add('supplementary-unread','请于2026年10月23日前交实验报告，未读附件只是可选参考资料，不改变要求。',
         'task','2026-10-23',partial=True,reference=supplementary)
     required=dict(supplementary,label='截止更正.pdf')
-    add('required-date-unread','请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。','candidate',reference=required)
-    add('expired-partial','请完成Assignment 1并邮件提交，本次作业deadline为9.29。','filtered','2026-09-29',partial=True)
+    add('required-date-unread','请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。','task',reference=required)
+    add('expired-partial','请完成Assignment 1并邮件提交，本次作业deadline为9.29。','task','2026-09-29',partial=True)
+    add('recently-overdue','请于10月11日23:59前提交本次实验报告。','task','2026-10-11T23:59:00+08:00',collected='2026-10-16T12:00:00+08:00')
+    add('old-event-preparation','明晚18:40首次实验课，请查收分组并加入本次活动群。','task','2026-09-16T18:40:00+08:00',collected='2026-10-16T12:00:00+08:00')
+    cases[-1]['record']['published_at']=dict(value='2026-09-15T10:00:00+08:00',basis='source')
     add('non-action-partial','10月9日上午课程因故暂停一次。','no_tasks',partial=True)
     add('no-deadline-with-reference','请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。','task',reference=supplementary)
     add('notice-location','本学期《算法导论》的上课地点调整为理教408，其余安排不变。','task')

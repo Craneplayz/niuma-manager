@@ -4,6 +4,7 @@ server/
 ├── test_task_retention.py   日期精度、七天边界、完整历史保留和恢复回归。
 ├── task_relations.py         跨来源关联逐批恢复、审计、联合提交完成及撤回。
 ├── relation_context.py       当前账号的有界原文、附件标识和任务检索，不决定语义合并。
+├── relation_delivery.py      以已验证的接收入口及快照复用交付身份，防止迟到来源重复建项。
 ├── test_task_relations.py    HTTP/SQLite 自动接线、提交覆盖、账号切换、证据及撤回回归。
 ├── run_relations_fixture.py  临时账号的浏览器关联验收，采集和模型使用合成替身。
 ├── README.md                 本目录的文件说明与启动命令。

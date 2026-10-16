@@ -158,11 +158,13 @@ def windows(nodes):
         used.update(chosen)
         if len(selected)>1:
             # UTF-8 budget also applies for non-ASCII texts.
-            try:yield context(list(selected.values()))
-            except ValueError:
-                for n in selected.values():
-                    n=dict(n);n['text']=n['text'][:2000];n['truncated']=True;selected[n['id']]=n
-                yield context(list(selected.values()))
+            yield bounded_context(list(selected.values()))
+
+
+def bounded_context(nodes):
+    try:return context(nodes)
+    except ValueError:
+        return context([dict(n,text=n['text'][:2000],truncated=True) if len(n['text'])>2000 else n for n in nodes])
 
 
 def refresh_context(db,uid,request):
@@ -174,3 +176,13 @@ def refresh_context(db,uid,request):
         if old.get('truncated') and len(old['text'])==2000:
             current[index]=dict(current[index],text=current[index]['text'][:2000],truncated=True)
     return context(current)
+
+
+def submitted_windows(nodes):
+    """Small source-local checks for pending actions omitted by broad retrieval."""
+    for source in sorted(nodes.values(),key=lambda n:n['id']):
+        if source['kind']!='source' or source.get('submission_state')!='submitted' or source.get('source_paused'):continue
+        actions=[n for n in nodes.values() if n['kind']=='candidate' and not n.get('protected')
+                 and n.get('sources')==[source['id']]]
+        for start in range(0,len(actions),8):
+            yield bounded_context(actions[start:start+8]+[source])

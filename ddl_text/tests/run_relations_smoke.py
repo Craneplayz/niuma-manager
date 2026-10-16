@@ -24,21 +24,25 @@ def assess(case,result):
     for sources in expected.get('joint_complete_sources',[]):
         if not any(set(c.get('source_ids',[]))==set(sources) and set(c['covers'])=={i for i in g['members'] if kinds[i]!='source'}
                    for g in result['groups'] for c in g['completion']):errors.append('joint_completion_scope')
+    if 'waived_actions' in expected:
+        if {a for g in result['groups'] for a in g.get('waived_actions',[])}!=set(expected['waived_actions']):errors.append('waiver_scope')
     return sorted(set(errors))
 
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--env',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--case',action='append',help='Run only the named synthetic case(s).')
     args=parser.parse_args();options=live_options(args.env)
     settings=Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=90,max_retries=0,
         thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
     cases=json.loads((Path(__file__).parents[2]/'contracts/examples/task-relations-v01.json').read_text(encoding='utf-8'))['cases']
     results=[]
     for case in cases:
+        if args.case and case['name'] not in args.case:continue
         try:
             result=relate(case['nodes'],client=ChatClient(options['key']),settings=settings)
             errors=assess(case,result)
-        except Exception as error:result=None;errors=[type(error).__name__]
+        except Exception as error:result=None;errors=[':'.join(filter(None,[type(error).__name__,getattr(error,'code',None),getattr(error,'diagnostic',None)]))]
         results.append(dict(name=case['name'],input=case['nodes'],expected=case['expected'],output=result,errors=errors))
         print(case['name']+': '+('PASS' if not errors else ','.join(errors)),flush=True)
         args.output.parent.mkdir(parents=True,exist_ok=True)
