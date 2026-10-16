@@ -351,13 +351,15 @@ export function createSourceSyncUI(host) {
     const checked = lastCheck && !run && !starting ? `<p class="status-note" data-source-sync-last-check>上次检查 <time datetime="${esc(lastCheck.updated_at)}">${esc(new Date(lastCheck.updated_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</time> · ${lastCheck.state === "succeeded" ? lastCheck.changed ? "有新结果" : "无新内容" : esc(LABELS[lastCheck.state])}</p>` : "";
     return `<div class="teaching-progress" data-source-sync-progress aria-label="教学网导入进度">${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${starting && !run ? '<p class="status-note" role="status">正在启动识别…</p>' : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}${checked}</div>`;
   }
-  function renderHistory() {
+  function renderHistory({ entries = [], includeSync = true } = {}) {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
-    const current = currentRun(), history = runs.filter(run => run !== current && usefulRun(run));
+    const current = currentRun(), latest = latestAttempts();
+    const history = [...entries, ...(includeSync ? runs.filter(run => run !== current && usefulRun(run)).map(run => ({
+      time: run.created_at, html: runMarkup(run, latest),
+    })) : [])].sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0)).slice(0, 20);
     if (!history.length) return "";
-    const latest = latestAttempts();
-    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(run => runMarkup(run, latest)).join("")}</details>`;
+    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(entry => entry.html).join("")}</details>`;
   }
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;

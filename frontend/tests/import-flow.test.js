@@ -11,6 +11,7 @@ globalThis.FormData=class {constructor(form){this.values=form.values;}*[Symbol.i
 const store=await import('../src/team-store.js');
 const {createImportUI,buildTextImport,buildCandidateResolution,candidateDue,shanghaiNow,buildRecognitionRequest,describeImportError}=await import('../src/import-ui.js');
 const {createAccountUI}=await import('../src/account-ui.js');
+const {syncRun}=await import('./sync-fixtures.js');
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deadline={kind:'deadline',status:'explicit',precision:'date',value:'2026-10-20'};
 const candidate={title:'提交报告',description:'原文要求',course_or_project:'概率论',notice_type:'create',deadline,evidence:[{quote:'请在10月20日前提交报告。'}],sources:[],review_reasons:[]};
@@ -321,19 +322,78 @@ test('retrying a saved teaching failure outside background runs sends its identi
  f.batches.A.push({request:structuredClone(source.request),result:{...structuredClone(source.result),status:'failed',tasks:[],errors:[{code:'agent_timeout',message:'agent_timeout',retryable:true}]},items:[]});
  await f.login();const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});
  const html=ui.render();
- assert.match(html,/<details class="import-history"><summary>历史导入 · 识别未完成 1<\/summary>/);
- assert.ok(html.includes(`data-import-retry="${source.run.request_id}"`));
- assert.match(html,/未能完成任务识别/);
+ assert.match(html,/历史导入 · 1/);assert.doesNotMatch(html,/历史导入 · 识别未完成/);
+ assert.ok(html.includes(`data-import-history-retry="${source.run.request_id}"`));
+ await ui.click({dataset:{importHistoryCategory:'error',importHistoryBatch:source.run.request_id}});
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:source.run.request_id}});
+ assert.match(ui.render(),/未能完成任务识别/);
  assert.doesNotMatch(html.split('class="import-results"')[1],/import-failure|data-import-retry/);
  await new Promise(r=>setImmediate(r));
- await ui.click({dataset:{importRetry:source.run.request_id}});
+ await ui.click({dataset:{importHistoryRetry:source.run.request_id}});
  const calls=f.calls.filter(call=>['/api/recognition/batches','/api/recognition/retry'].includes(call.path)&&call.method==='POST');
  assert.deepEqual(calls.map(call=>({path:call.path,body:call.body})),[{path:'/api/recognition/retry',body:source.run}]);
  const automatic=f.calls.filter(call=>call.path.endsWith('/resolve'));
  assert.equal(automatic.length,1);assert.deepEqual(automatic[0].body,{action:'create',auto_apply:true,version:1});
  assert.equal(f.host.getState().tasks.length,1);assert.equal(f.calls.some(call=>call.path.includes('/planning/')),false);
- await ui.click({dataset:{importRetry:source.run.request_id}});
+ await ui.click({dataset:{importHistoryRetry:source.run.request_id}});
  assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,1);assert.equal(f.host.getState().tasks.length,1);
+});
+
+test('hidden sync failures cannot reappear or retry through legacy history while independent failures remain usable',async t=>{
+ const managed=teachingCase('date-only'),legacy=teachingCase('no-deadline');
+ const f=fixture({syncCases:[managed,legacy]});
+ for(const [source,sourceSyncManaged] of [[managed,true],[legacy,false]])f.batches.A.push({
+  request:structuredClone(source.request),result:{...structuredClone(source.result),status:'failed',tasks:[],errors:[{code:'agent_timeout',message:'agent_timeout',retryable:true}]},items:[],sourceSyncManaged,
+ });
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));
+ const html=ui.render();
+ assert.match(html,/历史导入 · 1/);assert.doesNotMatch(html,/历史导入 · 识别未完成/);
+ assert.doesNotMatch(html,new RegExp(`data-import-retry="${managed.run.request_id}"`));
+ assert.ok(html.includes(`data-import-history-retry="${legacy.run.request_id}"`));
+ assert.match(html,/data-import-review="candidate-A"/);
+ await ui.click({dataset:{importRetry:managed.run.request_id}});
+ assert.equal(f.calls.filter(call=>call.path==='/api/recognition/retry'&&call.method==='POST').length,0);
+ await ui.click({dataset:{importHistoryRetry:legacy.run.request_id}});
+ const retries=f.calls.filter(call=>call.path==='/api/recognition/retry'&&call.method==='POST');
+ assert.equal(retries.length,1);assert.equal(retries[0].body.request_id,legacy.run.request_id);
+});
+
+test('sync runs and independent recognition batches share one history with in-batch errors',async t=>{
+ const legacy=teachingCase('date-only'),run=syncRun({id:'sync:visible',added:1});
+ const f=fixture({intercept(path,body,method){if(path==='/api/sources/sync-runs'&&method==='GET')return {contract_version:'source-sync/0.1',runs:[run]};}});
+ f.batches.A.push({request:structuredClone(legacy.request),result:{...structuredClone(legacy.result),status:'failed',tasks:[],errors:[{code:'agent_timeout',message:'agent_timeout',retryable:true}]},items:[]});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ await ui.click({dataset:{importSource:'teaching'}});await ui.loadSourceSync();await new Promise(r=>setImmediate(r));
+ const html=ui.render();
+ assert.equal((html.match(/<summary>历史导入/g)||[]).length,1);assert.match(html,/历史导入 · 2/);
+ assert.match(html,/新增 1 项/);assert.match(html,/错误 1 条/);assert.doesNotMatch(html,/识别未完成|data-task-status|history-status/);
+ await ui.toggle({target:{dataset:{sourceSyncHistory:''},open:true,isConnected:true}});
+ await ui.click({dataset:{importHistoryCategory:'error',importHistoryBatch:legacy.run.request_id}});
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:legacy.run.request_id}});
+ assert.match(ui.render(),/sync-problem/);assert.match(ui.render(),/data-error-feedback=/);
+ await ui.load();assert.match(ui.render(),/data-source-sync-history open/);
+ await ui.click({dataset:{importSource:'text'}});
+ assert.doesNotMatch(ui.render(),/sync-category-sync:visible|data-import-history-batch-entry="synthetic:date-only"/);
+});
+
+test('records from one independent import remain one batch with candidates and errors',async t=>{
+ const pending=teachingCase('date-only'),failed=teachingCase('no-deadline');
+ const f=fixture({syncCases:[pending,failed]});
+ f.batches.A=[
+  {importId:'batch:shared',request:structuredClone(pending.request),result:structuredClone(pending.result),items:[{...structuredClone(item),id:'candidate-shared'}]},
+  {importId:'batch:shared',request:structuredClone(failed.request),result:{...structuredClone(failed.result),status:'failed',tasks:[],errors:[{code:'agent_timeout',message:'agent_timeout',retryable:true}]},items:[]},
+ ];
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));
+ assert.equal((ui.render().match(/data-import-history-batch-entry=/g)||[]).length,1);
+ assert.match(ui.render(),/历史导入 · 1/);assert.match(ui.render(),/待核对 1 项/);assert.match(ui.render(),/错误 1 条/);
+ await ui.click({dataset:{importHistoryCategory:'review',importHistoryBatch:'batch:shared'}});
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'batch:shared'}});
+ assert.match(f.dialog,/data-import-form="review"/);
+ await ui.click({dataset:{importHistoryRetry:'batch:shared'}});
+ const retries=f.calls.filter(call=>call.path==='/api/recognition/retry'&&call.method==='POST');
+ assert.equal(retries.length,1);assert.equal(retries[0].body.request_id,failed.run.request_id);
 });
 
 test('configuration, credentials, and connection failures give different next steps',()=>{

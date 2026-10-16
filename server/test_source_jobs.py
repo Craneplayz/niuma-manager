@@ -333,6 +333,9 @@ class SourceJobsTests(unittest.TestCase):
             self.assertEqual(self.call('/sources/sync-runs/'+last['run_id'])[1]['counts']['added'],1)
             for previous in (first,middle):self.assertTrue(self.call('/sources/sync-runs/'+previous['run_id'])[1]['records'][0]['recovered'])
             self.assertEqual([run['run_id'] for run in self.call('/sources/sync-runs')[1]['runs']],[last['run_id']])
+            batches=self.call('/recognition/batches')[1]
+            self.assertEqual(len(batches),3)
+            self.assertTrue(all(batch['sourceSyncManaged'] for batch in batches))
 
     def test_single_retry_then_remaining_batch_uses_latest_attempt_and_idempotency(self):
         request,drafts=example(('explicit-complete',)*3);self.drafts.update(drafts)
@@ -487,10 +490,22 @@ class SourceJobsTests(unittest.TestCase):
         listing=self.call('/sources/sync-runs')[1]
         self.assertEqual(listing['runs'],[])
         self.assertTrue(self.call('/sources/sync-runs/'+first['run_id'])[1]['records'][0]['recovered'])
+        self.assertTrue(all(batch['sourceSyncManaged'] for batch in self.call('/recognition/batches')[1]))
         with app.connection() as db:jobs.prune_quiet(db,now=time.time()+jobs.QUIET_RECEIPT_SECONDS+1)
         self.assertEqual(self.call('/sources/sync-runs')[1]['runs'],[])
         self.assertTrue(self.call('/sources/sync-runs/'+first['run_id'])[1]['records'][0]['recovered'])
+        self.assertTrue(all(batch['sourceSyncManaged'] for batch in self.call('/recognition/batches')[1]))
         self.assertEqual(self.call('/sources/sync-runs/'+first['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:old',consent=True))[0],409)
+
+    def test_sync_batch_ownership_does_not_cross_accounts(self):
+        request,_=example();record=request['records'][0]['record'];record['body_status']='partial'
+        self.drafts[record['input_id']]=empty_reply(record,'incomplete')
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            first=self.start();jobs.wait_for_jobs(app.DB)
+        self.assertTrue(self.call('/recognition/batches')[1][0]['sourceSyncManaged'])
+        with app.connection() as db:
+            db.execute('UPDATE source_sync_runs SET user_id=? WHERE run_id=?',('different-user',first['run_id']))
+        self.assertFalse(self.call('/recognition/batches')[1][0]['sourceSyncManaged'])
 
     def test_history_keeps_latest_retry_failure_without_changing_recovery_receipts(self):
         request,_=example()
