@@ -23,6 +23,14 @@
   --page-max-width: 1450px;
   --page-reading-width: 860px;
 }
+.user-error { min-width: 0; color: var(--danger); font-size: 13px; line-height: 1.65; }
+.user-error-message { margin: 0; overflow-wrap: anywhere; }
+.user-error-help { margin: 6px 0 0; color: var(--muted); }
+.error-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.error-feedback-status { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.connection-alert > .user-error { flex: 1; }
+#toast:has(.user-error) { background: #fff; color: var(--ink); border: 1px solid var(--line); max-height: 50vh; overflow: auto; width: min(560px, calc(100% - 32px)); flex-direction: column; align-items: stretch; gap: 4px; }
+#toast:has(.user-error) button { color: var(--ink); min-height: 44px; }
 * {
   box-sizing: border-box;
 }
@@ -50,13 +58,11 @@ textarea {
 }
 button {
   cursor: pointer;
+  color: inherit;
 }
 button:disabled {
   cursor: default;
   opacity: 0.5;
-}
-button {
-  color: inherit;
 }
 a {
   color: inherit;
@@ -786,15 +792,6 @@ button .icon {
   text-align: center;
   color: #8b959e;
 }
-.import-page h2 {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 17px;
-}
-.import-page h3 {
-  font-size: 16px;
-  font-weight: 550;
-}
 .import-page section {
   margin-top: 28px;
 }
@@ -804,20 +801,10 @@ button .icon {
 .import-page form {
   margin-top: 22px;
 }
-.candidate-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 .import-page details {
   font-size: 13px;
   color: #85909a;
   margin-top: 14px;
-  line-height: 1.8;
-}
-.import-progress {
-  color: #647e92;
-  font-size: 13px;
   line-height: 1.8;
 }
 dialog input[type="checkbox"] {
@@ -1020,8 +1007,8 @@ dialog p {
   bottom: 20px;
   max-width: calc(100vw - 32px);
   padding: 20px;
-  background: var(--surface, #fff);
-  color: var(--text, #282a2d);
+  background: #fff;
+  color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: 0 6px 24px #0002;
@@ -1506,6 +1493,7 @@ dialog p {
 }
 .teaching-import h2 {
   font-size: 19px;
+  font-weight: 600;
   margin-bottom: 10px;
 }
 .teaching-account { min-width: 0; }
@@ -1546,6 +1534,7 @@ dialog p {
 }
 .section-heading h2 {
   font-size: 18px;
+  font-weight: 600;
   margin: 0;
 }
 .section-heading .btn {
@@ -1573,6 +1562,9 @@ dialog p {
   font-size: 12px;
 }
 .candidate-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
   flex-shrink: 0;
   margin-top: 20px;
 }
@@ -1607,6 +1599,9 @@ dialog p {
   cursor: pointer;
 }
 .import-progress {
+  color: #647e92;
+  font-size: 13px;
+  line-height: 1.8;
   display: flex;
   justify-content: space-between;
   align-items: center;

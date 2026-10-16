@@ -4,6 +4,8 @@ server/
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
+├── error_reports.py          用户主动错误报告、受限字段、去重、限流与保留。
+├── test_error_reports.py     真实 HTTP 提交、匿名反馈、权限与私人字段拒绝回归。
 ├── test_usage.py             后台权限、反馈评分、去重、数据最小化与保留期测试。
 ├── runtime_environment.py    环境身份、数据目录归属、会话名称及版本信息。
 ├── manage_environment.py     初始化、检查并启动开发 / 测试 / 生产环境。
@@ -59,6 +61,10 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+## 错误报告
+
+`POST /api/error-reports` 接收用户点击提交的受限报告，沿用 [error-report/0.1](../contracts/docs/error-reports-v0.1.md)；允许未登录反馈登录故障，限制请求大小和频率、按问题编号去重，不收集原始异常或私人正文。现有管理员后台按收到日期展示最近 100 条报告，保留 90 天，普通用户无列表读取权限。
 
 ## 使用数据后台
 

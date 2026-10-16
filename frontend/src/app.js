@@ -33,6 +33,7 @@ import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
 import { feedbackBox } from "./usage-feedback.js";
 import { describeEnvironment } from "./environment-badge.js";
+import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
 
 const esc = (value) =>
   String(value ?? "").replace(
@@ -59,11 +60,13 @@ let demo = params.get("demo") === "1",
   taskBusy = false,
   drawerId = null,
   drawerEditing = false,
+  drawerError = null,
   lastFocus = null,
   toastTimer,
   sidebarTooltipTimer,
   sidebarTooltipTarget,
-  environment = null;
+  environment = null,
+  backendRevision = "unknown";
 let preferences = {};
 try {
   preferences = JSON.parse(localStorage.getItem("niuma.task-ui.v2") || "{}");
@@ -160,13 +163,34 @@ function toast(message, undo) {
         await undo();
         el.classList.remove("visible");
       } catch (e) {
-        toast(e.message);
+        toastError(e);
       }
     };
   toastTimer = setTimeout(
     () => el.classList.remove("visible"),
     undo ? 7000 : 4000,
   );
+}
+function toastError(error, action = "general") {
+  if (dialog.open) {
+    let target = dialog.querySelector("[data-dialog-operation-error]");
+    if (!target) {
+      target = document.createElement("div");
+      target.dataset.dialogOperationError = "";
+      dialog.append(target);
+    }
+    target.innerHTML = userErrorMarkup(error, action);
+    return;
+  }
+  if (drawer.open && !drawerEditing) {
+    drawerError = { error, action };
+    updateDrawer();
+    return;
+  }
+  clearTimeout(toastTimer);
+  const el = document.querySelector("#toast");
+  el.innerHTML = `${userErrorMarkup(error, action)}<button type="button" class="btn quiet" data-action="error-dismiss">关闭提示</button>`;
+  el.classList.add("visible");
 }
 function openDialog(html) {
   hideSidebarTooltip();
@@ -205,7 +229,7 @@ function sidebar() {
     done: filterTasks(state.tasks, { scope: "done", today }).length,
     notices: filterTasks(state.tasks, { scope: "notices", today }).length,
   };
-  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry ${ui.page === "import" ? "current" : ""}" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
+  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
     ["notices", "通知", "info"],
     ["near", "临近截止", "clock"],
@@ -299,7 +323,7 @@ function monthLabel() {
   return `${d.getFullYear()}年 ${d.getMonth() + 1}月`;
 }
 function calendarTools() {
-  return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented small" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
+  return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
 }
 function taskResults() {
   const tasks = filtered();
@@ -331,9 +355,9 @@ function tasksPage() {
 }
 function syncAlert() {
   return loadError
-    ? `<div class="connection-alert" role="alert"><span>${esc(loadError)}</span><button type="button" class="btn quiet" data-action="reload">重新连接</button></div>`
+    ? `<div class="connection-alert">${userErrorMarkup(loadError, "tasks_load")}<button type="button" class="btn quiet" data-action="reload">重新连接</button></div>`
     : session.sync === "error" && !demo
-      ? `<div class="connection-alert" role="alert"><span>${esc(session.error)}</span><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
+      ? `<div class="connection-alert">${userErrorMarkup(session.failure || session.error, "tasks_save")}<button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
       : "";
 }
 function focusToken(el) {
@@ -414,6 +438,7 @@ function render() {
     .forEach((button) => (button.disabled = taskBusy));
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
+  pruneErrorFeedback();
 }
 function renderResults() {
   if (refreshToday()) return render();
@@ -448,6 +473,7 @@ function openTask(id, editing = false) {
   lastFocus = document.activeElement;
   drawerId = id;
   drawerEditing = editing;
+  drawerError = null;
   updateDrawer();
   if (!drawer.open) drawer.showModal();
 }
@@ -466,6 +492,8 @@ function updateDrawer() {
     icon,
     deadlineLabel,
   });
+  const actionError = drawer.querySelector("#task-action-error");
+  if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
   if (!drawerEditing && task.id) {
     const evidence = drawer.querySelector("#task-evidence");
     if (demo)
@@ -481,6 +509,7 @@ function closeDrawer() {
   drawer.close();
   drawerId = null;
   drawerEditing = false;
+  drawerError = null;
   const fallback = document.querySelector('[data-action="task-new"]');
   if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
   else fallback?.focus({ preventScroll: true });
@@ -496,6 +525,7 @@ async function toggleTask(id) {
   const epoch = accountVersion(),
     task = state.tasks.find((t) => t.id === id);
   if (!task) return;
+  drawerError = null;
   const notice = isNotice(task);
   const readFocus = notice ? focusToken(document.activeElement) : null;
   const origin = { page: ui.page, scope: ui.scope, drawerId, drawerOpen: drawer.open };
@@ -533,7 +563,7 @@ async function toggleTask(id) {
       },
     );
   } catch (e) {
-    toast(e.message);
+    if (drawer.open || session.sync !== "error") toastError(session.failure || e, "tasks_save");
   } finally {
     taskBusy = false;
     render();
@@ -551,6 +581,7 @@ async function toggleTask(id) {
 async function trashTask() {
   if (taskBusy || !drawerId) return;
   const id = drawerId;
+  drawerError = null;
   if (demo) {
     const task = state.tasks.find((t) => t.id === id);
     state.tasks = state.tasks.filter((t) => t.id !== id);
@@ -573,7 +604,7 @@ async function trashTask() {
       await refresh();
     });
   } catch (e) {
-    toast(e.message);
+    toastError(e, "tasks_delete");
   } finally {
     taskBusy = false;
     if (drawer.open) updateDrawer();
@@ -603,6 +634,7 @@ function calendarStep(direction) {
   renderResults();
 }
 const actions = {
+  "error-dismiss": clearUndo,
   "sidebar-toggle": () => {
     const mobile = matchMedia("(max-width: 700px)").matches;
     if (mobile)
@@ -655,7 +687,7 @@ const actions = {
       await refresh();
       toast("已保存");
     } catch (e) {
-      toast(e.message);
+      toastError(e);
     }
   },
   reload: async () => {
@@ -665,7 +697,7 @@ const actions = {
     try {
       state = await reloadStore();
     } catch (e) {
-      loadError = e.message;
+      loadError = e;
     } finally {
       loading = false;
       render();
@@ -703,6 +735,14 @@ window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
   const button = e.target.closest("button");
   if (!button) return;
+  if (button.dataset.errorFeedback) {
+    await submitErrorFeedback(button, {
+      send: body => api("/api/error-reports", body, "POST", { timeoutMs: 10000 }),
+      frontendRevision: import.meta.env?.VITE_BUILD_REVISION,
+      backendRevision,
+    });
+    return;
+  }
   hideSidebarTooltip();
   try {
     if (button.dataset.action && actions[button.dataset.action]) {
@@ -770,7 +810,7 @@ document.addEventListener("click", async (e) => {
     }
     await imports.click(button);
   } catch (error) {
-    toast(error.message);
+    toastError(error, button.dataset.restoreTask ? "tasks_restore" : "general");
   }
 });
 document.addEventListener("input", (e) => {
@@ -862,14 +902,14 @@ document.addEventListener("submit", async (e) => {
       toast(isNotice(task) ? "通知已保存" : "任务已保存");
     } catch (e) {
       if (epoch === accountVersion()) {
-        if (form.isConnected) error.textContent = e.message;
-        else toast(e.message);
+        if (form.isConnected) { error.textContent = "保存未完成"; error.innerHTML = userErrorMarkup(session.failure || e, "tasks_save"); }
+        else toastError(e);
       }
     } finally {
       taskBusy = false;
       if (form.isConnected) {
         form.querySelectorAll("button,input,textarea,select").forEach((field) => {
-          field.disabled = false;
+          if (!field.dataset.errorFeedback) field.disabled = false;
         });
       }
     }
@@ -879,7 +919,7 @@ document.addEventListener("submit", async (e) => {
     if (await account.submit(form)) return;
     await imports.submit(form);
   } catch (error) {
-    toast(error.message);
+    toastError(error);
   }
 });
 document.addEventListener("keydown", (e) => {
@@ -933,6 +973,7 @@ drawer.addEventListener("cancel", (e) => {
   closeDrawer();
 });
 window.addEventListener("niuma:account-reset", () => {
+  resetErrorFeedback();
   const authForm = dialog.querySelector("[data-account-form]");
   if (
     !(
@@ -977,7 +1018,7 @@ async function initialize() {
     try {
       state = await initSession();
     } catch (e) {
-      loadError = e.message;
+      loadError = e;
     } finally {
       loading = false;
       render();
@@ -987,6 +1028,7 @@ async function initialize() {
 void initialize();
 api("/api/version")
   .then((version) => {
+    backendRevision = version.revision;
     environment = describeEnvironment(
       version,
       import.meta.env?.VITE_BUILD_REVISION,

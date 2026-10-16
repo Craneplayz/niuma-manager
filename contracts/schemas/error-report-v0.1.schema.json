@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User initiated error report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "incident_id", "code", "action", "occurred_at", "frontend_revision", "backend_revision", "status"],
+  "properties": {
+    "contract_version": {"const": "error-report/0.1"},
+    "incident_id": {"type": "string", "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"},
+    "code": {"enum": ["incomplete_source", "conflict", "credential_dependency", "credential_storage", "crawler_dependency", "teaching_model_configuration", "model_configuration", "recognition_rules", "model_busy", "session", "teaching_credentials", "teaching_connection", "crawler_runtime", "service_version", "model_connection", "service_connection", "timeout", "invalid_result", "unknown", "validation"]},
+    "action": {"enum": ["tasks_load", "tasks_save", "tasks_delete", "tasks_restore", "text_import", "teaching_sync", "import_review", "notice_reprocessing", "task_evidence", "account", "feedback", "general"]},
+    "occurred_at": {"type": "string", "format": "date-time", "maxLength": 40},
+    "frontend_revision": {"$ref": "#/$defs/revision"},
+    "backend_revision": {"$ref": "#/$defs/revision"},
+    "status": {"type": ["integer", "null"], "minimum": 400, "maximum": 599}
+  },
+  "$defs": {"revision": {"type": "string", "pattern": "^(unknown|[a-f0-9]{7,40})$"}}
+}
