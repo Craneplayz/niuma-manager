@@ -5,6 +5,7 @@ import {
   logout,
   accountVersion,
 } from "./team-store.js";
+import { describeUserError, userErrorMarkup } from "./user-errors.js";
 
 export function createAccountUI(host) {
   const esc = host.escapeHtml;
@@ -29,7 +30,7 @@ export function createAccountUI(host) {
     return `<header class="dialog-header"><h2>${esc(title)}</h2><button class="icon-button" type="button" data-account-action="close" aria-label="关闭" ${busy ? "disabled" : ""}>${host.icon("close")}</button></header>`;
   }
   function errorMarkup() {
-    return `<p class="error" role="alert" data-account-error ${error ? "" : "hidden"}>${esc(error)}</p>`;
+    return `<div class="error" data-account-error ${error ? "" : "hidden"}>${userErrorMarkup(error, "account")}</div>`;
   }
   function render() {
     if (mode === "summary" && session.user)
@@ -50,12 +51,14 @@ export function createAccountUI(host) {
     error = message;
     const node = form.querySelector("[data-account-error]");
     if (node) {
-      node.textContent = message;
+      node.textContent = message ? describeUserError(message, "account").message : "";
+      node.innerHTML = userErrorMarkup(message, "account");
       node.hidden = !message;
     }
   }
   function lock(form, disabled) {
     form.querySelectorAll("input,button").forEach((field) => {
+      if (field.dataset.errorFeedback) return;
       if (disabled) {
         field.dataset.wasDisabled = String(field.disabled);
         field.disabled = true;
@@ -80,7 +83,7 @@ export function createAccountUI(host) {
       host.toast("已退出登录");
     } catch (e) {
       if (attempt === operation) {
-        error = e.message;
+        error = e;
         busy = false;
         mode = session.user ? "summary" : "login";
         host.openDialog(render());
@@ -183,7 +186,7 @@ export function createAccountUI(host) {
       if (current())
         formError(
           form,
-          String(e.message || "操作未完成，请重试").replaceAll("后端", "服务"),
+          e,
         );
     } finally {
       if (current()) {

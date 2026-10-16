@@ -64,6 +64,17 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Install error-feedback browser checks
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+      - name: Verify visible errors and report interactions
+        if: runner.os == 'Linux'
+        run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with:
+          name: error-feedback-browser-results
+          path: frontend/test-results/
       - name: Install backend test dependencies
         run: python -m pip install -r ../server/requirements-test.txt
       - name: Run backend regressions

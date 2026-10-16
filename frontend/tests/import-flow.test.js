@@ -167,7 +167,7 @@ test('a task version change prevents a stale confirmation and offers rereading',
  const form=fakeForm('review',{action:'create',title:'报告',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});
  await ui.submit(form);
  assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
- assert.match(form.error.textContent,/刷新/);assert.equal(form.error.hidden,false);assert.equal(form.retry.hidden,false);
+ assert.match(form.error.textContent,/重新读取/);assert.equal(form.error.hidden,false);assert.equal(form.retry.hidden,false);
 });
 
 test('a late review reread cannot replace another candidate draft',async()=>{
@@ -321,7 +321,7 @@ test('retrying a saved teaching failure outside background runs sends its identi
  const html=ui.render();
  assert.match(html,/<details class="import-history"><summary>历史导入 · 识别未完成 1<\/summary>/);
  assert.ok(html.includes(`data-import-retry="${source.run.request_id}"`));
- assert.match(html,/识别服务连接失败或超时/);
+ assert.match(html,/未能完成任务识别/);
  assert.doesNotMatch(html.split('class="import-results"')[1],/import-failure|data-import-retry/);
  await ui.click({dataset:{importRetry:source.run.request_id}});
  const calls=f.calls.filter(call=>['/api/recognition/batches','/api/recognition/retry'].includes(call.path)&&call.method==='POST');
@@ -335,13 +335,13 @@ test('retrying a saved teaching failure outside background runs sends its identi
 
 test('configuration, credentials, and connection failures give different next steps',()=>{
  const cases=[
-  ['教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install','crawler_dependency',/缺少教学网采集组件/],
-  ['凭据加密依赖未安装；请安装 server/requirements.txt','credential_dependency',/缺少连接保存组件/],
-  ['无法解密教学网凭据；请重新保存账号和密码','credential_storage',/重新保存连接/],
-  ['文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥','model_configuration',/完成配置/],
-  ['教学网识别配置不可用，请检查当前环境的七牛云模型配置并重启后端','teaching_model_configuration',/完成配置/],
-  ['教学网采集失败；请检查账号、密码、浏览器及校园网连接','teaching_connection',/核对账号密码及校园网/],
-  ['无法连接服务，请检查后端','service_connection',/服务正在运行/],
+  ['教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install','crawler_dependency',/暂时无法从教学网获取通知/],
+  ['凭据加密依赖未安装；请安装 server/requirements.txt','credential_dependency',/无法保存教学网连接/],
+  ['无法解密教学网凭据；请重新保存账号和密码','credential_storage',/重新保存账号和密码/],
+  ['文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥','model_configuration',/需要维护人员处理/],
+  ['教学网识别配置不可用，请检查当前环境的七牛云模型配置并重启后端','teaching_model_configuration',/需要维护人员处理/],
+  ['教学网采集失败；请检查账号、密码、浏览器及校园网连接','teaching_connection',/核对教学网账号和密码/],
+  ['无法连接服务，请检查后端','service_connection',/检查网络后重试/],
   ['模型请求排队已满或等待超时，请稍后重试；未开始模型调用','model_busy',/稍后重试/],
  ];
  for(const [message,kind,expected] of cases){const report=describeImportError({message,status:503});assert.equal(report.kind,kind);assert.match(report.message,expected);}
@@ -350,30 +350,30 @@ test('configuration, credentials, and connection failures give different next st
  assert.doesNotMatch(JSON.stringify(describeImportError({status:502,message:raw})),/private-model-key|private-token|campus-password/);
 });
 
-test('a missing crawler component is visible with technical steps collapsed',async()=>{
+test('a missing crawler component offers user guidance and an error report without installation commands',async()=>{
  const f=fixture({syncError:{status:503,message:'教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install'}});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importSource:'teaching'}});await ui.click({dataset:{importAction:'sync'}});
- const html=ui.render(),main=html.match(/<p class="error" role="alert">([^<]+)<\/p>/)?.[1];
- assert.match(main,/缺少教学网采集组件.*安装后重新采集/);
+ const html=ui.render(),main=html.match(/<p class="user-error-message">([^<]+)<\/p>/)?.[1];
+ assert.match(main,/暂时无法从教学网获取通知.*维护人员处理/);
  assert.doesNotMatch(main,/crawler|pnpm|Node/);
- assert.match(html,/<details class="import-error-details"[^>]*><summary>查看原因<\/summary>/);
+ assert.match(html,/data-error-feedback=/);
  assert.doesNotMatch(html,/<details class="import-error-details"[^>]*\bopen\b/);
- assert.match(html,/pnpm install/);
+ assert.doesNotMatch(html,/pnpm install|server\/requirements/);
  assert.doesNotMatch(html,/采集服务尚未就绪/);
 });
 
 test('model configuration failures are actionable and never echo model credentials',async()=>{
  const f=fixture({recognitionError:{status:503,message:'文本识别配置不可用，请检查模型密钥 API_KEY=private-test-key'}});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.submit(fakeForm('text',{text:'提交作业',published:'2026-10-14T12:00:00'}));
- const html=ui.render();assert.match(html,/任务识别的模型配置不可用.*完成配置后重试/);
- assert.match(html,/查看原因/);assert.doesNotMatch(html,/private-test-key/);
+ const html=ui.render();assert.match(html,/任务识别暂时不可用.*维护人员处理/);
+ assert.match(html,/反馈此问题/);assert.doesNotMatch(html,/private-test-key/);
 });
 
 test('credential storage errors remain visible in the connection dialog',async()=>{
  const f=fixture({credentialError:{status:503,message:'凭据加密依赖未安装；请安装 server/requirements.txt'}});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importAction:'credentials'}});
  const form=fakeForm('credentials',{username:'campus-user',password:'campus-password'});
- await ui.submit(form);assert.match(form.error.textContent,/缺少连接保存组件/);assert.equal(form.error.hidden,false);
+ await ui.submit(form);assert.match(form.error.textContent,/无法保存教学网连接/);assert.equal(form.error.hidden,false);
  assert.doesNotMatch(form.error.textContent,/campus-user|campus-password/);
 });
 

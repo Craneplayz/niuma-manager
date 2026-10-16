@@ -1,0 +1,6 @@
+{
+  "reports": [
+    {"contract_version":"error-report/0.1","incident_id":"10000000-0000-4000-8000-000000000001","code":"model_configuration","action":"text_import","occurred_at":"2026-10-15T14:30:00+08:00","frontend_revision":"a7fe0a8","backend_revision":"a7fe0a8","status":503},
+    {"contract_version":"error-report/0.1","incident_id":"10000000-0000-4000-8000-000000000002","code":"service_connection","action":"tasks_save","occurred_at":"2026-10-15T06:31:00Z","frontend_revision":"unknown","backend_revision":"unknown","status":null}
+  ]
+}

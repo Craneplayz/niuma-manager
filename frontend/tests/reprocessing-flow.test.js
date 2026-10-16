@@ -90,6 +90,19 @@ test("the compact entry stays folded and rendering never fetches records or runs
   assert.equal(f.requests.length, 2);
 });
 
+test("saved reprocessing failures use user guidance and report controls without raw exceptions", async t => {
+  const f = fixture(t);
+  const failed = run("failed");
+  failed.records[0].error = { code: "invalid_agent_output", message: "PRIVATE-CONTENT password=PRIVATE" };
+  failed.error = { message: "PRIVATE-STACK" };
+  f.setRuns([failed]);
+  await f.ui.toggle(toggle(true));
+  const html = f.ui.render();
+  assert.match(html, /这次没能正确整理出任务/);
+  assert.match(html, /data-error-feedback=/);
+  assert.doesNotMatch(html, /PRIVATE|password=/);
+});
+
 test("success and no-task saved records can both be explicitly rerun after queued task writes finish", async (t) => {
   const f = fixture(t);
   await f.ui.toggle(toggle(true));
@@ -205,7 +218,7 @@ test("failed starts retain selection and reuse the operation identity on network
   f.ui.input(select(records[1].input_id));
   await f.ui.click(click("start"));
   assert.equal(f.ui.isBusy(), false);
-  assert.match(f.ui.render(), /网络连接中断/);
+  assert.match(f.ui.render(), /暂时连接不上/);
   await f.ui.click(click("start"));
   const created = f.requests.filter((item) => item.method === "POST");
   assert.equal(created.length, 2);
@@ -213,7 +226,7 @@ test("failed starts retain selection and reuse the operation identity on network
   assert.deepEqual(created[1].body.input_ids, [records[1].input_id]);
   f.setRuns([run("failed", 2, [records[1].input_id])]);
   await f.poll();
-  assert.match(f.ui.render(), /识别服务暂不可用/);
+  assert.match(f.ui.render(), /未能完成任务识别/);
   assert.equal(f.refreshes, 1);
 });
 
@@ -223,7 +236,7 @@ test("save conflicts block creation and concurrent importing prevents another ru
   f.ui.input(select(records[0].input_id));
   await f.ui.click(click("start"));
   assert.equal(f.requests.some((item) => item.method === "POST"), false);
-  assert.match(f.ui.render(), /任务保存冲突/);
+  assert.match(f.ui.render(), /任务修改还未保存/);
   const other = fixture(t);
   await other.ui.toggle(toggle(true));
   other.ui.input(select(records[0].input_id));
@@ -240,11 +253,11 @@ test("demo and logged-out entry points never send reprocessing requests", async 
   await f.ui.click(click("load"));
   await f.ui.click(click("start"));
   assert.equal(f.requests.length, 0);
-  assert.match(f.ui.render(), /示例预览不发送/);
+  assert.match(f.ui.render(), /当前为示例页面/);
   f.setDemo(false); f.setAuthenticated(false);
   await f.ui.load();
   assert.equal(f.requests.length, 0);
-  assert.match(f.ui.render(), /先登录账号/);
+  assert.match(f.ui.render(), /重新登录/);
 });
 
 test("pagination combines a source's records without sending labels or credentials", async (t) => {
