@@ -36,6 +36,7 @@ class Element extends Surface {
   contains() { return true; }
   setPointerCapture() {}
   hasPointerCapture() { return false; }
+  getBoundingClientRect() { return { left: 0, top: 0, width: 100, height: 20 }; }
   constructor(id = "") { super(); this.id = id; }
   close() { this.open = false; }
   showModal() { this.open = true; }
@@ -99,12 +100,12 @@ async function fixture(t, { undated = false, failWrite = false } = {}) {
   await import(`../src/app.js?date-test=${instanceId}`);
   await new Promise(setImmediate);
   const click = dataset => doc.emit("click", { closest: () => ({ dataset }) });
-  const drag = async () => {
+  const drag = async (date = "2026-10-20") => {
     const source = new Element();
     source.dataset.calendarDragTask = "undated";
     source.closest = () => source;
     const cell = new Element();
-    cell.dataset.calendarDropDate = "2026-10-20";
+    cell.dataset.calendarDropDate = date;
     cell.closest = () => cell;
     doc.elementFromPoint = () => cell;
     const pointer = { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, isPrimary: true, clientX: 20, clientY: 30 };
@@ -117,15 +118,18 @@ async function fixture(t, { undated = false, failWrite = false } = {}) {
   return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, toast: elements.get("#toast") };
 }
 
-test("calendar drag writes a date without a time, suppresses detail opening and undo restores undated", async t => {
+for (const mode of ["month", "week"]) test(`${mode} calendar drag writes a date without a time, suppresses detail opening and undo restores undated`, async t => {
+  const date = mode === "week" ? "2026-10-16" : "2026-10-20";
   const f = await fixture(t, { undated: true });
   await f.click({ view: "calendar" });
+  await f.click({ calendarMode: mode });
   await f.click({ calendarPane: "undated" });
-  await f.drag();
+  assert.match(f.results.innerHTML, new RegExp(`data-calendar-drop-date="${date}"`));
+  await f.drag(date);
   assert.equal(f.writes.length, 1);
-  assert.deepEqual(f.writes[0].value.find(task => task.id === "undated").due, { date: "2026-10-20", precision: "date" });
+  assert.deepEqual(f.writes[0].value.find(task => task.id === "undated").due, { date, precision: "date" });
   assert.equal(f.drawer.open, false);
-  assert.match(f.toast.innerHTML, /截止日期已设为 2026-10-20/);
+  assert.match(f.toast.innerHTML, new RegExp(`截止日期已设为 ${date}`));
   assert.doesNotMatch(f.app.innerHTML, /data-calendar-drag-task="undated"/);
   await f.undo.onclick();
   assert.equal(f.writes.at(-1).value.find(task => task.id === "undated").due, null);

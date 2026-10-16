@@ -15,7 +15,7 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
 
   function targetAt(event) {
     return document.elementFromPoint(event.clientX, event.clientY)
-      ?.closest(".calendar-month [data-calendar-drop-date]") || null;
+      ?.closest(".calendar-view [data-calendar-drop-date]") || null;
   }
 
   function move(event) {
@@ -34,6 +34,7 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
       preview.className = "calendar-drag-preview";
       const title = document.createElement("strong");
       title.textContent = gesture.title;
+      gesture.previewTitle = title;
       gesture.label = document.createElement("span");
       gesture.label.setAttribute("role", "status");
       preview.append(title, gesture.label);
@@ -50,11 +51,15 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
     const date = cell?.dataset.calendarDropDate;
     const label = date
       ? `松开设为 ${date.replace(/^(\d+)-(\d+)-(\d+)$/, (_, y, m, d) => `${y} 年 ${Number(m)} 月 ${Number(d)} 日`)}截止`
-      : "拖到月历日期设置截止日期 · Esc 取消";
+      : "拖到日历日期设置截止日期 · Esc 取消";
     if (gesture.label.textContent !== label) gesture.label.textContent = label;
-    const width = gesture.preview.offsetWidth, height = gesture.preview.offsetHeight;
-    gesture.preview.style.left = `${Math.max(8, Math.min(event.clientX + 14, window.innerWidth - width - 8))}px`;
-    gesture.preview.style.top = `${Math.max(8, Math.min(event.clientY + 14, window.innerHeight - height - 8))}px`;
+    const previewRect = gesture.preview.getBoundingClientRect();
+    const titleRect = gesture.previewTitle.getBoundingClientRect();
+    // Anchor the grabbed title under the pointer instead of trailing it like a tooltip.
+    const offsetX = titleRect.left - previewRect.left + titleRect.width * gesture.grabX;
+    const offsetY = titleRect.top - previewRect.top + titleRect.height * gesture.grabY;
+    gesture.preview.style.left = `${event.clientX - offsetX}px`;
+    gesture.preview.style.top = `${event.clientY - offsetY}px`;
   }
 
   document.addEventListener("pointerdown", (event) => {
@@ -65,7 +70,16 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
     if (!source || !root.contains(source)) return;
     const id = source.dataset.calendarDragTask, task = getTask(id);
     if (!task) return;
-    gesture = { id, title: task.title, source, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    const titleRect = (source.querySelector(".task-title") || source).getBoundingClientRect();
+    const onTitle = event.clientX >= titleRect.left && event.clientX <= titleRect.left + titleRect.width &&
+      event.clientY >= titleRect.top && event.clientY <= titleRect.top + titleRect.height;
+    const grab = (position, start, size) => onTitle && size
+      ? (position - start) / size : .5;
+    gesture = {
+      id, title: task.title, source, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      grabX: grab(event.clientX, titleRect.left, titleRect.width),
+      grabY: grab(event.clientY, titleRect.top, titleRect.height),
+    };
   });
   document.addEventListener("pointermove", move);
   document.addEventListener("pointerup", (event) => {

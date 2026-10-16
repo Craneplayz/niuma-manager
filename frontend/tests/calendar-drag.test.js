@@ -35,6 +35,9 @@ class Element extends Surface {
   offsetWidth = 250;
   offsetHeight = 65;
   capture = null;
+  rect = { left: 0, top: 0, width: 100, height: 20 };
+  getBoundingClientRect() { return this.rect; }
+  querySelector() { return null; }
   setAttribute() {}
   append(...nodes) { this.children.push(...nodes); }
   remove() { this.removed = true; }
@@ -44,7 +47,7 @@ class Element extends Surface {
   releasePointerCapture() { this.capture = null; this.emit("lostpointercapture"); }
   closest(selector) {
     if (selector === "[data-calendar-drag-task]" && this.dataset.calendarDragTask) return this;
-    if (selector === ".calendar-month [data-calendar-drop-date]" && this.dataset.calendarDropDate) return this;
+    if (selector === ".calendar-view [data-calendar-drop-date]" && this.dataset.calendarDropDate) return this;
     return null;
   }
 }
@@ -55,7 +58,11 @@ function fixture() {
   cell.dataset.calendarDropDate = "2026-10-20";
   root.append(source, cell);
   doc.body = body;
-  doc.createElement = () => new Element();
+  doc.createElement = tag => {
+    const element = new Element();
+    if (tag === "strong") element.rect = { left: 17, top: 13, width: 160, height: 22 };
+    return element;
+  };
   doc.elementFromPoint = () => cell;
   win.innerWidth = 1440;
   win.innerHeight = 768;
@@ -98,6 +105,27 @@ test("a deliberate drag highlights the date, assigns once and suppresses its gen
   f.emit("pointerdown");
   f.emit("pointerup");
   assert.equal(f.emit("click").stopped, undefined);
+});
+
+test("the pointer stays on the grabbed part of the title while moving and near viewport edges", () => {
+  const f = fixture(), title = new Element();
+  title.rect = { left: 100, top: 100, width: 160, height: 24 };
+  f.source.querySelector = () => title;
+  f.emit("pointerdown", { clientX: 140, clientY: 112 });
+  for (const [clientX, clientY] of [[340, 312], [440, 412], [10, 8], [1435, 760]]) {
+    f.emit("pointermove", { clientX, clientY });
+    const preview = f.body.children[0];
+    const titleRect = preview.children[0].rect;
+    const left = parseFloat(preview.style.left), top = parseFloat(preview.style.top);
+    assert.equal(left + titleRect.left + titleRect.width * .25, clientX);
+    assert.equal(top + titleRect.top + titleRect.height * .5, clientY);
+  }
+  f.controller.cancel();
+  f.emit("pointerdown", { clientX: 140, clientY: 150 });
+  f.emit("pointermove", { clientX: 340, clientY: 350 });
+  const preview = f.body.children.at(-1), titleRect = preview.children[0].rect;
+  assert.equal(parseFloat(preview.style.left) + titleRect.left + titleRect.width * .5, 340);
+  assert.equal(parseFloat(preview.style.top) + titleRect.top + titleRect.height * .5, 350);
 });
 
 test("release outside cancels and recomputes the target instead of using a stale hover", () => {
@@ -143,7 +171,7 @@ test("touch scrolling, secondary buttons and unrelated pointers cannot assign da
   assert.deepEqual(f.drops, []);
 });
 
-test("only month-view undated tasks gain a gesture, with no date-setting button", () => {
+test("undated tasks use the same gesture and date targets in month and week views, without a new button", () => {
   const tasks = [
     { id: "undated", title: "未定日期", due: "", status: "todo" },
     { id: "notice", title: "通知", content_type: "notice", due: "", status: "todo" },
@@ -156,7 +184,6 @@ test("only month-view undated tasks gain a gesture, with no date-setting button"
   assert.doesNotMatch(panel, /<button[^>]*>设置日期/);
   for (const options of [{ pane: "day", allowDateDrag: true }, { pane: "undated", allowDateDrag: false }])
     assert.doesNotMatch(renderDayPanel({ tasks, ...options, today: "2026-10-16" }), /data-calendar-drag-task/);
-  const month = renderCalendar({ tasks, today: "2026-10-16" });
-  assert.match(month, /data-calendar-drop-date="2026-10-20"/);
-  assert.doesNotMatch(renderCalendar({ tasks, mode: "week", today: "2026-10-16" }), /data-calendar-drop-date/);
+  for (const mode of ["month", "week"])
+    assert.match(renderCalendar({ tasks, mode, today: "2026-10-16" }), /data-calendar-drop-date="2026-10-16"/);
 });
