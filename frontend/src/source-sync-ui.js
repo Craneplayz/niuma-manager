@@ -79,7 +79,7 @@ export function createSourceSyncUI(host) {
   let renderedWhileLoading = false;
   let pendingOperation = null, consumed = null, showHistory = false, focusedRun = null, actionInFlight = null;
   let locatedRun = null, linkedRun = null, locateController = null;
-  let recoveryHint = null, recoveryHintTimer = null;
+  let recoveryHighlight = null;
   const categories = new Map(), selectedProblems = new Map();
   let lastCheck = null;
   const manualRuns = new Set(), announced = new Set();
@@ -88,16 +88,17 @@ export function createSourceSyncUI(host) {
   const current = (value) => value.generation === generation && value.account === host.accountVersion() && host.isAuthenticated() && !host.isDemo();
   const redraw = () => host.render();
 
-  function clearRecoveryHint() {
-    if (recoveryHintTimer !== null) clearTimer(recoveryHintTimer);
-    recoveryHintTimer = null;
-    if (!recoveryHint) return;
-    recoveryHint = null;
-    host.clearImportResultHint?.();
+  function clearRecoveryHighlight() {
+    if (!recoveryHighlight) return;
+    recoveryHighlight = null;
+    host.clearImportResultHighlight?.();
   }
-  function dismissRecoveryHint() {
-    clearRecoveryHint();
+  function cancelRecoveryNavigation() {
     locateController?.abort(); locateController = null;
+  }
+  function dismissRecoveryHighlight() {
+    clearRecoveryHighlight();
+    cancelRecoveryNavigation();
   }
 
   function clearPoll() {
@@ -111,7 +112,7 @@ export function createSourceSyncUI(host) {
     clearPoll();
   }
   function reset() {
-    dismissRecoveryHint();
+    dismissRecoveryHighlight();
     generation++; refreshSequence++;
     cancelRead(); writeController?.abort(); writeController = null;
     account = host.accountVersion();
@@ -337,20 +338,20 @@ export function createSourceSyncUI(host) {
       const source = link.request_id ? target.records.find(item => item.request_id === link.request_id) : null;
       if (target.run_id !== link.run_id || link.request_id && (source ? source.state !== "succeeded" : target.state !== "succeeded"))
         throw new Error("recovery unavailable");
-      const category = !link.request_id ? null : source?.added ? "added" : source?.review ? "review" : target.updated_tasks?.length ? "updated" : null;
+      const state = host.getState?.() || {};
+      const tasks = [...(state.tasks || []), ...(state.trash || []), ...(host.getCancelledTasks?.() || [])];
+      const related = {
+        added: source?.added_items || [], review: source?.review_items || [],
+        updated: link.request_id ? (target.updated_tasks || []).filter(item => tasks.some(task => task.id === item.task_id &&
+          task.recognitionHistory?.some(event => event.requestId === link.request_id))) : [],
+      };
+      const category = !link.request_id ? null : ["added", "review", "updated"].find(key => related[key].length) ||
+        (source?.added ? "added" : source?.review ? "review" : null);
       const key = category === "updated" ? "task_id" : "candidate_id";
-      const receipt = category === "added" ? source?.added_items?.[0] : category === "review" ? source?.review_items?.[0] :
-        category === "updated" ? target.updated_tasks.find(item => {
-          const state = host.getState?.() || {};
-          return [...(state.tasks || []), ...(state.trash || [])].some(task => task.id === item.task_id &&
-            task.recognitionHistory?.some(event => event.requestId === link.request_id));
-        }) : null;
-      const itemIndex = category && receipt ? resultItems(target, category).items.findIndex(item => item[key] === receipt[key]) : -1;
-      clearRecoveryHint();
-      const hint = { runId: target.run_id, category, key: itemIndex >= 0 ? receipt[key] : null };
-      recoveryHint = hint;
-      recoveryHintTimer = setTimer(() => { if (recoveryHint === hint) clearRecoveryHint(); }, 3000);
-      recoveryHintTimer?.unref?.();
+      const keys = new Set((related[category] || []).map(item => item[key]));
+      const itemIndex = category ? resultItems(target, category).items.findIndex(item => keys.has(item[key])) : -1;
+      clearRecoveryHighlight();
+      recoveryHighlight = { runId: target.run_id, category: itemIndex >= 0 ? category : null, keys };
       locatedRun = target.run_id; linkedRun = target; showHistory = true;
       if (category) categories.set(target.run_id, category);
       else categories.delete(target.run_id);
@@ -391,15 +392,12 @@ export function createSourceSyncUI(host) {
       const title = [item.label, item.course, status.label, note].filter(Boolean).join(" · ");
       const link = category === "error" && item.recovered && item.recovered_by;
       const recoveryLabel = link?.request_id ? "查看成功批次" : "查看后续采集批次";
-      const hint = recoveryHint?.runId === run.run_id && recoveryHint.category === category && recoveryHint.key &&
-        recoveryHint.key === (category === "updated" ? item.task_id : item.candidate_id);
-      return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${hint ? recoveryHintMarkup() : ""}${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
+      const highlighted = recoveryHighlight?.runId === run.run_id && recoveryHighlight.category === category &&
+        recoveryHighlight.keys.has(category === "updated" ? item.task_id : item.candidate_id);
+      return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" ${highlighted ? 'data-source-sync-highlight aria-description="对应的恢复结果"' : ""} type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
     }).join("");
     const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
     return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"修改",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
-  }
-  function recoveryHintMarkup() {
-    return '<small class="sync-recovery-hint" data-source-sync-hint>↳ 恢复结果</small>';
   }
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts;
@@ -413,7 +411,7 @@ export function createSourceSyncUI(host) {
     const running = ACTIVE.has(run.state);
     if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
-    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${recoveryHint?.runId === run.run_id && !recoveryHint.key ? recoveryHintMarkup() : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(({ key }) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}${locatedRun === run.run_id && !groups.length ? '<p class="status-note">这次处理已完成，没有新增任务或待核对内容。</p>' : ""}</article>`;
+    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading" ${recoveryHighlight?.runId === run.run_id && !recoveryHighlight.category ? 'data-source-sync-highlight' : ""}><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(({ key }) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}${locatedRun === run.run_id && !groups.length ? '<p class="status-note">这次处理已完成，没有新增任务或待核对内容。</p>' : ""}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
@@ -443,7 +441,8 @@ export function createSourceSyncUI(host) {
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;
     if (!action) return false;
-    dismissRecoveryHint();
+    cancelRecoveryNavigation();
+    if (["category", "problem", "locate-recovery", "recover", "retry"].includes(action)) clearRecoveryHighlight();
     if (["category", "problem", "open-task", "open-review", "locate-recovery"].includes(action)) {
       syncAccount();
       const run = runs.find(item => item.run_id === data.sourceSyncRun) || (linkedRun?.run_id === data.sourceSyncRun ? linkedRun : null);
@@ -484,17 +483,21 @@ export function createSourceSyncUI(host) {
   function toggle(event) {
     const target = event.target;
     if (target?.isConnected === false) return false;
-    if (target?.dataset?.sourceSyncHistory !== undefined) { showHistory = target.open; return true; }
+    if (target?.dataset?.sourceSyncHistory !== undefined) {
+      showHistory = target.open;
+      if (!showHistory) dismissRecoveryHighlight();
+      return true;
+    }
     return false;
   }
   function setVisible(value) {
     syncAccount();
     const next = Boolean(value), entering = next && !visible;
     visible = next;
-    if (!visible) { dismissRecoveryHint(); cancelRead(); return; }
+    if (!visible) { dismissRecoveryHighlight(); cancelRead(); return; }
     if (entering) { focusedRun = null; return load(); }
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, progressLabel, ownsRequest, setVisible, dismissRecoveryHint };
+  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
 }

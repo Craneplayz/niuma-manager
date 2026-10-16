@@ -92,6 +92,8 @@ test("a resolved whole collection exposes recovery navigation without obsolete p
   const target = page.locator(`[id="sync-run-${later.run_id}"]`);
   await expect(target).toBeVisible();
   await expect(target).toContainText("这次处理已完成，没有新增任务或待核对内容。");
+  await expect(target.locator(".sync-run-heading")).toHaveAttribute("data-source-sync-highlight", "");
+  await expect.poll(async () => Math.abs((await target.boundingBox()).y - 24)).toBeLessThan(2);
   expect(writes).toHaveLength(0);
 });
 
@@ -129,22 +131,39 @@ test("category priority follows recovered errors and confirmed reviews without c
   await page.screenshot({ path: info.outputPath("import-priority-reviewed.png"), fullPage: true });
 });
 
-test("a green error category still links to the matching source result in its recovery batch", async ({ page }) => {
+test("recovery highlights the matching source results and aligns its first item near the viewport top", async ({ page }, info) => {
   const old = failedRun("linked:old", 1, 1), target = syncRun({ id: "linked:success", states: ["succeeded", "succeeded"], added: 1 });
   target.records[0].request_id = "other:source";
   target.records[0].added_items = [{ candidate_id: "other", task_id: "other-task", label: "其他来源任务", course: null }];
-  target.records[1].request_id = "matching:source"; target.records[1].added = 1; target.counts.added = 2;
-  target.records[1].added_items = [{ candidate_id: "matching", task_id: "matching-task", label: "恢复来源对应任务", course: null }];
+  target.records[1].request_id = "matching:source"; target.records[1].added = 2; target.counts.added = 3;
+  target.records[1].added_items = [{ candidate_id: "matching", task_id: "matching-task", label: "恢复来源对应任务", course: null },
+    { candidate_id: "matching-second", task_id: "matching-task-second", label: "同一来源的第二条任务", course: null }];
   old.records[0].recovered_by = { run_id: target.run_id, request_id: "matching:source" };
-  const writes = await openHistory(page, [old], target), row = page.locator(`[id="sync-run-${old.run_id}"]`);
+  const tasks = [{ id: "matching-task", title: "恢复来源对应任务", status: "not_started" },
+    { id: "matching-task-second", title: "同一来源的第二条任务", status: "completed" }];
+  const writes = await openHistory(page, [old], target, { tasks }), row = page.locator(`[id="sync-run-${old.run_id}"]`);
   await expect(row.getByRole("button", { name: "错误 1 条", exact: true })).toHaveCSS("color", "rgb(36, 112, 68)");
   await row.getByRole("button", { name: "错误 1 条", exact: true }).click();
   await row.getByRole("button", { name: /已恢复，查看成功批次/ }).click();
   const result = page.locator(`[id="sync-item-${target.run_id}-added-1"]`);
   await expect(result).toBeInViewport();
   await expect(result).toContainText("恢复来源对应任务");
-  await expect(result.locator("[data-source-sync-hint]")).toHaveText("↳ 恢复结果");
-  await expect(page.locator(`[id="sync-item-${target.run_id}-added-0"] [data-source-sync-hint]`)).toHaveCount(0);
+  await expect(result).toHaveAttribute("data-source-sync-highlight", "");
+  await expect(result).toHaveCSS("background-color", "rgb(237, 243, 248)");
+  await expect.poll(async () => Math.abs((await result.boundingBox()).y - 24)).toBeLessThan(2);
+  await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(2);
+  await expect(page.locator(`[id="sync-item-${target.run_id}-added-0"]`)).not.toHaveAttribute("data-source-sync-highlight");
+  await expect(page.locator("[data-source-sync-hint], .sync-recovery-hint")).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("import-recovery-highlight.png") });
+  await page.mouse.wheel(0, 120);
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(2);
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(2);
+  const targetRow = page.locator(`[id="sync-run-${target.run_id}"]`);
+  await targetRow.getByRole("button", { name: "新增 3 项", exact: true }).click();
+  await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.style.getPropertyValue("--recovery-scroll-space"))).toBe("");
   expect(writes).toHaveLength(0);
 });
 

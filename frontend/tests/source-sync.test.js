@@ -22,7 +22,7 @@ function deferred() {
 function fixture(initial = []) {
   let account = 1, authenticated = true, demo = false, otherBusy = false;
   let runs = clone(initial), lastCheck = null, renders = 0, refreshes = 0, flushes = 0, handler = null, changed = null, flush = null;
-  let serial = 0, timerId = 0, hintClears = 0, view = {tasks: [], batches: []};
+  let serial = 0, timerId = 0, highlightClears = 0, view = {tasks: [], batches: []};
   const calls = [], timers = new Map(), locks = [], callbacks = [], messages = [], revealed = [];
   const remote = {tasks: [], batches: []};
   const defaultAPI = call => {
@@ -60,7 +60,7 @@ function fixture(initial = []) {
     accountVersion: () => account, isAuthenticated: () => authenticated, isDemo: () => demo,
     toast: message => messages.push(message),
     revealImportResult: id => revealed.push(id),
-    clearImportResultHint: () => hintClears++,
+    clearImportResultHighlight: () => highlightClears++,
     isImportBusy: () => otherBusy, render: () => renders++,
     getState: () => view,
     getCandidate: id => view.batches.flatMap(batch => batch.items || []).find(item => item.id === id),
@@ -87,7 +87,7 @@ function fixture(initial = []) {
   return {
     ui, host, calls, remote, timers, locks, callbacks, messages, revealed,
     setLastCheck(value) { lastCheck = clone(value); },
-    get view() { return view; }, get renders() { return renders; }, get refreshes() { return refreshes; }, get flushes() { return flushes; }, get hintClears() { return hintClears; },
+    get view() { return view; }, get renders() { return renders; }, get refreshes() { return refreshes; }, get flushes() { return flushes; }, get highlightClears() { return highlightClears; },
     sourceCalls: () => calls.filter(call => call.path.startsWith(API)),
     posts: () => calls.filter(call => call.method === 'POST'),
     setRuns(value) { runs = clone(value); }, setAPI(value) { handler = value; }, setChanged(value) { changed = value; }, setFlush(value) { flush = value; },
@@ -635,60 +635,70 @@ check('only the recovered status locates and expands its successful batch withou
   await locate(f.ui,old);
   assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-0`]);
   assert.match(markup(f.ui),/data-source-sync-history open/);
-  assert.match(markup(f.ui),/data-source-sync-hint>↳ 恢复结果/);
+  assert.match(markup(f.ui),/data-source-sync-highlight/);
+  assert.doesNotMatch(markup(f.ui),/↳|sync-recovery-hint|data-source-sync-hint/);
   assert.doesNotMatch(markup(f.ui),/sync-run-located/);
   assert.match(markup(f.ui),/data-source-sync-category="added" aria-expanded="true"/);
   assert.match(markup(f.ui),/恢复后加入的任务/);assert.equal(f.posts().length,0);
 });
 
-check('the recovery hint expires once without rerendering the page or returning on refresh', async () => {
+check('recovery highlights survive redraws, polling and navigation cancellation without a timeout', async () => {
   const {old,target}=linkedRecovery(),f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
-  const [id,timer]=[...f.timers].find(([,timer])=>timer.ms===3000);
   const renders=f.renders;
-  markup(f.ui);markup(f.ui);
-  assert.equal([...f.timers.values()].filter(timer=>timer.ms===3000).length,1);
-  f.timers.delete(id);timer.fn();
-  assert.equal(f.renders,renders);assert.equal(f.hintClears,1);
-  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint|sync-run-located/);
+  markup(f.ui);markup(f.ui);f.ui.cancelRecoveryNavigation();
+  assert.equal([...f.timers.values()].filter(timer=>timer.ms===3000).length,0);
+  assert.equal(f.renders,renders);assert.equal(f.highlightClears,0);
+  assert.match(markup(f.ui),/data-source-sync-highlight/);
   await f.ui.load();
-  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint|sync-run-located/);
+  assert.match(markup(f.ui),/data-source-sync-highlight/);
   assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-0`]);
 });
 
-check('the next action dismisses the hint and an old timer cannot erase a fresh navigation hint', async () => {
+check('changing categories or leaving import clears recovery highlights without restoring them on refresh', async () => {
   const {old,target}=linkedRecovery(),f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
-  const oldTimer=[...f.timers.values()].find(timer=>timer.ms===3000);
   await category(f.ui,old.run_id,'error');
-  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint/);
-  assert.equal(f.hintClears,1);
-  await locate(f.ui,old);oldTimer.fn();
-  assert.match(markup(f.ui),/data-source-sync-hint/);
-  f.ui.dismissRecoveryHint();
-  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint/);
-  assert.equal(f.hintClears,2);
-  await f.ui.load();assert.doesNotMatch(markup(f.ui),/data-source-sync-hint/);
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-highlight/);
+  assert.equal(f.highlightClears,1);
+  await locate(f.ui,old);
+  assert.match(markup(f.ui),/data-source-sync-highlight/);
+  f.ui.setVisible(false);
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-highlight/);
+  assert.equal(f.highlightClears,2);
+  await f.ui.load();assert.doesNotMatch(markup(f.ui),/data-source-sync-highlight/);
 });
 
-check('recovery navigation points at its own source result rather than the first task in a batch', async () => {
+check('recovery highlights every result from the matching source and locates its first item', async () => {
   const {old,target}=linkedRecovery();
-  const second=clone(target.records[0]);second.request_id='source:second';
-  second.added_items=[{candidate_id:'second',task_id:'second-task',label:'真正的恢复结果',course:null}];
-  target.records.push(second);target.counts.total++;target.counts.succeeded++;target.counts.added++;
+  const second=clone(target.records[0]);second.request_id='source:second';second.added=2;
+  second.added_items=[{candidate_id:'second',task_id:'second-task',label:'真正的恢复结果',course:null},
+    {candidate_id:'third',task_id:'third-task',label:'同一来源的另一条结果',course:null}];
+  target.records.push(second);target.counts.total++;target.counts.succeeded++;target.counts.added+=2;
   old.records[0].recovered_by.request_id=second.request_id;
   const f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
   assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-1`]);
-  const html=markup(f.ui);
-  assert.match(html,/真正的恢复结果<\/span><small class="sync-recovery-hint"/);
-  assert.doesNotMatch(html,/恢复后加入的任务<\/span><small class="sync-recovery-hint"/);
+  const highlighted=[...markup(f.ui).matchAll(/<button id="([^"]+)"[^>]*data-source-sync-highlight/g)].map(match=>match[1]);
+  assert.deepEqual(highlighted,[`sync-item-${target.run_id}-added-1`,`sync-item-${target.run_id}-added-2`]);
 });
 
-check('another interaction cancels delayed navigation without late scrolling or a stale hint', async () => {
+check('update-only recovery highlights linked task identities and leaves unrelated changes unmarked', async () => {
+  const {old,target}=linkedRecovery();target.records[0].added=0;target.records[0].added_items=[];target.counts.added=0;
+  target.updated_tasks=[{task_id:'other',label:'无关修改',course:null},{task_id:'linked',label:'对应修改',course:null}];
+  target.counts.updated=2;
+  const f=fixture([target,old]);f.remote.tasks=[{id:'other'},
+    {id:'linked',recognitionHistory:[{requestId:target.records[0].request_id}]}];
+  await f.ui.load();await locate(f.ui,old);
+  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-updated-1`]);
+  const highlighted=[...markup(f.ui).matchAll(/<button id="([^"]+)"[^>]*data-source-sync-highlight/g)].map(match=>match[1]);
+  assert.deepEqual(highlighted,[`sync-item-${target.run_id}-updated-1`]);
+});
+
+check('another interaction cancels delayed navigation without late scrolling or stale highlights', async () => {
   const {old,target}=linkedRecovery(),f=fixture([old]),gate=deferred();
   f.setAPI((call,fallback)=>call.path===API+'/'+encodeURIComponent(target.run_id)?gate.wait:fallback(call));
   await f.ui.load();const locating=locate(f.ui,old);
-  f.ui.dismissRecoveryHint();gate.resolve(target);await locating;
+  f.ui.cancelRecoveryNavigation();gate.resolve(target);await locating;
   assert.deepEqual(f.revealed,[]);assert.deepEqual(f.messages,[]);
-  assert.doesNotMatch(markup(f.ui),/data-source-sync-hint|恢复后加入的任务/);
+  assert.doesNotMatch(markup(f.ui),/data-source-sync-highlight|恢复后加入的任务/);
 });
 
 check('recovery navigation fetches a batch outside the recent twenty and keeps it visible', async () => {

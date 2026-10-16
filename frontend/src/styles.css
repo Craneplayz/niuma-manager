@@ -446,6 +446,7 @@ button .icon {
   min-width: 0;
   overflow-anchor: none;
 }
+.import-page { padding-bottom: var(--recovery-scroll-space, 0px); }
 .task-page:not(.is-calendar) #task-results,
 .task-page:not(.is-calendar) .task-page-footer {
   max-width: var(--page-reading-width);
@@ -1561,7 +1562,7 @@ dialog p {
 .teaching-controls > .status-note,
 .teaching-controls > .error { margin-top: 12px; font-size: 12px; }
 .teaching-progress { padding: 0 0 14px; }
-.sync-run { color: var(--ink); padding: 12px 0; }
+.sync-run { color: var(--ink); padding: 12px 0; scroll-margin-top: 24px; }
 .sync-run-current { padding: 0; }
 .sync-run + .sync-run { border-top: 1px solid var(--line); }
 .sync-run-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1579,7 +1580,7 @@ dialog p {
 .sync-results { margin-top: 10px; }
 .sync-result-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 2px 20px; margin: 0; padding: 0; list-style: none; }
 .sync-result-list li { min-width: 0; }
-.sync-result-name { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 32px; padding: 4px 0; border: 0; border-radius: 3px; background: none; color: var(--ink); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.sync-result-name { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 32px; padding: 4px 0; border: 0; border-radius: 3px; background: none; color: var(--ink); text-align: left; font: inherit; font-size: 13px; cursor: pointer; scroll-margin-top: 24px; }
 .sync-result-name > .sync-result-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync-result-name .notice-label { margin-right: 0; padding: 0 4px; font-size: 10px; }
 .sync-result-name small { flex-shrink: 0; color: var(--muted); font-size: 11px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1593,7 +1594,8 @@ dialog p {
 .sync-result-entry .sync-result-name { width: auto; }
 .sync-recovery-link { flex-shrink: 0; border: 0; background: none; color: var(--muted); padding: 3px 0; font: inherit; font-size: 11px; text-decoration: underline dotted; text-underline-offset: 3px; cursor: pointer; }
 .sync-recovery-link:hover { text-decoration-style: solid; }
-.sync-recovery-hint, .sync-result-name .sync-recovery-hint { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; max-width: none; }
+[data-source-sync-highlight] { background: var(--selected); box-shadow: inset 3px 0 0 #7890a3; border-radius: 4px; }
+.sync-result-name[data-source-sync-highlight], .sync-run-heading[data-source-sync-highlight] { padding-inline: 10px; }
 .sync-result-name:hover > .sync-result-title { text-decoration: underline; text-underline-offset: 3px; }
 .sync-category:focus-visible, .sync-result-name:focus-visible, .sync-recovery-link:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .sync-problem { margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--line); overflow-wrap: anywhere; font-size: 13px; }

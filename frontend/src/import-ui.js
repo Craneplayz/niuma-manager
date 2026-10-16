@@ -734,6 +734,7 @@ export function createImportUI(host) {
     if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
     if (d.importSource) {
         if (!["text", "teaching", "files"].includes(d.importSource)) return true;
+        sourceSync.dismissRecoveryHighlight();
         source = d.importSource;
         error = "";
         notice = "";
@@ -754,6 +755,7 @@ export function createImportUI(host) {
         }
       } else if (d.importHistoryCategory) {
         if (!["added", "review", "updated", "error"].includes(d.importHistoryCategory)) return true;
+        sourceSync.dismissRecoveryHighlight();
         historyCategories.set(group.id, historyCategories.get(group.id) === d.importHistoryCategory ? null : d.importHistoryCategory);
         historyProblems.delete(group.id); refresh();
       } else {
@@ -1020,5 +1022,5 @@ export function createImportUI(host) {
   function setVisible(visible) {
     sourceSync.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, dismissRecoveryHint: () => sourceSync.dismissRecoveryHint(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
+  return { render, click, submit, input, reset, load, setVisible, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
 }
