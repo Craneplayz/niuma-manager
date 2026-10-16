@@ -447,6 +447,70 @@ check('quiet scheduled checks only update last-check status and never create a h
   f.ui.reset();assert.equal(markup(f.ui),'');
 });
 
+check('a quiet scheduled run completed between polls moves the previous manual result into history', async () => {
+  const f = fixture();
+  await f.ui.setVisible(true);
+  await f.ui.start();
+  const finished = syncRun({id: 'run:1', added: 1});
+  finished.updated_at = '2026-10-16T01:00:00Z';
+  f.setRuns([finished]);
+  f.setLastCheck({run_id: finished.run_id, state: 'succeeded', updated_at: finished.updated_at, trigger: 'manual', changed: true});
+  await f.tick();
+  assert.match(f.ui.renderProgress(), /新增 1 项/);
+  assert.equal(f.ui.renderHistory(), '');
+  assert.equal([...f.timers.values()][0].ms, 30000);
+  const refreshes = f.refreshes, renders = f.renders;
+
+  // The scheduled run starts and finishes before the next poll; only last_check changes.
+  f.setLastCheck({run_id: 'scheduled:quiet', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'scheduled', changed: false});
+  await f.tick();
+  assert.match(f.ui.renderProgress(), /data-source-sync-last-check/);
+  assert.match(f.ui.renderProgress(), /datetime="2026-10-16T01:30:00Z"/);
+  assert.match(f.ui.renderProgress(), /无新内容/);
+  assert.doesNotMatch(f.ui.renderProgress(), /导入完成|新增 1 项/);
+  assert.match(f.ui.renderHistory(), /历史导入 · 1/);
+  assert.match(f.ui.renderHistory(), /新增 1 项/);
+  assert.equal(f.refreshes, refreshes);
+  assert.equal(f.renders, renders + 1);
+  await f.tick();
+  assert.match(f.ui.renderProgress(), /data-source-sync-last-check/);
+  assert.match(f.ui.renderHistory(), /历史导入 · 1/);
+  assert.deepEqual(f.messages, []);
+});
+
+check('an older check or the focused run own receipt keeps the current manual result visible', async () => {
+  for (const [id, time] of [
+    ['scheduled:older', '2026-10-16T00:30:00Z'],
+    ['scheduled:tied', '2026-10-16T01:00:00Z'],
+    ['run:1', '2026-10-16T01:30:00Z'],
+  ]) {
+    const f = fixture();
+    await f.ui.start();
+    const finished = syncRun({id: 'run:1', added: 1});
+    finished.updated_at = '2026-10-16T01:00:00Z';
+    f.setRuns([finished]);
+    f.setLastCheck({run_id: id, state: 'succeeded', updated_at: time, trigger: id === 'run:1' ? 'manual' : 'scheduled', changed: id === 'run:1'});
+    await f.ui.load();
+    assert.match(f.ui.renderProgress(), /新增 1 项/);
+    assert.doesNotMatch(f.ui.renderProgress(), /data-source-sync-last-check/);
+    assert.equal(f.ui.renderHistory(), '');
+  }
+});
+
+check('a completed check never displaces an active import or its results', async () => {
+  const run = syncRun({state: 'recognizing', states: ['succeeded', 'running'], added: 1});
+  run.updated_at = '2026-10-16T01:00:00Z';
+  const f = fixture([run]);
+  f.setLastCheck({run_id: 'scheduled:quiet', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'scheduled', changed: false});
+  await f.ui.load();
+  assert.equal(f.ui.isRunning(), true);
+  assert.equal(f.ui.canStop(), true);
+  assert.match(f.ui.progressLabel(), /正在识别/);
+  assert.match(f.ui.renderProgress(), /新增 1 项/);
+  assert.doesNotMatch(f.ui.renderProgress(), /data-source-sync-last-check/);
+  assert.equal(f.ui.renderHistory(), '');
+});
+
 check('a manually requested quiet check gives one temporary notification after its run disappears from history', async () => {
   const f=fixture();await f.ui.start();
   const id=f.posts()[0] && 'run:1';
