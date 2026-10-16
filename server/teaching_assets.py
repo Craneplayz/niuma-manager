@@ -32,7 +32,7 @@ def initialize(db):
         PRIMARY KEY(user_id,account,request_id,ref_id))''')
 
 
-def read_capture(folder, requests):
+def read_capture(folder, requests, *, input_ids=None):
     """Consume only this crawler invocation's directory, before it is removed."""
     folder = Path(folder).resolve()
     manifest = folder / 'manifest.json'
@@ -45,6 +45,7 @@ def read_capture(folder, requests):
     assets, seen, files, total = {}, set(), {}, 0
     for item in entries:
         if set(item) != {'input_id','ref_id','sha256','mime_type','size_bytes'}: raise ValueError('invalid receipt')
+        if input_ids is not None and item['input_id'] not in input_ids: continue
         key = (item['input_id'],item['ref_id'])
         if key in seen or key not in refs or refs[key]['kind'] not in ('attachment','content_image'): raise ValueError('invalid file binding')
         seen.add(key)

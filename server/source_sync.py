@@ -113,7 +113,7 @@ def route(handler, db, uid, path, body, ApiError, key_path):
     return True
 
 
-def collect(db, uid, ApiError, key_path, *, guard=None):
+def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
     """Collect outside a write transaction, then validate ownership before saving."""
     if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
@@ -146,7 +146,14 @@ def collect(db, uid, ApiError, key_path, *, guard=None):
                 for item in requests:
                     if item.get('contract_version')=='teaching-capture/0.1': check_capture(item)
                     else: teaching.check_request(item)
-                assets = teaching_assets.read_capture(attachment_dir,requests)
+                if input_ids is not None:
+                    selected = []
+                    for item in requests:
+                        payload = item['request'] if item.get('contract_version') == 'teaching-capture/0.1' else item
+                        payload['records'] = [entry for entry in payload['records'] if entry['record']['input_id'] in input_ids]
+                        if payload['records']: selected.append(item)
+                    requests = selected
+                assets = teaching_assets.read_capture(attachment_dir,requests,**({'input_ids':input_ids} if input_ids is not None else {}))
             except Exception:
                 raise ApiError(502, '教学网采集结果或附件未通过格式及完整性校验') from None
     except (OSError, subprocess.TimeoutExpired):

@@ -234,6 +234,104 @@ class SourceJobsTests(unittest.TestCase):
             jobs.save(db,raw,'failed')
         self.assertEqual(self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:missing',consent=True))[0],409)
 
+    def test_recovery_collects_only_exceptions_and_preserves_success_review_and_unrelated_sources(self):
+        request,drafts=example(('explicit-complete',)*4)
+        ids=[entry['record']['input_id'] for entry in request['records']]
+        self.drafts.update(drafts)
+        pending=json.loads(self.drafts[ids[1]]);pending['tasks'][0].update(recommendation='candidate',reason='需要核对截止日期')
+        self.drafts[ids[1]]=json.dumps(pending)
+        request['records'][3]['record']['body_status']='partial'
+        self.drafts[ids[3]]=empty_reply(request['records'][3]['record'],'incomplete')
+        calls=[];failing=True
+        def model(body,ApiError):
+            rid=body['records'][0]['record']['input_id'];calls.append(rid)
+            if failing and rid==ids[2]:raise ApiError(502,'合成识别失败')
+            return self.model(body,ApiError)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=model),patch.object(app.source_sync,'collect',wraps=app.source_sync.collect) as collect:
+            first=self.start();jobs.wait_for_jobs(app.DB)
+            old=self.call('/sources/sync-runs/'+first['run_id'])[1]
+            self.assertEqual((old['counts']['added'],old['counts']['review'],old['counts']['failed'],old['counts']['incomplete']),(1,1,1,1))
+            before=self.call('/workspace')[1]['tasks']['value'];before[0]['title']='用户已经改过的成功任务'
+            with app.connection() as db:db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',(json.dumps(before),self.uid))
+            review_before=[item for batch in self.call('/recognition/batches')[1] for item in batch['items'] if item['state']=='pending']
+            # Simulate an older receipt without input_id: resolve its stable source from storage.
+            with app.connection() as db:
+                raw=jobs.get(db,self.uid,first['run_id'],app.ApiError)
+                for item in raw['records']:item.pop('input_id',None)
+                db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(json.dumps(raw),first['run_id']))
+            refreshed,more=example(('explicit-complete',)*5)
+            refreshed['records'][3]['record']['text']+='\n附件已完整取得。'
+            self.drafts[ids[3]]=drafts[ids[3]];self.drafts.update({key:value for key,value in more.items() if key not in ids})
+            crawler.return_value=SimpleNamespace(returncode=0,stdout=json.dumps(refreshed));failing=False
+            selected=[item['request_id'] for item in old['records'] if item['state'] in ('failed','incomplete')]
+            endpoint='/sources/sync-runs/'+first['run_id']+'/recover'
+            payload=dict(contract_version='source-sync/0.1',operation_id='recover:mixed',consent=True,request_ids=selected)
+            status,child=self.call(endpoint,payload);self.assertEqual(status,202,child);jobs.wait_for_jobs(app.DB)
+            repaired=self.call('/sources/sync-runs/'+child['run_id'])[1];check('run',repaired)
+            self.assertEqual(repaired['state'],'succeeded');self.assertEqual(repaired['counts']['added'],2)
+            self.assertEqual(collect.call_args.kwargs['input_ids'],set(ids[2:]))
+            self.assertEqual({record['input_id'] for record in repaired['records']},set(ids[2:]))
+            self.assertEqual(calls.count(ids[0]),1);self.assertEqual(calls.count(ids[1]),1)
+            self.assertEqual(calls.count(ids[2]),2);self.assertEqual(calls.count(ids[3]),2);self.assertEqual(len(calls),6)
+            tasks=self.call('/workspace')[1]['tasks']['value'];self.assertEqual(len(tasks),3)
+            self.assertIn('用户已经改过的成功任务',[task['title'] for task in tasks])
+            review_after=[item for batch in self.call('/recognition/batches')[1] for item in batch['items'] if item['state']=='pending']
+            self.assertEqual(review_after,review_before)
+            with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM teaching_sources WHERE user_id=?',(self.uid,)).fetchone()[0],4)
+            recovered=self.call('/sources/sync-runs/'+first['run_id'])[1]
+            self.assertTrue(all(item.get('recovered') for item in recovered['records'] if item['state'] in ('failed','incomplete')))
+            self.assertNotIn('recovery_targets',repaired);self.assertNotIn('recover_sources',repaired)
+            self.assertEqual(self.call(endpoint,payload)[1]['run_id'],child['run_id']);self.assertEqual(crawler.call_count,2)
+            app.initialize()
+            self.assertEqual(self.call(endpoint,payload)[1]['run_id'],child['run_id'])
+            self.assertEqual(self.call(endpoint.replace('/recover','/retry'),payload)[0],409)
+
+    def test_recovery_keeps_unchanged_incomplete_sources_unresolved_without_repeating_model_calls(self):
+        request,_=example();record=request['records'][0]['record'];record['body_status']='partial'
+        self.drafts[record['input_id']]=empty_reply(record,'incomplete')
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model) as model:
+            first=self.start();jobs.wait_for_jobs(app.DB)
+            status,child=self.call('/sources/sync-runs/'+first['run_id']+'/recover',dict(contract_version='source-sync/0.1',operation_id='recover:still-missing',consent=True))
+            self.assertEqual(status,202,child);jobs.wait_for_jobs(app.DB)
+            result=self.call('/sources/sync-runs/'+child['run_id'])[1]
+            self.assertEqual(result['counts']['incomplete'],1);self.assertEqual(result['counts']['added'],0)
+            self.assertEqual(model.call_count,1)
+            self.assertFalse(self.call('/sources/sync-runs/'+first['run_id'])[1]['records'][0].get('recovered'))
+
+    def test_recovery_collection_outage_still_retries_recognition_and_keeps_missing_source_unresolved(self):
+        request,drafts=example(('explicit-complete',)*2);self.drafts.update(drafts)
+        ids=[entry['record']['input_id'] for entry in request['records']]
+        request['records'][1]['record']['body_status']='partial'
+        self.drafts[ids[1]]=empty_reply(request['records'][1]['record'],'incomplete')
+        failing=True
+        def model(body,ApiError):
+            if failing and body['records'][0]['record']['input_id']==ids[0]:raise ApiError(502,'暂时识别失败')
+            return self.model(body,ApiError)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=model) as recognizer:
+            first=self.start();jobs.wait_for_jobs(app.DB)
+            crawler.side_effect=OSError('synthetic collection unavailable');failing=False
+            status,child=self.call('/sources/sync-runs/'+first['run_id']+'/recover',dict(contract_version='source-sync/0.1',operation_id='recover:collection-outage',consent=True))
+            self.assertEqual(status,202,child);jobs.wait_for_jobs(app.DB)
+            result=self.call('/sources/sync-runs/'+child['run_id'])[1]
+            self.assertEqual(result['state'],'partial_success');self.assertEqual(result['counts']['added'],1)
+            self.assertEqual(result['counts']['incomplete'],1);self.assertEqual(result['error']['code'],'collection_failed')
+            self.assertEqual(recognizer.call_count,3)
+
+    def test_recovery_resolves_all_predecessors_after_several_incomplete_snapshots(self):
+        request,drafts=example();record=request['records'][0]['record'];identity=record['input_id'];record['body_status']='partial'
+        self.drafts[identity]=empty_reply(record,'incomplete')
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            first=self.start();jobs.wait_for_jobs(app.DB)
+            record['text']+='\n只补齐了一部分内容。';crawler.return_value.stdout=json.dumps(request)
+            status,middle=self.call('/sources/sync-runs/'+first['run_id']+'/recover',dict(contract_version='source-sync/0.1',operation_id='recover:partial',consent=True))
+            self.assertEqual(status,202,middle);jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.call('/sources/sync-runs/'+middle['run_id'])[1]['counts']['incomplete'],1)
+            record['text']+='\n最终附件已完整取得。';record['body_status']='complete';crawler.return_value.stdout=json.dumps(request);self.drafts[identity]=drafts[identity]
+            status,last=self.call('/sources/sync-runs/'+middle['run_id']+'/recover',dict(contract_version='source-sync/0.1',operation_id='recover:complete',consent=True))
+            self.assertEqual(status,202,last);jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.call('/sources/sync-runs/'+last['run_id'])[1]['counts']['added'],1)
+            for previous in (first,middle):self.assertTrue(self.call('/sources/sync-runs/'+previous['run_id'])[1]['records'][0]['recovered'])
+
     def test_single_retry_then_remaining_batch_uses_latest_attempt_and_idempotency(self):
         request,drafts=example(('explicit-complete',)*3);self.drafts.update(drafts)
         failed={e['record']['input_id'] for e in request['records'][:2]};calls=[]

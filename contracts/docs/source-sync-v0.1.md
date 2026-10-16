@@ -9,15 +9,18 @@
 | GET `/api/sources/sync-runs/{id}` | run | 持久化阶段、逐条结果、计数与错误 |
 | POST `/api/sources/sync-runs/{id}/stop` | stop / run | 停止派发，已发起调用可能消耗额度，迟到结果不再落库 |
 | POST `/api/sources/sync-runs/{id}/retry` | retry / run | 仅重新识别可恢复失败和未完成记录，不重新抓取来源 |
+| POST `/api/sources/sync-runs/{id}/recover` | recover / run | 仅重新获取及处理本轮选中的异常来源，不处理成功项或正常待核对项 |
 | GET / PUT `/api/sources/sync-schedule` | schedule_update / schedule | 当前账号定时配置，修改携带 revision 防止覆盖另一页面 |
 
 start 示例：`{"contract_version":"source-sync/0.1","operation_id":"manual:example","sources":["teaching_web"],"consent":true}`；stop 只传 contract_version。
 
 retry 传 contract_version、全新 operation_id 和 consent=true；可选 request_ids 为本轮 1～1000 个不重复的请求编号，省略时重试本轮剩余可恢复记录。服务端核对最新尝试、已保存结果及有效来源，排除已恢复、已提交或换源记录；全部不可恢复返回 409，不调用模型。单条重试后，其余失败仍可批量继续。相同 operation_id 必须对应同一父运行和相同选择；网络响应丢失后可安全取回已完成的原运行。
 
+`recover` 请求字段与 retry 相同，但操作身份与 retry 区分。服务端核对当前账号、原运行凭据、最新尝试和异常资格，并将 request_id 解析为稳定 input_id；只把选中的异常来源注册、存储附件并派发识别，新内容、已成功条目和正常待核对项不进入本次处理。采集器仍可能返回完整来源列表，业务层在入库和读取附件之前按异常身份过滤。补齐后产生新 request_id 时保存与旧异常的精确替换关系，成功后旧异常标为 recovered；仍不完整则保留异常，不重放相同模型请求。采集暂时失败时，已有完整快照的识别失败项仍可重试。整轮采集失败且没有可定位条目时，恢复入口重新启动一次来源获取。
+
 运行中的批次或同账号另有运行时不能开始重试。来源待补全、凭据改变需重新获取来源；模型配置不可用先联系管理员修复，不能靠反复调用模型补齐。成功记录与用户已修改、确认或忽略的结果不重放。没有自动循环模型重试，每次由用户明确发起。
 
-前端进入通知导入或来源设置时恢复账号运行进度；活动运行每 2 秒查询，切换账号会清空旧页面状态并拒收迟到响应。退出页面或关闭浏览器不停止服务端运行。停止和继续按钮都针对服务端运行，不依赖浏览器保存的循环。
+前端进入通知导入或来源设置时恢复账号运行进度；活动运行每 2 秒查询，切换账号会清空旧页面状态并拒收迟到响应。退出页面或关闭浏览器不停止服务端运行。停止和异常处理按钮都针对服务端运行，不依赖浏览器保存的循环。
 
 恢复面板展示活动进度及需处理记录；历史按新增 / 待核对 / 更新 / 错误数量切换紧凑名称列表，不另设处理详情入口；历史和终态结果只保留新增任务或通知、待核对、已有任务更新和错误，跳过 / 过滤 / 无任务成功记录不展示。成功重试会持久标记旧错误 recovered，即使该重试无产出且回执已清理也不重新提供旧重试入口。终态 counts 按压缩后的 records 重算，不能用它表示全部采集或识别数量。进度查询断网提示“后台可能仍在运行”，不当作模型失败，也不自动重复发起。运行编号可用于反馈；不导出原文或凭据日志。
 
@@ -38,7 +41,7 @@ queued → crawling → recognizing → succeeded / partial_success / failed；�
 同一数据库仅运行一个业务 API 进程；SQLite 事务保证重复调度不创建重复运行，但多 API 进程的任务恢复及模型并发需要独立协调器。关闭浏览器不影响定时执行，停止 API 会暂停调度。next_run_at 为 Unix 秒，前端按用户本地时区显示。
 
 
-历史结果沿用 0.1 的兼容扩展：每条可带 `added_items`（candidate_id / task_id / label / course）与 `review_items`（candidate_id / label / course），分别与 added / review 数量一致，候选存储身份不能重复。task_id 可为空，表示历史任务已无法关联；这些回执在实际处理事务中保存，后续任务编辑或候选核对不改写名称快照。旧历史仅在精确身份及数量可核实时补齐，缺失名称不以来源标题代替。`updated_tasks.changed_fields` 可选，为本次采集事务实际变化的字段名称，不含正文或虚构差异；旧更新回执没有该字段时只显示名称。`record.review` 为该条实际待核对数，`record.recovered` 表示历史错误已恢复；`run.updated_tasks` 为采集事务实际修改的已有任务回执（task_id / label / course）。`counts.review` 等于各记录 review 之和，`counts.updated` 等于更新回执数，旧记录缺少这些字段时仍接受；服务端初始化旧历史时补齐并压缩。
+历史结果沿用 0.1 的兼容扩展：`record.input_id` 可选，为服务端来源稳定身份，旧记录可由已保存的来源或识别批次解析；不接受客户端直接提交来源身份。每条可带 `added_items`（candidate_id / task_id / label / course）与 `review_items`（candidate_id / label / course），分别与 added / review 数量一致，候选存储身份不能重复。task_id 可为空，表示历史任务已无法关联；这些回执在实际处理事务中保存，后续任务编辑或候选核对不改写名称快照。旧历史仅在精确身份及数量可核实时补齐，缺失名称不以来源标题代替。`updated_tasks.changed_fields` 可选，为本次采集事务实际变化的字段名称，不含正文或虚构差异；旧更新回执没有该字段时只显示名称。`record.review` 为该条实际待核对数，`record.recovered` 表示历史错误已恢复；`run.updated_tasks` 为采集事务实际修改的已有任务回执（task_id / label / course）。`counts.review` 等于各记录 review 之和，`counts.updated` 等于更新回执数，旧记录缺少这些字段时仍接受；服务端初始化旧历史时补齐并压缩。
 
 `runs.last_check` 可为空，或包含 run_id、终态 state、updated_at、trigger 和 changed；每账号只保留最后一次完成检查，changed 只计算新增、待核对或已有任务更新，错误由 state 区分。定时无变化只更新此状态，手动无变化另由客户端给出一次临时提示，不追加历史。
 

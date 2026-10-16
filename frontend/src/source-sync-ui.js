@@ -14,8 +14,9 @@ const RECORD_LABELS = {
   incomplete: "来源待补全", cancelled: "未处理", interrupted: "已中断",
 };
 const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-const needsCollection = (record) => record.state === "incomplete" || record.error?.code === "source_incomplete" || record.error?.code === "source_changed";
+const needsCollection = (record) => record.state === "incomplete" || ["source_incomplete", "source_changed", "source_missing"].includes(record.error?.code);
 const retryable = (record) => !record.recovered && !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
+const recoverable = record => !record.recovered && (retryable(record) || needsCollection(record));
 const usefulRecord = record => record.added > 0 || record.review > 0 || ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
 const usefulRun = run => Boolean(run.error || ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
 const validItems = (items, count, added = false) => items === undefined || Array.isArray(items) && items.length === count &&
@@ -218,9 +219,9 @@ export function createSourceSyncUI(host) {
       const run = runs.find((item) => item.run_id === id);
       if (!run) return false;
       if (action === "stop" && !ACTIVE.has(run.state)) return false;
-      if (action === "retry") {
+      if (["retry", "recover"].includes(action)) {
         const latest = latestAttempts();
-        const eligible = run.records.filter((record) => latest.get(record.request_id)?.run === run && retryable(record));
+        const eligible = run.records.filter((record) => latest.get(record.request_id)?.run === run && (action === "recover" ? recoverable(record) : retryable(record)));
         selected = selection ? eligible.filter((record) => selection.includes(record.request_id)).map((record) => record.request_id) : eligible.map((record) => record.request_id);
         if (!selected.length || selection && selected.length !== selection.length) return false;
       }
@@ -267,8 +268,20 @@ export function createSourceSyncUI(host) {
     const run = runs.find(run => ACTIVE.has(run.state));
     return run ? act("stop", run.run_id) : Promise.resolve(true);
   }
+  function recoveryPlan(run, latest = latestAttempts()) {
+    const records = run.records.filter(record => latest.get(record.request_id)?.run === run && recoverable(record));
+    return { records, whole: !run.records.length && Boolean(run.error || ["stopped", "interrupted"].includes(run.state)) };
+  }
+  function recover(id, request = null) {
+    syncAccount();
+    const run = runs.find(item => item.run_id === id);
+    if (!run || ACTIVE.has(run.state)) return Promise.resolve(false);
+    const plan = recoveryPlan(run), selected = request ? plan.records.filter(record => record.request_id === request) : plan.records;
+    if (selected.length) return act(selected.some(needsCollection) ? "recover" : "retry", id, selected.map(record => record.request_id));
+    return !request && plan.whole ? start() : Promise.resolve(false);
+  }
   function guidance(record) {
-    if (needsCollection(record)) return "请重新获取来源；重试识别不会补齐原文或附件。";
+    if (needsCollection(record)) return "来源内容尚未完整取得，处理时会先重新获取这条来源。";
     if (record.error?.code === "model_configuration" || record.error?.code === "agent_unavailable" && !record.error.retryable) return "请修复模型配置后重新获取来源。";
     if (["cancelled", "interrupted"].includes(record.state)) return "已保存内容保留，可继续处理。";
     if (record.error?.code === "agent_timeout") return "识别超时，可稍后重试。";
@@ -298,7 +311,7 @@ export function createSourceSyncUI(host) {
     const blocked = isBusy() || host.isImportBusy();
     const formatted = report(record.error, guidance(record));
     const message = recovered ? "后续已恢复。" : superseded ? `后续${RECORD_LABELS[newest.record.state]}。` : record.error?.message || guidance(record);
-    return `<div class="sync-problem" role="region" aria-label="${esc(record.label)}的处理情况"><strong>${esc(record.label)}</strong><p class="${recovered || superseded ? "status-note" : "error"}">${esc(message)}</p>${!recovered && !superseded ? `<p class="status-note">${esc(guidance(record))}</p>${formatted.details ? `<p class="status-note">${esc(formatted.details)}</p>` : ""}${!ACTIVE.has(run.state) && retryable(record) && record.request_id ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${blocked ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button>` : ""}` : ""}</div>`;
+    return `<div class="sync-problem" role="region" aria-label="${esc(record.label)}的处理情况"><strong>${esc(record.label)}</strong><p class="${recovered || superseded ? "status-note" : "error"}">${esc(message)}</p>${!recovered && !superseded ? `<p class="status-note">${esc(guidance(record))}</p>${formatted.details ? `<p class="status-note">${esc(formatted.details)}</p>` : ""}${!ACTIVE.has(run.state) && recoverable(record) && record.request_id ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${blocked ? "disabled" : ""}>处理本条</button>` : ""}` : ""}</div>`;
   }
   function resultMarkup(run, category, latest) {
     const { items, missing } = resultItems(run, category);
@@ -315,17 +328,15 @@ export function createSourceSyncUI(host) {
   }
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts, done = counts.total - counts.queued - counts.running;
-    const records = run.records.filter(record => latest.get(record.request_id)?.run === run);
-    const pending = records.filter(retryable);
+    const plan = recoveryPlan(run, latest);
     const recovered = run.records.filter(record => record.recovered || record.state !== "succeeded" && latest.get(record.request_id)?.run !== run && latest.get(record.request_id)?.record.state === "succeeded").length;
-    const recollect = records.some(needsCollection) || Boolean(run.error) || !records.length && ["stopped", "interrupted"].includes(run.state);
     const blocked = isBusy() || host.isImportBusy();
     const groups = [["added", "新增", counts.added, "项"], ["review", "待核对", counts.review, "项"], ["updated", "更新", counts.updated, "项"], ["error", "错误", problemsFor(run).length, "条"]].filter(([, , count]) => count > 0);
     const selected = categories.get(run.run_id);
     const category = groups.some(([key]) => key === selected) ? selected : null;
     const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${label} ${count} ${unit}</button>`).join("");
     const progress = ACTIVE.has(run.state) ? `<progress ${counts.total && run.state !== "crawling" ? `max="${counts.total}" value="${done}"` : ""} aria-label="${esc(counts.total ? `已处理 ${done} / ${counts.total} 条通知` : LABELS[run.state])}"></progress>` : "";
-    const actions = ACTIVE.has(run.state) ? "" : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`;
+    const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
     return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status"><strong role="status">${esc(LABELS[run.state])}</strong>${ACTIVE.has(run.state) && counts.total ? `<span class="status-note">已处理 ${done} / ${counts.total}</span>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
@@ -334,7 +345,7 @@ export function createSourceSyncUI(host) {
   function renderProgress() {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
-    const run = currentRun(), starting = ["start", "retry"].includes(actionInFlight);
+    const run = currentRun(), starting = ["start", "retry", "recover"].includes(actionInFlight);
     if (!run && !error && !starting && !lastCheck) return "";
     const checked = lastCheck && !run && !starting ? `<p class="status-note" data-source-sync-last-check>上次检查 <time datetime="${esc(lastCheck.updated_at)}">${esc(new Date(lastCheck.updated_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</time> · ${lastCheck.state === "succeeded" ? lastCheck.changed ? "有新结果" : "无新内容" : esc(LABELS[lastCheck.state])}</p>` : "";
     return `<div class="teaching-progress" data-source-sync-progress aria-label="教学网导入进度">${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${starting && !run ? '<p class="status-note" role="status">正在启动识别…</p>' : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}${checked}</div>`;
@@ -378,7 +389,7 @@ export function createSourceSyncUI(host) {
       return true;
     }
     if (action === "refresh") await load();
-    else if (action === "collect") await start();
+    else if (action === "recover") await recover(data.sourceSyncRun, data.sourceSyncRequest);
     else if (action === "retry") await act(action, data.sourceSyncRun, data.sourceSyncRequest ? [data.sourceSyncRequest] : null);
     return true;
   }

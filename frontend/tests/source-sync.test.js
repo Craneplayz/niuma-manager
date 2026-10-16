@@ -44,7 +44,7 @@ function fixture(initial = []) {
       runs = runs.map(run => run.run_id === id ? stopped : run);
       return clone(stopped);
     }
-    if (call.path.endsWith('/retry')) {
+    if (call.path.endsWith('/retry') || call.path.endsWith('/recover')) {
       const run = syncRun({id: `run:retry:${++serial}`, state: 'queued', states: call.body.request_ids.map(() => 'queued')});
       run.parent_run_id = id;
       run.records.forEach((record, index) => record.request_id = call.body.request_ids[index]);
@@ -273,7 +273,7 @@ check('single and batch retry select only the latest recoverable attempts', asyn
   const old = syncRun({state: 'failed', states: ['failed','failed','incomplete']}), child = syncRun({id: 'run:child'});
   child.parent_run_id = old.run_id;
   const f = fixture([child, old]); await f.ui.load();
-  assert.match(markup(f.ui), /后续已恢复 1 条/); assert.match(markup(f.ui), /继续未完成 · 1/);
+  assert.match(markup(f.ui), /后续已恢复 1 条/); assert.match(markup(f.ui), /处理未完成 · 2/);
   await category(f.ui, old.run_id, 'error'); await problem(f.ui, old.run_id, 1);
   assert.match(markup(f.ui), /data-source-sync-request="sync:1"/);
   assert.doesNotMatch(markup(f.ui), /data-source-sync-request="sync:0"|data-source-sync-request="sync:2"/);
@@ -304,9 +304,32 @@ check('incomplete or changed sources offer recollection and configuration failur
   const f = fixture([run]); await f.ui.load();
   await category(f.ui, run.run_id, 'error'); await problem(f.ui, run.run_id, 0);
   const html = markup(f.ui);
-  assert.match(html, /data-source-sync-action="collect"/); assert.doesNotMatch(html, /data-source-sync-action="retry"/);
-  assert.match(html, /重试识别不会补齐|修复模型配置/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
-  await f.ui.click(button('collect')); assert.equal(f.posts()[0].path, API);
+  assert.match(html, /data-source-sync-action="recover"/); assert.doesNotMatch(html, /data-source-sync-action="retry"|data-source-sync-action="collect"/);
+  assert.match(html, /先重新获取这条来源/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
+  await f.ui.click(button('recover',run.run_id)); assert.equal(f.posts()[0].path, `${API}/${encodeURIComponent(run.run_id)}/recover`);
+  assert.deepEqual(f.posts()[0].body.request_ids,['sync:0','sync:1']);
+});
+
+check('one recovery action scopes mixed errors and never includes successful content or pending review', async () => {
+  const run=syncRun({state:'partial_success',states:['succeeded','succeeded','failed','incomplete'],added:1});
+  run.records[1].review=1;run.counts.review=1;
+  const f=fixture([run]);await f.ui.load();
+  const html=markup(f.ui);assert.match(html,/处理未完成 · 2/);
+  assert.equal((html.match(/data-source-sync-action="recover"/g)||[]).length,1);
+  assert.doesNotMatch(html,/继续未完成|重新获取来源/);
+  let attempts=0;f.setAPI((call,normal)=>{if(call.path.endsWith('/recover')&&++attempts===1)throw new Error('offline');return normal(call);});
+  await f.ui.click(button('recover',run.run_id));await f.ui.click(button('recover',run.run_id));
+  assert.equal(f.posts().length,2);assert.equal(f.posts()[0].body.operation_id,f.posts()[1].body.operation_id);
+  assert.deepEqual(f.posts()[1].body.request_ids,['sync:2','sync:3']);
+  assert.equal(f.posts().some(call=>call.path===API),false);
+  await f.ui.click(button('recover',run.run_id));assert.equal(f.posts().length,2);
+});
+
+check('recognition-only recovery reuses the captured source and targets just recoverable errors', async () => {
+  const run=syncRun({state:'partial_success',states:['succeeded','failed'],added:1});
+  const f=fixture([run]);await f.ui.load();await f.ui.click(button('recover',run.run_id));
+  assert.equal(f.posts()[0].path,`${API}/${encodeURIComponent(run.run_id)}/retry`);
+  assert.deepEqual(f.posts()[0].body.request_ids,['sync:1']);
 });
 
 check('progress connection errors preserve active state and retry polling without automatic writes', async () => {
@@ -420,7 +443,8 @@ check('a manually requested quiet check gives one temporary notification after i
 
 check('a collection error remains visible even with no created tasks and no records', async () => {
   const run=syncRun({states:[],state:'failed'});run.error={code:'collection_failed',message:'合成采集失败',retryable:true};
-  const f=fixture([run]);await f.ui.load();assert.match(f.ui.renderHistory(),/历史导入 · 1|采集失败|重新获取来源/);
+  const f=fixture([run]);await f.ui.load();assert.match(f.ui.renderHistory(),/历史导入 · 1|处理未完成/);
+  await f.ui.click(button('recover',run.run_id));assert.equal(f.posts()[0].path,API);
 });
 
 check('a recovered no-task retry does not leave an actionable old error after its quiet receipt is hidden', async () => {
