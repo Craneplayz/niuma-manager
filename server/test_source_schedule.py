@@ -79,7 +79,8 @@ class SourceScheduleTests(unittest.TestCase):
             # Existing manual job is also reused/postponed instead of a scheduled duplicate.
             self.call('/sources/sync-runs',dict(contract_version='source-sync/0.1',operation_id='manual:one',sources=['teaching_web'],consent=True))
             schedule.tick(app.DB,app.ApiError,now=future+60)
-            self.assertEqual(len(self.call('/sources/sync-runs')[1]['runs']),2)
+            self.assertEqual(len(self.call('/sources/sync-runs')[1]['runs']),1)
+            self.assertEqual(self.call('/sources/sync-runs')[1]['runs'][0]['trigger'],'manual')
 
     def test_credential_change_pauses_and_other_account_has_own_settings(self):
         with patch.dict(os.environ,NIUMA_ENABLE_SCHEDULED_SYNC='1'),patch.object(jobs,'launch') as launch:
@@ -106,5 +107,19 @@ class SourceScheduleTests(unittest.TestCase):
         self.assertFalse(self.call('/recognition/batches')[1]);self.assertFalse(self.call('/sources/sync-schedule')[1]['enabled'])
         self.assertEqual(self.call('/sources/sync-runs')[1]['runs'][0]['state'],'stopped')
 
+
+    def test_quiet_scheduled_checks_only_update_latest_status(self):
+        quiet=dict(requests=[],summary=dict(total=52,skipped=52,pending=0))
+        with patch.dict(os.environ,NIUMA_ENABLE_SCHEDULED_SYNC='1'),patch.object(jobs.source_sync,'collect',return_value=quiet):
+            state=self.update()[1]
+            schedule.tick(app.DB,app.ApiError,now=state['next_run_at']);jobs.wait_for_jobs(app.DB)
+            listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+            self.assertEqual(listing['runs'],[])
+            self.assertEqual(listing['last_check']['trigger'],'scheduled')
+            self.assertFalse(listing['last_check']['changed'])
+            self.assertTrue(self.call('/sources/sync-schedule')[1]['enabled'])
+            with app.connection() as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM source_sync_checks').fetchone()[0],1)
+                self.assertEqual(db.execute('SELECT count(*) FROM source_sync_quiet_runs').fetchone()[0],1)
 
 if __name__=='__main__':unittest.main()

@@ -28,6 +28,11 @@ ERROR = {'anyOf': [{'type': 'null'}, obj({'code': {'type': 'string'}, 'message':
 RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'type': 'string', 'maxLength': 160},
               'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})
+RECORD['properties'].update(review=COUNT, recovered={'type': 'boolean'})
+UPDATE = obj({'task_id': {'type': 'string'}, 'label': {'type': 'string', 'maxLength': 160},
+              'course': {'type': ['string', 'null']}})
+LAST_CHECK = obj({'run_id': ID, 'state': {'enum': list(FINAL)}, 'updated_at': {'type': 'string'},
+                  'trigger': {'enum': ['manual', 'scheduled', 'retry']}, 'changed': {'type': 'boolean'}})
 SCHEMAS['run'] = obj({'contract_version': {'const': VERSION}, 'run_id': ID, 'operation_id': ID,
                      'sources': {'const': ['teaching_web']}, 'trigger': {'enum': ['manual', 'scheduled', 'retry']},
                      'parent_run_id': {'anyOf': [ID, {'type': 'null'}]}, 'state': {'enum': list(ACTIVE+FINAL)},
@@ -35,6 +40,9 @@ SCHEMAS['run'] = obj({'contract_version': {'const': VERSION}, 'run_id': ID, 'ope
                      'skipped': COUNT, 'records': {'type': 'array', 'items': RECORD, 'maxItems': 1000},
                      'counts': obj({key: COUNT for key in (*ITEM_STATES, 'total', 'skipped', 'added')}), 'error': ERROR})
 SCHEMAS['runs'] = obj({'contract_version': {'const': VERSION}, 'runs': {'type': 'array', 'items': SCHEMAS['run'], 'maxItems': 20}})
+SCHEMAS['run']['properties']['updated_tasks'] = {'type': 'array', 'items': UPDATE}
+SCHEMAS['run']['properties']['counts']['properties'].update(review=COUNT, updated=COUNT)
+SCHEMAS['runs']['properties']['last_check'] = {'anyOf': [{'type': 'null'}, LAST_CHECK]}
 SCHEDULE = {'contract_version': {'const': VERSION}, 'enabled': {'type': 'boolean'},
             'interval_minutes': {'type': 'integer', 'minimum': 15, 'maximum': 10080},
             'sources': {'const': ['teaching_web']}, 'revision': COUNT}
@@ -53,6 +61,8 @@ def check(kind, value):
         records = value['records']
         expected = {state: sum(r['state']==state for r in records) for state in ITEM_STATES}
         expected.update(total=len(records), skipped=value['skipped'], added=sum(r['added'] for r in records))
+        if 'review' in value['counts']: expected['review'] = sum(r.get('review', 0) for r in records)
+        if 'updated' in value['counts']: expected['updated'] = len(value.get('updated_tasks', []))
         if value['counts'] != expected or len({r['request_id'] for r in records}) != len(records):
             raise ValueError('同步计数或记录身份不一致')
         if value['state'] in FINAL and any(r['state'] in ('queued','running') for r in records):

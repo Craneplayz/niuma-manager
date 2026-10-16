@@ -17,14 +17,14 @@ function deferred() {
 
 function fixture(initial = []) {
   let account = 1, authenticated = true, demo = false, otherBusy = false;
-  let runs = clone(initial), renders = 0, refreshes = 0, flushes = 0, handler = null, changed = null, flush = null;
+  let runs = clone(initial), lastCheck = null, renders = 0, refreshes = 0, flushes = 0, handler = null, changed = null, flush = null;
   let serial = 0, timerId = 0, view = {tasks: [], batches: []};
-  const calls = [], timers = new Map(), locks = [], callbacks = [];
+  const calls = [], timers = new Map(), locks = [], callbacks = [], messages = [];
   const remote = {tasks: [], batches: []};
   const defaultAPI = call => {
     if (call.path === '/api/workspace') return {tasks: clone(remote.tasks)};
     if (call.path === '/api/recognition/batches') return clone(remote.batches);
-    if (call.path === API && call.method === 'GET') return {contract_version: VERSION, runs: clone(runs)};
+    if (call.path === API && call.method === 'GET') return {contract_version: VERSION, runs: clone(runs), last_check: clone(lastCheck)};
     if (call.path === API && call.method === 'POST') {
       const run = syncRun({id: `run:${++serial}`, state: 'queued', states: []});
       runs = [run, ...runs]; return clone(run);
@@ -53,6 +53,7 @@ function fixture(initial = []) {
   let ui;
   const host = {
     accountVersion: () => account, isAuthenticated: () => authenticated, isDemo: () => demo,
+    toast: message => messages.push(message),
     isImportBusy: () => otherBusy, render: () => renders++,
     async api(path, body, method = 'GET', options = {}) {
       const call = {path, body: clone(body), method, signal: options.signal, account};
@@ -75,7 +76,8 @@ function fixture(initial = []) {
   };
   ui = createSourceSyncUI(host);
   return {
-    ui, host, calls, remote, timers, locks, callbacks,
+    ui, host, calls, remote, timers, locks, callbacks, messages,
+    setLastCheck(value) { lastCheck = clone(value); },
     get view() { return view; }, get renders() { return renders; }, get refreshes() { return refreshes; }, get flushes() { return flushes; },
     sourceCalls: () => calls.filter(call => call.path.startsWith(API)),
     posts: () => calls.filter(call => call.method === 'POST'),
@@ -96,12 +98,12 @@ check('rendering is read-only and hidden, demo or signed-out components make no 
   assert.equal(f.calls.length, 0); assert.equal(markup(f.ui), '');
 });
 
-check('old completed and empty stopped runs stay in collapsed history without a progress placeholder', async () => {
+check('only useful completed runs remain in collapsed history; empty stops and skips are hidden', async () => {
   const stopped = syncRun({id: 'run:empty', state: 'stopped', states: []});
-  const f = fixture([stopped, syncRun()]); await f.ui.load();
+  const f = fixture([stopped, syncRun({skipped:52}), syncRun({id:'run:useful',added:1})]); await f.ui.load();
   assert.equal(f.ui.renderProgress(), '');
-  assert.match(f.ui.renderHistory(), /历史导入 · 2/);
-  assert.doesNotMatch(f.ui.renderHistory(), /data-source-sync-history open|已处理 0 \/ 0|<h2>/);
+  assert.match(f.ui.renderHistory(), /历史导入 · 1/);
+  assert.doesNotMatch(f.ui.renderHistory(), /data-source-sync-history open|已处理 0 \/ 0|<h2>|跳过|已停止导入/);
 });
 
 check('starting reveals progress immediately; active and completed results share the same compact area', async () => {
@@ -349,4 +351,48 @@ check('optional error formatting keeps technical recovery details folded', async
   const html = markup(f.ui);
   assert.match(html, /缺少教学网采集组件/); assert.match(html, /<details class="import-error-details"><summary>查看原因/);
   assert.doesNotMatch(html, /<details class="import-error-details"[^>]*\bopen\b/);
+});
+
+check('history shows only added content, review candidates, updates and problems within a mixed run', async () => {
+  const run = syncRun({states:['succeeded','succeeded','succeeded','failed'],state:'partial_success',added:1,skipped:52,updates:[{task_id:'existing',label:'<延期的报告>',course:'合成课程'}]});
+  run.records[1].review=1;run.counts.review=1;
+  const f=fixture([run]);await f.ui.load();
+  const html=markup(f.ui);
+  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);assert.match(html,/更新 1 项/);assert.match(html,/失败 1 条/);
+  assert.match(html,/处理详情 · 4/);assert.match(html,/合成通知 0|合成通知 1|合成通知 3/);
+  assert.doesNotMatch(html,/合成通知 2|跳过|<延期的报告>/);assert.match(html,/&lt;延期的报告&gt;/);
+});
+
+check('a run that only updates an existing task is still a useful result', async () => {
+  const f=fixture([syncRun({states:[],updates:[{task_id:'task',label:'作业完成状态已同步',course:null}]})]);
+  await f.ui.load();assert.match(f.ui.renderHistory(),/历史导入 · 1|更新 1 项|任务已更新/);
+});
+
+check('quiet scheduled checks only update last-check status and never create a history row or toast', async () => {
+  const f=fixture();
+  f.setLastCheck({run_id:'scheduled:quiet',state:'succeeded',updated_at:'2026-10-16T01:30:00Z',trigger:'scheduled',changed:false});
+  await f.ui.load();assert.equal(f.ui.renderHistory(),'');assert.match(f.ui.renderProgress(),/上次检查|无新内容/);
+  assert.equal(f.messages.length,0);assert.equal(f.refreshes,0);
+  f.ui.reset();assert.equal(markup(f.ui),'');
+});
+
+check('a manually requested quiet check gives one temporary notification after its run disappears from history', async () => {
+  const f=fixture();await f.ui.start();
+  const id=f.posts()[0] && 'run:1';
+  f.setRuns([]);f.setLastCheck({run_id:id,state:'succeeded',updated_at:'2026-10-16T01:30:00Z',trigger:'manual',changed:false});
+  await f.ui.load();await f.ui.load();
+  assert.deepEqual(f.messages,['已检查，没有新内容']);assert.equal(f.ui.renderHistory(),'');
+  assert.doesNotMatch(f.ui.renderProgress(),/导入完成/);
+});
+
+check('a collection error remains visible even with no created tasks and no records', async () => {
+  const run=syncRun({states:[],state:'failed'});run.error={code:'collection_failed',message:'合成采集失败',retryable:true};
+  const f=fixture([run]);await f.ui.load();assert.match(f.ui.renderHistory(),/历史导入 · 1|采集失败|重新获取来源/);
+});
+
+check('a recovered no-task retry does not leave an actionable old error after its quiet receipt is hidden', async () => {
+  const old=syncRun({state:'failed',states:['failed']});old.records[0].recovered=true;
+  const f=fixture([old]);await f.ui.load();
+  assert.match(markup(f.ui),/后续已恢复 1 条/);assert.doesNotMatch(markup(f.ui),/data-source-sync-action="retry"|失败 1 条/);
+  await f.ui.click(button('retry',old.run_id));assert.equal(f.posts().length,0);
 });

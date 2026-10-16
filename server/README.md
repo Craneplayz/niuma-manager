@@ -79,6 +79,8 @@ server/
 
 后台教学网同步接口见 [source-sync/0.1](../contracts/docs/source-sync-v0.1.md)：每轮最多 4 条识别，全服务最多 4 轮活动同步，共用原模型队列；采集和模型期间不持有数据库写锁。刷新不影响执行，停止拒绝迟到写入，服务重启保留结果并标记中断。重试可选 request_ids，服务端按最新尝试、已保存结果及来源有效性筛选，已恢复或提交的旧记录不重跑；相同操作编号不能更换选择。运行 `python -m unittest discover -s server -p test_source_jobs.py -v` 使用临时数据库和合成采集/模型验证。
 
+同步终态压缩为有效结果：保留新增、待核对、任务更新与错误，移除无任务 / 过滤成功明细；没有有效结果的运行从历史列表省略，只保留 24 小时的精简操作回执用于网络重试，随后随启动、查询或调度清理。最近检查每账号只存一份，来源指纹、识别缓存、候选决定和任务不随回执清理；旧历史在初始化时按同一规则压缩。采集导致的任务更新在同一事务中比较用户可见字段，避免把采集等待期间的手动修改误记为同步更新。
+
 定时同步默认关闭；在对应环境 `config.json` 加 `"scheduled_sync": true` 并重启，账号在来源设置保存所选来源和 15～10080 分钟间隔后生效；只支持教学网，须使用单业务 API 进程。验收运行 `python -m unittest discover -s server -p test_source_schedule.py -v`，包括持久配置、手动撞期、失败重试及关闭时拒绝迟到写入，不发送私人数据。
 
 开发和测试优先使用 [统一环境入口](deploy/ENVIRONMENTS.md)：仓库根运行 `python server/manage_environment.py init all`，再运行 `python server/manage_environment.py local development` 或 `local test`；识别和规划由业务 API 直接调用，不必启动 1333/1334。
@@ -168,7 +170,7 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 教学网采集后按应用账号、教学网账号及通知 ID 保存内容版本；只向模型发送新增、修改、未处理或识别失败的记录，忽略采集时间变化，首次启用增量索引仍处理历史通知。
 每条通知生成独立 v0.2 请求并保留首次采集时间作为重试的时间基准；成功（含无任务）且没有待自动创建的任务时跳过。识别成功后若页面关闭或创建失败，再次同步复用已保存的候选补建任务，不重复调用模型；已加入、已忽略、撤回后待核对及有疑点的候选不自动补建。修改后生成新候选，不自动改动已确认任务。
-`POST /api/sources/sync` 返回 `requests`（单条记录的 v0.2 请求列表）及 `summary`（total / skipped / pending）；爬虫输出契约不变。
+`POST /api/sources/sync` 返回 `requests`（单条记录的 v0.2 请求列表）及 `summary`（total / skipped / pending），并附带 `updated_tasks` 表示采集事务实际修改的已有任务；爬虫输出契约不变。
 `POST /api/recognition/retry` 接收原 v0.2 请求，仅重新识别失败记录；保留成功候选及确认状态，成功请求保持幂等，原 `/batches` 重放行为不变。
 业务 API 直接使用模型侧校验过的 v0.2 时间字段；无疑点的外部新增行动可自动入库，无日期任务保留空 DDL 并在工作台补充，需核实及手动输入的候选仍待用户确认。
 重试由用户点击或再次同步触发，不在同次同步内无限重试；采集本身的超时独立于每条识别的 90 秒预算。

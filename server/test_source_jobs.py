@@ -10,6 +10,7 @@ import app
 import source_jobs as jobs
 import test_teaching as fixture
 from ddl_text.tests.test_teaching_pipeline import example
+from ddl_text.tests.teaching_cases import empty_reply
 from contracts.source_sync import check
 
 
@@ -290,5 +291,111 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(result['records'][0]['error']['code'],'recognition_failed')
         self.assertTrue(result['records'][0]['error']['retryable'])
 
+
+    def test_no_change_receipt_is_hidden_bounded_idempotent_and_keeps_dedup(self):
+        request,drafts=example()
+        rid=request['records'][0]['record']['input_id']
+        self.drafts[rid]=empty_reply(request['records'][0]['record'])
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler, patch.object(jobs.teaching,'recognize',side_effect=self.model) as model:
+            first=self.start('quiet:first');jobs.wait_for_jobs(app.DB)
+            quiet=self.until(first['run_id'],lambda r:r['state']=='succeeded')
+            self.assertEqual(quiet['records'],[]);self.assertEqual(quiet['counts']['review'],0)
+            listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+            self.assertEqual(listing['runs'],[]);self.assertFalse(listing['last_check']['changed'])
+            self.assertEqual(listing['last_check']['run_id'],first['run_id'])
+            self.assertEqual(self.start('quiet:first')['run_id'],first['run_id']);jobs.wait_for_jobs(app.DB)
+            self.assertEqual(crawler.call_count,1)
+            again=self.start('quiet:second');jobs.wait_for_jobs(app.DB)
+            self.assertEqual(model.call_count,1)
+            self.assertEqual(self.call('/sources/sync-runs')[1]['runs'],[])
+            with app.connection() as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM source_sync_quiet_runs').fetchone()[0],2)
+                stored=json.loads(db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?',(again['run_id'],)).fetchone()[0])
+                self.assertEqual(stored['records'],[])
+                source_count=db.execute('SELECT count(*) FROM teaching_sources').fetchone()[0]
+                batch_count=db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0]
+                jobs.prune_quiet(db,now=time.time()+jobs.QUIET_RECEIPT_SECONDS+1)
+                self.assertEqual(db.execute('SELECT count(*) FROM source_sync_runs').fetchone()[0],0)
+                self.assertEqual(db.execute('SELECT count(*) FROM source_sync_operations').fetchone()[0],0)
+                self.assertEqual(db.execute('SELECT count(*) FROM teaching_sources').fetchone()[0],source_count)
+                self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],batch_count)
+            self.assertEqual(self.call('/sources/sync-runs')[1]['last_check']['run_id'],again['run_id'])
+            self.start('quiet:third');jobs.wait_for_jobs(app.DB);self.assertEqual(model.call_count,1)
+
+    def test_mixed_task_candidate_notice_and_filtered_results_keep_only_useful_records(self):
+        request,drafts=example(('explicit-complete',)*4)
+        for entry,route in zip(request['records'],('task','candidate','task','filtered')):
+            rid=entry['record']['input_id'];draft=json.loads(drafts[rid]);card=draft['tasks'][0]
+            card.update(recommendation=route,reason='' if route=='task' else '合成待核对理由' if route=='candidate' else '合成无需保留内容')
+            if entry is request['records'][2]:card['content_type']='notice'
+            self.drafts[rid]=json.dumps(draft)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            run=self.start();jobs.wait_for_jobs(app.DB)
+        result=self.until(run['run_id'],lambda r:r['state']=='succeeded')
+        self.assertEqual(result['counts']['added'],2);self.assertEqual(result['counts']['review'],1)
+        self.assertEqual(len(result['records']),3)
+        self.assertEqual(len(self.call('/sources/sync-runs')[1]['runs']),1)
+        tasks=self.call('/workspace')[1]['tasks']['value']
+        self.assertTrue(any(task['content_type']=='notice' for task in tasks))
+
+    def test_recovery_without_tasks_resolves_old_errors_after_quiet_receipt_expires(self):
+        request,drafts=example();rid=request['records'][0]['record']['input_id']
+        self.drafts[rid]=empty_reply(request['records'][0]['record'])
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(502,'合成失败')):
+            first=self.start();jobs.wait_for_jobs(app.DB)
+        old=self.until(first['run_id'],lambda r:r['state']=='failed')
+        with patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            status,child=self.call('/sources/sync-runs/'+first['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:empty',consent=True))
+            self.assertEqual(status,202,child);jobs.wait_for_jobs(app.DB)
+        listing=self.call('/sources/sync-runs')[1]
+        self.assertEqual(len(listing['runs']),1)
+        self.assertTrue(listing['runs'][0]['records'][0]['recovered'])
+        with app.connection() as db:jobs.prune_quiet(db,now=time.time()+jobs.QUIET_RECEIPT_SECONDS+1)
+        self.assertTrue(self.call('/sources/sync-runs')[1]['runs'][0]['records'][0]['recovered'])
+        self.assertEqual(self.call('/sources/sync-runs/'+first['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:old',consent=True))[0],409)
+
+    def test_collection_updates_are_kept_even_when_every_source_is_skipped(self):
+        request,_=example()
+        task=dict(id='existing',title='合成任务',status='not_started',due=None,plans=[],subtasks=[])
+        with app.connection() as db:db.execute('INSERT INTO workspace VALUES(?,?,?,?)',(self.uid,'tasks',json.dumps([task]),1))
+        def register(db,uid,*args,**kwargs):
+            row=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
+            tasks=json.loads(row['value']);tasks[0]['status']='completed'
+            db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',(json.dumps(tasks),uid))
+            return dict(requests=[],summary=dict(total=1,skipped=1,pending=0))
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'register',side_effect=register):
+            run=self.start();jobs.wait_for_jobs(app.DB)
+        result=self.until(run['run_id'],lambda r:r['state']=='succeeded')
+        self.assertEqual(result['counts']['updated'],1);self.assertEqual(result['counts']['added'],0)
+        self.assertEqual(result['updated_tasks'][0]['task_id'],'existing')
+        self.assertEqual(len(self.call('/sources/sync-runs')[1]['runs']),1)
+        self.assertTrue(self.call('/sources/sync-runs')[1]['last_check']['changed'])
+
+    def test_upgrade_compacts_old_quiet_history_and_preserves_real_results(self):
+        request,drafts=example();self.drafts.update(drafts)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            useful=self.start('old:useful');jobs.wait_for_jobs(app.DB)
+            quiet=self.start('old:quiet');jobs.wait_for_jobs(app.DB)
+        with app.connection() as db:
+            raw=json.loads(db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?',(quiet['run_id'],)).fetchone()[0])
+            raw['counts'].pop('review');raw['counts'].pop('updated');raw['skipped']=52;raw['counts']['skipped']=52
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(json.dumps(raw),quiet['run_id']))
+            db.execute('DELETE FROM source_sync_quiet_runs')
+        app.initialize()
+        listing=self.call('/sources/sync-runs')[1]
+        self.assertEqual([run['run_id'] for run in listing['runs']],[useful['run_id']])
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+
+    def test_many_quiet_checks_do_not_displace_real_history(self):
+        request,drafts=example();self.drafts.update(drafts)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            useful=self.start('useful:first');jobs.wait_for_jobs(app.DB)
+        with app.connection() as db:
+            for index in range(25):
+                run=jobs.start(db,self.uid,dict(contract_version='source-sync/0.1',operation_id='quiet:'+str(index),sources=['teaching_web'],consent=True),app.ApiError,trigger='scheduled')
+                jobs.save(db,run,'succeeded')
+        listing=self.call('/sources/sync-runs')[1]
+        self.assertEqual([run['run_id'] for run in listing['runs']],[useful['run_id']])
+        self.assertFalse(listing['last_check']['changed'])
 
 if __name__=='__main__':unittest.main()

@@ -65,6 +65,7 @@ def tick(path, ApiError, now=None):
     launches=[]
     with jobs.connection(path) as db:
         db.execute('BEGIN IMMEDIATE')
+        jobs.prune_quiet(db)
         rows=db.execute('SELECT * FROM source_sync_schedules WHERE enabled=1 ORDER BY next_run_at,user_id').fetchall()
         for row in rows:
             uid=row['user_id']

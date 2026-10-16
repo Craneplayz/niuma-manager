@@ -15,24 +15,40 @@ const RECORD_LABELS = {
 };
 const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const needsCollection = (record) => record.state === "incomplete" || record.error?.code === "source_incomplete" || record.error?.code === "source_changed";
-const retryable = (record) => !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
+const retryable = (record) => !record.recovered && !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
+const usefulRecord = record => record.added > 0 || record.review > 0 || ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
+const usefulRun = run => Boolean(run.error || ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
 
 function checkRun(run) {
   if (run?.contract_version !== VERSION || !/^[A-Za-z0-9_.:-]{1,160}$/.test(run.run_id || "") ||
       !Object.hasOwn(LABELS, run.state) || !Number.isInteger(run.revision) || run.revision < 0 ||
       !Array.isArray(run.records) || !run.counts || run.records.some((record) =>
-        typeof record.request_id !== "string" || !record.request_id || !STATES.includes(record.state))) {
+        typeof record.request_id !== "string" || !record.request_id || !STATES.includes(record.state) ||
+        record.review !== undefined && (!Number.isInteger(record.review) || record.review < 0) ||
+        record.recovered !== undefined && typeof record.recovered !== "boolean") ||
+      run.updated_tasks !== undefined && (!Array.isArray(run.updated_tasks) || run.updated_tasks.some(task =>
+        typeof task.task_id !== "string" || typeof task.label !== "string" || task.course != null && typeof task.course !== "string"))) {
     throw new Error("导入服务版本不匹配，请刷新或更新服务。");
   }
   const expected = Object.fromEntries(STATES.map((state) => [state, run.records.filter((record) => record.state === state).length]));
   expected.total = run.records.length;
   expected.skipped = run.skipped;
   expected.added = run.records.reduce((total, record) => total + record.added, 0);
+  if (run.counts.review !== undefined) expected.review = run.records.reduce((total, record) => total + (record.review || 0), 0);
+  if (run.counts.updated !== undefined) expected.updated = run.updated_tasks?.length || 0;
   if (new Set(run.records.map((record) => record.request_id)).size !== run.records.length ||
       Object.entries(expected).some(([key, count]) => !Number.isInteger(count) || count < 0 || run.counts[key] !== count)) {
     throw new Error("导入进度暂时无法读取，请刷新重试。");
   }
   return run;
+}
+
+function checkLast(value) {
+  if (value == null) return null;
+  if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(value.run_id || "") || !Object.hasOwn(LABELS, value.state) || ACTIVE.has(value.state) ||
+      !Number.isFinite(Date.parse(value.updated_at)) || typeof value.changed !== "boolean")
+    throw new Error("导入进度暂时无法读取，请刷新重试。");
+  return value;
 }
 
 /** Durable teaching import; the server performs recognition and task creation. */
@@ -46,6 +62,8 @@ export function createSourceSyncUI(host) {
   let renderedWhileLoading = false;
   let pendingOperation = null, consumed = null, showHistory = false, focusedRun = null, actionInFlight = null;
   const details = new Map();
+  let lastCheck = null;
+  const manualRuns = new Set(), announced = new Set();
   const active = () => runs.some((run) => ACTIVE.has(run.state));
   const stamp = () => ({ generation, account: host.accountVersion() });
   const current = (value) => value.generation === generation && value.account === host.accountVersion() && host.isAuthenticated() && !host.isDemo();
@@ -68,6 +86,7 @@ export function createSourceSyncUI(host) {
     runs = []; loaded = writing = refreshing = false;
     error = null; pendingOperation = consumed = focusedRun = actionInFlight = null;
     showHistory = false; details.clear();
+    lastCheck = null; manualRuns.clear(); announced.clear();
   }
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
   function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
@@ -123,6 +142,18 @@ export function createSourceSyncUI(host) {
     else if (runs[index].revision <= run.revision) runs = runs.map((item, at) => at === index ? run : item);
     loaded = true;
   }
+  function notifyQuiet() {
+    for (const id of manualRuns) {
+      const run = runs.find(item => item.run_id === id);
+      const quiet = run ? run.state === "succeeded" && !usefulRun(run)
+        : lastCheck?.run_id === id && lastCheck.state === "succeeded" && !lastCheck.changed;
+      if (quiet && !announced.has(id)) {
+        announced.add(id); manualRuns.delete(id);
+        if (focusedRun === id) focusedRun = null;
+        host.toast?.("已检查，没有新内容");
+      }
+    }
+  }
   async function changed(valid) {
     const fingerprint = JSON.stringify(runs);
     if (!valid() || fingerprint === consumed) return true;
@@ -147,22 +178,25 @@ export function createSourceSyncUI(host) {
     clearPoll();
     const value = stamp(), sequence = ++readSequence, controller = new AbortController();
     const valid = () => current(value) && sequence === readSequence;
-    const previous = JSON.stringify(runs), wasLoaded = loaded, hadError = Boolean(error);
+    const previous = JSON.stringify([runs, lastCheck]), wasLoaded = loaded, hadError = Boolean(error);
     readController = controller; loading = true; renderedWhileLoading = false; error = null;
     try {
       const response = await host.api(API, undefined, "GET", { signal: controller.signal });
       if (!valid()) return false;
       if (response?.contract_version !== VERSION || !Array.isArray(response.runs) || response.runs.length > 20) throw new Error("导入服务版本不匹配，请刷新或更新服务。");
+      lastCheck = checkLast(response.last_check);
       acceptList(response.runs.map(checkRun));
       focusedRun = runs.find(run => ACTIVE.has(run.state))?.run_id || focusedRun;
-      return await changed(valid);
+      const refreshed = await changed(valid);
+      if (valid() && refreshed) notifyQuiet();
+      return refreshed;
     } catch (cause) {
       if (valid()) error = report(cause, "暂时无法读取导入进度，后台可能仍在运行，请刷新重试。");
       return false;
     } finally {
       if (valid()) {
         loading = false; readController = null;
-        if (renderedWhileLoading || error || hadError || !wasLoaded || previous !== JSON.stringify(runs)) redraw();
+        if (renderedWhileLoading || error || hadError || !wasLoaded || previous !== JSON.stringify([runs, lastCheck])) redraw();
         poll();
       }
     }
@@ -206,8 +240,10 @@ export function createSourceSyncUI(host) {
       if (!current(value)) return false;
       acceptRun(checkRun(run));
       focusedRun = run.run_id;
+      if (action !== "stop") manualRuns.add(run.run_id);
       if (action !== "stop") pendingOperation = null;
       await changed(() => current(value));
+      if (current(value)) notifyQuiet();
       return current(value);
     } catch (cause) {
       if (current(value)) error = !requested && action !== "stop"
@@ -233,36 +269,39 @@ export function createSourceSyncUI(host) {
   }
   function recordMarkup(record, run, latest) {
     const newest = latest.get(record.request_id), superseded = newest?.run !== run;
-    const problem = !superseded && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
-    return `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(record.label)}</h3><p class="status-note">${esc([record.course, RECORD_LABELS[record.state]].filter(Boolean).join(" · "))}${superseded ? " · 后续" + esc(RECORD_LABELS[newest.record.state]) : ""}</p>${problem ? errorMarkup(report(record.error, guidance(record))) : ""}</div>${problem && !ACTIVE.has(run.state) && retryable(record) ? `<div class="candidate-actions"><button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${isBusy() || host.isImportBusy() ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button></div>` : ""}</div>`;
+    const problem = !superseded && !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
+    const outcome = [record.added ? `新增 ${record.added} 项` : "", record.review ? `待核对 ${record.review} 项` : ""].filter(Boolean).join(" · ") || RECORD_LABELS[record.state];
+    return `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(record.label)}</h3><p class="status-note">${esc([record.course, record.recovered ? "后续已恢复" : outcome].filter(Boolean).join(" · "))}${superseded ? " · 后续" + esc(RECORD_LABELS[newest.record.state]) : ""}</p>${problem ? errorMarkup(report(record.error, guidance(record))) : ""}</div>${problem && !ACTIVE.has(run.state) && retryable(record) ? `<div class="candidate-actions"><button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${isBusy() || host.isImportBusy() ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button></div>` : ""}</div>`;
   }
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts, done = counts.total - counts.queued - counts.running;
     const records = run.records.filter((record) => latest.get(record.request_id)?.run === run);
-    const pending = records.filter(retryable), problems = records.filter((record) => ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state));
-    const recovered = run.records.filter((record) => record.state !== "succeeded" && latest.get(record.request_id)?.run !== run && latest.get(record.request_id)?.record.state === "succeeded").length;
+    const pending = records.filter(retryable), problems = records.filter((record) => !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state));
+    const recovered = run.records.filter((record) => record.recovered || record.state !== "succeeded" && latest.get(record.request_id)?.run !== run && latest.get(record.request_id)?.record.state === "succeeded").length;
     const recollect = records.some(needsCollection) || Boolean(run.error) || !records.length && ["stopped", "interrupted"].includes(run.state);
     const blocked = isBusy() || host.isImportBusy();
-    const summary = [counts.total ? `已处理 ${done} / ${counts.total}` : "", counts.added ? `新增 ${counts.added} 项` : "", counts.failed ? `失败 ${counts.failed} 条` : "", counts.incomplete ? `待补全 ${counts.incomplete} 条` : "", counts.skipped ? `跳过 ${counts.skipped} 条` : ""].filter(Boolean).join(" · ");
+    const summary = [ACTIVE.has(run.state) && counts.total ? `已处理 ${done} / ${counts.total}` : "", counts.added ? `新增 ${counts.added} 项` : "", counts.review ? `待核对 ${counts.review} 项` : "", counts.updated ? `更新 ${counts.updated} 项` : "", problems.some(r => r.state === "failed") ? `失败 ${problems.filter(r => r.state === "failed").length} 条` : "", counts.incomplete ? `待补全 ${counts.incomplete} 条` : ""].filter(Boolean).join(" · ");
+    const shown = run.records.filter(usefulRecord);
+    const updates = (run.updated_tasks || []).map(task => `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(task.label)}</h3><p class="status-note">${esc([task.course, "任务已更新"].filter(Boolean).join(" · "))}</p></div></div>`).join("");
     const progress = ACTIVE.has(run.state) ? `<progress ${counts.total && run.state !== "crawling" ? `max="${counts.total}" value="${done}"` : ""} aria-label="${esc(counts.total ? `已处理 ${done} / ${counts.total} 条通知` : LABELS[run.state])}"></progress>` : "";
     const actions = ACTIVE.has(run.state) ? "" : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`;
-    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(LABELS[run.state])}</strong>${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${run.records.length ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${run.records.length}</summary>${run.records.map((record) => recordMarkup(record, run, latest)).join("")}</details>` : ""}</article>`;
+    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(LABELS[run.state])}</strong>${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${shown.length || updates ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${shown.length + (run.updated_tasks?.length || 0)}</summary>${shown.map((record) => recordMarkup(record, run, latest)).join("")}${updates}</details>` : ""}</article>`;
   }
   function currentRun() {
-    return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun &&
-      !(run.state === "stopped" && !run.counts.total && !run.error));
+    return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
   }
   function renderProgress() {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
     const run = currentRun(), starting = ["start", "retry"].includes(actionInFlight);
-    if (!run && !error && !starting) return "";
-    return `<div class="teaching-progress" data-source-sync-progress aria-label="教学网导入进度">${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${starting && !run ? '<p class="status-note" role="status">正在启动识别…</p>' : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}</div>`;
+    if (!run && !error && !starting && !lastCheck) return "";
+    const checked = lastCheck && !run && !starting ? `<p class="status-note" data-source-sync-last-check>上次检查 <time datetime="${esc(lastCheck.updated_at)}">${esc(new Date(lastCheck.updated_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</time> · ${lastCheck.state === "succeeded" ? lastCheck.changed ? "有新结果" : "无新内容" : esc(LABELS[lastCheck.state])}</p>` : "";
+    return `<div class="teaching-progress" data-source-sync-progress aria-label="教学网导入进度">${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${starting && !run ? '<p class="status-note" role="status">正在启动识别…</p>' : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}${checked}</div>`;
   }
   function renderHistory() {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
-    const current = currentRun(), history = runs.filter(run => run !== current);
+    const current = currentRun(), history = runs.filter(run => run !== current && usefulRun(run));
     if (!history.length) return "";
     const latest = latestAttempts();
     return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(run => runMarkup(run, latest)).join("")}</details>`;

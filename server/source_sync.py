@@ -156,7 +156,23 @@ def collect(db, uid, ApiError, key_path, *, guard=None):
     current = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     if not current or dict(current)!=dict(row):
         raise ApiError(409, '教学网账号在采集期间发生变化，请重新同步')
+    before = task_snapshot(db, uid)
     try: response = teaching.register(db, uid, row['username'], requests, assets=assets)
     except ValueError:
         raise ApiError(413, '教学网附件超过账号存储限制，或附件无效；请清理来源后重新同步') from None
+    response['updated_tasks'] = task_updates(before, task_snapshot(db, uid))
     return response
+
+
+def task_snapshot(db, uid):
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace'").fetchone(): return {}
+    row = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (uid,)).fetchone()
+    return {task['id']: task for task in json.loads(row['value'])} if row else {}
+
+
+def task_updates(before, after):
+    # Compare inside collection's write transaction, excluding concurrent user edits and source-only metadata.
+    fields = ('title', 'description', 'course', 'due', 'status', 'completedAt', 'recycleBin', 'content_type')
+    return [dict(task_id=identity, label=str(task.get('title', '任务'))[:160], course=task.get('course'))
+            for identity, task in after.items() if identity in before and
+            any(task.get(field) != before[identity].get(field) for field in fields)]

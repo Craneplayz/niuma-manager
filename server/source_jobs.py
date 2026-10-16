@@ -19,6 +19,7 @@ import usage
 
 CONCURRENCY = 4
 RUN_LIMIT = 4
+QUIET_RECEIPT_SECONDS = 24 * 60 * 60
 _slots = threading.BoundedSemaphore(RUN_LIMIT)
 _lock = threading.Lock()
 _workers = {}
@@ -47,11 +48,23 @@ def initialize(db, recover=True):
     db.execute('''CREATE TABLE IF NOT EXISTS source_sync_operations(
         user_id TEXT NOT NULL, operation_id TEXT NOT NULL, run_id TEXT NOT NULL,
         signature TEXT NOT NULL, PRIMARY KEY(user_id,operation_id))''')
-    for row in db.execute('SELECT user_id,operation_id,run_id,snapshot FROM source_sync_runs').fetchall():
+    db.execute('''CREATE TABLE IF NOT EXISTS source_sync_quiet_runs(
+        user_id TEXT NOT NULL, run_id TEXT PRIMARY KEY, expires_at REAL NOT NULL)''')
+    db.execute('CREATE INDEX IF NOT EXISTS source_sync_quiet_expiry ON source_sync_quiet_runs(expires_at,user_id)')
+    db.execute('''CREATE TABLE IF NOT EXISTS source_sync_checks(
+        user_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL)''')
+    for row in db.execute('SELECT user_id,operation_id,run_id,snapshot FROM source_sync_runs ORDER BY rowid').fetchall():
         run = json.loads(row['snapshot'])
         db.execute('INSERT OR IGNORE INTO source_sync_operations VALUES(?,?,?,?)',
                    (row['user_id'],row['operation_id'],row['run_id'],
                     operation_signature(run['parent_run_id'],run.get('retry_selection'))))
+        if run['state'] in contract.FINAL and 'review' not in run.get('counts', {}):
+            compact(db, run)
+            run['counts'] = counts(run)
+            run['revision'] += 1
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(run), run['run_id']))
+            remember_check(db, run)
+    prune_quiet(db)
     if recover:
         for row in db.execute("SELECT * FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchall():
             run = json.loads(row['snapshot'])
@@ -70,15 +83,82 @@ def error(code, message, retryable=False):
     return dict(code=code, message=message, retryable=retryable)
 
 
+def counts(run):
+    result = {key: sum(r['state'] == key for r in run['records']) for key in contract.ITEM_STATES}
+    result.update(total=len(run['records']), skipped=run['skipped'], added=sum(r['added'] for r in run['records']),
+                  review=sum(r.get('review', 0) for r in run['records']), updated=len(run.get('updated_tasks', [])))
+    return result
+
+
+def review_count(db, uid, request_id):
+    batch = db.execute('SELECT request,result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
+    if not batch: return 0
+    request, result = json.loads(batch['request']), json.loads(batch['result'])
+    cards = None
+    if request.get('contract_version') == '0.4':
+        projected = teaching.submission.project_result(db, uid, request_id, teaching.result_view(request, result))
+        cards = {card['candidate_id'] for card in projected['tasks']}
+    return sum(cards is None or json.loads(row['candidate'])['candidate_id'] in cards for row in db.execute(
+        'SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending"', (uid, request_id)))
+
+
+def useful_record(item):
+    return bool(item['added'] or item.get('review') or item['state'] in ('failed', 'incomplete', 'cancelled', 'interrupted'))
+
+
+def useful_run(run):
+    return bool(run.get('updated_tasks') or run['error'] or run['state'] in ('failed', 'interrupted') or
+                any(useful_record(item) for item in run['records']))
+
+
+def compact(db, run):
+    succeeded = {item['request_id'] for item in run['records'] if item['state'] == 'succeeded'}
+    if succeeded:
+        for row in db.execute('''SELECT run_id,snapshot FROM source_sync_runs WHERE user_id=? AND run_id<>?
+            AND state IN ('failed','partial_success','stopped','interrupted')''', (run['user_id'], run['run_id'])).fetchall():
+            older = json.loads(row['snapshot'])
+            recovered = [item for item in older['records'] if item['request_id'] in succeeded and
+                         item['state'] in ('failed', 'cancelled', 'interrupted') and not item.get('recovered')]
+            if recovered:
+                for item in recovered: item['recovered'] = True
+                older['revision'] += 1
+                db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(older), row['run_id']))
+    for item in run['records']:
+        if 'review' not in item or item['state'] == 'succeeded':
+            item['review'] = review_count(db, run['user_id'], item['request_id'])
+    run['records'] = [item for item in run['records'] if useful_record(item)]
+    run['skipped'] = 0
+    if not useful_run(run):
+        expires = datetime.fromisoformat(run['updated_at']).timestamp() + QUIET_RECEIPT_SECONDS
+        db.execute('INSERT OR REPLACE INTO source_sync_quiet_runs VALUES(?,?,?)', (run['user_id'], run['run_id'], expires))
+
+
+def remember_check(db, run):
+    check = {key: run[key] for key in ('run_id', 'state', 'updated_at', 'trigger')}
+    check['changed'] = bool(run.get('updated_tasks') or any(item['added'] or item.get('review') for item in run['records']))
+    db.execute('''INSERT INTO source_sync_checks VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET snapshot=excluded.snapshot
+        WHERE json_extract(source_sync_checks.snapshot,'$.updated_at') <= json_extract(excluded.snapshot,'$.updated_at')''',
+               (run['user_id'], json.dumps(check)))
+
+
+def prune_quiet(db, uid=None, now=None):
+    query = 'SELECT run_id FROM source_sync_quiet_runs WHERE expires_at<=?'
+    args = [time.time() if now is None else now]
+    if uid is not None: query += ' AND user_id=?'; args.append(uid)
+    for row in db.execute(query, args).fetchall():
+        db.execute('DELETE FROM source_sync_operations WHERE run_id=?', (row['run_id'],))
+        db.execute('DELETE FROM source_sync_runs WHERE run_id=?', (row['run_id'],))
+        db.execute('DELETE FROM source_sync_quiet_runs WHERE run_id=?', (row['run_id'],))
+
+
 def save(db, run, state=None):
     previous = db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?', (run['run_id'],)).fetchone()
     previous = json.loads(previous['snapshot']) if previous else {}
     if state: run['state'] = state
     run['revision'] += 1
     run['updated_at'] = stamp()
-    run['counts'] = {key: sum(r['state'] == key for r in run['records']) for key in contract.ITEM_STATES}
-    run['counts'].update(total=len(run['records']), skipped=run['skipped'],
-                         added=sum(r['added'] for r in run['records']))
+    if run['state'] in contract.FINAL: compact(db, run)
+    run['counts'] = counts(run)
     db.execute('UPDATE source_sync_runs SET state=?,snapshot=? WHERE user_id=? AND run_id=?',
                (run['state'], json.dumps(run), run['user_id'], run['run_id']))
     old_records = {r['request_id']:r for r in previous.get('records',[])}
@@ -89,6 +169,7 @@ def save(db, run, state=None):
     if previous.get('state') in contract.ACTIVE and run['state'] in contract.FINAL:
         duration=(datetime.fromisoformat(run['updated_at'])-datetime.fromisoformat(run['created_at'])).total_seconds()*1000
         usage.record(db,run['user_id'],'sync',run['state']=='succeeded',duration)
+        remember_check(db, run)
 
 
 def view(run):
@@ -96,8 +177,8 @@ def view(run):
 
 
 def can_retry(item):
-    return item['state'] in ('cancelled', 'interrupted') or (
-        item['state']=='failed' and (item['error'] or {}).get('retryable', False))
+    return not item.get('recovered') and (item['state'] in ('cancelled', 'interrupted') or (
+        item['state']=='failed' and (item['error'] or {}).get('retryable', False)))
 
 
 def retry_records(db, uid, old, selection, ApiError):
@@ -188,7 +269,7 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
     run = dict(contract_version=contract.VERSION, run_id=secrets.token_hex(16), user_id=uid,
                operation_id=body['operation_id'], sources=['teaching_web'], trigger=trigger, parent_run_id=parent,
                state='queued', revision=0, created_at=stamp(), updated_at=stamp(), skipped=0,
-               records=records or [], counts={}, error=None)
+               records=records or [], updated_tasks=[], counts={}, error=None)
     if parent: run['retry_selection'] = sorted(body['request_ids']) if 'request_ids' in body else None
     db.execute('INSERT INTO source_sync_runs VALUES(?,?,?,?,?,?)', (uid, run['run_id'], body['operation_id'], key, 'queued', '{}'))
     bind_operation(db,uid,body,parent,run['run_id'])
@@ -278,6 +359,7 @@ def process(path, uid, run_id, ApiError):
                     run = get(db, uid, run_id, ApiError)
                     run['records'] = [record(r) for r in response['requests']]
                     run['skipped'] = response['summary']['skipped']
+                    run['updated_tasks'] = response.get('updated_tasks', [])
                     for item in run['records']:
                         db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET import_id=excluded.import_id,created_at=excluded.created_at,source=excluded.source,archived=0',
                                    (uid, item['request_id'], run_id, run['created_at'], '教学网'))
@@ -343,25 +425,32 @@ def wait_for_jobs(path, timeout=30):
 def route(handler, db, uid, path, body, ApiError, database):
     root = '/api/sources/sync-runs'
     if not (path==root or path.startswith(root+'/')): return False
+    if handler.command == 'GET': prune_quiet(db, uid)
     if path==root and handler.command=='POST':
         db.execute('BEGIN IMMEDIATE')
+        prune_quiet(db, uid)
         run = start(db, uid, body, ApiError)
         db.commit()
         if run['state'] in contract.ACTIVE: launch(database, uid, run['run_id'], ApiError)
         handler.reply(202, view(run)); return True
     if path==root and handler.command=='GET':
-        rows = db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? ORDER BY rowid DESC LIMIT 20', (uid,)).fetchall()
-        handler.reply(200, dict(contract_version=contract.VERSION, runs=[view(json.loads(r['snapshot'])) for r in rows])); return True
+        rows = db.execute('''SELECT r.snapshot FROM source_sync_runs r LEFT JOIN source_sync_quiet_runs q ON r.run_id=q.run_id
+            WHERE r.user_id=? AND q.run_id IS NULL ORDER BY r.rowid DESC LIMIT 20''', (uid,)).fetchall()
+        last = db.execute('SELECT snapshot FROM source_sync_checks WHERE user_id=?', (uid,)).fetchone()
+        handler.reply(200, dict(contract_version=contract.VERSION, runs=[view(json.loads(r['snapshot'])) for r in rows],
+                                last_check=json.loads(last['snapshot']) if last else None)); return True
     run_id, *suffix = path[len(root)+1:].split('/')
     if handler.command=='GET' and not suffix:
         handler.reply(200, view(get(db, uid, run_id, ApiError))); return True
     if handler.command=='POST' and suffix==['stop']:
         contract.check('stop',body); db.execute('BEGIN IMMEDIATE')
+        prune_quiet(db, uid)
         run = get(db, uid, run_id, ApiError)
         stop(db,run)
         handler.reply(200,view(run)); return True
     if handler.command=='POST' and suffix==['retry']:
         contract.check('retry',body); db.execute('BEGIN IMMEDIATE')
+        prune_quiet(db, uid)
         old = get(db,uid,run_id,ApiError)
         # A lost HTTP response can be retried even after its child has completed.
         prior = operation(db,uid,body,run_id,ApiError)
