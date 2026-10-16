@@ -2,6 +2,7 @@ import {
   api,
   session,
   readStore,
+  readCancelledTasks,
   initSession,
   reloadStore,
   refreshStore,
@@ -118,6 +119,7 @@ const host = {
     else toast("这条任务或通知已不在当前列表中");
   },
   getState: () => state,
+  getCancelledTasks: () => demo ? [] : readCancelledTasks(),
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
   feedbackBox: () => demo ? "" : feedbackBox(),

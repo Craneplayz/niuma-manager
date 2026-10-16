@@ -147,3 +147,48 @@ test("a green error category still links to the matching source result in its re
   await expect(page.locator(`[id="sync-item-${target.run_id}-added-0"] [data-source-sync-hint]`)).toHaveCount(0);
   expect(writes).toHaveLength(0);
 });
+
+test("history separates notice type from completion and distinguishes reviewed cancellations from removals", async ({ page }, info) => {
+  const run = syncRun({ id: "result:states", added: 4, review: 2 });
+  run.records[0].added_items = [
+    { candidate_id: "unread", task_id: "unread", label: "上课地点调整", course: null },
+    { candidate_id: "read", task_id: "read", label: "活动安排", course: null },
+    { candidate_id: "trash", task_id: "trash", label: "旧课程通知", course: null },
+    { candidate_id: "removed", task_id: "removed", label: "原先新增的任务", course: null },
+  ];
+  run.records[0].review_items = [
+    { candidate_id: "cancel", label: "取消原定报告", course: null },
+    { candidate_id: "pending", label: "待确认的考试地点", course: null },
+  ];
+  const tasks = [
+    { id: "unread", title: "上课地点调整", content_type: "notice", status: "not_started" },
+    { id: "read", title: "活动安排", content_type: "notice", status: "completed" },
+    { id: "trash", title: "旧课程通知", content_type: "notice", status: "cancelled", recycleBin: { status: "not_started" } },
+    { id: "cancel", title: "原定报告", status: "cancelled", recognitionHistory: [{ storageId: "cancel", action: "cancel" }] },
+  ];
+  const batches = [{ sourceSyncManaged: true, request: { contract_version: "0.2", request_id: "states", records: [] },
+    result: { status: "success" }, items: [
+      { id: "removed", state: "applied", autoApplied: true, candidate: { title: "原先新增的任务" } },
+      { id: "cancel", state: "applied", candidate: { title: "取消原定报告" } },
+      { id: "pending", state: "pending", candidate: { title: "待确认的考试地点", content_type: "notice" } },
+    ] }];
+  const writes = await openHistory(page, [run], null, { tasks, batches });
+  const row = page.locator(`[id="sync-run-${run.run_id}"]`);
+  await row.getByRole("button", { name: "新增 4 项", exact: true }).click();
+  const names = row.locator(".sync-result-name");
+  await expect(names.locator(".sync-item-status")).toHaveText(["未完成", "✓ 已完成", "回收站", "已移除"]);
+  await expect(names.locator(".notice-label")).toHaveCount(3);
+  await expect(names.first().locator(".notice-label")).toHaveCSS("font-size", "10px");
+  await expect(names.first().locator(".notice-label")).toHaveCSS("border-radius", "4px");
+  expect(await names.first().evaluate(element => element.firstElementChild.classList.contains("notice-label"))).toBe(true);
+  await expect(row).not.toContainText("已核对");
+  await expect(row).not.toContainText("待确认的考试地点");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("import-history-result-statuses.png"), fullPage: true });
+  await row.getByRole("button", { name: "待核对 2 项", exact: true }).click();
+  await expect(names.locator(".sync-item-status")).toHaveText(["已取消", "待核对"]);
+  await expect(names.nth(1).locator(".notice-label")).toHaveText("通知");
+  await names.first().click();
+  await expect(page.locator("#toast")).toContainText("这条任务或通知已取消");
+  expect(writes).toHaveLength(0);
+});

@@ -428,6 +428,7 @@ check('result names open their stable task or candidate identity and updates sho
   run.records[0].added_items=[{candidate_id:'a',task_id:'task:a',label:'<报告 A>',course:null},{candidate_id:'b',task_id:null,label:'已删除的报告',course:null}];
   run.records[0].review_items=[{candidate_id:'pending:a',label:'核对报告',course:null}];
   const f=fixture([run]), opened=[];f.host.openTask=id=>opened.push(['task',id]);f.host.openReview=id=>opened.push(['review',id]);
+  f.remote.tasks=[{id:'task:a',status:'todo'},{id:'updated',status:'todo'}];
   await f.ui.load();await category(f.ui,run.run_id,'added');
   assert.match(markup(f.ui),/&lt;报告 A&gt;/);assert.doesNotMatch(markup(f.ui),/待核对 0|更新 0|错误 0|合成通知/);
   for(const [action,id] of [['open-task','task:a'],['open-review','pending:a'],['open-task','updated'],['open-task','forged']])
@@ -570,7 +571,7 @@ check('receipt statuses and confirmed-candidate links follow current tasks witho
   assert.doesNotMatch(markup(f.ui),/sync-item-status-review/);
   assert.match(markup(f.ui),/新增 1 项/);assert.match(markup(f.ui),/待核对 1 项/);
   await category(f.ui,run.run_id,'added');f.view.tasks=[];
-  assert.match(markup(f.ui),/任务已移除/);assert.doesNotMatch(markup(f.ui),/">未完成<|进行中/);
+  assert.match(markup(f.ui),/已移除/);assert.doesNotMatch(markup(f.ui),/">未完成<|进行中/);
   await category(f.ui,run.run_id,'error');
   assert.equal(f.posts().length,0);
 });
@@ -713,7 +714,8 @@ check('expired recovery receipts leave saved results intact and never trigger an
   const {old,target}=linkedRecovery(),f=fixture([old]);
   f.setAPI((call,fallback)=>{if(call.path===API+'/'+encodeURIComponent(target.run_id))throw {status:404};return fallback(call);});
   await f.ui.load();await locate(f.ui,old);
-  assert.match(f.messages[0],/已归档/);assert.deepEqual(f.revealed,[]);assert.equal(f.posts().length,0);
+  assert.equal(f.messages[0],"对应的恢复记录已无法查看，已保存的任务不受影响");
+  assert.deepEqual(f.revealed,[]);assert.equal(f.posts().length,0);
 });
 
 check('trash status reuses the shared trash icon and returns to task status after restoring', async () => {
@@ -722,7 +724,48 @@ check('trash status reuses the shared trash icon and returns to task status afte
   f.view.trash=[{id:'removed',status:'done'}];
   const html=markup(f.ui);
   assert.match(html,/sync-item-status-trash"><svg[^>]*aria-hidden="true"/);
-  assert.match(html,/已移至回收站/);assert.doesNotMatch(html,/✓ 已完成|">未完成</);
+  assert.match(html,/>回收站<\/small>/);assert.doesNotMatch(html,/已移至|✓ 已完成|">未完成</);
   f.view.tasks=f.view.trash;f.view.trash=[];
-  assert.match(markup(f.ui),/✓ 已完成/);assert.doesNotMatch(markup(f.ui),/已移至回收站/);
+  assert.match(markup(f.ui),/✓ 已完成/);assert.doesNotMatch(markup(f.ui),/sync-item-status-trash/);
+});
+
+check('reviewed cancellations and removed auto additions show the actual outcome without moving categories', async () => {
+  const run=syncRun({added:1,review:2});
+  run.records[0].added_items=[{candidate_id:'auto',task_id:'removed',label:'自动新增后移除的任务',course:null}];
+  run.records[0].review_items=[{candidate_id:'cancel',label:'已确认取消',course:null},{candidate_id:'pending',label:'尚未核对',course:null}];
+  const f=fixture([run]);
+  f.remote.batches=[{items:[{id:'auto',state:'applied',autoApplied:true},{id:'cancel',state:'applied'},{id:'pending',state:'pending'}]}];
+  f.host.getCancelledTasks=()=>[{id:'cancelled',status:'cancelled',recognitionHistory:[{storageId:'cancel',action:'cancel'}]}];
+  await f.ui.load();await category(f.ui,run.run_id,'added');
+  assert.match(markup(f.ui),/sync-item-status-muted">已移除/);
+  assert.doesNotMatch(markup(f.ui),/已核对|尚未核对/);
+  await f.ui.click({dataset:{sourceSyncAction:'open-task',sourceSyncRun:run.run_id,sourceSyncItem:'removed'}});
+  assert.equal(f.messages.at(-1),'这条任务或通知已移除，无法打开详情');
+  await category(f.ui,run.run_id,'review');
+  assert.match(markup(f.ui),/sync-item-status-muted">已取消/);
+  assert.match(markup(f.ui),/sync-item-status-review">待核对/);
+  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-review/);
+  assert.match(markup(f.ui),/新增 1 项/);assert.match(markup(f.ui),/待核对 2 项/);
+});
+
+check('notices use the shared leading badge and task completion status, including after review', async () => {
+  const run=syncRun({added:2,review:1});
+  run.records[0].added_items=[{candidate_id:'unread',task_id:'notice',label:'地点变更',course:null},
+    {candidate_id:'read',task_id:'read-notice',label:'活动安排',course:null}];
+  run.records[0].review_items=[{candidate_id:'manual-notice',label:'待确认地点',course:null}];
+  const f=fixture([run]);
+  f.remote.tasks=[{id:'notice',content_type:'notice',status:'todo'},{id:'read-notice',content_type:'notice',status:'done'}];
+  f.remote.batches=[{items:[{id:'manual-notice',state:'pending',candidate:{content_type:'notice'}}]}];
+  await f.ui.load();await category(f.ui,run.run_id,'added');
+  let html=markup(f.ui);
+  assert.match(html,/<span class="notice-label">通知<\/span><span class="sync-result-title">地点变更<\/span><small[^>]*>未完成/);
+  assert.match(html,/<span class="notice-label">通知<\/span><span class="sync-result-title">活动安排<\/span><small[^>]*>✓ 已完成/);
+  await category(f.ui,run.run_id,'review');
+  assert.match(markup(f.ui),/<span class="notice-label">通知<\/span><span class="sync-result-title">待确认地点/);
+  f.view.batches[0].items[0].state='applied';
+  f.view.tasks.push({id:'manual',content_type:'notice',status:'done',recognitionHistory:[{storageId:'manual-notice',action:'create'}]});
+  html=markup(f.ui);
+  assert.match(html,/sync-item-status-success">✓ 已完成/);
+  assert.match(categoryMarkup(html,'review'),/sync-category-success/);
+  assert.doesNotMatch(html,/已核对/);
 });

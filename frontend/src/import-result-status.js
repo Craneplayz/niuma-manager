@@ -9,18 +9,31 @@ export function importResultStatus(item, category, host) {
     ? { label: "已恢复", tone: "muted" } : { label: "错误", tone: "error" };
   const state = host.getState?.() || {};
   const matches = task => matchesTask(item, task);
-  const task = (state.tasks || []).find(matches);
-  if (task) return {
-    label: task.content_type === "notice" ? "通知" : ["done", "completed"].includes(task.status) ? "✓ 已完成" : "未完成",
-    tone: task.content_type !== "notice" && ["done", "completed"].includes(task.status) ? "success" : "muted",
-    taskId: task.id,
-  };
-  if ((state.trash || []).some(matches)) return { label: "已移至回收站", tone: "trash", icon: "trash" };
   const candidate = item.candidate_id && host.getCandidate?.(item.candidate_id);
-  if (candidate?.state === "pending") return { label: "待核对", tone: "review" };
-  if (candidate?.state === "ignored") return { label: "已忽略", tone: "muted" };
-  if (candidate?.state === "applied") return { label: "已核对", tone: "muted" };
-  return { label: category === "review" ? "状态暂不可用" : "任务已移除", tone: "muted" };
+  const task = (state.tasks || []).find(matches);
+  if (task) {
+    const done = ["done", "completed"].includes(task.status);
+    return { label: done ? "✓ 已完成" : "未完成", tone: done ? "success" : "muted",
+      taskId: task.id, notice: task.content_type === "notice" };
+  }
+  const trash = (state.trash || []).find(matches);
+  if (trash) return { label: "回收站", tone: "trash", icon: "trash", notice: trash.content_type === "notice",
+    message: "这条内容在回收站中，可从回收站恢复" };
+  const cancelled = (host.getCancelledTasks?.() || []).find(matches);
+  if (cancelled) return { label: "已取消", tone: "muted", notice: cancelled.content_type === "notice",
+    message: "这条任务或通知已取消" };
+  const notice = candidate?.candidate?.content_type === "notice";
+  if (candidate?.state === "pending") return { label: "待核对", tone: "review", notice };
+  if (candidate?.state === "ignored") return { label: "已忽略", tone: "muted", notice,
+    message: "这条内容已忽略，可在已忽略内容中撤回" };
+  if (candidate?.state === "applied" || category !== "review") return { label: "已移除", tone: "muted", notice,
+    message: "这条任务或通知已移除，无法打开详情" };
+  return { label: "状态暂不可用", tone: "muted", notice,
+    message: "暂时无法读取这条内容的状态，请刷新后重试" };
+}
+
+export function importTypeMarkup(status) {
+  return status.notice ? '<span class="notice-label">通知</span>' : "";
 }
 
 export function importStatusMarkup(status) {
@@ -31,7 +44,8 @@ function reviewed(item, host) {
   const candidate = item.candidate_id && host.getCandidate?.(item.candidate_id);
   if (candidate) return ["applied", "ignored"].includes(candidate.state);
   const state = host.getState?.() || {};
-  return [...(state.tasks || []), ...(state.trash || [])].some(task => matchesTask(item, task));
+  return [...(state.tasks || []), ...(state.trash || []), ...(host.getCancelledTasks?.() || [])]
+    .some(task => matchesTask(item, task));
 }
 
 // Counts describe the original import; colors and order describe current actions.

@@ -82,6 +82,10 @@ export async function api(path, body, method = "POST", options = {}) {
 export function readStore() {
   return empty();
 }
+// Cancelled tasks stay out of active lists but still explain import-history results.
+export function readCancelledTasks() {
+  return clone(canonicalTasks.filter(task => task.status === "cancelled" && !task.recycleBin));
+}
 const status = {
   completed: "done",
   in_progress: "doing",

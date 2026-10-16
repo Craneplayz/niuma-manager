@@ -176,11 +176,17 @@ test('a confirmed history candidate keeps its receipt count and opens the task w
  assert.match(ui.render(),/class="sync-category sync-category-success"[^>]*data-import-history-category="review"/);
  assert.match(ui.render(),/sync-item-status-muted">未完成/);
  f.state.tasks[0].status='done';
+ f.state.tasks[0].content_type='notice';
  assert.match(ui.render(),/sync-item-status-success">✓ 已完成/);
+ assert.match(ui.render(),/<span class="notice-label">通知<\/span><span class="sync-result-title">/);
  await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'request-A'}});
  assert.deepEqual(opened,['task-candidate-A']);
  f.state.trash=[f.state.tasks.pop()];
- assert.match(ui.render(),/已移至回收站/);assert.doesNotMatch(ui.render(),/">未完成<|进行中/);
+ assert.match(ui.render(),/>回收站<\/small>/);assert.doesNotMatch(ui.render(),/已移至|">未完成<|进行中/);
+ f.state.trash=[];
+ assert.match(ui.render(),/sync-item-status-muted">已移除/);assert.doesNotMatch(ui.render(),/已核对/);
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'request-A'}});
+ assert.equal(f.messages.at(-1),'这条任务或通知已移除，无法打开详情');
 });
 
 test('a task version change prevents a stale confirmation and offers rereading',async()=>{

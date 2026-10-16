@@ -12,7 +12,7 @@ import { candidateEvidenceMarkup, failureSources } from "./import-evidence.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createSourceSyncUI } from "./source-sync-ui.js";
 import { createSyncScheduleUI } from "./source-schedule-ui.js";
-import { importResultStatus, importStatusMarkup, importCategorySummaries } from "./import-result-status.js";
+import { importResultStatus, importStatusMarkup, importTypeMarkup, importCategorySummaries } from "./import-result-status.js";
 
 const actions = {
   create: "新增任务",
@@ -278,7 +278,7 @@ export function createImportUI(host) {
       const status = importResultStatus({ candidate_id: id }, "review", { ...host, getCandidate: itemById });
       if (status.taskId) { host.openTask?.(status.taskId); return; }
       if (item?.state === "pending") openReview(item);
-      else host.toast(item ? "这条内容已核对处理" : "这条待核对内容已不在当前列表中");
+      else host.toast(status.message);
     },
   });
   const syncIsActive = () => sourceSync.isBusy();
@@ -432,7 +432,7 @@ export function createImportUI(host) {
     const items = collections[category] || [];
     const names = items.map((item, index) => {
       const status = importResultStatus(item, category, { ...host, getCandidate: itemById });
-      return `<li><button id="${esc(region)}-${category}-${index}" class="sync-result-name" type="button" data-import-history-item="${index}" data-import-history-batch="${esc(group.id)}" title="${esc([item.label,item.course,status.label].filter(Boolean).join(" · "))}" ${category === "error" ? `aria-expanded="${historyProblems.get(group.id) === index}"` : ""}><span>${esc(item.label)}</span>${importStatusMarkup(status)}</button></li>`;
+      return `<li><button id="${esc(region)}-${category}-${index}" class="sync-result-name" type="button" data-import-history-item="${index}" data-import-history-batch="${esc(group.id)}" title="${esc([item.label,item.course,status.label].filter(Boolean).join(" · "))}" ${category === "error" ? `aria-expanded="${historyProblems.get(group.id) === index}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${importStatusMarkup(status)}</button></li>`;
     }).join("");
     const problem = category === "error" ? items[historyProblems.get(group.id)] : null;
     const detail = problem ? `<div class="sync-problem" role="region" aria-label="${esc(problem.label)}的处理情况"><strong>${esc(problem.label)}</strong>${errorMarkup(batchErrorReport(problem.batch), source === "teaching" ? "teaching_sync" : "text_import", JSON.stringify(["recognition",problem.batch.request.request_id,problem.input_id]))}${problem.links ? `<p class="status-note">${problem.links}</p>` : ""}</div>` : "";
@@ -763,12 +763,13 @@ export function createImportUI(host) {
         if (!item) return true;
         if (category === "error") {
           historyProblems.set(group.id, historyProblems.get(group.id) === index ? null : index); refresh();
-        } else if (category === "review") {
+        } else {
           const candidate = itemById(item.candidate_id);
           const status = importResultStatus(item, category, { ...host, getCandidate: itemById });
           if (status.taskId) host.openTask?.(status.taskId);
           else if (!blocked() && candidate?.state === "pending") openReview(candidate);
-        } else host.openTask?.(item.task_id);
+          else if (status.message) host.toast(status.message);
+        }
       }
       return true;
     }

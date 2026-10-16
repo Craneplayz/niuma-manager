@@ -1,6 +1,6 @@
 import { newId } from "./id.js";
 import { describeUserError, userErrorMarkup } from "./user-errors.js";
-import { importResultStatus, importStatusMarkup, importCategorySummaries } from "./import-result-status.js";
+import { importResultStatus, importStatusMarkup, importTypeMarkup, importCategorySummaries } from "./import-result-status.js";
 
 const API = "/api/sources/sync-runs";
 const VERSION = "source-sync/0.1";
@@ -357,7 +357,7 @@ export function createSourceSyncUI(host) {
       redraw();
       host.revealImportResult?.(itemIndex >= 0 ? `sync-item-${target.run_id}-${category}-${itemIndex}` : `sync-run-${target.run_id}`);
     } catch (cause) {
-      if (valid()) host.toast?.(cause?.status === 404 ? "恢复结果已归档，已保存的任务不受影响" : "暂时无法定位恢复批次，请稍后重试");
+      if (valid()) host.toast?.(cause?.status === 404 ? "对应的恢复记录已无法查看，已保存的任务不受影响" : "暂时无法找到对应的恢复记录，请稍后重试");
     } finally { if (locateController === controller) locateController = null; }
   }
   function resultItems(run, category) {
@@ -384,7 +384,7 @@ export function createSourceSyncUI(host) {
     const { items, missing } = resultItems(run, category);
     const list = items.map((item, index) => {
       const action = category === "error" ? "problem" : category === "review" ? "open-review" : "open-task";
-      const identity = category === "error" ? String(index) : category === "review" ? item.candidate_id : item.task_id;
+      const identity = category === "error" ? String(index) : category === "review" ? item.candidate_id : item.task_id || item.candidate_id;
       const changes = category === "updated" ? [...new Set((item.changed_fields || []).map(field => UPDATE_FIELDS[field]))].join("、") : "";
       const note = changes ? `${changes}已更新` : "";
       const status = importResultStatus(item, category, host);
@@ -393,7 +393,7 @@ export function createSourceSyncUI(host) {
       const recoveryLabel = link?.request_id ? "查看成功批次" : "查看后续采集批次";
       const hint = recoveryHint?.runId === run.run_id && recoveryHint.category === category && recoveryHint.key &&
         recoveryHint.key === (category === "updated" ? item.task_id : item.candidate_id);
-      return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}><span>${esc(item.label)}</span>${hint ? recoveryHintMarkup() : ""}${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
+      return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${hint ? recoveryHintMarkup() : ""}${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
     }).join("");
     const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
     return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"修改",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
@@ -465,9 +465,11 @@ export function createSourceSyncUI(host) {
         selectedProblems.set(run.run_id, selectedProblems.get(run.run_id) === identity ? null : identity);
         redraw();
       } else if (action === "open-task") {
-        const item = [...resultItems(run, "added").items, ...(run.updated_tasks || [])].find(item => item.task_id && item.task_id === data.sourceSyncItem);
-        if (item) host.openTask?.(item.task_id);
-        else host.toast?.("这条任务或通知已不在当前列表中");
+        const item = [...resultItems(run, "added").items, ...(run.updated_tasks || [])].find(item =>
+          (item.task_id || item.candidate_id) === data.sourceSyncItem);
+        const status = item && importResultStatus(item, "added", host);
+        if (status?.taskId) host.openTask?.(status.taskId);
+        else host.toast?.(status?.message || "这条任务或通知已无法查看");
       } else {
         const item = resultItems(run, "review").items.find(item => item.candidate_id === data.sourceSyncItem);
         if (item) await host.openReview?.(item.candidate_id);
