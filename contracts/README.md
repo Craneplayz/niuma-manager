@@ -3,9 +3,9 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
-├── docs/email-auth-v0.1.md            # 邮箱验证码注册、已有账号补验证及会话字段约定
-├── schemas/email-auth-v0.1.schema.json # 邮箱验证请求、验证码句柄及公开用户响应的独立根
-├── examples/email-auth-v01.json      # 新旧账号、IDNA邮箱、限流及投递错误合成样例
+├── docs/email-auth-v0.1.md            # 邮箱验证码注册、补验证、密码找回及会话字段约定
+├── schemas/email-auth-v0.1.schema.json # 邮箱验证/密码找回请求、验证码句柄及公开响应独立根
+├── examples/email-auth-v01.json      # 新旧账号、密码找回、IDNA邮箱、限流及投递错误样例
 ├── tests/test_email_auth.py          # 邮箱接口共享正例、字段缺失和敏感响应字段反例
 ├── public_import.py                  # 公开活动采集、预览、选择导入的独立根及一致性校验
 ├── schemas/public-import-v0.1.schema.json # 公开活动自包含 Schema 包

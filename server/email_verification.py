@@ -57,6 +57,8 @@ def initialize(db):
         CREATE TABLE IF NOT EXISTS email_rate_events(
             kind TEXT NOT NULL, subject TEXT NOT NULL, occurred_at REAL NOT NULL);
         CREATE INDEX IF NOT EXISTS email_rate_lookup ON email_rate_events(kind,subject,occurred_at);
+        CREATE TABLE IF NOT EXISTS email_reset_credentials(
+            challenge_id TEXT PRIMARY KEY, credential_version TEXT NOT NULL);
     ''')
 
 
@@ -66,6 +68,27 @@ def verified(db, uid):
 
 def mark_verified(db, uid):
     db.execute('INSERT OR IGNORE INTO verified_emails VALUES(?,?)', (uid, time.time()))
+
+
+def account_for_email(db, email):
+    canonical = normalize_email(email)
+    local, domain = canonical.rsplit('@', 1)
+    # Preserve legacy Unicode-domain addresses without changing stored identities.
+    candidates = dict.fromkeys((email.strip().lower(), canonical, local + '@' + domain.encode('ascii').decode('idna')))
+    for candidate in candidates:
+        row = db.execute('SELECT * FROM users WHERE email=?', (candidate,)).fetchone()
+        if row:
+            return row
+    return None
+
+
+def invalidate_account_codes(db, uid):
+    db.execute("UPDATE email_challenges SET status='superseded' WHERE user_id=? AND status IN ('pending','active')",
+               (uid,))
+
+
+def _credential_version(key, account):
+    return _hash(key, 'credential-version', account['salt'], account['hash'])
 
 
 def _key(path):
@@ -115,7 +138,7 @@ def _event(db, kind, subjects, now, include_email=True):
 
 def request_code(db, email, purpose, user_id, remote_ip, key_path):
     email = normalize_email(email)
-    if purpose not in ('register', 'verify_email'):
+    if purpose not in ('register', 'verify_email', 'reset_password'):
         raise VerificationError(400, 'email_code_invalid', '验证码用途不正确')
     if not mail_delivery.configured():
         raise VerificationError(503, 'email_not_configured', '邮件服务尚未配置，请联系管理员')
@@ -123,8 +146,16 @@ def request_code(db, email, purpose, user_id, remote_ip, key_path):
     challenge_id, code = secrets.token_urlsafe(32), f'{secrets.randbelow(1000000):06d}'
     db.execute('BEGIN IMMEDIATE')
     key = _key(key_path)
+    recovery = purpose == 'reset_password'
+    eligible = True
+    account = None
+    if recovery:
+        account = account_for_email(db, email)
+        eligible = bool(account and verified(db, account['id']))
+        user_id = account['id'] if eligible else ''
     db.execute('DELETE FROM email_rate_events WHERE occurred_at<?', (now - 86400,))
     db.execute('DELETE FROM email_challenges WHERE created_at<?', (now - 86400,))
+    db.execute('DELETE FROM email_reset_credentials WHERE challenge_id NOT IN (SELECT id FROM email_challenges)')
     subjects = _subjects(key, email, remote_ip)
     _limit(db, 'send', subjects, SEND_LIMITS, now)
     _event(db, 'send', subjects, now)
@@ -132,21 +163,31 @@ def request_code(db, email, purpose, user_id, remote_ip, key_path):
                (email, purpose, user_id))
     db.execute('INSERT INTO email_challenges VALUES(?,?,?,?,?,?,?,?,?)',
                (challenge_id, email, purpose, user_id, _hash(key, challenge_id, email, purpose, user_id, code),
-                now, now + CODE_TTL, 0, 'pending'))
+                now, now + CODE_TTL, 0, 'pending' if eligible else 'unavailable'))
+    if recovery and eligible:
+        db.execute('INSERT INTO email_reset_credentials VALUES(?,?)',
+                   (challenge_id, _credential_version(key, account)))
     # Reserve quota before network I/O, without holding a database lock while SMTP waits.
     db.commit()
+    result = dict(challengeId=challenge_id, retryAfter=60, expiresIn=CODE_TTL)
+    if not eligible:
+        return result
     try:
         mail_delivery.send_verification(email, code, purpose)
     except mail_delivery.DeliveryError as error:
         db.execute("UPDATE email_challenges SET status='failed' WHERE id=?", (challenge_id,))
         db.commit()
+        if recovery:
+            # Account eligibility and provider rejection must not be disclosed in
+            # recovery acknowledgements. Keep the failed state for operators.
+            return result
         raise VerificationError(503, getattr(error, 'code', 'email_send_failed'), error.message) from None
     db.execute("UPDATE email_challenges SET status='active' WHERE id=? AND status='pending'", (challenge_id,))
     db.commit()
-    return dict(challengeId=challenge_id, retryAfter=60, expiresIn=CODE_TTL)
+    return result
 
 
-def consume_code(db, email, purpose, user_id, challenge_id, code, remote_ip, key_path):
+def consume_code(db, email, purpose, user_id, challenge_id, code, remote_ip, key_path, credentials=None):
     """Leave successful consumption in the caller's account transaction."""
     email = normalize_email(email)
     if not db.in_transaction:
@@ -157,12 +198,17 @@ def consume_code(db, email, purpose, user_id, challenge_id, code, remote_ip, key
     row = db.execute('SELECT * FROM email_challenges WHERE id=?',
                      (challenge_id if isinstance(challenge_id, str) and len(challenge_id) <= 100 else '',)).fetchone()
     matches = (row and row['email'] == email and row['purpose'] == purpose and row['user_id'] == user_id)
+    credential_matches = True
+    if matches and purpose == 'reset_password':
+        version = db.execute('SELECT credential_version FROM email_reset_credentials WHERE challenge_id=?', (row['id'],)).fetchone()
+        credential_matches = (credentials is not None and version is not None
+                              and hmac.compare_digest(version['credential_version'], _credential_version(key, credentials)))
     # An attacker who does not know the unpredictable challenge ID must not be
     # able to exhaust someone else's email budget merely by naming their email.
     limits = GUESS_LIMITS if matches else tuple(limit for limit in GUESS_LIMITS if limit[0] != 'email')
     _limit(db, 'guess', subjects, limits, now)
     expired = matches and row['expires_at'] <= now
-    valid = (matches and not expired and row['status'] == 'active' and row['attempts'] < MAX_ATTEMPTS
+    valid = (matches and credential_matches and not expired and row['status'] == 'active' and row['attempts'] < MAX_ATTEMPTS
              and isinstance(code, str) and bool(re.fullmatch(r'[0-9]{6}', code))
              and hmac.compare_digest(row['code_hash'], _hash(key, row['id'], email, purpose, user_id, code)))
     if not valid:
@@ -171,7 +217,7 @@ def consume_code(db, email, purpose, user_id, challenge_id, code, remote_ip, key
             db.execute('UPDATE email_challenges SET attempts=attempts+1 WHERE id=?', (row['id'],))
         # Failed attempts must survive the HTTP error transaction's rollback.
         db.commit()
-        if expired:
+        if expired and purpose != 'reset_password':
             raise VerificationError(400, 'email_code_expired', '验证码已过期，请重新获取')
         raise VerificationError(400, 'email_code_invalid', '验证码不正确或已失效，请检查或重新获取')
     db.execute("UPDATE email_challenges SET status='consumed' WHERE id=?", (row['id'],))

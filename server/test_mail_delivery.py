@@ -18,7 +18,7 @@ class MailDeliveryTests(unittest.TestCase):
         self.addCleanup(self.environment.stop)
 
     def test_tls_sender_identity_and_one_recipient(self):
-        for purpose in ('register', 'verify_email', 'verify'):
+        for purpose in ('register', 'verify_email', 'verify', 'reset_password'):
             with self.subTest(purpose=purpose), patch.object(mail.smtplib, 'SMTP_SSL') as connect:
                 connect.return_value.__enter__.return_value.send_message.return_value = {}
                 mail.send_verification('student@example.net', '031009', purpose)
@@ -39,6 +39,21 @@ class MailDeliveryTests(unittest.TestCase):
                 self.assertEqual(client.send_message.call_args.kwargs,
                                  {'from_addr': self.settings['NIUMA_MAIL_FROM'], 'to_addrs': ['student@example.net']})
                 client.set_debuglevel.assert_not_called()
+
+    def test_password_reset_mail_identifies_the_action_and_keeps_the_code_private(self):
+        with patch.object(mail.smtplib, 'SMTP_SSL') as connect:
+            connect.return_value.__enter__.return_value.send_message.return_value = {}
+            output = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(output):
+                mail.send_verification('student@example.net', '031009', 'reset_password')
+            client = connect.return_value.__enter__.return_value
+            message = client.send_message.call_args.args[0]
+            self.assertEqual(message['Subject'], '牛马管理器 · 重置密码验证码')
+            self.assertIn('你正在重置密码。', message.get_content())
+            self.assertIn('请勿向他人透露此验证码', message.get_content())
+            self.assertIn('如果这不是你的操作，请忽略此邮件。', message.get_content())
+            self.assertNotIn('031009', str(message['Subject']))
+            self.assertEqual(output.getvalue(), '')
 
     def test_official_region_hosts_only(self):
         for host in mail.SMTP_HOSTS:

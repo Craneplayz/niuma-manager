@@ -1,11 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Email registration and verification v0.1",
+  "title": "Email registration, verification and password recovery v0.1",
   "description": "Each named request or response is available under $defs. All references are local to this document. Request extensions are ignored by the API; response schemas reject accidental private fields.",
   "anyOf": [
     {"$ref": "#/$defs/emailCodeRequest"},
     {"$ref": "#/$defs/registerRequest"},
     {"$ref": "#/$defs/verifyEmailRequest"},
+    {"$ref": "#/$defs/resetPasswordRequest"},
+    {"$ref": "#/$defs/resetPasswordResponse"},
     {"$ref": "#/$defs/challengeResponse"},
     {"$ref": "#/$defs/publicUser"},
     {"$ref": "#/$defs/userResponse"},
@@ -35,10 +37,21 @@
       "additionalProperties": true,
       "description": "Requires a session. The recipient is the logged-in account's email; any email field supplied by the client is ignored."
     },
+    "emailCodePasswordResetRequest": {
+      "type": "object",
+      "required": ["purpose", "email"],
+      "properties": {
+        "purpose": {"const": "reset_password"},
+        "email": {"$ref": "#/$defs/emailInput"}
+      },
+      "additionalProperties": true,
+      "description": "Unauthenticated password recovery. Eligible and ineligible addresses receive the same challenge response without revealing whether an account exists."
+    },
     "emailCodeRequest": {
       "oneOf": [
         {"$ref": "#/$defs/emailCodeRegistrationRequest"},
-        {"$ref": "#/$defs/emailCodeVerificationRequest"}
+        {"$ref": "#/$defs/emailCodeVerificationRequest"},
+        {"$ref": "#/$defs/emailCodePasswordResetRequest"}
       ]
     },
     "registerRequest": {
@@ -61,6 +74,25 @@
         "code": {"$ref": "#/$defs/code"}
       },
       "additionalProperties": true
+    },
+    "resetPasswordRequest": {
+      "type": "object",
+      "required": ["email", "challengeId", "code", "newPassword"],
+      "properties": {
+        "email": {"$ref": "#/$defs/emailInput"},
+        "challengeId": {"$ref": "#/$defs/challengeId"},
+        "code": {"$ref": "#/$defs/code"},
+        "newPassword": {"type": "string", "minLength": 8, "maxLength": 128}
+      },
+      "additionalProperties": true,
+      "description": "POST /api/auth/reset-password. The email, challenge and one-time code must match the reset_password purpose. Success changes the password without logging in."
+    },
+    "resetPasswordResponse": {
+      "type": "object",
+      "required": ["reset"],
+      "properties": {"reset": {"const": true}},
+      "additionalProperties": false,
+      "description": "HTTP 200 after a successful password reset. No session, user, credentials or verification code are returned."
     },
     "challengeResponse": {
       "type": "object",
@@ -118,7 +150,7 @@
       "required": ["error"],
       "properties": {"error": {"type": "string", "minLength": 1}},
       "additionalProperties": false,
-      "description": "Existing authentication and registration validation errors may omit a machine code."
+      "description": "Existing authentication, registration and password validation errors may omit a machine code; invalid new passwords return HTTP 400."
     },
     "errorResponse": {
       "oneOf": [

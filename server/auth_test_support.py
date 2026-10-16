@@ -1,6 +1,7 @@
 """Synthetic account fixtures for tests; never used by application request handling."""
 import secrets
 import sqlite3
+from contextlib import closing
 from unittest.mock import patch
 
 import app
@@ -37,5 +38,6 @@ def legacy_account_row(account):
 
 def seed_legacy_account(path, account):
     """Seed a synthetic account into an already initialized disposable test DB."""
-    with sqlite3.connect(path, timeout=10) as db:
-        db.execute('INSERT INTO users VALUES(?,?,?,?,?)', legacy_account_row(account))
+    with closing(sqlite3.connect(path, timeout=10)) as db:
+        with db:
+            db.execute('INSERT INTO users VALUES(?,?,?,?,?)', legacy_account_row(account))

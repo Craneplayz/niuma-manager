@@ -13,7 +13,8 @@ MAIL_KEYS = frozenset({'NIUMA_MAIL_HOST', 'NIUMA_MAIL_PORT', 'NIUMA_MAIL_FROM',
 # https://help.aliyun.com/zh/direct-mail/smtp-endpoints
 SMTP_HOSTS = frozenset({'smtpdm.aliyun.com', 'smtpdm-ap-southeast-1.aliyuncs.com',
                         'smtpdm-us-east-1.aliyuncs.com', 'smtpdm-eu-central-1.aliyuncs.com'})
-PURPOSES = {'register': '注册账号', 'verify_email': '验证邮箱', 'verify': '验证邮箱'}
+PURPOSES = {'register': '注册账号', 'verify_email': '验证邮箱', 'verify': '验证邮箱',
+            'reset_password': '重置密码'}
 UNAVAILABLE = '邮件服务暂不可用，请稍后重试或联系管理员'
 NOT_CONFIGURED = '邮件服务尚未配置，请联系管理员'
 _LABEL = r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'

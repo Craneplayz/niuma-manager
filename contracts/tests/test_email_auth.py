@@ -25,15 +25,16 @@ class EmailAuthContractTests(unittest.TestCase):
                 with self.subTest(definition=definition, index=index):
                     validator(definition).validate(example)
                     document.validate(example)
-        for definition in ('emailCodeRegistrationRequest', 'emailCodeVerificationRequest'):
+        for definition in ('emailCodeRegistrationRequest', 'emailCodeVerificationRequest',
+                           'emailCodePasswordResetRequest'):
             for example in EXAMPLES[definition]:
                 validator('emailCodeRequest').validate(example)
         for definition in ('emailError', 'legacyAuthError'):
             for example in EXAMPLES[definition]:
                 validator('errorResponse').validate(example)
 
-    def test_registration_and_verification_require_a_six_digit_string_code(self):
-        for definition in ('registerRequest', 'verifyEmailRequest'):
+    def test_code_consuming_requests_require_a_six_digit_string_code(self):
+        for definition in ('registerRequest', 'verifyEmailRequest', 'resetPasswordRequest'):
             original = EXAMPLES[definition][0]
             missing = deepcopy(original)
             missing.pop('code')
@@ -44,17 +45,20 @@ class EmailAuthContractTests(unittest.TestCase):
             validator(definition).validate(dict(original, code='000001'))
 
     def test_wrong_or_missing_purpose_and_registration_email_are_rejected(self):
-        for request in ({}, {'purpose': 'reset_password', 'email': 'student@example.test'},
+        for request in ({}, {'purpose': 'password_reset', 'email': 'student@example.test'},
                         {'purpose': 'REGISTER', 'email': 'student@example.test'},
                         {'purpose': ['register'], 'email': 'student@example.test'},
                         {'purpose': 'register'}, {'purpose': 'register', 'email': None},
-                        {'purpose': 'register', 'email': 'missing-at-sign'}):
+                        {'purpose': 'register', 'email': 'missing-at-sign'},
+                        {'purpose': 'reset_password'}, {'purpose': 'reset_password', 'email': None},
+                        {'purpose': 'reset_password', 'email': 'missing-at-sign'}):
             with self.subTest(request=request):
                 self.assertFalse(validator('emailCodeRequest').is_valid(request))
 
     def test_ignored_request_extensions_match_the_http_boundary(self):
         for definition in ('emailCodeRegistrationRequest', 'emailCodeVerificationRequest',
-                           'registerRequest', 'verifyEmailRequest'):
+                           'emailCodePasswordResetRequest', 'registerRequest', 'verifyEmailRequest',
+                           'resetPasswordRequest'):
             original = EXAMPLES[definition][0]
             validator(definition).validate(dict(original, ignored={'arbitrary': ['extension']}))
         # Both authenticated endpoints obtain their mailbox from the session.
@@ -70,6 +74,32 @@ class EmailAuthContractTests(unittest.TestCase):
                            ('challengeId', None), ('challengeId', ''), ('challengeId', 'a' * 101)]:
             with self.subTest(field=key):
                 self.assertFalse(validator('registerRequest').is_valid(dict(original, **{key: value})))
+
+    def test_password_reset_requires_its_email_challenge_and_bounded_new_password(self):
+        original = EXAMPLES['resetPasswordRequest'][0]
+        for key in ('email', 'challengeId', 'code', 'newPassword'):
+            with self.subTest(missing=key):
+                missing = deepcopy(original)
+                missing.pop(key)
+                self.assertFalse(validator('resetPasswordRequest').is_valid(missing))
+        for key, value in [('email', None), ('email', 'invalid'), ('email', []),
+                           ('challengeId', None), ('challengeId', ''), ('challengeId', 'a' * 101),
+                           ('newPassword', 'short'), ('newPassword', 'a' * 129),
+                           ('newPassword', 12345678), ('newPassword', None)]:
+            with self.subTest(field=key, value=value):
+                self.assertFalse(validator('resetPasswordRequest').is_valid(dict(original, **{key: value})))
+        for size in (8, 128):
+            validator('resetPasswordRequest').validate(dict(original, newPassword='a' * size))
+
+    def test_password_reset_success_cannot_expose_private_data_or_log_in(self):
+        original = EXAMPLES['resetPasswordResponse'][0]
+        self.assertFalse(validator('resetPasswordResponse').is_valid({}))
+        for value in (False, 1, 'true', None):
+            self.assertFalse(validator('resetPasswordResponse').is_valid({'reset': value}))
+        for key in ('user', 'password', 'newPassword', 'code', 'token', 'session', 'smtpResponse'):
+            with self.subTest(field=key):
+                self.assertFalse(validator('resetPasswordResponse').is_valid(
+                    dict(original, **{key: 'synthetic-private-value'})))
 
     def test_challenge_response_does_not_expose_the_code_or_provider_details(self):
         original = EXAMPLES['challengeResponse'][0]

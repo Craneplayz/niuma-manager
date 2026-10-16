@@ -7,15 +7,29 @@
     {"purpose": "verify_email"},
     {"purpose": "verify_email", "email": "ignored-client-value@example.test"}
   ],
+  "emailCodePasswordResetRequest": [
+    {"purpose": "reset_password", "email": "student@example.test"},
+    {"purpose": "reset_password", "email": " Student@例子.中国 "},
+    {"purpose": "reset_password", "email": "unknown-account@example.test"}
+  ],
   "registerRequest": [
     {"name": "合成注册账号", "email": "student@example.test", "password": "Synthetic-Only-2026!", "challengeId": "synthetic-register-challenge", "code": "012345"}
   ],
   "verifyEmailRequest": [
     {"challengeId": "synthetic-verify-challenge", "code": "098765", "email": "ignored-client-value@example.test"}
   ],
+  "resetPasswordRequest": [
+    {"email": "student@example.test", "challengeId": "synthetic-reset-challenge", "code": "012345", "newPassword": "Synthetic-Reset-2026!"},
+    {"email": " Student@例子.中国 ", "challengeId": "synthetic-idna-reset-challenge", "code": "000001", "newPassword": "Synthetic-Only-2026!"}
+  ],
+  "resetPasswordResponse": [
+    {"reset": true}
+  ],
   "challengeResponse": [
     {"challengeId": "synthetic-register-challenge", "retryAfter": 60, "expiresIn": 600},
-    {"challengeId": "synthetic-verify-challenge", "retryAfter": 60, "expiresIn": 600}
+    {"challengeId": "synthetic-verify-challenge", "retryAfter": 60, "expiresIn": 600},
+    {"challengeId": "synthetic-reset-challenge", "retryAfter": 60, "expiresIn": 600},
+    {"challengeId": "synthetic-unknown-reset-challenge", "retryAfter": 60, "expiresIn": 600}
   ],
   "publicUser": [
     {"id": "synthetic-new-user", "name": "合成注册账号", "email": "student@example.test", "emailVerified": true},
@@ -42,6 +56,7 @@
   "legacyAuthError": [
     {"error": "登录已失效，请重新登录"},
     {"error": "请输入有效邮箱和至少 8 位密码"},
-    {"error": "该邮箱已注册"}
+    {"error": "该邮箱已注册"},
+    {"error": "密码需为 8–128 位"}
   ]
 }

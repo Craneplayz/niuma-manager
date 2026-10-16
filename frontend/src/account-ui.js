@@ -62,8 +62,10 @@ export function createAccountUI(host) {
       return `<form data-account-form="profile">${header("修改昵称")}<label class="field">昵称<input name="name" required maxlength="40" autocomplete="nickname" value="${esc(session.user?.name || "")}"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">保存昵称</button></div></form>`;
     if (mode === "password")
       return `<form data-account-form="password">${header("修改密码")}<label class="field">当前密码<input name="currentPassword" type="password" required maxlength="128" autocomplete="current-password"></label><label class="field">新密码<input name="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="至少 8 位"></label><label class="field">确认新密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">更新密码</button></div></form>`;
+    if (mode === "reset-password")
+      return `<form data-account-form="reset-password">${header("找回密码")}<p class="status-note">请使用已验证的账号邮箱接收验证码，设置新密码后重新登录。</p><label class="field">邮箱<input name="email" type="email" required maxlength="254" autocomplete="username" value="${esc(email)}"></label>${codeMarkup()}<label class="field">新密码<input name="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="至少 8 位"></label><label class="field">确认新密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">重置密码</button><button type="button" class="btn quiet" data-account-action="login">返回登录</button></div></form>`;
     const register = mode === "register";
-    return `<form data-account-form="${register ? "register" : "login"}">${header(register ? "注册账号" : "登录")}<label class="field">邮箱<input name="email" type="email" required maxlength="254" autocomplete="username" value="${esc(email)}"></label>${register ? '<label class="field">昵称<input name="displayName" maxlength="40" autocomplete="nickname" placeholder="可稍后修改"></label>' : ""}<label class="field">密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="${register ? "new-password" : "current-password"}" placeholder="至少 8 位"></label>${register ? '<label class="field">确认密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>' + codeMarkup() : ""}${errorMarkup()}<div class="dialog-actions"><button class="btn primary" type="submit">${register ? "注册并登录" : "登录"}</button><button class="btn quiet" type="button" data-account-action="${register ? "login" : "register"}">${register ? "已有账号，去登录" : "注册账号"}</button></div></form>`;
+    return `<form data-account-form="${register ? "register" : "login"}">${header(register ? "注册账号" : "登录")}<label class="field">邮箱<input name="email" type="email" required maxlength="254" autocomplete="username" value="${esc(email)}"></label>${register ? '<label class="field">昵称<input name="displayName" maxlength="40" autocomplete="nickname" placeholder="可稍后修改"></label>' : ""}<label class="field">密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="${register ? "new-password" : "current-password"}" placeholder="至少 8 位"></label>${register ? '<label class="field">确认密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>' + codeMarkup() : ""}${errorMarkup()}<div class="dialog-actions"><button class="btn primary" type="submit">${register ? "注册并登录" : "登录"}</button><button class="btn quiet" type="button" data-account-action="${register ? "login" : "register"}">${register ? "已有账号，去登录" : "注册账号"}</button>${!register && !session.user ? '<button class="btn quiet" type="button" data-account-action="reset-password">忘记密码</button>' : ""}</div></form>`;
   }
   function show(nextMode) {
     clearVerification();
@@ -106,7 +108,7 @@ export function createAccountUI(host) {
     button.textContent = sending ? "正在发送…" : remaining ? `${remaining} 秒后重发` : challenge ? "重新发送验证码" : "发送验证码";
     const status = form.querySelector("[data-email-code-status]");
     if (status) {
-      status.textContent = challenge ? "验证码已发送，10 分钟内有效，请查看收件箱或垃圾邮件。" : "";
+      status.textContent = challenge ? form.dataset.accountForm === "reset-password" ? "如果该邮箱有可找回的账号，验证码会发送到收件箱。验证码 10 分钟内有效，也请检查垃圾邮件。" : "验证码已发送，10 分钟内有效，请查看收件箱或垃圾邮件。" : "";
       status.hidden = !challenge;
     }
     if (remaining > 0) {
@@ -120,13 +122,14 @@ export function createAccountUI(host) {
   async function sendCode(button) {
     const form = button.closest?.("[data-account-form]");
     const kind = form?.dataset.accountForm;
-    if (!form || !["register", "verify-email"].includes(kind) || busy || sending || retryAt > Date.now()) return;
+    if (!form || !["register", "verify-email", "reset-password"].includes(kind) || busy || sending || retryAt > Date.now()) return;
+    if (kind === "reset-password" && session.user) return;
     const emailField = form.querySelector('[name="email"]');
-    if (kind === "register" && !emailField?.checkValidity()) {
+    if (kind !== "verify-email" && !emailField?.checkValidity()) {
       emailField?.reportValidity();
       return;
     }
-    const targetEmail = normalizedEmail(kind === "register" ? emailField.value : session.user?.email);
+    const targetEmail = normalizedEmail(kind !== "verify-email" ? emailField.value : session.user?.email);
     const attempt = ++verificationOperation, epoch = accountVersion(), userId = session.user?.id;
     const current = () => attempt === verificationOperation && epoch === accountVersion() && userId === session.user?.id && formIsOpen(form);
     const controller = new AbortController();
@@ -135,9 +138,10 @@ export function createAccountUI(host) {
     formError(form, "");
     updateCodeControls(form);
     try {
-      const result = await api("/api/auth/email-code", kind === "register" ? { purpose: "register", email: targetEmail } : { purpose: "verify_email" }, "POST", { signal: controller.signal });
+      const purpose = { register: "register", "verify-email": "verify_email", "reset-password": "reset_password" }[kind];
+      const result = await api("/api/auth/email-code", kind !== "verify-email" ? { purpose, email: targetEmail } : { purpose }, "POST", { signal: controller.signal });
       if (!current()) return;
-      challenge = { id: result.challengeId, email: targetEmail, expiresAt: Date.now() + (Number(result.expiresIn) || 600) * 1000 };
+      challenge = { id: result.challengeId, kind, email: targetEmail, expiresAt: Date.now() + (Number(result.expiresIn) || 600) * 1000 };
       retryAt = Date.now() + Math.min(86400, Math.max(1, Number(result.retryAfter) || 60)) * 1000;
       const codeField = form.querySelector('[name="code"]');
       if (codeField) {
@@ -185,6 +189,12 @@ export function createAccountUI(host) {
   async function click(button) {
     const action = button.dataset.accountAction;
     if (!action) return false;
+    // Escape may dismiss the anonymous reset form while its request is pending.
+    // Reopening starts a new operation so that the dismissed request stays stale.
+    if (action === "open" && mode === "reset-password") {
+      show(session.user ? "summary" : "login");
+      return true;
+    }
     if (busy) return true;
     if (action === "close") {
       clearVerification();
@@ -201,8 +211,9 @@ export function createAccountUI(host) {
       show(session.user ? "summary" : "login");
       return true;
     }
-    if (["login", "register", "profile", "password", "verify-email", "summary"].includes(action)) {
+    if (["login", "register", "profile", "password", "verify-email", "reset-password", "summary"].includes(action)) {
       if (["profile", "password", "verify-email", "summary"].includes(action) && !session.user) show("login");
+      else if (action === "reset-password" && session.user) show("summary");
       else show(action);
       return true;
     }
@@ -216,14 +227,19 @@ export function createAccountUI(host) {
     const kind = form.dataset.accountForm;
     if (!kind) return false;
     if (busy || sending) return true;
+    if (kind === "reset-password" && session.user) return true;
     const values = Object.fromEntries(new FormData(form));
     if (kind === "register" && values.password !== values.confirmPassword) {
       formError(form, "两次输入的密码不一致");
       return true;
     }
-    if (["register", "verify-email"].includes(kind)) {
-      const targetEmail = normalizedEmail(kind === "register" ? values.email : session.user?.email);
-      if (!challenge || challenge.email !== targetEmail) {
+    if (kind === "reset-password" && values.newPassword !== values.confirmPassword) {
+      formError(form, "两次输入的新密码不一致");
+      return true;
+    }
+    if (["register", "verify-email", "reset-password"].includes(kind)) {
+      const targetEmail = normalizedEmail(kind !== "verify-email" ? values.email : session.user?.email);
+      if (!challenge || challenge.kind !== kind || challenge.email !== targetEmail) {
         formError(form, "请先发送邮箱验证码");
         return true;
       }
@@ -254,12 +270,12 @@ export function createAccountUI(host) {
     const attempt = ++operation,
       epoch = accountVersion(),
       accountChange = ["login", "register"].includes(kind);
-    const current = () => attempt === operation && (accountChange || epoch === accountVersion()) && (kind !== "verify-email" || formIsOpen(form));
+    const current = () => attempt === operation && (accountChange || epoch === accountVersion()) && (!["verify-email", "reset-password"].includes(kind) || formIsOpen(form));
     busy = true;
     formError(form, "");
     lock(form, true);
     const submitButton = form.querySelector('[type="submit"]'), label = submitButton?.textContent;
-    if (submitButton) submitButton.textContent = accountChange ? "正在登录…" : kind === "verify-email" ? "正在验证…" : "正在保存…";
+    if (submitButton) submitButton.textContent = accountChange ? "正在登录…" : kind === "verify-email" ? "正在验证…" : kind === "reset-password" ? "正在重置…" : "正在保存…";
     try {
       if (accountChange) {
         email = String(values.email || "").trim();
@@ -272,6 +288,13 @@ export function createAccountUI(host) {
         host.render();
         host.toast("已登录");
         email = "";
+      } else if (kind === "reset-password") {
+        const result = await api("/api/auth/reset-password", { email: normalizedEmail(values.email), challengeId: values.challengeId, code: values.code, newPassword: values.newPassword });
+        if (!current()) return true;
+        if (result.reset !== true) throw new Error("密码重置结果未确认");
+        email = String(values.email || "").trim();
+        show("login");
+        host.toast("密码已重置，请使用新密码登录");
       } else if (kind === "verify-email") {
         const result = await api("/api/auth/verify-email", { challengeId: values.challengeId, code: values.code });
         if (!current() || result.user?.id !== session.user?.id) return true;
@@ -296,12 +319,12 @@ export function createAccountUI(host) {
     } catch (e) {
       if (current()) formError(form, e);
     } finally {
-      registering = false;
       if (attempt === operation) {
+        registering = false;
         busy = false;
         lock(form, false);
         if (submitButton) submitButton.textContent = label;
-        if (["register", "verify-email"].includes(kind)) updateCodeControls(form);
+        if (["register", "verify-email", "reset-password"].includes(kind)) updateCodeControls(form);
       }
     }
     return true;
@@ -310,7 +333,7 @@ export function createAccountUI(host) {
     if (event.target.name === "email" && event.target.closest?.("[data-account-form]")) {
       email = event.target.value;
       const form = event.target.closest("[data-account-form]");
-      if (form.dataset.accountForm === "register") {
+      if (["register", "reset-password"].includes(form.dataset.accountForm)) {
         clearVerification();
         const code = form.querySelector('[name="code"]');
         if (code) code.value = "";

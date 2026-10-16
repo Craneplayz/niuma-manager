@@ -263,7 +263,7 @@ class EmailVerificationTests(unittest.TestCase):
     def test_invalid_addresses_and_unknown_purposes_never_send(self):
         for address in ('no-at-sign', 'a@@example.test', 'a\r\nBcc: b@example.test', 'a..b@example.test', 'a@-example.test'):
             self.assertEqual(self.call('/auth/email-code', dict(email=address, purpose='register'))[0], 400)
-        self.assertEqual(self.call('/auth/email-code', dict(email='new@example.test', purpose='reset_password'))[0], 400)
+        self.assertEqual(self.call('/auth/email-code', dict(email='new@example.test', purpose='change_email'))[0], 400)
         self.assertEqual(self.mailbox, [])
 
     def test_challenge_cannot_be_used_in_another_environment(self):

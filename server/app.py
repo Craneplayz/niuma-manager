@@ -237,10 +237,29 @@ class Handler(BaseHTTPRequestHandler):
                     uid, email = user['id'], user['email']
                     if user['emailVerified']:
                         raise email_verification.VerificationError(409, 'email_already_verified', '当前邮箱已经验证')
+                elif purpose == 'reset_password':
+                    email = email_verification.normalize_email(body.get('email'))
+                    uid = ''
                 else:
                     raise email_verification.VerificationError(400, 'email_code_invalid', '验证码用途不正确')
                 result = email_verification.request_code(db, email, purpose, uid, self.email_client_ip(), DB.parent / 'email-verification.key')
                 return self.reply(200, result)
+            if path=='/api/auth/reset-password' and self.command=='POST':
+                email = email_verification.normalize_email(body.get('email'))
+                new = body.get('newPassword')
+                if not isinstance(new, str) or not 8 <= len(new) <= 128:
+                    raise ApiError(400, '新密码需要 8–128 个字符')
+                db.execute('BEGIN IMMEDIATE')
+                row = email_verification.account_for_email(db, email)
+                eligible = bool(row and email_verification.verified(db, row['id']))
+                email_verification.consume_code(db, email, 'reset_password', row['id'] if eligible else '',
+                                                body.get('challengeId'), body.get('code'), self.email_client_ip(),
+                                                DB.parent / 'email-verification.key', credentials=row if eligible else None)
+                salt = secrets.token_hex(16)
+                db.execute('UPDATE users SET salt=?,hash=? WHERE id=?', (salt, password_hash(new, salt), row['id']))
+                db.execute('DELETE FROM sessions WHERE user_id=?', (row['id'],))
+                email_verification.invalidate_account_codes(db, row['id'])
+                return self.reply(200, dict(reset=True))
             if path in ['/api/auth/register','/api/auth/login','/api/admin/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
@@ -268,6 +287,15 @@ class Handler(BaseHTTPRequestHandler):
                     row=db.execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
                 elif not row or not hmac.compare_digest(row['hash'],password_hash(password,row['salt'])):
                     raise ApiError(401,'邮箱或密码不正确')
+                else:
+                    # Password hashing happens outside the write lock. Recheck the
+                    # snapshot inside it so a concurrent reset cannot create a
+                    # new session authenticated by the previous password.
+                    db.execute('BEGIN IMMEDIATE')
+                    current = db.execute('SELECT * FROM users WHERE id=?', (row['id'],)).fetchone()
+                    if not current or current['salt'] != row['salt'] or not hmac.compare_digest(current['hash'], row['hash']):
+                        raise ApiError(401, '邮箱或密码不正确')
+                    row = current
                 administrator=path.startswith('/api/admin/')
                 if administrator and not usage.admin(row['id'],db): raise ApiError(403,'此账号没有后台访问权限')
                 token=secrets.token_urlsafe(32)
@@ -316,11 +344,16 @@ class Handler(BaseHTTPRequestHandler):
                 current=str(body.get('currentPassword',''))
                 new=str(body.get('newPassword',''))
                 if not 8<=len(new)<=128: raise ApiError(400,'新密码需要 8–128 个字符')
+                db.execute('BEGIN IMMEDIATE')
+                # A request may have passed the initial session check before a
+                # recovery revoked it; never let it restore the old credentials.
+                self.user(db)
                 row=db.execute('SELECT salt,hash FROM users WHERE id=?',(uid,)).fetchone()
                 if not hmac.compare_digest(row['hash'],password_hash(current,row['salt'])): raise ApiError(400,'当前密码不正确')
                 salt=secrets.token_hex(16)
                 db.execute('UPDATE users SET salt=?,hash=? WHERE id=?',(salt,password_hash(new,salt),uid))
                 db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
+                email_verification.invalidate_account_codes(db, uid)
                 return self.reply(200,{})
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
