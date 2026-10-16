@@ -23,7 +23,7 @@ export function buildMaterialRequest(receipts, id = "material:" + newId(), now =
 export function createMaterialsUI(host) {
   const esc = host.escapeHtml;
   let files = [], consent = false, limits = null, jobs = [], loading = false, busy = false, error = "", notice = "";
-  let generation = 0, timer = null, controller = null, draft = null, retryIds = new Map(), observed = "", loadingPromise = null;
+  let generation = 0, timer = null, controller = null, draft = null, retryIds = new Map(), observed = "", loadingPromise = null, historyOpen = false;
   const stamp = () => [generation, accountVersion()];
   const valid = value => value[0] === generation && value[1] === accountVersion() && session.user && !host.isDemo();
   const visible = () => host.isVisible?.() !== false;
@@ -31,13 +31,18 @@ export function createMaterialsUI(host) {
   function reset() {
     generation++; controller?.abort(); clearTimeout(timer); timer = controller = null;
     files = []; consent = false; limits = null; jobs = []; loading = busy = false;
-    error = notice = observed = ""; draft = null; retryIds.clear(); loadingPromise = null;
+    error = notice = observed = ""; draft = null; retryIds.clear(); loadingPromise = null; historyOpen = false;
   }
   function poll() {
     clearTimeout(timer); timer = null;
     if (!busy && visible() && (jobs.some(active) || jobs.length && fingerprint() !== observed)) { timer = setTimeout(load, 2000); timer.unref?.(); }
   }
   function load() {
+    // Source switches must not start a list read before the write is accepted.
+    if (busy) return loadingPromise || Promise.resolve();
+    return readJobs();
+  }
+  function readJobs() {
     if (loadingPromise) return loadingPromise;
     const pending = loadOnce(); loadingPromise = pending;
     pending.finally(() => { if (loadingPromise === pending) loadingPromise = null; });
@@ -58,7 +63,7 @@ export function createMaterialsUI(host) {
         if (refreshed === false) throw new Error("文件结果已保存，但列表刷新失败，请刷新文件状态重试。");
         if (refreshed !== null) observed = snapshot;
       }
-    } catch (cause) { if (valid(value)) error = cause.status === 403 ? "当前环境未开放文件上传，请联系管理员。" : cause.message; }
+    } catch (cause) { if (valid(value)) error = cause.status === 403 ? "文件上传暂未开放，请稍后再试。" : cause.message; }
     finally { if (valid(value)) { loading = false; host.render(); poll(); } }
   }
   function input(event) {
@@ -73,6 +78,10 @@ export function createMaterialsUI(host) {
     const action = button.dataset.materialAction;
     if (!action) return false;
     if (busy) return true;
+    if (action === "remove") {
+      files = files.filter((_, index) => index !== Number(button.dataset.index));
+      consent = false; draft = null; host.render(); return true;
+    }
     if (action === "refresh") { await load(); return true; }
     if (busy || !session.user || host.isDemo()) return true;
     const value = stamp(); busy = true; error = notice = ""; controller = new AbortController(); host.render();
@@ -82,8 +91,8 @@ export function createMaterialsUI(host) {
       await flushStore();
       if (!valid(value)) return true;
       if (action === "upload") {
-        if (!consent || !files.length) throw new Error("请选择文件并同意发送给识别服务");
-        if (!limits) throw new Error("请先读取当前环境的上传设置");
+        if (!consent || !files.length) throw new Error("请选择文件，并同意上传和识别");
+        if (!limits) throw new Error("文件上传设置尚未就绪，请稍后重试");
         if (files.length > 20 || files.some(f => !f.size || f.size > limits.asset_bytes)) throw new Error("最多选择 20 个非空文件，请检查单文件大小限制");
         draft ??= { id: "material:" + newId(), receipts: [], request: null };
         for (let i = draft.receipts.length; i < files.length; i++) {
@@ -96,7 +105,7 @@ export function createMaterialsUI(host) {
         draft.request ??= buildMaterialRequest(draft.receipts, draft.id);
         await api(root + "imports", draft.request, "POST", { signal: controller.signal });
         if (!valid(value)) return true;
-        draft = null; files = []; consent = false; notice = "已提交，关闭页面后仍会处理。结果在下方待核对列表。";
+        draft = null; files = []; consent = false; notice = "文件已提交，识别结果会显示在下方。";
       } else if (action === "retry") {
         const id = button.dataset.job;
         if (!jobs.some(j => j.job_id === id && !active(j))) return true;
@@ -105,20 +114,53 @@ export function createMaterialsUI(host) {
         if (!valid(value)) return true;
         retryIds.delete(id); notice = "已重试失败部分，成功结果保留。";
       }
-      await load();
+      await readJobs();
     } catch (cause) { if (valid(value)) error = cause.message; }
     finally { if (valid(value)) { busy = false; controller = null; host.render(); poll(); } }
     return true;
   }
+  const errorLabel = item => ({
+    agent_unavailable: "文件识别暂不可用，请稍后重试。",
+    agent_timeout: "文件识别超时，请稍后重试。",
+    invalid_agent_output: "暂时无法读取识别结果，请重试。",
+    file_ref_unavailable: "文件已失效，请重新上传。",
+    reader_unsupported: "暂不支持此文件格式，请使用 PNG、JPG、PDF 或 DOCX。",
+    low_content_quality: "文件内容不够清晰，请换一份清晰的文件。",
+    limit_exceeded: "文件超过处理限制，请缩小或拆分后再上传。",
+  }[item.code] || item.message);
+  const sizeLabel = size => size >= 1048576 ? `${(size / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
+  const attachmentLabels = { complete: "已读取", succeeded: "已读取", read: "已读取", available: "可读取", partial: "部分读取", partial_read: "部分读取", failed: "读取失败", unsupported: "暂不支持", skipped: "未读取", missing: "文件缺失", unread: "未读取" };
+  function jobMarkup(job) {
+    const errors = [...(job.result?.errors || []), ...(job.last_attempt_errors || [])];
+    const exhausted = job.retry_remaining === 0 && !active(job) && errors.some(item => item.retryable);
+    const retry = !active(job) && job.retry_remaining !== 0 && errors.some(item => item.retryable);
+    const names = Object.values(job.sources || {}).flatMap(source => Object.values(source.assets || {}));
+    const assets = (job.result?.record_results || []).flatMap(record => (record.attachments || []).map(asset => `<li>${esc(job.sources?.[record.input_id]?.assets?.[asset.asset_id] || "附件")} · ${esc(attachmentLabels[asset.status] || "请查看识别结果")}${asset.coverage?.unread_locations?.length ? `<span class="status-note">${esc(asset.coverage.unread_locations.join("；"))}</span>` : ""}</li>`));
+    return `<article class="material-job"><div class="material-job-heading"><h3>${esc(names.join("、") || "文件导入")}</h3><span class="status-note" role="status">${esc(labels[job.status] || "处理中")}</span></div>
+      ${errors.map(item => `<p class="error">${esc(errorLabel(item))}</p>`).join("")}
+      ${assets.length ? `<details class="source-disclosure"><summary>文件读取情况</summary><ul>${assets.join("")}</ul></details>` : ""}
+      ${job.result?.status === "no_tasks" ? '<p class="status-note">未发现需要处理的任务。</p>' : ""}
+      ${exhausted ? '<p class="status-note">本次导入的重试次数已用完，请重新上传失败的文件；成功结果已保留。</p>' : ""}
+      ${retry ? `<button class="btn quiet" data-material-action="retry" data-job="${esc(job.job_id)}" ${busy ? "disabled" : ""}>重试失败部分</button>` : ""}
+    </article>`;
+  }
   function render() {
     if (session.user && !host.isDemo() && !limits && !loading && !error) queueMicrotask(load);
-    return `<section class="materials-panel"><h2>图片与文件</h2><p class="status-note">支持 PNG、JPEG、PDF、DOCX。所选文件会上传并发送给识别服务；只选择你有权提供的材料。当前入口不连接微信。</p><label class="field">选择文件<input id="material-files" type="file" multiple ${busy ? "disabled" : ""}></label>${files.length ? `<p>${files.map(f => esc(f.name)).join("、")}</p>` : ""}<label class="sync-consent"><input id="material-consent" type="checkbox" ${consent ? "checked" : ""} ${busy ? "disabled" : ""}>我同意上传并识别所选文件。</label><div class="import-form-actions"><button class="btn primary" data-material-action="upload" ${busy || !limits || !session.user || host.isDemo() ? "disabled" : ""}>${busy ? "正在提交…" : "上传并识别"}</button><button class="btn quiet" data-material-action="refresh" ${loading || busy ? "disabled" : ""}>刷新文件状态</button></div>${limits ? `<p class="status-note">单文件最多 ${limits.asset_bytes / 1048576} MiB，账号最多 ${limits.account_bytes / 1048576} MiB。</p>` : ""}${error ? `<p class="error" role="alert">${esc(error)}</p>` : ""}${notice ? `<p role="status">${esc(notice)}</p>` : ""}${jobs.map(j => {
-      const errors = [...(j.result?.errors || []), ...(j.last_attempt_errors || [])];
-      const exhausted = j.retry_remaining === 0 && !active(j) && errors.some(e => e.retryable);
-      const retry = !active(j) && j.retry_remaining !== 0 && errors.some(e => e.retryable);
-      const assets = (j.result?.record_results || []).flatMap(r => (r.attachments || []).map(a => `<li>${esc(j.sources?.[r.input_id]?.assets?.[a.asset_id] || "附件")}：${esc(a.status)}${a.coverage?.unread_locations?.length ? " · " + esc(a.coverage.unread_locations.join("；")) : ""}</li>`));
-      return `<article class="candidate-row"><div><h3>${esc(Object.values(j.sources || {}).flatMap(s => Object.values(s.assets || {})).join("、") || "文件导入")} · ${esc(labels[j.status] || j.status)}</h3>${errors.map(e => `<p class="error">${esc(e.message)}</p>`).join("")}${assets.length ? `<details><summary>附件读取情况</summary><ul>${assets.join("")}</ul></details>` : ""}${j.result?.status === "no_tasks" ? '<p>本次未发现任务，请结合读取情况确认是否有缺失内容。</p>' : ""}${exhausted ? '<p class="status-note">本次导入的重试次数已用完；请检查失败原因，仅重新上传失败的文件，成功结果已保留。</p>' : ""}${retry ? `<button class="btn" data-material-action="retry" data-job="${esc(j.job_id)}" ${busy ? "disabled" : ""}>重试失败部分</button>` : ""}</div></article>`;
-    }).join("")}</section>`;
+    const pending = jobs.filter(job => active(job) || ["failed", "partial_failed"].includes(job.status));
+    const finished = jobs.filter(job => !pending.includes(job));
+    return `<section class="materials-panel"><h2 class="source-title">图片与文件</h2><p class="source-intro">从图片或文档中识别任务。</p>
+      <label class="material-picker" for="material-files"><input id="material-files" type="file" multiple accept=".png,.jpg,.jpeg,.pdf,.docx" ${busy ? "disabled" : ""}><strong>${files.length ? "重新选择文件" : "选择文件"}</strong><span>PNG、JPG、PDF、DOCX${limits?.asset_bytes ? ` · 每份最多 ${limits.asset_bytes / 1048576} MB` : ""}</span></label>
+      ${files.length ? `<ul class="material-selection">${files.map((file, index) => `<li><div><strong>${esc(file.name)}</strong><span class="status-note">${sizeLabel(file.size)}</span></div><button class="icon-button" type="button" data-material-action="remove" data-index="${index}" aria-label="移除 ${esc(file.name)}" ${busy ? "disabled" : ""}>${host.icon?.("close") || "×"}</button></li>`).join("")}</ul>
+      <label class="source-consent"><input id="material-consent" type="checkbox" ${consent ? "checked" : ""} ${busy ? "disabled" : ""}>同意上传所选文件，并用于任务识别。</label>` : ""}
+      <div class="import-form-actions"><button class="btn primary" data-material-action="upload" ${busy || !files.length || !limits || !session.user || host.isDemo() ? "disabled" : ""}>${busy ? "正在提交…" : "识别任务"}</button>${jobs.length || error ? `<button class="btn quiet" data-material-action="refresh" ${loading || busy ? "disabled" : ""}>刷新状态</button>` : ""}</div>
+      ${error ? `<p class="error" role="alert">${esc(error)}</p>` : ""}${notice ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}
+      ${pending.length ? `<div class="material-jobs">${pending.map(jobMarkup).join("")}</div>` : ""}
+      ${finished.length ? `<details class="import-history material-history" data-material-history ${historyOpen ? "open" : ""}><summary>最近导入 · ${finished.length}</summary>${finished.map(jobMarkup).join("")}</details>` : ""}
+    </section>`;
   }
-  return { render, input, click, load, reset, owns: id => jobs.some(j => j.request_id === id) };
+  function toggle(event) {
+    if (event.target?.dataset?.materialHistory === undefined || event.target.isConnected === false) return false;
+    historyOpen = event.target.open; return true;
+  }
+  return { render, input, click, load, reset, toggle, owns: id => jobs.some(job => job.request_id === id) };
 }

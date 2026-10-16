@@ -41,10 +41,10 @@ export function createSourceSyncUI(host) {
   const setTimer = host.setTimer || globalThis.setTimeout;
   const clearTimer = host.clearTimer || globalThis.clearTimeout;
   let runs = [], loaded = false, loading = false, writing = false, refreshing = false, visible = false;
-  let error = null, notice = "", timer = null, generation = 0, readSequence = 0, refreshSequence = 0;
+  let error = null, timer = null, generation = 0, readSequence = 0, refreshSequence = 0;
   let account = host.accountVersion(), readController = null, writeController = null;
   let renderedWhileLoading = false;
-  let pendingOperation = null, consumed = null, showHistory = false;
+  let pendingOperation = null, consumed = null, showHistory = false, focusedRun = null, actionInFlight = null;
   const details = new Map();
   const active = () => runs.some((run) => ACTIVE.has(run.state));
   const stamp = () => ({ generation, account: host.accountVersion() });
@@ -66,11 +66,12 @@ export function createSourceSyncUI(host) {
     cancelRead(); writeController?.abort(); writeController = null;
     account = host.accountVersion();
     runs = []; loaded = writing = refreshing = false;
-    error = null; notice = ""; pendingOperation = consumed = null;
+    error = null; pendingOperation = consumed = focusedRun = actionInFlight = null;
     showHistory = false; details.clear();
   }
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
   function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
+  function isRunning() { syncAccount(); return writing || active(); }
   function ownsRequest(id) { syncAccount(); return runs.some((run) => run.records.some((record) => record.request_id === id)); }
   function allowed() {
     syncAccount();
@@ -130,8 +131,6 @@ export function createSourceSyncUI(host) {
     try {
       const refreshed = await host.onChanged(valid);
       if (!valid()) return false;
-      // A concurrent manual operation superseded this read; poll again without
-      // reporting a network failure or consuming an out-of-date snapshot.
       if (refreshed === null) return false;
       if (refreshed === false) throw new Error("refresh incomplete");
       consumed = fingerprint;
@@ -154,6 +153,7 @@ export function createSourceSyncUI(host) {
       if (!valid()) return false;
       if (response?.contract_version !== VERSION || !Array.isArray(response.runs) || response.runs.length > 20) throw new Error("导入服务版本不匹配，请刷新或更新服务。");
       acceptList(response.runs.map(checkRun));
+      focusedRun = runs.find(run => ACTIVE.has(run.state))?.run_id || focusedRun;
       return await changed(valid);
     } catch (cause) {
       if (valid()) error = report(cause, "暂时无法读取导入进度，后台可能仍在运行，请刷新重试。");
@@ -191,7 +191,9 @@ export function createSourceSyncUI(host) {
       contract_version: VERSION, operation_id: pendingOperation.id, consent: true,
       ...(action === "start" ? { sources: ["teaching_web"] } : { request_ids: selected }),
     };
-    writeController = controller; writing = true; error = null; notice = ""; redraw();
+    writeController = controller; writing = true; error = null; actionInFlight = action;
+    if (action === "start") focusedRun = null;
+    redraw();
     let requested = false;
     try {
       if (action !== "stop") {
@@ -202,8 +204,8 @@ export function createSourceSyncUI(host) {
       const run = await host.api(action === "start" ? API : API + "/" + encodeURIComponent(id) + "/" + action, body, "POST", { signal: controller.signal });
       if (!current(value)) return false;
       acceptRun(checkRun(run));
+      focusedRun = run.run_id;
       if (action !== "stop") pendingOperation = null;
-      if (action === "stop") notice = "已停止导入，已保存结果保留。";
       await changed(() => current(value));
       return current(value);
     } catch (cause) {
@@ -212,7 +214,7 @@ export function createSourceSyncUI(host) {
         : report(cause, action === "stop" ? "停止导入未完成，请刷新进度后重试。" : "导入请求暂时未能确认，请刷新进度或重试。");
       return false;
     } finally {
-      if (current(value)) { writing = false; writeController = null; redraw(); poll(); }
+      if (current(value)) { writing = false; actionInFlight = null; writeController = null; redraw(); poll(); }
     }
   }
   const start = () => act("start");
@@ -228,33 +230,45 @@ export function createSourceSyncUI(host) {
     const problem = !superseded && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
     return `<div class="candidate-row"><div class="candidate-copy"><h3>${esc(record.label)}</h3><p class="status-note">${esc([record.course, RECORD_LABELS[record.state]].filter(Boolean).join(" · "))}${superseded ? " · 后续" + esc(RECORD_LABELS[newest.record.state]) : ""}</p>${problem ? errorMarkup(report(record.error, guidance(record))) : ""}</div>${problem && !ACTIVE.has(run.state) && retryable(record) ? `<div class="candidate-actions"><button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${isBusy() || host.isImportBusy() ? "disabled" : ""}>${["cancelled", "interrupted"].includes(record.state) ? "继续本条" : "重试本条"}</button></div>` : ""}</div>`;
   }
-  function runMarkup(run, latest) {
+  function runMarkup(run, latest, compact = false) {
     const counts = run.counts, done = counts.total - counts.queued - counts.running;
     const records = run.records.filter((record) => latest.get(record.request_id)?.run === run);
     const pending = records.filter(retryable), problems = records.filter((record) => ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state));
     const recovered = run.records.filter((record) => record.state !== "succeeded" && latest.get(record.request_id)?.run !== run && latest.get(record.request_id)?.record.state === "succeeded").length;
     const recollect = records.some(needsCollection) || Boolean(run.error) || !records.length && ["stopped", "interrupted"].includes(run.state);
     const blocked = isBusy() || host.isImportBusy();
-    const summary = [`已处理 ${done} / ${counts.total}`, counts.added ? `新增 ${counts.added} 项` : "", counts.failed ? `失败 ${counts.failed} 条` : "", counts.incomplete ? `待补全 ${counts.incomplete} 条` : "", counts.skipped ? `跳过 ${counts.skipped} 条` : ""].filter(Boolean).join(" · ");
+    const summary = [counts.total ? `已处理 ${done} / ${counts.total}` : "", counts.added ? `新增 ${counts.added} 项` : "", counts.failed ? `失败 ${counts.failed} 条` : "", counts.incomplete ? `待补全 ${counts.incomplete} 条` : "", counts.skipped ? `跳过 ${counts.skipped} 条` : ""].filter(Boolean).join(" · ");
+    const progress = ACTIVE.has(run.state) ? `<progress ${counts.total && run.state !== "crawling" ? `max="${counts.total}" value="${done}"` : ""} aria-label="${esc(counts.total ? `已处理 ${done} / ${counts.total} 条通知` : LABELS[run.state])}"></progress>` : "";
     const association = run.association;
     const associationText = !association ? "" : association.state === "running" ? "已识别，正在关联同一作业与提交状态；当前列表尚未整合完毕。" : association.state === "succeeded" ? (association.review ? `关联分析已完成，仍有 ${association.review} 项关系需核对，原任务已保留。` : "跨来源关联已完成。") : (association.error || "关联尚未完成，原任务已保留。") + " 请在跨来源关联中重试。";
     const heading = run.state === "succeeded" && association && association.state !== "succeeded" ? "识别完成，关联尚未完成" : LABELS[run.state];
-    return `<article class="candidate-row"><div class="candidate-copy"><h3>${esc(heading)}</h3>${associationText ? `<p class="status-note" role="status">${esc(associationText)}</p>` : ""}<p class="status-note" role="status">${esc(summary)}</p>${ACTIVE.has(run.state) && run.state !== "crawling" ? `<progress max="${Math.max(1, counts.total)}" value="${done}" aria-label="已处理 ${done} / ${counts.total} 条通知"></progress>` : ""}${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${run.records.length ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? Boolean(problems.length)) ? "open" : ""}><summary>处理详情 · ${run.records.length}</summary>${run.records.map((record) => recordMarkup(record, run, latest)).join("")}<p class="status-note">运行编号 ${esc(run.run_id)}</p></details>` : ""}</div><div class="candidate-actions">${ACTIVE.has(run.state) ? `<button class="btn quiet" type="button" data-source-sync-action="stop" data-source-sync-run="${esc(run.run_id)}" ${writing ? "disabled" : ""}>停止导入</button>` : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`}</div></article>`;
+    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status" role="status"><strong>${esc(heading)}</strong>${associationText ? `<p class="status-note" role="status">${esc(associationText)}</p>` : ""}${summary ? `<span class="status-note">${esc(summary)}</span>` : ""}${progress}</div><div class="candidate-actions">${ACTIVE.has(run.state) ? `<button class="btn quiet" type="button" data-source-sync-action="stop" data-source-sync-run="${esc(run.run_id)}" ${writing ? "disabled" : ""}>停止导入</button>` : `${pending.length ? `<button class="btn quiet" type="button" data-source-sync-action="retry" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>继续未完成 · ${pending.length}</button>` : ""}${recollect ? `<button class="btn quiet" type="button" data-source-sync-action="collect" ${blocked ? "disabled" : ""}>重新获取来源</button>` : ""}`}</div></div>${run.error ? errorMarkup(report(run.error, "本轮导入未完成，请重新获取来源。")) : ""}${recovered ? `<p class="status-note">后续已恢复 ${recovered} 条；本轮记录保留。</p>` : ""}${run.records.length ? `<details class="import-history" data-source-sync-details="${esc(run.run_id)}" ${(details.get(run.run_id) ?? (!compact && Boolean(problems.length))) ? "open" : ""}><summary>处理详情 · ${run.records.length}</summary>${run.records.map((record) => recordMarkup(record, run, latest)).join("")}</details>` : ""}</article>`;
   }
-  function render() {
+  function currentRun() {
+    return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun &&
+      !(run.state === "stopped" && !run.counts.total && !run.error));
+  }
+  function renderProgress() {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
-    if (!runs.length && !error && !notice) return "";
+    const run = currentRun(), starting = ["start", "retry"].includes(actionInFlight);
+    if (!run && !error && !starting) return "";
+    return `<div class="teaching-progress" data-source-sync-progress aria-label="教学网导入进度">${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${starting && !run ? '<p class="status-note" role="status">正在启动识别…</p>' : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}</div>`;
+  }
+  function renderHistory() {
+    syncAccount();
+    if (host.isDemo() || !host.isAuthenticated()) return "";
+    const current = currentRun(), history = runs.filter(run => run !== current);
+    if (!history.length) return "";
     const latest = latestAttempts();
-    return `<section class="source-sync-panel" data-source-sync-panel><div class="section-heading"><h2>导入进度</h2><button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>${loading ? "读取中…" : "刷新进度"}</button></div>${errorMarkup(error)}${notice ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}${runs[0] ? runMarkup(runs[0], latest) : ""}${runs.length > 1 ? `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${runs.length - 1}</summary>${runs.slice(1).map((run) => runMarkup(run, latest)).join("")}</details>` : ""}</section>`;
+    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(run => runMarkup(run, latest)).join("")}</details>`;
   }
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;
     if (!action) return false;
     if (action === "refresh") await load();
-    else if (action === "collect" || action === "start") await start();
-    else if (action === "stop" || action === "retry") await act(action, data.sourceSyncRun || data.run, data.sourceSyncRequest || data.request ? [data.sourceSyncRequest || data.request] : null);
-    else if (action === "history") { showHistory = !showHistory; redraw(); }
+    else if (action === "collect") await start();
+    else if (action === "stop" || action === "retry") await act(action, data.sourceSyncRun, data.sourceSyncRequest ? [data.sourceSyncRequest] : null);
     return true;
   }
   function toggle(event) {
@@ -269,9 +283,9 @@ export function createSourceSyncUI(host) {
     const next = Boolean(value), entering = next && !visible;
     visible = next;
     if (!visible) { cancelRead(); return; }
-    if (entering) return load();
+    if (entering) { focusedRun = null; return load(); }
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { render, click, toggle, reset, load, start, isBusy, ownsRequest, setVisible };
+  return { renderProgress, renderHistory, click, toggle, reset, load, start, isBusy, isRunning, ownsRequest, setVisible };
 }

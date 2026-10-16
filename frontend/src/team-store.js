@@ -93,6 +93,9 @@ function toView(task) {
   return {
     ...task,
     content_type: task.content_type || "task",
+    source: task.source === "微信" && task.recognitionHistory?.some(
+      entry => entry.action === "create" && entry.requestId?.startsWith("material:"),
+    ) ? "图片与文件" : task.source,
     due: task.due?.date || "",
     dueTime: task.due?.time || "",
     course: task.course || "",

@@ -601,3 +601,13 @@ test("explicit rereading discards a failed mutation instead of replaying it late
   assert.equal(f.writes.length, 0);
   assert.equal(f.tasks[0].recycleBin, undefined);
 });
+
+test('manual file tasks display their actual origin while preserving canonical server metadata',async()=>{
+ const history=[{action:'create',requestId:'material:synthetic',storageId:'candidate:file'}];
+ const f=fixture('file-origin',[task('file',{source:'微信',recognitionHistory:history}),task('chat',{source:'微信',recognitionHistory:[{action:'create',requestId:'wechat:synthetic'}]})]);
+ const state=await initSession();
+ assert.equal(state.tasks[0].source,'图片与文件');assert.equal(state.tasks[1].source,'微信');
+ state.tasks[0].title='编辑后的文件任务';saveStore(state);await flushStore();
+ assert.equal(f.tasks[0].source,'微信');assert.deepEqual(f.tasks[0].recognitionHistory,history);
+ assert.equal((await refreshStore()).tasks[0].source,'图片与文件');
+});
