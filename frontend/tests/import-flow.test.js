@@ -32,17 +32,17 @@ test('text publication uses Shanghai wall time and an explicit offset',()=>{
  assert.throws(()=>buildTextImport('通知','2026-02-30T12:00:00'),/有效/);
 });
 
-test('review retains date precision and requires explicit confirmation for changes',()=>{
- const values={action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:'',reviewed:'on'};
+test('review submit confirms changes without a separate checkbox and retains date precision',()=>{
+ const values={action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:''};
  const result=buildCandidateResolution(item,values,[],7);
  assert.deepEqual(result.draft.due,{date:'2026-10-20',precision:'date'});
  assert.equal(result.version,3);assert.equal(result.tasks_version,7);
- assert.throws(()=>buildCandidateResolution(item,{...values,reviewed:''},[],7),/核对/);
+ assert.equal(result.reviewed,true);
  assert.throws(()=>buildCandidateResolution(item,{...values,date:'',time:'18:00'},[],7),/截止日期/);
  const task={id:'target',title:'原任务',notes:'已有说明',course:'原课程'};
  const cancelled={...item,candidate:{...candidate,notice_type:'cancel'}};
- assert.throws(()=>buildCandidateResolution(cancelled,{action:'cancel',target_id:'missing',reviewed:'on'},[task],7),/选择/);
- const cancel=buildCandidateResolution(cancelled,{action:'cancel',target_id:'target',reviewed:'on'},[task],7);
+ assert.throws(()=>buildCandidateResolution(cancelled,{action:'cancel',target_id:'missing'},[task],7),/选择/);
+ const cancel=buildCandidateResolution(cancelled,{action:'cancel',target_id:'target'},[task],7);
  assert.equal(cancel.target_id,'target');assert.equal(cancel.draft,undefined);
  const postpone=buildCandidateResolution({...item,candidate:{...candidate,notice_type:'postpone'}},{...values,action:'postpone',target_id:'target'},[task],7);
  assert.equal(postpone.draft.title,'原任务');assert.equal(postpone.draft.description,'已有说明');
@@ -51,7 +51,7 @@ test('review retains date precision and requires explicit confirmation for chang
 });
 
 test('candidate confirmation retains notice classification and never changes the selected target type',()=>{
- const values={action:'create',title:'地点调整',description:'上课地点更改',course:'',date:'',time:'',reviewed:'on'};
+ const values={action:'create',title:'地点调整',description:'上课地点更改',course:'',date:'',time:''};
  const notice={...item,candidate:{...candidate,content_type:'notice'}};
  assert.equal(buildCandidateResolution(notice,values,[],7).draft.content_type,'notice');
  assert.equal(buildCandidateResolution(item,values,[],7).draft.content_type,'task');
@@ -150,14 +150,15 @@ function fixture(scenario={}){
  return {host,batch,batches,calls,messages,get dialog(){return dialog;},get state(){return state;},async login(who='A'){state=await store.authenticate('login',{email:who+'@test.local',password:'test-password'});},setVersion(value){taskVersion=value;},defer(){let resolve,ready;const wait=new Promise(r=>resolve=r),entered=new Promise(r=>ready=r);deferred={wait,ready};return {entered,release:resolve};}};
 }
 
-test('adding a reviewed candidate sends both versions without scheduling or fabricated time',async()=>{
+test('confirming a candidate without a checkbox sends reviewed plus both versions without fabricated time',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
  await ui.click({dataset:{importReview:'candidate-A'}});
- const form=fakeForm('review',{action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});
+ assert.doesNotMatch(f.dialog,/name="reviewed"|我已核对原文/);
+ const form=fakeForm('review',{action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:''},{candidate:'candidate-A'});
  await ui.submit(form);
  const call=f.calls.find(call=>call.path.endsWith('/resolve'));
  assert.deepEqual(call.body.draft.due,{date:'2026-10-20',precision:'date'});
- assert.equal(call.body.version,3);assert.equal(call.body.tasks_version,7);
+ assert.equal(call.body.version,3);assert.equal(call.body.tasks_version,7);assert.equal(call.body.reviewed,true);
  assert.equal(f.calls.some(call=>call.path.includes('/planning/')),false);
  assert.equal(f.dialog,'');assert.ok(f.messages.includes('已加入任务'));
 });
@@ -165,7 +166,7 @@ test('adding a reviewed candidate sends both versions without scheduling or fabr
 test('a task version change prevents a stale confirmation and offers rereading',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
  f.setVersion(8);await f.host.refresh();
- const form=fakeForm('review',{action:'create',title:'报告',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});
+ const form=fakeForm('review',{action:'create',title:'报告',date:'2026-10-20',time:''},{candidate:'candidate-A'});
  await ui.submit(form);
  assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
  assert.match(form.error.textContent,/刷新/);assert.equal(form.error.hidden,false);assert.equal(form.retry.hidden,false);
@@ -181,7 +182,7 @@ test('a late review reread cannot replace another candidate draft',async()=>{
  const rereading=ui.click({dataset:{importAction:'refresh-review'},closest:()=>oldForm});
  await entered;await ui.click({dataset:{importAction:'close'}});oldForm.isConnected=false;
  await ui.click({dataset:{importReview:'another-candidate'}});
- const draft=fakeForm('review',{action:'create',title:'保留这份新草稿',description:'仍在编辑',course:'概率论',date:'2026-10-20',time:'',reviewed:''});
+ const draft=fakeForm('review',{action:'create',title:'保留这份新草稿',description:'仍在编辑',course:'概率论',date:'2026-10-20',time:''});
  ui.input({target:{dataset:{importField:'title'},closest:()=>draft}});
  const expected=f.dialog;assert.match(expected,/保留这份新草稿/);
  release();await rereading;
@@ -205,7 +206,7 @@ test('a completed candidate save cannot close a different dialog opened while it
  let enter,release;const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
  const f=fixture({async intercept(path){if(path.endsWith('/resolve')){enter();await waiting;}}});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
- const form=fakeForm('review',{action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});form.isConnected=true;
+ const form=fakeForm('review',{action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:''},{candidate:'candidate-A'});form.isConnected=true;
  const saving=ui.submit(form);await entered;form.isConnected=false;f.host.openDialog('<form>另一个窗口的草稿</form>');
  release();await saving;
  assert.equal(f.dialog,'<form>另一个窗口的草稿</form>');
@@ -291,7 +292,7 @@ test('real teaching workspace views become identity-only server run requests',()
 });
 
 test('real teaching candidates retain date-only, absent, and unknown-year deadlines',()=>{
- const values={action:'create',title:'核对后的任务',description:'',course:'',reviewed:'on'};
+ const values={action:'create',title:'核对后的任务',description:'',course:''};
  const dateOnly=teachingCase('date-only').result.tasks[0];
  assert.deepEqual(candidateDue(dateOnly.deadline),{date:'2026-10-23',time:''});
  assert.deepEqual(buildCandidateResolution({version:1,candidate:dateOnly},{...values,...candidateDue(dateOnly.deadline)},[],2).draft.due,{date:'2026-10-23',precision:'date'});
@@ -425,7 +426,7 @@ test('active teaching sync permits navigation, text recognition and candidate re
   if(name==='files')assert.match(ui.render(),/id="material-files"/);
  }
  await ui.click({dataset:{importReview:'candidate-A'}});assert.match(f.dialog,/核对任务/);
- const form=fakeForm('review',{action:'create',title:'提交报告',description:'明确要求',course:'概率论',date:'2026-10-20',time:'',reviewed:'on'},{candidate:'candidate-A'});
+ const form=fakeForm('review',{action:'create',title:'提交报告',description:'明确要求',course:'概率论',date:'2026-10-20',time:''},{candidate:'candidate-A'});
  await ui.submit(form);assert.equal(f.state.tasks.length,1);assert.equal(f.dialog,'');
  await ui.submit(fakeForm('text',{text:'独立文本识别',published:'2026-10-14T12:00:00'}));
  await ui.click({dataset:{importAction:'sync'}});

@@ -63,7 +63,7 @@ try{
  const job=await until(async()=>{const v=await get('/materials/imports');diagnostic=JSON.stringify(v.jobs[0]);return v.jobs[0]?.status==='succeeded'&&v.jobs[0];});
  assert.equal(job.result.tasks[0].title,'合成图片作业');
  const row=page.locator('.import-results .candidate-row').filter({has:page.getByRole('heading',{name:'合成图片作业',exact:true})});
- await row.locator('[data-import-review]').click();await page.locator('[name="reviewed"]').check();
+ await row.locator('[data-import-review]').click();
  await page.locator('[data-import-form="review"] button[type="submit"]').click();
  await until(async()=> (await get('/workspace')).tasks.value.some(t=>t.title==='合成图片作业'));
  const tasks=(await get('/workspace')).tasks.value;
