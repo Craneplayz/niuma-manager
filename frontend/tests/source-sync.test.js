@@ -9,6 +9,8 @@ const clone = value => structuredClone(value);
 const markup = ui => ui.renderProgress() + ui.renderHistory();
 const check = (name, fn) => test(name, {timeout: 3000}, fn);
 const button = (action, run, request) => ({dataset: {sourceSyncAction: action, sourceSyncRun: run, sourceSyncRequest: request}});
+const categoryMarkup = (html, key, run) => html.match(new RegExp(`<button[^>]*${run ? `data-source-sync-run="${run}"[^>]*` : ""}data-source-sync-category="${key}"[^>]*>[^<]*</button>`))?.[0] || "";
+const categoryKeys = html => [...html.matchAll(/data-source-sync-category="([^"]+)"/g)].map(match=>match[1]);
 const category = (ui, run, value) => ui.click({dataset: {sourceSyncAction: 'category', sourceSyncRun: run, sourceSyncCategory: value}});
 const problem = (ui, run, value) => ui.click({dataset: {sourceSyncAction: 'problem', sourceSyncRun: run, sourceSyncItem: String(value)}});
 function deferred() {
@@ -407,7 +409,7 @@ check('history shows only added content, review candidates, updates and problems
   run.records[1].review_items=[{candidate_id:'pending',label:'需要核对的作业',course:null}];
   const f=fixture([run]);await f.ui.load();
   const html=markup(f.ui);
-  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);assert.match(html,/更新 1 项/);assert.match(html,/错误 1 条/);
+  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);assert.match(html,/修改 1 项/);assert.match(html,/错误 1 条/);
   assert.doesNotMatch(html,/处理详情|candidate-row|实际新增的作业|需要核对的作业|延期的报告/);
   await category(f.ui,run.run_id,'added');assert.match(markup(f.ui),/实际新增的作业/);assert.doesNotMatch(markup(f.ui),/需要核对的作业|合成通知/);
   await category(f.ui,run.run_id,'review');assert.match(markup(f.ui),/需要核对的作业/);assert.doesNotMatch(markup(f.ui),/实际新增的作业/);
@@ -418,7 +420,7 @@ check('history shows only added content, review candidates, updates and problems
 
 check('a run that only updates an existing task is still a useful result', async () => {
   const f=fixture([syncRun({states:[],updates:[{task_id:'task',label:'作业完成状态已同步',course:null}]})]);
-  await f.ui.load();assert.match(f.ui.renderHistory(),/历史导入 · 1|更新 1 项|任务已更新/);
+  await f.ui.load();assert.match(f.ui.renderHistory(),/历史导入 · 1|修改 1 项|任务已更新/);
 });
 
 check('result names open their stable task or candidate identity and updates show actual changed fields', async () => {
@@ -467,13 +469,13 @@ check('a collection error remains visible even with no created tasks and no reco
   await f.ui.click(button('recover',run.run_id));assert.equal(f.posts()[0].path,API);
 });
 
-check('a recovered no-task retry keeps a gray receipt and a green summary without an exception action', async () => {
+check('a recovered no-task retry keeps a gray receipt and a green category without an exception action', async () => {
   const old=syncRun({state:'failed',states:['failed']});old.records[0].recovered=true;
   const f=fixture([old]);await f.ui.load();
   await category(f.ui,old.run_id,'error');
   assert.match(markup(f.ui),/sync-item-status-muted">已恢复/);
-  assert.match(markup(f.ui),/sync-error-count-muted">错误 1 条/);
-  assert.match(markup(f.ui),/sync-error-summary-success">全部已恢复/);
+  assert.match(categoryMarkup(markup(f.ui),"error"),/sync-category-success/);
+  assert.match(categoryMarkup(markup(f.ui),"error"),/>错误 1 条<\/button>/);
   assert.doesNotMatch(markup(f.ui),/处理未完成|data-source-sync-action="recover"|sync-item-status-error/);
   await f.ui.click(button('retry',old.run_id));assert.equal(f.posts().length,0);
 });
@@ -494,10 +496,11 @@ check('eight recovered errors keep their historical total with an all-recovered 
   run.records.forEach(record=>record.recovered=true);
   const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'error');
   const html=markup(f.ui);
-  assert.match(html,/导入完成/);assert.match(html,/sync-error-count-muted">错误 8 条/);
-  assert.match(html,/sync-error-summary-success">全部已恢复/);
+  assert.match(html,/导入完成/);assert.match(categoryMarkup(html,"error"),/sync-category-success/);
+  assert.match(categoryMarkup(html,"error"),/>错误 8 条<\/button>/);
+  assert.doesNotMatch(html,/全部已恢复|部分已恢复/);
   assert.equal((html.match(/sync-item-status-muted">已恢复/g)||[]).length,8);
-  assert.doesNotMatch(html,/处理未完成|sync-error-count-error|sync-item-status-error/);
+  assert.doesNotMatch(html,/处理未完成|sync-category-error|sync-item-status-error/);
 });
 
 check('partial recovery preserves additions and review totals with an amber summary and remaining retry', async () => {
@@ -506,8 +509,9 @@ check('partial recovery preserves additions and review totals with an amber summ
   const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'error');
   const html=markup(f.ui);
   assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);
-  assert.match(html,/sync-error-count-error">错误 2 条/);
-  assert.match(html,/sync-error-summary-review">部分已恢复 1 \/ 2/);
+  assert.match(categoryMarkup(html,"error"),/sync-category-review/);
+  assert.match(categoryMarkup(html,"error"),/>错误 2 条<\/button>/);
+  assert.match(categoryMarkup(html,"error"),/已恢复 1 \/ 2 条；仍需处理 1 条/);
   assert.match(html,/sync-item-status-muted">已恢复/);assert.match(html,/sync-item-status-error">错误/);
   assert.match(html,/处理未完成 · 1/);assert.doesNotMatch(html,/全部已恢复/);
   await f.ui.click(button('recover',run.run_id));
@@ -517,7 +521,7 @@ check('partial recovery preserves additions and review totals with an amber summ
 check('unresolved errors keep red status and do not claim recovery', async () => {
   const run=syncRun({state:'failed',states:['failed']});
   const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'error');
-  assert.match(markup(f.ui),/sync-error-count-error">错误 1 条/);
+  assert.match(categoryMarkup(markup(f.ui),"error"),/sync-category-error/);
   assert.match(markup(f.ui),/sync-item-status-error">错误/);
   assert.doesNotMatch(markup(f.ui),/全部已恢复|部分已恢复/);
 });
@@ -530,7 +534,7 @@ check('a recovered collection error keeps its receipt, hides stale guidance and 
   const f=fixture([target,old]);await f.ui.load();await category(f.ui,old.run_id,'error');
   await problem(f.ui,old.run_id,0);
   let html=markup(f.ui);
-  assert.match(html,/sync-error-summary-success">全部已恢复/);assert.match(html,/后续已恢复/);
+  assert.match(categoryMarkup(html,"error",old.run_id),/sync-category-success/);assert.match(html,/后续已恢复/);
   assert.doesNotMatch(html,/核对密码并重新获取/);
   assert.doesNotMatch(html,new RegExp(`data-source-sync-action="recover" data-source-sync-run="${old.run_id}"`));
   await f.ui.click(button('recover',old.run_id));assert.equal(f.posts().length,0);
@@ -569,6 +573,47 @@ check('receipt statuses and confirmed-candidate links follow current tasks witho
   assert.match(markup(f.ui),/任务已移除/);assert.doesNotMatch(markup(f.ui),/">未完成<|进行中/);
   await category(f.ui,run.run_id,'error');
   assert.equal(f.posts().length,0);
+});
+
+check('categories follow action priority while recovery and review keep the selected list and historical counts', async () => {
+  const run=syncRun({state:'partial_success',states:['succeeded','failed'],added:1,review:1,
+    updates:[{task_id:'updated',label:'修改过的任务',course:null}]});
+  run.records[0].added_items=[{candidate_id:'auto',task_id:'task',label:'新增任务',course:null}];
+  run.records[0].review_items=[{candidate_id:'manual',label:'待核对任务',course:null}];
+  const f=fixture([run]);f.remote.batches=[{items:[{id:'manual',state:'pending'}]}];
+  await f.ui.load();await category(f.ui,run.run_id,'review');
+  let html=markup(f.ui);
+  assert.deepEqual(categoryKeys(html),['error','review','added','updated']);
+  assert.match(categoryMarkup(html,'error'),/sync-category-error/);
+  assert.match(categoryMarkup(html,'review'),/sync-category-review/);
+  for(const key of ['added','updated'])assert.match(categoryMarkup(html,key),/sync-category-success/);
+  run.records[1].recovered=true;run.revision++;
+  f.setRuns([run]);await f.ui.load();html=markup(f.ui);
+  assert.deepEqual(categoryKeys(html),['review','added','updated','error']);
+  assert.match(categoryMarkup(html,'error'),/sync-category-success/);
+  assert.match(categoryMarkup(html,'review'),/aria-expanded="true"/);
+  f.view.batches[0].items[0].state='applied';
+  html=markup(f.ui);
+  assert.deepEqual(categoryKeys(html),['added','updated','review','error']);
+  assert.match(categoryMarkup(html,'review'),/sync-category-success/);
+  assert.match(categoryMarkup(html,'review'),/>待核对 1 项<\/button>/);
+  assert.match(categoryMarkup(html,'review'),/aria-expanded="true"/);
+  f.view.batches[0].items[0].state='pending';
+  assert.deepEqual(categoryKeys(markup(f.ui)),['review','added','updated','error']);
+});
+
+check('ignored and confirmed review receipts turn green while unknown legacy receipts remain amber', async () => {
+  const run=syncRun({review:2});
+  run.records[0].review_items=[{candidate_id:'ignored',label:'已忽略',course:null},{candidate_id:'confirmed',label:'已核对',course:null}];
+  const f=fixture([run]);f.remote.batches=[{items:[{id:'ignored',state:'ignored'},{id:'confirmed',state:'applied'}]}];
+  await f.ui.load();assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-success/);
+  f.view.batches=[];
+  f.view.tasks=[{id:'task',recognitionHistory:[{storageId:'confirmed'}]}];
+  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-review/);
+  f.view.tasks.push({id:'other-task',recognitionHistory:[{storageId:'ignored'}]});
+  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-success/);
+  delete run.records[0].review_items;run.revision++;f.setRuns([run]);await f.ui.load();
+  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-review/);
 });
 
 function linkedRecovery() {

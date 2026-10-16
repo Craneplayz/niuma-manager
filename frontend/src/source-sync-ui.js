@@ -1,6 +1,6 @@
 import { newId } from "./id.js";
 import { describeUserError, userErrorMarkup } from "./user-errors.js";
-import { importResultStatus, importStatusMarkup, importErrorSummaryMarkup } from "./import-result-status.js";
+import { importResultStatus, importStatusMarkup, importCategorySummaries } from "./import-result-status.js";
 
 const API = "/api/sources/sync-runs";
 const VERSION = "source-sync/0.1";
@@ -396,7 +396,7 @@ export function createSourceSyncUI(host) {
       return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}><span>${esc(item.label)}</span>${hint ? recoveryHintMarkup() : ""}${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
     }).join("");
     const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
-    return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"更新",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
+    return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"修改",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
   }
   function recoveryHintMarkup() {
     return '<small class="sync-recovery-hint" data-source-sync-hint>↳ 恢复结果</small>';
@@ -405,14 +405,15 @@ export function createSourceSyncUI(host) {
     const counts = run.counts;
     const plan = recoveryPlan(run, latest);
     const blocked = isBusy() || host.isImportBusy();
-    const groups = [["added", "新增", counts.added, "项"], ["review", "待核对", counts.review, "项"], ["updated", "更新", counts.updated, "项"], ["error", "错误", problemsFor(run).length, "条"]].filter(([, , count]) => count > 0);
+    const collections = Object.fromEntries(["added", "review", "updated", "error"].map(key => [key, resultItems(run, key).items]));
+    const groups = importCategorySummaries(collections, host, counts);
     const selected = categories.get(run.run_id);
-    const category = groups.some(([key]) => key === selected) ? selected : null;
-    const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${key === "error" ? importErrorSummaryMarkup(problemsFor(run)) : `${label} ${count} ${unit}`}</button>`).join("");
+    const category = groups.some(group => group.key === selected) ? selected : null;
+    const summary = groups.map(({ key, label, count, unit, tone, description }) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category sync-category-${tone}" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}" title="${esc(description)}" aria-description="${esc(description)}">${label} ${count} ${unit}</button>`).join("");
     const running = ACTIVE.has(run.state);
     if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
-    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${recoveryHint?.runId === run.run_id && !recoveryHint.key ? recoveryHintMarkup() : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}${locatedRun === run.run_id && !groups.length ? '<p class="status-note">这次处理已完成，没有新增任务或待核对内容。</p>' : ""}</article>`;
+    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${recoveryHint?.runId === run.run_id && !recoveryHint.key ? recoveryHintMarkup() : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(({ key }) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}${locatedRun === run.run_id && !groups.length ? '<p class="status-note">这次处理已完成，没有新增任务或待核对内容。</p>' : ""}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));

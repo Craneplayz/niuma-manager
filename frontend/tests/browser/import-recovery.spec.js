@@ -11,17 +11,26 @@ function failedRun(id, count, recovered) {
   return run;
 }
 
-async function openHistory(page, runs, linked = null) {
+async function openHistory(page, runs, linked = null, { batches = [], tasks = [] } = {}) {
   const writes = [];
+  let version = 1;
   await page.route("**/api/**", async route => {
     const request = route.request(), path = decodeURIComponent(new URL(request.url()).pathname);
     if (request.method() === "POST" && path.startsWith("/api/sources/sync-runs")) writes.push(path);
     let value;
     if (path === "/api/auth/me") value = { user: { id: "synthetic", name: "合成账号" } };
-    else if (path === "/api/workspace") value = { tasks: { version: 1, value: [] } };
+    else if (path === "/api/workspace") value = { tasks: { version, value: tasks } };
     else if (path === "/api/version") value = { environment: "test", revision: "pr171", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
-    else if (path === "/api/recognition/batches") value = [];
+    else if (path === "/api/recognition/batches") value = batches;
+    else if (path.endsWith("/resolve")) {
+      const id = path.split("/").at(-2), item = batches.flatMap(batch => batch.items).find(item => item.id === id);
+      expect(request.postDataJSON().reviewed).toBe(true);
+      item.state = "applied"; item.version++; version++;
+      tasks.push({ id: `task-${id}`, title: item.candidate.title, status: "not_started", due: null, plans: [], subtasks: [],
+        recognitionHistory: [{ storageId: id, action: "create" }] });
+      value = { batches };
+    }
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs };
     else if (linked && path === `/api/sources/sync-runs/${linked.run_id}`) value = linked;
     else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, revision: 0, interval_minutes: 60, sources: ["teaching_web"] };
@@ -41,21 +50,25 @@ test("recovery summaries and individual errors keep distinct colors on desktop a
   const all = failedRun("all:recovered", 8, 8), partial = failedRun("part:recovered", 2, 1), unresolved = failedRun("not:recovered", 1, 0);
   const writes = await openHistory(page, [all, partial, unresolved]);
   const allRow = page.locator(`[id="sync-run-${all.run_id}"]`);
-  await allRow.getByRole("button", { name: "错误 8 条 · 全部已恢复", exact: true }).click();
-  await expect(allRow.locator(".sync-error-count-muted")).toHaveCSS("color", "rgb(119, 124, 130)");
-  await expect(allRow.locator(".sync-error-summary-success")).toHaveCSS("color", "rgb(36, 112, 68)");
+  const allCategory = allRow.getByRole("button", { name: "错误 8 条", exact: true });
+  await allCategory.click();
+  await expect(allCategory).toHaveCSS("color", "rgb(36, 112, 68)");
+  await expect(allCategory).toHaveText("错误 8 条");
+  await expect(allCategory).toHaveAttribute("title", "已恢复 8 / 8 条；仍需处理 0 条。");
   await expect(allRow.locator(".sync-item-status-muted")).toHaveCount(8);
   await expect(allRow.locator(".sync-item-status-muted").first()).toHaveCSS("color", "rgb(119, 124, 130)");
   await expect(allRow.getByRole("button", { name: /处理未完成/ })).toHaveCount(0);
 
   const partialRow = page.locator(`[id="sync-run-${partial.run_id}"]`);
-  await partialRow.getByRole("button", { name: "错误 2 条 · 部分已恢复 1 / 2", exact: true }).click();
-  await expect(partialRow.locator(".sync-error-summary-review")).toHaveCSS("color", "rgb(148, 96, 0)");
+  const partialCategory = partialRow.getByRole("button", { name: "错误 2 条", exact: true });
+  await partialCategory.click();
+  await expect(partialCategory).toHaveCSS("color", "rgb(148, 96, 0)");
+  await expect(partialCategory).toHaveText("错误 2 条");
   await expect(partialRow.locator(".sync-item-status-error")).toHaveCSS("color", "rgb(182, 57, 57)");
   await expect(partialRow.locator(".sync-item-status-muted")).toHaveCount(1);
   await expect(partialRow.getByRole("button", { name: "处理未完成 · 1", exact: true })).toBeVisible();
   const unresolvedRow = page.locator(`[id="sync-run-${unresolved.run_id}"]`);
-  await expect(unresolvedRow.locator(".sync-error-count-error")).toHaveCSS("color", "rgb(182, 57, 57)");
+  await expect(unresolvedRow.getByRole("button", { name: "错误 1 条", exact: true })).toHaveCSS("color", "rgb(182, 57, 57)");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(writes).toHaveLength(0);
   await page.screenshot({ path: info.outputPath("import-recovery-states.png"), fullPage: true });
@@ -68,7 +81,7 @@ test("a resolved whole collection exposes recovery navigation without obsolete p
   run.recovered_by = { run_id: later.run_id };
   const writes = await openHistory(page, [run], later);
   const row = page.locator(`[id="sync-run-${run.run_id}"]`);
-  await row.getByRole("button", { name: "错误 1 条 · 全部已恢复", exact: true }).click();
+  await row.getByRole("button", { name: "错误 1 条", exact: true }).click();
   await row.getByRole("button", { name: "本轮导入", exact: true }).click();
   await expect(row.getByText("后续已恢复。", { exact: true })).toBeVisible();
   await expect(row).not.toContainText("核对密码");
@@ -79,5 +92,58 @@ test("a resolved whole collection exposes recovery navigation without obsolete p
   const target = page.locator(`[id="sync-run-${later.run_id}"]`);
   await expect(target).toBeVisible();
   await expect(target).toContainText("这次处理已完成，没有新增任务或待核对内容。");
+  expect(writes).toHaveLength(0);
+});
+
+test("category priority follows recovered errors and confirmed reviews without changing the receipt totals", async ({ page }, info) => {
+  const run = syncRun({ id: "priority:batch", state: "partial_success", states: ["succeeded", "failed"], added: 1, review: 1,
+    updates: [{ task_id: "updated:task", label: "修改过的任务", course: null }] });
+  run.records[0].added_items = [{ candidate_id: "auto", task_id: "created:task", label: "新增任务", course: null }];
+  run.records[0].review_items = [{ candidate_id: "manual:review", label: "待核对任务", course: null }];
+  const batches = [{ sourceSyncManaged: true, request: { contract_version: "0.2", request_id: "request:review", records: [] },
+    result: { status: "success" }, items: [{ id: "manual:review", state: "pending", version: 1, candidate: {
+      title: "待核对任务", description: "合成材料", course_or_project: "合成课程", notice_type: "create", needs_review: true,
+      deadline: { kind: "deadline", status: "explicit", precision: "date", value: "2026-10-20" }, evidence: [], sources: [], review_reasons: [],
+    } }] }];
+  const writes = await openHistory(page, [run], null, { batches });
+  const row = page.locator(`[id="sync-run-${run.run_id}"]`), categories = row.locator(".sync-category");
+  await expect(categories).toHaveText(["错误 1 条", "待核对 1 项", "新增 1 项", "修改 1 项"]);
+  await expect(row.getByRole("button", { name: "待核对 1 项", exact: true })).toHaveCSS("color", "rgb(148, 96, 0)");
+  await page.screenshot({ path: info.outputPath("import-priority-pending.png"), fullPage: true });
+  run.records[1].recovered = true; run.state = "succeeded"; run.revision++;
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(categories).toHaveText(["待核对 1 项", "新增 1 项", "修改 1 项", "错误 1 条"]);
+  await row.getByRole("button", { name: "待核对 1 项", exact: true }).click();
+  await row.locator(".sync-result-name").click();
+  const form = page.locator('[data-import-form="review"]');
+  await expect(form).toBeVisible();
+  await form.getByRole("button", { name: "确认加入任务", exact: true }).click();
+  await expect(form).not.toBeVisible();
+  await expect(categories).toHaveText(["新增 1 项", "修改 1 项", "待核对 1 项", "错误 1 条"]);
+  await expect(row.getByRole("button", { name: "待核对 1 项", exact: true })).toHaveCSS("color", "rgb(36, 112, 68)");
+  await expect(row.getByRole("button", { name: "待核对 1 项", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(row.locator(".sync-item-status-muted")).toHaveText("未完成");
+  expect(writes).toHaveLength(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page.locator("#toast")).not.toHaveClass(/visible/);
+  await page.screenshot({ path: info.outputPath("import-priority-reviewed.png"), fullPage: true });
+});
+
+test("a green error category still links to the matching source result in its recovery batch", async ({ page }) => {
+  const old = failedRun("linked:old", 1, 1), target = syncRun({ id: "linked:success", states: ["succeeded", "succeeded"], added: 1 });
+  target.records[0].request_id = "other:source";
+  target.records[0].added_items = [{ candidate_id: "other", task_id: "other-task", label: "其他来源任务", course: null }];
+  target.records[1].request_id = "matching:source"; target.records[1].added = 1; target.counts.added = 2;
+  target.records[1].added_items = [{ candidate_id: "matching", task_id: "matching-task", label: "恢复来源对应任务", course: null }];
+  old.records[0].recovered_by = { run_id: target.run_id, request_id: "matching:source" };
+  const writes = await openHistory(page, [old], target), row = page.locator(`[id="sync-run-${old.run_id}"]`);
+  await expect(row.getByRole("button", { name: "错误 1 条", exact: true })).toHaveCSS("color", "rgb(36, 112, 68)");
+  await row.getByRole("button", { name: "错误 1 条", exact: true }).click();
+  await row.getByRole("button", { name: /已恢复，查看成功批次/ }).click();
+  const result = page.locator(`[id="sync-item-${target.run_id}-added-1"]`);
+  await expect(result).toBeInViewport();
+  await expect(result).toContainText("恢复来源对应任务");
+  await expect(result.locator("[data-source-sync-hint]")).toHaveText("↳ 恢复结果");
+  await expect(page.locator(`[id="sync-item-${target.run_id}-added-0"] [data-source-sync-hint]`)).toHaveCount(0);
   expect(writes).toHaveLength(0);
 });
