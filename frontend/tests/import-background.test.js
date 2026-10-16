@@ -73,7 +73,8 @@ test('the shared action starts recurrence plus one run; stopping disables recurr
  const disabled=f.calls.findIndex(c=>c.method==='PUT'&&c.body.enabled===false);
  const stopped=f.calls.findIndex(c=>c.path.endsWith('/stop'));
  assert.ok(disabled>started&&stopped>disabled);
- assert.match(f.ui.render(),/value="once" selected/);
+ assert.match(f.ui.render(),/value="15" selected/);
+ assert.match(f.ui.render(),/启动并识别/);
  assert.equal(f.calls.filter(c=>c.method==='POST'&&c.path.endsWith('sync-runs')).length,1);
 });
 
@@ -110,7 +111,7 @@ test('the primary action stays disabled through both stop requests and repeated 
  releaseStop();await stopping;
  assert.equal(f.calls.filter(c=>c.method==='PUT'&&!c.body.enabled).length,1);
  assert.equal(f.calls.filter(c=>c.path.endsWith('/stop')).length,1);
- assert.match(f.ui.render(),/data-import-action="sync" >开始识别/);
+ assert.match(f.ui.render(),/data-import-action="sync" >启动并识别/);
  assert.doesNotMatch(f.ui.render(),/data-source-sync-action="stop"/);
 });
 

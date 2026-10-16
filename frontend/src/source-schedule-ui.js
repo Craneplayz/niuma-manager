@@ -72,7 +72,7 @@ export function createSyncScheduleUI(host) {
     }, "PUT"));
     if (!current(value)) return false;
     state = next;
-    draft = makeDraft(next);
+    draft = enabled ? makeDraft(next) : { ...draft, consent: false };
     return true;
   }
 

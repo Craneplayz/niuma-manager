@@ -13,7 +13,7 @@
 | `task-drawer.js` / `task-evidence.js` | 任务详情、编辑字段、原文与证据链接 |
 | `import-ui.js` | 文本通知、教学网连接与采集、候选确认和失败重试 |
 | `import-evidence.js` | 候选摘录、完整原文、安全来源链接和失败来源身份 |
-| `source-schedule-ui.js` | 单次 / 定时统一启动、频率与明确授权 |
+| `source-schedule-ui.js` | 单次 / 定时统一启动、停止后保留频率、明确授权 |
 | `materials-ui.js` | 文件选择、持久作业、幂等重试与历史记录 |
 | `submissions-ui.js` | 作业目录与提交关联弹窗、原文和行动控制 |
 | `source-sync-ui.js` | 后台同步、分类名称列表、有效结果历史、最近检查、停止与逐条 / 批量重试 |

@@ -62,6 +62,15 @@ test("choosing a frequency is local; explicit consent starts immediately and sav
   await f.ui.start();
   assert.equal(f.requests[1].enabled, false); assert.equal(f.requests[1].consent, false);
   assert.equal(f.starts, 1); assert.deepEqual(f.messages, ["定时同步已停止"]);
+  assert.match(f.ui.render(), /value="15" selected/);
+  assert.match(f.ui.render(), /启动并识别/);
+  assert.doesNotMatch(f.ui.render(), /id="teaching-consent"[^>]*checked/);
+  await f.ui.load();
+  assert.match(f.ui.render(), /value="15" selected/);
+  await f.ui.start(); assert.equal(f.requests.length, 2); assert.equal(f.starts, 1);
+  f.field("consent", true); await f.ui.start();
+  assert.equal(f.requests[2].interval_minutes, 15); assert.equal(f.requests[2].enabled, true);
+  assert.equal(f.starts, 2);
 });
 
 test("switching an enabled service to single disables recurrence before starting one run", async t => {
@@ -90,6 +99,7 @@ test("unavailable recurrence still permits stopping an existing service and sing
   assert.match(f.ui.render(), /定时同步暂不可用/);
   await f.ui.start();
   assert.equal(f.requests[0].enabled, false); assert.equal(f.starts, 0);
+  f.field("interval", "once");
   await f.ui.start(); assert.equal(f.starts, 1);
   f.field("interval", "15"); f.field("consent", true); await f.ui.start();
   assert.equal(f.requests.length, 1); assert.equal(f.starts, 1);
@@ -140,6 +150,16 @@ test("stopping disables the service even while recognition is active", async t =
   const f = fixture(t, { enabled: true, interval_minutes: 15 }); await f.ui.load(); f.setBusy(true);
   assert.equal(await f.ui.stop(), true);
   assert.equal(f.requests[0].enabled, false); assert.equal(f.starts, 0);
+  assert.match(f.ui.render(), /value="15" selected/);
+});
+
+test("stopping preserves custom interval selection and minutes", async t => {
+  const f = fixture(t, { enabled: true, interval_minutes: 47 }); await f.ui.load();
+  await f.ui.stop(); await f.ui.load();
+  assert.equal(f.requests[0].enabled, false);
+  assert.match(f.ui.render(), /value="custom" selected/);
+  assert.match(f.ui.render(), /id="teaching-interval"[^>]*value="47"/);
+  assert.match(f.ui.render(), /启动并识别/);
 });
 
 test("single import exposes an enabled primary stop action; pending stop keeps its position and locks it", async t => {
