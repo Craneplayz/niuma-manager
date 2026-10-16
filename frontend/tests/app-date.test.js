@@ -13,9 +13,12 @@ class Surface {
     for (const listener of this.listeners.get(event.type) || []) listener(event);
     return true;
   }
-  async emit(type, target = {}) {
-    for (const listener of this.listeners.get(type) || [])
-      await listener({ type, target, preventDefault() {} });
+  async emit(type, target = {}, values = {}) {
+    const event = { type, target, ...values, preventDefault() {}, stopImmediatePropagation() { this.stopped = true; } };
+    for (const listener of this.listeners.get(type) || []) {
+      await listener(event);
+      if (event.stopped) break;
+    }
   }
 }
 
@@ -25,6 +28,14 @@ class Element extends Surface {
   open = false;
   isConnected = true;
   classList = { add() {}, remove() {} };
+  style = {};
+  offsetWidth = 250;
+  offsetHeight = 60;
+  append() {}
+  remove() {}
+  contains() { return true; }
+  setPointerCapture() {}
+  hasPointerCapture() { return false; }
   constructor(id = "") { super(); this.id = id; }
   close() { this.open = false; }
   showModal() { this.open = true; }
@@ -37,7 +48,7 @@ class Element extends Surface {
 }
 
 let instance = 0;
-async function fixture(t) {
+async function fixture(t, { undated = false, failWrite = false } = {}) {
   const instanceId = ++instance;
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-10-15T23:59:59") });
   const app = new Element("app"), dialog = new Element("dialog"), drawer = new Element("task-drawer");
@@ -46,6 +57,8 @@ async function fixture(t) {
   elements.set(".main-date", topDate);
   elements.set(".account-entry", new Element());
   drawer.querySelector = () => new Element();
+  const undo = new Element();
+  elements.get("#toast").querySelector = () => undo;
   const doc = new Surface();
   doc.body = new Element();
   doc.activeElement = doc.body;
@@ -53,6 +66,7 @@ async function fixture(t) {
   doc.querySelector = selector => elements.get(selector) || null;
   doc.getElementById = id => elements.get("#" + id) || null;
   doc.querySelectorAll = () => [];
+  doc.createElement = () => new Element();
   const win = new Surface();
   win.scrollTo = () => {};
   Object.assign(globalThis, {
@@ -66,12 +80,16 @@ async function fixture(t) {
     { id: "task", title: "合成任务", status: "not_started", due: { date: "2026-10-16", precision: "date" }, plans: [], subtasks: [] },
     { id: "notice", title: "合成通知", content_type: "notice", status: "not_started", due: { date: "2026-10-23", precision: "date" }, plans: [], subtasks: [] },
   ];
+  if (undated) tasks.push({ id: "undated", title: "合成无日期任务", status: "not_started", due: null, plans: [], subtasks: [] });
   const writes = [];
   globalThis.fetch = async (path, options = {}) => {
     let value = {};
     if (path === "/api/auth/me") value = { user: { id: "synthetic-" + instanceId, name: "合成账号" } };
     else if (path === "/api/workspace") value = { tasks: { version: 1, value: tasks } };
-    else if (path === "/api/data/tasks") { writes.push(JSON.parse(options.body)); value = { version: writes.length + 1 }; }
+    else if (path === "/api/data/tasks") {
+      if (failWrite) return { ok: false, status: 503, json: async () => ({ error: "合成保存失败" }) };
+      writes.push(JSON.parse(options.body)); value = { version: writes.length + 1 };
+    }
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs: [] };
@@ -81,8 +99,53 @@ async function fixture(t) {
   await import(`../src/app.js?date-test=${instanceId}`);
   await new Promise(setImmediate);
   const click = dataset => doc.emit("click", { closest: () => ({ dataset }) });
-  return { app, dialog, drawer, results, topDate, doc, win, writes, click };
+  const drag = async () => {
+    const source = new Element();
+    source.dataset.calendarDragTask = "undated";
+    source.closest = () => source;
+    const cell = new Element();
+    cell.dataset.calendarDropDate = "2026-10-20";
+    cell.closest = () => cell;
+    doc.elementFromPoint = () => cell;
+    const pointer = { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, isPrimary: true, clientX: 20, clientY: 30 };
+    await doc.emit("pointerdown", source, pointer);
+    await doc.emit("pointermove", source, { ...pointer, clientX: 100 });
+    await doc.emit("pointerup", source, { ...pointer, clientX: 100 });
+    await doc.emit("click", { closest: () => ({ dataset: { taskOpen: "undated" } }) }, { detail: 1 });
+    await new Promise(setImmediate);
+  };
+  return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, toast: elements.get("#toast") };
 }
+
+test("calendar drag writes a date without a time, suppresses detail opening and undo restores undated", async t => {
+  const f = await fixture(t, { undated: true });
+  await f.click({ view: "calendar" });
+  await f.click({ calendarPane: "undated" });
+  await f.drag();
+  assert.equal(f.writes.length, 1);
+  assert.deepEqual(f.writes[0].value.find(task => task.id === "undated").due, { date: "2026-10-20", precision: "date" });
+  assert.equal(f.drawer.open, false);
+  assert.match(f.toast.innerHTML, /截止日期已设为 2026-10-20/);
+  assert.doesNotMatch(f.app.innerHTML, /data-calendar-drag-task="undated"/);
+  await f.undo.onclick();
+  assert.equal(f.writes.at(-1).value.find(task => task.id === "undated").due, null);
+  assert.match(f.app.innerHTML, /data-calendar-drag-task="undated"/);
+  await f.doc.emit("pointerdown", { closest: () => null }, { pointerType: "mouse", isPrimary: true, button: 0 });
+  await f.click({ taskOpen: "undated" });
+  assert.equal(f.drawer.open, true);
+});
+
+test("a failed calendar drop retains the undated row and reports failure without a success toast", async t => {
+  const f = await fixture(t, { undated: true, failWrite: true });
+  await f.click({ view: "calendar" });
+  await f.click({ calendarPane: "undated" });
+  await f.drag();
+  assert.equal(f.writes.length, 0);
+  assert.match(f.app.innerHTML, /data-calendar-drag-task="undated"/);
+  assert.match(f.toast.innerHTML, /未设置截止日期：合成保存失败/);
+  assert.doesNotMatch(f.toast.innerHTML, /截止日期已设为/);
+  assert.equal(f.drawer.open, false);
+});
 
 test("midnight updates deadline groups, near notices and open read details", async t => {
   const f = await fixture(t);

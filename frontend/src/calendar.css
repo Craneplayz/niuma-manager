@@ -45,6 +45,58 @@
   background: var(--calendar-selected, #eef3f6);
 }
 
+.calendar-view .calendar-day.is-drop-target {
+  background: #e4edf2;
+  box-shadow: inset 0 0 0 2px #718d9f;
+}
+
+.calendar-drag-hint {
+  display: none;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .calendar-drag-hint { display: block; }
+  [data-calendar-drag-task] { user-select: none; }
+  .task-row [data-calendar-drag-task]:hover { cursor: grab; }
+}
+
+body.is-calendar-dragging,
+body.is-calendar-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+[data-calendar-drag-task].is-dragging { opacity: .45; }
+
+.calendar-drag-preview {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  gap: 5px;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper, #fff);
+  color: var(--ink);
+  box-shadow: 0 6px 24px #20334220;
+  pointer-events: none;
+  font-size: 12px;
+}
+
+.calendar-drag-preview strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 550;
+}
+
 .calendar-view .calendar-month-grid .calendar-day {
   min-height: 110px;
 }

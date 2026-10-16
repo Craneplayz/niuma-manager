@@ -117,7 +117,7 @@ export function renderCalendar({
       isWeek && !members.length
         ? '<p class="calendar-day-empty">无任务</p>'
         : "";
-    return `<section class="${classes}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
+    return `<section class="${classes}"${!isWeek ? ` data-calendar-drop-date="${iso}"` : ""} role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
   }
 
   if (isWeek) {
