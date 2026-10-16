@@ -6,6 +6,7 @@ import {syncRun} from './sync-fixtures.js';
 const API = '/api/sources/sync-runs';
 const VERSION = 'source-sync/0.1';
 const clone = value => structuredClone(value);
+const markup = ui => ui.renderProgress() + ui.renderHistory();
 const check = (name, fn) => test(name, {timeout: 3000}, fn);
 const button = (action, run, request) => ({dataset: {sourceSyncAction: action, sourceSyncRun: run, sourceSyncRequest: request}});
 function deferred() {
@@ -87,12 +88,36 @@ function fixture(initial = []) {
 
 check('rendering is read-only and hidden, demo or signed-out components make no requests', async () => {
   const f = fixture();
-  assert.equal(f.ui.render(), ''); f.ui.render();
+  assert.equal(markup(f.ui), ''); markup(f.ui);
   assert.equal(f.calls.length, 0); assert.equal(f.timers.size, 0);
   f.setDemo(true); await f.ui.load(); await f.ui.start();
   assert.equal(f.calls.length, 0);
   f.setDemo(false); f.setAuthenticated(false); await f.ui.load(); await f.ui.start();
-  assert.equal(f.calls.length, 0); assert.equal(f.ui.render(), '');
+  assert.equal(f.calls.length, 0); assert.equal(markup(f.ui), '');
+});
+
+check('old completed and empty stopped runs stay in collapsed history without a progress placeholder', async () => {
+  const stopped = syncRun({id: 'run:empty', state: 'stopped', states: []});
+  const f = fixture([stopped, syncRun()]); await f.ui.load();
+  assert.equal(f.ui.renderProgress(), '');
+  assert.match(f.ui.renderHistory(), /历史导入 · 2/);
+  assert.doesNotMatch(f.ui.renderHistory(), /data-source-sync-history open|已处理 0 \/ 0|<h2>/);
+});
+
+check('starting reveals progress immediately; active and completed results share the same compact area', async () => {
+  const f = fixture(), gate = deferred(); f.setFlush(() => gate.wait);
+  const starting = f.ui.start();
+  assert.match(f.ui.renderProgress(), /正在启动识别/);
+  assert.doesNotMatch(f.ui.renderProgress(), /<h2>|0 \/ 0/);
+  gate.resolve(); await starting;
+  assert.match(f.ui.renderProgress(), /<progress  aria-label="等待导入"/);
+  assert.equal(f.ui.renderHistory(), '');
+  f.setRuns([syncRun({id: 'run:1', added: 1})]); await f.ui.load();
+  assert.match(f.ui.renderProgress(), /新增 1 项/);
+  assert.doesNotMatch(f.ui.renderProgress(), /<progress/);
+  await f.ui.setVisible(true);
+  assert.equal(f.ui.renderProgress(), '');
+  assert.match(f.ui.renderHistory(), /历史导入 · 1/);
 });
 
 check('entering restores active progress by GET and leaving pauses polling without stopping the server', async () => {
@@ -100,11 +125,11 @@ check('entering restores active progress by GET and leaving pauses polling witho
   f.remote.tasks = [{id: 'saved-task'}];
   await f.ui.setVisible(true);
   assert.equal(f.ui.isBusy(), true); assert.equal(f.ui.ownsRequest('sync:0'), true);
-  assert.match(f.ui.render(), /已处理 1 \/ 3/); assert.equal(f.view.tasks[0].id, 'saved-task');
+  assert.match(markup(f.ui), /已处理 1 \/ 3/); assert.equal(f.view.tasks[0].id, 'saved-task');
   assert.equal([...f.timers.values()][0].ms, 2000);
   await f.tick(); assert.equal(f.posts().length, 0);
   const reads = f.sourceCalls().length;
-  f.ui.setVisible(false); assert.equal(f.timers.size, 0); f.ui.render();
+  f.ui.setVisible(false); assert.equal(f.timers.size, 0); markup(f.ui);
   assert.equal(f.sourceCalls().length, reads); assert.equal(f.ui.isBusy(), true);
   await f.ui.setVisible(true); assert.equal(f.sourceCalls().length, reads + 1);
   assert.equal(f.posts().length, 0);
@@ -113,7 +138,7 @@ check('entering restores active progress by GET and leaving pauses polling witho
 check('unchanged progress neither refreshes the workspace again nor rerenders editable forms', async () => {
   const f = fixture([syncRun({added: 1})]);
   await f.ui.load(); const renders = f.renders, refreshes = f.refreshes;
-  await f.ui.load(); f.ui.render();
+  await f.ui.load(); markup(f.ui);
   assert.equal(f.renders, renders); assert.equal(f.refreshes, refreshes);
   assert.equal(f.ui.isBusy(), false); assert.deepEqual(f.locks, [true]);
 });
@@ -148,7 +173,7 @@ check('start waits for local saves and sends only the durable teaching operation
 check('a failed local save blocks starting and reports the saving problem accurately', async () => {
   const f = fixture(); f.setFlush(() => { throw new Error('save conflict'); });
   assert.equal(await f.ui.start(), false); assert.equal(f.posts().length, 0);
-  assert.equal(f.ui.isBusy(), false); assert.match(f.ui.render(), /任务修改还未保存/);
+  assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /任务修改还未保存/);
 });
 
 check('a network-uncertain start reuses its operation id without render resubmissions', async () => {
@@ -158,7 +183,7 @@ check('a network-uncertain start reuses its operation id without render resubmis
     return normal(call);
   });
   assert.equal(await f.ui.start(), false);
-  f.ui.render(); f.ui.render(); assert.equal(f.posts().length, 1);
+  markup(f.ui); markup(f.ui); assert.equal(f.posts().length, 1);
   assert.equal(await f.ui.start(), true);
   assert.equal(f.posts()[0].body.operation_id, f.posts()[1].body.operation_id);
   assert.equal(f.ui.isBusy(), true);
@@ -191,8 +216,8 @@ check('workspace or candidate refresh failures keep the saved run and retry unch
     const f = fixture([syncRun({added: 1})]); let fail = true;
     f.remote.tasks = [{id: 'saved'}];
     f.setAPI((call, normal) => { if (call.path === failedPath && fail) { fail = false; throw new Error('temporary read failure'); } return normal(call); });
-    assert.equal(await f.ui.load(), false); assert.match(f.ui.render(), /结果已保存.*暂时无法更新页面/);
-    assert.match(f.ui.render(), /新增 1 项/); assert.equal(f.ui.isBusy(), false);
+    assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /结果已保存.*暂时无法更新页面/);
+    assert.match(markup(f.ui), /新增 1 项/); assert.equal(f.ui.isBusy(), false);
     assert.equal(await f.ui.load(), true); assert.equal(f.refreshes, 2); assert.equal(f.view.tasks[0].id, 'saved');
     await f.ui.load(); assert.equal(f.refreshes, 2); assert.equal(f.posts().length, 0);
   }
@@ -217,7 +242,7 @@ check('stop is a server POST, preserves saved results and discards an older in-f
   assert.deepEqual(f.posts()[0].body, {contract_version: VERSION});
   assert.equal(f.posts()[0].path, `${API}/${encodeURIComponent(run.run_id)}/stop`); assert.equal(captured.signal.aborted, true);
   delayed.resolve({contract_version: VERSION, runs: [run]}); await polling;
-  assert.match(f.ui.render(), /已停止导入，已保存结果保留/); assert.equal(f.ui.isBusy(), false);
+  assert.match(markup(f.ui), /已停止导入/); assert.equal(f.ui.isBusy(), false);
   assert.equal(f.view.tasks[0].id, 'already-saved'); assert.equal(f.refreshes, 2);
 });
 
@@ -226,12 +251,12 @@ check('account changes abort waiting requests and reject old responses and callb
   f.setAPI(call => { captured = call; return delayed.wait; });
   const reading = f.ui.load(); f.switchAccount();
   delayed.resolve({contract_version: VERSION, runs: [syncRun({state: 'recognizing', states: ['running']})]}); await reading;
-  assert.equal(captured.signal.aborted, true); assert.equal(f.ui.render(), ''); assert.equal(f.ui.ownsRequest('sync:0'), false);
+  assert.equal(captured.signal.aborted, true); assert.equal(markup(f.ui), ''); assert.equal(f.ui.ownsRequest('sync:0'), false);
   const next = fixture([syncRun()]), refreshing = deferred(); let valid;
   next.setChanged(async current => { valid = current; await refreshing.wait; if (current()) next.remote.leaked = true; return current(); });
   const loading = next.ui.load(); await new Promise(resolve => setImmediate(resolve));
   next.switchAccount(); assert.equal(valid(), false); refreshing.resolve(); await loading;
-  assert.equal(next.remote.leaked, undefined); assert.equal(next.ui.render(), ''); assert.equal(next.ui.isBusy(), false);
+  assert.equal(next.remote.leaked, undefined); assert.equal(markup(next.ui), ''); assert.equal(next.ui.isBusy(), false);
 });
 
 check('account switching while a start waits cannot submit to the new account', async () => {
@@ -244,9 +269,9 @@ check('single and batch retry select only the latest recoverable attempts', asyn
   const old = syncRun({state: 'failed', states: ['failed','failed','incomplete']}), child = syncRun({id: 'run:child'});
   child.parent_run_id = old.run_id;
   const f = fixture([child, old]); await f.ui.load();
-  assert.match(f.ui.render(), /后续已恢复 1 条/); assert.match(f.ui.render(), /继续未完成 · 1/);
-  assert.match(f.ui.render(), /data-source-sync-request="sync:1"/);
-  assert.doesNotMatch(f.ui.render(), /data-source-sync-request="sync:0"|data-source-sync-request="sync:2"/);
+  assert.match(markup(f.ui), /后续已恢复 1 条/); assert.match(markup(f.ui), /继续未完成 · 1/);
+  assert.match(markup(f.ui), /data-source-sync-request="sync:1"/);
+  assert.doesNotMatch(markup(f.ui), /data-source-sync-request="sync:0"|data-source-sync-request="sync:2"/);
   await f.ui.click(button('retry', old.run_id, 'sync:0')); assert.equal(f.posts().length, 0);
   await f.ui.click(button('retry', old.run_id, 'sync:2')); assert.equal(f.posts().length, 0);
   await f.ui.click(button('retry', old.run_id));
@@ -272,7 +297,7 @@ check('incomplete or changed sources offer recollection and configuration failur
   run.records[1].error = {code: 'source_changed', message: '来源变化', retryable: true};
   run.records[2].error = {code: 'model_configuration', message: '配置不可用', retryable: false};
   const f = fixture([run]); await f.ui.load();
-  const html = f.ui.render();
+  const html = markup(f.ui);
   assert.match(html, /data-source-sync-action="collect"/); assert.doesNotMatch(html, /data-source-sync-action="retry"/);
   assert.match(html, /完整通知|维护人员处理/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
   await f.ui.click(button('collect')); assert.equal(f.posts()[0].path, API);
@@ -281,8 +306,8 @@ check('incomplete or changed sources offer recollection and configuration failur
 check('progress connection errors preserve active state and retry polling without automatic writes', async () => {
   const f = fixture([syncRun({state: 'recognizing', states: ['running']})]); await f.ui.setVisible(true);
   f.setAPI(() => { throw new Error('offline'); }); await f.tick();
-  assert.equal(f.ui.isBusy(), true); assert.match(f.ui.render(), /导入可能继续/);
-  assert.match(f.ui.render(), /停止导入/); assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
+  assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /导入可能继续/);
+  assert.match(markup(f.ui), /停止导入/); assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
 });
 
 check('history and detail expansion survive polling and clear on account reset', async () => {
@@ -292,9 +317,9 @@ check('history and detail expansion survive polling and clear on account reset',
   f.ui.toggle({target: {dataset: {sourceSyncHistory: ''}, open: true}});
   f.ui.toggle({target: {dataset: {sourceSyncDetails: old.run_id}, open: false}});
   await f.ui.load();
-  assert.match(f.ui.render(), /data-source-sync-history open/);
-  assert.doesNotMatch(f.ui.render(), /data-source-sync-details="run:older" open/);
-  f.switchAccount(); assert.equal(f.ui.ownsRequest('older:source'), false); assert.equal(f.ui.render(), '');
+  assert.match(markup(f.ui), /data-source-sync-history open/);
+  assert.doesNotMatch(markup(f.ui), /data-source-sync-details="run:older" open/);
+  f.switchAccount(); assert.equal(f.ui.ownsRequest('older:source'), false); assert.equal(markup(f.ui), '');
 });
 
 check('hiding during completion refresh releases the stale lock and keeps its callback invalid', async () => {
@@ -310,9 +335,9 @@ check('older revisions and invalid service responses cannot replace saved progre
   const saved = syncRun({added: 1}); saved.revision = 4;
   const f = fixture([saved]); await f.ui.load();
   const stale = syncRun({state: 'recognizing', states: ['running']}); stale.revision = 3;
-  f.setRuns([stale]); await f.ui.load(); assert.equal(f.ui.isBusy(), false); assert.match(f.ui.render(), /新增 1 项/);
+  f.setRuns([stale]); await f.ui.load(); assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /新增 1 项/);
   f.setAPI(() => ({contract_version: 'source-sync/unknown', runs: []}));
-  assert.equal(await f.ui.load(), false); assert.match(f.ui.render(), /功能暂时不可用/); assert.match(f.ui.render(), /新增 1 项/);
+  assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /功能暂时不可用/); assert.match(markup(f.ui), /新增 1 项/);
 });
 
 check('technical recovery errors use the shared user guidance and feedback control', async () => {
@@ -320,7 +345,7 @@ check('technical recovery errors use the shared user guidance and feedback contr
   f.host.describeError = cause => ({kind: 'crawler_dependency', message: '缺少教学网采集组件，请安装后重新采集。', details: cause.message.includes('crawler') ? '在 crawler/ 安装依赖（pnpm install）。' : ''});
   f.setAPI(() => { throw new Error('crawler dependency unavailable'); });
   await f.ui.start();
-  const html = f.ui.render();
+  const html = markup(f.ui);
   assert.match(html, /暂时无法从教学网获取通知/); assert.match(html, /data-error-feedback=/); assert.doesNotMatch(html, /pnpm install/);
   assert.doesNotMatch(html, /<details class="import-error-details"[^>]*\bopen\b/);
 });

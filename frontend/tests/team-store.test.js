@@ -106,8 +106,17 @@ test("a new task supplies only the required task arrays without client schedulin
   assert.deepEqual(saved.due, { date: "2026-10-14", precision: "date" });
   assert.equal(saved.source, "手动添加");
   assert.match(saved.createdAt, /^\d{4}-\d{2}-\d{2}T/);
-  for (const name of ["hours", "estimatedMinutes", "planningExcluded", "dependsOn", "location", "owner"]) assert.equal(Object.hasOwn(saved, name), false);
+  for (const name of ["hours", "estimatedMinutes", "dependsOn", "location", "owner"]) assert.equal(Object.hasOwn(saved, name), false);
   assert.deepEqual(readStore(), { tasks: [], trash: [] });
+});
+
+test("notice edits retain type and explicit dates through consecutive saves and conversion", async () => {
+ const f=fixture('notice',[{...task('one'),content_type:'notice',planningExcluded:true}]);
+ const state=await initSession();state.tasks[0].due='2026-10-23';saveStore(state);await flushStore();
+ state.tasks[0].notes='第二次编辑';saveStore(state);await flushStore();assert.equal(f.tasks[0].content_type,'notice');assert.equal(f.tasks[0].planningExcluded,true);
+ state.tasks[0].content_type='task';saveStore(state);await flushStore();assert.equal(f.tasks[0].planningExcluded,false);
+ state.tasks[0].notes='转换后编辑';saveStore(state);await flushStore();assert.equal(f.tasks[0].planningExcluded,false);
+ assert.equal(f.tasks[0].due.date,'2026-10-23');
 });
 
 test("editing and recycling notices retains content type and existing status without read or archive fields", async () => {
@@ -583,4 +592,14 @@ test("explicit rereading discards a failed mutation instead of replaying it late
   await retrySave();
   assert.equal(f.writes.length, 0);
   assert.equal(f.tasks[0].recycleBin, undefined);
+});
+
+test('manual file tasks display their actual origin while preserving canonical server metadata',async()=>{
+ const history=[{action:'create',requestId:'material:synthetic',storageId:'candidate:file'}];
+ const f=fixture('file-origin',[task('file',{source:'微信',recognitionHistory:history}),task('chat',{source:'微信',recognitionHistory:[{action:'create',requestId:'wechat:synthetic'}]})]);
+ const state=await initSession();
+ assert.equal(state.tasks[0].source,'图片与文件');assert.equal(state.tasks[1].source,'微信');
+ state.tasks[0].title='编辑后的文件任务';saveStore(state);await flushStore();
+ assert.equal(f.tasks[0].source,'微信');assert.deepEqual(f.tasks[0].recognitionHistory,history);
+ assert.equal((await refreshStore()).tasks[0].source,'图片与文件');
 });

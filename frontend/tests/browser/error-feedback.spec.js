@@ -28,6 +28,7 @@ async function openApp(page, { anonymous = false, workspaceFailure = false, fail
       if (teachingFailure && request.method() === "POST") { status = 503; value = { error: "教学网识别配置不可用 API_KEY=PRIVATE" }; }
     }
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };
+    else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, revision: 0, interval_minutes: 60, sources: ["teaching_web"] };
     else if (path === "/api/sources/credentials") value = { configured: true, username: "synthetic" };
     else throw new Error("Unmocked API: " + path);
     await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
@@ -117,7 +118,7 @@ test("teaching failures offer user guidance and a report instead of maintenance 
   if (await page.locator("#sidebar-show").isVisible()) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
   await page.getByRole("button", { name: "教学网", exact: true }).click();
-  await page.getByRole("button", { name: "采集并识别", exact: true }).click();
+  await page.locator('[data-import-action="sync"]').click();
   const alert = page.getByRole("alert").filter({ hasText: "暂时无法整理教学网通知" });
   await expect(alert).toBeVisible();
   await expect(alert).not.toContainText(/PRIVATE|配置|安装|NIUMA_|pnpm/);

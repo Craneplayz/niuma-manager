@@ -125,6 +125,7 @@ function fixture({entries = [teaching(), teaching('no-deadline')], manualRequest
       if (body.version !== db.version) return rejection(409, '任务已变化');
       db.tasks = clone(body.value);db.version++;return response({version: db.version});
     }
+    if (path === '/api/sources/sync-schedule') return response({contract_version:'source-sync/0.1', enabled:false, available:true, interval_minutes:180, revision:0});
     if (path === '/api/sources/credentials') {
       await pause('credentials', call);
       return response({configured: true, username: `${who}-campus`});
@@ -188,9 +189,9 @@ function makeUI(f, t) {
   const ui = createImportUI(f.host);t.after(() => ui.reset());return ui;
 }
 async function ready(f, t) {
-  await f.login();const ui = makeUI(f, t);await ui.load();await ui.loadSourceSync();await ui.click({dataset: {importSource: 'teaching'}});return ui;
+  await f.login();const ui = makeUI(f, t);await ui.load();await ui.loadSourceSync();await ui.click({dataset: {importSource: 'teaching'}});await new Promise(r=>setImmediate(r));return ui;
 }
-const sync = ui => ui.click({dataset: {importAction: 'sync'}});
+const sync = async ui => {return ui.click({dataset: {importAction: 'sync'}});};
 const noClientRecognition = f => {
   assert.equal(f.calls.some(call => call.path === '/api/sources/sync' || call.path.endsWith('/resolve') || call.path.includes('/planning/')), false);
   assert.equal(f.calls.some(call => call.method === 'POST' && ['/api/recognition/batches','/api/recognition/retry'].includes(call.path) && call.body.contract_version !== '0.2'), false);
@@ -218,8 +219,10 @@ check('returning to import unlocks controls for either read order with empty or 
     await gate.entered;
     if (progressLast) await loading;
     else await new Promise(resolve => setImmediate(resolve));
-    for (const control of ['data-import-source="text"', 'data-import-source="teaching"', 'data-import-action="sync"', 'data-import-action="refresh"'])
-      assert.match(html, new RegExp(control + '[^>]*disabled'), control + ' is locked while progress is loading');
+    for (const control of ['data-import-source="text"', 'data-import-source="teaching"'])
+      assert.doesNotMatch(html, new RegExp(control + '[^>]*disabled'), control + ' remains navigable during loading');
+    assert.match(html,/data-import-action="sync"[^>]*disabled/);
+    if (!progressLast) assert.match(html,/data-import-action="refresh"[^>]*disabled/);
     const reads = f.calls.filter(call => call.path === '/api/workspace').length;
     gate.release(); await loading; await new Promise(resolve => setImmediate(resolve));
     for (const control of ['data-import-source="text"', 'data-import-source="teaching"', 'data-import-action="sync"', 'data-import-action="refresh"'])
@@ -259,10 +262,10 @@ check('demo imports and source-run recovery make no server requests', async t =>
   assert.equal(f.calls.length, before);assert.equal(f.accounts.A.tasks.length, 0);
 });
 
-check('restoring an active run blocks duplicate import and reads terminal tasks without restarting the run', async t => {
+check('restoring an active run blocks duplicate teaching starts but permits independent text recognition', async t => {
   const f = fixture(), run = f.restoreActive(), ui = await ready(f, t);
   await sync(ui);await ui.submit(textForm('运行中的通知'));assert.equal(f.starts().length, 0);
-  assert.equal(f.calls.some(call => call.method === 'POST' && call.path === '/api/recognition/batches'), false);
+  assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/batches').length, 1);
   f.finish();await ui.loadSourceSync();assert.equal(f.state.tasks.length, 2);assert.equal(f.accounts.A.runs.length, 1);assert.equal(f.accounts.A.runs[0].run_id, run.run_id);
   noClientRecognition(f);
 });
@@ -322,15 +325,16 @@ check('an old run-list response cannot restore a previous account run or its imp
   const f = fixture(), ui = await ready(f, t);f.restoreActive();const gate = f.pauseNext('runs', true);t.after(gate.release);
   const loading = ui.loadSourceSync(), active = await gate.entered;await f.login('B');gate.release();await loading;await ui.load();await ui.loadSourceSync();
   assert.equal(active.signal.aborted, true);assert.doesNotMatch(ui.render(), /A 合成通知|A-campus/);
-  await ui.click({dataset: {importSource: 'teaching'}});await sync(ui);assert.equal(f.starts().at(-1).account, 'B');noClientRecognition(f);
+  await ui.click({dataset: {importSource: 'teaching'}});await new Promise(resolve => setImmediate(resolve));await sync(ui);assert.equal(f.starts().at(-1).account, 'B');noClientRecognition(f);
 });
 
-check('terminal task refresh retains the import lock until task and batch reads have completed', async t => {
+check('terminal task refresh blocks duplicate sync but does not block independent text recognition', async t => {
   const f = fixture({startState: 'recognizing'}), ui = await ready(f, t);await sync(ui);f.finish();
   const gate = f.pauseNext('workspace');t.after(gate.release);const refreshing = ui.loadSourceSync();await gate.entered;
   const before = f.calls.length;await sync(ui);await ui.submit(textForm('终态刷新期间的通知'));
-  assert.equal(f.calls.length, before);gate.release();await refreshing;assert.equal(f.state.tasks.length, 2);
-  await ui.submit(textForm('终态刷新完成后的通知'));assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/batches').length, 1);noClientRecognition(f);
+  assert.equal(f.starts().length, 1);assert.equal(f.calls.length, before + 1);
+  gate.release();await refreshing;assert.equal(f.state.tasks.length, 2);
+  await ui.submit(textForm('终态刷新完成后的通知'));assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/batches').length, 2);noClientRecognition(f);
 });
 
 check('a workspace read failure retains the server-created result and retrying progress never restarts recognition', async t => {

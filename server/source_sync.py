@@ -85,7 +85,8 @@ def cipher(key_path, ApiError, create=False):
 def route(handler, db, uid, path, body, ApiError, key_path):
     if path == '/api/sources/credentials' and handler.command == 'GET':
         row = db.execute('SELECT username FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
-        handler.reply(200, {'configured': bool(row), 'username': row['username'] if row else None})
+        handler.reply(200, {'configured': bool(row), 'username': row['username'] if row else None,
+                            'source_account_id':teaching.account(row['username']) if row else None})
         return True
     if path == '/api/sources/credentials' and handler.command == 'POST':
         username, password = body.get('username'), body.get('password')

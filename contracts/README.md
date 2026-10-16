@@ -3,6 +3,11 @@
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── public_import.py                  # 公开活动采集、预览、选择导入的独立根及一致性校验
+├── schemas/public-import-v0.1.schema.json # 公开活动自包含 Schema 包
+├── examples/public-import-v01.json   # 生产方与前端共用的合成公开活动样例
+├── tests/test_public_import.py       # 信封、状态、重复活动和来源检查
+├── docs/public-import-v0.1.md         # 公开活动权限、幂等和导入边界
 ├── schemas/error-report-v0.1.schema.json # 用户主动提交的受限错误报告请求
 ├── examples/error-reports-v01.json    # 错误分类、操作及缺少响应的共享合成样例
 ├── docs/error-reports-v0.1.md         # 点击提交、去重、限流、权限及后台展示

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import sqlite3
 import subprocess
@@ -46,8 +47,8 @@ class SourceSyncTests(unittest.TestCase):
         self.handler.command = 'GET'
         self.call('/api/sources/credentials', {})
         self.call('/api/sources/credentials', {}, user='other')
-        self.assertEqual(self.responses[-2][1], {'configured': True, 'username': 'course-user'})
-        self.assertEqual(self.responses[-1][1], {'configured': False, 'username': None})
+        self.assertEqual(self.responses[-2][1], {'configured': True, 'username': 'course-user', 'source_account_id':hashlib.sha256(b'course-user').hexdigest()})
+        self.assertEqual(self.responses[-1][1], {'configured': False, 'username': None, 'source_account_id':None})
         self.handler.command = 'POST'
         self.call('/api/sources/credentials/remove', {})
         self.assertIsNone(self.db.execute('SELECT * FROM source_credentials').fetchone())

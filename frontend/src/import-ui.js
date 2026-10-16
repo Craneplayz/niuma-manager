@@ -9,8 +9,10 @@ import {
 import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
 import { candidateEvidenceMarkup, failureSourcesMarkup } from "./import-evidence.js";
-import { createReprocessingUI } from "./reprocessing-ui.js";
+import { createMaterialsUI } from "./materials-ui.js";
+import { createSubmissionsUI } from "./submissions-ui.js";
 import { createSourceSyncUI } from "./source-sync-ui.js";
+import { createSyncScheduleUI } from "./source-schedule-ui.js";
 
 const actions = {
   create: "新增任务",
@@ -246,41 +248,50 @@ export function createImportUI(host) {
   }
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
-  const reprocessing = createReprocessingUI({
-    ...host, api, flushStore, accountVersion,
-    isDemo: demo,
-    isAuthenticated: () => Boolean(session.user && !session.changing),
-    isImportBusy: () => busy || sourceSync.isBusy(),
-    async onFinished(isCurrent) {
-      await host.refresh();
-      if (!isCurrent()) return;
-      const next = await api("/api/recognition/batches");
-      if (!isCurrent()) return;
-      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
-      acceptBatches(next);
-      loaded = true;
-      refresh();
-    },
-  });
+  async function refreshResults(isCurrent = () => true) {
+    const stamp = current(), previousBatchesRevision = batchesRevision;
+    const superseded = () => busy || previousBatchesRevision !== batchesRevision;
+    if (superseded()) return null;
+    await flushStore();
+    if (!valid(stamp) || !isCurrent()) return false;
+    await host.refresh();
+    if (!valid(stamp) || !isCurrent()) return false;
+    if (superseded()) return null;
+    const next = await api("/api/recognition/batches");
+    if (!valid(stamp) || !isCurrent()) return false;
+    if (superseded()) return null;
+    acceptBatches(next); loaded = true;
+    refresh(); return true;
+  }
   const sourceSync = createSourceSyncUI({
-    ...host, api, flushStore, accountVersion,
+    ...host, api, flushStore, accountVersion, isDemo: demo,
     describeError: describeImportError,
-    isDemo: demo,
     isAuthenticated: () => Boolean(session.user && !session.changing),
-    isImportBusy: () => busy || reprocessing.isBusy(),
-    async onChanged(isCurrent) {
-      await host.refresh();
-      if (!isCurrent()) return false;
-      const next = await api("/api/recognition/batches");
-      if (!isCurrent()) return false;
-      if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
-      acceptBatches(next);
-      loaded = true;
-      refresh();
-      return true;
-    },
+    isImportBusy: () => busy,
+    render: refresh,
+    onChanged: refreshResults,
   });
-  const blocked = () => loading || busy || reprocessing.isBusy() || sourceSync.isBusy();
+  const syncIsActive = () => sourceSync.isBusy();
+  const syncOwnsRequest = id => sourceSync.ownsRequest(id);
+  const refreshSourceSync = () => sourceSync.load();
+  const schedule = createSyncScheduleUI({
+    ...host, isDemo: demo, isConnected: () => Boolean(credentials?.configured),
+    isBusy: () => blocked() || sourceSync.isBusy(),
+    isRunning: () => sourceSync.isRunning(),
+    start: () => sourceSync.start(),
+  });
+  const submissions = createSubmissionsUI({
+    ...host, isDemo: demo,
+    openDialog(html) { modal = { kind: "submission" }; host.openDialog(html); },
+    closeDialog() { modal = null; host.closeDialog(); },
+  });
+  const materials = createMaterialsUI({
+    ...host, isDemo: demo, isVisible: () => source === "files" && (host.isImportVisible?.() ?? true),
+    changed: refreshResults,
+  });
+  // Background teaching runs own their start/stop controls, not the whole import page.
+  const blocked = () => loading || busy;
+  const credentialsBlocked = () => blocked() || sourceSync.isBusy() || schedule.isBusy();
   const allowed = () => {
     if (demo()) {
       host.toast("示例预览暂不发送，请登录后导入");
@@ -317,8 +328,9 @@ export function createImportUI(host) {
     progress = "";
     request = null;
     modal = null;
-    reprocessing.reset();
-    sourceSync.reset();
+    sourceSync.reset(); schedule.reset();
+    materials.reset();
+    submissions.reset();
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
   async function load() {
@@ -340,6 +352,8 @@ export function createImportUI(host) {
     loading = false;
     loaded = true;
     refresh();
+    if (source === "teaching") void refreshSourceSync();
+    if (source === "files") void materials.load();
   }
   function deadlineLabel(deadline = {}) {
     if (deadline.kind === "reference") return "参考时间，待核对";
@@ -349,8 +363,7 @@ export function createImportUI(host) {
     if (!due.date) return "截止日期待确认";
     return (
       due.date.replaceAll("-", " / ") +
-      (due.time ? " " + due.time : "") +
-      (deadline.status === "inferred" ? " · 待确认" : "")
+      (due.time ? " " + due.time : "")
     );
   }
   function evidence(item) {
@@ -361,20 +374,34 @@ export function createImportUI(host) {
       record = item.batch.request?.records?.find(
         (record) => record.input_id === c.input_id,
       ),
-      label = platforms[record?.platform] || c.sources?.[0]?.label || "通知";
+      label = record?.source_label === "用户主动上传的文件" ? "图片与文件" : platforms[record?.platform] || c.sources?.[0]?.label || "通知";
     return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${blocked() ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${blocked() ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${blocked() ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
   }
+  function teachingPanel() {
+    const connected = credentials?.configured;
+    return `<section class="teaching-source"><div class="teaching-import"><div class="teaching-account"><h2>教学网</h2><div class="teaching-connection"><span class="status-note">${connected ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号，获取课程作业与通知"}</span>${connected ? `<button class="btn quiet" type="button" data-import-action="credentials" ${credentialsBlocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>${schedule.render()}</div>${sourceSync.renderProgress()}</section>`;
+  }
   function render() {
-    if (session.user && !demo() && !loaded && !loading && !busy)
-      queueMicrotask(load);
-    const items = allItems(),
-      pending = items.filter((item) => item.state === "pending"),
-      ignored = items.filter((item) => item.state === "ignored");
-    const failures = batches.filter((batch) =>
-      ["failed", "partial_success"].includes(batch.result?.status) &&
-      !sourceSync.ownsRequest(batch.request.request_id),
-    );
-    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading"><div class="import-source-tabs" role="group" aria-label="导入来源"><button type="button" class="btn ${source === "text" ? "selected" : "quiet"}" data-import-source="text" aria-pressed="${source === "text"}" ${blocked() ? "disabled" : ""}>文本</button><button type="button" class="btn ${source === "teaching" ? "selected" : "quiet"}" data-import-source="teaching" aria-pressed="${source === "teaching"}" ${blocked() ? "disabled" : ""}>教学网</button><button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div><section class="import-input">${source === "text" ? `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>` : `<div class="teaching-import"><div><h2>教学网作业</h2><p class="status-note">${credentials?.configured ? "已连接 " + esc(credentials.username) : loading ? "正在读取连接…" : "连接账号后采集作业与通知"}</p></div><div class="import-form-actions"><button class="btn primary" type="button" data-import-action="sync" ${blocked() || loading ? "disabled" : ""}>${busy ? "正在采集…" : credentials?.configured ? "采集并识别" : "连接教学网"}</button>${credentials?.configured ? `<button class="btn quiet" type="button" data-import-action="credentials" ${blocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>`}${busy ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress || "正在处理…")}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}${sourceSync.render()}${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map((batch) => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch), batch.request.records?.some(record => record.platform === "teaching_web") ? "teaching_sync" : "text_import", JSON.stringify(["recognition", batch.request.request_id]))}</div>${!incomplete(batch) && !sourceSync.ownsRequest(batch.request.request_id) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}</section><section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}</section>${reprocessing.render()}</div>`;
+    if (session.user && !demo() && !loaded && !loading && !busy) queueMicrotask(load);
+    const items = allItems(), pending = items.filter(item => item.state === "pending"),
+      ignored = items.filter(item => item.state === "ignored");
+    const failures = batches.filter(batch => !syncOwnsRequest(batch.request.request_id) &&
+      !materials.owns(batch.request.request_id) && ["failed", "partial_success"].includes(batch.result?.status));
+    const tabs = [["text", "文本"], ["teaching", "教学网"], ["files", "图片与文件"]]
+      .map(([key, label]) => `<button type="button" class="btn ${source === key ? "selected" : "quiet"}" data-import-source="${key}" aria-pressed="${source === key}">${label}</button>`).join("");
+    const textPanel = `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容" ${blocked() ? "disabled" : ""}>${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}" ${blocked() ? "disabled" : ""}></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${blocked() ? "disabled" : ""}>${busy && source === "text" ? "正在识别…" : "识别任务"}</button></div></form>`;
+    const panel = source === "text" ? textPanel : source === "teaching" ? teachingPanel()
+      : materials.render();
+    return `${renderPageHeading({ title: "导入", escapeHtml: esc })}<div class="page-reading">
+      <div class="import-source-tabs" role="group" aria-label="导入来源">${tabs}<button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div>
+      <section class="import-input">${panel}
+        ${busy && progress ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress)}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}
+        ${source === "teaching" && !demo() ? sourceSync.renderHistory() + (credentials?.configured ? submissions.render() : "") : ""}
+        ${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map(batch => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch), batch.request.records?.some(record => record.platform === "teaching_web") ? "teaching_sync" : "text_import", JSON.stringify(["recognition", batch.request.request_id]))}</div>${batch.request.contract_version === "0.3.1" ? '<button class="btn quiet" data-import-source="files">查看文件处理</button>' : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}
+        ${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}
+      </section>
+      <section class="import-results"><div class="section-heading"><h2>待核对${pending.length ? ` <span class="status-note">${pending.length}</span>` : ""}</h2><button class="btn quiet" type="button" data-import-action="refresh" ${blocked() || loading ? "disabled" : ""}>${loading ? "读取中…" : "刷新"}</button></div>${pending.length ? pending.map(candidateRow).join("") : `<p class="empty-state">${loading ? "正在读取导入结果…" : "暂无待核对任务"}</p>`}${ignored.length ? `<details class="import-history"><summary>已忽略 · ${ignored.length}</summary>${ignored.map(candidateRow).join("")}</details>` : ""}</section>
+    </div>`;
   }
   function dialogHeader(title) {
     return `<header class="dialog-header"><h2>${esc(title)}</h2><button class="icon-button" type="button" data-import-action="close" aria-label="关闭">${host.icon("close")}</button></header>`;
@@ -471,6 +498,49 @@ export function createImportUI(host) {
     if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
     return next;
   }
+  async function autoApply(requestId, stamp) {
+    const signal = controller?.signal;
+    const batch = batches.find((batch) => batch.request.request_id === requestId);
+    const candidates = !batch || batch.demo ? [] : (batch.items || []).filter((item) => {
+      const candidate = item.candidate;
+      const record = batch.request.records?.find((record) => record.input_id === candidate?.input_id);
+      return item.state === "pending" && item.version === 1 &&
+        record?.platform === "teaching_web" && candidate.notice_type === "create" &&
+        candidate.needs_review === false && !candidate.review_reasons?.length;
+    });
+    let applied = 0, failed = 0;
+    if (!candidates.length || !valid(stamp) || signal?.aborted) return { applied, failed };
+    await flushStore();
+    for (const [index, item] of candidates.entries()) {
+      if (!valid(stamp) || signal?.aborted) break;
+      progress = `正在加入任务 ${index + 1} / ${candidates.length}`;
+      refresh();
+      try {
+        // The server owns eligibility, source validation and the task contents.
+        const result = await api(
+          "/api/recognition/candidates/" + encodeURIComponent(item.id) + "/resolve",
+          { action: "create", auto_apply: true, version: item.version },
+          "POST", { signal },
+        );
+        if (!valid(stamp)) return { applied, failed };
+        if (!Array.isArray(result.batches)) throw new Error("导入结果暂时无法读取");
+        acceptBatches(result.batches);
+        applied++;
+      } catch (e) {
+        if (!valid(stamp)) return { applied, failed };
+        if (signal?.aborted) break;
+        // A refusal keeps the candidate available for manual review.
+        if (e.status === 400) continue;
+        failed++;
+        error = "部分任务自动加入未完成，可再次采集重试，或核对后加入。";
+      }
+    }
+    if (applied && valid(stamp)) {
+      try { await host.refresh(); }
+      catch { if (valid(stamp)) error = "任务已加入，但列表刷新失败，请重新读取任务。"; }
+    }
+    return { applied, failed };
+  }
   async function importText(values) {
     if (blocked() || !allowed()) return;
     text = String(values.text || "");
@@ -516,10 +586,9 @@ export function createImportUI(host) {
     }
   }
   async function sync() {
-    if (blocked() || !allowed()) return;
+    if (blocked() || syncIsActive() || !allowed()) return;
     if (!credentials?.configured) { openCredentials(); return; }
-    error = notice = "";
-    await sourceSync.start();
+    await schedule.start();
   }
   async function resolveSmall(item, action) {
     if (
@@ -553,45 +622,6 @@ export function createImportUI(host) {
       }
     }
   }
-  async function applyRetryTasks(requestId, stamp) {
-    const signal = controller?.signal;
-    const batch = batches.find((batch) => batch.request.request_id === requestId);
-    const candidates = !batch || batch.demo ? [] : (batch.items || []).filter((item) => {
-      const candidate = item.candidate;
-      const record = batch.request.records?.find((record) => record.input_id === candidate?.input_id);
-      return item.state === "pending" && item.version === 1 &&
-        record?.platform === "teaching_web" && candidate.notice_type === "create" &&
-        candidate.needs_review === false && !candidate.review_reasons?.length;
-    });
-    let applied = 0, failed = 0;
-    if (!candidates.length || !valid(stamp) || signal?.aborted) return { applied, failed };
-    await flushStore();
-    for (const [index, item] of candidates.entries()) {
-      if (!valid(stamp) || signal?.aborted) break;
-      progress = `正在加入任务 ${index + 1} / ${candidates.length}`;
-      refresh();
-      try {
-        // The server owns eligibility, source validation and the task contents.
-        const result = await api(
-          "/api/recognition/candidates/" + encodeURIComponent(item.id) + "/resolve",
-          { action: "create", auto_apply: true, version: item.version },
-          "POST", { signal },
-        );
-        if (!valid(stamp)) return { applied, failed };
-        if (!Array.isArray(result.batches)) throw new Error("导入结果暂时无法读取");
-        acceptBatches(result.batches);
-        applied++;
-      } catch (e) {
-        if (!valid(stamp)) return { applied, failed };
-        if (signal?.aborted) break;
-        // A refusal keeps the candidate available for manual review.
-        if (e.status === 400) continue;
-        failed++;
-        error = "部分任务自动加入未完成，可再次采集重试，或核对后加入。";
-      }
-    }
-    return { applied, failed };
-  }
   async function retryBatch(batch) {
     if (blocked() || !allowed() || !batch || incomplete(batch)) return;
     const stamp = current();
@@ -605,12 +635,12 @@ export function createImportUI(host) {
       const next = await recognize(batch.request, true);
       if (!valid(stamp)) return;
       acceptBatches(next);
-      await applyRetryTasks(batch.request.request_id, stamp);
+      const automatic = await autoApply(batch.request.request_id, stamp);
       if (!valid(stamp)) return;
       await host.refresh();
       if (!valid(stamp)) return;
       notice = controller.signal.aborted ? "已停止导入，后台已开始的识别可能继续，可刷新查看结果。" :
-        "任务与识别结果已更新";
+        "识别结果已更新" + (automatic.applied ? `，已自动加入 ${automatic.applied} 项任务` : "");
     } catch (e) {
       if (valid(stamp))
         error = controller?.signal.aborted
@@ -627,15 +657,25 @@ export function createImportUI(host) {
   }
   async function click(button) {
     const d = button.dataset;
-    if (d.sourceSyncAction) return sourceSync.click(button);
-    if (d.reprocessAction) return reprocessing.click(button);
+    if (d.sourceSyncAction) {
+      if (allowed()) {
+        const stamp = current();
+        if (d.sourceSyncAction === "stop") await schedule.stop();
+        if (valid(stamp)) await sourceSync.click(button);
+      }
+      return true;
+    }
+    if (d.syncScheduleAction) return schedule.click(button);
+    if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
+    if (d.submissionAction) { if (allowed()) await submissions.click(button); return true; }
     if (d.importSource) {
-      if (!blocked()) {
+        if (!["text", "teaching", "files"].includes(d.importSource)) return true;
         source = d.importSource;
         error = "";
         notice = "";
+        if (source === "teaching" && allowed()) { void refreshSourceSync(); void schedule.load(); }
+        if (source === "files" && allowed()) void materials.load();
         refresh();
-      }
       return true;
     }
     if (d.importReview) {
@@ -670,11 +710,11 @@ export function createImportUI(host) {
       return true;
     }
     if (action === "refresh") {
-      if (allowed()) await load();
+      if (allowed()) { await host.refresh(); await load(); await refreshSourceSync(); }
       return true;
     }
     if (action === "credentials") {
-      if (!blocked() && allowed()) openCredentials();
+      if (!credentialsBlocked() && allowed()) openCredentials();
       return true;
     }
     if (action === "sync") {
@@ -682,7 +722,7 @@ export function createImportUI(host) {
       return true;
     }
     if (action === "remove-credentials") {
-      if (blocked() || !allowed()) return true;
+      if (credentialsBlocked() || !allowed()) return true;
       const stamp = current(),
         form = button.closest?.("form");
       busy = true;
@@ -696,6 +736,7 @@ export function createImportUI(host) {
           modal = null;
           if (formIsOpen(form)) host.closeDialog();
           host.toast("教学网连接已移除");
+          void schedule.load();
         }
       } catch (e) {
         if (valid(stamp)) {
@@ -756,6 +797,7 @@ export function createImportUI(host) {
     }
     const stamp = current();
     if (kind === "credentials") {
+      if (credentialsBlocked()) return true;
       busy = true;
       formError(form, "");
       lockForm(form, true);
@@ -770,6 +812,7 @@ export function createImportUI(host) {
           modal = null;
           if (formIsOpen(form)) host.closeDialog();
           host.toast("教学网已连接");
+          void schedule.load();
         }
       } catch (e) {
         if (valid(stamp)) formError(form, describeImportError(e));
@@ -856,7 +899,9 @@ export function createImportUI(host) {
     return false;
   }
   function input(event) {
-    if (reprocessing.input(event)) return true;
+    if (submissions.input(event)) return true;
+    if (materials.input(event)) return true;
+    if (schedule.input(event)) return true;
     const target = event.target;
     if (target.id === "import-text") {
       text = target.value;
@@ -881,7 +926,6 @@ export function createImportUI(host) {
   }
   function setVisible(visible) {
     sourceSync.setVisible(visible);
-    reprocessing.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || reprocessing.toggle(event) };
+  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) || submissions.toggle(event) };
 }

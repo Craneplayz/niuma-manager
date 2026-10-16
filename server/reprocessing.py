@@ -162,6 +162,7 @@ def start(db, uid, body, ApiError):
         old_batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request['request_id'])).fetchone()
         previous = bool(old_batch and json.loads(old_batch['result'])['status'] in ('success','no_tasks'))
         inputs.append(dict(request=request, digest=row['digest'], account=source['account'],kind=source['kind']))
+        if source['kind']=='teaching':inputs[-1]['control_token']=teaching.submission.controls.token(db,uid,request['request_id'])
         records.append(dict(input_id=identity, state='queued', attempted=False, policy_version=None, previous_available=previous, old_result_retained=previous, outcome=None, decision_summary=dict(preserved=0,replaced=0,new_pending=0,unresolved=0), error=None))
     run = dict(contract_version=contract.VERSION, run_id=secrets.token_hex(16), operation_id=body['operation_id'], source_account_id=body['source_account_id'], revision=1, state='queued', created_at=stamp(), updated_at=stamp(), records=records, counts=dict(total=len(records), **{s:len(records) if s=='queued' else 0 for s in contract.ROW_STATES}))
     contract.check_start_run(body, run)
@@ -178,6 +179,7 @@ def still_current(db, uid, item, ApiError):
     row=current_source(db,uid,item,identity)
     if not row or row['digest']!=item['digest'] or json.loads(row['request'])!=item['request']: return False
     if native:
+        if tuple(item.get('control_token') or ())!=tuple(teaching.submission.controls.token(db,uid,item['request']['request_id']) or ()):return False
         try: teaching.resolve_snapshot(db,uid,item['request']['request_id'],ApiError)
         except ApiError: return False
     return True
@@ -310,6 +312,13 @@ def process(path, uid, run_id, ApiError):
                                     db.execute('''INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1)
                                         ON CONFLICT(user_id,request_id) DO UPDATE SET archived=1''',
                                         (uid,rid,rid,stamp(),'教学网重识别前的结果'))
+                            teaching.submission.controls.refresh_request(db,uid,request['request_id'])
+                            # New action IDs have no verified submission relationship.
+                            # Keep them reviewable before attempting automatic creation.
+                            for identity in candidate_ids:
+                                card=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])
+                                teaching.submission.decorate(db,uid,request['request_id'],card)
+                                db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),identity))
                             # Same account/source guard and transactional task creation as normal sync.
                             for identity in candidate_ids:
                                 candidate=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])

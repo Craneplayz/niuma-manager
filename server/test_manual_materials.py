@@ -165,5 +165,31 @@ class ManualMaterialTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT status FROM wechat_jobs WHERE id=?',('legacy',)).fetchone()[0],'running')
             self.assertEqual(db.execute('SELECT status FROM wechat_jobs WHERE id=?',(accepted['job_id'],)).fetchone()[0],'failed')
 
+    def test_request_level_failure_has_a_working_idempotent_retry(self):
+        _,receipt=self.upload(b'plain synthetic','file.json')
+        body=self.request(receipt,supported=False)
+        with patch.object(wechat_media,'_start_job'):
+            _,accepted=self.call('/materials/imports',body)
+        # Reproduce a failure already saved by the older runtime.
+        old=dict(contract_version='0.3.1',request_id=body['request_id'],status='failed',record_results=[],tasks=[],
+                 errors=[dict(input_id=None,asset_id=None,block_id=None,stage='request',code='agent_unavailable',message='synthetic',retryable=True)])
+        with app.connection() as db:db.execute("UPDATE wechat_jobs SET status='failed',result=? WHERE id=?",(json.dumps(old),accepted['job_id']))
+        path='/materials/imports/'+accepted['job_id']+'/retry'
+        with patch.object(wechat_media,'_start_job') as start:
+            self.assertEqual(self.call(path,dict(retry_id='synthetic-retry'))[0],202)
+            self.assertEqual(self.call(path,dict(retry_id='synthetic-retry'))[0],200)
+            start.assert_called_once()
+        with app.connection() as db:
+            row=db.execute('SELECT previous_result FROM wechat_jobs WHERE id=?',(accepted['job_id'],)).fetchone()
+            previous=json.loads(row['previous_result'])
+        wechat_media.check_pair(body,previous)
+        self.assertEqual(wechat_media.retryable_records(previous),{body['records'][0]['input_id']})
+        self.assertEqual(self.call('/materials/imports')[1]['jobs'][0]['retry_remaining'],2)
+        with app.connection() as db:
+            db.execute("UPDATE wechat_jobs SET attempts=3,status='failed',result=?,previous_result=NULL WHERE id=?",(json.dumps(previous),accepted['job_id']))
+        self.assertEqual(self.call('/materials/imports')[1]['jobs'][0]['retry_remaining'],0)
+        self.assertEqual(self.call(path,dict(retry_id='over-limit'))[0],409)
+        self.assertEqual(self.call(path,dict(retry_id='synthetic-retry'))[0],200)
+
 
 if __name__=='__main__':unittest.main()
