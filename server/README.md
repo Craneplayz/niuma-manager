@@ -1,5 +1,6 @@
 ```text
 server/
+├── relation_settings.py      默认手动的跨来源合并模式，账号隔离、版本校验及切换停止。
 ├── task_retention.py        导入任务七天保留期、可恢复归档与手动恢复优先。
 ├── test_task_retention.py   日期精度、七天边界、完整历史保留和恢复回归。
 ├── task_relations.py         跨来源关联逐批恢复、审计、联合提交完成及撤回。

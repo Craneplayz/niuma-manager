@@ -4,6 +4,10 @@
 
 ```text
 contracts/
+├── relation_settings.py             # 自动关联的账号级默认手动模式、设置请求与返回格式
+├── schemas/task-relations-settings-v0.1.schema.json # 模式设置查询结果
+├── schemas/task-relations-settings-update-v0.1.schema.json # 带账号、版本和同意的模式更新
+├── tests/test_relation_settings.py  # 模式枚举、版本及多余字段校验
 ├── task_relations.py                # 跨来源关联结构、证据引用、完成覆盖及列表校验
 ├── schemas/task-relations-v0.1.schema.json # 模型关联结果的独立根 Schema
 ├── schemas/task-relations-list-v0.1.schema.json # 关联运行与提案列表的独立根 Schema

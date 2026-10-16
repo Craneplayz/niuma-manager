@@ -15,6 +15,7 @@ from runtime_environment import model_env_path
 from server.model_queue import ACTIVE, cancel_if
 import relation_context as context
 import submission_runtime as controls
+import relation_settings as settings
 
 _lock=threading.Lock()
 _workers={}
@@ -46,6 +47,7 @@ def initialize(db,recover=False):
       CREATE TABLE IF NOT EXISTS task_relation_diagnostics(job_id TEXT,window_index INTEGER,
         diagnostic TEXT,PRIMARY KEY(job_id,window_index));
     ''')
+    settings.initialize(db)
     if recover:db.execute("UPDATE task_relation_jobs SET state='interrupted',error='服务重启，已保存整合结果保留；可继续分析。' WHERE state='running'")
 
 
@@ -182,6 +184,7 @@ def apply_group(db,uid,pid,request,group,ApiError,manual=False):
     account=controls.current_account(db,uid)
     checked=current_group(db,uid,request,group)
     if not checked:raise ApiError(409,'关联依据或任务已变化，请重新分析')
+    if not manual and not settings.automatic(db,uid,account):return False
     nodes,bindings=checked
     actions=[nodes[i] for i in group['members'] if nodes[i]['kind']!='source']
     # Known deadlines may be replaced by a verified update, never silently
@@ -362,6 +365,7 @@ def start(db,uid,origin):
     if not account:return None
     credential=source_jobs.credential(db,uid)
     db.execute("UPDATE task_relation_jobs SET state='interrupted',error='账号凭据变化，旧关联已停止。' WHERE user_id=? AND state='running' AND (account<>? OR credential<>?)",(uid,account,credential))
+    if origin.startswith('sync:') and not settings.automatic(db,uid,account):return None
     prior=db.execute("SELECT id,origin FROM task_relation_jobs WHERE user_id=? AND state='running'",(uid,)).fetchone()
     if prior:
         if not origin.startswith('sync:') or prior['origin']==origin:return prior['id']
@@ -500,6 +504,11 @@ def route(handler,db,uid,path,body,ApiError,database):
     if handler.headers.get('Authorization'):raise ApiError(403,'关联操作需要登录会话')
     account=controls.current_account(db,uid)
     if not account:raise ApiError(404,'请先连接教学网')
+    if path==root+'/settings':
+        if handler.command=='GET':handler.reply(200,settings.view(db,uid,account));return True
+        if handler.command!='PUT':raise ApiError(405,'操作不支持')
+        db.execute('BEGIN IMMEDIATE')
+        handler.reply(200,settings.update(db,uid,account,body,ApiError));return True
     if path==root and handler.command=='GET':
         jobs=[{k:r[k] for k in ('id','origin','state','error','created_at')} for r in db.execute(
             'SELECT * FROM task_relation_jobs WHERE user_id=? AND account=? ORDER BY rowid DESC LIMIT 10',(uid,account))]

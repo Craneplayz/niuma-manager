@@ -11,7 +11,6 @@ import { renderPageHeading } from "./page-layout.js";
 import { candidateEvidenceMarkup, failureSourcesMarkup, createEvidenceState } from "./import-evidence.js";
 import { createMaterialsUI } from "./materials-ui.js";
 import { createTaskRelationsUI } from "./task-relations-ui.js";
-import { createSubmissionsUI } from "./submissions-ui.js";
 import { createSourceSyncUI } from "./source-sync-ui.js";
 import { createSyncScheduleUI } from "./source-schedule-ui.js";
 
@@ -284,11 +283,6 @@ export function createImportUI(host) {
   });
   const relations = createTaskRelationsUI({...host, isDemo: demo, changed: refreshResults,
     isVisible:()=>source==='teaching'&&(host.isImportVisible?.()??true)});
-  const submissions = createSubmissionsUI({
-    ...host, isDemo: demo,
-    openDialog(html) { modal = { kind: "submission" }; host.openDialog(html); },
-    closeDialog() { modal = null; host.closeDialog(); },
-  });
   const materials = createMaterialsUI({
     ...host, isDemo: demo, isVisible: () => source === "files" && (host.isImportVisible?.() ?? true),
     changed: refreshResults,
@@ -334,7 +328,7 @@ export function createImportUI(host) {
     modal = null;
     sourceSync.reset(); schedule.reset();
     materials.reset();
-    submissions.reset(); relations.reset(); evidenceState.reset();
+    relations.reset(); evidenceState.reset();
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
   async function load() {
@@ -400,7 +394,7 @@ export function createImportUI(host) {
       <div class="import-source-tabs" role="group" aria-label="导入来源">${tabs}<button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div>
       <section class="import-input">${panel}
         ${busy && progress ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress)}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}
-        ${source === "teaching" && !demo() ? sourceSync.renderHistory() + relations.render() + (credentials?.configured ? submissions.render() : "") : ""}
+        ${source === "teaching" && !demo() ? sourceSync.renderHistory() + relations.render() : ""}
         ${failures.length ? `<details class="import-history"><summary>历史导入 · 识别未完成 ${failures.length}</summary>${failures.map(batch => `<div class="import-failure"><div class="import-failure-copy">${failureSourcesMarkup(batch)}${errorMarkup(batchErrorReport(batch), batch.request.records?.some(record => record.platform === "teaching_web") ? "teaching_sync" : "text_import", JSON.stringify(["recognition", batch.request.request_id]))}</div>${batch.request.contract_version === "0.3.1" ? '<button class="btn quiet" data-import-source="files">查看文件处理</button>' : !incomplete(batch) ? `<button class="btn quiet" type="button" data-import-retry="${esc(batch.request.request_id)}" ${blocked() ? "disabled" : ""}>重试识别</button>` : ""}</div>`).join("")}</details>` : ""}
         ${errorMarkup(error)}${notice && !busy ? `<p class="status-note" role="status">${esc(notice)}</p>` : ""}
       </section>
@@ -672,7 +666,6 @@ export function createImportUI(host) {
     if (d.syncScheduleAction) return schedule.click(button);
     if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
     if (d.relationAction) { if (allowed()) await relations.click(button); return true; }
-    if (d.submissionAction) { if (allowed()) await submissions.click(button); return true; }
     if (d.importSource) {
         if (!["text", "teaching", "files"].includes(d.importSource)) return true;
         source = d.importSource;
@@ -904,7 +897,6 @@ export function createImportUI(host) {
     return false;
   }
   function input(event) {
-    if (submissions.input(event)) return true;
     if (materials.input(event)) return true;
     if (schedule.input(event)) return true;
     const target = event.target;
@@ -932,5 +924,5 @@ export function createImportUI(host) {
   function setVisible(visible) {
     sourceSync.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => evidenceState.toggle(event) || relations.toggle(event) || sourceSync.toggle(event) || materials.toggle(event) || submissions.toggle(event) };
+  return { render, click, submit, input, reset, load, setVisible, loadSourceSync: () => sourceSync.load(), toggle: (event) => evidenceState.toggle(event) || relations.toggle(event) || sourceSync.toggle(event) || materials.toggle(event) };
 }

@@ -14,7 +14,6 @@
 | `import-evidence.js` | 候选摘录、完整原文、安全来源链接和失败来源身份 |
 | `source-schedule-ui.js` | 单次 / 定时统一启动、频率与明确授权 |
 | `materials-ui.js` | 文件选择、持久作业、幂等重试与历史记录 |
-| `submissions-ui.js` | 作业目录与提交关联弹窗、原文和行动控制 |
 | `source-sync-ui.js` | 后台教学网同步、运行恢复、停止与逐条 / 批量重试 |
 | `account-ui.js` | 登录、注册、退出、昵称和密码表单 |
 | `user-errors.js` | 用户错误分类、统一反馈控件、确认回执及同一问题重试 |
@@ -87,7 +86,6 @@ npm run build
 - `import-evidence.test.js`：摘录和全文同时可读、失败来源身份及安全链接。
 - `source-schedule.test.js`：单次与定时切换、明确授权、停止、冲突、重复点击和账号隔离。
 - `materials.test.js`：文件回执、稳定重试、结果刷新与重试耗尽。
-- `submissions.test.js`：提交关联、稳定操作身份、弹窗关闭、账号切换与目录分页。
 - `source-sync.test.js`：后台运行、失败重试、刷新恢复、幂等和账号隔离。
 - `team-store.test.js`：任务保存、通知阅读与取消阅读的持久化、接口要求的字段透传、账号隔离、冲突重试、刷新与保存交错、迟到版本保护及删除恢复。
 - `usage-feedback.test.js`：主动反馈入口、每日访问去重、跨北京时间日期、只读会话恢复、键盘使用和失败重试，以及后台入口隔离。

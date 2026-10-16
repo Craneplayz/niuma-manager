@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "const": "task-relations-settings/0.1"
+    },
+    "source_account_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "mode": {
+      "enum": [
+        "manual",
+        "automatic"
+      ]
+    },
+    "consent": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "contract_version",
+    "source_account_id",
+    "revision",
+    "mode",
+    "consent"
+  ],
+  "additionalProperties": false
+}

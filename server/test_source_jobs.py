@@ -30,6 +30,9 @@ class SourceJobsTests(unittest.TestCase):
 
     def test_run_view_exposes_separate_association_progress(self):
         with app.connection() as db:
+            account=jobs.task_relations.controls.current_account(db,self.uid)
+            settings=jobs.task_relations.settings
+            settings.update(db,self.uid,account,dict(settings.view(db,self.uid,account),mode='automatic',consent=True),app.ApiError)
             run=jobs.start(db,self.uid,dict(contract_version='source-sync/0.1',sources=['teaching_web'],consent=True,operation_id='synthetic:association'),app.ApiError)
             jobs.save(db,run,'succeeded')
             job=jobs.task_relations.start(db,self.uid,'sync:'+run['run_id'])

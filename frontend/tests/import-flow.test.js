@@ -460,19 +460,9 @@ test('a delayed file-job refresh cannot resurrect an ignored candidate',async t=
  assert.match(ui.render(),/data-import-reopen="candidate-A"/);
 });
 
-test('submission disclosure loads its directory only on first expansion',async t=>{
- const f=fixture({intercept(path){
-  if(path==='/api/sources/credentials')return {configured:true,username:'synthetic-campus',source_account_id:'source:synthetic'};
-  if(path.startsWith('/api/sources/submissions?'))return {records:[],next_cursor:null};
- }});
- await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+test('removed submission directory has no entry or background reads',async t=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
  await ui.click({dataset:{importSource:'teaching'}});await new Promise(resolve=>setImmediate(resolve));
- const target={dataset:{submissionDirectory:''},open:true,isConnected:true,matches:()=>false};
- assert.equal(await ui.toggle({target}),true);await new Promise(resolve=>setImmediate(resolve));
- assert.equal(f.calls.filter(call=>call.path.startsWith('/api/sources/submissions?')).length,1);
- assert.match(ui.render(),/data-submission-directory open/);
- await ui.toggle({target});await new Promise(resolve=>setImmediate(resolve));
- assert.equal(f.calls.filter(call=>call.path.startsWith('/api/sources/submissions?')).length,1);
- target.open=false;await ui.toggle({target});
- assert.doesNotMatch(ui.render(),/data-submission-directory open/);
+ assert.doesNotMatch(ui.render(),/作业与提交状态|data-submission-/);
+ assert.equal(f.calls.filter(call=>call.path.startsWith('/api/sources/submissions')).length,0);
 });

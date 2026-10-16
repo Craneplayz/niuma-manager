@@ -44,13 +44,7 @@ try{
  await page.locator('[data-sync-schedule-field="interval"]').selectOption('60');
  await page.locator('[data-sync-schedule-field="consent"]').check();await page.locator('[data-import-action="sync"]').click();
  await until(async()=>{const s=await get('/sources/sync-schedule');return s.enabled&&s.interval_minutes===60;});
- await page.getByText('作业与提交状态',{exact:true}).click();
- await page.locator('[data-submission-action="detail"]').first().click();
- await page.getByText('整份通知的范围',{exact:true}).click();
- await page.locator('[data-submission-field="scope"]').selectOption('submission_only');
- for(const element of await page.locator('select[data-submission-field]:not([data-submission-field="scope"])').all())await element.selectOption('assignment_submission');
- await page.locator('[data-submission-action="associate_actions"]').click();await page.getByText('关联已保存，下次同步时生效。',{exact:true}).waitFor();
- await page.locator('[data-submission-action="close"]').last().click();
+ assert.equal(await page.locator('[data-submission-directory]').count(),0);
  await until(()=>page.locator('[data-import-action="sync"]').isEnabled());
  const screenshots=join(root,'frontend/docs/screenshots');await mkdir(screenshots,{recursive:true});
  await page.screenshot({path:join(screenshots,'teaching-sync-progress-desktop.png'),fullPage:true});
@@ -74,7 +68,7 @@ try{
  await page.setViewportSize({width:320,height:844});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'320px mobile overflow: '+JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(-12).map(e=>[e.tagName,e.className,e.getBoundingClientRect().right]))));
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({passed:['background sync','reload and targeted recovery','schedule settings','submission association','multipart upload and file retry','file candidate confirmation'],tasks:tasks.length,external_services:'synthetic',browser:'Chromium'},null,2));
+ console.log(JSON.stringify({passed:['background sync','reload and targeted recovery','schedule settings','submission directory removed','multipart upload and file retry','file candidate confirmation'],tasks:tasks.length,external_services:'synthetic',browser:'Chromium'},null,2));
 }catch(error){if(browser){const pages=browser.contexts().flatMap(c=>c.pages());if(pages[0]){diagnostic+='\n'+(await pages[0].locator('body').innerText()).slice(-6000);await pages[0].screenshot({path:join(temporary,'failure.png'),fullPage:true});}}console.error(diagnostic);throw error;}
 finally{
  await browser?.close();await writeFile(join(temporary,'ready.stop'),'stop');

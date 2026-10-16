@@ -17,6 +17,87 @@ class TaskRelationsTests(unittest.TestCase):
     tearDown=fixture.TeachingIntegrationTests.tearDown
     call=fixture.TeachingIntegrationTests.call
 
+    def mode(self,mode):
+        with app.connection() as db:
+            account=runtime.controls.current_account(db,self.uid)
+            body=dict(runtime.settings.view(db,self.uid,account),mode=mode,consent=mode=='automatic')
+            return runtime.settings.update(db,self.uid,account,body,app.ApiError)
+
+    def test_default_manual_skips_sync_but_keeps_explicit_analysis(self):
+        with app.connection() as db:
+            account=runtime.controls.current_account(db,self.uid)
+            self.assertEqual(runtime.settings.view(db,self.uid,account)['mode'],'manual')
+            self.assertIsNone(runtime.start(db,self.uid,'sync:default'))
+            self.assertIsNotNone(runtime.start(db,self.uid,'manual'))
+
+    def test_default_sync_does_not_call_relation_model(self):
+        import source_jobs
+        with patch.object(app.source_sync,'collect',return_value=dict(requests=[],summary=dict(skipped=0))),patch.object(runtime,'model') as model:
+            status,run=self.call('/sources/sync-runs',dict(contract_version='source-sync/0.1',sources=['teaching_web'],consent=True,operation_id='manual-mode-sync'))
+            self.assertEqual(status,202,run)
+            source_jobs.wait_for_jobs(app.DB);runtime.wait_for_jobs(app.DB)
+            model.assert_not_called()
+        with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM task_relation_jobs WHERE user_id=?',(self.uid,)).fetchone()[0],0)
+
+    def test_disabled_sync_still_releases_stale_account_job(self):
+        with app.connection() as db:
+            job=runtime.start(db,self.uid,'manual')
+            db.execute("UPDATE task_relation_jobs SET account='former-account' WHERE id=?",(job,))
+            self.assertIsNone(runtime.start(db,self.uid,'sync:after-account-change'))
+            self.assertEqual(db.execute('SELECT state FROM task_relation_jobs WHERE id=?',(job,)).fetchone()[0],'interrupted')
+
+    def test_manual_analysis_only_proposes_then_explicit_apply_works(self):
+        request,group=self.seed('submitted');before=self.tasks();self.mode('manual')
+        with app.connection() as db:job=runtime.start(db,self.uid,'manual')
+        with patch.object(runtime,'model',return_value=dict(contract_version=contract.VERSION,context_digest=request['context_digest'],groups=[group])):
+            runtime.process_window(app.DB,self.uid,job,request,app.ApiError)
+        self.assertEqual(self.tasks(),before)
+        status,result=self.call('/recognition/relations')
+        self.assertEqual(status,200);proposal=result['proposals'][0]
+        self.assertEqual(proposal['state'],'review')
+        self.assertEqual(self.call('/recognition/relations/'+proposal['id']+'/apply',dict(reviewed=True))[0],200)
+        self.assertEqual(len(self.tasks()),1);self.assertEqual(self.tasks()[0]['status'],'completed')
+
+    def test_mode_change_stops_late_result_in_both_directions(self):
+        for before,after in [('automatic','manual'),('manual','automatic')]:
+            with self.subTest(before=before):
+                request,group=self.seed('submitted') if before=='automatic' else self.proposal()
+                self.mode(before);tasks=self.tasks()
+                with app.connection() as db:job=runtime.start(db,self.uid,'manual')
+                def answer(_):
+                    self.mode(after)
+                    return dict(contract_version=contract.VERSION,context_digest=request['context_digest'],groups=[group])
+                with patch.object(runtime,'model',side_effect=answer):runtime.process_window(app.DB,self.uid,job,request,app.ApiError)
+                self.assertEqual(self.tasks(),tasks)
+                with app.connection() as db:self.assertEqual(db.execute('SELECT state FROM task_relation_jobs WHERE id=?',(job,)).fetchone()[0],'stopped')
+
+    def test_settings_http_cas_consent_and_account_scope(self):
+        from urllib.request import Request
+        from urllib.error import HTTPError
+        status,current=self.call('/recognition/relations/settings');self.assertEqual(status,200)
+        def put(body):
+            request=Request(f'http://127.0.0.1:{self.server.server_port}/api/recognition/relations/settings',
+                data=json.dumps(body).encode(),headers={'Content-Type':'application/json'},method='PUT')
+            try:
+                with self.client.open(request) as response:return response.status,json.load(response)
+            except HTTPError as response:return response.code,json.load(response)
+        self.assertEqual(put(dict(current,mode='automatic',consent=False))[0],400)
+        self.assertEqual(put(dict(current,source_account_id='another-account',consent=True))[0],409)
+        status,saved=put(dict(current,mode='automatic',consent=True));self.assertEqual(status,200,saved)
+        self.assertEqual(saved['revision'],1)
+        self.assertEqual(put(dict(current,consent=False))[0],409)
+        with app.connection() as db:
+            self.assertFalse(runtime.settings.automatic(db,'different-user',current['source_account_id']))
+            self.assertFalse(runtime.settings.automatic(db,self.uid,'different-source-account'))
+        self.assertEqual(self.call('/recognition/relations/settings')[1],saved)
+
+    def test_disabling_merge_keeps_existing_submission_completion(self):
+        request,group=self.seed();self.assertTrue(self.apply(request,group));self.mode('manual')
+        with app.connection() as db:
+            teaching.register(db,self.uid,'synthetic-course-user',[self.receiving_capture(2,'submitted')])
+            runtime.refresh_completions(db,self.uid)
+        self.assertEqual(self.tasks()[0]['status'],'completed')
+
     def seed(self,state='active',existing=True):
         request,_=example(('explicit-complete',)*3)
         texts=['实验12报告：甲.pdf，按合并提交入口交付。','实验13报告：乙.pdf，按合并提交入口交付。',
@@ -37,6 +118,8 @@ class TaskRelationsTests(unittest.TestCase):
                 teaching.register(db,self.uid,'synthetic-course-user',[payload])
             sources=list(db.execute('SELECT * FROM teaching_sources WHERE user_id=? ORDER BY input_id',(self.uid,)))
             self.account=sources[0]['account']
+            setting=runtime.settings.view(db,self.uid,self.account)
+            runtime.settings.update(db,self.uid,self.account,dict(setting,mode='automatic',consent=True),app.ApiError)
             tasks=[]
             for i,input_id in enumerate(self.input_ids[:2]):
                 source=next(s for s in sources if s['input_id']==input_id)
