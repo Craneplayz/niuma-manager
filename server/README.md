@@ -130,6 +130,34 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 备份数据库时需同时安全备份 `credential.key`，密钥丢失后须重新保存教学网凭据。
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。
 
+## 教学网导入排障
+
+“暂时无法从教学网获取通知，需要维护人员处理。你可以先粘贴通知内容。”对应前端 `crawler_dependency` 分类，通常是采集依赖缺失，并非模型识别失败。后端在启动采集前检查 `crawler/node_modules/tsx` 或 `.bin/tsx` 是否存在，缺失即返回“教学网采集依赖未安装”；前端也会将匹配的模块加载错误归入此类。仅凭页面提示不能确定具体机器或安装步骤，应先核对实际后端版本和本轮错误。
+
+### 先确认失败阶段
+
+1. 记录出错时间、使用的开发 / 测试 / 生产环境以及 `/api/version` 的 `revision`；点击“反馈此问题”提交错误分类与版本，维护者在 `/admin.html` 查看报告。反馈不含原始异常、课程正文或密码。
+2. 已登录用户可在浏览器开发者工具的 Network 中查看本轮 `GET /api/sources/sync-runs/{id}` 响应的 `state`、`error.code` 和 `error.message`；采集失败可能是 `collection_failed`，具体原因在 message 中，不能只看 HTTP 200 或该错误码。旧版同步接口则查看 `POST /api/sources/sync` 的错误响应。
+3. 向维护者提供上述有限字段即可；不要公开整份网络记录、Cookie、凭据或课程内容。“已连接”只表示凭据已保存，保存时没有验证教学网登录。
+
+| 后端错误 / 页面现象 | 排查与处理 |
+| --- | --- |
+| `教学网采集依赖未安装` / 上述“需要维护人员处理”提示 | 在**实际运行后端的检出目录**安装 [crawler 依赖及 Chromium](../crawler/README.md#安装与检查)；重点检查新工作树未安装依赖、只安装 `frontend/`、`--prod` 漏掉 `tsx`、后端仍运行旧目录。 |
+| `教学网采集无法启动或超时` | 检查后端进程的 Node PATH、浏览器运行条件、服务器到教学网的网络；采集子进程等待上限为 300 秒，不能仅凭此提示认定是缺依赖。 |
+| `教学网采集失败` | 爬虫已启动但非正常退出；浏览器文件 / 系统库缺失、账号登录、校园网连接和页面变化都可能导致此错误。先检查浏览器安装，再检查账号与网络；当前 API 不返回爬虫 stderr，不能从这句话确定是密码错误。 |
+| `教学网识别配置不可用` 或单条模型输出失败 | 已进入识别链路，按当前环境的模型配置或单条错误排查；重复安装爬虫不是对应修复。 |
+| `定时同步暂不可用，可进行单次识别` | 环境未开放定时同步；独立于采集依赖故障，单次识别仍可用。见下方说明。 |
+
+### 本机与容器分别处理
+
+本机按 [crawler 安装与检查](../crawler/README.md#安装与检查)执行安装和无网络自检，Python 依赖另见[团队启动指南](deploy/TEAM_GUIDE.md)。`manage_environment.py check` 只检查环境配置，不验证爬虫依赖、浏览器或登录；运行成功不等于教学网可用。安装后沿用当前环境重启必要服务，再用“重新获取来源”或“开始识别”进行一次同步；仅刷新页面或重试已保存内容不会补装依赖。
+
+服务器由维护者在部署工作目录运行 `python3 server/manage_environment.py status test`（生产用 `production`）确认当前容器，再用 `docker exec -it <API容器ID> sh` 进入 **API 容器**，切到 `/app/crawler` 执行上述无网络自检，结束后 `exit`。只使用线上网页的用户无需在自己的电脑安装 Node、pnpm 或浏览器。
+
+仓库 [Dockerfile](deploy/Dockerfile) 已在 API 镜像中安装 Node、完整爬虫依赖、Chromium 和 Linux 系统库；容器仍缺依赖时核对是否运行旧 / 自建镜像，以及额外目录挂载是否遮住 `/app/crawler` 或 `node_modules`。在宿主机安装依赖或只更新网页镜像不会修复 API 容器；按[环境部署流程](deploy/ENVIRONMENTS.md)构建并验收测试镜像后再发布，保留原数据卷，不用删库或 `down -v` 排障。
+
+定时同步由当前环境 `server/deploy/environments/<环境>/config.json` 中的 `"scheduled_sync": true` 开放，统一入口注入 `NIUMA_ENABLE_SCHEDULED_SYNC=1`；修改后重启本机服务或通过环境入口重建对应容器，再核对 `/api/version` 的 `scheduled_sync_available`。账号还须自行启用并选择周期；打开此开关不会安装依赖或修复采集错误，详见[后台同步约定](../contracts/docs/source-sync-v0.1.md)。
+
 ## 微信材料处理边界
 
 Docker 部署禁用 `/api/sources/wechat/`；`NIUMA_ENABLE_MANUAL_MATERIALS=1` 仅开放 `/api/materials/` 登录会话入口，允许用户主动提交未加密 JSON 和附件，不获取微信内容、不解密、不恢复旧采集任务。
