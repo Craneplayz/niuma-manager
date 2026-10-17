@@ -60,6 +60,24 @@ def workspace(db, uid):
     return (json.loads(row['value']), row['version']) if row else ([], 0)
 
 
+def manually_controlled_candidates(db, uid, candidates):
+    """Use durable operation targets, including explicit unknown/unchanged links.
+
+    Exact candidate IDs scope the match even if a source control was replaced.
+    Association changes intentionally do not mutate candidate state/version.
+    """
+    by_action={identity('candidate', c['id']):c['id'] for c in candidates}
+    protected=set()
+    if not by_action: return protected
+    for row in db.execute("SELECT json_extract(audit,'$.operation') FROM submission_operations WHERE user_id=?",(uid,)):
+        operation=json.loads(row[0])
+        targets=([link['action_id'] for link in operation['links']] if operation['kind']=='associate_actions'
+                 else operation['action_ids'])
+        protected.update(by_action[aid] for aid in targets if aid in by_action)
+        if len(protected)==len(by_action): break
+    return protected
+
+
 def linked_actions(db, row, detail):
     """Use saved candidate IDs and task history, never title/course similarity."""
     old = {a['action_id']: a for a in detail['observation']['actions']}
@@ -95,10 +113,11 @@ def linked_actions(db, row, detail):
         if c['state'] == 'applied' or c['id'] in used: continue
         aid = identity('candidate', c['id']); prior = old.get(aid)
         relation=prior['relation'] if prior else 'unknown'
-        # A pending version beyond the initial one is an explicit undo-ignore.
-        # Keep the pause across refresh/restart and inherit it if a task is created.
+        # Entering pending after a handled version restores the manual pause.
+        # Once pending, respect the persisted flag: an explicit resume may have
+        # cleared it. A later ignored -> pending transition pauses again.
         paused=relation=='assignment_submission' and (bool(prior and prior['source_completion_paused'])
-            or c['state']=='pending' and c['version']>1)
+            or c['state']=='pending' and c['version']>1 and (not prior or prior['decision']!='pending'))
         actions.append(dict(action_id=aid, kind='candidate', relation=relation,
             link_basis=prior['link_basis'] if prior else 'unresolved', decision='pending' if c['state']=='pending' else 'ignored',
             completion_origin=None, source_completion_paused=paused))

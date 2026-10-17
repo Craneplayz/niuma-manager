@@ -59,10 +59,10 @@ actions 至多 100 条，以后端永久 action_id 区分 candidate/task，记�
 | kind | action_ids | 行为 |
 | --- | --- | --- |
 | reopen_actions | 非空，明确对应的已保存提交任务 | 从 completed 改为 confirmed、清除 completion_origin，并设置 source_completion_paused=true；已有 confirmed/edited 保持原决定，仅暂停来源自动完成。 |
-| resume_source_completion | 非空，当前已暂停的提交任务 | 用户明确接受未来来源自动完成，清除所选任务暂停；不清除来源 review_pending，也不立即改变任务完成状态。 |
+| resume_source_completion | 非空，当前已暂停的提交任务或 pending 提交候选 | 用户明确接受未来来源自动处理，清除所选行动暂停；不清除来源 review_pending，也不立即完成任务或撤下候选。 |
 | resolve_source_review | 空数组 | 用户确认当前快照，清除 review_pending；不解除任何任务的手动暂停，不自动撤销完成或创建重复任务。 |
 
-每次操作携带 operation_id、expected_snapshot_id、expected_control_revision；服务端在同一账号/来源事务内核对当前快照和控制版本，过时确认要求刷新，不能套用到新状态。忽略/删除的任务、候选、其他行动或外部 action_id 都不能通过这些操作复活。需要重做时用 reopen_actions；仅确认来源提示不等于重新开启任务。
+每次操作携带 operation_id、expected_snapshot_id、expected_control_revision；服务端在同一账号/来源事务内核对当前快照和控制版本，过时确认要求刷新，不能套用到新状态。忽略/删除的任务或候选、其他行动或外部 action_id 都不能通过这些操作复活；候选仅支持恢复暂停，撤回忽略仍使用候选处理接口。需要重做已保存任务时用 reopen_actions；仅确认来源提示不等于重新开启任务。
 
 每次用户操作 control_revision 加一，服务端保存操作、前后控制状态、行动决定、登录用户与操作时间；相同账号和 operation_id 的相同请求返回已保存回执，不再执行，改动请求内容应冲突。纯函数不提供持久幂等，重复旧操作会因版本不符拒绝，不能用该异常代替后端幂等回执。
 

@@ -266,8 +266,10 @@ def process(path, uid, run_id, ApiError):
                     # Protect every handled decision; do not match titles or model IDs.
                     old = prior_candidates(db,uid,item,record['input_id'])
                     cards=teaching.result_view(request,result)['tasks'] if native else result['tasks']
-                    replaceable = [c for c in old if (c['state']=='pending' and c['version']==1)
-                                   or recognition.was_automatically_withdrawn(c)]
+                    controlled = teaching.submission.controls.manually_controlled_candidates(db,uid,old) if native else set()
+                    replaceable = [c for c in old if c['id'] not in controlled
+                                   and ((c['state']=='pending' and c['version']==1)
+                                        or recognition.was_automatically_withdrawn(c))]
                     replaceable_ids = {c['id'] for c in replaceable}
                     protected = [c for c in old if c['id'] not in replaceable_ids]
                     candidate_ids=[secrets.token_hex(16) for _ in cards]

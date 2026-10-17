@@ -111,6 +111,22 @@ class SubmissionOperationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 public.apply_operation(paused, operation)
 
+    def test_paused_candidate_allows_audited_relationship_correction(self):
+        paused,_=self.sample(2)
+        paused['observation']['actions'][0].update(kind='candidate',decision='pending')
+        _,template=self.sample()
+        for relation in ('assignment_submission','other','unknown'):
+            operation=deepcopy(template);operation['links'][0]['relation']=relation
+            result=public.apply_operation(paused,operation)
+            after=result['record']['observation']
+            action=after['actions'][0]
+            self.assertEqual(action['relation'],relation)
+            self.assertEqual(action['source_completion_paused'],relation=='assignment_submission')
+            self.assertEqual(action['decision'],'pending')
+            self.assertEqual(after['review_pending'],paused['observation']['review_pending'])
+            self.assertEqual(result['audit']['before'],paused)
+            self.assertEqual(result['audit']['after'],result['record'])
+
     def test_unknown_source_is_not_promoted_by_confirmation(self):
         record, operation = self.sample(3)
         record['observation']['snapshot'].update(state='unknown', basis='unknown')

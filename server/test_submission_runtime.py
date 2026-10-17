@@ -46,6 +46,115 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         status,out=self.apply(body);self.assertEqual(status,201,out);ops.check('receipt',out)
         return out,body
 
+    def candidate_row(self,item):
+        with app.connection() as db:
+            return dict(db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',
+                (item['id'],self.uid)).fetchone())
+
+    def reopen_candidate(self,item,version=2):
+        status,out=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='reopen',version=version))
+        self.assertEqual(status,200,out)
+        return self.details()
+
+    def associate_candidate(self,relation):
+        detail=self.details()
+        body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation=relation)
+            for a in detail['observation']['actions']])
+        status,out=self.apply(body);self.assertEqual(status,201,out)
+        self.assertEqual(self.apply(body),(200,out))
+        with app.connection() as db:
+            audit=json.loads(db.execute('SELECT audit FROM submission_operations WHERE user_id=? AND operation_id=?',
+                (self.uid,body['operation_id'])).fetchone()[0])
+        self.assertEqual(audit['actor'],self.uid)
+        self.assertEqual(audit['operation'],body)
+        return out['record']
+
+    def test_runtime_reopened_candidate_can_resume_and_pause_again(self):
+        capture,item=self.recognized_submitted_assignment()
+        detail=self.reopen_candidate(item)
+        action=detail['observation']['actions'][0]
+        self.assertTrue(action['source_completion_paused'])
+        body=self.operation(detail,'resume_source_completion',action_ids=[action['action_id']])
+        status,out=self.apply(body);self.assertEqual(status,201,out)
+        self.assertEqual(self.apply(body),(200,out))
+        self.assertEqual(self.candidate_row(item)['state'],'pending')  # No immediate withdrawal.
+        app.initialize()
+        for _ in range(2): self.assertFalse(self.details()['observation']['actions'][0]['source_completion_paused'])
+        capture['request']['records'][0]['record']['collected_at']='2026-10-10T11:00:00+08:00'
+        self.sync_native(capture)
+        row=self.candidate_row(item);self.assertEqual((row['state'],row['version']),('ignored',4))
+        self.assertTrue(self.reopen_candidate(item,4)['observation']['actions'][0]['source_completion_paused'])
+        app.initialize()
+        capture['request']['records'][0]['record']['collected_at']='2026-10-10T12:00:00+08:00'
+        self.sync_native(capture)
+        row=self.candidate_row(item);self.assertEqual((row['state'],row['version']),('pending',5))
+
+    def check_reopened_candidate_correction(self,relation):
+        capture,item=self.recognized_submitted_assignment()
+        self.reopen_candidate(item)
+        app.initialize()
+        detail=self.associate_candidate(relation)
+        action=detail['observation']['actions'][0]
+        self.assertEqual(action['relation'],relation);self.assertFalse(action['source_completion_paused'])
+        app.initialize()
+        capture['request']['records'][0]['record']['collected_at']='2026-10-10T11:00:00+08:00'
+        self.sync_native(capture)
+        action=self.details()['observation']['actions'][0]
+        self.assertEqual(action['relation'],relation);self.assertFalse(action['source_completion_paused'])
+        self.assertEqual(self.candidate_row(item)['state'],'pending')
+        self.assertEqual(self.reprocess_native(capture,'corrected-'+relation)['records'][0]['decision_summary']['preserved'],1)
+        self.assertEqual(self.candidate_row(item)['state'],'pending')
+
+    def test_runtime_reopened_candidate_can_correct_to_other(self):
+        self.check_reopened_candidate_correction('other')
+
+    def test_runtime_reopened_candidate_can_correct_to_unknown(self):
+        self.check_reopened_candidate_correction('unknown')
+
+    def check_automatic_withdrawal_with_manual_association(self,relation):
+        capture,item=self.recognized_submitted_assignment()
+        detail=self.associate_candidate(relation)
+        before=self.candidate_row(item)
+        # Association controls do not edit the candidate's system resolution.
+        self.assertEqual((before['state'],before['version']),('ignored',2))
+        for restart in (False,True):
+            with self.subTest(relation=relation,restart=restart):
+                if restart: app.initialize()
+                saved=self.reprocess_native(capture,f'manual-association-{relation}-{restart}')
+                self.assertEqual(saved['records'][0]['decision_summary']['preserved'],1)
+                self.assertEqual(self.candidate_row(item),before)
+                old=next(a for a in self.details()['observation']['actions']
+                    if a['action_id']==detail['observation']['actions'][0]['action_id'])
+                self.assertEqual(old['relation'],relation)
+
+    def test_runtime_manual_other_association_survives_reprocessing(self):
+        self.check_automatic_withdrawal_with_manual_association('other')
+
+    def test_runtime_manual_unknown_association_survives_reprocessing(self):
+        self.check_automatic_withdrawal_with_manual_association('unknown')
+
+    def test_runtime_manual_association_protects_unhandled_candidate(self):
+        capture=self.native_capture('active')
+        item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        self.associate_candidate('unknown')  # An explicit choice, even when unchanged.
+        before=self.candidate_row(item)
+        self.assertEqual((before['state'],before['version']),('pending',1))
+        app.initialize()
+        saved=self.reprocess_native(capture,'manual-unhandled')
+        self.assertEqual(saved['records'][0]['decision_summary']['preserved'],1)
+        self.assertEqual(self.candidate_row(item),before)
+
+    def test_runtime_rejected_association_does_not_protect_automatic_withdrawal(self):
+        capture,item=self.recognized_submitted_assignment()
+        detail=self.details()
+        body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation='other')
+            for a in detail['observation']['actions']])
+        body['expected_control_revision']+=1
+        self.assertEqual(self.apply(body)[0],409)
+        saved=self.reprocess_native(capture,'rejected-manual-choice')
+        summary=saved['records'][0]['decision_summary']
+        self.assertEqual(summary['preserved'],0);self.assertEqual(summary['new_pending'],0)
+
     def test_runtime_completion_date_uses_shanghai_day(self):
         view=self.sync_native(self.native_capture('active'))['requests'][0]
         candidate=self.run_request(view)['items'][0]
