@@ -113,6 +113,28 @@ def load(db, uid, account, request_id):
         WHERE r.user_id=? AND r.account=? AND r.request_id=?''',(uid,account,request_id))]
 
 
+def save_read_cache(db, uid, asset, version, result):
+    """Compare and write under the caller's write transaction, never a stale load."""
+    key=(uid,asset['account'],asset['sha256'],asset['mime_type'])
+    row=db.execute('''SELECT cache_version,result FROM teaching_asset_files
+        WHERE user_id=? AND account=? AND sha256=? AND mime_type=?''',key).fetchone()
+    if not row: return  # Account removed or source pruned while a reader was running.
+    if row[0]==version and row[1]:
+        current=json.loads(row[1])
+        if current.get('read_state')=='complete': return
+        if result.get('read_state')!='complete':
+            def coverage(value):
+                return len(value['pages']) if value.get('pdf_checkpoint')==1 else value.get('pdf_pages_read',0)
+            before,after=coverage(current),coverage(result)
+            if after<before or after==before and current.get('pdf_checkpoint')!=1: return
+            if after==before and result.get('pdf_checkpoint')==1: return
+    elif (row[0],row[1])!=(asset['cache_version'],asset['result']):
+        return  # Another reader/configuration replaced the cache since this load.
+    db.execute('''UPDATE teaching_asset_files SET cache_version=?,result=?
+        WHERE user_id=? AND account=? AND sha256=? AND mime_type=?''',
+        (version,json.dumps(result),*key))
+
+
 def enrich(request, assets, client, settings, save_cache):
     """Mutate the execution copy only; captured source/digest remain immutable."""
     version = cache_version(settings)
@@ -132,11 +154,16 @@ def enrich(request, assets, client, settings, save_cache):
         if result is None and a['result'] and a['cache_version']==version:
             cached = json.loads(a['result'])
             if cached.get('pdf_checkpoint') == 1: checkpoint = cached
-            else: result = cached
+            else: result = dict(read_state=cached['read_state'],text=cached['text'])
         if result is None:
             metadata = dict(mime_type=a['mime_type'],sha256=a['sha256'],size_bytes=len(a['data']))
+            pages_read = len(checkpoint['pages']) if checkpoint else 0
+            def save_checkpoint(value):
+                nonlocal pages_read
+                pages_read = len(value['pages'])
+                save_cache(a,version,value)
             try:
-                resume = dict(checkpoint=checkpoint, save_checkpoint=lambda value: save_cache(a,version,value)) if a['mime_type']=='application/pdf' else {}
+                resume = dict(checkpoint=checkpoint, save_checkpoint=save_checkpoint) if a['mime_type']=='application/pdf' else {}
                 result = read_attachment(a['data'],metadata,client,settings,expires=expires,**resume)
             except MetadataMismatch:
                 raise AgentError('agent_unavailable', False) from None
@@ -146,7 +173,8 @@ def enrich(request, assets, client, settings, save_cache):
                 # Broken/unsupported/oversized files remain explicit evidence gaps.
                 result = dict(read_state='unsupported' if error.code=='reader_unsupported' else 'failed', text=None)
             if result['read_state'] in ('complete','partial'):
-                save_cache(a,version,result)
+                cached=dict(result,pdf_pages_read=pages_read) if a['mime_type']=='application/pdf' else result
+                save_cache(a,version,cached)
         read_cache[key] = result
         ref = by_ref[a['ref_id']]
         if result['text'] is None and ref.get('text'):

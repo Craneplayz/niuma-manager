@@ -186,6 +186,59 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(saved['records'][0]['record']['references'][0]['read_state'],'partial')
         self.assert_cached_reprocess(rid)
 
+    def test_late_pdf_checkpoint_cannot_replace_completed_shared_cache(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        rid=self.sync(pdf_bytes(('Synthetic page',)*5),'application/pdf')['requests'][0]['request_id']
+        with app.connection() as db:
+            request=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            slow=teaching.attachment_context(db,self.uid,rid)
+            fast=teaching.attachment_context(db,self.uid,rid)
+        settings=Settings(model='synthetic-test',endpoint='https://api.qnaigc.com/v1')
+        seen=[]
+        def good(instructions,parts,settings):
+            labels=[p['text'] for p in parts if p['type']=='text'];seen.extend(labels)
+            return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False,note='') for i in range(len(labels))]))
+        def delayed(instructions,parts,settings):
+            if not parts[0]['text'].startswith('第 1 页（'): raise AgentError('agent_timeout',True)
+            # Interleave two already loaded contexts deterministically: the faster
+            # reader commits all five pages before this reader saves its first two.
+            teaching_assets.enrich(deepcopy(request),fast['files'],SimpleNamespace(complete_json=good),settings,fast['save_cache'])
+            return good(instructions,parts,settings)
+        with self.assertRaises(AgentError):
+            teaching_assets.enrich(deepcopy(request),slow['files'],SimpleNamespace(complete_json=delayed),settings,slow['save_cache'])
+        with app.connection() as db:
+            cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
+            self.assertEqual(cached.get('read_state'),'complete')
+            self.assertIn('第 5 页',cached['text'])
+        self.assert_cached_reprocess(rid)
+
+    def test_cache_progress_writes_are_monotonic_and_version_scoped(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        rid=self.sync(pdf_bytes(('Synthetic page',)*5),'application/pdf')['requests'][0]['request_id']
+        with app.connection() as db:
+            old=teaching.attachment_context(db,self.uid,rid)
+            new=teaching.attachment_context(db,self.uid,rid)
+        def checkpoint(n):
+            return dict(pdf_checkpoint=1,total_pages=5,pages=[dict(text=f'Page {i}',uncertain=False,note='') for i in range(n)])
+        save=old['save_cache'];asset=old['files'][0]
+        save(asset,'version-a',checkpoint(4))
+        save(asset,'version-a',checkpoint(2))
+        with app.connection() as db:
+            cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
+            self.assertEqual(len(cached['pages']),4)
+            fresh=teaching.attachment_context(db,self.uid,rid)
+        save(asset,'version-a',dict(read_state='partial',text='Only two pages',pdf_pages_read=2))
+        with app.connection() as db:
+            self.assertEqual(len(json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])['pages']),4)
+        fresh['save_cache'](fresh['files'][0],'version-b',checkpoint(2))
+        # A still running old-version reader cannot overwrite a newer cache.
+        save(asset,'version-a',dict(read_state='complete',text='Old complete'))
+        new['save_cache'](new['files'][0],'version-a',checkpoint(5))
+        with app.connection() as db:
+            row=db.execute('SELECT cache_version,result FROM teaching_asset_files').fetchone()
+            self.assertEqual(row['cache_version'],'version-b')
+            self.assertEqual(len(json.loads(row['result'])['pages']),2)
+
     def assert_cached_reprocess(self,rid):
         # Same account-bound execution context is used by the reprocessing worker.
         import reprocessing

@@ -223,9 +223,8 @@ def attachment_context(db, uid, request_id):
     def save_cache(asset,version,result):
         if not path: return  # In-memory tests need no durable cache.
         with closing(sqlite3.connect(path,timeout=30)) as cache_db, cache_db:
-            cache_db.execute('''UPDATE teaching_asset_files SET cache_version=?,result=?
-                WHERE user_id=? AND account=? AND sha256=? AND mime_type=?''',
-                (version,json.dumps(result),uid,asset['account'],asset['sha256'],asset['mime_type']))
+            cache_db.execute('BEGIN IMMEDIATE')
+            teaching_assets.save_read_cache(cache_db,uid,asset,version,result)
     return dict(files=files,save_cache=save_cache) if files else {}
 
 

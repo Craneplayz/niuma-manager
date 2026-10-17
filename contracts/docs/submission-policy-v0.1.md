@@ -30,7 +30,7 @@ scope 为 submission_only/mixed/unknown；submission_only 必须由服务端已�
 
 actions 至多 100 条，以后端永久 action_id 区分 candidate/task，记录 relation、link_basis、用户 decision 和 completion_origin；server_exact/user_confirmed 关系须可审计，不能用模型标题、候选序号或课程同名判断；明确属于其他行动为 other，不知道为 unknown/unresolved。
 
-每个 action 必填 source_completion_paused；用户主动重开任务时置 true，只适用于已明确对应的提交任务。observation 必填 review_pending 和 control_revision；这三个字段从账号内数据库恢复，与来源快照一起纳入摘要，不能每次采集重置默认值或从模型/hints 获取。新建记录可初始化 false/0；旧记录已有手动重开或待核对历史时先恢复相应状态，不能按新记录处理。
+每个 action 必填 source_completion_paused；用户主动重开任务或撤回候选忽略时置 true，适用于已明确对应的提交行动；候选转成任务时继承暂停。observation 必填 review_pending 和 control_revision；这三个字段从账号内数据库恢复，与来源快照一起纳入摘要，不能每次采集重置默认值或从模型/hints 获取。新建记录可初始化 false/0；旧记录已有手动重开或待核对历史时先恢复相应状态，不能按新记录处理。
 
 参数 verified_digest 只在后端核对当前登录账号、该来源记录和全部行动映射后提供，覆盖完整 observation；同时传入服务器解析的 source_account_id/input_id、latest_sequence 和 previous_state；hash 本身不是授权，不能对任意导入值算 hash 就放行。
 
@@ -41,14 +41,14 @@ actions 至多 100 条，以后端永久 action_id 区分 candidate/task，记�
 | 导入、来源身份不符或完整摘要不符 | untrusted：不自动完成、不撤候选，继续原有识别/审核路径。 |
 | sequence 不大于已处理序号 | stale：忽略晚到或重复观察，不调用模型、不改任务。 |
 | submitted + submission_only | 明确对应的候选退出活动区，已有任务只更新完成状态，首次尚无任务时不创建任何新任务且不调用模型。 |
-| 对应任务 source_completion_paused=true | 保留用户重新开启的任务，不再自动完成；后续 submitted、日期变化或重新采集都不解除暂停。 |
+| 对应行动 source_completion_paused=true | 保留用户重新开启的任务或撤回忽略的候选，不再自动完成或撤下；后续 submitted、日期变化或重新采集都不解除暂停。 |
 | submitted + mixed | 只处理明确对应的提交行动；其他行动保留，识别时须排除已完成的准确映射，不能整条丢弃或批量完成。 |
 | submitted + unknown 或 unknown 行动关联 | 明确关联的提交行动仍可处理，其余保留并记录 submission_scope_unknown，不能据此整条跳过模型或全部完成。 |
 | active/unknown，之前不是 submitted 且无 review_pending | 不自动改变任务；走正常来源识别流程。 |
 | submitted 后出现 active/unknown | reopened_review：持久设置 review_pending=true，control_revision 加一，暂停自动处理并保留全部行动。 |
 | review_pending=true 的任何后续观察 | 持续 needs_review=true、skip_model=true，不完成任务或撤候选；连续 active/unknown、甚至恢复 submitted 都不能自动解除。 |
 
-后端处理 complete_action_ids 时保留手改标题/描述、来源和历史，只改变完成状态；withdraw_candidate_ids 退出活动候选但保留审计，不新建一条已完成任务；ignored/deleted/manual completed 一律保留，不能复活或覆盖。
+后端处理 complete_action_ids 时保留手改标题/描述、来源和历史，只改变完成状态；withdraw_candidate_ids 退出活动候选但保留审计，不新建一条已完成任务；人工 ignored/deleted/manual completed 一律保留，不能复活或覆盖。首次系统撤下（submission_policy_completed、ignored/version=2）不算人工决定，重识别可替换并重新依据当前可信提交状态处理；撤回后或已有其他人工操作的候选仍受保护。
 
 `check_successor` 校验同一来源/课程/作业、递增 sequence、新快照身份和采集时间不倒退；实际提交还需账号范围的事务比较，旧识别迟到不能重新把 submitted 的提交行动放回候选；先持久化来源状态，再进行精确对应操作。
 

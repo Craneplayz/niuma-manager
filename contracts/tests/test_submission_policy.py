@@ -205,7 +205,19 @@ class SubmissionPolicyTests(unittest.TestCase):
             else:del source[part]
             with self.assertRaises(Exception):check(source)
         source=self.sample();source['actions'][0]['source_completion_paused']=True
+        self.assertNotIn(source['actions'][0]['action_id'],self.evaluate(source)['withdraw_candidate_ids'])
+        source['actions'][0].update(relation='other',link_basis='user_confirmed');source['scope']='mixed'
         with self.assertRaises(ValueError):check(source)
+
+    def test_reopened_candidate_pause_preserves_only_that_action(self):
+        source=self.sample()
+        candidate=next(a for a in source['actions'] if a['kind']=='candidate')
+        source['actions'].append(dict(candidate,action_id='candidate:unhandled'))
+        candidate['source_completion_paused']=True
+        result=self.evaluate(source)
+        self.assertEqual(result['withdraw_candidate_ids'],['candidate:unhandled'])
+        self.assertIn(candidate['action_id'],result['preserve_action_ids'])
+        self.assertTrue(result['complete_action_ids'])
 
     def test_legacy_input_id_stays_opaque_in_snapshot_and_user_audit(self):
         source=self.sample();source['snapshot']['input_id']='synthetic/course/作业 1'+'字'*161

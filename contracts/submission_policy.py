@@ -66,8 +66,8 @@ def check(value):
         require((action['decision']=='completed')==(action['completion_origin'] is not None),'completion origin mismatch')
         require(action['kind']!='candidate' or action['decision'] in ('pending','ignored','deleted'),'candidate claims saved-task decision')
         require(action['kind']!='task' or action['decision']!='pending','saved task claims pending candidate')
-        require(not action['source_completion_paused'] or (action['kind']=='task'
-            and action['relation']=='assignment_submission'),'pause requires a mapped submission task')
+        require(not action['source_completion_paused'] or action['relation']=='assignment_submission',
+            'pause requires a mapped submission action')
     return value
 
 

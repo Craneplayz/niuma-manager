@@ -94,9 +94,14 @@ def linked_actions(db, row, detail):
     for c in candidates:
         if c['state'] == 'applied' or c['id'] in used: continue
         aid = identity('candidate', c['id']); prior = old.get(aid)
-        actions.append(dict(action_id=aid, kind='candidate', relation=prior['relation'] if prior else 'unknown',
+        relation=prior['relation'] if prior else 'unknown'
+        # A pending version beyond the initial one is an explicit undo-ignore.
+        # Keep the pause across refresh/restart and inherit it if a task is created.
+        paused=relation=='assignment_submission' and (bool(prior and prior['source_completion_paused'])
+            or c['state']=='pending' and c['version']>1)
+        actions.append(dict(action_id=aid, kind='candidate', relation=relation,
             link_basis=prior['link_basis'] if prior else 'unresolved', decision='pending' if c['state']=='pending' else 'ignored',
-            completion_origin=None, source_completion_paused=False))
+            completion_origin=None, source_completion_paused=paused))
         refs[aid]=c['id']; labels[aid]=label(json.loads(c['candidate'])['title'])
     # Tombstones prevent deleted user choices from being mistaken for new actions.
     present={a['action_id'] for a in actions}

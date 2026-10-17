@@ -92,6 +92,15 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
 
+def was_automatically_withdrawn(candidate):
+    """Only the first system withdrawal is replaceable, never a user decision."""
+    if candidate['state']!='ignored' or candidate['version']!=2: return False
+    try:
+        resolution=json.loads(candidate['resolution'] or '{}')
+        return isinstance(resolution,dict) and resolution.get('action')=='submission_policy_completed'
+    except (ValueError,TypeError): return False
+
+
 def was_auto_applied(resolution):
     try:
         value=json.loads(resolution or '{}')
@@ -302,6 +311,10 @@ def resolve_candidate(db, uid, cid, body, ApiError):
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
         if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
         db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
+        # Persist the manual pause before the candidate can become a task. Its
+        # version also lets older reopened rows recover the pause after restart.
+        import submission_runtime
+        submission_runtime.refresh_request(db,uid,row['request_id'])
         return
     if row['state']!='pending':
         if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
