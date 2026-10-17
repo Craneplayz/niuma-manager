@@ -92,6 +92,14 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
 
+def was_auto_applied(resolution):
+    try:
+        value=json.loads(resolution or '{}')
+        return isinstance(value,dict) and value.get('auto_apply') is True
+    except ValueError:
+        return False
+
+
 def batches(db,uid):
     result=[]
     # Ownership comes from complete receipts, before history deduplication and
@@ -105,7 +113,9 @@ def batches(db,uid):
     for row in db.execute('SELECT * FROM recognition_batches WHERE user_id=? ORDER BY rowid DESC',(uid,)):
         metadata=db.execute('SELECT * FROM recognition_import_records WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
         if metadata and metadata['archived']: continue
-        items=[dict(id=c['id'],candidate=json.loads(c['candidate']),state=c['state'],version=c['version']) for c in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,row['request_id']))]
+        items=[dict(id=c['id'],candidate=json.loads(c['candidate']),state=c['state'],version=c['version'],
+                    autoApplied=was_auto_applied(c['resolution']))
+               for c in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,row['request_id']))]
         request, output = json.loads(row['request']), json.loads(row['result'])
         if request.get('contract_version')=='0.4':
             import teaching

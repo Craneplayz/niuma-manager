@@ -69,6 +69,8 @@ def initialize(db, recover=True):
         if run['state'] in contract.FINAL and backfill_items(db, run):
             run['revision'] += 1
             db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(run), run['run_id']))
+        if run['state'] in contract.FINAL and collection_completed(run):
+            recover_collection_errors(db, run)
     prune_quiet(db)
     if recover:
         for row in db.execute("SELECT * FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchall():
@@ -146,12 +148,39 @@ def useful_run(run):
                 any(useful_record(item) for item in run['records']))
 
 
+def collection_completed(run):
+    if run['parent_run_id']: return False  # Model retries and scoped recovery do not confirm a full collection.
+    if 'collection_completed' in run: return run['collection_completed']
+    # Legacy full runs reached recognition only after collection committed. An
+    # empty successful check is also evidence, even when it created no tasks.
+    return (not run['error'] and run['state'] in ('succeeded','partial_success','failed') and
+            bool(run['state']=='succeeded' or run['records'] or run.get('updated_tasks')))
+
+
+def recover_collection_errors(db, run):
+    current = db.execute('SELECT rowid,credential FROM source_sync_runs WHERE user_id=? AND run_id=?',
+                         (run['user_id'],run['run_id'])).fetchone()
+    if not current: return
+    for row in db.execute('''SELECT snapshot FROM source_sync_runs WHERE user_id=? AND credential=? AND rowid<?
+        AND state IN ('failed','partial_success','stopped','interrupted')''',
+        (run['user_id'],current['credential'],current['rowid'])).fetchall():
+        older = json.loads(row['snapshot'])
+        if (older['records'] or older.get('recovered_by') or older['sources'] != run['sources'] or
+                (older.get('error') or {}).get('code') != 'collection_failed'): continue
+        older['recovered_by'] = dict(run_id=run['run_id'])
+        older['revision'] += 1
+        db.execute('UPDATE source_sync_runs SET snapshot=? WHERE user_id=? AND run_id=?',
+                   (json.dumps(older),run['user_id'],older['run_id']))
+
+
 def compact(db, run):
+    if collection_completed(run): recover_collection_errors(db, run)
+    succeeded = {item['request_id']: item['request_id'] for item in run['records'] if item['state'] == 'succeeded'}
     current = db.execute('SELECT credential FROM source_sync_runs WHERE user_id=? AND run_id=?',
                          (run['user_id'],run['run_id'])).fetchone()
-    succeeded_sources = {input_identity(db,run['user_id'],item) for item in run['records'] if item['state'] == 'succeeded'} - {None}
-    succeeded = {item['request_id'] for item in run['records'] if item['state'] == 'succeeded'}
-    succeeded.update(old for new, old in run.get('recovery_replacements', {}).items() if new in succeeded)
+    succeeded_sources = {identity: item['request_id'] for item in run['records'] if item['state'] == 'succeeded'
+                         for identity in [input_identity(db,run['user_id'],item)] if identity}
+    succeeded.update((old,succeeded[new]) for new, old in run.get('recovery_replacements', {}).items() if new in succeeded)
     if succeeded:
         older_runs = [json.loads(row['snapshot']) for row in db.execute('''SELECT snapshot FROM source_sync_runs WHERE user_id=? AND run_id<>?
             AND credential=? AND state IN ('failed','partial_success','stopped','interrupted') ORDER BY rowid DESC''',
@@ -159,12 +188,16 @@ def compact(db, run):
         # A source can need several fresh snapshots before it becomes complete.
         # Resolve its recorded predecessor chain before updating older receipts.
         for older in older_runs:
-            succeeded.update(old for new, old in older.get('recovery_replacements', {}).items() if new in succeeded)
+            succeeded.update((old,succeeded[new]) for new, old in older.get('recovery_replacements', {}).items() if new in succeeded)
         for older in older_runs:
-            recovered = [item for item in older['records'] if (item['request_id'] in succeeded or input_identity(db,run['user_id'],item) in succeeded_sources) and
-                         item['state'] in ('failed', 'incomplete', 'cancelled', 'interrupted') and not item.get('recovered')]
-            if recovered:
-                for item in recovered: item['recovered'] = True
+            changed = False
+            for item in older['records']:
+                if item.get('recovered') or item['state'] not in ('failed','incomplete','cancelled','interrupted'): continue
+                target = succeeded.get(item['request_id']) or succeeded_sources.get(input_identity(db,run['user_id'],item))
+                if target:
+                    item.update(recovered=True,recovered_by=dict(run_id=run['run_id'],request_id=target))
+                    changed = True
+            if changed:
                 older['revision'] += 1
                 db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(older), older['run_id']))
     for item in run['records']:
@@ -218,7 +251,7 @@ def save(db, run, state=None):
 
 
 def view(run):
-    return {k: v for k, v in run.items() if k not in ('user_id', 'retry_selection', 'recover_sources', 'recovery_targets', 'recovery_replacements')}
+    return {k: v for k, v in run.items() if k not in ('user_id', 'retry_selection', 'recover_sources', 'recovery_targets', 'recovery_replacements', 'collection_completed')}
 
 
 def can_retry(item):
@@ -237,6 +270,8 @@ def input_identity(db, uid, item):
     if row:
         first = json.loads(row['request'])['records'][0]
         return first.get('record',first).get('input_id')
+    # This durable binding survives replacement of teaching_sources even when a
+    # model configuration error prevented a recognition batch from being saved.
     bindings = db.execute('SELECT DISTINCT input_id FROM teaching_submission_requests WHERE user_id=? AND request_id=?',
                           (uid,item['request_id'])).fetchall()
     if len(bindings) == 1: return bindings[0]['input_id']
@@ -244,12 +279,39 @@ def input_identity(db, uid, item):
 
 def history(db, uid):
     """Project visible results without changing receipts used by retry/recovery."""
-    rows = db.execute('''SELECT r.snapshot,r.credential FROM source_sync_runs r
+    rows = db.execute('''SELECT r.snapshot,r.credential,q.run_id AS quiet FROM source_sync_runs r
         LEFT JOIN source_sync_quiet_runs q ON r.run_id=q.run_id
-        WHERE r.user_id=? AND q.run_id IS NULL ORDER BY r.rowid DESC''', (uid,))
-    result, seen, identities = [], set(), {}
+        WHERE r.user_id=? ORDER BY r.rowid DESC''', (uid,))
+    result, seen, identities, completed_requests, completed_sources, completed_collections = [], set(), {}, {}, {}, {}
     for row in rows:
         run = json.loads(row['snapshot'])
+        def identity(item):
+            rid = item['request_id']
+            if rid not in identities: identities[rid] = input_identity(db,uid,item)
+            return identities[rid]
+        # Read-only reconciliation for receipts written before recovery links
+        # existed. Scope by account credential and stable identity, never title.
+        if run['state'] in contract.FINAL:
+            scope = (row['credential'],tuple(run['sources']))
+            if (not run['records'] and (run.get('error') or {}).get('code')=='collection_failed' and
+                    scope in completed_collections and not run.get('recovered_by')):
+                run['recovered_by'] = completed_collections[scope]
+            if collection_completed(run):
+                completed_collections[scope] = dict(run_id=run['run_id'])
+            for item in run['records']:
+                if item['state'] not in ('failed','incomplete','cancelled','interrupted'): continue
+                target = item.get('recovered_by') or completed_requests.get((row['credential'],item['request_id'])) or completed_sources.get((row['credential'],identity(item)))
+                if target: item.update(recovered=True,recovered_by=target)
+            for item in run['records']:
+                if item['state'] != 'succeeded': continue
+                target = dict(run_id=run['run_id'],request_id=item['request_id'])
+                completed_requests[row['credential'],item['request_id']] = target
+                source = identity(item)
+                if source: completed_sources[row['credential'],source] = target
+            for new,old in run.get('recovery_replacements',{}).items():
+                target = completed_requests.get((row['credential'],new))
+                if target: completed_requests[row['credential'],old] = target
+        if row['quiet']: continue
         if run['state'] in contract.ACTIVE:
             result.append(view(run))
         else:
@@ -260,29 +322,32 @@ def history(db, uid):
                     visible.append(item)
                     continue
                 rid = item['request_id']
-                if rid not in identities: identities[rid] = input_identity(db,uid,item) or rid
-                key = (row['credential'],identities[rid],(item.get('error') or {}).get('code') or item['state'])
-                hidden = item.get('recovered') or key in seen
+                key = (row['credential'],identity(item) or rid,(item.get('error') or {}).get('code') or item['state'])
+                hidden = key in seen
                 seen.add(key)
                 if not hidden: visible.append(item)
                 elif item['added'] or item.get('review'):
-                    visible.append(dict(item,state='succeeded',error=None))
+                    settled = dict(item,state='succeeded',error=None)
+                    settled.pop('recovered',None)
+                    settled.pop('recovered_by',None)
+                    visible.append(settled)
             # A whole-run error can repeat the per-source error. Do not bring it
             # back after the corresponding source has been hidden or recovered.
             failure = run.get('error')
             if failure and any(item.get('error') == failure for item in original):
                 run['error'] = None
             elif failure or not original and run['state'] in ('failed','interrupted'):
-                key = (row['credential'],None,failure['code'] if failure else run['state'])
+                key = (row['credential'],tuple(run['sources']),None,failure['code'] if failure else run['state'])
                 if key in seen:
                     run['error'] = None
+                    run.pop('recovered_by',None)
                     if not original and not run.get('updated_tasks'): continue
                 seen.add(key)
             run['records'] = visible
             useful = bool(run.get('updated_tasks') or run['error'] or any(useful_record(item) for item in visible))
             if not useful and not original and run['state'] in ('failed','interrupted'): useful = True
             if not useful: continue
-            if (original or run.get('updated_tasks')) and not run['error'] and not any(item['state'] != 'succeeded' for item in visible) and run['state'] in ('failed','partial_success'):
+            if run.get('recovered_by') or ((original or run.get('updated_tasks')) and not run['error'] and not any(item['state'] != 'succeeded' and not item.get('recovered') for item in visible) and run['state'] in ('failed','partial_success')):
                 run['state'] = 'succeeded'
             run['counts'] = counts(run)
             result.append(view(run))
@@ -403,7 +468,7 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
     run = dict(contract_version=contract.VERSION, run_id=secrets.token_hex(16), user_id=uid,
                operation_id=body['operation_id'], sources=['teaching_web'], trigger=trigger, parent_run_id=parent,
                state='queued', revision=0, created_at=stamp(), updated_at=stamp(), skipped=0,
-               records=records or [], updated_tasks=[], counts={}, error=None)
+               records=records or [], updated_tasks=[], counts={}, error=None, collection_completed=False)
     if parent: run['retry_selection'] = sorted(body['request_ids']) if 'request_ids' in body else None
     if recover: run.update(recover_sources=True,recovery_targets=recovery_targets,recovery_replacements={})
     db.execute('INSERT INTO source_sync_runs VALUES(?,?,?,?,?,?)', (uid, run['run_id'], body['operation_id'], key, 'queued', '{}'))
@@ -556,6 +621,7 @@ def process(path, uid, run_id, ApiError):
                     run['records'] = [record(r) for r in response['requests']]
                     run['skipped'] = response['summary']['skipped']
                     run['updated_tasks'] = response.get('updated_tasks', [])
+                    run['collection_completed'] = True
                     for item in run['records']:
                         db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET import_id=excluded.import_id,created_at=excluded.created_at,source=excluded.source,archived=0',
                                    (uid, item['request_id'], run_id, run['created_at'], '教学网'))

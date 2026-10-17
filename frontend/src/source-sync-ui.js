@@ -1,5 +1,6 @@
 import { newId } from "./id.js";
 import { describeUserError, userErrorMarkup } from "./user-errors.js";
+import { importResultStatus, importStatusMarkup, importTypeMarkup, importCategorySummaries } from "./import-result-status.js";
 
 const API = "/api/sources/sync-runs";
 const VERSION = "source-sync/0.1";
@@ -19,7 +20,7 @@ const needsCollection = (record) => record.state === "incomplete" || ["source_in
 const retryable = (record) => !record.recovered && !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
 const recoverable = record => !record.recovered && (retryable(record) || needsCollection(record));
 const unresolved = record => !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
-const usefulRecord = record => record.added > 0 || record.review > 0 || unresolved(record);
+const usefulRecord = record => record.added > 0 || record.review > 0 || record.recovered || unresolved(record);
 const runError = run => run.error && !run.records.some(record => record.recovered && record.error?.code === run.error.code && record.error?.message === run.error.message) ? run.error : null;
 const usefulRun = run => Boolean(runError(run) || !run.records.length && ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
 const validItems = (items, count, added = false) => items === undefined || Array.isArray(items) && items.length === count &&
@@ -31,10 +32,15 @@ const UPDATE_FIELDS = { title: "名称", description: "说明", course: "课程"
 function checkRun(run) {
   if (run?.contract_version !== VERSION || !/^[A-Za-z0-9_.:-]{1,160}$/.test(run.run_id || "") ||
       !Object.hasOwn(LABELS, run.state) || !Number.isInteger(run.revision) || run.revision < 0 ||
+      run.recovered_by !== undefined && (!/^[A-Za-z0-9_.:-]{1,160}$/.test(run.recovered_by?.run_id || "") ||
+        run.recovered_by.run_id === run.run_id || run.error?.code !== "collection_failed" || run.records?.length !== 0 || ACTIVE.has(run.state)) ||
       !Array.isArray(run.records) || !run.counts || run.records.some((record) =>
         typeof record.request_id !== "string" || !record.request_id || !STATES.includes(record.state) ||
         record.review !== undefined && (!Number.isInteger(record.review) || record.review < 0) ||
         record.recovered !== undefined && typeof record.recovered !== "boolean" ||
+        record.recovered_by !== undefined && (record.recovered !== true ||
+          !/^[A-Za-z0-9_.:-]{1,160}$/.test(record.recovered_by?.run_id || "") ||
+          typeof record.recovered_by?.request_id !== "string" || !record.recovered_by.request_id || record.recovered_by.request_id.length > 256) ||
         !validItems(record.added_items, record.added, true) || !validItems(record.review_items, record.review || 0)) ||
       run.updated_tasks !== undefined && (!Array.isArray(run.updated_tasks) || run.updated_tasks.some(task =>
         typeof task.task_id !== "string" || typeof task.label !== "string" || task.course != null && typeof task.course !== "string" ||
@@ -72,6 +78,8 @@ export function createSourceSyncUI(host) {
   let account = host.accountVersion(), readController = null, writeController = null;
   let renderedWhileLoading = false;
   let pendingOperation = null, consumed = null, showHistory = false, focusedRun = null, actionInFlight = null;
+  let locatedRun = null, linkedRun = null, locateController = null;
+  let recoveryHighlight = null;
   const categories = new Map(), selectedProblems = new Map();
   let lastCheck = null;
   const manualRuns = new Set(), announced = new Set();
@@ -79,6 +87,19 @@ export function createSourceSyncUI(host) {
   const stamp = () => ({ generation, account: host.accountVersion() });
   const current = (value) => value.generation === generation && value.account === host.accountVersion() && host.isAuthenticated() && !host.isDemo();
   const redraw = () => host.render();
+
+  function clearRecoveryHighlight() {
+    if (!recoveryHighlight) return;
+    recoveryHighlight = null;
+    host.clearImportResultHighlight?.();
+  }
+  function cancelRecoveryNavigation() {
+    locateController?.abort(); locateController = null;
+  }
+  function dismissRecoveryHighlight() {
+    clearRecoveryHighlight();
+    cancelRecoveryNavigation();
+  }
 
   function clearPoll() {
     if (timer !== null) clearTimer(timer);
@@ -91,11 +112,13 @@ export function createSourceSyncUI(host) {
     clearPoll();
   }
   function reset() {
+    dismissRecoveryHighlight();
     generation++; refreshSequence++;
     cancelRead(); writeController?.abort(); writeController = null;
     account = host.accountVersion();
     runs = []; loaded = writing = refreshing = false;
     error = null; pendingOperation = consumed = focusedRun = actionInFlight = null;
+    locatedRun = linkedRun = null;
     showHistory = false; categories.clear(); selectedProblems.clear();
     lastCheck = null; manualRuns.clear(); announced.clear();
   }
@@ -283,7 +306,7 @@ export function createSourceSyncUI(host) {
   }
   function recoveryPlan(run, latest = latestAttempts()) {
     const records = run.records.filter(record => latest.get(record.request_id)?.run === run && recoverable(record));
-    return { records, whole: !run.records.length && Boolean(run.error || ["stopped", "interrupted"].includes(run.state)) };
+    return { records, whole: !run.recovered_by && !run.records.length && Boolean(run.error || ["stopped", "interrupted"].includes(run.state)) };
   }
   function recover(id, request = null) {
     syncAccount();
@@ -301,10 +324,49 @@ export function createSourceSyncUI(host) {
     return retryable(record) ? "识别暂时失败，可重试。" : "请检查服务后重新获取来源。";
   }
   function problemsFor(run) {
-    const problems = run.records.filter(unresolved), failure = runError(run);
+    const problems = run.records.filter(record => unresolved(record) || record.recovered), failure = runError(run);
     if (failure && !problems.some(record => record.error?.code === failure.code && record.error?.message === failure.message))
-      problems.push({ label: "本轮导入", error: failure, state: "failed" });
+      problems.push({ label: "本轮导入", error: failure, state: "failed", recovered: Boolean(run.recovered_by), recovered_by: run.recovered_by });
     return problems;
+  }
+  async function locateRecovery(run, index) {
+    const record = problemsFor(run)[index], link = record?.recovered_by;
+    if (!record?.recovered || !link || locateController) return;
+    const value = stamp(), controller = new AbortController();
+    const valid = () => current(value) && !controller.signal.aborted && locateController === controller;
+    locateController = controller;
+    try {
+      let target = runs.find(item => item.run_id === link.run_id);
+      if (!target) target = checkRun(await host.api(`${API}/${encodeURIComponent(link.run_id)}`, undefined, "GET", { signal: controller.signal }));
+      if (!valid()) return;
+      const source = link.request_id ? target.records.find(item => item.request_id === link.request_id) : null;
+      // recovered_by confirms this source succeeded. Compaction can remove its
+      // empty result while unrelated failures keep the target batch incomplete.
+      if (target.run_id !== link.run_id || ACTIVE.has(target.state) || source && source.state !== "succeeded")
+        throw new Error("recovery unavailable");
+      const state = host.getState?.() || {};
+      const tasks = [...(state.tasks || []), ...(state.trash || []), ...(host.getCancelledTasks?.() || [])];
+      const related = {
+        added: source?.added_items || [], review: source?.review_items || [],
+        updated: link.request_id ? (target.updated_tasks || []).filter(item => tasks.some(task => task.id === item.task_id &&
+          task.recognitionHistory?.some(event => event.requestId === link.request_id))) : [],
+      };
+      const category = !link.request_id ? null : ["added", "review", "updated"].find(key => related[key].length) ||
+        (source?.added ? "added" : source?.review ? "review" : null);
+      const key = category === "updated" ? "task_id" : "candidate_id";
+      const keys = new Set((related[category] || []).map(item => item[key]));
+      const itemIndex = category ? resultItems(target, category).items.findIndex(item => keys.has(item[key])) : -1;
+      clearRecoveryHighlight();
+      recoveryHighlight = { runId: target.run_id, category: itemIndex >= 0 ? category : null, keys,
+        emptySource: Boolean(link.request_id && !source && itemIndex < 0) };
+      locatedRun = target.run_id; linkedRun = target; showHistory = true;
+      if (category) categories.set(target.run_id, category);
+      else categories.delete(target.run_id);
+      redraw();
+      host.revealImportResult?.(itemIndex >= 0 ? `sync-item-${target.run_id}-${category}-${itemIndex}` : `sync-run-${target.run_id}`);
+    } catch (cause) {
+      if (valid()) host.toast?.(cause?.status === 404 ? "对应的恢复记录已无法查看，已保存的任务不受影响" : "暂时无法找到对应的恢复记录，请稍后重试");
+    } finally { if (locateController === controller) locateController = null; }
   }
   function resultItems(run, category) {
     if (category === "updated") return { items: run.updated_tasks || [], missing: 0 };
@@ -330,27 +392,36 @@ export function createSourceSyncUI(host) {
     const { items, missing } = resultItems(run, category);
     const list = items.map((item, index) => {
       const action = category === "error" ? "problem" : category === "review" ? "open-review" : "open-task";
-      const identity = category === "error" ? String(index) : category === "review" ? item.candidate_id : item.task_id;
+      const identity = category === "error" ? String(index) : category === "review" ? item.candidate_id : item.task_id || item.candidate_id;
       const changes = category === "updated" ? [...new Set((item.changed_fields || []).map(field => UPDATE_FIELDS[field]))].join("、") : "";
-      const note = changes ? `${changes}已更新` : category === "error" && item.recovered ? "已恢复" : "";
-      const title = [item.label, item.course, note].filter(Boolean).join(" · ");
-      return `<li><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}><span>${esc(item.label)}</span>${note ? `<small>${esc(note)}</small>` : ""}</button></li>`;
+      const note = changes ? `${changes}已更新` : "";
+      const status = importResultStatus(item, category, host);
+      const title = [item.label, item.course, status.label, note].filter(Boolean).join(" · ");
+      const link = category === "error" && item.recovered && item.recovered_by;
+      const recoveryLabel = link?.request_id ? "查看成功批次" : "查看后续采集批次";
+      const highlighted = recoveryHighlight?.runId === run.run_id && recoveryHighlight.category === category &&
+        recoveryHighlight.keys.has(category === "updated" ? item.task_id : item.candidate_id);
+      return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" ${highlighted ? 'data-source-sync-highlight aria-description="对应的恢复结果"' : ""} type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
     }).join("");
     const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
-    return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"更新",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
+    return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"修改",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
   }
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts;
     const plan = recoveryPlan(run, latest);
     const blocked = isBusy() || host.isImportBusy();
-    const groups = [["added", "新增", counts.added, "项"], ["review", "待核对", counts.review, "项"], ["updated", "更新", counts.updated, "项"], ["error", "错误", problemsFor(run).length, "条"]].filter(([, , count]) => count > 0);
+    const collections = Object.fromEntries(["added", "review", "updated", "error"].map(key => [key, resultItems(run, key).items]));
+    const groups = importCategorySummaries(collections, host, counts);
     const selected = categories.get(run.run_id);
-    const category = groups.some(([key]) => key === selected) ? selected : null;
-    const summary = groups.map(([key, label, count, unit]) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}">${label} ${count} ${unit}</button>`).join("");
+    const category = groups.some(group => group.key === selected) ? selected : null;
+    const summary = groups.map(({ key, label, count, unit, tone, description }) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category sync-category-${tone}" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}" title="${esc(description)}" aria-description="${esc(description)}">${label} ${count} ${unit}</button>`).join("");
     const running = ACTIVE.has(run.state);
     if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
-    return `<article class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading"><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(([key]) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
+    const recoveryNote = recoveryHighlight?.runId === run.run_id && recoveryHighlight.emptySource
+      ? "这条来源已处理完成，没有新增任务或待核对内容。"
+      : locatedRun === run.run_id && !groups.length ? "这次处理已完成，没有新增任务或待核对内容。" : "";
+    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading" ${recoveryHighlight?.runId === run.run_id && !recoveryHighlight.category ? 'data-source-sync-highlight' : ""}><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recoveryNote ? `<p class="status-note">${recoveryNote}</p>` : ""}${groups.map(({ key }) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
@@ -368,20 +439,28 @@ export function createSourceSyncUI(host) {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
     const current = currentRun(), latest = latestAttempts();
-    const history = [...entries, ...(includeSync ? runs.filter(run => run !== current && usefulRun(run)).map(run => ({
-      time: run.created_at, html: runMarkup(run, latest),
-    })) : [])].sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0)).slice(0, 20);
+    const available = linkedRun && !runs.some(run => run.run_id === linkedRun.run_id) ? [...runs, linkedRun] : runs;
+    const all = [...entries, ...(includeSync ? available.filter(run => run !== current && (usefulRun(run) || run.run_id === locatedRun)).map(run => ({
+      id: run.run_id, time: run.created_at, html: runMarkup(run, latest),
+    })) : [])].sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0));
+    const history = all.slice(0, 20), located = all.find(entry => entry.id === locatedRun);
+    if (located && !history.includes(located)) history.splice(19, 1, located);
     if (!history.length) return "";
     return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(entry => entry.html).join("")}</details>`;
   }
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;
     if (!action) return false;
-    if (["category", "problem", "open-task", "open-review"].includes(action)) {
+    cancelRecoveryNavigation();
+    if (["category", "problem", "locate-recovery", "recover", "retry"].includes(action)) clearRecoveryHighlight();
+    if (["category", "problem", "open-task", "open-review", "locate-recovery"].includes(action)) {
       syncAccount();
-      const run = runs.find(item => item.run_id === data.sourceSyncRun);
+      const run = runs.find(item => item.run_id === data.sourceSyncRun) || (linkedRun?.run_id === data.sourceSyncRun ? linkedRun : null);
       if (!run) return true;
-      if (action === "category") {
+      if (action === "locate-recovery") {
+        const index = Number(data.sourceSyncItem);
+        if (Number.isInteger(index) && index >= 0) await locateRecovery(run, index);
+      } else if (action === "category") {
         const category = data.sourceSyncCategory;
         if (!["added", "review", "updated", "error"].includes(category) || !resultItems(run, category).items.length && !resultItems(run, category).missing) return true;
         categories.set(run.run_id, categories.get(run.run_id) === category ? null : category);
@@ -395,9 +474,11 @@ export function createSourceSyncUI(host) {
         selectedProblems.set(run.run_id, selectedProblems.get(run.run_id) === identity ? null : identity);
         redraw();
       } else if (action === "open-task") {
-        const item = [...resultItems(run, "added").items, ...(run.updated_tasks || [])].find(item => item.task_id && item.task_id === data.sourceSyncItem);
-        if (item) host.openTask?.(item.task_id);
-        else host.toast?.("这条任务或通知已不在当前列表中");
+        const item = [...resultItems(run, "added").items, ...(run.updated_tasks || [])].find(item =>
+          (item.task_id || item.candidate_id) === data.sourceSyncItem);
+        const status = item && importResultStatus(item, "added", host);
+        if (status?.taskId) host.openTask?.(status.taskId);
+        else host.toast?.(status?.message || "这条任务或通知已无法查看");
       } else {
         const item = resultItems(run, "review").items.find(item => item.candidate_id === data.sourceSyncItem);
         if (item) await host.openReview?.(item.candidate_id);
@@ -412,17 +493,21 @@ export function createSourceSyncUI(host) {
   function toggle(event) {
     const target = event.target;
     if (target?.isConnected === false) return false;
-    if (target?.dataset?.sourceSyncHistory !== undefined) { showHistory = target.open; return true; }
+    if (target?.dataset?.sourceSyncHistory !== undefined) {
+      showHistory = target.open;
+      if (!showHistory) dismissRecoveryHighlight();
+      return true;
+    }
     return false;
   }
   function setVisible(value) {
     syncAccount();
     const next = Boolean(value), entering = next && !visible;
     visible = next;
-    if (!visible) { cancelRead(); return; }
+    if (!visible) { dismissRecoveryHighlight(); cancelRead(); return; }
     if (entering) { focusedRun = null; return load(); }
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, progressLabel, ownsRequest, setVisible };
+  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
 }

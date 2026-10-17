@@ -9,6 +9,7 @@ const {
   api,
   initSession,
   readStore,
+  readCancelledTasks,
   saveStore,
   trashStoredTasks,
   restoreStoredTasks,
@@ -72,6 +73,8 @@ test("current task edits preserve server metadata and never write unrelated work
   const state = await initSession();
   assert.deepEqual(Object.keys(state).sort(), ["tasks", "trash"]);
   assert.equal(state.tasks.length, 1);
+  assert.deepEqual(readCancelledTasks(), [original[1]]);
+  readCancelledTasks()[0].reason = "caller-only";
   assert.equal(getTaskVersion(), 1);
   assert.equal(Object.hasOwn(session.user, "display_name"), false);
   // Mutating a returned view must not alter the authoritative server task cache.
@@ -227,8 +230,9 @@ test("save snapshots are serialized with the newest task version", async () => {
 });
 
 test("an account reset aborts pending requests and rejects late results from the old account", async () => {
-  fixture("old-account", [task("old-task")]);
+  fixture("old-account", [task("old-task"), task("old-cancelled", { status: "cancelled" })]);
   await initSession();
+  assert.equal(readCancelledTasks().length, 1);
   const epoch = accountVersion();
   let release, started, signal;
   const waiting = new Promise(resolve => { release = resolve; });
@@ -245,6 +249,7 @@ test("an account reset aborts pending requests and rejects late results from the
   await entered;
   const next = await logout();
   assert.deepEqual(next, { tasks: [], trash: [] });
+  assert.deepEqual(readCancelledTasks(), []);
   assert.equal(getTaskVersion(), 0);
   assert.equal(accountVersion(), epoch + 1);
   assert.equal(signal.aborted, true);

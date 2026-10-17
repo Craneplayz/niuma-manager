@@ -113,7 +113,7 @@ function fixture(scenario={}){
    if(found){
     if(found.state==='pending'&&body.action==='create'){
      const due=candidateDue(found.candidate.deadline);
-     workspaces[account].push({id:'task-'+found.id,title:found.candidate.title,description:found.candidate.description,course:found.candidate.course_or_project,source:'教学网',due:due.date?{date:due.date,precision:due.time?'datetime':'date',...(due.time?{time:due.time}:{})}:null,status:'not_started',plans:[],subtasks:[]});taskVersion++;
+     workspaces[account].push({id:'task-'+found.id,title:found.candidate.title,description:found.candidate.description,course:found.candidate.course_or_project,source:'教学网',due:due.date?{date:due.date,precision:due.time?'datetime':'date',...(due.time?{time:due.time}:{})}:null,status:'not_started',plans:[],subtasks:[],recognitionHistory:[{storageId:found.id,requestId:batches[account].find(batch=>batch.items.includes(found)).request.request_id,action:'create'}]});taskVersion++;
     }
     found.state=body.action==='ignore'?'ignored':body.action==='reopen'?'pending':'applied';found.version++;
    }
@@ -164,6 +164,31 @@ test('confirming a candidate without a checkbox sends reviewed plus both version
  assert.equal(f.dialog,'');assert.ok(f.messages.includes('已加入任务'));
 });
 
+test('a confirmed history candidate keeps its receipt count and opens the task with a live status',async t=>{
+ const f=fixture();await f.login();const opened=[];f.host.openTask=id=>opened.push(id);
+ const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ await ui.click({dataset:{importHistoryCategory:'review',importHistoryBatch:'request-A'}});
+ assert.match(ui.render(),/sync-item-status-review">待核对/);
+ assert.match(ui.render(),/class="sync-category sync-category-review"[^>]*data-import-history-category="review"/);
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'request-A'}});
+ await ui.submit(fakeForm('review',{action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:''},{candidate:'candidate-A'}));
+ assert.match(ui.render(),/待核对 1 项/);assert.doesNotMatch(ui.render(),/新增 1 项/);
+ assert.match(ui.render(),/class="sync-category sync-category-success"[^>]*data-import-history-category="review"/);
+ assert.match(ui.render(),/sync-item-status-muted">未完成/);
+ f.state.tasks[0].status='done';
+ f.state.tasks[0].content_type='notice';
+ assert.match(ui.render(),/sync-item-status-success">✓ 已完成/);
+ assert.match(ui.render(),/<span class="notice-label">通知<\/span><span class="sync-result-title">/);
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'request-A'}});
+ assert.deepEqual(opened,['task-candidate-A']);
+ f.state.trash=[f.state.tasks.pop()];
+ assert.match(ui.render(),/>回收站<\/small>/);assert.doesNotMatch(ui.render(),/已移至|">未完成<|进行中/);
+ f.state.trash=[];
+ assert.match(ui.render(),/sync-item-status-muted">已移除/);assert.doesNotMatch(ui.render(),/已核对/);
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'request-A'}});
+ assert.equal(f.messages.at(-1),'这条任务或通知已移除，无法打开详情');
+});
+
 test('a task version change prevents a stale confirmation and offers rereading',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
  f.setVersion(8);await f.host.refresh();
@@ -171,6 +196,21 @@ test('a task version change prevents a stale confirmation and offers rereading',
  await ui.submit(form);
  assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
  assert.match(form.error.textContent,/重新读取/);assert.equal(form.error.hidden,false);assert.equal(form.retry.hidden,false);
+});
+
+test('independent history moves a reviewed category behind additions after confirmation',async t=>{
+ const f=fixture();
+ f.batches.A[0].items.push({...structuredClone(item),id:'auto-A',state:'applied',autoApplied:true});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const order=()=>[...ui.render().matchAll(/data-import-history-category="([^"]+)"/g)].map(match=>match[1]);
+ assert.deepEqual(order(),['review','added']);
+ await ui.click({dataset:{importHistoryCategory:'review',importHistoryBatch:'request-A'}});
+ await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'request-A'}});
+ await ui.submit(fakeForm('review',{action:'create',title:'提交报告',description:'原文要求',course:'概率论',date:'2026-10-20',time:''},{candidate:'candidate-A'}));
+ assert.deepEqual(order(),['added','review']);
+ assert.match(ui.render(),/class="sync-category sync-category-success"[^>]*data-import-history-category="review"/);
+ assert.match(ui.render(),/data-import-history-category="review"[^>]*aria-expanded="true"/);
+ assert.match(ui.render(),/新增 1 项/);assert.match(ui.render(),/待核对 1 项/);
 });
 
 test('a late review reread cannot replace another candidate draft',async()=>{

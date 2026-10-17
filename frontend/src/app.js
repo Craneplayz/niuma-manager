@@ -2,6 +2,7 @@ import {
   api,
   session,
   readStore,
+  readCancelledTasks,
   initSession,
   reloadStore,
   refreshStore,
@@ -101,6 +102,26 @@ const host = {
   toast,
   render,
   renderPageHeading: workspaceHeading,
+  revealImportResult(id) {
+    const target = document.getElementById(id);
+    if (!target) return;
+    const root = document.documentElement;
+    root.style.removeProperty("--recovery-scroll-space");
+    // Allow even a result near the end of the page to align with the viewport top.
+    const top = window.scrollY + target.getBoundingClientRect().top - 24;
+    const pageBottom = window.scrollY + document.querySelector(".import-page").getBoundingClientRect().bottom;
+    const space = Math.max(0, Math.ceil(top + window.innerHeight - pageBottom));
+    root.style.setProperty("--recovery-scroll-space", `${space}px`);
+    target?.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "start", inline: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  },
+  clearImportResultHighlight() {
+    document.querySelectorAll("[data-source-sync-highlight]").forEach(target => {
+      target.removeAttribute("data-source-sync-highlight");
+      target.removeAttribute("aria-description");
+    });
+    document.documentElement.style.removeProperty("--recovery-scroll-space");
+  },
   openDialog,
   closeDialog,
   isDialogOpen: selector => dialog.open && Boolean(dialog.querySelector(selector)),
@@ -110,6 +131,7 @@ const host = {
     else toast("这条任务或通知已不在当前列表中");
   },
   getState: () => state,
+  getCancelledTasks: () => demo ? [] : readCancelledTasks(),
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
   feedbackBox: () => demo ? "" : feedbackBox(),
@@ -807,10 +829,15 @@ document.addEventListener("focusin", (event) => {
   }
 });
 document.addEventListener("focusout", hideSidebarTooltip);
-document.addEventListener("pointerdown", hideSidebarTooltip);
+document.addEventListener("pointerdown", () => {
+  hideSidebarTooltip();
+  imports.cancelRecoveryNavigation();
+});
+window.addEventListener("wheel", () => imports.cancelRecoveryNavigation(), { passive: true });
 window.addEventListener("scroll", hideSidebarTooltip, true);
 window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
+  imports.cancelRecoveryNavigation();
   const button = e.target.closest("button");
   if (!button) return;
   if (button.dataset.errorFeedback) {
@@ -892,6 +919,7 @@ document.addEventListener("click", async (e) => {
   }
 });
 document.addEventListener("input", (e) => {
+  imports.cancelRecoveryNavigation();
   if (e.target.id === "task-search") {
     ui.query = e.target.value;
     renderResults();
@@ -901,6 +929,7 @@ document.addEventListener("input", (e) => {
   imports.input?.(e);
 });
 document.addEventListener("change", (e) => {
+  imports.cancelRecoveryNavigation();
   if (e.target.dataset.noticeRead) {
     void toggleTask(e.target.dataset.noticeRead);
     return;
@@ -1001,6 +1030,7 @@ document.addEventListener("submit", async (e) => {
   }
 });
 document.addEventListener("keydown", (e) => {
+  imports.cancelRecoveryNavigation();
   if (e.key === "Escape") hideSidebarTooltip();
   const modalOpen = dialog.open || drawer.open;
   if (e.key === "Tab" && ui.mobileMenu && !modalOpen) {

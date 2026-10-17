@@ -30,6 +30,7 @@ RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'typ
               'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})
 RECORD['properties'].update(review=COUNT, recovered={'type': 'boolean'})
+RECORD['properties']['recovered_by'] = obj({'run_id': ID, 'request_id': {'type': 'string', 'minLength': 1, 'maxLength': 256}})
 RECORD['properties']['input_id'] = {'type': 'string', 'minLength': 1}
 RESULT_ITEM = {'candidate_id': {'type': 'string', 'minLength': 1}, 'label': {'type': 'string', 'maxLength': 200},
                'course': {'type': ['string', 'null']}}
@@ -50,6 +51,7 @@ SCHEMAS['run'] = obj({'contract_version': {'const': VERSION}, 'run_id': ID, 'ope
                      'counts': obj({key: COUNT for key in (*ITEM_STATES, 'total', 'skipped', 'added')}), 'error': ERROR})
 SCHEMAS['runs'] = obj({'contract_version': {'const': VERSION}, 'runs': {'type': 'array', 'items': SCHEMAS['run'], 'maxItems': 20}})
 SCHEMAS['run']['properties']['updated_tasks'] = {'type': 'array', 'items': UPDATE}
+SCHEMAS['run']['properties']['recovered_by'] = obj({'run_id': ID})
 SCHEMAS['run']['properties']['counts']['properties'].update(review=COUNT, updated=COUNT)
 SCHEMAS['runs']['properties']['last_check'] = {'anyOf': [{'type': 'null'}, LAST_CHECK]}
 SCHEDULE = {'contract_version': {'const': VERSION}, 'enabled': {'type': 'boolean'},
@@ -68,7 +70,12 @@ def check(kind, value):
         for run in value['runs']: check('run', run)
     if kind == 'run':
         records = value['records']
+        if 'recovered_by' in value and (records or value['state'] not in FINAL or
+                (value['error'] or {}).get('code') != 'collection_failed' or value['recovered_by']['run_id'] == value['run_id']):
+            raise ValueError('整轮恢复只能关联没有逐条结果的采集错误和后续批次')
         for record in records:
+            if 'recovered_by' in record and record.get('recovered') is not True:
+                raise ValueError('恢复批次只能关联已恢复记录')
             for field, count in (('added_items', record['added']), ('review_items', record.get('review', 0))):
                 if field in record and (len(record[field]) != count or
                         len({item['candidate_id'] for item in record[field]}) != count):

@@ -58,5 +58,30 @@ class SourceSyncContractTests(unittest.TestCase):
         record['added_items']=[dict(candidate_id='same',task_id=None,label='重复',course=None)]*2
         with self.assertRaises(ValueError):check('run',value)
 
+    def test_recovery_link_requires_a_recovered_receipt_and_explicit_run_and_request(self):
+        value=deepcopy(EXAMPLES['run']);record=value['records'][1]
+        record.update(recovered=True,recovered_by=dict(run_id='successful:run',request_id='successful:request'))
+        check('run',value)
+        record['recovered']=False
+        with self.assertRaises(ValueError):check('run',value)
+        record['recovered']=True;record['recovered_by']['run_id']=''
+        with self.assertRaises(ValueError):check('run',value)
+
+    def test_whole_collection_recovery_requires_an_empty_failed_collection_receipt_and_another_run(self):
+        value=deepcopy(EXAMPLES['run'])
+        value.update(records=[],updated_tasks=[],state='succeeded',skipped=0,
+                     error=dict(code='collection_failed',message='采集失败',retryable=True),
+                     recovered_by=dict(run_id='later:collection'))
+        value['counts']={key:0 for key in value['counts']}
+        check('run',value)
+        value['state']='failed';check('run',value)  # Single-run receipts retain their original outcome.
+        for edit in ('self','model','active','source'):
+            invalid=deepcopy(value)
+            if edit=='self':invalid['recovered_by']['run_id']=invalid['run_id']
+            if edit=='model':invalid['error']['code']='recognition_failed'
+            if edit=='active':invalid['state']='crawling'
+            if edit=='source':invalid['records']=[deepcopy(EXAMPLES['run']['records'][0])]
+            with self.assertRaises(ValueError):check('run',invalid)
+
 
 if __name__=='__main__':unittest.main()
