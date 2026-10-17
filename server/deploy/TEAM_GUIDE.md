@@ -50,6 +50,8 @@ npm --prefix frontend ci
 
 在编辑器打开 `server/deploy/environments/development/.env.model`，填写 provider、model、endpoint、API key；已有配置则沿用。环境入口**不读取根目录 `.env`**，也不把密钥放进前端。配置文件已被 Git 忽略，勿手动强制提交。
 
+新注册需要当前环境的 `.env.mail` 阿里云发信配置，见 [邮箱服务说明](EMAIL.md)；邮件配置未就绪时已有账号仍能登录，可先使用自己的既有测试账号。验证码注册和邮件内容导入是不同功能。
+
 ```powershell
 .\.venv\Scripts\python.exe server/manage_environment.py check development
 .\.venv\Scripts\python.exe server/manage_environment.py local development

@@ -8,6 +8,7 @@ from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 
 
 class DeploymentConfigTests(unittest.TestCase):
@@ -104,6 +105,12 @@ class DeploymentTests(unittest.TestCase):
     def test_public_origin_cookie_and_logout(self):
         account=dict(name='部署测试',email='deployment@test.local',password='Synthetic-Test-2026!')
         with patch.dict(app.os.environ,NIUMA_ALLOWED_ORIGINS='https://demo.example.com',NIUMA_COOKIE_SECURE='1'):
+            with self.request('/api/auth/email-code',dict(email=account['email'],purpose='register'),{'Origin':'https://evil.example.com'}) as response:
+                self.assertEqual(response.status,403)
+            def request_code(body):
+                with self.request('/api/auth/email-code',body,{'Origin':'https://demo.example.com'}) as response:
+                    return response.status,json.load(response)
+            account=registration_payload(account,request_code)
             with self.request('/api/auth/register',account,{'Origin':'https://evil.example.com'}) as response:
                 self.assertEqual(response.status,403)
             with self.request('/api/auth/register',account,{'Origin':'https://demo.example.com'}) as response:

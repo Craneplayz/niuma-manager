@@ -18,6 +18,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import wechat_media
 from contracts.check_v031_examples import check_pair, json_bytes
 
@@ -186,7 +187,9 @@ except OSError:sys.exit(26)
 
     def client(self, email):
         client = build_opener(HTTPCookieProcessor(CookieJar()))
-        self.call(client, '/auth/register', 'POST', dict(name='Test', email=email, password='Test-password-2026'))
+        account = registration_payload(dict(name='Test', email=email, password='Test-password-2026'),
+                                       lambda body: self.call(client, '/auth/email-code', 'POST', body))
+        self.assertEqual(self.call(client, '/auth/register', 'POST', account)[0], 200)
         return client
 
     def call(self, client, path, method='GET', body=None, token=None, multipart=False, fields=None):

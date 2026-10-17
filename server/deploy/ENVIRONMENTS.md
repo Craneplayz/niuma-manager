@@ -12,6 +12,8 @@
 
 配置在 `server/deploy/environments/<环境>/config.json`，模型配置在同目录 `.env.model`，二者均不入 Git / 镜像；开发和测试不继承仓库根 `.env` 或终端遗留的模型、Compose 配置。
 
+邮箱验证码配置使用同目录独立 `.env.mail`，初始化只补充缺失模板，未配置不阻断已有账号登录；新注册和补验证需先完成 [阿里云发信配置](EMAIL.md)。本地与容器均只读取当前环境邮件配置，Compose 入口生成私有 `.env.mail.compose`；邮件凭据不得放入模型文件或前端变量。Compose 需 2.24 或更新版本。
+
 模型配置沿用本地识别器的字面量格式，不展开 `$变量`、反斜杠或行内注释；注释单独成行。容器入口自动生成同目录私有 `.env.model.compose` 和 `.env.compose`，不要手工编辑或提交它们。[Compose 变量展开规则](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)
 
 本地数据在 `server/data/<环境>/`，容器数据在独立卷的 `/data`，包括 SQLite、凭据加密密钥、附件及作业记录；不得跨环境共享或复制生产数据来初始化测试。

@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 from runtime_environment import ENVIRONMENTS, ROOT, source_identity
 from release_images import record_acceptance, verified_images
+from mail_delivery import MAIL_KEYS, configured as mail_configured
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -40,7 +41,8 @@ def initialize(name, root=PROFILES):
     folder = root / name
     folder.mkdir(parents=True, exist_ok=True)
     for filename, content in [('config.json', json.dumps(defaults(name), ensure_ascii=False, indent=2) + '\n'),
-                              ('.env.model', (DEPLOY / '.env.model.example').read_text(encoding='utf-8'))]:
+                              ('.env.model', (DEPLOY / '.env.model.example').read_text(encoding='utf-8')),
+                              ('.env.mail', (DEPLOY / '.env.mail.example').read_text(encoding='utf-8'))]:
         path = folder / filename
         try:
             with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
@@ -103,6 +105,7 @@ def read_config(name, root=PROFILES):
         if not isinstance(value, str) or (value and not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_./:@-]{0,250}', value)):
             raise ValueError('Invalid image reference')
     read_model_config(folder / '.env.model')
+    read_mail_config(folder / '.env.mail')
     # A configuration typo must not point two profiles at the same persistent volume.
     for other in ENVIRONMENTS:
         path = root / other / 'config.json'
@@ -126,6 +129,30 @@ def read_model_config(path):
         raise ValueError('Model file must contain unique literal provider settings only') from None
     if any(any(ord(c) < 32 for c in value) for value in values.values()):
         raise ValueError('Model settings must not contain control characters')
+    return values
+
+
+def read_mail_config(path):
+    """The same literal dotenv subset, limited to mail keys and no expansion."""
+    # Existing profiles without mail configuration keep serving existing accounts.
+    if not path.is_file():
+        return {}
+    values = {}
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        key, separator, value = line.partition('=')
+        key, value = key.strip(), value.strip()
+        if not separator or key not in MAIL_KEYS or key in values:
+            raise ValueError('Mail file must contain unique literal mail settings only')
+        if value[:1] in {"'", '"'}:
+            if len(value) < 2 or value[-1] != value[0]:
+                raise ValueError('Mail file must contain unique literal mail settings only')
+            value = value[1:-1]
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError('Mail settings must not contain control characters')
+        values[key] = value
     return values
 
 
@@ -166,6 +193,7 @@ def compose_command(name, folder, config, docker='docker'):
                   NIUMA_ENVIRONMENT=name, NIUMA_DATA_VOLUME=config['data_volume'],
                   NIUMA_DATA_VOLUME_EXTERNAL=str(config['external_data_volume']).lower(),
                   NIUMA_MODEL_ENV_FILE=(folder / '.env.model.compose').as_posix(),
+                  NIUMA_MAIL_ENV_FILE=(folder / '.env.mail.compose').as_posix(),
                   NIUMA_HTTPS_TARGET_PORT=str(urlsplit(config['origin']).port or 443),
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
                   NIUMA_ENABLE_SCHEDULED_SYNC='1' if config.get('scheduled_sync',False) else '0',
@@ -173,6 +201,7 @@ def compose_command(name, folder, config, docker='docker'):
                   NIUMA_BUILD_REVISION=revision, COOKIE_SECURE='1' if config['transport'] == 'https' else '0')
     env_file = folder / '.env.compose'
     write_compose_env(folder / '.env.model.compose', read_model_config(folder / '.env.model'))
+    write_compose_env(folder / '.env.mail.compose', read_mail_config(folder / '.env.mail'))
     write_compose_env(env_file, values)
     compose = DEPLOY / ('compose.ip.yaml' if mode == 'ip' else 'compose.yaml')
     return [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
@@ -184,6 +213,7 @@ def local_environment(name, folder, config):
     if urlsplit(config['origin']).hostname not in ('127.0.0.1', 'localhost'):
         raise ValueError('Native origin must use localhost or 127.0.0.1')
     values = clean_environment()
+    values.update(read_mail_config(folder / '.env.mail'))
     revision, dirty = source_identity()
     data = ROOT / 'server' / 'data' / name
     values.update(NIUMA_ENVIRONMENT=name, NIUMA_DB=str(data / 'niuma.sqlite3'),
@@ -259,6 +289,7 @@ def main(argv=None):
     if args.command == 'check':
         print(json.dumps({'environment': name, 'project': f'niuma-{name}', 'origin': config['origin'],
                           'data_volume': config['data_volume'], 'background_recovery': config['background_recovery'],
+                          'mail_configured': mail_configured(read_mail_config(folder / '.env.mail')),
                           'scheduled_sync_available': config.get('scheduled_sync',False)}, ensure_ascii=False))
         return 0
     if args.command in ('api', 'web'):
