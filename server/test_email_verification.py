@@ -132,6 +132,50 @@ class EmailVerificationTests(unittest.TestCase):
         self.assertEqual(self.register()[0], 400)
         self.assertEqual(self.mailbox, [])
 
+    def test_legacy_unicode_domain_rejects_registration_codes_for_equivalent_addresses(self):
+        email = 'student@例子.中国'
+        uid = self.legacy(email)
+        for address in (email, 'student@xn--fsqu00a.xn--fiqs8s', ' Student@例子.中国 '):
+            with self.subTest(address=address):
+                status, result, headers = self.call('/auth/email-code',
+                                                   dict(email=address, purpose='register'), self.new_client())
+                self.assertEqual(status, 409, result)
+                self.assertEqual(result['code'], 'email_registered')
+                self.assertIsNone(headers.get('Set-Cookie'))
+        self.assertEqual(self.mailbox, [])
+        with app.connection() as db:
+            self.assertEqual([tuple(row) for row in db.execute('SELECT id,email FROM users')], [(uid, email)])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM email_challenges').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM email_rate_events').fetchone()[0], 0)
+
+    def test_legacy_unicode_domain_rejects_registration_with_an_existing_valid_code(self):
+        email = 'student@例子.中国'
+        canonical = 'student@xn--fsqu00a.xn--fiqs8s'
+        # An outstanding code must not bypass the duplicate check when an
+        # equivalent legacy account appears before the registration transaction.
+        challenge_id, code = self.challenge(canonical)
+        uid = self.legacy(email)
+        task = dict(id='original-task', title='Existing task', status='not_started', due=None, plans=[], subtasks=[])
+        with app.connection() as db:
+            original = dict(db.execute('SELECT * FROM users WHERE id=?', (uid,)).fetchone())
+            db.execute('INSERT INTO workspace VALUES(?,?,?,?)', (uid, 'tasks', json.dumps([task]), 7))
+        for address in (canonical, email, ' Student@例子.中国 '):
+            with self.subTest(address=address):
+                status, result, headers = self.register(address, challenge_id, code, self.new_client())
+                self.assertEqual(status, 409, result)
+                self.assertIsNone(headers.get('Set-Cookie'))
+        with app.connection() as db:
+            self.assertEqual([dict(row) for row in db.execute('SELECT * FROM users')], [original])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM verified_emails').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?',
+                                        (challenge_id,)).fetchone()[0], 'active')
+        status, result, _ = self.call('/auth/login', dict(email=email, password='Legacy-2026!'))
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result['user']['id'], uid)
+        self.assertEqual(result['user']['email'], email)
+        self.assertFalse(result['user']['emailVerified'])
+        self.assertEqual(self.call('/workspace')[1]['tasks'], dict(value=[task], version=7))
+
     def test_old_account_verifies_its_own_email_without_losing_data(self):
         uid = self.legacy()
         task = dict(id='original-task', title='Existing task', status='not_started', due=None, plans=[], subtasks=[])

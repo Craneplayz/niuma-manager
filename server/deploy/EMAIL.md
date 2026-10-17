@@ -13,6 +13,12 @@
 
 官方说明：[发信域名](https://help.aliyun.com/zh/direct-mail/user-guide/how-to-configure-sending-domain-names)、[发信地址](https://help.aliyun.com/zh/direct-mail/user-guide/setup-sender-addresses)、[SMTP 站点](https://help.aliyun.com/zh/direct-mail/smtp-endpoints)、[SMTP 发信](https://help.aliyun.com/zh/direct-mail/user-guide/send-emails-using-smtp)、[配额限制](https://help.aliyun.com/zh/direct-mail/product-overview/limits)。
 
+## 发信预算
+
+应用的全局发码限流为每环境每小时 100 次、滚动 24 小时 500 次，只用于防滥用；不同环境独立计数，没有跨环境共享预算或累计发信预算，不能据此保证 DirectMail 免费额度内运行。
+
+部署要求零额外费用时，启用真实发信前须按控制台实际日配额、剩余累计免费额度及其他发信方用量，落实覆盖整个 DirectMail 账号（含 test/production）的日/累计硬预算，或验证服务端会在额度用尽前自动停发；记录配置与停发验证结果。余额、用量提醒及不同发信地址不能代替账号级硬停发；尚未落实时保持邮件未配置，不以应用限流或模拟投递测试作为零费用验收。
+
 ## 按环境配置
 
 在仓库根运行 `python server/manage_environment.py init all`，只补齐缺失的 `.env.mail`，不覆盖已有配置。分别编辑 `server/deploy/environments/<环境>/.env.mail`；模板为 [.env.mail.example](.env.mail.example)：

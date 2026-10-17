@@ -233,7 +233,7 @@ class Handler(BaseHTTPRequestHandler):
                 purpose = body.get('purpose')
                 if purpose == 'register':
                     email = email_verification.normalize_email(body.get('email'))
-                    if db.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone():
+                    if email_verification.account_for_email(db, email):
                         raise email_verification.VerificationError(409, 'email_registered', '该邮箱已注册，请登录后验证邮箱')
                     uid = ''
                 elif purpose == 'verify_email':
@@ -281,7 +281,9 @@ class Handler(BaseHTTPRequestHandler):
                     name=str(body.get('name','')).strip()
                     if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
                     db.execute('BEGIN IMMEDIATE')
-                    row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
+                    # Legacy Unicode-domain addresses keep their stored value,
+                    # but share one identity with their canonical IDNA address.
+                    row=email_verification.account_for_email(db, email)
                     if row: raise ApiError(409,'该邮箱已注册')
                     email_verification.consume_code(db, email, 'register', '', body.get('challengeId'), body.get('code'),
                                                     self.email_client_ip(), DB.parent / 'email-verification.key')
