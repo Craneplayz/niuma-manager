@@ -27,12 +27,16 @@ detail.observation 复用内部根，仅用于显示；客户端操作不得携�
 | --- | --- | --- |
 | associate_actions | scope、links | 用户明确确认当前整份来源的范围，并逐一标注所有已有 action_id 的 relation；不增加行动、不修改任务完成状态。 |
 | reopen_actions | 非空 action_ids | 复用内部控制：重新开启明确关联的提交任务并暂停来源自动完成，保留手改内容。 |
-| resume_source_completion | 非空 action_ids | 仅解除所选提交任务的手动暂停；不解除来源核对状态、不立即完成任务。 |
+| resume_source_completion | 非空 action_ids | 解除所选提交任务或待处理提交候选的手动暂停；不解除来源核对状态、不立即完成任务或撤下候选。 |
 | resolve_source_review | action_ids=[] | 仅解除当前快照的 review_pending；不改变来源事实、不重开任务、不解除手动暂停。 |
 
 associate_actions 必须覆盖当前记录全部行动，每个 action_id 恰好一次；relation 为 assignment_submission/other/unknown。submission_only 表示用户确认整份当前来源只包含提交行动（即使尚未生成任何任务），因此全部现有行动都必须是 assignment_submission；mixed 可包含其他或尚不确定的行动，unknown 保留不确定范围，不能据此整条跳过模型。
 
-关联操作对发生变化的明确关系写入 user_confirmed，对 unknown 写入 unresolved；未变关系保留原授信依据。它不解除已有手动暂停或 review_pending，不复活 ignored/deleted，不修改手动完成或已编辑内容；要取消暂停任务的提交关联，先显式恢复来源自动完成，再刷新版本进行关联。
+关联操作对发生变化的明确关系写入 user_confirmed，对 unknown 写入 unresolved；未变关系保留原授信依据。候选被明确改为 other/unknown 时，解除已经不适用的提交暂停；仍关联为 assignment_submission 则保留暂停。已保存任务仍需先显式恢复来源自动完成，再取消提交关联。关联操作不解除 review_pending，不复活 ignored/deleted，不修改手动完成或已编辑内容。
+
+服务端以账号内持久化操作审计及永久 action_id 识别人工决定，包含明确选择 unknown 和确认未变关联；不能只从 link_basis、候选 state/version 推断。重识别保护所有经过人工关联或控制的候选，只有从未人工处理的系统撤下可以替换。显式恢复候选后，重复刷新/同步不能因为候选 version>1 再次暂停；以后再次撤回忽略时重新暂停。
+
+撤回忽略须在候选写入事务中明确保存暂停，不依赖此前是否读取过忽略状态。候选新增或更新为已有任务时，在同一事务中转移暂停保护；新增行动与原任务关系不一致、未知或属于其他来源时，原任务关联降为 unknown，不能继续依据旧关系自动完成。直接保存任务并修改来源历史时也需重新确认关联，普通标题、描述和计划编辑不影响关联。已消费候选的暂停不在后续读取中反复转移，任务明确恢复后保持恢复状态。
 
 ## 事务、幂等与来源刷新
 

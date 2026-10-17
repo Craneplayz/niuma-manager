@@ -6,7 +6,7 @@ import multiprocessing
 import os
 import time
 
-from .adapters import AgentError
+from .adapters import AgentError, safe_schema_detail
 from .classification import CandidateTasks
 
 
@@ -39,7 +39,8 @@ def _worker(connection, adapter, record, settings, attempt):
                 code = error.code if isinstance(error.code, str) and error.code in AGENT_CODES else "agent_unavailable"
                 encoded = json.dumps({"ok": False, "code": code,
                                       "retryable": error.retryable is True,
-                                      "diagnostic": AgentError(diagnostic=error.diagnostic).diagnostic}).encode("utf-8")
+                                      "diagnostic": AgentError(diagnostic=error.diagnostic).diagnostic,
+                                      "detail": safe_schema_detail(error.detail)}).encode("utf-8")
             except Exception:
                 # Do not serialize exception messages, stack traces or secrets.
                 encoded = b'{"ok":false,"code":"agent_unavailable","retryable":false}'
@@ -73,7 +74,9 @@ def run_attempt(adapter, record, settings, attempt):
             raise AgentError("agent_timeout", True)
         response = json.loads(receiver.recv_bytes(MAX_RESPONSE_BYTES).decode("utf-8"))
         if not response["ok"]:
-            raise AgentError(response["code"], response["retryable"], response.get('diagnostic'))
+            error = AgentError(response["code"], response["retryable"], response.get('diagnostic'))
+            error.detail = safe_schema_detail(response.get('detail'))
+            raise error
         # Do not coerce a malformed adapter output (e.g. a dict) into a list.
         if not isinstance(response["tasks"], list) or not isinstance(response.get("warnings", []), list):
             raise AgentError("invalid_agent_output", True)

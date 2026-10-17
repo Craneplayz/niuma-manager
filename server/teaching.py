@@ -113,8 +113,8 @@ def result_view(request, result):
         rows.append(dict(input_id=row['input_id'], status='failed' if failed else 'success' if cards else 'no_tasks',
             task_ids=[c['candidate_id'] for c in cards], warnings=warnings))
         if failed:
-            errors.append(dict(input_id=row['input_id'], **(row['error'] or dict(code='incomplete_source',
-                message=SOURCE_INCOMPLETE, retryable=False))))
+            failure = row['error'] or dict(code='incomplete_source',message=SOURCE_INCOMPLETE,retryable=False)
+            errors.append(dict(input_id=row['input_id'], **{k:failure[k] for k in ('code','message','retryable')}))
     return dict(contract_version=VIEW, request_id=request['request_id'], status=result['status'],
         record_results=rows, tasks=tasks, errors=errors)
 
@@ -223,9 +223,8 @@ def attachment_context(db, uid, request_id):
     def save_cache(asset,version,result):
         if not path: return  # In-memory tests need no durable cache.
         with closing(sqlite3.connect(path,timeout=30)) as cache_db, cache_db:
-            cache_db.execute('''UPDATE teaching_asset_files SET cache_version=?,result=?
-                WHERE user_id=? AND account=? AND sha256=? AND mime_type=?''',
-                (version,json.dumps(result),uid,asset['account'],asset['sha256'],asset['mime_type']))
+            cache_db.execute('BEGIN IMMEDIATE')
+            teaching_assets.save_read_cache(cache_db,uid,asset,version,result)
     return dict(files=files,save_cache=save_cache) if files else {}
 
 
@@ -269,9 +268,13 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
         else:
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result)))
         for card in result_view(request,result)['tasks']:
-            card = submission.decorate(db,uid,request['request_id'],card)
             db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                 (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
+        submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))
+        for saved in db.execute("SELECT id,candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state='pending'",
+                                (uid,request['request_id'])).fetchall():
+            card = submission.decorate(db,uid,request['request_id'],json.loads(saved['candidate']))
+            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),saved['id']))
         db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
             (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
         submission.controls.refresh_request(db,uid,request['request_id'])

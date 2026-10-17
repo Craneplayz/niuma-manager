@@ -66,8 +66,8 @@ def check(value):
         require((action['decision']=='completed')==(action['completion_origin'] is not None),'completion origin mismatch')
         require(action['kind']!='candidate' or action['decision'] in ('pending','ignored','deleted'),'candidate claims saved-task decision')
         require(action['kind']!='task' or action['decision']!='pending','saved task claims pending candidate')
-        require(not action['source_completion_paused'] or (action['kind']=='task'
-            and action['relation']=='assignment_submission'),'pause requires a mapped submission task')
+        require(not action['source_completion_paused'] or action['relation']=='assignment_submission',
+            'pause requires a mapped submission action')
     return value
 
 
@@ -130,8 +130,9 @@ def apply_user_control(value, operation):
         require(bool(targets),'select at least one action')
         for identity in targets:
             action=actions[identity]
-            require(action['kind']=='task' and action['relation']=='assignment_submission','control requires mapped submission tasks')
-            require(action['decision'] not in ('ignored','deleted'),'cannot reopen or enable an ignored/deleted task')
+            require(action['relation']=='assignment_submission','control requires mapped submission actions')
+            require(kind=='resume_source_completion' or action['kind']=='task','only tasks can be reopened here')
+            require(action['decision'] not in ('ignored','deleted'),'cannot reopen or enable an ignored/deleted action')
             if kind=='resume_source_completion':require(action['source_completion_paused'],'source completion is not paused')
     after=deepcopy(value)
     if kind=='resolve_source_review':after['review_pending']=False

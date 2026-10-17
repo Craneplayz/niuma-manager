@@ -92,6 +92,15 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
 
+def was_automatically_withdrawn(candidate):
+    """Only the first system withdrawal is replaceable, never a user decision."""
+    if candidate['state']!='ignored' or candidate['version']!=2: return False
+    try:
+        resolution=json.loads(candidate['resolution'] or '{}')
+        return isinstance(resolution,dict) and resolution.get('action')=='submission_policy_completed'
+    except (ValueError,TypeError): return False
+
+
 def was_auto_applied(resolution):
     try:
         value=json.loads(resolution or '{}')
@@ -294,6 +303,7 @@ def route(handler,db,uid,path,body,ApiError):
 
 def resolve_candidate(db, uid, cid, body, ApiError):
     """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
+    import submission_runtime
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
     if not row: raise ApiError(404,'候选不存在')
     canonical=json.dumps(body,sort_keys=True)
@@ -302,6 +312,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
         if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
         db.execute('UPDATE recognition_candidates SET state="pending",version=version+1,resolution=NULL WHERE id=?',(cid,))
+        # Persist the manual pause before the candidate can become a task. Its
+        # version also lets older reopened rows recover the pause after restart.
+        submission_runtime.refresh_request(db,uid,row['request_id'],reopened_candidate_id=cid)
         return
     if row['state']!='pending':
         if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
@@ -370,4 +383,5 @@ def resolve_candidate(db, uid, cid, body, ApiError):
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
+    if action!='ignore': submission_runtime.candidate_applied(db,uid,cid,target['id'])
     return

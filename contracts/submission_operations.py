@@ -120,8 +120,12 @@ def apply_operation(record, operation):
             # Unchanged facts keep their existing provenance, including server_exact.
             if action['relation'] != relation:
                 action.update(relation=relation, link_basis='unresolved' if relation == 'unknown' else 'user_confirmed')
+                # An explicit correction away from submission removes that
+                # relationship's pause; unchanged submission links keep it.
+                if action['kind'] == 'candidate' and relation != 'assignment_submission':
+                    action['source_completion_paused'] = False
         after['control_revision'] += 1
-        policy.check(after)  # In particular, an association cannot silently undo a manual pause.
+        policy.check(after)
     else:
         internal = {key: deepcopy(value) for key, value in operation.items() if key != 'record_id'}
         internal['contract_version'] = policy.VERSION

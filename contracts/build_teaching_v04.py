@@ -41,8 +41,10 @@ def schemas():
         filter_reason=nullable(string(1024,1))))
     # Additive result field: old saved results default to task, never reclassified.
     decision['properties']['content_type'] = dict(enum=['task','notice'])
+    decision['properties']['submission_relation'] = dict(enum=['assignment_submission','other','unknown'])
     error = obj(dict(code=dict(enum=['agent_timeout','agent_unavailable','invalid_agent_output','limit_exceeded']),
                      message=string(256,1), retryable=dict(type='boolean')))
+    error['properties']['diagnostic'] = obj(dict(schema_path=string(512), rule=string(40)))
     row = obj(dict(input_id=ident, snapshot_id=ident, source=source, attempted=dict(type='boolean'),
         status=dict(enum=['success','no_tasks','incomplete','failed']),
         decisions=array(decision,50), warnings=array(string(512,1),20), error=nullable(error)))

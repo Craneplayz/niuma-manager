@@ -266,7 +266,12 @@ def process(path, uid, run_id, ApiError):
                     # Protect every handled decision; do not match titles or model IDs.
                     old = prior_candidates(db,uid,item,record['input_id'])
                     cards=teaching.result_view(request,result)['tasks'] if native else result['tasks']
-                    protected = [c for c in old if c['state']!='pending' or c['version']!=1]
+                    controlled = teaching.submission.controls.manually_controlled_candidates(db,uid,old) if native else set()
+                    replaceable = [c for c in old if c['id'] not in controlled
+                                   and ((c['state']=='pending' and c['version']==1)
+                                        or recognition.was_automatically_withdrawn(c))]
+                    replaceable_ids = {c['id'] for c in replaceable}
+                    protected = [c for c in old if c['id'] not in replaceable_ids]
                     candidate_ids=[secrets.token_hex(16) for _ in cards]
                     plan=contract.association_plan(dict(contract_version=contract.VERSION,
                         previous=[dict(action_id=c['id'],decision='ignored' if c['state']=='ignored' else 'confirmed') for c in protected],
@@ -285,16 +290,15 @@ def process(path, uid, run_id, ApiError):
                             (uid,item['account'],request['request_id'],record['input_id']))
                     for candidate,identity in zip(cards,candidate_ids):
                         candidate=deepcopy(candidate)
-                        if native: candidate=teaching.submission.decorate(db,uid,request['request_id'],candidate)
+                        if native and hold: candidate=teaching.submission.decorate(db,uid,request['request_id'],candidate)
                         if hold:
                             candidate.update(notice_type='uncertain',needs_review=True,review_reasons=candidate['review_reasons']+['旧任务已有用户决定；请明确选择新增、更新或忽略，不会自动替换旧任务'])
                         db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(identity,uid,request['request_id'],json.dumps(candidate)))
                     db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',(uid,request['request_id'],record['input_id'],json.dumps(policy)))
                     if not hold:
-                        pending = [c for c in old if c['state']=='pending' and c['version']==1]
-                        for candidate in pending:
+                        for candidate in replaceable:
                             db.execute('DELETE FROM recognition_candidates WHERE id=? AND user_id=?',(candidate['id'],uid))
-                        summary.update(replaced=len(pending),new_pending=len(cards))
+                        summary.update(replaced=len(replaceable),new_pending=len(cards))
                         if native:
                             # Keep crawler evidence immutable; enriched reader/model data
                             # belongs only to recognition_batches. Advance file bindings
@@ -307,21 +311,25 @@ def process(path, uid, run_id, ApiError):
                                 (json.dumps(captured),request['request_id'],uid,item['account'],record['input_id']))
                             # Superseded failures must not keep offering retry in the active inbox.
                             # Keep their request/result in storage; never hide handled decisions.
-                            for rid in {item['request']['request_id'],*(c['request_id'] for c in pending)}:
+                            for rid in {item['request']['request_id'],*(c['request_id'] for c in replaceable)}:
                                 if not db.execute('SELECT 1 FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,rid)).fetchone():
                                     db.execute('''INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1)
                                         ON CONFLICT(user_id,request_id) DO UPDATE SET archived=1''',
                                         (uid,rid,rid,stamp(),'教学网重识别前的结果'))
                             teaching.submission.controls.refresh_request(db,uid,request['request_id'])
-                            # New action IDs have no verified submission relationship.
-                            # Keep them reviewable before attempting automatic creation.
+                            teaching.submission.bind_recognition(db,uid,captured,result,
+                                teaching.teaching_assets.identity(attachments.get('files',[])))
                             for identity in candidate_ids:
                                 card=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])
                                 teaching.submission.decorate(db,uid,request['request_id'],card)
                                 db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),identity))
                             # Same account/source guard and transactional task creation as normal sync.
                             for identity in candidate_ids:
-                                candidate=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])
+                                saved_candidate=db.execute('SELECT candidate,state FROM recognition_candidates WHERE id=?',(identity,)).fetchone()
+                                if saved_candidate['state']!='pending':
+                                    summary['new_pending']-=1
+                                    continue
+                                candidate=json.loads(saved_candidate['candidate'])
                                 if recognition.can_auto_apply(candidate,request):
                                     recognition.resolve_candidate(db,uid,identity,dict(action='create',auto_apply=True,version=1),ApiError)
                                     summary['new_pending']-=1
