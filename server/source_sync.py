@@ -113,7 +113,7 @@ def route(handler, db, uid, path, body, ApiError, key_path):
     return True
 
 
-def collect(db, uid, ApiError, key_path, *, guard=None):
+def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
     """Collect outside a write transaction, then validate ownership before saving."""
     if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
@@ -146,7 +146,14 @@ def collect(db, uid, ApiError, key_path, *, guard=None):
                 for item in requests:
                     if item.get('contract_version')=='teaching-capture/0.1': check_capture(item)
                     else: teaching.check_request(item)
-                assets = teaching_assets.read_capture(attachment_dir,requests)
+                if input_ids is not None:
+                    selected = []
+                    for item in requests:
+                        payload = item['request'] if item.get('contract_version') == 'teaching-capture/0.1' else item
+                        payload['records'] = [entry for entry in payload['records'] if entry['record']['input_id'] in input_ids]
+                        if payload['records']: selected.append(item)
+                    requests = selected
+                assets = teaching_assets.read_capture(attachment_dir,requests,**({'input_ids':input_ids} if input_ids is not None else {}))
             except Exception:
                 raise ApiError(502, '教学网采集结果或附件未通过格式及完整性校验') from None
     except (OSError, subprocess.TimeoutExpired):
@@ -156,7 +163,24 @@ def collect(db, uid, ApiError, key_path, *, guard=None):
     current = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     if not current or dict(current)!=dict(row):
         raise ApiError(409, '教学网账号在采集期间发生变化，请重新同步')
+    before = task_snapshot(db, uid)
     try: response = teaching.register(db, uid, row['username'], requests, assets=assets)
     except ValueError:
         raise ApiError(413, '教学网附件超过账号存储限制，或附件无效；请清理来源后重新同步') from None
+    response['updated_tasks'] = task_updates(before, task_snapshot(db, uid))
     return response
+
+
+def task_snapshot(db, uid):
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace'").fetchone(): return {}
+    row = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (uid,)).fetchone()
+    return {task['id']: task for task in json.loads(row['value'])} if row else {}
+
+
+def task_updates(before, after):
+    # Compare inside collection's write transaction, excluding concurrent user edits and source-only metadata.
+    fields = ('title', 'description', 'course', 'due', 'status', 'completedAt', 'recycleBin', 'content_type')
+    return [dict(task_id=identity, label=str(task.get('title', '任务'))[:200], course=task.get('course'),
+                 changed_fields=[field for field in fields if task.get(field) != before[identity].get(field)])
+            for identity, task in after.items() if identity in before and
+            any(task.get(field) != before[identity].get(field) for field in fields)]

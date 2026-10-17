@@ -23,7 +23,7 @@ test("system failures explain user actions and unknown errors never echo interna
     ["文本识别配置不可用，密钥 PRIVATE", /维护人员处理.*手动添加任务/],
     ["教学网采集依赖未安装 crawler/ pnpm install", /暂时无法从教学网获取通知/],
     ["凭据加密依赖未安装 server/requirements.txt", /无法保存教学网连接/],
-    ["unknown crash <script> PRIVATE-CONTENT password=PRIVATE", /这次操作未完成/],
+    ["unknown crash <script> PRIVATE-CONTENT password=PRIVATE", /操作未完成/],
   ];
   for (const [message, expected] of cases) {
     const html = userErrorMarkup({ status: 503, message });
@@ -70,7 +70,7 @@ test("concurrent clicks share one pending submission and preserve the incident o
   assert.equal(calls.length, 1);
   release(); await first;
   assert.equal(f.button.disabled, false);
-  assert.match(f.label.textContent, /未能确认提交/);
+  assert.match(f.label.textContent, /无法确认反馈是否已提交/);
   assert.doesNotMatch(f.redraw(), /已提交，感谢/);
   await submitErrorFeedback(f.button, { send: async payload => { calls.push(structuredClone(payload)); return receipt; }, frontendRevision: "deadbee" });
   assert.deepEqual(calls[1], calls[0]);
@@ -82,7 +82,7 @@ test("missing or malformed acknowledgements never display submission success", a
   for (const result of [{}, { saved: false }, { ...receipt, report_id: "invalid" }, { ...receipt, contract_version: "unsupported" }]) {
     const f = fixture();
     await submitErrorFeedback(f.button, { send: async () => result });
-    assert.match(f.label.textContent, /未能确认提交/);
+    assert.match(f.label.textContent, /无法确认反馈是否已提交/);
     assert.equal(f.button.disabled, false);
   }
 });

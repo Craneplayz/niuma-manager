@@ -387,21 +387,8 @@ button .icon {
   min-width: 0;
   margin-inline: 0;
 }
-.main-topbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 40px;
-  font-size: 12px;
-  color: #9a9ea3;
-  margin-bottom: 10px;
-}
-.main-topbar > span {
-  margin-left: 1px;
-}
 .main-date {
   flex: none;
-  margin-left: auto;
   font-size: 12px;
   color: #878e96;
   white-space: nowrap;
@@ -467,16 +454,17 @@ button .icon {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: minmax(50px, auto);
-  align-items: center;
-  gap: 10px;
+  align-items: start;
+  gap: 12px 16px;
   margin-bottom: 18px;
 }
 .page-heading-line {
   grid-column: 1;
   grid-row: 1;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20px;
+  gap: 8px 20px;
   min-height: 50px;
   min-width: 0;
 }
@@ -507,7 +495,8 @@ button .icon {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  min-height: 50px;
+  gap: 16px;
 }
 .page-heading-actions .btn {
   min-height: 44px;
@@ -705,6 +694,59 @@ button .icon {
 .calendar-layout > .day-panel {
   border-left: 1px solid var(--line);
   padding-left: 22px;
+}
+/* Allocate the visible month from the space left below the page heading. */
+#main:has(.is-calendar .calendar-month) {
+  padding-bottom: 20px;
+}
+.page-frame:has(.is-calendar .calendar-month) {
+  height: calc(100dvh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+.page-frame:has(.calendar-month) > #sync-alert,
+.is-calendar:has(.calendar-month) > .page-heading,
+.is-calendar:has(.calendar-month) > .task-page-footer,
+.is-calendar:has(.calendar-month) .calendar-tools {
+  flex: none;
+}
+.is-calendar:has(.calendar-month),
+.is-calendar:has(.calendar-month) #task-results {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.is-calendar:has(.calendar-month) .calendar-layout {
+  flex: 1;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+}
+.is-calendar:has(.calendar-month) .calendar-grid-wrap {
+  min-height: min-content;
+}
+.is-calendar:has(.calendar-month) .day-panel {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 1200px) {
+  .is-calendar:has(.calendar-month) .calendar-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .is-calendar:has(.calendar-month) .calendar-grid-wrap {
+    flex: 0 0 100%;
+  }
+  .is-calendar:has(.calendar-month) .day-panel {
+    flex: none;
+    overflow-y: visible;
+  }
+}
+@media (max-width: 700px) {
+  .page-frame:has(.is-calendar .calendar-month) {
+    height: calc(100dvh - 32px);
+  }
 }
 .field {
   display: flex;
@@ -1178,7 +1220,7 @@ dialog p {
     max-width: 135px;
   }
   .page-heading-line {
-    gap: 14px;
+    gap: 8px 14px;
   }
   .calendar-options {
     gap: 5px;
@@ -1229,15 +1271,14 @@ dialog p {
   .sidebar-collapsed #main {
     padding: 12px 20px 45px;
   }
-  .main-topbar {
-    margin: 0 0 10px -8px;
-    font-size: 12px;
-  }
   .main-date {
     font-size: 11px;
   }
   #sidebar-show {
     display: inline-flex;
+    grid-column: 1;
+    grid-row: 1;
+    margin-left: -8px;
   }
   .brand {
     font-size: 15px;
@@ -1247,15 +1288,15 @@ dialog p {
     height: 23px;
   }
   .page-heading {
-    grid-template-columns: minmax(0, 1fr) 44px;
-    grid-template-rows: minmax(50px, auto);
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-rows: 44px auto;
     align-items: center;
-    gap: 10px;
+    gap: 4px 8px;
     margin-bottom: 14px;
   }
   .page-heading-line {
-    grid-column: 1;
-    grid-row: 1;
+    grid-column: 1 / -1;
+    grid-row: 2;
     justify-content: space-between;
     gap: 10px;
   }
@@ -1278,9 +1319,9 @@ dialog p {
   .page-heading-actions {
     grid-column: 2;
     grid-row: 1;
-    width: 44px;
-    height: 44px;
-    gap: 0;
+    justify-self: end;
+    min-height: 44px;
+    gap: 12px;
   }
   .page-heading-actions .add-task {
     width: 44px;
@@ -1411,7 +1452,9 @@ dialog p {
   }
 }
 @media (max-width: 360px) {
-  .page-heading,
+  .page-heading {
+    column-gap: 6px;
+  }
   .page-heading-line {
     gap: 6px;
   }
@@ -1493,7 +1536,7 @@ dialog p {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 20px 0 28px;
+  padding: 20px 0 12px;
 }
 .teaching-import h2 {
   font-size: 19px;
@@ -1505,6 +1548,13 @@ dialog p {
 .teaching-connection .btn { padding: 0; min-height: 32px; font-size: 12px; }
 .teaching-controls { max-width: 420px; min-width: 0; }
 .teaching-action-row { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.teaching-action-row .primary { min-width: 128px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.teaching-stop-icon { width: 9px; height: 9px; background: currentColor; border-radius: 1px; flex-shrink: 0; }
+.teaching-action-indicator { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; }
+.teaching-progress-outline { position: absolute; inset: 0; width: 100%; height: 100%; }
+.teaching-progress-outline rect { fill: none; stroke: currentColor; stroke-width: 1.25; stroke-linecap: round; stroke-dasharray: 22 78; animation: teaching-progress-travel 1.6s linear infinite; }
+@keyframes teaching-progress-travel { to { stroke-dashoffset: -100; } }
+@media (prefers-reduced-motion: reduce) { .teaching-progress-outline rect { animation: none; } }
 .teaching-action-row select,
 .teaching-custom input { border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); min-height: 40px; font-size: 13px; padding: 8px 10px; }
 .teaching-action-row select { min-width: 125px; max-width: 100%; }
@@ -1514,16 +1564,32 @@ dialog p {
 .teaching-consent input { flex-shrink: 0; margin: 4px 0 0; }
 .teaching-controls > .status-note,
 .teaching-controls > .error { margin-top: 12px; font-size: 12px; }
-.teaching-progress { padding: 4px 0 14px; }
+.teaching-progress { padding: 0 0 14px; }
 .sync-run { color: var(--ink); padding: 12px 0; }
+.sync-run-current { padding: 0; }
 .sync-run + .sync-run { border-top: 1px solid var(--line); }
 .sync-run-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .sync-run-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; flex: 1; }
 .sync-run-status strong { font-size: 14px; font-weight: 500; }
 .sync-run-status .status-note { font-size: 12px; }
-.sync-run-status progress { width: 120px; height: 4px; accent-color: var(--ink); }
 .sync-run-heading .candidate-actions { margin: 0; }
-.sync-run-current .import-history { margin: 12px 0 0; }
+.sync-categories { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.sync-category { border: 0; border-bottom: 1px solid transparent; padding: 5px 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.sync-category:hover, .sync-category[aria-expanded="true"] { color: var(--ink); border-bottom-color: currentColor; }
+.sync-category[aria-expanded="true"] { font-weight: 600; }
+.sync-results { margin-top: 10px; }
+.sync-result-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 2px 20px; margin: 0; padding: 0; list-style: none; }
+.sync-result-list li { min-width: 0; }
+.sync-result-name { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 32px; padding: 4px 0; border: 0; border-radius: 3px; background: none; color: var(--ink); text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.sync-result-name > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-result-name small { flex-shrink: 0; color: var(--muted); font-size: 11px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-result-name:hover > span { text-decoration: underline; text-underline-offset: 3px; }
+.sync-category:focus-visible, .sync-result-name:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.sync-problem { margin-top: 8px; padding: 10px 12px; border-left: 2px solid var(--line); overflow-wrap: anywhere; font-size: 13px; }
+.sync-problem p { margin: 6px 0; }
+@media (max-width: 700px), (pointer: coarse) {
+  .sync-category, .sync-result-name { min-height: 44px; }
+}
 .import-results {
   border-top: 1px solid var(--line);
   padding-top: 24px;
@@ -1691,7 +1757,6 @@ dialog p {
   .teaching-action-row { justify-content: flex-start; }
   .sync-run-heading { align-items: flex-start; }
   .sync-run-status { flex-direction: column; align-items: flex-start; gap: 6px; }
-  .sync-run-status progress { width: 100%; max-width: 180px; }
   .candidate-row {
     flex-direction: column;
     gap: 5px;
@@ -1753,23 +1818,3 @@ dialog p {
   .material-job-heading { align-items:flex-start; gap:12px; }
   .material-job-heading .status-note { max-width:70px; }
 }
-.submission-directory-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:16px 0 8px; }
-.submission-directory-heading p { line-height:1.8; }
-.submission-record { display:flex; align-items:center; justify-content:space-between; gap:18px; width:100%; padding:14px 0; text-align:left; border:0; border-bottom:1px solid var(--line); background:transparent; }
-.submission-record > span:first-child { min-width:0; }
-.submission-record strong { display:block; color:var(--ink); font-size:14px; font-weight:500; line-height:1.7; overflow-wrap:anywhere; }
-.submission-record small { display:block; color:#81909b; font-size:12px; margin-top:5px; }
-.submission-record > .status-note { flex-shrink:0; font-size:12px; }
-.submission-dialog .dialog-header { margin-bottom:18px; }
-.submission-dialog .dialog-header h2 { margin-bottom:0; }
-.submission-name { font-size:16px; font-weight:550; line-height:1.7; margin-bottom:8px; overflow-wrap:anywhere; }
-.submission-dialog > .status-note { font-size:12px; }
-.submission-dialog .source-intro { margin:20px 0 12px; }
-.submission-dialog .source-disclosure { margin:16px 0; }
-.submission-action { border-top:1px solid var(--line); padding:16px 0; }
-.submission-action > strong { font-size:14px; font-weight:550; line-height:1.7; }
-.submission-action > p { font-size:12px; margin-top:6px; }
-.submission-action .field { margin:14px 0 0; }
-.submission-action > .btn { margin-top:12px; font-size:12px; }
-.submission-review { padding:12px 0; color:#82644b; font-size:13px; line-height:1.8; }
-.submission-dialog select { max-width:100%; }

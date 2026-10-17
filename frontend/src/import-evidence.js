@@ -63,7 +63,7 @@ export function candidateEvidenceMarkup(item) {
   return `<details class="candidate-evidence"><summary>查看原文</summary><div class="task-evidence-entry">${links ? `<div class="task-evidence-links">${links}</div>` : ""}${quotes.length ? `<section class="task-evidence-quotes"><p class="status-note">识别摘录</p>${quotes.map((quote) => `<blockquote>${esc(quote)}</blockquote>`).join("")}</section>` : ""}${original.trim() ? `<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>` : '<p class="status-note">原文暂不可用</p>'}${reasons.map((reason) => `<p class="status-note">${esc(reason)}</p>`).join("")}</div></details>`;
 }
 
-export function failureSourcesMarkup(batch) {
+export function failureSources(batch) {
   const records = list(batch?.request?.records);
   const result = batch?.result || {};
   const failedStatuses = new Set(["failed", "incomplete", "partial_success"]);
@@ -98,7 +98,11 @@ export function failureSourcesMarkup(batch) {
         "通知";
       const course = text(record?.course_or_project) || text(candidate?.course_or_project);
       const links = sourceLinks(record, sources, false);
-      return `<div class="task-evidence-entry"><p class="status-note">${course ? `${esc(course)} · ` : ""}${esc(label)}</p><p class="status-note">通知标识 <code>${esc(id)}</code>${links ? `<br>${links}` : ""}</p></div>`;
-    })
-    .join("");
+      return { input_id: id, label, course, links };
+    });
+}
+
+export function failureSourcesMarkup(batch) {
+  return failureSources(batch).map(({input_id, label, course, links}) =>
+    `<div class="task-evidence-entry"><p class="status-note">${course ? `${esc(course)} · ` : ""}${esc(label)}</p><p class="status-note">通知标识 <code>${esc(input_id)}</code>${links ? `<br>${links}` : ""}</p></div>`).join("");
 }

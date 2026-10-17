@@ -11,6 +11,7 @@ import {
   trashStoredTasks,
   restoreStoredTasks,
   accountVersion,
+  setStoredTaskDeadline,
 } from "./team-store.js";
 import { icon } from "./icons.js";
 import { newId } from "./id.js";
@@ -25,6 +26,7 @@ import {
 } from "./task-model.js";
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { renderCalendar } from "./calendar.js";
+import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
 import { loadTaskEvidence } from "./task-evidence.js";
@@ -98,10 +100,15 @@ const host = {
   icon,
   toast,
   render,
+  renderPageHeading: workspaceHeading,
   openDialog,
   closeDialog,
   isDialogOpen: selector => dialog.open && Boolean(dialog.querySelector(selector)),
   refresh,
+  openTask(id) {
+    if (state.tasks.some(task => task.id === id && !task.recycleBin)) openTask(id);
+    else toast("这条任务或通知已不在当前列表中");
+  },
   getState: () => state,
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
@@ -119,6 +126,14 @@ const host = {
 };
 const imports = createImportUI(host),
   account = createAccountUI(host);
+const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
+function draggableTask(id) {
+  if (taskBusy || loading || session.changing || ui.page !== "tasks" ||
+      taskView() !== "calendar" || ui.pane !== "undated" ||
+      dialog.open || drawer.open || !demo && !session.user) return null;
+  return state.tasks.find((task) => task.id === id && !isNotice(task) &&
+    task.status !== "done" && !shiftDay(task.due, 0));
+}
 function clearUndo() {
   clearTimeout(toastTimer);
   const el = document.querySelector("#toast");
@@ -212,7 +227,10 @@ async function refresh() {
 }
 const filtered = () => filterTasks(state.tasks, { ...ui, today });
 const taskView = () => (ui.scope === "all" ? ui.view : "list");
-const calendarItems = () => filterTasks(state.tasks, { ...ui, scope: "calendar", today });
+const calendarItems = () => filterTasks(state.tasks, { scope: "calendar", today });
+const headingCount = () => taskView() === "calendar"
+  ? filterTasks(state.tasks, { scope: "all", today }).length
+  : filtered().length;
 const courses = () =>
   [...new Set(state.tasks.map((t) => t.course).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "zh"),
@@ -295,7 +313,7 @@ function saveLabel() {
   );
 }
 function toolbar() {
-  const mixed = ui.scope === "near" || ui.scope === "done" || taskView() === "calendar";
+  const mixed = ui.scope === "near" || ui.scope === "done";
   const searchLabel = ui.scope === "notices" ? "搜索通知" : mixed ? "搜索任务与通知" : "搜索任务";
   const dateLabel = ui.scope === "notices" ? "关键日期" : mixed ? "日期范围" : "截止日期";
   return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
@@ -326,11 +344,18 @@ function calendarTools() {
   return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
 }
 function taskResults() {
-  const tasks = filtered();
   if (taskView() === "list")
-    return renderTaskList(tasks, { escapeHtml: esc, icon, today, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" });
+    return renderTaskList(filtered(), { escapeHtml: esc, icon, today, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" });
   const items = calendarItems();
-  return `${calendarTools()}<p class="calendar-kind-key"><span>任务截止</span><span><span class="notice-label">通知</span>关键时间 · ${items.filter(isNotice).length} 条</span></p><div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, escapeHtml: esc, icon, today })}</div>`;
+  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today })}</div>`;
+}
+function workspaceHeading(options) {
+  return renderPageHeading({
+    ...options,
+    navigation: `<button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button>`,
+    metadata: `<time class="main-date" datetime="${today}">${esc(dateLabel())}</time>`,
+    escapeHtml: esc,
+  });
 }
 function tasksPage() {
   const view = taskView();
@@ -341,15 +366,15 @@ function tasksPage() {
     { all: "全部任务", near: "临近截止", done: "已完成", notices: "通知" }[
       ui.scope
     ] || "全部任务";
-  const heading = renderPageHeading({
+  const heading = workspaceHeading({
     title: label,
-    count: filtered().length,
+    count: headingCount(),
     countId: "result-count",
     controls: viewSwitch,
     actions: ui.scope === "notices" ? "" : `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
     escapeHtml: esc,
   });
-  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${toolbar()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${view === "list" ? toolbar() : ""}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
     .map((c) => `<option value="${esc(c)}">`)
     .join("")}</datalist></section>`;
 }
@@ -413,6 +438,7 @@ function syncToday() {
     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now);
 }
 function render() {
+  calendarDrag.cancel();
   refreshToday();
   hideSidebarTooltip();
   imports.setVisible(ui.page === "import" && !demo && !loading);
@@ -421,7 +447,7 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div class="main-topbar"><button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button><span>${ui.page === "import" ? "导入" : ui.scope === "notices" ? "通知" : "我的任务"}</span><time class="main-date" datetime="${today}">${esc(dateLabel())}</time></div><div id="sync-alert">${syncAlert()}</div>${loading ? '<div class="loading-state" role="status">正在读取任务…</div>' : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
+  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
@@ -441,12 +467,13 @@ function render() {
   pruneErrorFeedback();
 }
 function renderResults() {
+  calendarDrag.cancel();
   if (refreshToday()) return render();
   const dayFocus = document.activeElement?.dataset.calendarDay;
   const results = document.querySelector("#task-results");
   if (!results) return;
   results.innerHTML = taskResults();
-  document.querySelector("#result-count").textContent = filtered().length;
+  document.querySelector("#result-count").textContent = headingCount();
   if (dayFocus)
     document
       .querySelector(`[data-calendar-day="${dayFocus}"]`)
@@ -519,6 +546,57 @@ async function persist() {
   if (!saveStore(state)) throw new Error(session.error || "保存失败");
   if (session.sync === "error" && !session.conflict) await retrySave();
   else await flushStore();
+}
+const taskDate = (task) => ({ due: task.due || "", dueTime: task.dueTime || "" });
+async function saveTaskDeadline(id, next, expected) {
+  const epoch = accountVersion();
+  if (demo) {
+    const task = state.tasks.find((item) => item.id === id);
+    if (!task || task.due !== expected.due || (task.dueTime || "") !== expected.dueTime)
+      throw new Error("任务日期已变化，请重新核对");
+    Object.assign(task, next);
+  } else {
+    const saved = await setStoredTaskDeadline(id, next, expected);
+    if (epoch !== accountVersion()) throw new Error("账号已切换");
+    state = saved;
+  }
+}
+async function dropTaskOnDate(id, date) {
+  const task = draggableTask(id);
+  if (!task || !shiftDay(date, 0)) return;
+  const epoch = accountVersion(), previous = taskDate(task), applied = { due: date, dueTime: "" };
+  const origin = { anchor: ui.anchor, selectedDate: ui.selectedDate, mode: ui.mode };
+  taskBusy = true;
+  render();
+  toast("正在设置截止日期…");
+  try {
+    await saveTaskDeadline(id, applied, previous);
+    if (epoch !== accountVersion()) return;
+    if (ui.page === "tasks" && taskView() === "calendar" && ui.mode === origin.mode && ui.pane === "undated" &&
+        ui.anchor === origin.anchor && ui.selectedDate === origin.selectedDate)
+      ui.selectedDate = date;
+    toast(`截止日期已设为 ${date}`, async () => {
+      if (taskBusy) throw new Error("正在保存，请稍候再撤销");
+      if (drawerEditing && drawer.open) throw new Error("请先关闭任务编辑再撤销");
+      const current = state.tasks.find((item) => item.id === id);
+      if (!current || isNotice(current) || current.due !== applied.due || (current.dueTime || "") !== applied.dueTime)
+        throw new Error("任务日期已变化，无法撤销这次操作");
+      taskBusy = true;
+      render();
+      try {
+        await saveTaskDeadline(id, previous, applied);
+      } finally {
+        taskBusy = false;
+        render();
+        if (drawer.open && !drawerEditing) updateDrawer();
+      }
+    });
+  } catch (error) {
+    if (epoch === accountVersion()) toast(`未设置截止日期：${error.message}，${session.conflict ? "请先重新读取任务" : "可重新拖动重试"}`);
+  } finally {
+    taskBusy = false;
+    render();
+  }
 }
 async function toggleTask(id) {
   if (taskBusy || !requireAccount()) return;
@@ -955,19 +1033,33 @@ document.addEventListener("keydown", (e) => {
     actions["sidebar-toggle"]();
   }
 });
-for (const modal of [dialog, drawer])
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) {
-      const rect = modal.getBoundingClientRect();
-      if (
-        e.clientX < rect.left ||
-        e.clientX > rect.right ||
-        e.clientY < rect.top ||
-        e.clientY > rect.bottom
-      )
-        modal === drawer ? closeDrawer() : closeDialog();
-    }
+for (const modal of [dialog, drawer]) {
+  let pointerStartedOnBackdrop = false;
+  const isBackdrop = (e) => {
+    if (e.target !== modal) return false;
+    const rect = modal.getBoundingClientRect();
+    return (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    );
+  };
+  const resetBackdropPointer = () => {
+    pointerStartedOnBackdrop = false;
+  };
+  // Dragging from inside to outside can also target the modal with a click.
+  modal.addEventListener("pointerdown", (e) => {
+    pointerStartedOnBackdrop = e.isPrimary && e.button === 0 && isBackdrop(e);
   });
+  modal.addEventListener("pointercancel", resetBackdropPointer);
+  modal.addEventListener("close", resetBackdropPointer);
+  modal.addEventListener("click", (e) => {
+    const dismiss = pointerStartedOnBackdrop && isBackdrop(e);
+    resetBackdropPointer();
+    if (dismiss) modal === drawer ? closeDrawer() : closeDialog();
+  });
+}
 drawer.addEventListener("cancel", (e) => {
   e.preventDefault();
   closeDrawer();

@@ -13,6 +13,7 @@ const {
   saveStore,
   trashStoredTasks,
   restoreStoredTasks,
+  setStoredTaskDeadline,
   flushStore,
   refreshStore,
   reloadStore,
@@ -634,4 +635,70 @@ test("API preserves top-level email error codes and retry intervals", async () =
     assert.equal(error.retryAfter, 120);
     return true;
   });
+});
+
+test("calendar assignment and undo save only the date while preserving task metadata", async () => {
+  const original = task("calendar", { description: "原文", sourceUrl: "https://example.test/course", plans: [{ id: "existing-plan" }], serverMetadata: { untouched: true } });
+  const f = fixture("calendar-assign", [original]);
+  await initSession();
+  const empty = { due: "", dueTime: "" }, assigned = { due: "2026-10-20", dueTime: "" };
+  let result = await setStoredTaskDeadline("calendar", assigned, empty);
+  assert.equal(result.tasks[0].due, assigned.due);
+  assert.deepEqual(f.tasks[0].due, { date: "2026-10-20", precision: "date" });
+  for (const field of Object.keys(original).filter(key => key !== "due"))
+    assert.deepEqual(f.tasks[0][field], original[field]);
+  result.tasks[0].notes = "设置日期后补充的说明";
+  saveStore(result); await flushStore();
+  result = await setStoredTaskDeadline("calendar", empty, assigned);
+  assert.equal(result.tasks[0].due, "");
+  assert.equal(f.tasks[0].due, null);
+  assert.equal(f.tasks[0].description, "设置日期后补充的说明");
+});
+
+test("a failed calendar drop stays undated and is never replayed by retry or a later edit", async () => {
+  const f = fixture("calendar-failure", [task("calendar")]);
+  const state = await initSession(), originalFetch = globalThis.fetch;
+  let fail = true;
+  globalThis.fetch = async (path, options) => {
+    if (fail && path === "/api/data/tasks") {
+      fail = false;
+      return { ok: false, status: 503, json: async () => ({ error: "合成保存失败" }) };
+    }
+    return originalFetch(path, options);
+  };
+  await assert.rejects(setStoredTaskDeadline("calendar", { due: "2026-10-20", dueTime: "" }, { due: "", dueTime: "" }), /合成保存失败/);
+  assert.equal(f.tasks[0].due, null);
+  await retrySave();
+  assert.equal(f.writes.length, 0);
+  state.tasks[0].notes = "稍后修改说明";
+  saveStore(state); await flushStore();
+  assert.equal(f.tasks[0].due, null);
+  await setStoredTaskDeadline("calendar", { due: "2026-10-21", dueTime: "" }, { due: "", dueTime: "" });
+  assert.equal(f.tasks[0].due.date, "2026-10-21");
+});
+
+test("calendar changes reject stale dates, notices and invalid dates without writing", async () => {
+  const f = fixture("calendar-stale", [task("calendar", { due: { date: "2026-10-21", time: "18:00", precision: "datetime" } }), task("notice", { content_type: "notice" })]);
+  await initSession();
+  const empty = { due: "", dueTime: "" };
+  await assert.rejects(setStoredTaskDeadline("calendar", empty, { due: "2026-10-20", dueTime: "" }), /任务日期已变化/);
+  await assert.rejects(setStoredTaskDeadline("notice", { due: "2026-10-20", dueTime: "" }, empty), /任务日期已变化/);
+  await assert.rejects(setStoredTaskDeadline("calendar", { due: "2026-02-30", dueTime: "" }, empty), /无效/);
+  assert.equal(f.writes.length, 0);
+});
+
+test("a calendar version conflict requires reload and never queues the rejected drop", async () => {
+  const f = fixture("calendar-conflict", [task("calendar")]);
+  await initSession();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (path, options) => path === "/api/data/tasks"
+    ? { ok: false, status: 409, json: async () => ({ error: "其他页面已修改" }) }
+    : originalFetch(path, options);
+  await assert.rejects(setStoredTaskDeadline("calendar", { due: "2026-10-20", dueTime: "" }, { due: "", dueTime: "" }), /其他页面/);
+  assert.equal(session.conflict, true);
+  await assert.rejects(retrySave(), /其他页面/);
+  globalThis.fetch = originalFetch;
+  const restored = await reloadStore();
+  assert.equal(restored.tasks[0].due, "");
+  assert.equal(f.writes.length, 0);
 });
