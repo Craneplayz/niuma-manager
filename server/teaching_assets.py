@@ -30,6 +30,9 @@ def initialize(db):
         user_id TEXT NOT NULL, account TEXT NOT NULL, request_id TEXT NOT NULL,
         ref_id TEXT NOT NULL, sha256 TEXT NOT NULL, mime_type TEXT NOT NULL,
         PRIMARY KEY(user_id,account,request_id,ref_id))''')
+    # Avoid scanning every reference for every stored file during pruning.
+    db.execute('''CREATE INDEX IF NOT EXISTS teaching_asset_refs_file
+        ON teaching_asset_refs(user_id,account,sha256,mime_type)''')
 
 
 def read_capture(folder, requests, *, input_ids=None):
