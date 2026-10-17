@@ -1,7 +1,9 @@
 """Authenticated sync -> private attachment -> recognition -> task/evidence HTTP tests."""
 import hashlib
 import json
+import sqlite3
 from copy import deepcopy
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -24,6 +26,35 @@ from ddl_text.tests.test_teaching_pipeline import example, RecordClient
 from contracts.teaching_io import snapshot_digest
 
 TEXT='请于2026年11月17日23:30前提交合成实验报告。'
+
+
+class AssetIndexUpgradeTests(unittest.TestCase):
+    def test_existing_database_upgrade_preserves_shared_files_cache_and_account_isolation(self):
+        with closing(sqlite3.connect(':memory:')) as db:
+            teaching.initialize(db)
+            # Simulate an existing release with populated tables and no new indexes.
+            db.execute('DROP INDEX teaching_sources_request')
+            db.execute('DROP INDEX teaching_asset_refs_file')
+            for uid, account in [('user', 'course'), ('user', 'other-course'), ('other-user', 'course')]:
+                db.execute('INSERT INTO teaching_sources VALUES(?,?,?,?,?,?)', (uid, account, 'input', 'digest', 'live', '{}'))
+                for digest in ('shared', 'orphan'):
+                    db.execute('INSERT INTO teaching_asset_files VALUES(?,?,?,?,?,?,?)',
+                        (uid, account, digest, 'application/pdf', b'synthetic', 'cached-version', 'cached-text'))
+                for request in ('live', 'obsolete'):
+                    db.execute('INSERT INTO teaching_asset_refs VALUES(?,?,?,?,?,?)',
+                        (uid, account, request, 'file:0', 'shared', 'application/pdf'))
+            before = db.execute('SELECT * FROM teaching_asset_files ORDER BY user_id,account,sha256').fetchall()
+            teaching.initialize(db)
+            teaching.initialize(db)
+            self.assertEqual(before, db.execute('SELECT * FROM teaching_asset_files ORDER BY user_id,account,sha256').fetchall())
+            teaching_assets.prune(db, 'user')
+            for account in ('course', 'other-course'):
+                self.assertEqual(db.execute('SELECT sha256,data,cache_version,result FROM teaching_asset_files WHERE user_id=? AND account=?',
+                    ('user', account)).fetchall(), [('shared', b'synthetic', 'cached-version', 'cached-text')])
+                self.assertEqual(db.execute('SELECT request_id FROM teaching_asset_refs WHERE user_id=? AND account=?',
+                    ('user', account)).fetchall(), [('live',)])
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_files WHERE user_id=?', ('other-user',)).fetchone()[0], 2)
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_refs WHERE user_id=?', ('other-user',)).fetchone()[0], 2)
 
 
 class TeachingAssetsIntegrationTests(unittest.TestCase):

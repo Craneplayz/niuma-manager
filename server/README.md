@@ -32,6 +32,7 @@ server/
 ├── teaching.py               核验当前账号快照、调用 v0.4 并适配任务/通知卡片。
 ├── teaching_assets.py        暂存收据校验、账号隔离原件、读取缓存与证据补全。
 ├── test_teaching_assets.py   文件同步到自动入库、重试、缓存、变更与隔离回归。
+├── benchmark_teaching_store.py 内存数据库的合成附件清理基准，不接触账号数据。
 ├── run_teaching_attachment_smoke.py  合成 PDF/扫描 PDF/图片/DOCX 的真实 API 验收。
 ├── submission_runtime.py    提交状态永久行动关联、完成/重开、持久幂等与原子更新。
 ├── test_submission_runtime.py 提交生命周期、独立行动、手动重开及陈旧操作回归。
@@ -231,6 +232,8 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 重识别目录同时支持旧 v0.2 与当前校园账号的 v0.4，使用独立来源 ID；新增 `reprocessing_teaching_sources`、`reprocessing_request_sources` 表由启动初始化，无需改写旧数据。v0.4 新候选和自动任务在同一事务保存，失败/中断保留旧结果，用户决定按账号及来源版本关联保留；部署前备份数据库，回滚不得删除已有任务或新表。
 教学网重识别保留原始采集正文，并在同一事务迁移附件绑定；读取结果只写入识别批次，连续重识别、正常同步清理和重启仍可读取原件，换号或移除凭据才清理对应附件。
+启动时自动创建按账号、请求编号查询来源及按账号、文件摘要查询附件引用的索引，减少同步保存和附件清理的重复扫描；已有数据库无需手动迁移，不修改原件、读取缓存或账号隔离规则。
+在仓库根目录运行 `python server/benchmark_teaching_store.py`，测量内存库中 1000 份合成附件的 70 次清理（3 轮取中位数）；加 `--without-indexes` 仅在该临时内存库移除新索引以比较基线。基准不读取用户数据库，不代表整轮同步耗时。
 
 提交控制路由见 [submission-operations/0.1](../contracts/docs/submission-operations-v0.1.md)：原生状态只影响已精确关联的提交行动，独立行动、删除/忽略和手改内容保留。每次同步在增量缓存前处理状态；正文或附件摘要变化会解除整份来源确认，新行动不按标题猜测关联；控制变化时拒绝迟到模型结果。原文条件读取在同一事务中核对快照与控制版本，变化时返回 409；自动完成日期使用北京时间，审计保留 UTC。完整来源无法提供时不接受整份 `submission_only` 确认，逐项控制仍可用。
 
