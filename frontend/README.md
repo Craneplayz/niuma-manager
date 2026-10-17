@@ -89,6 +89,8 @@ frontend/
     │   ├── calendar-full-month.jpg 完整月历与当天详情
     │   ├── calendar-date-drop.jpg 无日期任务拖入日期后可撤销
     │   ├── login-drag-retained.jpg 框内拖出后保留登录输入
+    │   ├── email-login-recovery.png 登录弹窗左下角的忘记密码入口
+    │   ├── email-password-recovery.png 已验证邮箱的密码找回空表单
     │   ├── task-list-desktop.jpg
     │   ├── calendar-desktop.jpg
     │   ├── calendar-without-legend.png 移除类型图例与通知总数后的月历
