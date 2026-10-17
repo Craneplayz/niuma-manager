@@ -171,19 +171,29 @@ test("touch scrolling, secondary buttons and unrelated pointers cannot assign da
   assert.deepEqual(f.drops, []);
 });
 
-test("undated tasks use the same gesture and date targets in month and week views, without a new button", () => {
+test("dated and undated tasks share drag targets, while notices, completed tasks and disabled views do not drag", () => {
   const tasks = [
     { id: "undated", title: "未定日期", due: "", status: "todo" },
     { id: "notice", title: "通知", content_type: "notice", due: "", status: "todo" },
     { id: "done", title: "已完成", due: "", status: "done" },
     { id: "dated", title: "有日期", due: "2026-10-16", status: "todo" },
+    { id: "dated-notice", title: "有日期通知", content_type: "notice", due: "2026-10-16", status: "todo" },
+    { id: "dated-done", title: "有日期已完成", due: "2026-10-16", status: "done" },
   ];
   const panel = renderDayPanel({ tasks, pane: "undated", allowDateDrag: true, today: "2026-10-16" });
   assert.equal((panel.match(/data-calendar-drag-task=/g) || []).length, 1);
   assert.match(panel, /data-calendar-drag-task="undated"/);
   assert.doesNotMatch(panel, /<button[^>]*>设置日期/);
-  for (const options of [{ pane: "day", allowDateDrag: true }, { pane: "undated", allowDateDrag: false }])
-    assert.doesNotMatch(renderDayPanel({ tasks, ...options, today: "2026-10-16" }), /data-calendar-drag-task/);
-  for (const mode of ["month", "week"])
-    assert.match(renderCalendar({ tasks, mode, today: "2026-10-16" }), /data-calendar-drop-date="2026-10-16"/);
+  const day = renderDayPanel({ tasks, pane: "day", allowDateDrag: true, today: "2026-10-16" });
+  assert.equal((day.match(/data-calendar-drag-task=/g) || []).length, 1);
+  assert.match(day, /data-calendar-drag-task="dated"/);
+  for (const pane of ["day", "undated"])
+    assert.doesNotMatch(renderDayPanel({ tasks, pane, allowDateDrag: false, today: "2026-10-16" }), /data-calendar-drag-task/);
+  for (const mode of ["month", "week"]) {
+    const calendar = renderCalendar({ tasks, mode, allowDateDrag: true, today: "2026-10-16" });
+    assert.match(calendar, /data-calendar-drop-date="2026-10-16"/);
+    assert.equal((calendar.match(/data-calendar-drag-task=/g) || []).length, 1);
+    assert.match(calendar, /data-calendar-drag-task="dated"/);
+    assert.doesNotMatch(renderCalendar({ tasks, mode, today: "2026-10-16" }), /data-calendar-drag-task/);
+  }
 });

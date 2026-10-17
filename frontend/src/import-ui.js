@@ -811,7 +811,32 @@ export function createImportUI(host) {
       return true;
     }
     if (action === "credentials") {
-      if (!credentialsBlocked() && allowed()) openCredentials();
+      if (credentialsBlocked() || !allowed()) return true;
+      if (credentials) {
+        openCredentials();
+        return true;
+      }
+      // The account dialog can reach this form before the import page is loaded.
+      const stamp = current(), label = button.textContent;
+      busy = true;
+      button.disabled = true;
+      button.textContent = "正在读取…";
+      try {
+        const result = await api("/api/sources/credentials");
+        if (valid(stamp)) {
+          credentials = result;
+          if (formIsOpen(button)) openCredentials();
+        }
+      } catch (e) {
+        if (valid(stamp) && formIsOpen(button)) throw e;
+      } finally {
+        if (valid(stamp)) {
+          busy = false;
+          button.disabled = false;
+          button.textContent = label;
+          refresh();
+        }
+      }
       return true;
     }
     if (action === "sync") {

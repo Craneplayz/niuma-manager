@@ -49,7 +49,7 @@ class Element extends Surface {
 }
 
 let instance = 0;
-async function fixture(t, { undated = false, failWrite = false } = {}) {
+async function fixture(t, { undated = false, failWrite = false, deadlineTime = "" } = {}) {
   const instanceId = ++instance;
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-10-15T23:59:59") });
   const app = new Element("app"), dialog = new Element("dialog"), drawer = new Element("task-drawer");
@@ -78,7 +78,7 @@ async function fixture(t, { undated = false, failWrite = false } = {}) {
     CustomEvent: class { constructor(type) { this.type = type; } },
   });
   const tasks = [
-    { id: "task", title: "合成任务", status: "not_started", due: { date: "2026-10-16", precision: "date" }, plans: [], subtasks: [] },
+    { id: "task", title: "合成任务", status: "not_started", due: { date: "2026-10-16", precision: deadlineTime ? "datetime" : "date", ...(deadlineTime ? { time: deadlineTime } : {}) }, plans: [], subtasks: [] },
     { id: "notice", title: "合成通知", content_type: "notice", status: "not_started", due: { date: "2026-10-23", precision: "date" }, plans: [], subtasks: [] },
   ];
   if (undated) tasks.push({ id: "undated", title: "合成无日期任务", status: "not_started", due: null, plans: [], subtasks: [] });
@@ -100,9 +100,9 @@ async function fixture(t, { undated = false, failWrite = false } = {}) {
   await import(`../src/app.js?date-test=${instanceId}`);
   await new Promise(setImmediate);
   const click = dataset => doc.emit("click", { closest: () => ({ dataset }) });
-  const drag = async (date = "2026-10-20") => {
+  const drag = async (date = "2026-10-20", id = "undated") => {
     const source = new Element();
-    source.dataset.calendarDragTask = "undated";
+    source.dataset.calendarDragTask = id;
     source.closest = () => source;
     const cell = new Element();
     cell.dataset.calendarDropDate = date;
@@ -112,7 +112,7 @@ async function fixture(t, { undated = false, failWrite = false } = {}) {
     await doc.emit("pointerdown", source, pointer);
     await doc.emit("pointermove", source, { ...pointer, clientX: 100 });
     await doc.emit("pointerup", source, { ...pointer, clientX: 100 });
-    await doc.emit("click", { closest: () => ({ dataset: { taskOpen: "undated" } }) }, { detail: 1 });
+    await doc.emit("click", { closest: () => ({ dataset: { taskOpen: id } }) }, { detail: 1 });
     await new Promise(setImmediate);
   };
   return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, toast: elements.get("#toast") };
@@ -130,13 +130,54 @@ for (const mode of ["month", "week"]) test(`${mode} calendar drag writes a date 
   assert.deepEqual(f.writes[0].value.find(task => task.id === "undated").due, { date, precision: "date" });
   assert.equal(f.drawer.open, false);
   assert.match(f.toast.innerHTML, new RegExp(`截止日期已设为 ${date}`));
-  assert.doesNotMatch(f.app.innerHTML, /data-calendar-drag-task="undated"/);
+  assert.doesNotMatch(f.app.innerHTML, /data-task-id="undated"/);
   await f.undo.onclick();
   assert.equal(f.writes.at(-1).value.find(task => task.id === "undated").due, null);
   assert.match(f.app.innerHTML, /data-calendar-drag-task="undated"/);
   await f.doc.emit("pointerdown", { closest: () => null }, { pointerType: "mouse", isPrimary: true, button: 0 });
   await f.click({ taskOpen: "undated" });
   assert.equal(f.drawer.open, true);
+});
+
+for (const mode of ["month", "week"]) for (const deadlineTime of ["", "18:30"])
+test(`${mode} calendar reschedules a dated task, retains ${deadlineTime || "date-only precision"} and can undo`, async t => {
+  const f = await fixture(t, { deadlineTime });
+  const date = mode === "week" ? "2026-10-17" : "2026-10-20";
+  await f.click({ view: "calendar" });
+  await f.click({ calendarMode: mode });
+  await f.click({ calendarDay: "2026-10-16" });
+  await f.drag(date, "task");
+  const due = { date, precision: deadlineTime ? "datetime" : "date", ...(deadlineTime ? { time: deadlineTime } : {}) };
+  assert.equal(f.writes.length, 1);
+  assert.deepEqual(f.writes[0].value.find(task => task.id === "task").due, due);
+  assert.equal(f.drawer.open, false);
+  assert.match(f.toast.innerHTML, new RegExp(`截止日期已改为 ${date}${deadlineTime ? ` ${deadlineTime}` : ""}`));
+  assert.match(f.app.innerHTML, new RegExp(`data-calendar-day="${date}"[^>]*aria-pressed="true"`));
+  await f.undo.onclick();
+  assert.deepEqual(f.writes.at(-1).value.find(task => task.id === "task").due, { ...due, date: "2026-10-16" });
+});
+
+test("dropping on the original date does not save, open details or offer undo", async t => {
+  const f = await fixture(t, { deadlineTime: "18:30" });
+  await f.click({ view: "calendar" });
+  await f.drag("2026-10-16", "task");
+  assert.equal(f.writes.length, 0);
+  assert.equal(f.drawer.open, false);
+  assert.doesNotMatch(f.toast.innerHTML, /截止日期已/);
+});
+
+test("a failed reschedule keeps the original date and time, and notices cannot be dragged", async t => {
+  const f = await fixture(t, { deadlineTime: "18:30", failWrite: true });
+  await f.click({ view: "calendar" });
+  await f.drag("2026-10-20", "task");
+  assert.equal(f.writes.length, 0);
+  assert.match(f.toast.innerHTML, /未更改截止日期：合成保存失败/);
+  await f.click({ taskOpen: "task" });
+  assert.match(f.drawer.innerHTML, /2026-10-16|明天/);
+  assert.match(f.drawer.innerHTML, /18:30/);
+  await f.click({ action: "drawer-close" });
+  await f.drag("2026-10-20", "notice");
+  assert.equal(f.writes.length, 0);
 });
 
 test("a failed calendar drop retains the undated row and reports failure without a success toast", async t => {

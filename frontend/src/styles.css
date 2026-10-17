@@ -1727,6 +1727,19 @@ dialog p {
   gap: 10px;
   margin: 22px 0;
 }
+.account-connection {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+.account-connection > div { min-width: 0; }
+.account-connection h3 { margin: 0 0 5px; font-size: 14px; }
+.account-connection p { margin: 0; font-size: 12px; line-height: 1.6; }
+.account-connection > button { flex: none; }
+.account-connection + .account-feedback { margin-top: 0; }
 .account-summary h3 {
   font-size: 18px;
   margin: 0 0 6px;

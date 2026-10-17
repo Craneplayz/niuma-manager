@@ -293,7 +293,7 @@ async function changeStoredTasks(transform, { retryOnFailure = true } = {}) {
     } catch (error) {
       if (epoch === accountEpoch) {
         session.conflict = error.status === 409;
-        // A failed calendar drop stays undated and must never replay on a later save.
+        // A failed calendar drop keeps its original deadline and must never replay on a later save.
         if (retryOnFailure || session.conflict) {
           failed = true;
           pendingChange = retryOnFailure ? transform : null;

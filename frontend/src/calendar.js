@@ -48,6 +48,7 @@ export function renderCalendar({
   mode = "month",
   selectedDate,
   today,
+  allowDateDrag = false,
   escapeHtml = fallbackEscape,
 } = {}) {
   const anchor =
@@ -78,7 +79,9 @@ export function renderCalendar({
     const time = task.dueTime ? String(task.dueTime) : "";
     const notice = isNotice(task);
     const label = `${notice ? "通知关键时间：" : "任务截止："}${task.title}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
-    return `<button type="button" class="calendar-task${notice ? " is-notice" : ""}" data-task-open="${escapeHtml(task.id)}" aria-label="${escapeHtml(label)}">${notice ? '<span class="notice-label">通知</span>' : ""}${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}<span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
+    const drag = allowDateDrag && !notice && task.status !== "done"
+      ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看任务，拖到其他日期更改截止日期"` : "";
+    return `<button type="button" class="calendar-task${notice ? " is-notice" : ""}" data-task-open="${escapeHtml(task.id)}"${drag} aria-label="${escapeHtml(label)}">${notice ? '<span class="notice-label">通知</span>' : ""}${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}<span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
   }
 
   function day(date, index) {
