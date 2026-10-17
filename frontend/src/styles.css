@@ -844,6 +844,10 @@ dialog::backdrop {
   gap: 10px;
   margin-top: 25px;
 }
+.dialog-actions .account-recovery-link {
+  margin-right: auto;
+  padding-inline: 0;
+}
 dialog h2 {
   font-size: 22px;
   margin-bottom: 20px;
