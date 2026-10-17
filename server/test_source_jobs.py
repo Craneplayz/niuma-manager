@@ -1,5 +1,8 @@
 """HTTP sync tests with real persistence/recognition validation, synthetic network/model."""
 import json
+from pathlib import Path
+import shutil
+import subprocess
 import threading
 import time
 import unittest
@@ -504,6 +507,40 @@ class SourceJobsTests(unittest.TestCase):
         self.assertTrue(self.call('/sources/sync-runs/'+first['run_id'])[1]['records'][0]['recovered'])
         self.assertTrue(all(batch['sourceSyncManaged'] for batch in self.call('/recognition/batches')[1]))
         self.assertEqual(self.call('/sources/sync-runs/'+first['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:old',consent=True))[0],409)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is needed for the HTTP-to-frontend recovery regression')
+    def test_mixed_retry_with_no_tasks_locates_compacted_recovery_through_http_and_frontend(self):
+        request,_=example(('explicit-complete',)*2)
+        recovered_input=request['records'][0]['record']['input_id']
+        self.drafts[recovered_input]=empty_reply(request['records'][0]['record'])
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(502,'合成模型故障')):
+            first=self.start();jobs.wait_for_jobs(app.DB)
+        old=self.until(first['run_id'],lambda run:run['state']=='failed')
+        recovered_request=next(item['request_id'] for item in old['records'] if item['input_id']==recovered_input)
+        def model(request,ApiError):
+            if request['records'][0]['record']['input_id']!=recovered_input: raise ApiError(502,'其他来源仍失败')
+            return self.model(request,ApiError)
+        with patch.object(jobs.teaching,'recognize',side_effect=model):
+            status,retry=self.call('/sources/sync-runs/'+first['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:mixed-empty',consent=True))
+            self.assertEqual(status,202,retry);jobs.wait_for_jobs(app.DB)
+        target=self.until(retry['run_id'],lambda run:run['state']=='partial_success')
+        self.assertEqual(target['counts']['failed'],1)
+        self.assertEqual(target['counts']['added'],0);self.assertEqual(target['counts']['review'],0)
+        self.assertNotIn(recovered_request,[item['request_id'] for item in target['records']])
+        restored=self.call('/sources/sync-runs/'+first['run_id'])[1]
+        record=next(item for item in restored['records'] if item['request_id']==recovered_request)
+        self.assertEqual(record['recovered_by'],dict(run_id=target['run_id'],request_id=recovered_request))
+        self.assertTrue(record['recovered'])
+        app.initialize()
+        jar=next(handler.cookiejar for handler in self.client.handlers if hasattr(handler,'cookiejar'))
+        config=dict(base=self.base,cookie='; '.join(cookie.name+'='+cookie.value for cookie in jar),
+                    old_run_id=first['run_id'],target_run_id=target['run_id'],request_id=recovered_request)
+        root=Path(__file__).resolve().parents[1]
+        result=subprocess.run([shutil.which('node'),str(root/'frontend/tests/fixtures/locate-compacted-recovery.mjs')],
+                              input=json.dumps(config),text=True,capture_output=True,timeout=20,cwd=root)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertFalse(self.call('/workspace')[1].get('tasks',{}).get('value'))
+        with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM source_sync_runs').fetchone()[0],2)
 
     def test_sync_batch_ownership_does_not_cross_accounts(self):
         request,_=example();record=request['records'][0]['record'];record['body_status']='partial'

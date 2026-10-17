@@ -706,6 +706,44 @@ check('only the recovered status locates and expands its successful batch withou
   assert.match(markup(f.ui),/恢复后加入的任务/);assert.equal(f.posts().length,0);
 });
 
+check('a compacted successful source locates its mixed retry batch and explains the empty result', async () => {
+  for (const cached of [true,false]) {
+    const {old,target}=linkedRecovery();
+    Object.assign(target,syncRun({id:target.run_id,state:'partial_success',states:['failed'],added:1}));
+    target.records[0].request_id='other:failed';
+    target.records[0].added_items=[{candidate_id:'unrelated',task_id:'unrelated',label:'其他来源新增的任务',course:null}];
+    const f=fixture(cached?[target,old]:[old]);
+    f.setAPI((call,normal)=>call.path===API+'/'+encodeURIComponent(target.run_id)?clone(target):normal(call));
+    await f.ui.load();await locate(f.ui,old);
+    assert.deepEqual(f.messages,[]);
+    assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
+    const html=markup(f.ui),row=html.match(new RegExp(`<article id="sync-run-${target.run_id}"[\\s\\S]*?</article>`))[0];
+    assert.match(row,/sync-run-heading" data-source-sync-highlight/);
+    assert.match(row,/部分完成/);
+    assert.match(row,/这条来源已处理完成，没有新增任务或待核对内容。/);
+    assert.match(row,/错误 1 条/);assert.match(row,/新增 1 项/);
+    if(cached) assert.match(row,/处理未完成 · 1/);
+    assert.doesNotMatch(row,/data-source-sync-category="added" aria-expanded="true"/);
+    await f.ui.load();assert.match(markup(f.ui),/这条来源已处理完成/);
+    await category(f.ui,target.run_id,'error');
+    assert.doesNotMatch(markup(f.ui),/这条来源已处理完成|data-source-sync-highlight/);
+    assert.equal(f.posts().length,0);
+  }
+});
+
+check('a contradictory source receipt, active target or mismatched batch cannot claim recovery', async () => {
+  for (const kind of ['failed-source','active','wrong-run']) {
+    const {old,target}=linkedRecovery(),f=fixture([old]);
+    if(kind==='failed-source') target.records[0].state='failed';
+    if(kind==='active') {target.state='recognizing';target.records=[];}
+    if(kind==='wrong-run') target.run_id='wrong:run';
+    f.setAPI((call,normal)=>call.path===API+'/'+encodeURIComponent(old.records[0].recovered_by.run_id)?clone(target):normal(call));
+    await f.ui.load();await locate(f.ui,old);
+    assert.deepEqual(f.revealed,[]);assert.equal(f.messages.length,1);
+    assert.equal(f.posts().length,0);
+  }
+});
+
 check('recovery highlights survive redraws, polling and navigation cancellation without a timeout', async () => {
   const {old,target}=linkedRecovery(),f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
   const renders=f.renders;

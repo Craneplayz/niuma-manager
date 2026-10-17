@@ -340,7 +340,9 @@ export function createSourceSyncUI(host) {
       if (!target) target = checkRun(await host.api(`${API}/${encodeURIComponent(link.run_id)}`, undefined, "GET", { signal: controller.signal }));
       if (!valid()) return;
       const source = link.request_id ? target.records.find(item => item.request_id === link.request_id) : null;
-      if (target.run_id !== link.run_id || link.request_id && (source ? source.state !== "succeeded" : target.state !== "succeeded"))
+      // recovered_by confirms this source succeeded. Compaction can remove its
+      // empty result while unrelated failures keep the target batch incomplete.
+      if (target.run_id !== link.run_id || ACTIVE.has(target.state) || source && source.state !== "succeeded")
         throw new Error("recovery unavailable");
       const state = host.getState?.() || {};
       const tasks = [...(state.tasks || []), ...(state.trash || []), ...(host.getCancelledTasks?.() || [])];
@@ -355,7 +357,8 @@ export function createSourceSyncUI(host) {
       const keys = new Set((related[category] || []).map(item => item[key]));
       const itemIndex = category ? resultItems(target, category).items.findIndex(item => keys.has(item[key])) : -1;
       clearRecoveryHighlight();
-      recoveryHighlight = { runId: target.run_id, category: itemIndex >= 0 ? category : null, keys };
+      recoveryHighlight = { runId: target.run_id, category: itemIndex >= 0 ? category : null, keys,
+        emptySource: Boolean(link.request_id && !source && itemIndex < 0) };
       locatedRun = target.run_id; linkedRun = target; showHistory = true;
       if (category) categories.set(target.run_id, category);
       else categories.delete(target.run_id);
@@ -415,7 +418,10 @@ export function createSourceSyncUI(host) {
     const running = ACTIVE.has(run.state);
     if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
-    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading" ${recoveryHighlight?.runId === run.run_id && !recoveryHighlight.category ? 'data-source-sync-highlight' : ""}><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${groups.map(({ key }) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}${locatedRun === run.run_id && !groups.length ? '<p class="status-note">这次处理已完成，没有新增任务或待核对内容。</p>' : ""}</article>`;
+    const recoveryNote = recoveryHighlight?.runId === run.run_id && recoveryHighlight.emptySource
+      ? "这条来源已处理完成，没有新增任务或待核对内容。"
+      : locatedRun === run.run_id && !groups.length ? "这次处理已完成，没有新增任务或待核对内容。" : "";
+    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading" ${recoveryHighlight?.runId === run.run_id && !recoveryHighlight.category ? 'data-source-sync-highlight' : ""}><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recoveryNote ? `<p class="status-note">${recoveryNote}</p>` : ""}${groups.map(({ key }) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));

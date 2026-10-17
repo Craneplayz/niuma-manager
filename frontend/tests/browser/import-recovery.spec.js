@@ -97,6 +97,34 @@ test("a resolved whole collection exposes recovery navigation without obsolete p
   expect(writes).toHaveLength(0);
 });
 
+for (const cached of [true, false]) test(`a compacted no-task recovery opens its partially successful batch (${cached ? "listed" : "fetched"})`, async ({ page }, info) => {
+  const old = failedRun("empty:old", 1, 1);
+  const target = syncRun({ id: "empty:retry", state: "partial_success", states: ["failed"] });
+  target.records[0].request_id = "other:failed";
+  target.records[0].label = "另一条仍失败的来源";
+  old.records[0].recovered_by = { run_id: target.run_id, request_id: "compacted:success" };
+  const writes = await openHistory(page, cached ? [target, old] : [old], target);
+  const row = page.locator(`[id="sync-run-${old.run_id}"]`);
+  await row.getByRole("button", { name: "错误 1 条", exact: true }).click();
+  await row.getByRole("button", { name: /已恢复，查看成功批次/ }).click();
+  const targetRow = page.locator(`[id="sync-run-${target.run_id}"]`);
+  await expect(targetRow).toBeVisible();
+  await expect(targetRow).toContainText("这条来源已处理完成，没有新增任务或待核对内容。");
+  await expect(targetRow.getByRole("status")).toHaveText("部分完成");
+  await expect(targetRow.getByRole("button", { name: "错误 1 条", exact: true })).toHaveCSS("color", "rgb(182, 57, 57)");
+  if (cached) await expect(targetRow.getByRole("button", { name: "处理未完成 · 1", exact: true })).toBeVisible();
+  await expect(targetRow.locator(".sync-run-heading")).toHaveAttribute("data-source-sync-highlight", "");
+  await expect.poll(async () => Math.abs((await targetRow.boundingBox()).y - 24)).toBeLessThan(2);
+  await expect(page.locator("#toast")).not.toHaveClass(/visible/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("import-recovery-empty-source.png"), fullPage: true });
+  await targetRow.getByRole("button", { name: "错误 1 条", exact: true }).click();
+  await expect(targetRow).toContainText("另一条仍失败的来源");
+  await expect(targetRow).not.toContainText("这条来源已处理完成");
+  await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(0);
+  expect(writes).toHaveLength(0);
+});
+
 test("category priority follows recovered errors and confirmed reviews without changing the receipt totals", async ({ page }, info) => {
   const run = syncRun({ id: "priority:batch", state: "partial_success", states: ["succeeded", "failed"], added: 1, review: 1,
     updates: [{ task_id: "updated:task", label: "修改过的任务", course: null }] });
