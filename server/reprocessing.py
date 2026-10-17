@@ -285,7 +285,7 @@ def process(path, uid, run_id, ApiError):
                             (uid,item['account'],request['request_id'],record['input_id']))
                     for candidate,identity in zip(cards,candidate_ids):
                         candidate=deepcopy(candidate)
-                        if native: candidate=teaching.submission.decorate(db,uid,request['request_id'],candidate)
+                        if native and hold: candidate=teaching.submission.decorate(db,uid,request['request_id'],candidate)
                         if hold:
                             candidate.update(notice_type='uncertain',needs_review=True,review_reasons=candidate['review_reasons']+['旧任务已有用户决定；请明确选择新增、更新或忽略，不会自动替换旧任务'])
                         db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(identity,uid,request['request_id'],json.dumps(candidate)))
@@ -313,15 +313,19 @@ def process(path, uid, run_id, ApiError):
                                         ON CONFLICT(user_id,request_id) DO UPDATE SET archived=1''',
                                         (uid,rid,rid,stamp(),'教学网重识别前的结果'))
                             teaching.submission.controls.refresh_request(db,uid,request['request_id'])
-                            # New action IDs have no verified submission relationship.
-                            # Keep them reviewable before attempting automatic creation.
+                            teaching.submission.bind_recognition(db,uid,captured,result,
+                                teaching.teaching_assets.identity(attachments.get('files',[])))
                             for identity in candidate_ids:
                                 card=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])
                                 teaching.submission.decorate(db,uid,request['request_id'],card)
                                 db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),identity))
                             # Same account/source guard and transactional task creation as normal sync.
                             for identity in candidate_ids:
-                                candidate=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])
+                                saved_candidate=db.execute('SELECT candidate,state FROM recognition_candidates WHERE id=?',(identity,)).fetchone()
+                                if saved_candidate['state']!='pending':
+                                    summary['new_pending']-=1
+                                    continue
+                                candidate=json.loads(saved_candidate['candidate'])
                                 if recognition.can_auto_apply(candidate,request):
                                     recognition.resolve_candidate(db,uid,identity,dict(action='create',auto_apply=True,version=1),ApiError)
                                     summary['new_pending']-=1

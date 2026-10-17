@@ -27,6 +27,35 @@ class SyntheticClient:
 
 
 class TeachingDraftTests(unittest.TestCase):
+    def test_assignment_heading_date_is_not_due_but_same_day_deadline_is(self):
+        def dated(record, task):
+            record.update(text='第4周周三 9月30日 作业\n教材习题17.4第2、4、5、6、8题。', references=[],body_status='complete')
+            task['assessment']['action']['evidence']=[dict(part_id='body',quote=record['text'])]
+            task['assessment']['deadline'].update(value='2026-09-30',precision='date',derivation='absolute',anchor=None,
+                evidence=[dict(part_id='body',quote=record['text'])])
+            task['assessment']['unread_relations']=[]
+            task['relevance']['evidence']=[]
+        decision=self.compile('explicit-complete',dated)[0]
+        self.assertEqual(decision['recommendation'],'task')
+        self.assertEqual(decision['pair']['assessment']['deadline']['derivation'],'not_provided')
+        def due(record,task):
+            dated(record,task);record['text']+='请在9月30日23:59前提交。'
+            task['assessment']['deadline']['evidence']=[dict(part_id='body',quote=record['text'])]
+        self.assertEqual(self.compile('explicit-complete',due)[0]['pair']['assessment']['deadline']['value'],'2026-09-30')
+        def assigned(record,task):
+            dated(record,task);task['time_role']='assigned'
+        self.assertIsNone(self.compile('explicit-complete',assigned)[0]['pair']['assessment']['deadline']['value'])
+        def unusual_deadline(record,task):
+            dated(record,task);record['text']+='老师当晚收取本次作业。';task['time_role']='deadline'
+        self.assertEqual(self.compile('explicit-complete',unusual_deadline)[0]['pair']['assessment']['deadline']['value'],'2026-09-30')
+
+    def test_schema_error_retains_only_rule_and_schema_path(self):
+        def invalid(record,task):task['assessment']['deadline']['value']='private invalid date'
+        with self.assertRaises(AgentError) as failure:self.compile('explicit-complete',invalid)
+        detail=failure.exception.detail
+        self.assertIn('deadline',detail['schema_path'])
+        self.assertNotIn('private',json.dumps(detail))
+
     def test_notice_has_evidence_without_inventing_action_or_deadline(self):
         def change(record, task):
             record.update(text='本学期上课地点为理教408。', references=[], body_status='complete')
@@ -82,7 +111,13 @@ class TeachingDraftTests(unittest.TestCase):
                 process_teaching_draft(record,client=SyntheticClient(raw),settings=Settings(timeout_seconds=10))
             self.assertEqual(error.exception.diagnostic,reason)
             self.assertNotIn('private',str(error.exception))
+            if reason=='draft_schema':
+                self.assertEqual(error.exception.detail['rule'],'required')
+                self.assertIn('tasks',error.exception.detail['schema_path'])
+            else:self.assertIsNone(error.exception.detail)
         self.assertIsNone(AgentError(diagnostic='private arbitrary exception').diagnostic)
+        from ddl_text.adapters import safe_schema_detail
+        self.assertIsNone(safe_schema_detail(dict(schema_path='properties/private-course-name',rule='required')))
 
     def compile(self, case_name='unread-supplement', change=None, verified=None):
         case = policy_case(case_name)
@@ -323,6 +358,8 @@ class TeachingDraftTests(unittest.TestCase):
         self.assertEqual(out[0]['empty_decision']['status'],'incomplete')
         self.assertEqual([c[2] for c in client.calls],[10,8])
         self.assertIn('validation_feedback',client.calls[1][1])
+        self.assertIn('required shape=',client.calls[1][1]['validation_feedback'])
+        self.assertIn('submission_relation',client.calls[1][1]['validation_feedback'])
         self.assertEqual(client.calls[1][1]['previous_response'],'{"tasks":[{}]}')
         self.assertEqual(client.calls[0][1]['record_metadata'],client.calls[1][1]['record_metadata'])
         for responses,budget,expected_calls in [(['bad','bad'],10,2),(['bad'],1,1)]:

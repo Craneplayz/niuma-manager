@@ -136,3 +136,41 @@ def project_result(db, uid, request_id, result):
         for row in result['record_results']:
             row['warnings']=list(dict.fromkeys(row['warnings']+[code+':'+reason]))
     return result
+
+
+def bind_recognition(db, uid, captured, result, assets=()):
+    """Bind action semantics to an authenticated native assignment, never titles.
+
+    Model output can describe an action, but cannot supply submitted state or
+    select another source/account. Existing user decisions always take precedence.
+    """
+    state = for_request(db, uid, captured['request_id'])
+    if not state or state['state'] not in ('active','submitted') or state['review_pending']: return
+    row = controls.find(db, uid, state['account'], state['input_id'])
+    if not row: return
+    detail, refs = controls.refresh(db, row)
+    obs = detail['observation']
+    proposals = {d['pair']['assessment']['candidate_id']: d for r in result['record_results'] for d in r['decisions']}
+    candidates = {c['id']: c for c in db.execute('''SELECT * FROM recognition_candidates
+        WHERE user_id=? AND request_id=? AND state='pending' AND version=1 AND resolution IS NULL''',
+        (uid,captured['request_id']))}
+    changed = False
+    for action in obs['actions']:
+        candidate = candidates.get(refs.get(action['action_id']))
+        if not candidate or action['relation'] != 'unknown': continue
+        proposal = proposals.get(json.loads(candidate['candidate'])['candidate_id'], {})
+        relation = proposal.get('submission_relation','unknown')
+        if proposal.get('pair',{}).get('assessment',{}).get('action',{}).get('state') != 'supported': continue
+        if relation == 'assignment_submission' and (proposal.get('content_type','task') != 'task' or proposal.get('notice_type') != 'create'): continue
+        if relation not in ('assignment_submission','other'): continue
+        action.update(relation=relation, link_basis='server_exact'); changed = True
+    if not changed: return
+    # Mixed scope keeps later changed content eligible for recognition. In
+    # particular, a partially captured submission-history page is not a claim
+    # that the entire source contains only submission actions.
+    obs['scope'] = 'unknown' if any(a['relation']=='unknown' and a['decision'] not in ('ignored','deleted') for a in obs['actions']) else 'mixed'
+    obs['control_revision'] += 1
+    controls.persist(db,row,detail)
+    entry = captured['records'][0]
+    controls.observe(db,uid,state['account'],entry['record'],dict(state=state['state']),state,
+                     source=entry['source'],assets=assets)

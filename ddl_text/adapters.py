@@ -18,11 +18,22 @@ OUTPUT_DIAGNOSTICS = {
 }
 
 
+def safe_schema_detail(value):
+    """Only trusted schema vocabulary crosses worker/API boundaries, no values."""
+    words = set('properties tasks items assessment action state evidence span_id deadline value precision derivation anchor unread_relations ref_id role other_review_reasons notice_type target relevance reason title description content_type time_role submission_relation empty_decision status anyOf allOf oneOf type enum const required additionalProperties maxLength minLength maxItems minItems format pattern $defs quote deadline_quote part_id'.split())
+    if not isinstance(value,dict) or set(value) != {'schema_path','rule'}: return None
+    path, rule = value['schema_path'], value['rule']
+    if not isinstance(path,str) or len(path)>512 or not isinstance(rule,str) or rule not in words: return None
+    if any(token not in words and not (token.isascii() and token.isdigit() and len(token)<5) for token in path.split('/') if token): return None
+    return dict(schema_path=path,rule=rule)
+
+
 class AgentError(Exception):
     def __init__(self, code="agent_unavailable", retryable=False, diagnostic=None):
         self.code = code
         self.retryable = retryable
         self.diagnostic = diagnostic if isinstance(diagnostic, str) and diagnostic in OUTPUT_DIAGNOSTICS else None
+        self.detail = None
         super().__init__(code)
 
 

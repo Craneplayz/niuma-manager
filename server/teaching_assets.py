@@ -128,11 +128,16 @@ def enrich(request, assets, client, settings, save_cache):
             raise AgentError('agent_unavailable', False)
         key = (a['sha256'],a['mime_type'])
         result = read_cache.get(key)
-        if result is None and a['result'] and a['cache_version']==version: result=json.loads(a['result'])
+        checkpoint = None
+        if result is None and a['result'] and a['cache_version']==version:
+            cached = json.loads(a['result'])
+            if cached.get('pdf_checkpoint') == 1: checkpoint = cached
+            else: result = cached
         if result is None:
             metadata = dict(mime_type=a['mime_type'],sha256=a['sha256'],size_bytes=len(a['data']))
             try:
-                result = read_attachment(a['data'],metadata,client,settings,expires=expires)
+                resume = dict(checkpoint=checkpoint, save_checkpoint=lambda value: save_cache(a,version,value)) if a['mime_type']=='application/pdf' else {}
+                result = read_attachment(a['data'],metadata,client,settings,expires=expires,**resume)
             except MetadataMismatch:
                 raise AgentError('agent_unavailable', False) from None
             except AgentError as error:

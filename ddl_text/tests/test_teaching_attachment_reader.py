@@ -22,10 +22,10 @@ class AttachmentReaderTests(unittest.TestCase):
             side_effect=lambda client,instructions,parts,settings:client.complete_json(instructions,parts,settings))
         transport.start();self.addCleanup(transport.stop)
 
-    def read(self, data, mime, pages=1, uncertain=False):
+    def read(self, data, mime, pages=None, uncertain=False):
         client=Mock()
-        client.complete_json.return_value=json.dumps(dict(pages=[dict(index=i+1,text=TEXT,
-            uncertain=uncertain,note='右下角被遮挡' if uncertain else '') for i in range(pages)]))
+        client.complete_json.side_effect=lambda instructions,parts,settings:json.dumps(dict(pages=[dict(index=i+1,text=TEXT,
+            uncertain=uncertain,note='右下角被遮挡' if uncertain else '') for i in range(len(parts)//2 if pages is None else pages)]))
         out=read_attachment(data,dict(mime_type=mime,sha256=hashlib.sha256(data).hexdigest(),size_bytes=len(data)),
             client,Settings(),expires=time.monotonic()+60)
         return out,client
@@ -46,11 +46,31 @@ class AttachmentReaderTests(unittest.TestCase):
                 parts=client.complete_json.call_args.args[1]
                 self.assertTrue(parts[1]['image_url']['url'].startswith('data:image/png;base64,'))
 
-    def test_pdf_page_limit_and_unclear_images_preserve_gaps(self):
-        out,_=self.read(pdf_bytes(('Synthetic page',)*7),'application/pdf',pages=6)
-        self.assertEqual(out['read_state'],'partial');self.assertIn('共 7 页',out['text'])
+    def test_pdf_batches_cover_seventeen_pages_and_unclear_images_preserve_gaps(self):
+        out,client=self.read(pdf_bytes(('Synthetic page',)*17),'application/pdf')
+        self.assertEqual(out['read_state'],'complete');self.assertIn('第 17 页',out['text'])
+        self.assertEqual(client.complete_json.call_count,9)
+        self.assertTrue(all(len(c.args[1])<=4 for c in client.complete_json.call_args_list))
         out,_=self.read(image_bytes(),'image/png',uncertain=True)
         self.assertEqual(out['read_state'],'partial');self.assertIn('右下角被遮挡',out['text'])
+
+    def test_pdf_timeout_resumes_only_unread_pages(self):
+        checkpoints=[];client=Mock();seen=[]
+        def complete(instructions,parts,settings):
+            seen.append(parts[0]['text'])
+            if len(seen)==2:raise AgentError('agent_timeout',True)
+            return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False) for i in range(len(parts)//2)]))
+        client.complete_json.side_effect=complete
+        data=pdf_bytes(('Synthetic',)*5)
+        asset=dict(mime_type='application/pdf',sha256=hashlib.sha256(data).hexdigest(),size_bytes=len(data))
+        with self.assertRaises(AgentError):
+            read_attachment(data,asset,client,Settings(),expires=time.monotonic()+60,save_checkpoint=checkpoints.append)
+        self.assertEqual(len(checkpoints[-1]['pages']),2)
+        out=read_attachment(data,asset,client,Settings(),expires=time.monotonic()+60,
+                            checkpoint=checkpoints[-1],save_checkpoint=checkpoints.append)
+        self.assertEqual(out['read_state'],'complete');self.assertIn('第 5 页',out['text'])
+        self.assertEqual(sum(s.startswith('第 1 页') for s in seen),1)
+        self.assertEqual(len(checkpoints[-1]['pages']),5)
 
     def test_incomplete_model_output_is_retryable_failure(self):
         with self.assertRaises(AgentError) as error:self.read(image_bytes(),'image/png',pages=0)

@@ -140,6 +140,32 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         good=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False,note='')]))
         batch,vision=self.run_record(rid,lambda *args:good)
         vision.assert_called_once();self.assertTrue(batch['items'])
+        self.assert_cached_reprocess(rid)
+
+    def test_pdf_timeout_restart_resumes_persisted_pages_without_repeating_completed_calls(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        rid=self.sync(pdf_bytes(('Synthetic page',)*5),'application/pdf')['requests'][0]['request_id']
+        seen=[]
+        def vision(instructions,parts,settings):
+            labels=[p['text'] for p in parts if p['type']=='text'];seen.append(labels)
+            if len(seen)==2:raise AgentError('agent_timeout',True)
+            return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False,note='') for i in range(len(labels))]))
+        failed,_=self.run_record(rid,vision)
+        self.assertEqual(failed['result']['status'],'failed')
+        with app.connection() as db:
+            cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
+            self.assertEqual(cached['total_pages'],5);self.assertEqual(len(cached['pages']),2)
+            self.assertEqual(teaching_assets.load(db,'other-user',teaching.account('synthetic-course-user'),rid),[])
+        app.initialize()
+        good,_=self.run_record(rid,vision)
+        self.assertEqual(good['result']['status'],'success')
+        self.assertIn('第 3 页',seen[2][0]);self.assertEqual(len(seen),4)
+        with app.connection() as db:
+            cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
+            self.assertEqual(cached['read_state'],'complete');self.assertIn('第 5 页',cached['text'])
+        self.assert_cached_reprocess(rid)
+
+    def assert_cached_reprocess(self,rid):
         # Same account-bound execution context is used by the reprocessing worker.
         import reprocessing
         with app.connection() as db:
@@ -246,13 +272,17 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         original='\n'.join(['PDF text page '+str(n) for n in range(1,7)]+['Deadline 2026-11-17 23:30'])
         record['references']=[dict(ref_id='file:1',kind='attachment',label='seven-pages.pdf',read_state='partial',text=original)]
         asset=dict(ref_id='file:1',data=data,mime_type='application/pdf',sha256=hashlib.sha256(data).hexdigest(),result=None,cache_version=None)
-        transcript=json.dumps(dict(pages=[dict(index=n,text='Visible page '+str(n),uncertain=False,note='') for n in range(1,7)]))
+        seen=[]
+        def transcribe(client,instructions,parts,settings):
+            count=len(parts)//2;start=len(seen)
+            seen.extend(range(start+1,start+count+1))
+            return json.dumps(dict(pages=[dict(index=n+1,text='Visible page '+str(start+n+1),uncertain=False,note='') for n in range(count)]))
         cache=Mock()
-        with patch('ddl_text.teaching_attachment_reader.transcribe',return_value=transcript):
+        with patch('ddl_text.teaching_attachment_reader.transcribe',side_effect=transcribe):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
         ref=record['references'][0]
-        self.assertEqual(ref['read_state'],'partial');self.assertIn(original,ref['text'])
-        self.assertIn('Visible page 6',ref['text']);self.assertIn('共 7 页',ref['text'])
+        self.assertEqual(ref['read_state'],'complete');self.assertIn(original,ref['text'])
+        self.assertIn('Visible page 7',ref['text']);self.assertEqual(seen,list(range(1,8)))
         teaching_assets.check_request(request)
         # Repeat with the persisted transcript cache and the original capture.
         asset.update(cache_version=cache.call_args.args[1],result=json.dumps(cache.call_args.args[2]))

@@ -201,6 +201,64 @@ class TeachingIntegrationTests(unittest.TestCase):
             draft=dict(title='用户确认的行动',description='人工核对后保留',due=None)))
         self.assertEqual(status,200)
 
+    def test_native_submitted_assignment_filtered_without_cross_source_matching(self):
+        capture=self.native_capture('submitted')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid])
+        draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        sync=self.sync_native(capture)
+        batch=self.run_request(sync['requests'][0])
+        self.assertTrue(batch['items'])
+        self.assertTrue(all(i['state']=='ignored' for i in batch['items']))
+        with app.connection() as db:
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(detail['observation']['snapshot']['state'],'submitted')
+            self.assertTrue(all(a['relation']=='assignment_submission' for a in detail['observation']['actions']))
+
+    def test_submitted_assignment_keeps_independent_reading(self):
+        capture=self.mixed_capture('submitted')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid])
+        draft['tasks'][0]['submission_relation']='assignment_submission'
+        draft['tasks'][1]['submission_relation']='other'
+        self.drafts[iid]=json.dumps(draft)
+        batch=self.run_request(self.sync_native(capture)['requests'][0])
+        by_title={i['candidate']['title']:i for i in batch['items']}
+        self.assertEqual(by_title['提交第二次作业']['state'],'ignored')
+        self.assertEqual(by_title['阅读补充材料']['state'],'pending')
+        self.assertFalse(by_title['阅读补充材料']['candidate']['needs_review'])
+
+    def test_recognized_native_assignment_completes_when_later_submitted(self):
+        capture=self.native_capture('active')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid]);draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        status,result=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+        self.assertEqual(status,200,result)
+        self.sync_native(self.native_capture('submitted','2026-10-10T11:00:00+08:00'))
+        tasks=self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),1);self.assertEqual(tasks[0]['status'],'completed')
+
+    def test_reprocessing_legacy_submitted_candidate_binds_new_action_and_withdraws_it(self):
+        import reprocessing
+        capture=self.native_capture('submitted')
+        iid=capture['request']['records'][0]['record']['input_id']
+        old=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        self.assertEqual(old['state'],'pending')
+        draft=json.loads(self.drafts[iid]);draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        source=self.call('/recognition/reprocessing/sources')[1]['accounts'][0]
+        with patch.object(reprocessing,'recognize_saved',side_effect=lambda req,*a,**k:self.model(req,app.ApiError)):
+            status,run=self.call('/recognition/reprocessing/runs',dict(contract_version='reprocessing/0.1',
+                operation_id='native-submitted-upgrade',source_account_id=source['source_account_id'],input_ids=[iid]))
+            self.assertEqual(status,202,run);self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+        saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
+        self.assertEqual(saved['state'],'succeeded',saved)
+        with app.connection() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM recognition_candidates WHERE state='pending'").fetchone()[0],0)
+
     def test_submitted_preserves_submission_and_independent_reading_candidates(self):
         sync=self.sync_native(self.mixed_capture('active'))
         batch=self.run_request(sync['requests'][0])

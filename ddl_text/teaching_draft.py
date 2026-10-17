@@ -13,6 +13,7 @@ from contracts.teaching_review_draft import SCHEMA, validate_pair
 from .adapters import AgentError, OUTPUT_DIAGNOSTICS
 from .extraction import MAX_DRAFT_BYTES, _object
 from .runner import run_attempt
+from .teaching_semantics import normalize_time, TIME_ROLES, SUBMISSION_RELATIONS
 
 
 SKILL = Path(__file__).resolve().parent / 'skills/teaching-task-extraction/SKILL.md'
@@ -78,13 +79,16 @@ def teaching_draft_schema(record=None, *, indexed=False):
         reason=dict(type='string', maxLength=1024)))
     # Optional only for historical replay; new model calls always supply the kind.
     task['properties']['content_type'] = dict(enum=['task', 'notice'])
+    task['properties']['time_role'] = dict(enum=TIME_ROLES, description='先区分时间用途；布置/发布/参考日期不填入 deadline。')
+    task['properties']['submission_relation'] = dict(enum=SUBMISSION_RELATIONS,
+        description='此行动是否就是本来源布置的作业提交义务（包含完成作业题）；独立阅读/入群/展示等为 other；不能确定为 unknown。不判断用户是否已提交。')
     schema = _object_schema(dict(tasks=dict(type='array', items=task, maxItems=50)))
     schema['properties']['empty_decision'] = dict(anyOf=[dict(type='null'), _object_schema(dict(
         status=dict(enum=['no_tasks', 'incomplete']), reason=dict(type='string', minLength=1, maxLength=512),
         evidence=dict(type='array', items=quote, maxItems=20)))])
     schema.update({'$schema': SCHEMA['$schema'], '$defs': definitions})
     if indexed:
-        task['required'].append('content_type')
+        task['required'].extend(['content_type', 'time_role', 'submission_relation'])
         catalog = evidence_catalog(record)
         def reference(ids):
             return _object_schema(dict(span_id=dict(type='string', enum=ids))) if ids else {'not': {}}
@@ -166,6 +170,8 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             _quotes(record, assessment['deadline']['evidence'], allow_metadata=True)
             for relation in assessment['unread_relations']:
                 _quotes(record, relation['evidence'])
+            normalize_time(draft, record)
+            pair = _pair(record, assessment, index)
             validate_pair(pair, model_routing=True)
             route, reason = draft['recommendation'], draft['reason'].strip()
             # The create-only save API cannot apply a change. Keep the model's
@@ -197,6 +203,10 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 relevance=deepcopy(relevance), pair=pair, recommendation=route,
                 review_codes=codes, review_reasons=reasons,
                 filter_reason=filtered))
+            relation = draft.get('submission_relation', 'unknown')
+            if relation == 'assignment_submission' and (content_type != 'task' or draft['notice_type'] != 'create'):
+                raise ValueError('only a newly described assignment action can have a submission relationship')
+            if 'submission_relation' in draft: decisions[-1]['submission_relation'] = relation
         empty = envelope.get('empty_decision')
         if decisions:
             if empty is not None: raise ValueError('nonempty result cannot also classify an empty record')
@@ -213,7 +223,9 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
     except ValidationError as error:
         failure = AgentError('invalid_agent_output', True, 'draft_schema')
         # Feedback stays inside this model attempt, never in HTTP errors/logs.
-        failure.model_feedback = 'Schema rule: ' + '/'.join(map(str, error.absolute_schema_path))[:512]
+        path = '/'.join(map(str, error.absolute_schema_path))[:512]
+        failure.detail = dict(schema_path=path, rule=str(error.validator))
+        failure.model_feedback = 'Schema rule: ' + path + '; rule=' + str(error.validator) + '; required shape=' + json.dumps(error.schema, ensure_ascii=False)[:3000]
         raise failure from None
     except Exception as error:
         failure = AgentError('invalid_agent_output', True, stage)

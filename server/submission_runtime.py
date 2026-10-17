@@ -112,7 +112,9 @@ def refresh(db, row):
     if len(actions)>100: raise ActionLimitError('source action limit')
     if actions!=observation['actions'] or labels!=detail['action_labels']:
         observation['actions']=actions; detail['action_labels']=labels
-        if any(a['relation']!='assignment_submission' for a in actions): observation['scope']='unknown'
+        live = [a for a in actions if a['decision'] not in ('ignored','deleted')]
+        if any(a['relation']=='unknown' for a in live): observation['scope']='unknown'
+        elif any(a['relation']=='other' for a in live): observation['scope']='mixed'
         observation['control_revision']+=1; persist(db,row,detail)
     return detail, refs
 

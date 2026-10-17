@@ -424,6 +424,13 @@
                     "task",
                     "notice"
                   ]
+                },
+                "submission_relation": {
+                  "enum": [
+                    "assignment_submission",
+                    "other",
+                    "unknown"
+                  ]
                 }
               },
               "required": [
@@ -471,6 +478,26 @@
                   },
                   "retryable": {
                     "type": "boolean"
+                  },
+                  "diagnostic": {
+                    "type": "object",
+                    "properties": {
+                      "schema_path": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 512
+                      },
+                      "rule": {
+                        "type": "string",
+                        "minLength": 0,
+                        "maxLength": 40
+                      }
+                    },
+                    "required": [
+                      "schema_path",
+                      "rule"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
