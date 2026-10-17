@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -40,9 +42,52 @@ class DeploymentConfigTests(unittest.TestCase):
 
     def test_build_context_excludes_private_configuration_and_data(self):
         rules=(self.root/'Dockerfile.dockerignore').read_text(encoding='utf-8').splitlines()
-        for rule in ('**/.env','**/.env.*','**/*.key','**/*.sqlite*','server/data','crawler/data'):
+        for rule in ('**/.env','**/.env.*','**/*.key','**/*.sqlite*','server/data','crawler/data','crawler/secret','crawler/logs'):
             self.assertIn(rule,rules)
         self.assertNotIn('!wechat/',rules)
+
+
+class DockerBuildContextTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not shutil.which('docker'):
+            raise unittest.SkipTest('Requires Docker to verify the filtered build context')
+        try:
+            subprocess.run(['docker', 'info'], capture_output=True, check=True, timeout=10)
+        except (subprocess.SubprocessError, OSError):
+            raise unittest.SkipTest('Requires a running Docker daemon')
+
+    def test_crawler_credentials_and_jsonl_logs_are_not_copied(self):
+        with tempfile.TemporaryDirectory() as folder:
+            context = Path(folder) / 'context'
+            deploy = context / 'server' / 'deploy'
+            deploy.mkdir(parents=True)
+            dockerfile = deploy / 'Dockerfile'
+            # Exercise Docker's matcher with the production ignore rules, without
+            # reading local credentials, pulling a base image or building the app.
+            dockerfile.write_text('FROM scratch\nCOPY crawler/ /crawler/\n', encoding='utf-8')
+            shutil.copyfile(DeploymentConfigTests.root / 'Dockerfile.dockerignore',
+                            deploy / 'Dockerfile.dockerignore')
+            fixtures = {
+                'crawler/secret': 'synthetic-user\nsynthetic-password\n',
+                'crawler/logs/run.jsonl': '{"synthetic":true}\n',
+                'crawler/logs/nested/run.jsonl': '{"synthetic":true}\n',
+                'crawler/src/fixture.ts': 'export const synthetic = true;\n',
+                'crawler/package.json': '{"name":"synthetic-crawler"}\n',
+            }
+            for name, content in fixtures.items():
+                path = context / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding='utf-8')
+            output = Path(folder) / 'output'
+            result = subprocess.run(
+                ['docker', 'build', '-f', str(dockerfile),
+                 '--output', 'type=local,dest=' + str(output), str(context)],
+                capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(
+                sorted(path.relative_to(output).as_posix() for path in output.rglob('*') if path.is_file()),
+                ['crawler/package.json', 'crawler/src/fixture.ts'])
 
 
 class DeploymentTests(unittest.TestCase):

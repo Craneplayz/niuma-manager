@@ -2,12 +2,19 @@ import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { enrichSourceAttachments, extractAttachmentText, isTeacherAttachmentUrl, MAX_ATTACHMENT_BYTES } from "../src/pku-attachments.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { enrichAssignmentSource, parseAssignmentDetailHtml } from "../src/pku-assignment.js";
 import { toTeachingRequests } from "../src/pku-teaching-evidence.js";
 import { toRecognitionRequests } from "../src/pku-recognition.js";
+
+// Observe worker creation while still running the real, isolated PDF parser.
+vi.mock("node:child_process", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:child_process")>();
+  return { ...original, spawn: vi.fn(original.spawn) };
+});
 
 const url = "https://course.pku.edu.cn/bbcswebdav/pid-1-dt-content-rid-2/HW1.txt";
 function source(label = "HW1.txt", href = url, body = "请按附件要求提交。") {
@@ -57,6 +64,43 @@ function pdf(text: string, blankPage = false, visual?: "stencil" | "bad-image" |
 }
 
 describe("teacher attachment acquisition", () => {
+  it("parses equal bytes from different URLs once without merging their sources", async () => {
+    const sources = ["First", "Second", "Changed"].map((name, index) => ({
+      ...source(`${name}.pdf`, url.replace("HW1.txt", `${name}.pdf`)), input_id: `synthetic:content-cache:${index}`,
+    }));
+    const read = vi.fn(async (href: string) => pdf(href.includes("Changed") ? "Different homework." : "Submit report."));
+    const spawn = vi.mocked(childProcess.spawn); spawn.mockClear();
+    try {
+      const out = await enrichSourceAttachments(sources, read);
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(spawn).toHaveBeenCalledTimes(2);
+      expect(out.map(s => s.input_id)).toEqual(sources.map(s => s.input_id));
+      expect(out.map(s => s.references[0].url)).toEqual(sources.map(s => s.references[0].url));
+      expect(out.map(s => s.references[0].label)).toEqual(["First.pdf", "Second.pdf", "Changed.pdf"]);
+      expect(out.map(s => s.references[0].text)).toEqual(["Submit report.", "Submit report.", "Different homework."]);
+      expect(out.every(s => s.references[0].content_read)).toBe(true);
+      expect((await enrichSourceAttachments([sources[0]], read))[0]).toEqual(out[0]);
+      expect(spawn).toHaveBeenCalledTimes(3); // No cache survives into another capture/account.
+    } finally { spawn.mockClear(); }
+  }, 35_000);
+  it("keeps partial coverage, MIME checks and per-source overflow on content cache hits", async () => {
+    const sources = ["Full", "Large", "Short", "Html"].map((name, index) => ({
+      ...source(`${name}.pdf`, url.replace("HW1.txt", `${name}.pdf`), name === "Large" ? "a".repeat(99_990) : "Please read."),
+      input_id: `synthetic:partial-cache:${index}`,
+    }));
+    const file = pdf("Read report.", true);
+    const read = vi.fn(async (href: string) => ({ ...file, contentType: href.includes("Html") ? "text/html" : file.contentType }));
+    const spawn = vi.mocked(childProcess.spawn); spawn.mockClear();
+    try {
+      const out = await enrichSourceAttachments(sources, read);
+      expect(spawn).toHaveBeenCalledOnce();
+      expect(out[0].references[0]).toMatchObject({ read_status: "partial", reason: "partial_pdf" });
+      expect(out[1].references[0]).toMatchObject({ read_status: "failed", reason: "too_large" });
+      expect(out[2].references[0]).toMatchObject({ text: "Read report.", read_status: "partial", reason: "partial_pdf", label: "Short.pdf" });
+      expect(out[3].references[0]).toMatchObject({ read_status: "failed", reason: "authentication_required" });
+      expect(out.every(s => s.text_quality === "partial")).toBe(true);
+    } finally { spawn.mockClear(); }
+  }, 20_000);
   it("reads a teacher announcement PDF with an opaque xid filename", async () => {
     const href = "https://course.pku.edu.cn/bbcswebdav/pid-42-dt-announcement-rid-73_1/xid-73_1";
     const original = source("Assessment.pdf", href, "Assessment rules are in the attached PDF.");

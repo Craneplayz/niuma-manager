@@ -167,6 +167,25 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
 export async function enrichSourceAttachments(sources: CourseSourceRecord[], read: AttachmentReader, staging?: string): Promise<CourseSourceRecord[]> {
   const results: CourseSourceRecord[] = [];
   const cache = new Map<string, SourceReference>();
+  // Different course/assignment URLs can serve the same PDF. Keep only bounded
+  // parsed text for this capture; never reuse source identity or retain bytes.
+  const parsed = new Map<string, { text: string; partial: boolean }>();
+  let parsedChars = 0;
+  const parse = async (file: AttachmentFile, format: "pdf" | "txt") => {
+    if (file.bytes.length > MAX_ATTACHMENT_BYTES) throw new ReadFailure("too_large");
+    const key = JSON.stringify([format, file.contentType, createHash("sha256").update(file.bytes).digest("hex")]);
+    const previous = parsed.get(key);
+    if (previous) return previous;
+    const result = await extractAttachmentText(file, format);
+    while (parsed.size && (parsed.size >= 64 || parsedChars + result.text.length > 1_000_000)) {
+      const oldest = parsed.keys().next().value!;
+      parsedChars -= parsed.get(oldest)!.text.length;
+      parsed.delete(oldest);
+    }
+    parsed.set(key, result);
+    parsedChars += result.text.length;
+    return result;
+  };
   const stored = new Set<string>();
   let storedBytes = 0;
   const stage = async (file: AttachmentFile, format: Exclude<ReturnType<typeof formatOf>, null>): Promise<NonNullable<SourceReference["asset"]>> => {
@@ -199,7 +218,7 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
             const file = await read(ref.url).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
             if (format === "pdf" || format === "txt") {
               try {
-                const { text, partial } = await extractAttachmentText(file, format);
+                const { text, partial } = await parse(file, format);
                 ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? "partial_pdf" : null };
               } catch (error) {
                 if (!staging || format !== "pdf") throw error;

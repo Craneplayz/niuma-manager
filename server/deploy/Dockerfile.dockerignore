@@ -29,3 +29,5 @@
 server/data
 server/deploy/environments
 crawler/data
+crawler/secret
+crawler/logs

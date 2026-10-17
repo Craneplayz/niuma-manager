@@ -41,6 +41,9 @@ def initialize(db):
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
         digest TEXT NOT NULL, request_id TEXT NOT NULL, request TEXT NOT NULL,
         PRIMARY KEY(user_id,account,input_id))''')
+    # Snapshot lookup and attachment pruning use request_id, not input_id.
+    db.execute('''CREATE INDEX IF NOT EXISTS teaching_sources_request
+        ON teaching_sources(user_id,account,request_id)''')
 
 
 def account(username):
