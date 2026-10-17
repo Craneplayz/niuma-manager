@@ -74,6 +74,8 @@ test("registration requires a sent code, preserves its draft and logs in after v
   await expect(page.getByText("合成任务", { exact: true })).toBeVisible();
   await openAccount(page);
   await expect(dialog.getByText("邮箱已验证", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "教学网账号管理" }).getByRole("button", { name: "管理连接" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "验证邮箱", exact: true })).toHaveCount(0);
 });
 
 test("editing the email discards the old challenge without losing passwords or nickname", async ({ page }) => {
