@@ -227,6 +227,10 @@ export function createSourceSyncUI(host) {
       lastCheck = checkLast(response.last_check);
       acceptList(response.runs.map(checkRun));
       focusedRun = runs.find(run => ACTIVE.has(run.state))?.run_id || focusedRun;
+      const focused = runs.find(run => run.run_id === focusedRun);
+      // A quiet scheduled run may finish entirely between polls and only update last_check.
+      if (focused && !ACTIVE.has(focused.state) && lastCheck && lastCheck.run_id !== focused.run_id &&
+          Date.parse(lastCheck.updated_at) > Date.parse(focused.updated_at)) focusedRun = null;
       const refreshed = await changed(valid);
       if (valid() && refreshed) notifyQuiet();
       return refreshed;

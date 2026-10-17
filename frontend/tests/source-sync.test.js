@@ -199,7 +199,7 @@ check('start waits for local saves and sends only the durable teaching operation
 check('a failed local save blocks starting and reports the saving problem accurately', async () => {
   const f = fixture(); f.setFlush(() => { throw new Error('save conflict'); });
   assert.equal(await f.ui.start(), false); assert.equal(f.posts().length, 0);
-  assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /任务修改还未保存/);
+  assert.equal(f.ui.isBusy(), false); assert.match(markup(f.ui), /任务修改尚未保存/);
 });
 
 check('a network-uncertain start reuses its operation id without render resubmissions', async () => {
@@ -242,7 +242,7 @@ check('workspace or candidate refresh failures keep the saved run and retry unch
     const f = fixture([syncRun({added: 1})]); let fail = true;
     f.remote.tasks = [{id: 'saved'}];
     f.setAPI((call, normal) => { if (call.path === failedPath && fail) { fail = false; throw new Error('temporary read failure'); } return normal(call); });
-    assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /结果已保存.*暂时无法更新页面/);
+    assert.equal(await f.ui.load(), false); assert.match(markup(f.ui), /结果已保存.*页面更新失败/);
     assert.match(markup(f.ui), /新增 1 项/); assert.equal(f.ui.isBusy(), false);
     assert.equal(await f.ui.load(), true); assert.equal(f.refreshes, 2); assert.equal(f.view.tasks[0].id, 'saved');
     await f.ui.load(); assert.equal(f.refreshes, 2); assert.equal(f.posts().length, 0);
@@ -357,7 +357,7 @@ check('recognition-only recovery reuses the captured source and targets just rec
 check('progress connection errors preserve active state and retry polling without automatic writes', async () => {
   const f = fixture([syncRun({state: 'recognizing', states: ['running']})]); await f.ui.setVisible(true);
   f.setAPI(() => { throw new Error('offline'); }); await f.tick();
-  assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /导入可能继续/);
+  assert.equal(f.ui.isBusy(), true); assert.match(markup(f.ui), /导入可能仍在进行/);
   assert.equal(f.ui.canStop(), true); assert.doesNotMatch(markup(f.ui), /data-source-sync-action="stop"/);
   assert.equal(f.posts().length, 0); assert.equal(f.timers.size, 1);
 });
@@ -453,6 +453,70 @@ check('quiet scheduled checks only update last-check status and never create a h
   await f.ui.load();assert.equal(f.ui.renderHistory(),'');assert.match(f.ui.renderProgress(),/上次检查|无新内容/);
   assert.equal(f.messages.length,0);assert.equal(f.refreshes,0);
   f.ui.reset();assert.equal(markup(f.ui),'');
+});
+
+check('a quiet scheduled run completed between polls moves the previous manual result into history', async () => {
+  const f = fixture();
+  await f.ui.setVisible(true);
+  await f.ui.start();
+  const finished = syncRun({id: 'run:1', added: 1});
+  finished.updated_at = '2026-10-16T01:00:00Z';
+  f.setRuns([finished]);
+  f.setLastCheck({run_id: finished.run_id, state: 'succeeded', updated_at: finished.updated_at, trigger: 'manual', changed: true});
+  await f.tick();
+  assert.match(f.ui.renderProgress(), /新增 1 项/);
+  assert.equal(f.ui.renderHistory(), '');
+  assert.equal([...f.timers.values()][0].ms, 30000);
+  const refreshes = f.refreshes, renders = f.renders;
+
+  // The scheduled run starts and finishes before the next poll; only last_check changes.
+  f.setLastCheck({run_id: 'scheduled:quiet', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'scheduled', changed: false});
+  await f.tick();
+  assert.match(f.ui.renderProgress(), /data-source-sync-last-check/);
+  assert.match(f.ui.renderProgress(), /datetime="2026-10-16T01:30:00Z"/);
+  assert.match(f.ui.renderProgress(), /无新内容/);
+  assert.doesNotMatch(f.ui.renderProgress(), /导入完成|新增 1 项/);
+  assert.match(f.ui.renderHistory(), /历史导入 · 1/);
+  assert.match(f.ui.renderHistory(), /新增 1 项/);
+  assert.equal(f.refreshes, refreshes);
+  assert.equal(f.renders, renders + 1);
+  await f.tick();
+  assert.match(f.ui.renderProgress(), /data-source-sync-last-check/);
+  assert.match(f.ui.renderHistory(), /历史导入 · 1/);
+  assert.deepEqual(f.messages, []);
+});
+
+check('an older check or the focused run own receipt keeps the current manual result visible', async () => {
+  for (const [id, time] of [
+    ['scheduled:older', '2026-10-16T00:30:00Z'],
+    ['scheduled:tied', '2026-10-16T01:00:00Z'],
+    ['run:1', '2026-10-16T01:30:00Z'],
+  ]) {
+    const f = fixture();
+    await f.ui.start();
+    const finished = syncRun({id: 'run:1', added: 1});
+    finished.updated_at = '2026-10-16T01:00:00Z';
+    f.setRuns([finished]);
+    f.setLastCheck({run_id: id, state: 'succeeded', updated_at: time, trigger: id === 'run:1' ? 'manual' : 'scheduled', changed: id === 'run:1'});
+    await f.ui.load();
+    assert.match(f.ui.renderProgress(), /新增 1 项/);
+    assert.doesNotMatch(f.ui.renderProgress(), /data-source-sync-last-check/);
+    assert.equal(f.ui.renderHistory(), '');
+  }
+});
+
+check('a completed check never displaces an active import or its results', async () => {
+  const run = syncRun({state: 'recognizing', states: ['succeeded', 'running'], added: 1});
+  run.updated_at = '2026-10-16T01:00:00Z';
+  const f = fixture([run]);
+  f.setLastCheck({run_id: 'scheduled:quiet', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'scheduled', changed: false});
+  await f.ui.load();
+  assert.equal(f.ui.isRunning(), true);
+  assert.equal(f.ui.canStop(), true);
+  assert.match(f.ui.progressLabel(), /正在识别/);
+  assert.match(f.ui.renderProgress(), /新增 1 项/);
+  assert.doesNotMatch(f.ui.renderProgress(), /data-source-sync-last-check/);
+  assert.equal(f.ui.renderHistory(), '');
 });
 
 check('a manually requested quiet check gives one temporary notification after its run disappears from history', async () => {
