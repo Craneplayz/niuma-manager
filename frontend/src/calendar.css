@@ -61,7 +61,8 @@
 @media (hover: hover) and (pointer: fine) {
   .calendar-drag-hint { display: block; }
   [data-calendar-drag-task] { user-select: none; }
-  .task-row [data-calendar-drag-task]:hover { cursor: grab; }
+  .task-row [data-calendar-drag-task]:hover,
+  .calendar-view [data-calendar-drag-task]:hover { cursor: grab; }
 }
 
 body.is-calendar-dragging,

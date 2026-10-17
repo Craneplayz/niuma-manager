@@ -1,4 +1,4 @@
-// Keep a normal click intact; only a deliberate mouse movement assigns a date.
+// Keep a normal click intact; only a deliberate mouse movement changes a date.
 export function createCalendarDrag({ root, getTask, onDrop }) {
   let gesture = null, suppressClick = false;
 
@@ -50,7 +50,7 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
     }
     const date = cell?.dataset.calendarDropDate;
     const label = date
-      ? `松开设为 ${date.replace(/^(\d+)-(\d+)-(\d+)$/, (_, y, m, d) => `${y} 年 ${Number(m)} 月 ${Number(d)} 日`)}截止`
+      ? `松开设为 ${date.replace(/^(\d+)-(\d+)-(\d+)$/, (_, y, m, d) => `${y} 年 ${Number(m)} 月 ${Number(d)} 日`)}${gesture.dueTime ? ` ${gesture.dueTime}` : ""}截止`
       : "拖到日历日期设置截止日期 · Esc 取消";
     if (gesture.label.textContent !== label) gesture.label.textContent = label;
     const previewRect = gesture.preview.getBoundingClientRect();
@@ -70,13 +70,13 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
     if (!source || !root.contains(source)) return;
     const id = source.dataset.calendarDragTask, task = getTask(id);
     if (!task) return;
-    const titleRect = (source.querySelector(".task-title") || source).getBoundingClientRect();
+    const titleRect = (source.querySelector(".task-title, .calendar-task-title") || source).getBoundingClientRect();
     const onTitle = event.clientX >= titleRect.left && event.clientX <= titleRect.left + titleRect.width &&
       event.clientY >= titleRect.top && event.clientY <= titleRect.top + titleRect.height;
     const grab = (position, start, size) => onTitle && size
       ? (position - start) / size : .5;
     gesture = {
-      id, title: task.title, source, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      id, title: task.title, dueTime: task.dueTime, source, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
       grabX: grab(event.clientX, titleRect.left, titleRect.width),
       grabY: grab(event.clientY, titleRect.top, titleRect.height),
     };

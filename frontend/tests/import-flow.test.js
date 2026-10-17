@@ -472,6 +472,31 @@ test('model configuration failures are actionable and never echo model credentia
  assert.match(html,/反馈此问题/);assert.doesNotMatch(html,/private-test-key/);
 });
 
+test('account management opens the existing teaching connection form before visiting import',async t=>{
+ const f=fixture();await f.login();
+ const ui=createImportUI(f.host),account=createAccountUI(f.host);t.after(()=>ui.reset());
+ await account.click({dataset:{accountAction:'open'}});
+ assert.match(f.dialog,/aria-label="教学网账号管理"/);
+ assert.match(f.dialog,/data-import-action="credentials"/);
+ await ui.click({dataset:{importAction:'credentials'},textContent:'管理连接'});
+ assert.match(f.dialog,/data-import-form="credentials"/);
+ assert.match(f.dialog,/value="A-campus"/);
+ assert.match(f.dialog,/data-import-action="remove-credentials"/);
+ assert.equal(f.calls.filter(call=>call.path==='/api/sources/credentials').length,1);
+ assert.equal(f.calls.some(call=>call.path==='/api/recognition/batches'),false);
+});
+
+test('closing account management during a credential read does not reopen its dialog',async t=>{
+ let enter,release;const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
+ const f=fixture({async intercept(path){if(path==='/api/sources/credentials'){enter();await waiting;}}});await f.login();
+ const ui=createImportUI(f.host);t.after(()=>ui.reset());
+ const dialog={open:true},button={dataset:{importAction:'credentials'},textContent:'管理连接',isConnected:true,closest:()=>dialog};
+ const reading=ui.click(button);await entered;
+ assert.equal(button.disabled,true);
+ dialog.open=false;f.host.closeDialog();release();await reading;
+ assert.equal(f.dialog,'');assert.equal(button.disabled,false);
+});
+
 test('credential storage errors remain visible in the connection dialog',async()=>{
  const f=fixture({credentialError:{status:503,message:'凭据加密依赖未安装；请安装 server/requirements.txt'}});await f.login();
  const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importAction:'credentials'}});
