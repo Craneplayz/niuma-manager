@@ -91,11 +91,26 @@ crawler/
 
 ```bash
 cd crawler
-pnpm install
+pnpm install --frozen-lockfile --prod=false
+pnpm exec playwright install chromium
 pnpm lint
 pnpm typecheck
 pnpm test
 ```
+
+后端通过 `node --import tsx src/pku-homework-cli.ts` 启动教学网采集；`tsx` 虽在 `devDependencies`，运行时仍必需，所以不能用 `--prod` 安装或裁剪它。仅在 `frontend/` 安装 npm 依赖不会安装爬虫依赖；新克隆 / 新工作树也需要在自己的 `crawler/` 下安装。
+
+浏览器须安装到实际运行后端的系统用户和环境中；Windows 已安装 Chrome / Edge 不等于已安装 Playwright Chromium。Linux 缺少浏览器系统库时，由维护者执行 `pnpm exec playwright install --with-deps chromium`。Docker 使用仓库的 [API 镜像](../server/deploy/Dockerfile)，宿主机安装不能替代容器内依赖。
+
+在后端所用检出的 `crawler/` 目录和相同运行环境中，可先执行不启动浏览器、不访问教学网的检查：
+
+```bash
+node --version
+pnpm --version
+node --import tsx --input-type=module -e "import { chromium } from 'playwright'; import { existsSync } from 'node:fs'; console.log('tsx/playwright: OK'); console.log('Chromium installed:', existsSync(chromium.executablePath()));"
+```
+
+预期模块加载成功且 `Chromium installed: true`；这仅检查模块和 Playwright 浏览器文件，不验证 Linux 系统库、校园网连接或账号登录。安装 / 更新 Node 后应重启后端使其读取新 PATH；网页导入失败的定位与恢复见[教学网导入排障](../server/README.md#教学网导入排障)。
 
 ## 公开活动爬取
 

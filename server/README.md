@@ -132,6 +132,52 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 备份数据库时需同时安全备份 `credential.key`，密钥丢失后须重新保存教学网凭据。
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。
 
+## 教学网导入排障
+
+“暂时无法从教学网获取通知，需要维护人员处理。你可以先粘贴通知内容。”对应前端 `crawler_dependency` 分类，通常是采集依赖缺失，并非模型识别失败。后端在启动采集前检查 `crawler/node_modules/tsx` 或 `.bin/tsx` 是否存在，缺失即返回“教学网采集依赖未安装”；前端也会将匹配的模块加载错误归入此类。仅凭页面提示不能确定具体机器或安装步骤，应先核对实际后端版本和本轮错误。
+
+### 先确认失败阶段
+
+1. 记录出错时间、使用的开发 / 测试 / 生产环境以及 `/api/version` 的 `revision`；点击“反馈此问题”提交错误分类与版本，维护者在 `/admin.html` 查看报告。反馈不含原始异常、课程正文或密码。
+2. 已登录用户可在浏览器开发者工具的 Network 中查看本轮 `GET /api/sources/sync-runs/{id}` 响应的 `state`、`error.code` 和 `error.message`；采集失败可能是 `collection_failed`，具体原因在 message 中，不能只看 HTTP 200 或该错误码。旧版同步接口则查看 `POST /api/sources/sync` 的错误响应。
+3. 向维护者提供上述有限字段即可；不要公开整份网络记录、Cookie、凭据或课程内容。“已连接”只表示凭据已保存，保存时没有验证教学网登录。
+
+| 后端错误 / 页面现象 | 排查与处理 |
+| --- | --- |
+| `教学网采集依赖未安装` / 上述“需要维护人员处理”提示 | 在**实际运行后端的检出目录**安装 [crawler 依赖及 Chromium](../crawler/README.md#安装与检查)；重点检查新工作树未安装依赖、只安装 `frontend/`、`--prod` 漏掉 `tsx`、后端仍运行旧目录。 |
+| `教学网采集无法启动或超时` | 检查后端进程的 Node PATH、浏览器运行条件、服务器到教学网的网络；采集子进程等待上限为 300 秒，不能仅凭此提示认定是缺依赖。 |
+| `教学网采集失败` | 爬虫已启动但非正常退出；浏览器文件 / 系统库缺失、账号登录、校园网连接和页面变化都可能导致此错误。先检查浏览器安装，再检查账号与网络；当前 API 不返回爬虫 stderr，不能从这句话确定是密码错误。 |
+| `教学网识别配置不可用` / “暂时无法整理教学网通知，需要维护人员处理” | 来源已经进入识别，但教学网识别的配置或规则检查未通过，尚未调用本条模型；按下方步骤检查当前环境。 |
+| 单条模型输出失败 | 已尝试识别；根据该记录的错误分类排查连接、超时、输出或证据问题，不与启动配置错误混为一类。 |
+| `定时同步暂不可用，可进行单次识别` | 环境未开放定时同步；独立于采集依赖故障，单次识别仍可用。见下方说明。 |
+
+### 已取得来源但全部报“识别配置不可用”
+
+这个错误由 `server/teaching.py` 在读取模型配置、构造 Settings 和核验识别规则时产生。安装 Python / 爬虫依赖不会填入模型密钥；`manage_environment.py check` 通过也不表示模型已就绪。
+
+1. 先确认**实际启动 API 的工作目录和命令**。统一入口 `local development` 读取该检出的 `server/deploy/environments/development/.env.model`；`local test` 使用 `test/.env.model`。新工作树不会自动带上这些被 Git 忽略的文件，`init` 生成的模板密钥为空。不要只修改仓库根 `.env`；仅未设置环境身份和 `NIUMA_MODEL_ENV` 的旧入口才回退读取根 `.env`。
+2. 当前教学网入口要求 `DDL_PROVIDER=qiniu`、有效的 `QINIU_API_KEY`、受支持的 `DDL_MODEL`，以及以 `/v1` 结尾的 HTTPS `DDL_ENDPOINT`（项目模板为 `https://api.qnaigc.com/v1`）。`DEEPSEEK_API_KEY` 或 `OPENAI_API_KEY` 不能代替 `QINIU_API_KEY`。模型文件只保留模板支持的字段，避免重复键、`export` 前缀、未知字段或引号不配对；不要把完整终端环境导出粘入此文件。
+3. 使用与启动 API 相同的 Python，在仓库根执行下方**统一本机入口**自检（测试环境将路径中的 `development` 改成 `test`）。它在短时子进程里排除继承的模型变量，模拟统一入口读取指定文件；只输出检查布尔值，不显示密钥，也不请求模型。任何异常或 `False` 都须先处理。配置文件可读且语法有效不代表 key 有额度、模型可用或网络连通。
+
+```bash
+python -c "import os,sys; from pathlib import Path; from ddl_text.codex_client import ENV_KEYS,live_options; p=Path(sys.argv[1]); print('model_file_exists:',p.is_file()); [os.environ.pop(k,None) for k in ENV_KEYS]; o=live_options(p); print('provider_is_qiniu:',o['provider']=='qiniu'); print('key_present:',bool(o['key'].strip())); print('endpoint_syntax_valid: True')" server/deploy/environments/development/.env.model
+```
+
+4. 配置修正后停止原 API，再按同一环境重新启动；AI 或开发者修改了识别 skill / 契约 / 规则文件却保留旧 Python 进程，也会因规则版本不一致触发这个提示，需要重启后端。对于旧入口，终端中继承的模型变量（包括空值）优先于文件；改用统一入口，或核对其实际继承配置。
+5. 修正配置并重启后，重新“开始识别”。配置错误在当前版本属于不可直接重试的失败，不要依赖“重试本条”按钮；普通同步会重新处理失败来源，并按增量规则复用已成功的未变更来源，无需清空账号。仍失败时仅向维护者提供 `/api/version`、启动命令、上述布尔结果，以及一个失败记录的 `records[].error.code/message`，不要发送整份配置、HAR 或网络响应。
+
+容器使用 Compose 注入的模型变量，不能用上面清除变量的命令检查容器；由部署者核对该环境的 `.env.model` 和当前 API 镜像，配置变更后按统一入口重建对应容器，单纯重启旧容器不会重新读取 Compose 的 env_file。若自检配置正确且后端已重启，仍需核对部署文件和规则版本，不能据此断定是 API key 故障。
+
+### 本机与容器分别处理
+
+本机按 [crawler 安装与检查](../crawler/README.md#安装与检查)执行安装和无网络自检，Python 依赖另见[团队启动指南](deploy/TEAM_GUIDE.md)。`manage_environment.py check` 只检查环境配置，不验证爬虫依赖、浏览器或登录；运行成功不等于教学网可用。安装后沿用当前环境重启必要服务，再用“重新获取来源”或“开始识别”进行一次同步；仅刷新页面或重试已保存内容不会补装依赖。
+
+服务器由维护者在部署工作目录运行 `python3 server/manage_environment.py status test`（生产用 `production`）确认当前容器，再用 `docker exec -it <API容器ID> sh` 进入 **API 容器**，切到 `/app/crawler` 执行上述无网络自检，结束后 `exit`。只使用线上网页的用户无需在自己的电脑安装 Node、pnpm 或浏览器。
+
+仓库 [Dockerfile](deploy/Dockerfile) 已在 API 镜像中安装 Node、完整爬虫依赖、Chromium 和 Linux 系统库；容器仍缺依赖时核对是否运行旧 / 自建镜像，以及额外目录挂载是否遮住 `/app/crawler` 或 `node_modules`。在宿主机安装依赖或只更新网页镜像不会修复 API 容器；按[环境部署流程](deploy/ENVIRONMENTS.md)构建并验收测试镜像后再发布，保留原数据卷，不用删库或 `down -v` 排障。
+
+定时同步由当前环境 `server/deploy/environments/<环境>/config.json` 中的 `"scheduled_sync": true` 开放，统一入口注入 `NIUMA_ENABLE_SCHEDULED_SYNC=1`；修改后重启本机服务或通过环境入口重建对应容器，再核对 `/api/version` 的 `scheduled_sync_available`。账号还须自行启用并选择周期；打开此开关不会安装依赖或修复采集错误，详见[后台同步约定](../contracts/docs/source-sync-v0.1.md)。
+
 ## 微信材料处理边界
 
 Docker 部署禁用 `/api/sources/wechat/`；`NIUMA_ENABLE_MANUAL_MATERIALS=1` 仅开放 `/api/materials/` 登录会话入口，允许用户主动提交未加密 JSON 和附件，不获取微信内容、不解密、不恢复旧采集任务。
