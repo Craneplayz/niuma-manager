@@ -221,7 +221,7 @@ function batchErrorReport(batch) {
 export function createImportUI(host) {
   const esc = host.escapeHtml;
   const formIsOpen = (form) => form?.isConnected !== false && form?.closest?.("dialog")?.open !== false;
-  let source = "text",
+  let source = host.getImportSource?.() || "text",
     text = "",
     published = shanghaiNow(),
     batches = [],
@@ -323,7 +323,7 @@ export function createImportUI(host) {
     revision++;
     controller?.abort();
     controller = null;
-    source = "text";
+    source = host.getImportSource?.() || "text";
     text = "";
     published = shanghaiNow();
     batches = [];
@@ -361,7 +361,7 @@ export function createImportUI(host) {
     loading = false;
     loaded = true;
     refresh();
-    if (source === "teaching") void refreshSourceSync();
+    if (source === "teaching") { void refreshSourceSync(); void schedule.load(); }
     if (source === "files") void materials.load();
   }
   function deadlineLabel(deadline = {}) {
@@ -733,11 +733,9 @@ export function createImportUI(host) {
     if (d.syncScheduleAction) return schedule.click(button);
     if (d.materialAction) { if (allowed()) await materials.click(button); return true; }
     if (d.importSource) {
-        if (!["text", "teaching", "files"].includes(d.importSource)) return true;
+        if (!setSource(d.importSource)) return true;
         sourceSync.dismissRecoveryHighlight();
-        source = d.importSource;
-        error = "";
-        notice = "";
+        host.onImportSourceChange?.(source);
         if (source === "teaching" && allowed()) { void refreshSourceSync(); void schedule.load(); }
         if (source === "files" && allowed()) void materials.load();
         refresh();
@@ -1047,5 +1045,12 @@ export function createImportUI(host) {
   function setVisible(visible) {
     sourceSync.setVisible(visible);
   }
-  return { render, click, submit, input, reset, load, setVisible, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
+  function setSource(next) {
+    if (!["text", "teaching", "files"].includes(next)) return false;
+    source = next;
+    error = "";
+    notice = "";
+    return true;
+  }
+  return { render, click, submit, input, reset, load, setVisible, setSource, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
 }
