@@ -10,6 +10,9 @@ server/
 ├── test_mail_delivery.py     SMTP TLS、凭据隔离、地址校验与错误脱敏测试。
 ├── test_mail_environment.py  三环境邮件配置隔离、缺省兼容及 Compose 字面量测试。
 ├── auth_test_support.py      仅用于测试和合成验收的验证码投递替身与旧账号夹具。
+├── dev_accounts.py           仅为 development/test 创建空白、已验证的普通测试账号。
+├── test_dev_accounts.py      测试账号登录、空数据、重复保护与生产环境拒绝回归。
+├── test_dev_account_environment.py 环境入口、容器选择、密码传递和生产拒绝回归。
 ├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
 ├── error_reports.py          用户主动错误报告、受限字段、去重、限流与保留。
 ├── test_error_reports.py     真实 HTTP 提交、匿名反馈、权限与私人字段拒绝回归。
@@ -77,6 +80,23 @@ server/
 运行 `python -m unittest discover -s server -p 'test_email_verification.py' -v` 与 `python -m unittest discover -s server -p 'test_mail*.py' -v` 使用临时数据库和合成邮件，不会真实发信。
 
 密码找回回归运行 `python -m unittest discover -s server -p 'test_password_recovery.py' -v`；验证码绑定发码时密码版本，正常改密码也使旧恢复码失效。登录与已登录改密在写入前重新核对凭据/会话，避免重置期间的旧请求恢复访问。
+
+## 空白测试账号
+
+邮件服务尚未配置时，可在仓库根用统一入口为当前工作树创建 development/test 账号，再从网页正常登录：
+
+```bash
+python server/manage_environment.py init development
+python server/manage_environment.py test-account development
+```
+
+默认生成随机的 `tester-<随机值>@niuma.test` 邮箱，并在终端隐藏输入、再次确认密码；也可用 `--email tester@niuma.test --name 测试账号` 指定账号，邮箱只接受保留的 `.test` 域名。`--generate-password` 显式生成随机密码并输出一次，`--password-stdin` 供自动化从标准输入提供密码，两者互斥；不通过命令参数或环境变量传递明文密码，勿将生成密码的终端输出放入日志或 Issue。
+
+账号仅有普通用户权限和空白工作区，不预置任务、反馈、个人偏好、角色或会话，也不发送邮件。相同邮箱已存在时拒绝创建，原密码和数据保留；复用时正常登录，或改用另一个测试邮箱，本入口不提供覆盖、重置或删除。
+
+本机命令只操作当前工作树的 `server/data/<环境>/`，不继承终端遗留的生产数据库与配置。服务器容器方式、环境校验与限制见 [空白测试账号操作](deploy/ENVIRONMENTS.md#空白测试账号)。production、未受管或环境标记不匹配的数据目录均拒绝创建；没有网页开发者登录入口。
+
+该工具直接标记测试账号的邮箱状态，便于业务联调，不证明邮箱归属，也不能替代真实验证码注册、补验证和找回密码邮件的验收。本地验证码收件箱尚未实现，分别跟踪 [#173](https://github.com/Craneplayz/niuma-manager/issues/173) / [#176](https://github.com/Craneplayz/niuma-manager/issues/176)。回归命令：`python -m unittest discover -s server -p 'test_dev_account*.py' -v`。
 
 ## 错误报告
 

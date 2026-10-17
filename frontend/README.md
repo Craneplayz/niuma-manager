@@ -171,6 +171,8 @@ npm run dev:api
 
 各环境的数据库、会话、凭据、附件和模型配置独立；不要拿生产数据初始化开发或测试。Vite 通过 `NIUMA_WEB_PORT`、`NIUMA_PORT` 接收相应端口；同一网页构建通过 `/api/version` 识别当前服务环境，账号入口的环境信息用于核对前后端版本。部署与发布要求以 [部署指南](../server/deploy/README.md) 为准。
 
+邮件配置未就绪时，development/test 可按 [空白测试账号操作](../server/deploy/ENVIRONMENTS.md#空白测试账号) 创建普通账号，再从现有登录窗登录。账号不预置任务或其他数据；本工具没有前端专用入口，也不能替代真实邮件流程验收。
+
 ## 验证
 
 运行前端模块测试与构建：

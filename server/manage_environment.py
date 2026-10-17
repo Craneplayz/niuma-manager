@@ -1,8 +1,10 @@
 """Explicit environment entry point; never deletes data or copies production secrets."""
 import argparse
+import getpass
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -15,6 +17,7 @@ from urllib.parse import urlsplit
 from runtime_environment import ENVIRONMENTS, ROOT, source_identity
 from release_images import record_acceptance, verified_images
 from mail_delivery import MAIL_KEYS, configured as mail_configured
+from dev_accounts import AccountError, ERRORS as ACCOUNT_ERRORS, validate_identity, validate_password
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -259,14 +262,81 @@ def local_servers(name, folder, config):
                     child.wait(timeout=5)
 
 
+def create_test_account(name, folder, config, *, email=None, display_name=None,
+                        container=False, generate_password=False, password_stdin=False):
+    if name not in ('development', 'test'):
+        raise AccountError('production_forbidden')
+    email, display_name = validate_identity(
+        'tester-' + secrets.token_hex(5) + '@niuma.test' if email is None else email,
+        display_name if display_name is not None else '测试账号')
+    if generate_password:
+        password = secrets.token_urlsafe(24)
+    elif password_stdin:
+        # One bounded line; password contents never become a command argument.
+        password = sys.stdin.readline(131).removesuffix('\n').removesuffix('\r')
+    else:
+        if not sys.stdin.isatty():
+            raise ValueError('Use --generate-password or --password-stdin in non-interactive sessions')
+        password = getpass.getpass('测试账号密码（至少 8 位，不显示输入）: ')
+        if password != getpass.getpass('再次输入密码: '):
+            raise ValueError('Passwords do not match; no account was created')
+    validate_password(password)
+    payload = json.dumps(dict(email=email, name=display_name, password=password), ensure_ascii=False)
+    if container:
+        docker = shutil.which('docker')
+        if not docker:
+            raise ValueError('Docker with Compose v2 is required for --container')
+        env, cwd = clean_environment(), DEPLOY
+        command = compose_command(name, folder, config, docker) + [
+            'exec', '-T', 'api', 'python', 'server/dev_accounts.py', name]
+    else:
+        env, cwd = local_environment(name, folder, config), ROOT
+        # This operation does not need mail/model credentials or background jobs.
+        for key in MAIL_KEYS | MODEL_KEYS:
+            env.pop(key, None)
+        env.update(NIUMA_BACKGROUND_RECOVERY='0', NIUMA_ENABLE_SCHEDULED_SYNC='0')
+        command = [sys.executable, str(ROOT / 'server' / 'dev_accounts.py'), name]
+    result = subprocess.run(command, input=payload, text=True, encoding='utf-8',
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env, timeout=30)
+    try:
+        user = json.loads(result.stdout)
+    except ValueError:
+        raise AccountError('create_failed') from None
+    if result.returncode:
+        code = user.get('error') if isinstance(user, dict) else None
+        raise AccountError(code if isinstance(code, str) and code in ACCOUNT_ERRORS else 'create_failed')
+    if (not isinstance(user, dict) or set(user) != {'id', 'email', 'name', 'emailVerified'}
+            or not isinstance(user['id'], str) or user['email'] != email
+            or user['name'] != display_name or user['emailVerified'] is not True):
+        raise AccountError('create_failed')
+    output = dict(environment=name, storage='container' if container else 'native', user=user)
+    if generate_password:
+        # Explicit opt-in: show a newly generated password only after creation.
+        # It is not persisted to a credentials file or printed on failure.
+        output['password'] = password
+    print(json.dumps(output, ensure_ascii=False))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('init', 'check', 'build', 'up', 'stop', 'status', 'api', 'web', 'local', 'accept'))
+    parser.add_argument('command', choices=('init', 'check', 'build', 'up', 'stop', 'status', 'api', 'web', 'local', 'accept', 'test-account'))
     parser.add_argument('environment', choices=(*ENVIRONMENTS, 'all'))
     parser.add_argument('--evidence', help='Acceptance result/link; required for accept test')
     parser.add_argument('--acceptance', type=Path, help='Saved acceptance record for up production (including rollback)')
+    parser.add_argument('--email', help='Reserved .test address for test-account; random when omitted')
+    parser.add_argument('--name', help='Display name for test-account')
+    parser.add_argument('--container', action='store_true', help='Create test-account in the running environment API container')
+    passwords = parser.add_mutually_exclusive_group()
+    passwords.add_argument('--generate-password', action='store_true', help='Generate and display a new test-account password once')
+    passwords.add_argument('--password-stdin', action='store_true', help='Read the test-account password from one stdin line')
     args = parser.parse_args(argv)
     name = args.environment
+    if args.command != 'test-account' and (args.email is not None or args.name is not None
+            or args.container or args.generate_password or args.password_stdin):
+        parser.error('Account options are only valid with test-account')
+    if args.command == 'test-account' and name not in ('development', 'test'):
+        parser.error('test-account is allowed only in development/test; production is disabled')
     if args.evidence is not None and args.command != 'accept':
         parser.error('--evidence is only valid with accept test')
     if args.acceptance is not None and (args.command, name) != ('up', 'production'):
@@ -284,6 +354,10 @@ def main(argv=None):
     if args.command in ('stop', 'status'):
         return existing_project(args.command, name)
     folder, config = read_config(name)
+    if args.command == 'test-account':
+        return create_test_account(name, folder, config, email=args.email, display_name=args.name,
+                                   container=args.container, generate_password=args.generate_password,
+                                   password_stdin=args.password_stdin)
     if args.command == 'local':
         return local_servers(name, folder, config)
     if args.command == 'check':
