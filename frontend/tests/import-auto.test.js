@@ -307,8 +307,8 @@ check('retrying a failed background record sends only stored request identity an
 
 check('stopping background import sends the backend stop request and preserves previously stored tasks', async t => {
   const f = fixture({startState: 'recognizing'}), ui = await ready(f, t);await sync(ui);
-  const run = f.accounts.A.runs[0];f.seed(teaching(), 'A', true);await f.host.refresh();
-  await ui.click({dataset: {sourceSyncAction: 'stop', sourceSyncRun: run.run_id}});
+  f.seed(teaching(), 'A', true);await f.host.refresh();
+  await sync(ui);
   const stop = f.calls.find(call => call.path.endsWith('/stop'));assert.deepEqual(stop.body, {contract_version: version});
   assert.equal(f.accounts.A.runs[0].state, 'stopped');assert.equal(f.state.tasks.length, 1);assert.match(ui.render(), /已停止/);noClientRecognition(f);
 });

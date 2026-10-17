@@ -31,5 +31,32 @@ class SourceSyncContractTests(unittest.TestCase):
         for ids in ([],['same','same'],['x']*1001,[''],[123]):
             with self.assertRaises(ValueError):check('retry',dict(retry,request_ids=ids))
 
+    def test_quiet_checks_use_last_status_without_a_history_row_and_legacy_fields_remain_optional(self):
+        response=deepcopy(EXAMPLES['runs']);response['runs']=[]
+        check('runs',response)
+        response['last_check']['state']='recognizing'
+        with self.assertRaises(ValueError):check('runs',response)
+        legacy=deepcopy(EXAMPLES['run'])
+        legacy.pop('updated_tasks');legacy['counts'].pop('review');legacy['counts'].pop('updated')
+        for record in legacy['records']:record.pop('review',None)
+        check('run',legacy)
+
+    def test_review_and_update_counts_must_match_their_receipts(self):
+        for name in ('review','updated'):
+            value=deepcopy(EXAMPLES['run']);value['counts'][name]+=1
+            with self.assertRaises(ValueError):check('run',value)
+
+    def test_optional_named_results_must_match_counts_and_have_unique_candidate_identities(self):
+        value=deepcopy(EXAMPLES['run'])
+        record=value['records'][0]
+        record['added_items']=[dict(candidate_id='created',task_id='task',label='实际任务',course=None)]
+        record['added']=1;value['counts']['added']=sum(item['added'] for item in value['records'])
+        check('run',value)
+        record['added_items']=[]
+        with self.assertRaises(ValueError):check('run',value)
+        record['added']=2;value['counts']['added']+=1
+        record['added_items']=[dict(candidate_id='same',task_id=None,label='重复',course=None)]*2
+        with self.assertRaises(ValueError):check('run',value)
+
 
 if __name__=='__main__':unittest.main()

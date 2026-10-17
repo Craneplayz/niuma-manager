@@ -94,6 +94,14 @@ def initialize(db):
 
 def batches(db,uid):
     result=[]
+    # Ownership comes from complete receipts, before history deduplication and
+    # pagination. A hidden/recovered sync failure is still managed by that sync.
+    sync_requests=set()
+    if db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='source_sync_runs'").fetchone():
+        for row in db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=?',(uid,)):
+            sync_requests.update(item['request_id'] for item in json.loads(row['snapshot'])['records'])
+        sync_requests.update(row['request_id'] for row in db.execute('''SELECT i.request_id FROM recognition_import_records i
+            JOIN source_sync_runs r ON r.user_id=i.user_id AND r.run_id=i.import_id WHERE i.user_id=?''',(uid,)))
     for row in db.execute('SELECT * FROM recognition_batches WHERE user_id=? ORDER BY rowid DESC',(uid,)):
         metadata=db.execute('SELECT * FROM recognition_import_records WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
         if metadata and metadata['archived']: continue
@@ -116,7 +124,7 @@ def batches(db,uid):
                         card[field]=item['candidate'][field]
                 item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],card)
             request = teaching.request_view(request)
-        result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None))
+        result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None,sourceSyncManaged=row['request_id'] in sync_requests))
     return result
 
 def due(value):

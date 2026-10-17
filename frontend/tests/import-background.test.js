@@ -48,7 +48,7 @@ test('one explicit sync action starts one durable run, refreshes server tasks, a
 });
 test('stop calls persistent server endpoint; account reset removes progress and selected consent',async t=>{
  const f=await setup(t);await f.ui.click({dataset:{importAction:'sync'}});
- await f.ui.click({dataset:{sourceSyncAction:'stop',sourceSyncRun:'run:one'}});
+ await f.ui.click({dataset:{importAction:'sync'}});
  assert.match(f.ui.render(),/已停止/);assert.ok(f.calls.some(c=>c.path.endsWith('/stop')));
  f.switchAccount();assert.doesNotMatch(f.ui.render(),/run:one|A-campus/);
 });
@@ -61,7 +61,7 @@ test('queued local edits are saved before starting a backend run',async t=>{
  release();await start;assert.equal(f.calls.filter(c=>c.path==='/api/sources/sync-runs'&&c.method==='POST').length,1);
 });
 
-test('the shared action starts recurrence plus one run; stopping progress disables recurrence before stopping that run',async t=>{
+test('the shared action starts recurrence plus one run; stopping disables recurrence before stopping that run',async t=>{
  const f=await setup(t);
  f.ui.input({target:{dataset:{syncScheduleField:'interval'},value:'15'}});
  f.ui.input({target:{dataset:{syncScheduleField:'consent'},checked:true}});
@@ -69,11 +69,12 @@ test('the shared action starts recurrence plus one run; stopping progress disabl
  const configured=f.calls.findIndex(c=>c.method==='PUT'&&c.path.endsWith('sync-schedule')&&c.body.enabled);
  const started=f.calls.findIndex(c=>c.method==='POST'&&c.path.endsWith('sync-runs'));
  assert.ok(configured>=0&&started>configured);
- await f.ui.click({dataset:{sourceSyncAction:'stop',sourceSyncRun:'run:one'}});
+ await f.ui.click({dataset:{importAction:'sync'}});
  const disabled=f.calls.findIndex(c=>c.method==='PUT'&&c.body.enabled===false);
  const stopped=f.calls.findIndex(c=>c.path.endsWith('/stop'));
  assert.ok(disabled>started&&stopped>disabled);
- assert.match(f.ui.render(),/value="once" selected/);
+ assert.match(f.ui.render(),/value="15" selected/);
+ assert.match(f.ui.render(),/启动并识别/);
  assert.equal(f.calls.filter(c=>c.method==='POST'&&c.path.endsWith('sync-runs')).length,1);
 });
 
@@ -84,7 +85,63 @@ test('failure to disable recurrence still stops the current run and explains tha
  f.ui.input({target:{dataset:{syncScheduleField:'interval'},value:'15'}});
  f.ui.input({target:{dataset:{syncScheduleField:'consent'},checked:true}});
  await f.ui.click({dataset:{importAction:'sync'}});
- await f.ui.click({dataset:{sourceSyncAction:'stop',sourceSyncRun:'run:one'}});
+ await f.ui.click({dataset:{importAction:'sync'}});
  assert.ok(f.calls.some(c=>c.path.endsWith('/stop')));
  assert.match(f.ui.render(),/定时同步尚未停止/);
+});
+
+test('the primary action stays disabled through both stop requests and repeated clicks cannot duplicate them',async t=>{
+ let releaseSchedule,releaseStop,enteredSchedule,enteredStop;
+ const scheduleGate=new Promise(r=>releaseSchedule=r),stopGate=new Promise(r=>releaseStop=r);
+ const scheduleReady=new Promise(r=>enteredSchedule=r),stopReady=new Promise(r=>enteredStop=r);
+ t.after(()=>{releaseSchedule();releaseStop();});
+ const f=await setup(t,async(path,body,method)=>{
+  if(path.endsWith('sync-schedule')&&method==='PUT'&&!body.enabled){enteredSchedule();await scheduleGate;}
+  if(path.endsWith('/stop')){enteredStop();await stopGate;}
+ });
+ f.ui.input({target:{dataset:{syncScheduleField:'interval'},value:'15'}});
+ f.ui.input({target:{dataset:{syncScheduleField:'consent'},checked:true}});
+ await f.ui.click({dataset:{importAction:'sync'}});
+ const stopping=f.ui.click({dataset:{importAction:'sync'}});await scheduleReady;
+ assert.match(f.ui.render(),/data-import-action="sync" disabled>.*正在停止…/);
+ await f.ui.click({dataset:{importAction:'sync'}});
+ releaseSchedule();await stopReady;
+ assert.match(f.ui.render(),/data-import-action="sync" disabled>.*正在停止…/);
+ await f.ui.click({dataset:{importAction:'sync'}});
+ releaseStop();await stopping;
+ assert.equal(f.calls.filter(c=>c.method==='PUT'&&!c.body.enabled).length,1);
+ assert.equal(f.calls.filter(c=>c.path.endsWith('/stop')).length,1);
+ assert.match(f.ui.render(),/data-import-action="sync" >启动并识别/);
+ assert.doesNotMatch(f.ui.render(),/data-source-sync-action="stop"/);
+});
+
+test('a failed stop restores the enabled primary stop action and retries without starting another import',async t=>{
+ let failed=false;
+ const f=await setup(t,path=>{
+  if(path.endsWith('/stop')&&!failed){failed=true;return {ok:false,status:503,json:async()=>({error:'temporary failure'})};}
+ });
+ await f.ui.click({dataset:{importAction:'sync'}});
+ await f.ui.click({dataset:{importAction:'sync'}});
+ assert.match(f.ui.render(),/无法确认导入已停止/);
+ assert.match(f.ui.render(),/data-import-action="sync" >.*停止导入/);
+ await f.ui.click({dataset:{importAction:'sync'}});
+ assert.match(f.ui.render(),/已停止导入/);
+ assert.equal(f.calls.filter(c=>c.path.endsWith('/stop')).length,2);
+ assert.equal(f.calls.filter(c=>c.path.endsWith('sync-runs')&&c.method==='POST').length,1);
+});
+
+test('switching accounts while disabling the schedule cannot stop the new account run',async t=>{
+ let release,entered;
+ const gate=new Promise(r=>release=r),ready=new Promise(r=>entered=r);t.after(release);
+ const f=await setup(t,async(path,body,method)=>{
+  if(path.endsWith('sync-schedule')&&method==='PUT'&&!body.enabled){entered();await gate;}
+ });
+ f.ui.input({target:{dataset:{syncScheduleField:'interval'},value:'15'}});
+ f.ui.input({target:{dataset:{syncScheduleField:'consent'},checked:true}});
+ await f.ui.click({dataset:{importAction:'sync'}});
+ const stopping=f.ui.click({dataset:{importAction:'sync'}});await ready;
+ f.switchAccount();await f.ui.load();await f.ui.loadSourceSync();
+ release();await stopping;
+ assert.equal(f.calls.some(c=>c.path.endsWith('/stop')),false);
+ assert.doesNotMatch(f.ui.render(),/正在停止…|A-campus/);
 });

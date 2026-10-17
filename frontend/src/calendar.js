@@ -116,7 +116,7 @@ export function renderCalendar({
       isWeek && !members.length
         ? '<p class="calendar-day-empty">无任务</p>'
         : "";
-    return `<section class="${classes}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
+    return `<section class="${classes}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
   }
 
   if (isWeek) {
@@ -134,5 +134,5 @@ export function renderCalendar({
   const start = mondayOf(first);
   const count =
     Math.ceil(((last.getTime() - start.getTime()) / DAY_MS + 1) / 7) * 7;
-  return `<div class="calendar-view calendar-month" aria-label="${anchor.getUTCFullYear()} 年 ${anchor.getUTCMonth() + 1} 月任务日历"><div class="calendar-weekdays" aria-hidden="true">${WEEKDAYS.map((weekday) => `<span>${weekday}</span>`).join("")}</div><div class="calendar-month-grid" role="list">${Array.from({ length: count }, (_, index) => day(addDays(start, index), index % 7)).join("")}</div></div>`;
+  return `<div class="calendar-view calendar-month" style="--calendar-weeks: ${count / 7}" aria-label="${anchor.getUTCFullYear()} 年 ${anchor.getUTCMonth() + 1} 月任务日历"><div class="calendar-weekdays" aria-hidden="true">${WEEKDAYS.map((weekday) => `<span>${weekday}</span>`).join("")}</div><div class="calendar-month-grid" role="list">${Array.from({ length: count }, (_, index) => day(addDays(start, index), index % 7)).join("")}</div></div>`;
 }

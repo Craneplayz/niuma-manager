@@ -1,5 +1,5 @@
 // Maps the task UI to the account workspace API.
-import { todayKey as dayKey } from "./task-model.js";
+import { todayKey as dayKey, shiftDay } from "./task-model.js";
 export const session = {
   user: null,
   sync: "saved",
@@ -264,7 +264,7 @@ export function saveStore(data) {
   if (!failed) enqueue(latest);
   return true;
 }
-async function changeStoredTasks(transform) {
+async function changeStoredTasks(transform, { retryOnFailure = true } = {}) {
   if (!session.user || session.changing)
     throw new Error("请先登录账号，或等待账号切换完成");
   const epoch = accountEpoch;
@@ -288,16 +288,40 @@ async function changeStoredTasks(transform) {
       report(latest ? "saving" : "saved");
     } catch (error) {
       if (epoch === accountEpoch) {
-        failed = true;
-        pendingChange = transform;
         session.conflict = error.status === 409;
-        report("error", error);
+        // A failed calendar drop stays undated and must never replay on a later save.
+        if (retryOnFailure || session.conflict) {
+          failed = true;
+          pendingChange = retryOnFailure ? transform : null;
+          report("error", error);
+        } else report(latest ? "saving" : "saved");
       }
       throw error;
     }
   });
   queue = update.catch(() => {});
   return update;
+}
+export async function setStoredTaskDeadline(id, next, expected) {
+  if ((next.due && !shiftDay(next.due, 0)) || (next.dueTime &&
+      (!next.due || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(next.dueTime))))
+    throw new Error("截止日期或时刻无效");
+  const epoch = accountEpoch;
+  await changeStoredTasks((tasks) => {
+    const task = tasks.find((item) => item.id === id && !item.recycleBin && item.status !== "cancelled");
+    if (!task || task.content_type === "notice" ||
+        (task.due?.date || "") !== expected.due ||
+        (task.due?.time || "") !== expected.dueTime)
+      throw new Error("任务日期已变化，请重新核对");
+    task.due = next.due ? {
+      date: next.due,
+      precision: next.dueTime ? "datetime" : "date",
+      ...(next.dueTime ? { time: next.dueTime } : {}),
+    } : null;
+    return tasks;
+  }, { retryOnFailure: false });
+  if (epoch !== accountEpoch) throw new Error("账号已切换");
+  return view();
 }
 export function trashStoredTasks(ids) {
   const selected = new Set(ids);

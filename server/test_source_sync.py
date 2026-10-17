@@ -99,3 +99,24 @@ class SourceSyncTests(unittest.TestCase):
                 self.call('/api/sources/sync', {'sources': ['teaching_web']})
         self.assertEqual(failed.exception.status, 503)
         self.assertFalse(paths[0].exists())
+
+    def test_scoped_collection_only_registers_and_reads_selected_exception_assets(self):
+        from ddl_text.tests.test_teaching_pipeline import example
+        request,_=example(('explicit-complete',)*2)
+        self.save();crawler=Path(self.folder.name)/'crawler';(crawler/'node_modules'/'tsx').mkdir(parents=True)
+        data=b'synthetic captured asset';digest=hashlib.sha256(data).hexdigest()
+        selected=request['records'][0]['record']['input_id']
+        for entry in request['records']:
+            entry['record']['references']=[dict(ref_id='file:one',kind='attachment',label='合成图片.png',read_state='unread',text=None)]
+        def capture(*args,**kwargs):
+            folder=Path(kwargs['env']['PKU_ATTACHMENT_DIR'])
+            (folder/(digest+'.bin')).write_bytes(data)
+            receipts=[dict(input_id=entry['record']['input_id'],ref_id='file:one',sha256=digest if index==0 else '0'*64,mime_type='image/png',size_bytes=len(data)) for index,entry in enumerate(request['records'])]
+            # The unselected asset is deliberately absent: it must not be read.
+            (folder/'manifest.json').write_text(json.dumps(receipts))
+            return SimpleNamespace(returncode=0,stdout=json.dumps(request))
+        with patch.object(source_sync,'CRAWLER',crawler),patch.object(source_sync.subprocess,'run',side_effect=capture):
+            result=source_sync.collect(self.db,'owner',app.ApiError,self.key,input_ids={selected})
+        self.assertEqual([item['records'][0]['input_id'] for item in result['requests']],[selected])
+        self.assertEqual([row['input_id'] for row in self.db.execute('SELECT input_id FROM teaching_sources')],[selected])
+        self.assertEqual(self.db.execute('SELECT count(*) FROM teaching_asset_files').fetchone()[0],1)
