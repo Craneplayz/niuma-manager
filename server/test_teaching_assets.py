@@ -165,6 +165,27 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(cached['read_state'],'complete');self.assertIn('第 5 页',cached['text'])
         self.assert_cached_reprocess(rid)
 
+    def test_pdf_later_render_failure_keeps_evidence_through_http_and_cache(self):
+        import io
+        from pypdf import PdfWriter
+        writer=PdfWriter()
+        for _ in range(2): writer.add_blank_page(width=300,height=300)
+        writer.add_blank_page(width=10000,height=10000)
+        output=io.BytesIO();writer.write(output)
+        rid=self.sync(output.getvalue(),'application/pdf')['requests'][0]['request_id']
+        vision=lambda *args:json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False) for i in range(2)]))
+        batch,calls=self.run_record(rid,vision)
+        calls.assert_called_once()
+        self.assertTrue(batch['items'])
+        self.assertEqual(batch['items'][0]['candidate']['deadline']['value'],'2026-11-17T23:30:00+08:00')
+        with app.connection() as db:
+            cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
+            self.assertEqual(cached['read_state'],'partial')
+            self.assertIn(TEXT,cached['text']);self.assertIn('第 3 页',cached['text'])
+            saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
+            self.assertEqual(saved['records'][0]['record']['references'][0]['read_state'],'partial')
+        self.assert_cached_reprocess(rid)
+
     def assert_cached_reprocess(self,rid):
         # Same account-bound execution context is used by the reprocessing worker.
         import reprocessing

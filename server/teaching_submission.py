@@ -148,7 +148,15 @@ def bind_recognition(db, uid, captured, result, assets=()):
     if not state or state['state'] not in ('active','submitted') or state['review_pending']: return
     row = controls.find(db, uid, state['account'], state['input_id'])
     if not row: return
-    detail, refs = controls.refresh(db, row)
+    try: detail, refs = controls.refresh(db, row)
+    except controls.ActionLimitError:
+        # Keep the full recognition result even when historic actions/tombstones
+        # exceed the policy limit; an incomplete action list cannot authorize binding.
+        detail = json.loads(row['detail'])
+        detail['observation']['scope'] = 'unknown'
+        detail['observation']['control_revision'] += 1
+        controls.persist(db, row, detail)
+        return
     obs = detail['observation']
     proposals = {d['pair']['assessment']['candidate_id']: d for r in result['record_results'] for d in r['decisions']}
     candidates = {c['id']: c for c in db.execute('''SELECT * FROM recognition_candidates

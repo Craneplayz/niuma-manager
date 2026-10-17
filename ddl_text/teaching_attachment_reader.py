@@ -18,6 +18,7 @@ from .runner import run_attempt
 
 SKILL = Path(__file__).parent / 'skills/teaching-file-reading/SKILL.md'
 MAX_TEXT = 50000
+MAX_PDF_PAGES = 128
 
 
 @dataclass
@@ -105,8 +106,8 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
     from copy import deepcopy
     progress = deepcopy(checkpoint) if checkpoint else dict(pdf_checkpoint=1, total_pages=None, pages=[])
     if (not isinstance(progress,dict) or progress.get('pdf_checkpoint') != 1 or not isinstance(progress.get('pages'),list)
-            or len(progress['pages'])>128 or progress.get('total_pages') is not None and
-            (type(progress['total_pages']) is not int or not max(1,len(progress['pages']))<=progress['total_pages']<=128)):
+            or len(progress['pages'])>MAX_PDF_PAGES or progress.get('total_pages') is not None and
+            (type(progress['total_pages']) is not int or progress['total_pages']<max(1,len(progress['pages'])))):
         raise AgentError('file_read_failed', False)
     pages = progress['pages']
     if any(not isinstance(p,dict) or not isinstance(p.get('text'),str) or type(p.get('uncertain')) is not bool
@@ -118,13 +119,24 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
         seconds = min(cap, expires - time.monotonic())
         if seconds <= 0: raise AgentError('agent_timeout', True)
         return seconds
-    while total is None or len(pages) < total:
-        rendered = read_pdf(data, asset, PdfLimits(start_page=len(pages), max_pages=2,
-                            render_seconds=remaining(15)))
+    notes = []
+    def unread(reason):
+        return f'第 {len(pages)+1} 页至第 {total} 页未读取：{reason}'
+    while (total is None or len(pages) < total) and len(pages) < MAX_PDF_PAGES:
+        batch_size = min(2, MAX_PDF_PAGES-len(pages))
+        try:
+            rendered = read_pdf(data, asset, PdfLimits(start_page=len(pages), max_pages=batch_size,
+                                render_seconds=remaining(15)))
+        except AgentError as error:
+            if not pages or error.retryable or error.code not in ('file_read_failed','limit_exceeded','reader_unsupported'):
+                raise
+            notes.append(unread(error.code))
+            break
         total = rendered['total_pages']
-        if total > 128: raise AgentError('limit_exceeded', False)
         progress['total_pages'] = total
         pictures = rendered['pages']
+        # A short batch indicates a page failure, unlike the normal two-page cap.
+        failed_page = len(pictures) < min(batch_size, total-len(pages))
         parts = []
         for index, png in enumerate(pictures, len(pages) + 1):
             parts.extend([dict(type='text', text=f'第 {index} 页（本批第 {(index-len(pages))} 页）'),
@@ -146,12 +158,24 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
             raise AgentError('invalid_agent_output', True) from None
         pages.extend(checked)
         if sum(len(p['text']) + len(p['note']) for p in pages) > MAX_TEXT:
-            raise AgentError('limit_exceeded', False)
+            notes.append('转录文字超过长度限制，后续内容未提供。')
+            if len(pages) < total: notes.append(unread('文字长度限制'))
+            break
         if save_checkpoint: save_checkpoint(deepcopy(progress))
+        if failed_page:
+            notes.append(unread(rendered.get('error') or 'file_read_failed'))
+            break
         # Release page images before rendering the next batch.
         del pictures, parts, rendered
-    notes = [f"第 {i} 页：{p['note'] or '图像文字不清晰'}" for i, p in enumerate(pages, 1) if p['uncertain']]
+    if total is not None and len(pages) == MAX_PDF_PAGES and len(pages) < total:
+        notes.append(unread('页数限制'))
+    notes.extend(f"第 {i} 页：{p['note'] or '图像文字不清晰'}" for i, p in enumerate(pages, 1) if p['uncertain'])
     text = '\n\n'.join(f"【模型转录：第 {i} 页】\n{p['text']}" for i, p in enumerate(pages, 1))
-    if notes: text += '\n【读取缺口】\n' + '\n'.join(notes)
-    if len(text) > MAX_TEXT: raise AgentError('limit_exceeded', False)
-    return dict(read_state='partial' if notes else 'complete', text=text)
+    suffix = '\n【读取缺口】\n' + '\n'.join(notes) if notes else ''
+    if len(text) + len(suffix) > MAX_TEXT:
+        # Leave room for both the truncation warning and unread-page locations.
+        suffix = '\n【读取缺口】\n转录文字超过长度限制，后续内容未提供。\n' + '\n'.join(notes)
+        suffix = suffix[:MAX_TEXT//2]
+        text = text[:MAX_TEXT-len(suffix)]
+    text += suffix
+    return dict(read_state='partial' if suffix else 'complete', text=text)

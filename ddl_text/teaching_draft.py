@@ -170,7 +170,7 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             _quotes(record, assessment['deadline']['evidence'], allow_metadata=True)
             for relation in assessment['unread_relations']:
                 _quotes(record, relation['evidence'])
-            normalize_time(draft, record)
+            time_needs_review = normalize_time(draft, record)
             pair = _pair(record, assessment, index)
             validate_pair(pair, model_routing=True)
             route, reason = draft['recommendation'], draft['reason'].strip()
@@ -179,6 +179,8 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             # instead of rejecting the whole record or creating a duplicate.
             if route == 'task' and draft['notice_type'] != 'create':
                 route, reason = 'candidate', reason or '变更通知需关联现有条目后处理。'
+            if time_needs_review and route == 'task':
+                route, reason = 'candidate', '日期与作业标题日期相同，但用途尚未明确；请核对是否为截止要求。'
             if route != 'task' and not reason:
                 raise ValueError('candidate/filtered classification needs a reason')
             if route == 'task':

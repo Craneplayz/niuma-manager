@@ -36,8 +36,8 @@ class TeachingDraftTests(unittest.TestCase):
             task['assessment']['unread_relations']=[]
             task['relevance']['evidence']=[]
         decision=self.compile('explicit-complete',dated)[0]
-        self.assertEqual(decision['recommendation'],'task')
-        self.assertEqual(decision['pair']['assessment']['deadline']['derivation'],'not_provided')
+        self.assertEqual(decision['recommendation'],'candidate')
+        self.assertEqual(decision['pair']['assessment']['deadline']['value'],'2026-09-30')
         def due(record,task):
             dated(record,task);record['text']+='请在9月30日23:59前提交。'
             task['assessment']['deadline']['evidence']=[dict(part_id='body',quote=record['text'])]
@@ -48,6 +48,27 @@ class TeachingDraftTests(unittest.TestCase):
         def unusual_deadline(record,task):
             dated(record,task);record['text']+='老师当晚收取本次作业。';task['time_role']='deadline'
         self.assertEqual(self.compile('explicit-complete',unusual_deadline)[0]['pair']['assessment']['deadline']['value'],'2026-09-30')
+
+    def test_unknown_time_role_preserves_deadline_evidence_for_review(self):
+        text='9月30日作业\n习题2、4、6，请于9月30日23:59前上传至教学网。'
+        for role in (None, 'unknown', 'deadline'):
+            with self.subTest(role=role):
+                def change(record, task):
+                    record.update(text=text, references=[], body_status='complete')
+                    task['assessment']['action']['evidence']=[dict(part_id='body',quote=text)]
+                    task['assessment']['deadline'].update(value='2026-09-30T23:59:00+08:00',
+                        precision='datetime',derivation='absolute',anchor=None,
+                        evidence=[dict(part_id='body',quote=text)])
+                    task['assessment']['unread_relations']=[]
+                    task['relevance']['evidence']=[]
+                    if role is None: task.pop('time_role',None)
+                    else: task['time_role']=role
+                decision=self.compile('explicit-complete',change)[0]
+                deadline=decision['pair']['assessment']['deadline']
+                self.assertEqual(deadline['value'],'2026-09-30T23:59:00+08:00')
+                self.assertEqual(deadline['evidence'],[dict(part_id='body',quote=text)])
+                self.assertEqual(decision['recommendation'],'task' if role=='deadline' else 'candidate')
+                if role!='deadline': self.assertTrue(decision['review_reasons'])
 
     def test_schema_error_retains_only_rule_and_schema_path(self):
         def invalid(record,task):task['assessment']['deadline']['value']='private invalid date'

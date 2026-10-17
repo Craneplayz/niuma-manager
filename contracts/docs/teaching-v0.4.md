@@ -22,7 +22,7 @@
 
 可选 `submission_relation="assignment_submission"|"other"|"unknown"` 只描述行动是否属于当前来源布置的作业提交义务，缺省 unknown；不携带用户提交状态，也不选择其他来源。后端结合当前账号的可信原生作业身份，对有证据的新增作业行动建立关联，保护人工决定；独立行动和关系不明的内容不因 submitted 被撤出。
 
-模型草稿的 `time_role` 区分截止/事件与发布/布置/参考日期，后几类归一为无截止日期；仅含日期的作业标题不能证明截止要求。识别失败可附 `error.diagnostic={schema_path,rule}`，仅输出白名单结构规则，不包含原文、模型响应或字段值；旧结果可省略该字段。
+模型草稿的 `time_role` 区分截止/事件与发布/布置/参考日期，后几类归一为无截止日期；仅含日期的作业标题不能证明截止要求。旧草稿或 unknown 时间用途与标题日期相同时保留日期及证据待核对，不以截止关键词未命中为由清空。识别失败可附 `error.diagnostic={schema_path,rule}`，仅输出白名单结构规则，不包含原文、模型响应或字段值；旧结果可省略该字段。
 
 notice 是相关告知，不虚构行动；task 和 notice 均可携带有依据的 deadline。通知的公示截止、有效期限或关键提醒时间按原意保留，在 description 说明时间含义；没有日期才使用 not_provided。沿用 assessment.action 证据槽：notice 的 supported 表示事实有原文依据，并非存在执行动作；来源、证据、内容不确定性检查仍适用。新增内容类型不改变既有任务过期策略。
 

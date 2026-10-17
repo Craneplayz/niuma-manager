@@ -216,6 +216,53 @@ class TeachingIntegrationTests(unittest.TestCase):
             self.assertEqual(detail['observation']['snapshot']['state'],'submitted')
             self.assertTrue(all(a['relation']=='assignment_submission' for a in detail['observation']['actions']))
 
+    def prepare_action_limit_history(self):
+        capture=self.native_capture('active')
+        record=capture['request']['records'][0]['record'];iid=record['input_id']
+        template=json.loads(self.drafts[iid])['tasks'][0]
+        template.update(submission_relation='assignment_submission',recommendation='candidate',reason='需核对作业细节。')
+        for version in range(2):
+            record['text']+=f'\n补充说明{version}。'
+            record['collected_at']=f'2026-10-10T10:0{version}:00+08:00'
+            self.drafts[iid]=json.dumps(dict(tasks=[dict(deepcopy(template),title=f'练习 {version}-{index}') for index in range(50)]))
+            self.assertEqual(len(self.run_request(self.sync_native(capture)['requests'][0])['items']),50)
+        with app.connection() as db:
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(len(detail['observation']['actions']),100)
+            self.assertEqual(detail['observation']['scope'],'mixed')
+        self.drafts[iid]=json.dumps(dict(tasks=[template]))
+        return capture
+
+    def test_action_limit_does_not_roll_back_recognition(self):
+        capture=self.prepare_action_limit_history()
+        capture['request']['records'][0]['record']['text']+='\n第三次补充。'
+        capture['request']['records'][0]['record']['collected_at']='2026-10-10T10:02:00+08:00'
+        batch=self.run_request(self.sync_native(capture)['requests'][0])
+        self.assertEqual(len(batch['items']),1);self.assertEqual(batch['items'][0]['state'],'pending')
+        self.assertFalse(batch['result']['errors'])
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_candidates').fetchone()[0],101)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],3)
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(detail['observation']['scope'],'unknown')
+
+    def test_action_limit_tombstones_do_not_interrupt_reprocessing(self):
+        import reprocessing
+        capture=self.prepare_action_limit_history()
+        iid=capture['request']['records'][0]['record']['input_id']
+        source=self.call('/recognition/reprocessing/sources')[1]['accounts'][0]
+        with patch.object(reprocessing,'recognize_saved',side_effect=lambda req,*a,**k:self.model(req,app.ApiError)):
+            status,run=self.call('/recognition/reprocessing/runs',dict(contract_version='reprocessing/0.1',
+                operation_id='action-limit-upgrade',source_account_id=source['source_account_id'],input_ids=[iid]))
+            self.assertEqual(status,202,run);self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+        saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
+        self.assertEqual(saved['state'],'succeeded',saved)
+        with app.connection() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM recognition_candidates WHERE state='pending'").fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],3)
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(detail['observation']['scope'],'unknown')
+
     def test_submitted_assignment_keeps_independent_reading(self):
         capture=self.mixed_capture('submitted')
         iid=capture['request']['records'][0]['record']['input_id']

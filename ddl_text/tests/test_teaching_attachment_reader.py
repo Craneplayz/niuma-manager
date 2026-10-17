@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from ddl_text.adapters import AgentError
 from ddl_text.config import Settings
 from ddl_text.docx_reader import DOCX_MIME
-from ddl_text.teaching_attachment_reader import read_attachment
+from ddl_text.teaching_attachment_reader import MAX_TEXT, read_attachment
 from ddl_text.tests.docx_cases import package, paragraph, drawing, relationship
 from ddl_text.tests.media_cases import image_bytes
 from ddl_text.tests.pdf_cases import pdf_bytes
@@ -71,6 +71,54 @@ class AttachmentReaderTests(unittest.TestCase):
         self.assertEqual(out['read_state'],'complete');self.assertIn('第 5 页',out['text'])
         self.assertEqual(sum(s.startswith('第 1 页') for s in seen),1)
         self.assertEqual(len(checkpoints[-1]['pages']),5)
+
+    def test_pdf_unreadable_later_page_preserves_transcripts_and_gap(self):
+        import io
+        from pypdf import PdfWriter
+        for good_pages in (1,2):
+            with self.subTest(good_pages=good_pages):
+                writer=PdfWriter()
+                for _ in range(good_pages): writer.add_blank_page(width=300,height=300)
+                writer.add_blank_page(width=10000,height=10000)
+                output=io.BytesIO();writer.write(output)
+                out,client=self.read(output.getvalue(),'application/pdf')
+                self.assertEqual(out['read_state'],'partial')
+                self.assertIn(TEXT,out['text']);self.assertIn('读取缺口',out['text'])
+                self.assertIn(f'第 {good_pages+1} 页',out['text'])
+                self.assertNotIn(f'【模型转录：第 {good_pages+1} 页】',out['text'])
+                client.complete_json.assert_called_once()
+
+    def test_pdf_page_limit_keeps_first_128_pages_without_reading_129(self):
+        def render(data,asset,limits):
+            self.assertLess(limits.start_page,128)
+            return dict(pages=[b'png']*limits.max_pages,total_pages=129,error='limit_exceeded')
+        with patch('ddl_text.teaching_attachment_reader.read_pdf',side_effect=render):
+            out,client=self.read(b'%PDF-synthetic','application/pdf')
+        self.assertEqual(out['read_state'],'partial');self.assertEqual(client.complete_json.call_count,64)
+        self.assertIn('【模型转录：第 128 页】',out['text'])
+        self.assertIn('第 129 页',out['text'])
+        self.assertNotIn('【模型转录：第 129 页】',out['text'])
+
+    def test_pdf_text_limit_returns_bounded_partial_with_earlier_text(self):
+        client=Mock();client.complete_json.return_value=json.dumps(dict(pages=[
+            dict(index=i+1,text=TEXT+'字'*(MAX_TEXT//2),uncertain=False) for i in range(2)]))
+        with patch('ddl_text.teaching_attachment_reader.read_pdf',return_value=dict(
+                pages=[b'png']*2,total_pages=3,error='limit_exceeded')):
+            out=read_attachment(b'pdf',dict(mime_type='application/pdf'),client,Settings(),expires=time.monotonic()+30)
+        self.assertEqual(out['read_state'],'partial');self.assertLessEqual(len(out['text']),MAX_TEXT)
+        self.assertIn(TEXT,out['text']);self.assertIn('读取缺口',out['text']);self.assertIn('第 3 页',out['text'])
+
+    def test_pdf_resume_at_page_cap_renders_only_remaining_allowed_page(self):
+        checkpoint=dict(pdf_checkpoint=1,total_pages=129,pages=[dict(text=TEXT,uncertain=False,note='') for _ in range(127)])
+        client=Mock();client.complete_json.return_value=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False)]))
+        def render(data,asset,limits):
+            self.assertEqual((limits.start_page,limits.max_pages),(127,1))
+            return dict(pages=[b'png'],total_pages=129,error='limit_exceeded')
+        with patch('ddl_text.teaching_attachment_reader.read_pdf',side_effect=render):
+            out=read_attachment(b'pdf',dict(mime_type='application/pdf'),client,Settings(),
+                expires=time.monotonic()+30,checkpoint=checkpoint)
+        self.assertEqual(out['read_state'],'partial')
+        self.assertIn('【模型转录：第 128 页】',out['text']);self.assertIn('第 129 页',out['text'])
 
     def test_incomplete_model_output_is_retryable_failure(self):
         with self.assertRaises(AgentError) as error:self.read(image_bytes(),'image/png',pages=0)
