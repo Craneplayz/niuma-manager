@@ -34,6 +34,7 @@ import { loadTaskEvidence } from "./task-evidence.js";
 import { demoWorkspace } from "./demo.js";
 import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
+import { readNavigation, navigationURL } from "./navigation.js";
 import { feedbackBox } from "./usage-feedback.js";
 import { describeEnvironment } from "./environment-badge.js";
 import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
@@ -75,18 +76,7 @@ try {
   preferences = JSON.parse(localStorage.getItem("niuma.task-ui.v2") || "{}");
 } catch {}
 const ui = {
-  page: "tasks",
-  scope: "all",
-  view:
-    params.get("view") === "calendar"
-      ? "calendar"
-      : preferences.view === "calendar"
-        ? "calendar"
-        : "list",
-  mode: preferences.mode === "week" ? "week" : "month",
-  anchor: today,
-  selectedDate: today,
-  pane: "day",
+  ...readNavigation(params, { today, preferences }),
   query: "",
   course: "",
   source: "",
@@ -134,6 +124,11 @@ const host = {
   getCancelledTasks: () => demo ? [] : readCancelledTasks(),
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
+  getImportSource: () => ui.importSource,
+  onImportSourceChange(source) {
+    ui.importSource = source;
+    syncNavigation();
+  },
   feedbackBox: () => demo ? "" : feedbackBox(),
   setState(next) {
     state = next;
@@ -144,6 +139,7 @@ const host = {
     loadError = "";
     resetAccountUI();
     render();
+    if (ui.page === "import") void imports.load();
   },
 };
 const imports = createImportUI(host),
@@ -170,10 +166,13 @@ function resetAccountUI() {
   ui.source = "";
   ui.dateFrom = "";
   ui.dateTo = "";
-  ui.scope = "all";
   drawer.close();
   drawerId = null;
-  ui.page = "tasks";
+}
+function syncNavigation(method = "push") {
+  const url = navigationURL(location.href, ui);
+  if (!demo) url.searchParams.delete("demo");
+  if (url.href !== location.href) history[method === "replace" ? "replaceState" : "pushState"](null, "", url);
 }
 function remember() {
   try {
@@ -506,6 +505,7 @@ function navigatePage(page, scope = ui.scope) {
   ui.page = page;
   ui.scope = scope;
   ui.mobileMenu = false;
+  syncNavigation();
   render();
   window.scrollTo(0, 0);
   if (fromMobileMenu) document.getElementById("page-title")?.focus({ preventScroll: true });
@@ -597,8 +597,10 @@ async function dropTaskOnDate(id, date) {
     await saveTaskDeadline(id, applied, previous);
     if (epoch !== accountVersion()) return;
     if (ui.page === "tasks" && taskView() === "calendar" && ui.mode === origin.mode && ui.pane === origin.pane &&
-        ui.anchor === origin.anchor && ui.selectedDate === origin.selectedDate)
+        ui.anchor === origin.anchor && ui.selectedDate === origin.selectedDate) {
       ui.selectedDate = date;
+      syncNavigation("replace");
+    }
     toast(`${dateLabel}已${verb === "更改" ? "改为" : "设为"} ${date}${applied.dueTime ? ` ${applied.dueTime}` : ""}`, async () => {
       if (taskBusy) throw new Error("正在保存，请稍候再撤销");
       if (drawerEditing && drawer.open) throw new Error("请先关闭任务编辑再撤销");
@@ -733,6 +735,7 @@ function calendarStep(direction) {
     ui.selectedDate = ui.anchor;
   }
   ui.pane = "day";
+  syncNavigation();
   renderResults();
 }
 const actions = {
@@ -780,6 +783,7 @@ const actions = {
     ui.anchor = todayKey();
     ui.selectedDate = ui.anchor;
     ui.pane = "day";
+    syncNavigation();
     renderResults();
   },
   "dialog-close": closeDialog,
@@ -888,6 +892,7 @@ document.addEventListener("click", async (e) => {
       if (ui.scope !== "all") return;
       ui.view = button.dataset.view;
       remember();
+      syncNavigation();
       render();
       return;
     }
@@ -895,18 +900,21 @@ document.addEventListener("click", async (e) => {
       ui.mode = button.dataset.calendarMode;
       if (ui.mode === "week") ui.anchor = ui.selectedDate;
       remember();
+      syncNavigation();
       renderResults();
       return;
     }
     if (button.dataset.calendarDay) {
       ui.selectedDate = button.dataset.calendarDay;
       ui.pane = "day";
+      syncNavigation();
       renderResults();
       showMobileDay();
       return;
     }
     if (button.dataset.calendarPane) {
       ui.pane = button.dataset.calendarPane;
+      syncNavigation();
       renderResults();
       showMobileDay();
       return;
@@ -948,6 +956,7 @@ document.addEventListener("change", (e) => {
       ui.anchor = value;
       ui.selectedDate = value;
       ui.pane = "day";
+      syncNavigation();
     }
   } else return;
   render();
@@ -1118,9 +1127,19 @@ window.addEventListener("niuma:account-reset", () => {
   ui.source = "";
   ui.dateFrom = "";
   ui.dateTo = "";
-  ui.scope = "all";
-  ui.page = "tasks";
   render();
+});
+window.addEventListener("popstate", () => {
+  Object.assign(ui, readNavigation(new URLSearchParams(location.search), { today: todayKey(), preferences }));
+  ui.mobileMenu = false;
+  imports.setSource(ui.importSource);
+  imports.cancelRecoveryNavigation();
+  imports.dismissRecoveryHighlight();
+  closeDialog();
+  closeDrawer();
+  syncNavigation("replace");
+  render();
+  if (ui.page === "import") void imports.load();
 });
 window.addEventListener("niuma:sync", () => {
   const label = document.querySelector("#save-status");
@@ -1135,6 +1154,7 @@ matchMedia("(max-width: 700px)").addEventListener("change", () => {
 document.addEventListener("visibilitychange", syncToday);
 window.addEventListener("focus", syncToday);
 window.addEventListener("pageshow", syncToday);
+syncNavigation("replace");
 render();
 syncToday();
 async function initialize() {
@@ -1146,6 +1166,7 @@ async function initialize() {
     } finally {
       loading = false;
       render();
+      if (ui.page === "import") void imports.load();
     }
   }
 }

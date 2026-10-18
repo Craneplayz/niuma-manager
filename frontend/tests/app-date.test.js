@@ -49,7 +49,7 @@ class Element extends Surface {
 }
 
 let instance = 0;
-async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false } = {}) {
+async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false, url = "http://synthetic.test/" } = {}) {
   const instanceId = ++instance;
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-10-15T23:59:59") });
   const app = new Element("app"), dialog = new Element("dialog"), drawer = new Element("task-drawer");
@@ -62,6 +62,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
   elements.get("#toast").querySelector = () => undo;
   const doc = new Surface();
   doc.body = new Element();
+  doc.documentElement = { style: { removeProperty() {} } };
   doc.activeElement = doc.body;
   doc.visibilityState = "visible";
   doc.querySelector = selector => elements.get(selector) || null;
@@ -72,11 +73,29 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
   win.scrollTo = () => {};
   Object.assign(globalThis, {
     document: doc, window: win,
-    location: new URL("http://synthetic.test/"),
+    location: new URL(url),
     localStorage: { getItem: () => null, setItem() {} },
     matchMedia: () => ({ matches: false, addEventListener() {} }),
     CustomEvent: class { constructor(type) { this.type = type; } },
   });
+  const entries = [location.href];
+  let position = 0;
+  globalThis.history = {
+    replaceState(_state, _title, href) {
+      globalThis.location = new URL(href);
+      entries[position] = location.href;
+    },
+    pushState(_state, _title, href) {
+      globalThis.location = new URL(href);
+      entries.splice(++position, Infinity, location.href);
+    },
+    async go(delta) {
+      position += delta;
+      globalThis.location = new URL(entries[position]);
+      await win.emit("popstate");
+      await new Promise(setImmediate);
+    },
+  };
   const tasks = [
     { id: "task", title: "合成任务", status: "not_started", due: { date: "2026-10-16", precision: deadlineTime ? "datetime" : "date", ...(deadlineTime ? { time: deadlineTime } : {}) }, plans: [], subtasks: [] },
     { id: "notice", title: "合成通知", content_type: "notice", planningExcluded: true, status: noticeRead ? "completed" : "not_started", due: { date: "2026-10-23", precision: noticeTime ? "datetime" : "date", ...(noticeTime ? { time: noticeTime } : {}) }, plans: [], subtasks: [] },
@@ -95,6 +114,9 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs: [] };
+    else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, interval_minutes: 180, revision: 0 };
+    else if (path === "/api/materials/jobs") value = [];
+    else if (path === "/api/materials/limits") value = {};
     else assert.ok(["/api/version", "/api/sources/credentials", "/api/recognition/task-evidence"].includes(path), "unexpected synthetic request: " + path);
     return { ok: true, json: async () => structuredClone(value) };
   };
@@ -116,8 +138,78 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     await doc.emit("click", { closest: () => ({ dataset: { taskOpen: id } }) }, { detail: 1 });
     await new Promise(setImmediate);
   };
-  return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, toast: elements.get("#toast") };
+  return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, entries, toast: elements.get("#toast") };
 }
+
+for (const source of ["text", "teaching", "files"]) test(`startup restores the ${source} import source after session loading`, async t => {
+  const f = await fixture(t, { url: `http://synthetic.test/?page=import&importSource=${source}` });
+  assert.match(f.app.innerHTML, new RegExp(`data-import-source="${source}" aria-pressed="true"`));
+  assert.equal(location.searchParams.get("page"), "import");
+  assert.equal(f.entries.length, 1);
+});
+
+for (const scope of ["notices", "near", "done"]) test(`startup restores the ${scope} task category`, async t => {
+  const f = await fixture(t, { url: `http://synthetic.test/?scope=${scope}` });
+  assert.match(f.app.innerHTML, new RegExp(`data-scope="${scope}"[^>]*aria-current="page"`));
+});
+
+test("startup restores the calendar range, selected date and undated pane", async t => {
+  const f = await fixture(t, { url: "http://synthetic.test/?view=calendar&mode=week&anchor=2026-12-24&date=2026-12-25&pane=undated" });
+  assert.match(f.app.innerHTML, /data-calendar-mode="week" aria-pressed="true"/);
+  assert.match(f.app.innerHTML, /data-calendar-day="2026-12-25"[^>]*aria-pressed="true"/);
+  assert.match(f.app.innerHTML, /data-calendar-pane="undated"[^>]*aria-pressed="true"/);
+});
+
+test("navigation writes history once per change and back/forward restores the import source", async t => {
+  const f = await fixture(t);
+  await f.click({ scope: "notices" });
+  await f.click({ page: "import" });
+  await f.click({ importSource: "teaching" });
+  await new Promise(setImmediate);
+  assert.equal(location.searchParams.get("importSource"), "teaching");
+  const count = f.entries.length;
+  await f.click({ importSource: "teaching" });
+  assert.equal(f.entries.length, count);
+  await history.go(-1);
+  assert.match(f.app.innerHTML, /data-import-source="text" aria-pressed="true"/);
+  await history.go(-1);
+  assert.match(f.app.innerHTML, /data-scope="notices"[^>]*aria-current="page"/);
+  await history.go(1);
+  await history.go(1);
+  assert.match(f.app.innerHTML, /data-import-source="teaching" aria-pressed="true"/);
+  assert.equal(f.entries.length, count);
+});
+
+test("calendar changes update the URL and back restores its previous month", async t => {
+  const f = await fixture(t, { url: "http://synthetic.test/?view=calendar&anchor=2026-12-01&date=2026-12-24" });
+  await f.click({ action: "calendar-next" });
+  assert.equal(location.searchParams.get("anchor"), "2027-01-01");
+  assert.equal(location.searchParams.get("date"), "2027-01-01");
+  await history.go(-1);
+  assert.match(f.app.innerHTML, /value="2026-12-24"/);
+  assert.equal(location.searchParams.get("anchor"), "2026-12-01");
+  await f.click({ calendarMode: "week" });
+  await f.click({ action: "calendar-next" });
+  assert.equal(location.searchParams.get("date"), "2026-12-31");
+  await f.click({ calendarPane: "undated" });
+  assert.equal(location.searchParams.get("pane"), "undated");
+  await f.click({ calendarDay: "2026-12-30" });
+  assert.equal(location.searchParams.get("pane"), "day");
+  assert.equal(location.searchParams.get("date"), "2026-12-30");
+  await f.doc.emit("change", { id: "calendar-jump", value: "2027-02-01", dataset: {} });
+  assert.equal(location.searchParams.get("anchor"), "2027-02-01");
+  await f.click({ action: "calendar-today" });
+  assert.equal(location.searchParams.get("date"), "2026-10-15");
+});
+
+test("account reset keeps safe navigation while clearing the import draft", async t => {
+  const f = await fixture(t, { url: "http://synthetic.test/?page=import&importSource=text" });
+  await f.doc.emit("input", { id: "import-text", value: "私有的未提交通知" });
+  await f.win.emit("niuma:account-reset");
+  assert.match(f.app.innerHTML, /data-import-source="text" aria-pressed="true"/);
+  assert.doesNotMatch(f.app.innerHTML, /私有的未提交通知/);
+  assert.doesNotMatch(location.href, /私有|query|text=/);
+});
 
 for (const mode of ["month", "week"]) test(`${mode} calendar drag writes a date without a time, suppresses detail opening and undo restores undated`, async t => {
   const date = mode === "week" ? "2026-10-16" : "2026-10-20";
@@ -274,13 +366,14 @@ test("visible restoration updates the date without replacing import or dialog dr
 });
 
 for (const mode of ["month", "week"]) for (const noticeTime of ["", "18:30"])
-test(`${mode} calendar moves a notice key date, retains ${noticeTime || "date-only precision"} and undoes`, async t => {
-  const f = await fixture(t, { noticeTime });
+test(`${mode} calendar moves a notice key date, retains ${noticeTime || "date-only precision"}, updates the URL and undoes`, async t => {
+  const f = await fixture(t, { noticeTime, url: `http://synthetic.test/?view=calendar&mode=${mode}&anchor=2026-10-15&date=2026-10-23` });
   const date = mode === "week" ? "2026-10-17" : "2026-10-20";
   await f.click({ view: "calendar" });
   await f.click({ calendarMode: mode });
   await f.click({ calendarDay: "2026-10-23" });
   assert.match(f.app.innerHTML, /data-calendar-drag-task="notice"/);
+  const historyLength = f.entries.length;
   await f.drag(date, "notice");
   const due = { date, precision: noticeTime ? "datetime" : "date", ...(noticeTime ? { time: noticeTime } : {}) };
   assert.equal(f.writes.length, 1);
@@ -288,6 +381,9 @@ test(`${mode} calendar moves a notice key date, retains ${noticeTime || "date-on
   assert.deepEqual(saved.due, due);
   assert.equal(saved.content_type, "notice");
   assert.equal(saved.planningExcluded, true);
+  assert.equal(location.searchParams.get("date"), date);
+  assert.equal(location.searchParams.get("mode"), mode);
+  assert.equal(f.entries.length, historyLength);
   assert.equal(f.drawer.open, false);
   assert.match(f.toast.innerHTML, new RegExp(`关键日期已改为 ${date}${noticeTime ? ` ${noticeTime}` : ""}`));
   await f.undo.onclick();
