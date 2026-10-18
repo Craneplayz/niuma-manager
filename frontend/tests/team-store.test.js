@@ -650,12 +650,12 @@ test("a failed calendar drop stays undated and is never replayed by retry or a l
   assert.equal(f.tasks[0].due.date, "2026-10-21");
 });
 
-test("calendar changes reject stale dates, notices and invalid dates without writing", async () => {
-  const f = fixture("calendar-stale", [task("calendar", { due: { date: "2026-10-21", time: "18:00", precision: "datetime" } }), task("notice", { content_type: "notice" })]);
+test("calendar changes reject stale dates, missing records and invalid dates without writing", async () => {
+  const f = fixture("calendar-stale", [task("calendar", { due: { date: "2026-10-21", time: "18:00", precision: "datetime" } })]);
   await initSession();
   const empty = { due: "", dueTime: "" };
   await assert.rejects(setStoredTaskDeadline("calendar", empty, { due: "2026-10-20", dueTime: "" }), /任务日期已变化/);
-  await assert.rejects(setStoredTaskDeadline("notice", { due: "2026-10-20", dueTime: "" }, empty), /任务日期已变化/);
+  await assert.rejects(setStoredTaskDeadline("missing", { due: "2026-10-20", dueTime: "" }, empty), /任务日期已变化/);
   await assert.rejects(setStoredTaskDeadline("calendar", { due: "2026-02-30", dueTime: "" }, empty), /无效/);
   assert.equal(f.writes.length, 0);
 });
@@ -674,4 +674,27 @@ test("a calendar version conflict requires reload and never queues the rejected 
   const restored = await reloadStore();
   assert.equal(restored.tasks[0].due, "");
   assert.equal(f.writes.length, 0);
+});
+
+test("notice key date assignment, rescheduling and undo preserve notice and source metadata", async () => {
+  const original = task("calendar-notice", {
+    content_type: "notice", planningExcluded: true, source: "教学网", sourceUrl: "https://example.test/notice",
+    recognitionHistory: [{ candidateId: "notice-source" }], description: "原文说明", serverMetadata: { untouched: true },
+  });
+  const f = fixture("calendar-notice", [original]);
+  await initSession();
+  const empty = { due: "", dueTime: "" }, assigned = { due: "2026-10-20", dueTime: "18:30" }, moved = { ...assigned, due: "2026-10-22" };
+  await setStoredTaskDeadline(original.id, assigned, empty);
+  let result = await setStoredTaskDeadline(original.id, moved, assigned);
+  assert.equal(result.tasks[0].due, moved.due);
+  assert.equal(result.tasks[0].dueTime, moved.dueTime);
+  assert.deepEqual(f.tasks[0].due, { date: moved.due, time: "18:30", precision: "datetime" });
+  for (const field of Object.keys(original).filter(key => key !== "due"))
+    assert.deepEqual(f.tasks[0][field], original[field]);
+  result = await setStoredTaskDeadline(original.id, assigned, moved);
+  assert.equal(result.tasks[0].due, assigned.due);
+  await setStoredTaskDeadline(original.id, empty, assigned);
+  assert.equal(f.tasks[0].due, null);
+  assert.equal(f.tasks[0].content_type, "notice");
+  assert.equal(f.tasks[0].planningExcluded, true);
 });

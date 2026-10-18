@@ -149,7 +149,7 @@ function draggableTask(id) {
   if (taskBusy || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
       dialog.open || drawer.open || !demo && !session.user) return null;
-  return state.tasks.find((task) => task.id === id && !isNotice(task) &&
+  return state.tasks.find((task) => task.id === id &&
     task.status !== "done" && !task.recycleBin);
 }
 function clearUndo() {
@@ -588,10 +588,11 @@ async function dropTaskOnDate(id, date) {
   if (!task || !shiftDay(date, 0) || task.due === date) return;
   const epoch = accountVersion(), previous = taskDate(task), applied = { due: date, dueTime: previous.dueTime };
   const verb = shiftDay(previous.due, 0) ? "更改" : "设置";
+  const dateLabel = isNotice(task) ? "关键日期" : "截止日期";
   const origin = { anchor: ui.anchor, selectedDate: ui.selectedDate, mode: ui.mode, pane: ui.pane };
   taskBusy = true;
   render();
-  toast(`正在${verb}截止日期…`);
+  toast(`正在${verb}${dateLabel}…`);
   try {
     await saveTaskDeadline(id, applied, previous);
     if (epoch !== accountVersion()) return;
@@ -600,11 +601,11 @@ async function dropTaskOnDate(id, date) {
       ui.selectedDate = date;
       syncNavigation("replace");
     }
-    toast(`截止日期已${verb === "更改" ? "改为" : "设为"} ${date}${applied.dueTime ? ` ${applied.dueTime}` : ""}`, async () => {
+    toast(`${dateLabel}已${verb === "更改" ? "改为" : "设为"} ${date}${applied.dueTime ? ` ${applied.dueTime}` : ""}`, async () => {
       if (taskBusy) throw new Error("正在保存，请稍候再撤销");
       if (drawerEditing && drawer.open) throw new Error("请先关闭任务编辑再撤销");
       const current = state.tasks.find((item) => item.id === id);
-      if (!current || isNotice(current) || current.due !== applied.due || (current.dueTime || "") !== applied.dueTime)
+      if (!current || current.due !== applied.due || (current.dueTime || "") !== applied.dueTime)
         throw new Error("任务日期已变化，无法撤销这次操作");
       taskBusy = true;
       render();
@@ -617,7 +618,7 @@ async function dropTaskOnDate(id, date) {
       }
     });
   } catch (error) {
-    if (epoch === accountVersion()) toast(`未${verb}截止日期：${error.message}，${session.conflict ? "请先重新读取任务" : "可重新拖动重试"}`);
+    if (epoch === accountVersion()) toast(`未${verb}${dateLabel}：${error.message}，${session.conflict ? "请先重新读取任务" : "可重新拖动重试"}`);
   } finally {
     taskBusy = false;
     render();

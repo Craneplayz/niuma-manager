@@ -78,7 +78,7 @@ export function createSourceSyncUI(host) {
   let account = host.accountVersion(), readController = null, writeController = null;
   let renderedWhileLoading = false;
   let pendingOperation = null, consumed = null, showHistory = false, focusedRun = null, actionInFlight = null;
-  let locatedRun = null, linkedRun = null, locateController = null;
+  let locatedRun = null, linkedRuns = new Map(), locateController = null;
   let recoveryHighlight = null;
   const categories = new Map(), selectedProblems = new Map();
   let lastCheck = null;
@@ -118,7 +118,7 @@ export function createSourceSyncUI(host) {
     account = host.accountVersion();
     runs = []; loaded = writing = refreshing = false;
     error = null; pendingOperation = consumed = focusedRun = actionInFlight = null;
-    locatedRun = linkedRun = null;
+    locatedRun = null; linkedRuns.clear();
     showHistory = false; categories.clear(); selectedProblems.clear();
     lastCheck = null; manualRuns.clear(); announced.clear();
   }
@@ -336,34 +336,85 @@ export function createSourceSyncUI(host) {
     const valid = () => current(value) && !controller.signal.aborted && locateController === controller;
     locateController = controller;
     try {
-      let target = runs.find(item => item.run_id === link.run_id);
-      if (!target) target = checkRun(await host.api(`${API}/${encodeURIComponent(link.run_id)}`, undefined, "GET", { signal: controller.signal }));
-      if (!valid()) return;
-      const source = link.request_id ? target.records.find(item => item.request_id === link.request_id) : null;
-      // recovered_by confirms this source succeeded. Compaction can remove its
-      // empty result while unrelated failures keep the target batch incomplete.
-      if (target.run_id !== link.run_id || ACTIVE.has(target.state) || source && source.state !== "succeeded")
-        throw new Error("recovery unavailable");
       const state = host.getState?.() || {};
       const tasks = [...(state.tasks || []), ...(state.trash || []), ...(host.getCancelledTasks?.() || [])];
-      const related = {
-        added: source?.added_items || [], review: source?.review_items || [],
-        updated: link.request_id ? (target.updated_tasks || []).filter(item => tasks.some(task => task.id === item.task_id &&
-          task.recognitionHistory?.some(event => event.requestId === link.request_id))) : [],
-      };
-      const category = !link.request_id ? null : ["added", "review", "updated"].find(key => related[key].length) ||
-        (source?.added ? "added" : source?.review ? "review" : null);
-      const key = category === "updated" ? "task_id" : "candidate_id";
-      const keys = new Set((related[category] || []).map(item => item[key]));
-      const itemIndex = category ? resultItems(target, category).items.findIndex(item => keys.has(item[key])) : -1;
+      const targets = new Map(), highlights = new Map(), visited = new Set();
+      let missingRelated = false;
+      async function visit(reference, optional = false) {
+        if (!valid()) return;
+        const identity = JSON.stringify([reference.run_id, reference.request_id || null]);
+        if (visited.has(identity)) return;
+        visited.add(identity);
+        let target = targets.get(reference.run_id) || runs.find(item => item.run_id === reference.run_id) || linkedRuns.get(reference.run_id);
+        // Whole-run navigation needs the original receipt: the compact history
+        // projection can hide errors that recovered in several later batches.
+        if (!target || !reference.request_id && !targets.has(reference.run_id)) {
+          const listed = target;
+          try {
+            target = checkRun(await host.api(`${API}/${encodeURIComponent(reference.run_id)}`, undefined, "GET", { signal: controller.signal }));
+          } catch (cause) {
+            // Quiet no-task recovery receipts expire independently of saved
+            // results. Keep the other related batches navigable in that case.
+            if (optional && cause?.status === 404) { missingRelated = true; return; }
+            throw cause;
+          }
+          // Legacy recovery links may exist only in the read-only history
+          // projection. Keep them while using the full receipt's hidden records.
+          if (listed && listed.revision >= target.revision) target = { ...target,
+            records: target.records.map(record => {
+              const projected = listed.records.find(item => item.request_id === record.request_id);
+              return projected?.recovered_by && !record.recovered_by
+                ? { ...record, recovered: true, recovered_by: projected.recovered_by } : record;
+            }) };
+        }
+        if (!valid()) return;
+        if (target.run_id !== reference.run_id || ACTIVE.has(target.state)) throw new Error("recovery unavailable");
+        targets.set(target.run_id, target);
+        const source = reference.request_id ? target.records.find(item => item.request_id === reference.request_id) : null;
+        if (source && source.state !== "succeeded" && !source.recovered_by) throw new Error("recovery unavailable");
+        const related = reference.request_id ? {
+          added: source?.added_items || [], review: source?.review_items || [],
+          updated: (target.updated_tasks || []).filter(item => tasks.some(task => task.id === item.task_id &&
+            task.recognitionHistory?.some(event => event.requestId === reference.request_id))),
+        } : Object.fromEntries(["added", "review", "updated"].map(key => [key, resultItems(target, key).items]));
+        const highlight = highlights.get(target.run_id) || { categories: new Map(), emptySource: false };
+        for (const category of ["added", "review", "updated"]) {
+          const key = category === "updated" ? "task_id" : "candidate_id";
+          const keys = highlight.categories.get(category) || new Set();
+          related[category].forEach(item => keys.add(item[key]));
+          if (keys.size) highlight.categories.set(category, keys);
+        }
+        highlight.emptySource ||= Boolean(reference.request_id && !source);
+        highlights.set(target.run_id, highlight);
+        if (reference.request_id) {
+          if (source?.recovered_by) await visit(source.recovered_by, true);
+        } else {
+          if (target.recovered_by) await visit(target.recovered_by, true);
+          for (const record of target.records) if (record.recovered_by) await visit(record.recovered_by, true);
+        }
+      }
+      await visit(link);
+      if (!valid()) return;
       clearRecoveryHighlight();
-      recoveryHighlight = { runId: target.run_id, category: itemIndex >= 0 ? category : null, keys,
-        emptySource: Boolean(link.request_id && !source && itemIndex < 0) };
-      locatedRun = target.run_id; linkedRun = target; showHistory = true;
-      if (category) categories.set(target.run_id, category);
-      else categories.delete(target.run_id);
+      recoveryHighlight = highlights;
+      linkedRuns = targets; showHistory = true;
+      for (const [id, highlight] of highlights) {
+        const first = highlight.categories.keys().next().value;
+        if (first) categories.set(id, first);
+        else categories.delete(id);
+      }
+      const ordered = [...runs, ...[...targets.values()].filter(target => !runs.some(run => run.run_id === target.run_id))]
+        .filter(target => targets.has(target.run_id))
+        .sort((a, b) => (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0));
+      // Reveal the first related batch, keeping its title and categories above
+      // the highlighted results visible even on Safari and narrow screens.
+      const currentTarget = currentRun();
+      const first = currentTarget && highlights.get(currentTarget.run_id)?.categories.size ? currentTarget
+        : ordered.find(target => highlights.get(target.run_id).categories.size) || ordered[0];
+      locatedRun = first.run_id;
       redraw();
-      host.revealImportResult?.(itemIndex >= 0 ? `sync-item-${target.run_id}-${category}-${itemIndex}` : `sync-run-${target.run_id}`);
+      host.revealImportResult?.(`sync-run-${locatedRun}`);
+      if (missingRelated) host.toast?.("部分恢复记录已无法查看，已保存的任务不受影响");
     } catch (cause) {
       if (valid()) host.toast?.(cause?.status === 404 ? "对应的恢复记录已无法查看，已保存的任务不受影响" : "暂时无法找到对应的恢复记录，请稍后重试");
     } finally { if (locateController === controller) locateController = null; }
@@ -399,8 +450,8 @@ export function createSourceSyncUI(host) {
       const title = [item.label, item.course, status.label, note].filter(Boolean).join(" · ");
       const link = category === "error" && item.recovered && item.recovered_by;
       const recoveryLabel = link?.request_id ? "查看成功批次" : "查看后续采集批次";
-      const highlighted = recoveryHighlight?.runId === run.run_id && recoveryHighlight.category === category &&
-        recoveryHighlight.keys.has(category === "updated" ? item.task_id : item.candidate_id);
+      const highlighted = recoveryHighlight?.get(run.run_id)?.categories.get(category)?.has(
+        category === "updated" ? item.task_id : item.candidate_id);
       return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" ${highlighted ? 'data-source-sync-highlight aria-description="对应的恢复结果"' : ""} type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
     }).join("");
     const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
@@ -414,14 +465,16 @@ export function createSourceSyncUI(host) {
     const groups = importCategorySummaries(collections, host, counts);
     const selected = categories.get(run.run_id);
     const category = groups.some(group => group.key === selected) ? selected : null;
-    const summary = groups.map(({ key, label, count, unit, tone, description }) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category sync-category-${tone}" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${category === key}" aria-controls="sync-results-${esc(run.run_id)}-${key}" title="${esc(description)}" aria-description="${esc(description)}">${label} ${count} ${unit}</button>`).join("");
+    const highlight = recoveryHighlight?.get(run.run_id);
+    const expanded = key => category === key || Boolean(highlight?.categories.has(key));
+    const summary = groups.map(({ key, label, count, unit, tone, description }) => `<button id="sync-category-${esc(run.run_id)}-${key}" class="sync-category sync-category-${tone}" type="button" data-source-sync-action="category" data-source-sync-run="${esc(run.run_id)}" data-source-sync-category="${key}" aria-expanded="${expanded(key)}" aria-controls="sync-results-${esc(run.run_id)}-${key}" title="${esc(description)}" aria-description="${esc(description)}">${label} ${count} ${unit}</button>`).join("");
     const running = ACTIVE.has(run.state);
     if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
-    const recoveryNote = recoveryHighlight?.runId === run.run_id && recoveryHighlight.emptySource
+    const recoveryNote = highlight?.emptySource && !highlight.categories.size
       ? "这条来源已处理完成，没有新增任务或待核对内容。"
       : locatedRun === run.run_id && !groups.length ? "这次处理已完成，没有新增任务或待核对内容。" : "";
-    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading" ${recoveryHighlight?.runId === run.run_id && !recoveryHighlight.category ? 'data-source-sync-highlight' : ""}><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recoveryNote ? `<p class="status-note">${recoveryNote}</p>` : ""}${groups.map(({ key }) => category === key ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
+    return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading" ${highlight && !highlight.categories.size ? 'data-source-sync-highlight' : ""}><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recoveryNote ? `<p class="status-note">${recoveryNote}</p>` : ""}${groups.map(({ key }) => expanded(key) ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
@@ -439,12 +492,13 @@ export function createSourceSyncUI(host) {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
     const current = currentRun(), latest = latestAttempts();
-    const available = linkedRun && !runs.some(run => run.run_id === linkedRun.run_id) ? [...runs, linkedRun] : runs;
-    const all = [...entries, ...(includeSync ? available.filter(run => run !== current && (usefulRun(run) || run.run_id === locatedRun)).map(run => ({
+    const available = [...runs, ...[...linkedRuns.values()].filter(linked => !runs.some(run => run.run_id === linked.run_id))];
+    const all = [...entries, ...(includeSync ? available.filter(run => run !== current && (usefulRun(run) || run.run_id === locatedRun || recoveryHighlight?.has(run.run_id))).map(run => ({
       id: run.run_id, time: run.created_at, html: runMarkup(run, latest),
     })) : [])].sort((a, b) => (Date.parse(b.time) || 0) - (Date.parse(a.time) || 0));
-    const history = all.slice(0, 20), located = all.find(entry => entry.id === locatedRun);
-    if (located && !history.includes(located)) history.splice(19, 1, located);
+    const required = all.filter(entry => recoveryHighlight?.has(entry.id) || entry.id === locatedRun);
+    const ordinary = all.filter(entry => !required.includes(entry)).slice(0, Math.max(0, 20 - required.length));
+    const history = all.filter(entry => required.includes(entry) || ordinary.includes(entry));
     if (!history.length) return "";
     return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(entry => entry.html).join("")}</details>`;
   }
@@ -455,7 +509,7 @@ export function createSourceSyncUI(host) {
     if (["category", "problem", "locate-recovery", "recover", "retry"].includes(action)) clearRecoveryHighlight();
     if (["category", "problem", "open-task", "open-review", "locate-recovery"].includes(action)) {
       syncAccount();
-      const run = runs.find(item => item.run_id === data.sourceSyncRun) || (linkedRun?.run_id === data.sourceSyncRun ? linkedRun : null);
+      const run = runs.find(item => item.run_id === data.sourceSyncRun) || linkedRuns.get(data.sourceSyncRun);
       if (!run) return true;
       if (action === "locate-recovery") {
         const index = Number(data.sourceSyncItem);

@@ -32,7 +32,10 @@ async function openHistory(page, runs, linked = null, { batches = [], tasks = []
       value = { batches };
     }
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs };
-    else if (linked && path === `/api/sources/sync-runs/${linked.run_id}`) value = linked;
+    else if (path.startsWith("/api/sources/sync-runs/")) {
+      value = [...(Array.isArray(linked) ? linked : linked ? [linked] : []), ...runs].find(run => path === `/api/sources/sync-runs/${run.run_id}`);
+      if (!value) throw new Error("Unknown recovery batch: " + path);
+    }
     else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, revision: 0, interval_minutes: 60, sources: ["teaching_web"] };
     else if (path === "/api/sources/credentials") value = { configured: true, username: "synthetic" };
     else throw new Error("Unmocked API: " + path);
@@ -159,7 +162,7 @@ test("category priority follows recovered errors and confirmed reviews without c
   await page.screenshot({ path: info.outputPath("import-priority-reviewed.png"), fullPage: true });
 });
 
-test("recovery highlights the matching source results and aligns its first item near the viewport top", async ({ page }, info) => {
+test("recovery highlights the matching source results and keeps the batch heading fully visible above its first related item", async ({ page }, info) => {
   const old = failedRun("linked:old", 1, 1), target = syncRun({ id: "linked:success", states: ["succeeded", "succeeded"], added: 1 });
   target.records[0].request_id = "other:source";
   target.records[0].added_items = [{ candidate_id: "other", task_id: "other-task", label: "其他来源任务", course: null }];
@@ -178,12 +181,15 @@ test("recovery highlights the matching source results and aligns its first item 
   await expect(result).toContainText("恢复来源对应任务");
   await expect(result).toHaveAttribute("data-source-sync-highlight", "");
   await expect(result).toHaveCSS("background-color", "rgb(237, 243, 248)");
-  await expect.poll(async () => Math.abs((await result.boundingBox()).y - 24)).toBeLessThan(2);
+  const targetHeading = page.locator(`[id="sync-run-${target.run_id}"] .sync-run-heading`);
+  await expect(targetHeading).toBeInViewport();
+  await expect.poll(async () => Math.abs((await page.locator(`[id="sync-run-${target.run_id}"]`).boundingBox()).y - 24)).toBeLessThan(2);
+  expect((await result.boundingBox()).y).toBeGreaterThan((await targetHeading.boundingBox()).y);
   await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(2);
   await expect(page.locator(`[id="sync-item-${target.run_id}-added-0"]`)).not.toHaveAttribute("data-source-sync-highlight");
   await expect(page.locator("[data-source-sync-hint], .sync-recovery-hint")).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("import-recovery-highlight.png") });
-  await page.mouse.wheel(0, 120);
+  await page.evaluate(() => window.scrollBy(0, 120));
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(2);
   await page.getByRole("button", { name: "刷新", exact: true }).click();
@@ -237,5 +243,56 @@ test("history separates notice type from completion and distinguishes reviewed c
   await expect(names.nth(1).locator(".notice-label")).toHaveText("通知");
   await names.first().click();
   await expect(page.locator("#toast")).toContainText("这条任务或通知已取消");
+  expect(writes).toHaveLength(0);
+});
+
+
+test("whole connection recovery highlights every related category across several batches without clipping the heading", async ({ page }, info) => {
+  const old = syncRun({ id: "whole:failure", state: "succeeded", states: [] });
+  old.error = { code: "collection_failed", message: "无法连接教学网，请核对账号和密码后重试。", retryable: true };
+  const target = syncRun({ id: "whole:collected", state: "partial_success", states: ["succeeded", "failed"], added: 1, review: 1 });
+  target.records[0].request_id = "whole:initial";
+  target.records[0].added_items = [{ candidate_id: "initial", task_id: "initial", label: "首次恢复后保存的任务", course: null }];
+  target.records[0].review_items = [{ candidate_id: "initial-review", label: "首次恢复后待核对", course: null }];
+  const later = syncRun({ id: "whole:retry", added: 1, review: 1,
+    updates: [{ task_id: "updated", label: "后续批次修改的任务", course: null }] });
+  later.records[0].request_id = "whole:retried";
+  later.records[0].added_items = [{ candidate_id: "retried", task_id: "retried", label: "后续批次新增的任务", course: null }];
+  later.records[0].review_items = [{ candidate_id: "retried-review", label: "后续批次待核对", course: null }];
+  target.records[1].request_id = "whole:failed-source";
+  target.records[1].recovered = true;
+  target.records[1].recovered_by = { run_id: later.run_id, request_id: "whole:retried" };
+  old.recovered_by = { run_id: target.run_id };
+  old.created_at = "2026-10-01T00:00:00Z";
+  target.created_at = "2026-10-02T00:00:00Z";
+  later.created_at = "2026-10-03T00:00:00Z";
+  const unrelated = syncRun({ id: "whole:unrelated", added: 1 });
+  unrelated.records[0].added_items = [{ candidate_id: "other", task_id: "other", label: "无关任务", course: null }];
+  const writes = await openHistory(page, [unrelated, target, old], [target, later], { batches: [{
+    sourceSyncManaged: true, request: { contract_version: "0.2", request_id: "whole:reviews", records: [] },
+    result: { status: "success" }, items: ["initial-review", "retried-review"].map(id => ({ id, state: "pending", candidate: { title: "合成待核对内容" } })),
+  }], tasks: [
+    { id: "initial", title: "首次恢复后保存的任务", status: "not_started" },
+    { id: "retried", title: "后续批次新增的任务", status: "not_started" },
+    { id: "updated", title: "后续批次修改的任务", status: "not_started", recognitionHistory: [{ requestId: "whole:retried" }] },
+  ] });
+  const oldRow = page.locator(`[id="sync-run-${old.run_id}"]`);
+  await oldRow.getByRole("button", { name: "错误 1 条", exact: true }).click();
+  await oldRow.getByRole("button", { name: /已恢复，查看后续采集批次/ }).click();
+  await expect(page.locator(".sync-result-name[data-source-sync-highlight]")).toHaveCount(5);
+  const first = page.locator(`[id="sync-run-${later.run_id}"]`);
+  await expect(first.locator(".sync-run-heading")).toBeInViewport();
+  await expect.poll(async () => Math.abs((await first.boundingBox()).y - 24)).toBeLessThan(2);
+  for (const id of [target.run_id, later.run_id]) {
+    const row = page.locator(`[id="sync-run-${id}"]`);
+    await expect(row.locator('[data-source-sync-category="added"]')).toHaveAttribute("aria-expanded", "true");
+    await expect(row.locator('[data-source-sync-category="review"]')).toHaveAttribute("aria-expanded", "true");
+  }
+  await expect(first.locator('[data-source-sync-category="updated"]')).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(`[id="sync-run-${unrelated.run_id}"] [data-source-sync-highlight]`)).toHaveCount(0);
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await expect(page.locator(".sync-result-name[data-source-sync-highlight]")).toHaveCount(5);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("import-recovery-multiple-batches.png"), fullPage: true });
   expect(writes).toHaveLength(0);
 });
