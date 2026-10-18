@@ -1,4 +1,4 @@
-import { isNotice } from "./task-model.js";
+import { isNotice, sortTasks } from "./task-model.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const DAY_MS = 86400000;
@@ -65,22 +65,14 @@ export function renderCalendar({
     if (!byDate.has(task.due)) byDate.set(task.due, []);
     byDate.get(task.due).push(task);
   }
-  for (const members of byDate.values()) {
-    members.sort(
-      (a, b) =>
-        String(a.dueTime || "99:99").localeCompare(
-          String(b.dueTime || "99:99"),
-        ) ||
-        String(a.id).localeCompare(String(b.id), undefined, { numeric: true }),
-    );
-  }
+  for (const [date, members] of byDate) byDate.set(date, sortTasks(members));
 
   function taskButton(task, date) {
     const time = task.dueTime ? String(task.dueTime) : "";
     const notice = isNotice(task);
     const label = `${notice ? "通知关键时间：" : "任务截止："}${task.title}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
-    const drag = allowDateDrag && !notice && task.status !== "done"
-      ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看任务，拖到其他日期更改截止日期"` : "";
+    const drag = allowDateDrag && task.status !== "done"
+      ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看${notice ? "通知" : "任务"}，拖到其他日期更改${notice ? "关键日期" : "截止日期"}"` : "";
     return `<button type="button" class="calendar-task${notice ? " is-notice" : ""}" data-task-open="${escapeHtml(task.id)}"${drag} aria-label="${escapeHtml(label)}">${notice ? '<span class="notice-label">通知</span>' : ""}${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}<span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
   }
 

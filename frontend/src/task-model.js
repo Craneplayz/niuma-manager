@@ -45,6 +45,8 @@ export function shiftDay(date, days) {
 
 export function sortTasks(tasks) {
   return [...(Array.isArray(tasks) ? tasks : [])].sort((a, b) => {
+    const statusOrder = Number(a.status === "done") - Number(b.status === "done");
+    if (statusOrder) return statusOrder;
     const aDue = dueOf(a),
       bDue = dueOf(b);
     if (aDue !== bDue) return !aDue ? 1 : !bDue ? -1 : aDue.localeCompare(bDue);

@@ -287,12 +287,12 @@ test("near and completed scopes include notices while all tasks remains task-onl
   assert.deepEqual(ids(filterTasks(mixed, { scope: "near", today })), ["dated-notice"]);
   assert.deepEqual(ids(filterTasks(mixed, { scope: "done", today })), ["done-task", "old-notice"]);
   assert.deepEqual(ids(filterTasks(mixed, { scope: "notices", today })), ["dated-notice", "old-notice"]);
-  assert.deepEqual(ids(filterTasks(mixed, { scope: "calendar", today })), ["dated-notice", "old-notice", "undated-task"]);
+  assert.deepEqual(ids(filterTasks(mixed, { scope: "calendar", today })), ["dated-notice", "undated-task", "old-notice"]);
   assert.deepEqual(ids(filterTasks(mixed, { scope: "notices", query: "公示", dateFrom: today, today })), ["dated-notice"]);
   assert.equal(mixed[2].status, "done");
 });
 
-test("notice lists keep ascending key times across source order, filters and read status without mutating stored order", () => {
+test("notice lists put unread first and retain ascending key times within each read status without mutating stored order", () => {
   const notice = (id, due, dueTime = "", status = "todo", course = "数据结构") => ({
     id, title: `合成通知 ${id}`, content_type: "notice", due, dueTime, status, course,
   });
@@ -307,7 +307,7 @@ test("notice lists keep ascending key times across source order, filters and rea
     notice("30", "2026-02-30"),
   ];
   const saved = structuredClone(notices);
-  const expected = ["1", "2", "10", "4", "5", "9", "20", "30"];
+  const expected = ["1", "10", "5", "9", "30", "2", "4", "20"];
   const renderedIds = rows => [...renderTaskList(rows, { today }).matchAll(/data-task-open="([^"]+)"/g)]
     .map(match => match[1]);
   const filtered = filterTasks(notices, { scope: "notices", today });
@@ -316,9 +316,9 @@ test("notice lists keep ascending key times across source order, filters and rea
   assert.deepEqual(renderedIds(notices), expected);
   assert.deepEqual(notices, saved);
   assert.deepEqual(renderedIds(filterTasks(notices, { scope: "notices", query: "合成通知", course: "物理", today })), ["10", "4", "20"]);
-  assert.deepEqual(renderedIds(filterTasks(notices, { scope: "notices", dateFrom: today, dateTo: today, today })), ["2", "10", "4", "5"]);
+  assert.deepEqual(renderedIds(filterTasks(notices, { scope: "notices", dateFrom: today, dateTo: today, today })), ["10", "5", "2", "4"]);
   const readChanged = notices.map(row => ({ ...row, status: row.status === "done" ? "todo" : "done" }));
-  assert.deepEqual(renderedIds(filterTasks(readChanged, { scope: "notices", today })), expected);
+  assert.deepEqual(renderedIds(filterTasks(readChanged, { scope: "notices", today })), ["2", "4", "20", "1", "10", "5", "9", "30"]);
 });
 
 test("notice lists and details expose synchronized reversible read controls without task completion wording", () => {
@@ -362,7 +362,7 @@ test("month, week and day panels distinguish dated notices and retain undated no
   assert.match(undated, /data-task-complete="undated-notice"[^>]*role="checkbox"[^>]*aria-checked="false"/);
 });
 
-test("mixed near lists honor notice dates, read status and combined filters without calling notice times overdue", () => {
+test("mixed near lists honor notice dates, read status and combined filters with shared overdue colors", () => {
   const notices = [
     { id: "past-notice", title: "教室调整", content_type: "notice", status: "todo", due: shiftDay(today, -1), course: "物理", source: "教学网" },
     { id: "week-notice", title: "分组公示", content_type: "notice", status: "todo", due: shiftDay(today, 7), course: "物理", source: "教学网" },
@@ -377,7 +377,30 @@ test("mixed near lists honor notice dates, read status and combined filters with
   const markup = renderTaskList(near, { today });
   assert.match(markup, /早于今天/);
   assert.doesNotMatch(markup, />已逾期</);
+  assert.match(markup, /class="task-row is-notice is-overdue" data-task-id="past-notice"/);
   assert.match(markup, /data-task-complete="past-notice"/);
+});
+
+test("tasks and notices share overdue styling for valid unread dates and clear it after completion", () => {
+  for (const content_type of ["task", "notice"]) {
+    const row = overrides => renderTaskRow({ id: "row", title: "合成内容", content_type, status: "todo", due: shiftDay(today, -1), ...overrides }, { today });
+    assert.match(row({}), /is-overdue/);
+    for (const overrides of [{ status: "done" }, { due: today }, { due: "" }, { due: "2026-02-30" }])
+      assert.doesNotMatch(row(overrides), /is-overdue/);
+  }
+});
+
+test("calendar and day panels put unread notices before read notices even when their key time is later", () => {
+  const notices = [
+    { id: "read", title: "早间已读", content_type: "notice", status: "done", due: today, dueTime: "08:00" },
+    { id: "unread", title: "晚间未读", content_type: "notice", status: "todo", due: today, dueTime: "18:00" },
+  ];
+  for (const mode of ["month", "week"]) {
+    const markup = renderCalendar({ tasks: notices, today, mode });
+    assert.ok(markup.indexOf('data-task-open="unread"') < markup.indexOf('data-task-open="read"'));
+  }
+  const day = renderDayPanel({ tasks: notices, selectedDate: today, today });
+  assert.ok(day.indexOf('data-task-open="unread"') < day.indexOf('data-task-open="read"'));
 });
 
 test('task edits reject changed or removed records while allowing independent status and metadata updates',async()=>{

@@ -51,7 +51,7 @@ class Element extends Surface {
     return null;
   }
 }
-function fixture() {
+function fixture(task = { title: "合成任务 <无 HTML>" }) {
   const doc = new Surface(), win = new Surface(), root = new Element(), source = new Element(), cell = new Element();
   const body = new Element(), drops = [];
   source.dataset.calendarDragTask = "undated";
@@ -70,7 +70,7 @@ function fixture() {
   let eligible = true;
   const controller = createCalendarDrag({
     root,
-    getTask: id => eligible && id === "undated" ? { title: "合成任务 <无 HTML>" } : null,
+    getTask: id => eligible && id === "undated" ? task : null,
     onDrop: (id, date) => drops.push({ id, date }),
   });
   const emit = (type, values) => doc.emit(type, { target: source, ...values });
@@ -171,7 +171,7 @@ test("touch scrolling, secondary buttons and unrelated pointers cannot assign da
   assert.deepEqual(f.drops, []);
 });
 
-test("dated and undated tasks share drag targets, while notices, completed tasks and disabled views do not drag", () => {
+test("dated and undated tasks and unread notices share drag targets, while completed and disabled views do not drag", () => {
   const tasks = [
     { id: "undated", title: "未定日期", due: "", status: "todo" },
     { id: "notice", title: "通知", content_type: "notice", due: "", status: "todo" },
@@ -179,21 +179,42 @@ test("dated and undated tasks share drag targets, while notices, completed tasks
     { id: "dated", title: "有日期", due: "2026-10-16", status: "todo" },
     { id: "dated-notice", title: "有日期通知", content_type: "notice", due: "2026-10-16", status: "todo" },
     { id: "dated-done", title: "有日期已完成", due: "2026-10-16", status: "done" },
+    { id: "read-notice", title: "已读通知", content_type: "notice", due: "2026-10-16", status: "done" },
+    { id: "read-undated-notice", title: "已读无日期通知", content_type: "notice", due: "", status: "done" },
   ];
   const panel = renderDayPanel({ tasks, pane: "undated", allowDateDrag: true, today: "2026-10-16" });
-  assert.equal((panel.match(/data-calendar-drag-task=/g) || []).length, 1);
+  assert.equal((panel.match(/data-calendar-drag-task=/g) || []).length, 2);
   assert.match(panel, /data-calendar-drag-task="undated"/);
+  assert.match(panel, /data-calendar-drag-task="notice"/);
+  assert.doesNotMatch(panel, /data-calendar-drag-task="read-undated-notice"/);
   assert.doesNotMatch(panel, /<button[^>]*>设置日期/);
   const day = renderDayPanel({ tasks, pane: "day", allowDateDrag: true, today: "2026-10-16" });
-  assert.equal((day.match(/data-calendar-drag-task=/g) || []).length, 1);
+  assert.equal((day.match(/data-calendar-drag-task=/g) || []).length, 2);
   assert.match(day, /data-calendar-drag-task="dated"/);
+  assert.match(day, /data-calendar-drag-task="dated-notice"/);
+  assert.doesNotMatch(day, /data-calendar-drag-task="read-notice"/);
   for (const pane of ["day", "undated"])
     assert.doesNotMatch(renderDayPanel({ tasks, pane, allowDateDrag: false, today: "2026-10-16" }), /data-calendar-drag-task/);
   for (const mode of ["month", "week"]) {
     const calendar = renderCalendar({ tasks, mode, allowDateDrag: true, today: "2026-10-16" });
     assert.match(calendar, /data-calendar-drop-date="2026-10-16"/);
-    assert.equal((calendar.match(/data-calendar-drag-task=/g) || []).length, 1);
+    assert.equal((calendar.match(/data-calendar-drag-task=/g) || []).length, 2);
     assert.match(calendar, /data-calendar-drag-task="dated"/);
+    assert.match(calendar, /data-calendar-drag-task="dated-notice"/);
+    assert.doesNotMatch(calendar, /data-calendar-drag-task="read-notice"/);
     assert.doesNotMatch(renderCalendar({ tasks, mode, today: "2026-10-16" }), /data-calendar-drag-task/);
   }
+});
+
+test("notice drag preview preserves its time and describes a key date, including when outside a date cell", () => {
+  const f = fixture({ title: "合成通知", content_type: "notice", dueTime: "18:30" });
+  f.startDrag();
+  const preview = f.body.children[0];
+  assert.match(preview.children[1].textContent, /关键时间：2026 年 10 月 20 日 18:30/);
+  assert.doesNotMatch(preview.children[1].textContent, /截止/);
+  f.doc.elementFromPoint = () => null;
+  f.emit("pointermove", { clientX: 70 });
+  assert.match(preview.children[1].textContent, /设置关键日期/);
+  f.emit("pointerup");
+  assert.deepEqual(f.drops, []);
 });

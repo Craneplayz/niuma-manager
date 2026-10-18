@@ -313,7 +313,7 @@ export async function setStoredTaskDeadline(id, next, expected) {
   const epoch = accountEpoch;
   await changeStoredTasks((tasks) => {
     const task = tasks.find((item) => item.id === id && !item.recycleBin && item.status !== "cancelled");
-    if (!task || task.content_type === "notice" ||
+    if (!task ||
         (task.due?.date || "") !== expected.due ||
         (task.due?.time || "") !== expected.dueTime)
       throw new Error("任务日期已变化，请重新核对");

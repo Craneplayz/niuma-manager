@@ -697,7 +697,7 @@ check('only the recovered status locates and expands its successful batch withou
   assert.match(markup(f.ui),/class="sync-recovery-link"[^>]*data-source-sync-action="locate-recovery"/);
   await problem(f.ui,old.run_id,0);assert.deepEqual(f.revealed,[]);
   await locate(f.ui,old);
-  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-0`]);
+  assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
   assert.match(markup(f.ui),/data-source-sync-history open/);
   assert.match(markup(f.ui),/data-source-sync-highlight/);
   assert.doesNotMatch(markup(f.ui),/↳|sync-recovery-hint|data-source-sync-hint/);
@@ -753,7 +753,7 @@ check('recovery highlights survive redraws, polling and navigation cancellation 
   assert.match(markup(f.ui),/data-source-sync-highlight/);
   await f.ui.load();
   assert.match(markup(f.ui),/data-source-sync-highlight/);
-  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-0`]);
+  assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
 });
 
 check('changing categories or leaving import clears recovery highlights without restoring them on refresh', async () => {
@@ -769,7 +769,7 @@ check('changing categories or leaving import clears recovery highlights without 
   await f.ui.load();assert.doesNotMatch(markup(f.ui),/data-source-sync-highlight/);
 });
 
-check('recovery highlights every result from the matching source and locates its first item', async () => {
+check('recovery highlights every result from the matching source and locates the batch header', async () => {
   const {old,target}=linkedRecovery();
   const second=clone(target.records[0]);second.request_id='source:second';second.added=2;
   second.added_items=[{candidate_id:'second',task_id:'second-task',label:'真正的恢复结果',course:null},
@@ -777,7 +777,7 @@ check('recovery highlights every result from the matching source and locates its
   target.records.push(second);target.counts.total++;target.counts.succeeded++;target.counts.added+=2;
   old.records[0].recovered_by.request_id=second.request_id;
   const f=fixture([target,old]);await f.ui.load();await locate(f.ui,old);
-  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-added-1`]);
+  assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
   const highlighted=[...markup(f.ui).matchAll(/<button id="([^"]+)"[^>]*data-source-sync-highlight/g)].map(match=>match[1]);
   assert.deepEqual(highlighted,[`sync-item-${target.run_id}-added-1`,`sync-item-${target.run_id}-added-2`]);
 });
@@ -789,7 +789,7 @@ check('update-only recovery highlights linked task identities and leaves unrelat
   const f=fixture([target,old]);f.remote.tasks=[{id:'other'},
     {id:'linked',recognitionHistory:[{requestId:target.records[0].request_id}]}];
   await f.ui.load();await locate(f.ui,old);
-  assert.deepEqual(f.revealed,[`sync-item-${target.run_id}-updated-1`]);
+  assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
   const highlighted=[...markup(f.ui).matchAll(/<button id="([^"]+)"[^>]*data-source-sync-highlight/g)].map(match=>match[1]);
   assert.deepEqual(highlighted,[`sync-item-${target.run_id}-updated-1`]);
 });
@@ -880,4 +880,85 @@ check('notices use the shared leading badge and task completion status, includin
   assert.match(html,/sync-item-status-success">✓ 已完成/);
   assert.match(categoryMarkup(html,'review'),/sync-category-success/);
   assert.doesNotMatch(html,/已核对/);
+});
+
+check('whole recovery highlights all categories across fetched retry batches and keeps every linked batch beyond the history limit', async () => {
+  const {old,target}=linkedRecovery();
+  old.records=[];old.error={code:'collection_failed',message:'首次连接失败',retryable:true};
+  old.recovered_by={run_id:target.run_id};old.counts={...old.counts,total:0,failed:0};
+  target.created_at='2020-01-01T00:00:00Z';
+  const retry=syncRun({id:'retry:later',added:1,review:1,updates:[{task_id:'updated',label:'后续更新',course:null}]});
+  retry.created_at='2020-01-02T00:00:00Z';
+  retry.records[0].request_id='retry:source';
+  retry.records[0].added_items=[{candidate_id:'retry-added',task_id:'retry-task',label:'后续新增',course:null}];
+  retry.records[0].review_items=[{candidate_id:'retry-review',label:'后续核对',course:null}];
+  const failed={request_id:'earlier:source',label:'首次模型错误',state:'failed',added:0,review:0,error:null,
+    recovered:true,recovered_by:{run_id:retry.run_id,request_id:'retry:source'}};
+  target.records.push(failed);target.counts.total++;target.counts.failed++;
+  const f=fixture([old,...Array.from({length:19},(_,i)=>syncRun({id:'filler:whole:'+i,added:1}))]);
+  f.remote.tasks=[{id:'updated',recognitionHistory:[{requestId:'retry:source'}]}];
+  f.setAPI((call,normal)=>call.path===API+'/'+encodeURIComponent(target.run_id)?clone(target):
+    call.path===API+'/'+encodeURIComponent(retry.run_id)?clone(retry):normal(call));
+  await f.ui.load();await locate(f.ui,old);
+  assert.deepEqual(f.revealed,[`sync-run-${retry.run_id}`]);
+  const html=markup(f.ui);
+  const highlighted=[...html.matchAll(/<button id="([^"]+)"[^>]*data-source-sync-highlight/g)].map(match=>match[1]);
+  assert.deepEqual(new Set(highlighted),new Set([`sync-item-${target.run_id}-added-0`,
+    `sync-item-${retry.run_id}-added-0`,`sync-item-${retry.run_id}-review-0`,`sync-item-${retry.run_id}-updated-0`]));
+  for(const key of ['added','review','updated']) assert.match(categoryMarkup(html,key,retry.run_id),/aria-expanded="true"/);
+  assert.match(html,/历史导入 · 20/);assert.equal(f.posts().length,0);
+  await f.ui.load();assert.equal((markup(f.ui).match(/data-source-sync-highlight/g)||[]).length,4);
+  await category(f.ui,retry.run_id,'review');assert.doesNotMatch(markup(f.ui),/data-source-sync-highlight/);
+});
+
+check('whole recovery follows unprojected receipts when the listed batch has hidden settled errors', async () => {
+  const {old,target}=linkedRecovery();
+  old.records=[];old.error={code:'collection_failed',message:'旧连接失败',retryable:true};
+  old.recovered_by={run_id:target.run_id};old.counts={...old.counts,total:0,failed:0};
+  const next=syncRun({id:'hidden:retry',added:1});
+  next.records[0].added_items=[{candidate_id:'next',task_id:'next-task',label:'隐藏错误恢复后的任务',course:null}];
+  const raw=clone(target);
+  raw.records.push({request_id:'hidden:failure',label:'已隐藏错误',state:'failed',added:0,review:0,error:null,
+    recovered:true,recovered_by:{run_id:next.run_id,request_id:next.records[0].request_id}});
+  raw.counts.total++;raw.counts.failed++;
+  const f=fixture([target,old]);
+  f.setAPI((call,normal)=>call.path===API+'/'+encodeURIComponent(target.run_id)?clone(raw):
+    call.path===API+'/'+encodeURIComponent(next.run_id)?clone(next):normal(call));
+  await f.ui.load();await locate(f.ui,old);
+  assert.match(markup(f.ui),/隐藏错误恢复后的任务/);
+  assert.equal((markup(f.ui).match(/data-source-sync-highlight/g)||[]).length,2);
+  assert.equal(f.calls.filter(call=>call.path===API+'/'+encodeURIComponent(target.run_id)).length,1);
+});
+
+check('whole recovery retains read-only legacy links while loading the full receipt', async () => {
+  const {old,target}=linkedRecovery();
+  old.records=[];old.error={code:'collection_failed',message:'旧连接失败',retryable:true};
+  old.recovered_by={run_id:target.run_id};old.counts={...old.counts,total:0,failed:0};
+  const next=syncRun({id:'legacy:retry',added:1});
+  next.records[0].added_items=[{candidate_id:'next',task_id:'next-task',label:'后续恢复结果',course:null}];
+  target.records.push({request_id:'legacy:failed',label:'旧失败',state:'failed',added:0,review:0,error:null,
+    recovered:true,recovered_by:{run_id:next.run_id,request_id:next.records[0].request_id}});
+  target.counts.total++;target.counts.failed++;
+  const raw=clone(target);delete raw.records[1].recovered;delete raw.records[1].recovered_by;
+  const f=fixture([next,target,old]);
+  f.setAPI((call,normal)=>call.path===API+'/'+encodeURIComponent(target.run_id)?clone(raw):normal(call));
+  await f.ui.load();await locate(f.ui,old);
+  assert.equal((markup(f.ui).match(/data-source-sync-highlight/g)||[]).length,2);
+  assert.deepEqual(f.messages,[]);
+});
+
+check('an expired descendant receipt does not hide other saved recovery results', async () => {
+  const {old,target}=linkedRecovery();
+  old.records=[];old.error={code:'collection_failed',message:'旧连接失败',retryable:true};
+  old.recovered_by={run_id:target.run_id};old.counts={...old.counts,total:0,failed:0};
+  target.records.push({request_id:'expired:failure',label:'没有产出的已恢复来源',state:'failed',added:0,review:0,error:null,
+    recovered:true,recovered_by:{run_id:'expired:quiet',request_id:'quiet:source'}});
+  target.counts.total++;target.counts.failed++;
+  const f=fixture([target,old]);
+  f.setAPI((call,normal)=>{if(call.path===API+'/expired%3Aquiet')throw {status:404};return normal(call);});
+  await f.ui.load();await locate(f.ui,old);
+  assert.match(markup(f.ui),/data-source-sync-highlight/);
+  assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
+  assert.deepEqual(f.messages,['部分恢复记录已无法查看，已保存的任务不受影响']);
+  assert.equal(f.posts().length,0);
 });

@@ -603,6 +603,60 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual([run['run_id'] for run in listing['runs']],[successful['run_id'],unrelated['run_id'],latest['run_id']])
         self.assertFalse(listing['runs'][1]['records'][0].get('recovered',False))
         self.assertEqual(listing['runs'][2]['records'][0]['recovered_by'],dict(run_id=successful['run_id'],request_id='success:new-snapshot'))
+        # Detail navigation can still follow a hidden legacy record. Only the
+        # recovery metadata is enriched; original errors, counts and state stay.
+        details=self.call('/sources/sync-runs/'+old['run_id'])[1];check('run',details)
+        self.assertEqual(details['state'],old['state']);self.assertEqual(details['counts'],old['counts'])
+        self.assertEqual(details['records'][0]['state'],'failed')
+        self.assertEqual(details['records'][0]['error'],old['records'][0]['error'])
+        self.assertEqual(details['records'][0]['recovered_by'],dict(run_id=successful['run_id'],request_id='success:new-snapshot'))
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?',(old['run_id'],)).fetchone()[0],original)
+            self.assertNotIn('recovered_by',jobs.get(db,self.uid,old['run_id'],app.ApiError)['records'][0])
+
+    def test_detail_recovery_follows_legacy_replacement_chain_beyond_history_without_writes(self):
+        def item(request_id, state='failed', identity=None):
+            value=dict(request_id=request_id,label=request_id,course=None,state=state,added=int(state=='succeeded'),
+                       review=0,seconds=None,error=jobs.error('agent_timeout','旧识别错误',True) if state=='failed' else None)
+            if identity: value['input_id']=identity
+            if state=='succeeded':
+                value['added_items']=[dict(candidate_id=request_id,task_id=request_id,label=request_id,course=None)]
+            return value
+        def store(db, key, records, replacements=None):
+            run=jobs.start(db,self.uid,dict(contract_version='source-sync/0.1',operation_id=key,sources=['teaching_web'],consent=True),app.ApiError)
+            run['records']=records
+            if replacements: run['recovery_replacements']=replacements
+            jobs.save(db,run,'failed' if any(record['state']=='failed' for record in records) else 'succeeded')
+            return run
+        with app.connection() as db:
+            old=store(db,'detail:old',[item('legacy:original'),item('legacy:source','failed','stable-source'),
+                                      item('other:credential','failed','credential-source'),item('other:user','failed','user-source')])
+            original=json.dumps(old)
+            store(db,'detail:replacement',[item('legacy:replacement')],{'legacy:replacement':'legacy:original'})
+            success=store(db,'detail:success',[item('legacy:success','succeeded'),item('fresh:source','succeeded','stable-source')],
+                          {'legacy:success':'legacy:replacement'})
+            foreign=store(db,'detail:foreign',[item('foreign:credential','succeeded','credential-source')])
+            db.execute('UPDATE source_sync_runs SET credential=? WHERE run_id=?',('different-credential',foreign['run_id']))
+            foreign_user=dict(foreign,user_id='another-user',run_id='detail:another-user',operation_id='detail:another-user',
+                              records=[item('foreign:user','succeeded','user-source')])
+            foreign_user['counts']=jobs.counts(foreign_user)
+            db.execute('INSERT INTO source_sync_runs VALUES(?,?,?,?,?,?)',('another-user',foreign_user['run_id'],
+                       foreign_user['operation_id'],jobs.credential(db,self.uid),'succeeded',json.dumps(foreign_user)))
+            for index in range(21): store(db,'detail:padding:'+str(index),[item('padding:'+str(index),'succeeded')])
+            # Simulate receipts written before recovery links were persisted.
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(original,old['run_id']))
+            self.assertNotIn(old['run_id'],[run['run_id'] for run in jobs.history(db,self.uid)])
+            writes=db.total_changes
+            details=jobs.get_details(db,self.uid,old['run_id'],app.ApiError)
+            self.assertEqual(db.total_changes,writes)
+            self.assertEqual([record.get('recovered_by') for record in details['records']],
+                             [dict(run_id=success['run_id'],request_id='legacy:success'),
+                              dict(run_id=success['run_id'],request_id='fresh:source'),None,None])
+        fetched=self.call('/sources/sync-runs/'+old['run_id'])[1];check('run',fetched)
+        self.assertEqual(fetched,jobs.view(details))
+        for record in details['records']:
+            record.pop('recovered',None);record.pop('recovered_by',None)
+        self.assertEqual(details,old)
         with app.connection() as db:
             self.assertEqual(db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?',(old['run_id'],)).fetchone()[0],original)
 
@@ -737,6 +791,29 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(listing['runs'][0]['counts']['failed'],1)
         self.assertNotIn('collection_completed',json.dumps(listing))
 
+    def test_collection_error_recovers_after_credentials_are_resaved_corrected_or_switched(self):
+        credentials = [
+            ('synthetic-course-user', 'synthetic-password'),
+            ('synthetic-course-user', 'corrected-password'),
+            ('another-course-user', 'another-password'),
+        ]
+        for index, (username, password) in enumerate(credentials):
+            with self.subTest(username=username, password_changed=index == 1):
+                with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout='')):
+                    first=self.start('credentials-recovery:failed:'+str(index));jobs.wait_for_jobs(app.DB)
+                old=self.until(first['run_id'],lambda r:r['state']=='failed')
+                self.assertEqual(old['records'],[])
+                with app.connection() as db: original_credential=jobs.credential(db,self.uid)
+                self.assertEqual(self.call('/sources/credentials',dict(username=username,password=password))[0],200)
+                with app.connection() as db: self.assertNotEqual(jobs.credential(db,self.uid),original_credential)
+                with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout='')):
+                    later=self.start('credentials-recovery:connected:'+str(index));jobs.wait_for_jobs(app.DB)
+                raw=self.call('/sources/sync-runs/'+first['run_id'])[1];check('run',raw)
+                self.assertEqual(raw['recovered_by'],dict(run_id=later['run_id']))
+                listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+                projected=next(run for run in listing['runs'] if run['run_id']==first['run_id'])
+                self.assertEqual(projected['state'],'succeeded')
+
     def test_quiet_collection_recovery_persists_after_target_expiry_and_restart(self):
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout='')):
             first=self.start('quiet-recovery:failed');jobs.wait_for_jobs(app.DB)
@@ -753,7 +830,7 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(listing['runs'][0]['recovered_by'],dict(run_id=later['run_id']))
         self.assertEqual(self.call('/sources/sync-runs/'+first['run_id'])[1]['state'],'failed')
 
-    def test_model_retry_scoped_recovery_and_other_credentials_do_not_clear_collection_error(self):
+    def test_model_retry_scoped_recovery_and_other_users_do_not_clear_collection_error(self):
         body=dict(contract_version='source-sync/0.1',operation_id='whole:failure',sources=['teaching_web'],consent=True)
         with app.connection() as db:
             first=jobs.start(db,self.uid,body,app.ApiError)
@@ -764,11 +841,11 @@ class SourceJobsTests(unittest.TestCase):
                                  recovery_targets={} if scoped else None,trigger='retry')
                 later['collection_completed']=True
                 jobs.save(db,later,'succeeded')
-            foreign=jobs.start(db,self.uid,dict(body,operation_id='foreign:credential'),app.ApiError)
-            db.execute('UPDATE source_sync_runs SET credential=? WHERE run_id=?',('another-credential',foreign['run_id']))
-            foreign['collection_completed']=True;jobs.save(db,foreign,'succeeded')
-            # A later collection for another account has no effect on this account.
-            foreign_user=dict(foreign,user_id='another-user',run_id='another-user-run',operation_id='another-user-operation')
+            # Another app user's completed collection has no effect, even when
+            # its teaching credential and source scope match the failed run.
+            foreign_user=dict(first,user_id='another-user',run_id='another-user-run',
+                              operation_id='another-user-operation',state='succeeded',error=None,
+                              collection_completed=True)
             db.execute('INSERT INTO source_sync_runs VALUES(?,?,?,?,?,?)',('another-user',foreign_user['run_id'],foreign_user['operation_id'],jobs.credential(db,self.uid),'succeeded',json.dumps(foreign_user)))
             jobs.recover_collection_errors(db,foreign_user)
         listing=self.call('/sources/sync-runs')[1];check('runs',listing)
@@ -781,8 +858,13 @@ class SourceJobsTests(unittest.TestCase):
         with app.connection() as db:
             first=jobs.start(db,self.uid,body,app.ApiError)
             first['error']=jobs.error('collection_failed','历史采集失败',True);jobs.save(db,first,'failed')
+            # No teaching username can be recovered from this legacy encrypted
+            # fingerprint after the user has already corrected their password.
+            db.execute('UPDATE source_sync_runs SET credential=? WHERE run_id=?',('obsolete-credential',first['run_id']))
             later=jobs.start(db,self.uid,dict(body,operation_id='legacy:success'),app.ApiError)
             jobs.save(db,later,'succeeded')
+            first.pop('recovered_by',None)
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(json.dumps(first),first['run_id']))
             later.pop('collection_completed')
             db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(json.dumps(later),later['run_id']))
             db.execute('UPDATE source_sync_quiet_runs SET expires_at=0 WHERE run_id=?',(later['run_id'],))

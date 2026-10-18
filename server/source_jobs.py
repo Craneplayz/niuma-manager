@@ -158,12 +158,15 @@ def collection_completed(run):
 
 
 def recover_collection_errors(db, run):
-    current = db.execute('SELECT rowid,credential FROM source_sync_runs WHERE user_id=? AND run_id=?',
+    current = db.execute('SELECT rowid FROM source_sync_runs WHERE user_id=? AND run_id=?',
                          (run['user_id'],run['run_id'])).fetchone()
     if not current: return
-    for row in db.execute('''SELECT snapshot FROM source_sync_runs WHERE user_id=? AND credential=? AND rowid<?
+    # A whole-collection failure has no saved source content. A later full
+    # collection confirms the connection recovered even after fixing credentials.
+    # Individual source errors below remain scoped to their original credentials.
+    for row in db.execute('''SELECT snapshot FROM source_sync_runs WHERE user_id=? AND rowid<?
         AND state IN ('failed','partial_success','stopped','interrupted')''',
-        (run['user_id'],current['credential'],current['rowid'])).fetchall():
+        (run['user_id'],current['rowid'])).fetchall():
         older = json.loads(row['snapshot'])
         if (older['records'] or older.get('recovered_by') or older['sources'] != run['sources'] or
                 (older.get('error') or {}).get('code') != 'collection_failed'): continue
@@ -277,6 +280,49 @@ def input_identity(db, uid, item):
     if len(bindings) == 1: return bindings[0]['input_id']
 
 
+def reconcile_record_recovery(run, credential, identity, completed_requests, completed_sources):
+    for item in run['records']:
+        if item['state'] not in ('failed','incomplete','cancelled','interrupted'): continue
+        target = item.get('recovered_by') or completed_requests.get((credential,item['request_id'])) or completed_sources.get((credential,identity(item)))
+        if target: item.update(recovered=True,recovered_by=target)
+
+
+def remember_recovery_targets(run, credential, identity, completed_requests, completed_sources):
+    for item in run['records']:
+        if item['state'] != 'succeeded': continue
+        target = dict(run_id=run['run_id'],request_id=item['request_id'])
+        completed_requests[credential,item['request_id']] = target
+        source = identity(item)
+        if source: completed_sources[credential,source] = target
+    for new,old in run.get('recovery_replacements',{}).items():
+        target = completed_requests.get((credential,new))
+        if target: completed_requests[credential,old] = target
+
+
+def get_details(db, uid, run_id, ApiError):
+    """Enrich recovery links without projecting or rewriting the raw receipt."""
+    run = get(db, uid, run_id, ApiError)
+    if run['state'] not in contract.FINAL or not any(
+            item['state'] in ('failed','incomplete','cancelled','interrupted') and not item.get('recovered_by')
+            for item in run['records']): return run
+    current = db.execute('SELECT rowid,credential FROM source_sync_runs WHERE user_id=? AND run_id=?', (uid,run_id)).fetchone()
+    if not current: return run
+    identities, completed_requests, completed_sources = {}, {}, {}
+    def identity(item):
+        rid = item['request_id']
+        if rid not in identities: identities[rid] = input_identity(db,uid,item)
+        return identities[rid]
+    # Include hidden and quiet receipts and continue beyond the history limit.
+    # Older receipts cannot establish that this run's failures later recovered.
+    rows = db.execute('''SELECT snapshot FROM source_sync_runs WHERE user_id=? AND credential=? AND rowid>?
+        AND state IN ('succeeded','partial_success','failed','stopped','interrupted') ORDER BY rowid DESC''',
+        (uid,current['credential'],current['rowid']))
+    for row in rows:
+        remember_recovery_targets(json.loads(row['snapshot']),current['credential'],identity,completed_requests,completed_sources)
+    reconcile_record_recovery(run,current['credential'],identity,completed_requests,completed_sources)
+    return run
+
+
 def history(db, uid):
     """Project visible results without changing receipts used by retry/recovery."""
     rows = db.execute('''SELECT r.snapshot,r.credential,q.run_id AS quiet FROM source_sync_runs r
@@ -290,27 +336,17 @@ def history(db, uid):
             if rid not in identities: identities[rid] = input_identity(db,uid,item)
             return identities[rid]
         # Read-only reconciliation for receipts written before recovery links
-        # existed. Scope by account credential and stable identity, never title.
+        # existed. Source results require account credentials and stable identity;
+        # whole-collection connection failures only require the same app user/source.
         if run['state'] in contract.FINAL:
-            scope = (row['credential'],tuple(run['sources']))
+            scope = tuple(run['sources'])
             if (not run['records'] and (run.get('error') or {}).get('code')=='collection_failed' and
                     scope in completed_collections and not run.get('recovered_by')):
                 run['recovered_by'] = completed_collections[scope]
             if collection_completed(run):
                 completed_collections[scope] = dict(run_id=run['run_id'])
-            for item in run['records']:
-                if item['state'] not in ('failed','incomplete','cancelled','interrupted'): continue
-                target = item.get('recovered_by') or completed_requests.get((row['credential'],item['request_id'])) or completed_sources.get((row['credential'],identity(item)))
-                if target: item.update(recovered=True,recovered_by=target)
-            for item in run['records']:
-                if item['state'] != 'succeeded': continue
-                target = dict(run_id=run['run_id'],request_id=item['request_id'])
-                completed_requests[row['credential'],item['request_id']] = target
-                source = identity(item)
-                if source: completed_sources[row['credential'],source] = target
-            for new,old in run.get('recovery_replacements',{}).items():
-                target = completed_requests.get((row['credential'],new))
-                if target: completed_requests[row['credential'],old] = target
+            reconcile_record_recovery(run,row['credential'],identity,completed_requests,completed_sources)
+            remember_recovery_targets(run,row['credential'],identity,completed_requests,completed_sources)
         if row['quiet']: continue
         if run['state'] in contract.ACTIVE:
             result.append(view(run))
@@ -701,7 +737,7 @@ def route(handler, db, uid, path, body, ApiError, database):
                                 last_check=json.loads(last['snapshot']) if last else None)); return True
     run_id, *suffix = path[len(root)+1:].split('/')
     if handler.command=='GET' and not suffix:
-        handler.reply(200, view(get(db, uid, run_id, ApiError))); return True
+        handler.reply(200, view(get_details(db, uid, run_id, ApiError))); return True
     if handler.command=='POST' and suffix==['stop']:
         contract.check('stop',body); db.execute('BEGIN IMMEDIATE')
         prune_quiet(db, uid)
