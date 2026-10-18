@@ -57,6 +57,7 @@ def _render(data, limits):
         if total == 0 or limits.start_page >= total:
             raise AgentError('file_read_failed', False)
         pages, pixels, encoded = [], 0, 0
+        batch_full = False
         end = min(total, limits.start_page + limits.max_pages)
         failure = 'limit_exceeded' if total > end else None
         for index in range(limits.start_page, end):
@@ -65,7 +66,10 @@ def _render(data, limits):
                 if not all(math.isfinite(n) and n > 0 for n in (width, height)):
                     raise AgentError('file_read_failed', False)
                 count = math.ceil(width * limits.scale) * math.ceil(height * limits.scale)
-                if count > limits.max_page_pixels or pixels + count > limits.max_total_pixels:
+                if count > limits.max_page_pixels:
+                    raise AgentError('limit_exceeded', False)
+                if pixels + count > limits.max_total_pixels:
+                    batch_full = bool(pages)
                     raise AgentError('limit_exceeded', False)
                 page = document[index]
                 try:
@@ -80,6 +84,7 @@ def _render(data, limits):
                 finally:
                     page.close()
                 if encoded + len(png) > limits.max_encoded_bytes:
+                    batch_full = bool(pages)
                     raise AgentError('limit_exceeded', False)
                 pages.append(png)
                 pixels += count
@@ -92,7 +97,7 @@ def _render(data, limits):
                 break
         if not pages:
             raise AgentError(failure or 'file_read_failed', False)
-        return dict(pages=pages, total_pages=total, error=failure)
+        return dict(pages=pages, total_pages=total, error=failure, batch_full=batch_full)
 
 
 def read_pdf(data, asset, limits):

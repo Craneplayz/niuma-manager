@@ -8,11 +8,10 @@ else:
     from runtime_environment import model_env_path
 from pathlib import Path
 import secrets
-import time
 import teaching_submission as submission
 import teaching_assets
 from ddl_text.adapters import AgentError
-from server.model_queue import WAIT_ERROR
+from server.model_queue import WAIT_ERROR, disconnected
 
 from contracts.teaching_io import canonical, check_request, snapshot_digest
 from contracts.teaching_capture import check_capture
@@ -183,7 +182,6 @@ def resolve_snapshot(db, uid, request_id, ApiError):
 
 
 def recognize(request, ApiError, *, files=(), save_cache=None):
-    started = time.monotonic()
     try:
         options = live_options(model_env_path(ROOT))
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
@@ -197,9 +195,11 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
         error.code = 'model_configuration'
         raise error from None
     client = ChatClient(options['key'])
+    def check_active():
+        if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
     if files:
         try:
-            teaching_assets.enrich(request,files,client,settings,save_cache)
+            teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
         except AgentError as error:
             from ddl_text.teaching_pipeline import _failure
             result = dict(contract_version='0.4',classification_mode=CLASSIFICATION_MODE,request_id=request['request_id'],
@@ -207,9 +207,10 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
                     'agent_timeout' if error.code=='agent_timeout' else 'agent_unavailable',retryable=error.retryable,attempted=True)])
             result['record_results'][0]['error']['message']='附件读取或图像识别未完成，可重试本条记录；已读附件会复用。'
             return result,policy
+    check_active()
     result = process_teaching_request(request, client=client, settings=settings,
         verified_snapshot_digests={snapshot_digest(e) for e in request['records']},
-        budget_seconds=max(.001,90-(time.monotonic()-started)))
+        budget_seconds=90)
     return result, policy
 
 
