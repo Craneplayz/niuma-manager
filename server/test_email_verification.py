@@ -14,7 +14,7 @@ from jsonschema import Draft202012Validator
 
 import app
 import email_verification as verification
-from auth_test_support import seed_legacy_account
+from auth_test_support import LEGACY_EMAIL_DOMAINS, seed_legacy_account
 
 CONTRACT = json.loads((Path(__file__).resolve().parents[1] / 'contracts/schemas/email-auth-v0.1.schema.json').read_text())
 
@@ -175,6 +175,59 @@ class EmailVerificationTests(unittest.TestCase):
         self.assertEqual(result['user']['email'], email)
         self.assertFalse(result['user']['emailVerified'])
         self.assertEqual(self.call('/workspace')[1]['tasks'], dict(value=[task], version=7))
+
+    def test_normalized_legacy_domains_block_registration_without_changing_accounts(self):
+        for index, (stored_domain, canonical_domain) in enumerate(LEGACY_EMAIL_DOMAINS):
+            email = f'student-{index}@{stored_domain}'
+            canonical = f'student-{index}@{canonical_domain}'
+            with self.subTest(email=email):
+                self.assertEqual(verification.normalize_email(email), canonical)
+                challenge_id, code = self.challenge(canonical)
+                uid = self.legacy(email)
+                tasks = [dict(id=f'original-{index}', title='Existing task', status='not_started',
+                              due=None, plans=[], subtasks=[])]
+                with app.connection() as db:
+                    if index % 2:
+                        verification.mark_verified(db, uid)
+                    db.execute('INSERT INTO workspace VALUES(?,?,?,?)', (uid, 'tasks', json.dumps(tasks), 7))
+                    before = '\n'.join(db.iterdump())
+                delivered = len(self.mailbox)
+                for address in (canonical, email):
+                    status, result, _ = self.call('/auth/email-code',
+                                                  dict(email=address, purpose='register'), self.new_client())
+                    self.assertEqual(status, 409, result)
+                    self.assertEqual(result['code'], 'email_registered')
+                    status, result, headers = self.register(address, challenge_id, code, self.new_client())
+                    self.assertEqual(status, 409, result)
+                    self.assertIsNone(headers.get('Set-Cookie'))
+                self.assertEqual(len(self.mailbox), delivered)
+                with app.connection() as db:
+                    self.assertEqual('\n'.join(db.iterdump()), before)
+                status, result, _ = self.call('/auth/login', dict(email=email, password='Legacy-2026!'))
+                self.assertEqual(status, 200, result)
+                self.assertEqual(result['user']['id'], uid)
+                self.assertEqual(result['user']['email'], email)
+                self.assertEqual(result['user']['emailVerified'], bool(index % 2))
+                self.assertEqual(self.call('/workspace')[1]['tasks'], dict(value=tasks, version=7))
+
+    def test_account_lookup_skips_invalid_legacy_addresses_and_preserves_existing_collisions(self):
+        for email in ('invalid@@example.test', 'user@localhost', '坏本地名@example.test'):
+            seed_legacy_account(self.path, dict(email=email, name='Original', password='Legacy-2026!'))
+        unicode_email, canonical = 'student@ｅｘａｍｐｌｅ.test', 'student@example.test'
+        uid = self.legacy(unicode_email)
+        with app.connection() as db:
+            before = '\n'.join(db.iterdump())
+            self.assertEqual(verification.account_for_email(db, canonical)['id'], uid)
+            self.assertIsNone(verification.account_for_email(db, 'missing@example.test'))
+            self.assertIsNone(verification.account_for_email(db, 'user@xn--a.test'))
+            self.assertEqual('\n'.join(db.iterdump()), before)
+        # Already conflicting historical identities are never rewritten or merged.
+        canonical_uid = self.legacy(canonical, self.new_client())
+        with app.connection() as db:
+            before = '\n'.join(db.iterdump())
+            self.assertEqual(verification.account_for_email(db, unicode_email)['id'], uid)
+            self.assertEqual(verification.account_for_email(db, canonical)['id'], canonical_uid)
+            self.assertEqual('\n'.join(db.iterdump()), before)
 
     def test_old_account_verifies_its_own_email_without_losing_data(self):
         uid = self.legacy()

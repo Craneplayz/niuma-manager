@@ -8,6 +8,7 @@ from unittest.mock import patch
 import app
 import email_verification as verification
 import test_email_verification as email_tests
+from auth_test_support import LEGACY_EMAIL_DOMAINS
 
 
 OLD_PASSWORD = 'Legacy-2026!'
@@ -428,6 +429,35 @@ class PasswordRecoveryTests(email_tests.EmailVerificationTests):
                                                        (challenge_id,)).fetchone()), ('active', 0))
         self.assertEqual(self.reset(challenge_id, code, password='a' * 128)[0], 200)
         self.assertEqual(self.login(password='a' * 128)[0], 200)
+
+    def test_recovery_normalized_legacy_domains_reset_the_original_account_only(self):
+        for index, (stored_domain, canonical_domain) in enumerate(LEGACY_EMAIL_DOMAINS):
+            email = f'recovery-{index}@{stored_domain}'
+            canonical = f'recovery-{index}@{canonical_domain}'
+            with self.subTest(email=email):
+                uid = self.verified_account(email)
+                tasks = [dict(id=f'preserved-{index}', title='Existing task')]
+                with app.connection() as db:
+                    db.execute('INSERT INTO workspace VALUES(?,?,?,?)', (uid, 'tasks', json.dumps(tasks), 7))
+                    verification_before = tuple(db.execute('SELECT * FROM verified_emails WHERE user_id=?',
+                                                           (uid,)).fetchone())
+                challenge_id, code = self.recovery(canonical, self.new_client())
+                with app.connection() as db:
+                    self.assertEqual(db.execute('SELECT user_id FROM email_challenges WHERE id=?',
+                                                (challenge_id,)).fetchone()[0], uid)
+                self.assertEqual(self.reset(challenge_id, code, email=email, client=self.new_client())[0], 200)
+                self.assertEqual(self.call('/auth/me')[0], 401)
+                self.assertEqual(self.login(email=email)[0], 401)
+                status, result, _ = self.login(email=email, password=NEW_PASSWORD, client=self.client)
+                self.assertEqual(status, 200, result)
+                self.assertEqual(result['user']['id'], uid)
+                self.assertEqual(result['user']['email'], email)
+                self.assertTrue(result['user']['emailVerified'])
+                self.assertEqual(self.call('/workspace')[1]['tasks'], dict(value=tasks, version=7))
+                with app.connection() as db:
+                    self.assertEqual(tuple(db.execute('SELECT * FROM verified_emails WHERE user_id=?',
+                                                       (uid,)).fetchone()), verification_before)
+                    self.assertEqual(db.execute('SELECT COUNT(*) FROM users').fetchone()[0], index + 1)
 
     def test_recovery_unicode_domain_uses_the_same_verified_account_and_canonical_recipient(self):
         canonical = 'student@xn--fsqu00a.xn--fiqs8s'

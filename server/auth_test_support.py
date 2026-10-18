@@ -7,6 +7,17 @@ from unittest.mock import patch
 import app
 
 
+# Synthetic stored-domain spellings that IDNA maps to the same ASCII identity.
+LEGACY_EMAIL_DOMAINS = (
+    ('ｅｘａｍｐｌｅ.test', 'example.test'),
+    ('example。test', 'example.test'),
+    ('example．test', 'example.test'),
+    ('example｡test', 'example.test'),
+    ('faß.test', 'fass.test'),
+    ('bu\u0308cher.test', 'xn--bcher-kva.test'),
+)
+
+
 def registration_payload(account, request_code):
     """Get a real challenge over HTTP while capturing only the synthetic delivery.
 

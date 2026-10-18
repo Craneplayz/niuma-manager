@@ -72,13 +72,21 @@ def mark_verified(db, uid):
 
 def account_for_email(db, email):
     canonical = normalize_email(email)
-    local, domain = canonical.rsplit('@', 1)
-    # Preserve legacy Unicode-domain addresses without changing stored identities.
-    candidates = dict.fromkeys((email.strip().lower(), canonical, local + '@' + domain.encode('ascii').decode('idna')))
-    for candidate in candidates:
+    # Keep indexed lookups and exact historical identities first. IDNA is not
+    # reversible: full-width letters, alternate dots and other spellings can
+    # share one canonical address, so compare the actual stored values on a miss.
+    for candidate in dict.fromkeys((email.strip().lower(), canonical)):
         row = db.execute('SELECT * FROM users WHERE email=?', (candidate,)).fetchone()
         if row:
             return row
+    for row in db.execute('SELECT * FROM users'):
+        try:
+            if normalize_email(row['email']) == canonical:
+                return row
+        except VerificationError:
+            # Old registration accepted addresses outside today's validation.
+            # Preserve those rows without blocking lookup of other accounts.
+            continue
     return None
 
 

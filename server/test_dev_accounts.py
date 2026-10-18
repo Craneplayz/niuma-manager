@@ -17,7 +17,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 import app
 import dev_accounts
 import email_verification
-from auth_test_support import seed_legacy_account
+from auth_test_support import LEGACY_EMAIL_DOMAINS, seed_legacy_account
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -267,6 +267,26 @@ class DevAccountTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM users').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM verified_emails').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM workspace').fetchone()[0], 0)
+
+    def test_normalized_legacy_domains_cannot_be_replaced_by_test_accounts(self):
+        app.initialize(recover=False)
+        for index, (stored_domain, canonical_domain) in enumerate(LEGACY_EMAIL_DOMAINS):
+            for verified in (False, True):
+                email = f'legacy-{index}-{int(verified)}@{stored_domain}'
+                canonical = f'legacy-{index}-{int(verified)}@{canonical_domain}'
+                with self.subTest(email=email, verified=verified):
+                    seed_legacy_account(self.path, dict(email=email, name='原账号', password=PASSWORD))
+                    with app.connection() as db:
+                        uid = db.execute('SELECT id FROM users WHERE email=?', (email,)).fetchone()[0]
+                        if verified:
+                            email_verification.mark_verified(db, uid)
+                        db.execute('INSERT INTO workspace VALUES(?,?,?,?)',
+                                   (uid, 'tasks', json.dumps([dict(id='preserved-task')]), 7))
+                        before = '\n'.join(db.iterdump())
+                    for address in (canonical, email):
+                        self.assert_error('account_exists', email=address)
+                    with app.connection() as db:
+                        self.assertEqual('\n'.join(db.iterdump()), before)
 
     def test_concurrent_creation_cannot_duplicate_or_overwrite_the_same_email(self):
         app.initialize(recover=False)
