@@ -108,7 +108,7 @@ contracts/
 - 教学网 #108/#109 的 [v0.4 批次契约](docs/teaching-v0.4.md) 复用已审查的 [覆盖/学期政策组件](docs/teaching-review-v0.4-draft.md)；新结果显式标记 model-v1，由模型分类，消费端仅校验格式/证据/身份和一致性；旧结果可读，不改变以下 v0.2 或微信 v0.3.1 规则。
 
 - #110 [已提交状态决策契约](docs/submission-policy-v0.1.md) 区分来源事实和永久行动对应，提供纯校验与参考决策；后端显式接入后才生效，不凭模型或 imported hints 自动完成。
-- #110 [公开操作契约](docs/submission-operations-v0.1.md) 提供来源查询、人工关联、重开、恢复自动完成和来源确认的独立根；运行端仍须实现登录鉴权、持久幂等和事务。
+- #110 [公开操作契约](docs/submission-operations-v0.1.md) 提供来源查询、人工关联、重开、恢复自动完成和来源确认的独立根；运行端仍须实现登录鉴权、持久幂等和事务。暂停候选可恢复自动处理或纠正关联，转成任务时继承暂停；重识别按持久操作审计保护人工决定，仅未人工处理的系统首次撤下可替换。
 
 - 来源模块按 [输入样例](source-to-text/text-frontend-v02-request.json) 提供原文及元数据，文本模块接收完整 v0.2 请求。
 - `platform` 标明来源：教学网 `teaching_web`、微信 `wechat` 的结果可直接进日历；对话框手动输入一律填 `manual`，结果须用户确认。`unknown` 已停用，新代码不得再送；旧数据中的 `unknown` 按 `manual` 处理。

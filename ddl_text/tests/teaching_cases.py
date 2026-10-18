@@ -18,7 +18,7 @@ def model_task(pair, recommendation='task', reason=''):
         assessment.pop(key)
     return dict(title='完成第二次作业', description='按通知完成练习。', content_type='task', notice_type='create', target=None,
                 relevance=dict(state='current', reason='通知中的行动要求。', evidence=[]), assessment=assessment,
-                recommendation=recommendation, reason=reason)
+                recommendation=recommendation, reason=reason, time_role='unknown', submission_relation='unknown')
 
 
 def empty_reply(record, status='no_tasks'):

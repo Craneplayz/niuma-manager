@@ -21,8 +21,11 @@ class PdfLimits:
     max_encoded_bytes: int = 8 * 1024 * 1024
     render_seconds: float = 15
     scale: float = 2  # 144 dpi, full page including visible annotations.
+    start_page: int = 0  # Zero-based offset for bounded, resumable page batches.
 
     def __post_init__(self):
+        if type(self.start_page) is not int or not 0 <= self.start_page < 10000:
+            raise ValueError('invalid_pdf_limit')
         bounds = dict(max_bytes=20 * 1024 * 1024, max_pages=16,
                       max_page_pixels=20_000_000, max_total_pixels=64_000_000,
                       max_encoded_bytes=16 * 1024 * 1024)
@@ -51,11 +54,12 @@ def _render(data, limits):
                 or pdfium.raw.FPDFDoc_GetJavaScriptActionCount(document) > 0):
             raise AgentError('reader_unsupported', False)
         total = len(document)
-        if total == 0:
+        if total == 0 or limits.start_page >= total:
             raise AgentError('file_read_failed', False)
         pages, pixels, encoded = [], 0, 0
-        failure = 'limit_exceeded' if total > limits.max_pages else None
-        for index in range(min(total, limits.max_pages)):
+        end = min(total, limits.start_page + limits.max_pages)
+        failure = 'limit_exceeded' if total > end else None
+        for index in range(limits.start_page, end):
             try:
                 width, height = document.get_page_size(index)
                 if not all(math.isfinite(n) and n > 0 for n in (width, height)):

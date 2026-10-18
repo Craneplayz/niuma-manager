@@ -60,6 +60,24 @@ def workspace(db, uid):
     return (json.loads(row['value']), row['version']) if row else ([], 0)
 
 
+def manually_controlled_candidates(db, uid, candidates):
+    """Use durable operation targets, including explicit unknown/unchanged links.
+
+    Exact candidate IDs scope the match even if a source control was replaced.
+    Association changes intentionally do not mutate candidate state/version.
+    """
+    by_action={identity('candidate', c['id']):c['id'] for c in candidates}
+    protected=set()
+    if not by_action: return protected
+    for row in db.execute("SELECT json_extract(audit,'$.operation') FROM submission_operations WHERE user_id=?",(uid,)):
+        operation=json.loads(row[0])
+        targets=([link['action_id'] for link in operation['links']] if operation['kind']=='associate_actions'
+                 else operation['action_ids'])
+        protected.update(by_action[aid] for aid in targets if aid in by_action)
+        if len(protected)==len(by_action): break
+    return protected
+
+
 def linked_actions(db, row, detail):
     """Use saved candidate IDs and task history, never title/course similarity."""
     old = {a['action_id']: a for a in detail['observation']['actions']}
@@ -79,7 +97,8 @@ def linked_actions(db, row, detail):
         # action completed just because it was combined with a submission.
         inherited = [old.get(identity('candidate', h.get('storageId'))) for h in task.get('recognitionHistory', []) if isinstance(h,dict) and isinstance(h.get('storageId'),str)]
         if (not prior and inherited and all(a and a['relation'] != 'unknown' for a in inherited)
-                and len({a['relation'] for a in inherited}) == 1): prior = inherited[0]
+                and len({a['relation'] for a in inherited}) == 1):
+            prior = dict(inherited[0], source_completion_paused=any(a['source_completion_paused'] for a in inherited))
         deleted = task.get('recycleBin') or task['status'] == 'cancelled'
         completed = task['status'] == 'completed' and not deleted
         relation = prior['relation'] if prior else 'unknown'
@@ -94,9 +113,15 @@ def linked_actions(db, row, detail):
     for c in candidates:
         if c['state'] == 'applied' or c['id'] in used: continue
         aid = identity('candidate', c['id']); prior = old.get(aid)
-        actions.append(dict(action_id=aid, kind='candidate', relation=prior['relation'] if prior else 'unknown',
+        relation=prior['relation'] if prior else 'unknown'
+        # Entering pending after a handled version restores the manual pause.
+        # Once pending, respect the persisted flag: an explicit resume may have
+        # cleared it. A later ignored -> pending transition pauses again.
+        paused=relation=='assignment_submission' and (bool(prior and prior['source_completion_paused'])
+            or c['state']=='pending' and c['version']>1 and (not prior or prior['decision']!='pending'))
+        actions.append(dict(action_id=aid, kind='candidate', relation=relation,
             link_basis=prior['link_basis'] if prior else 'unresolved', decision='pending' if c['state']=='pending' else 'ignored',
-            completion_origin=None, source_completion_paused=False))
+            completion_origin=None, source_completion_paused=paused))
         refs[aid]=c['id']; labels[aid]=label(json.loads(c['candidate'])['title'])
     # Tombstones prevent deleted user choices from being mistaken for new actions.
     present={a['action_id'] for a in actions}
@@ -112,7 +137,9 @@ def refresh(db, row):
     if len(actions)>100: raise ActionLimitError('source action limit')
     if actions!=observation['actions'] or labels!=detail['action_labels']:
         observation['actions']=actions; detail['action_labels']=labels
-        if any(a['relation']!='assignment_submission' for a in actions): observation['scope']='unknown'
+        live = [a for a in actions if a['decision'] not in ('ignored','deleted')]
+        if any(a['relation']=='unknown' for a in live): observation['scope']='unknown'
+        elif any(a['relation']=='other' for a in live): observation['scope']='mixed'
         observation['control_revision']+=1; persist(db,row,detail)
     return detail, refs
 
@@ -198,12 +225,52 @@ def token(db,uid,request_id):
     return (obs['snapshot']['snapshot_id'],obs['control_revision']) if obs else None
 
 
-def refresh_request(db,uid,request_id):
+def refresh_request(db,uid,request_id,*,reopened_candidate_id=None):
     obs=control_for_request(db,uid,request_id)
     if obs:
         row=find(db,uid,obs['snapshot']['source_account_id'],obs['snapshot']['input_id'])
+        try: detail,_=refresh(db,row)
+        except ActionLimitError:
+            detail=json.loads(row['detail']);detail['observation']['scope']='unknown'
+            detail['observation']['control_revision']+=1;persist(db,row,detail)
+        # An ignore need not have been observed by a read. Persist this explicit
+        # transition even when the last saved decision was still pending.
+        action=next((a for a in detail['observation']['actions']
+            if a['action_id']==identity('candidate',reopened_candidate_id)),None) if reopened_candidate_id else None
+        if (action and action['decision']=='pending' and action['relation']=='assignment_submission'
+                and not action['source_completion_paused']):
+            action['source_completion_paused']=True
+            detail['observation']['control_revision']+=1;persist(db,row,detail)
+
+
+def candidate_applied(db,uid,candidate_id,task_id):
+    """Transfer controls once, in the candidate/task write transaction.
+
+    An existing task's prior confirmation covers its old history only. Adding
+    an independent/unknown/foreign action invalidates its submission mapping.
+    Ordinary refreshes must not replay a consumed candidate's pause after an
+    explicit resume on the task.
+    """
+    candidate_aid=identity('candidate',candidate_id);task_aid=identity('task',task_id)
+    for row in db.execute('SELECT * FROM submission_controls WHERE user_id=?',(uid,)).fetchall():
+        detail=json.loads(row['detail']);obs=detail['observation']
+        actions={a['action_id']:a for a in obs['actions']}
+        incoming,prior=actions.get(candidate_aid),actions.get(task_aid)
+        if not incoming and not prior: continue
+        if prior:
+            before=deepcopy(prior)
+            if incoming and incoming['relation']==prior['relation']:
+                prior['source_completion_paused']=prior['source_completion_paused'] or incoming['source_completion_paused']
+            else:
+                prior.update(relation='unknown',link_basis='unresolved',source_completion_paused=False)
+                obs['scope']='unknown'
+            if prior!=before:
+                obs['control_revision']+=1;persist(db,row,detail)
+                row=dict(row,detail=json.dumps(detail))
         try: refresh(db,row)
         except ActionLimitError:
+            # Preserve the transferred task protection even beyond the action
+            # limit; a full refresh can become possible after later pruning.
             detail=json.loads(row['detail']);detail['observation']['scope']='unknown'
             detail['observation']['control_revision']+=1;persist(db,row,detail)
 
@@ -211,19 +278,30 @@ def refresh_request(db,uid,request_id):
 def manual_task_write(db,uid,tasks):
     old={t['id']:t for t in workspace(db,uid)[0]}
     reopened={identity('task',t['id']) for t in tasks if t['status']!='completed' and old.get(t['id'],{}).get('status')=='completed'}
-    if not reopened:return
+    def history_ids(task):
+        history=task.get('recognitionHistory')
+        return {h['storageId'] for h in history if isinstance(h,dict) and isinstance(h.get('storageId'),str)} if isinstance(history,list) else set()
+    remapped={identity('task',t['id']) for t in tasks if t['id'] in old
+        and history_ids(t)!=history_ids(old[t['id']])}
+    if not reopened and not remapped:return
     for row in db.execute('SELECT * FROM submission_controls WHERE user_id=?',(uid,)).fetchall():
         try: detail,_=refresh(db,row)
         except ActionLimitError:
             detail=json.loads(row['detail']);detail['observation']['scope']='unknown'
         obs=detail['observation'];changed=False
         for action in obs['actions']:
+            if action['action_id'] in remapped:
+                # A workspace history merge is not an explicit confirmation
+                # that the newly combined task is still one submission action.
+                action.update(relation='unknown',link_basis='unresolved',source_completion_paused=False)
+                obs['scope']='unknown';changed=True
             if action['action_id'] in reopened and action['relation']=='assignment_submission':
                 action.update(source_completion_paused=True,decision='confirmed',completion_origin=None);changed=True
         if changed:
             obs['control_revision']+=1;persist(db,row,detail)
             db.execute('INSERT INTO submission_events VALUES(?,?,?,?,?)',(secrets.token_hex(16),uid,row['record_id'],
-                       json.dumps(dict(kind='manual_reopen',action_ids=sorted(reopened))),datetime.now(timezone.utc).isoformat()))
+                       json.dumps(dict(kind='manual_history_change' if remapped else 'manual_reopen',
+                           action_ids=sorted(reopened|remapped))),datetime.now(timezone.utc).isoformat()))
 
 
 def route(handler,db,uid,path,body,ApiError):

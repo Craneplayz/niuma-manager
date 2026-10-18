@@ -20,6 +20,10 @@
 
 每项 decision 新增兼容字段 `content_type="task"|"notice"`，旧结果缺省为 task；新模型必须返回该字段。类型与 `recommendation` 独立：后者 task 表示直接收录，candidate 表示待审核，filtered 表示不进入活动列表，不能用有无截止日期区分任务和通知。
 
+可选 `submission_relation="assignment_submission"|"other"|"unknown"` 只描述行动是否属于当前来源布置的作业提交义务，缺省 unknown；不携带用户提交状态，也不选择其他来源。后端结合当前账号的可信原生作业身份，对有证据的新增作业行动建立关联，保护人工决定；独立行动和关系不明的内容不因 submitted 被撤出。
+
+模型草稿的 `time_role` 区分截止/事件与发布/布置/参考日期，后几类归一为无截止日期；仅含日期的作业标题不能证明截止要求。旧草稿或 unknown 时间用途与标题日期相同时保留日期及证据待核对，不以截止关键词未命中为由清空。识别失败可附 `error.diagnostic={schema_path,rule}`，仅输出白名单结构规则，不包含原文、模型响应或字段值；旧结果可省略该字段。
+
 notice 是相关告知，不虚构行动；task 和 notice 均可携带有依据的 deadline。通知的公示截止、有效期限或关键提醒时间按原意保留，在 description 说明时间含义；没有日期才使用 not_provided。沿用 assessment.action 证据槽：notice 的 supported 表示事实有原文依据，并非存在执行动作；来源、证据、内容不确定性检查仍适用。新增内容类型不改变既有任务过期策略。
 
 前端投影卡片与 workspace.tasks 都保留同名 content_type，notice 暂用同一列表、编辑、完成、删除和导出流程；不进入自动耗时估算/排期、不询问完成用时。两种类型都可设置和编辑日期，仅填写日期也有效；有日期不会把 notice 自动改成 task。历史记录不自动改型，重新识别保留用户已确认/忽略决定；旧消费端需随服务一起更新。无需数据库表迁移。[共享样例](../examples/teaching-content-types-v04.json) 覆盖无 DDL 任务、有/无日期的通知、一条原文含两种内容。

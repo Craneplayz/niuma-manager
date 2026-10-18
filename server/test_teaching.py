@@ -204,6 +204,188 @@ class TeachingIntegrationTests(unittest.TestCase):
             draft=dict(title='用户确认的行动',description='人工核对后保留',due=None)))
         self.assertEqual(status,200)
 
+    def test_native_submitted_assignment_filtered_without_cross_source_matching(self):
+        capture=self.native_capture('submitted')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid])
+        draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        sync=self.sync_native(capture)
+        batch=self.run_request(sync['requests'][0])
+        self.assertTrue(batch['items'])
+        self.assertTrue(all(i['state']=='ignored' for i in batch['items']))
+        with app.connection() as db:
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(detail['observation']['snapshot']['state'],'submitted')
+            self.assertTrue(all(a['relation']=='assignment_submission' for a in detail['observation']['actions']))
+
+    def prepare_action_limit_history(self):
+        capture=self.native_capture('active')
+        record=capture['request']['records'][0]['record'];iid=record['input_id']
+        template=json.loads(self.drafts[iid])['tasks'][0]
+        template.update(submission_relation='assignment_submission',recommendation='candidate',reason='需核对作业细节。')
+        for version in range(2):
+            record['text']+=f'\n补充说明{version}。'
+            record['collected_at']=f'2026-10-10T10:0{version}:00+08:00'
+            self.drafts[iid]=json.dumps(dict(tasks=[dict(deepcopy(template),title=f'练习 {version}-{index}') for index in range(50)]))
+            self.assertEqual(len(self.run_request(self.sync_native(capture)['requests'][0])['items']),50)
+        with app.connection() as db:
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(len(detail['observation']['actions']),100)
+            self.assertEqual(detail['observation']['scope'],'mixed')
+        self.drafts[iid]=json.dumps(dict(tasks=[template]))
+        return capture
+
+    def test_action_limit_does_not_roll_back_recognition(self):
+        capture=self.prepare_action_limit_history()
+        capture['request']['records'][0]['record']['text']+='\n第三次补充。'
+        capture['request']['records'][0]['record']['collected_at']='2026-10-10T10:02:00+08:00'
+        batch=self.run_request(self.sync_native(capture)['requests'][0])
+        self.assertEqual(len(batch['items']),1);self.assertEqual(batch['items'][0]['state'],'pending')
+        self.assertFalse(batch['result']['errors'])
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_candidates').fetchone()[0],101)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],3)
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(detail['observation']['scope'],'unknown')
+
+    def test_action_limit_tombstones_do_not_interrupt_reprocessing(self):
+        import reprocessing
+        capture=self.prepare_action_limit_history()
+        iid=capture['request']['records'][0]['record']['input_id']
+        source=self.call('/recognition/reprocessing/sources')[1]['accounts'][0]
+        with patch.object(reprocessing,'recognize_saved',side_effect=lambda req,*a,**k:self.model(req,app.ApiError)):
+            status,run=self.call('/recognition/reprocessing/runs',dict(contract_version='reprocessing/0.1',
+                operation_id='action-limit-upgrade',source_account_id=source['source_account_id'],input_ids=[iid]))
+            self.assertEqual(status,202,run);self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+        saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
+        self.assertEqual(saved['state'],'succeeded',saved)
+        with app.connection() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM recognition_candidates WHERE state='pending'").fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],3)
+            detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
+            self.assertEqual(detail['observation']['scope'],'unknown')
+
+    def test_submitted_assignment_keeps_independent_reading(self):
+        capture=self.mixed_capture('submitted')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid])
+        draft['tasks'][0]['submission_relation']='assignment_submission'
+        draft['tasks'][1]['submission_relation']='other'
+        self.drafts[iid]=json.dumps(draft)
+        batch=self.run_request(self.sync_native(capture)['requests'][0])
+        by_title={i['candidate']['title']:i for i in batch['items']}
+        self.assertEqual(by_title['提交第二次作业']['state'],'ignored')
+        self.assertEqual(by_title['阅读补充材料']['state'],'pending')
+        self.assertFalse(by_title['阅读补充材料']['candidate']['needs_review'])
+
+    def test_recognized_native_assignment_completes_when_later_submitted(self):
+        capture=self.native_capture('active')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid]);draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        status,result=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+        self.assertEqual(status,200,result)
+        self.sync_native(self.native_capture('submitted','2026-10-10T11:00:00+08:00'))
+        tasks=self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),1);self.assertEqual(tasks[0]['status'],'completed')
+
+    def test_reprocessing_legacy_submitted_candidate_binds_new_action_and_withdraws_it(self):
+        import reprocessing
+        capture=self.native_capture('submitted')
+        iid=capture['request']['records'][0]['record']['input_id']
+        old=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        self.assertEqual(old['state'],'pending')
+        draft=json.loads(self.drafts[iid]);draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        source=self.call('/recognition/reprocessing/sources')[1]['accounts'][0]
+        with patch.object(reprocessing,'recognize_saved',side_effect=lambda req,*a,**k:self.model(req,app.ApiError)):
+            status,run=self.call('/recognition/reprocessing/runs',dict(contract_version='reprocessing/0.1',
+                operation_id='native-submitted-upgrade',source_account_id=source['source_account_id'],input_ids=[iid]))
+            self.assertEqual(status,202,run);self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+        saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
+        self.assertEqual(saved['state'],'succeeded',saved)
+        with app.connection() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM recognition_candidates WHERE state='pending'").fetchone()[0],0)
+
+    def recognized_submitted_assignment(self):
+        capture=self.native_capture('submitted')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid]);draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        self.assertEqual((item['state'],item['version']),('ignored',2))
+        return capture,item
+
+    def reprocess_native(self, capture, operation):
+        import reprocessing
+        source=self.call('/recognition/reprocessing/sources')[1]['accounts'][0]
+        with patch.object(reprocessing,'recognize_saved',side_effect=lambda req,*a,**k:self.model(req,app.ApiError)):
+            status,run=self.call('/recognition/reprocessing/runs',dict(contract_version='reprocessing/0.1',
+                operation_id=operation,source_account_id=source['source_account_id'],
+                input_ids=[capture['request']['records'][0]['record']['input_id']]))
+            self.assertEqual(status,202,run);self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+        saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
+        self.assertEqual(saved['state'],'succeeded',saved)
+        return saved
+
+    def test_automatic_withdrawal_stays_filtered_after_repeated_reprocessing(self):
+        capture,_=self.recognized_submitted_assignment()
+        for index in range(2):
+            app.initialize()
+            saved=self.reprocess_native(capture,f'auto-withdrawal-{index}')
+            self.assertEqual(saved['records'][0]['decision_summary']['preserved'],0)
+            self.assertEqual(saved['records'][0]['decision_summary']['new_pending'],0)
+            with app.connection() as db:
+                rows=db.execute('SELECT state,version,resolution FROM recognition_candidates').fetchall()
+                self.assertEqual(len(rows),1)
+                self.assertEqual((rows[0]['state'],rows[0]['version']),('ignored',2))
+                self.assertEqual(json.loads(rows[0]['resolution'])['action'],'submission_policy_completed')
+
+    def test_reopened_automatic_withdrawal_survives_restart_sync_and_reprocessing(self):
+        capture,item=self.recognized_submitted_assignment()
+        status,out=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='reopen',version=2))
+        self.assertEqual(status,200,out)
+        for index in range(2):
+            app.initialize()
+            capture['request']['records'][0]['record']['collected_at']=f'2026-10-10T11:0{index}:00+08:00'
+            self.sync_native(capture)
+            with app.connection() as db:
+                row=db.execute('SELECT state,version FROM recognition_candidates WHERE id=?',(item['id'],)).fetchone()
+                self.assertEqual(tuple(row),('pending',3))
+        saved=self.reprocess_native(capture,'preserve-reopened')
+        self.assertEqual(saved['records'][0]['decision_summary']['preserved'],1)
+        with app.connection() as db:
+            self.assertEqual(tuple(db.execute('SELECT state,version FROM recognition_candidates WHERE id=?',(item['id'],)).fetchone()),('pending',3))
+
+    def test_reopened_candidate_transfers_pause_to_manually_created_task(self):
+        capture,item=self.recognized_submitted_assignment()
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='reopen',version=2))[0],200)
+        status,out=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',version=3,
+            reviewed=True,tasks_version=0,draft=dict(title='仍需处理的作业',description='用户决定保留',due=None)))
+        self.assertEqual(status,200,out)
+        app.initialize()
+        capture['request']['records'][0]['record']['collected_at']='2026-10-10T11:00:00+08:00'
+        self.sync_native(capture)
+        tasks=self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks),1);self.assertEqual(tasks[0]['status'],'not_started')
+
+    def test_manual_ignore_is_not_replaced_as_automatic_withdrawal(self):
+        capture=self.native_capture('active')
+        iid=capture['request']['records'][0]['record']['input_id']
+        draft=json.loads(self.drafts[iid]);draft['tasks'][0]['submission_relation']='assignment_submission'
+        self.drafts[iid]=json.dumps(draft)
+        item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        body=dict(action='ignore',version=1)
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',body)[0],200)
+        saved=self.reprocess_native(capture,'manual-ignore')
+        self.assertEqual(saved['records'][0]['decision_summary']['preserved'],1)
+        with app.connection() as db:
+            row=db.execute('SELECT state,version,resolution FROM recognition_candidates WHERE id=?',(item['id'],)).fetchone()
+            self.assertEqual((row['state'],row['version']),('ignored',2))
+            self.assertEqual(json.loads(row['resolution']),body)
+
     def test_submitted_preserves_submission_and_independent_reading_candidates(self):
         sync=self.sync_native(self.mixed_capture('active'))
         batch=self.run_request(sync['requests'][0])

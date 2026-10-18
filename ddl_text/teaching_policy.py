@@ -11,6 +11,7 @@ EXTRA_COMPONENTS=(
     'ddl_text/docx_reader.py', 'ddl_text/media_worker.py', 'server/teaching_assets.py',
     'ddl_text/skills/teaching-file-reading/SKILL.md',
     'ddl_text/teaching_policy.py','ddl_text/teaching_pipeline.py','ddl_text/teaching_draft.py',
+    'ddl_text/teaching_semantics.py',
     'ddl_text/skills/teaching-task-extraction/SKILL.md',
     'contracts/teaching_io.py','contracts/teaching_review_draft.py',
     'contracts/schemas/teaching-review-pair-v0.4-draft.schema.json',
