@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from runtime_environment import ENVIRONMENTS, ROOT, source_identity
 from release_images import record_acceptance, verified_images
 from mail_delivery import MAIL_KEYS, configured as mail_configured
+import mail_budget
 from dev_accounts import AccountError, ERRORS as ACCOUNT_ERRORS, validate_identity, validate_password
 
 if str(ROOT) not in sys.path:
@@ -204,10 +205,17 @@ def compose_command(name, folder, config, docker='docker'):
                   NIUMA_BUILD_REVISION=revision, COOKIE_SECURE='1' if config['transport'] == 'https' else '0')
     env_file = folder / '.env.compose'
     write_compose_env(folder / '.env.model.compose', read_model_config(folder / '.env.model'))
-    write_compose_env(folder / '.env.mail.compose', read_mail_config(folder / '.env.mail'))
+    mail = read_mail_config(folder / '.env.mail')
+    budget = mail_budget.configuration(mail)
+    if budget and budget[0].as_posix() != '/mail-budget/quota.sqlite3':
+        raise ValueError('Compose mail budget must use /mail-budget/quota.sqlite3')
+    write_compose_env(folder / '.env.mail.compose', mail)
     write_compose_env(env_file, values)
     compose = DEPLOY / ('compose.ip.yaml' if mode == 'ip' else 'compose.yaml')
-    return [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
+    command = [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
+    if budget:
+        command += ['-f', str(DEPLOY / 'compose.mail-budget.yaml')]
+    return command
 
 
 def local_environment(name, folder, config):

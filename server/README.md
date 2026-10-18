@@ -5,6 +5,8 @@ server/
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
 ├── email_verification.py     邮箱验证码、密码版本绑定、一次性消费、持久限流及验证状态。
 ├── mail_delivery.py          阿里云邮件推送 TLS SMTP 适配，不记录凭据或验证码。
+├── mail_budget.py            多进程共享发信预算，预占后不退款，累计额度不自动恢复。
+├── test_mail_budget.py       跨环境并发、重启、耗尽与 SMTP 失败停发回归。
 ├── test_email_verification.py 注册、补验证、重放、并发、限流和旧数据保留回归。
 ├── test_password_recovery.py 密码找回、会话撤销、凭据竞态、用途隔离及数据保留回归。
 ├── test_mail_delivery.py     SMTP TLS、凭据隔离、地址校验与错误脱敏测试。
@@ -64,6 +66,7 @@ server/
 │   ├── ENVIRONMENTS.md        三环境启动、旧生产接管、验收与回滚步骤。
 │   ├── TEAM_GUIDE.md          团队本机开发、SSH 测试和协作发布的简明指南。
 │   ├── EMAIL.md               阿里云发信准备、配置、验收与旧账号升级说明。
+│   ├── compose.mail-budget.yaml  显式挂载共享发信计数卷，不共享用户数据。
 │   └── environments/         本机私有环境配置，不提交也不进入镜像。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
 ├── test_incremental_recognition.py  增量筛选、逐条识别与失败重试回归。

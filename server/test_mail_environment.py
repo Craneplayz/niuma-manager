@@ -93,6 +93,24 @@ class MailEnvironmentTests(unittest.TestCase):
             self.assertNotIn('no-reply', output.getvalue())
             self.assertNotIn('synthetic', output.getvalue())
 
+    def test_managed_compose_opts_into_one_external_budget_without_sharing_user_data(self):
+        for name in ('test', 'production'):
+            folder = manager.initialize(name, self.root)
+            self.write_mail(folder)
+            with (folder / '.env.mail').open('a', encoding='utf-8') as stream:
+                stream.write('NIUMA_MAIL_BUDGET_FILE=/mail-budget/quota.sqlite3\n'
+                             'NIUMA_MAIL_BUDGET_DAILY=100\nNIUMA_MAIL_BUDGET_TOTAL=1000\n')
+            command = manager.compose_command(name, folder, manager.defaults(name))
+            self.assertEqual(command[-2:], ['-f', str(manager.DEPLOY / 'compose.mail-budget.yaml')])
+            self.assertIn('/mail-budget/quota.sqlite3', (folder / '.env.mail.compose').read_text())
+        override = (manager.DEPLOY / 'compose.mail-budget.yaml').read_text()
+        self.assertIn('external: true', override)
+        self.assertNotIn('/data', override)
+        mail_file = folder / '.env.mail'
+        mail_file.write_text(mail_file.read_text().replace('/mail-budget/quota.sqlite3', '/data/private-counter.db'), encoding='utf-8')
+        with self.assertRaises(ValueError):
+            manager.compose_command(name, folder, manager.defaults(name))
+
     @unittest.skipUnless(os.environ.get('NIUMA_COMPOSE_TEST_BIN') or shutil.which('docker'), 'Compose CLI required; no engine needed')
     def test_compose_preserves_mail_literals_and_isolates_every_environment(self):
         base = self.root / '$UNRELATED profile # directory'

@@ -3,12 +3,13 @@ import os
 import re
 import smtplib
 import ssl
+import mail_budget
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
 
 
 MAIL_KEYS = frozenset({'NIUMA_MAIL_HOST', 'NIUMA_MAIL_PORT', 'NIUMA_MAIL_FROM',
-                       'NIUMA_MAIL_PASSWORD', 'NIUMA_MAIL_TIMEOUT'})
+                       'NIUMA_MAIL_PASSWORD', 'NIUMA_MAIL_TIMEOUT'}) | mail_budget.KEYS
 # Use the region selected in the DirectMail console, regardless of the ECS region.
 # https://help.aliyun.com/zh/direct-mail/smtp-endpoints
 SMTP_HOSTS = frozenset({'smtpdm.aliyun.com', 'smtpdm-ap-southeast-1.aliyuncs.com',
@@ -49,6 +50,10 @@ def _configuration(values):
             or not _address(sender) or not isinstance(password, str)
             or any(ord(char) < 32 or ord(char) == 127 for char in password)):
         raise DeliveryError()
+    try:
+        mail_budget.configuration(values)
+    except ValueError:
+        raise DeliveryError() from None
     return host, port, sender, password, timeout
 
 
@@ -79,6 +84,12 @@ def send_verification(email, code, purpose):
                             + '\n\n验证码 10 分钟内有效，请勿向他人透露此验证码。'
                             + '\n如果这不是你的操作，请忽略此邮件。\n')
         context = ssl.create_default_context()
+        # Reserve before any SMTP traffic, including failed/uncertain delivery;
+        # never refund or implicitly retry a potentially billable attempt.
+        try:
+            mail_budget.reserve(mail_budget.configuration(os.environ))
+        except (mail_budget.BudgetError, ValueError):
+            raise DeliveryError('邮件发送预算不可用或已用完，请联系管理员') from None
         with smtplib.SMTP_SSL(host, port, timeout=timeout, context=context) as client:
             client.login(sender, password)
             refused = client.send_message(message, from_addr=sender, to_addrs=[email])

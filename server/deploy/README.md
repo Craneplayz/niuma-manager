@@ -8,6 +8,7 @@ deploy/
 ├── Dockerfile                构建 API、HTTPS 网页和 HTTP IP 网页镜像。
 ├── Dockerfile.dockerignore   排除凭据、数据库、采集数据和本机配置。
 ├── compose.ip.yaml           单机 HTTP IP 部署，仅向外开放 1331。
+├── compose.mail-budget.yaml   可选共享发信计数卷，需显式创建且随预算保留。
 ├── compose.yaml              域名 HTTPS 部署，仅向外开放 80/443。
 ├── Caddyfile.eci              HTTP 网页与同网络空间 API 的代理配置。
 ├── Caddyfile                  HTTPS 网页、证书与 API 代理配置。
