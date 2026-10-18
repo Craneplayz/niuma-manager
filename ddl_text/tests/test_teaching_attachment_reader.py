@@ -10,12 +10,28 @@ from ddl_text.docx_reader import DOCX_MIME
 from ddl_text.teaching_attachment_reader import MAX_TEXT, read_attachment
 from ddl_text.tests.docx_cases import package, paragraph, drawing, relationship
 from ddl_text.tests.media_cases import image_bytes
-from ddl_text.tests.pdf_cases import pdf_bytes
+from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
 
 TEXT = '请于2026年11月17日23:30前提交合成实验报告。'
 
 
 class AttachmentReaderTests(unittest.TestCase):
+    def test_mixed_pdf_reuses_text_pages_and_reads_only_graphical_page(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes as plain_pdf
+        out,client=self.read(plain_pdf(('Native first page',image_bytes(),'Native third page')),'application/pdf')
+        self.assertEqual(out['read_state'],'complete')
+        self.assertIn('原件文字：第 1 页',out['text']);self.assertIn('Native third page',out['text'])
+        self.assertIn('模型转录：第 2 页',out['text'])
+        self.assertEqual(client.complete_json.call_count,1)
+        parts=client.complete_json.call_args.args[1]
+        self.assertEqual(len(parts),2);self.assertTrue(parts[0]['text'].startswith('第 2 页'))
+
+    def test_long_text_only_pdf_uses_no_transcription_calls(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes as plain_pdf
+        out,client=self.read(plain_pdf(tuple('Native page '+str(i) for i in range(17))),'application/pdf')
+        self.assertEqual(out['read_state'],'complete');self.assertIn('Native page 16',out['text'])
+        client.complete_json.assert_not_called()
+
     def setUp(self):
         # Content tests isolate transport; real wall-clock transport is tested below.
         transport=patch('ddl_text.teaching_attachment_reader.transcribe',

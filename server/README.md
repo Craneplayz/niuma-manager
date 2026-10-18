@@ -13,6 +13,10 @@ server/
 ├── test_release_images.py    验证缺失验收记录、镜像替换及不安全标签不能用于发布。
 ├── test_environment_isolation.py 验证真实三 API 的账号、数据、附件、配置与会话隔离。
 ├── test_container_environment.py 用临时 Docker 卷验证三环境、HTTPS 与重建持久化。
+├── recognition_diagnostics.py 测试环境限量失败诊断、阶段耗时与账号隔离查询。
+├── test_recognition_diagnostics.py 测试环境开关、敏感字段拒绝与历史保留回归。
+├── teaching_identity.py      稳定来源指纹及已处理来源变更的防重复保护。
+├── test_teaching_identity.py  附件字节、引用顺序与读取状态变化的身份回归。
 ├── recognition.py            文本识别批次与候选确认接口。
 ├── reprocessing.py           已保存教学网通知的定向运行、停止与持久进度。
 ├── test_reprocessing.py      来源分页、幂等、账号隔离、停止与旧结果保留测试。
@@ -63,6 +67,10 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+测试环境导入错误附带可展开的诊断详情，记录失败阶段、版本、耗时、附件摘要、缓存/页码进度及安全的输出校验位置；生产和开发环境不记录或返回此详情。每用户最多保留 200 次尝试，接口见 [后台同步约定](../contracts/docs/source-sync-v0.1.md)。
+
+同来源指纹使用附件原件字节，忽略引用排序和读取状态漂移；真正变更且已有任务或处理决定的来源改为待核对，禁止再次自动新增，已有任务与用户决定保留。新附件引用先绑定再清理旧引用，保留未变附件的读取缓存。
 
 ## 错误报告
 

@@ -254,7 +254,13 @@ def save(db, run, state=None):
 
 
 def view(run):
-    return {k: v for k, v in run.items() if k not in ('user_id', 'retry_selection', 'recover_sources', 'recovery_targets', 'recovery_replacements', 'collection_completed')}
+    from copy import deepcopy
+    from server.runtime_environment import environment
+    result = deepcopy({k: v for k, v in run.items() if k not in ('user_id', 'retry_selection', 'recover_sources', 'recovery_targets', 'recovery_replacements', 'collection_completed')})
+    if environment()!='test':
+        for item in [result,*result['records']]:
+            if item.get('error'): item['error'].pop('diagnostics',None)
+    return result
 
 
 def can_retry(item):
@@ -534,6 +540,9 @@ def auto_apply(db, uid, request_id, ApiError):
     applied = set()
     for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1', (uid, request_id)).fetchall():
         candidate = json.loads(item['candidate'])
+        if request.get('contract_version')=='0.4':
+            teaching.teaching_identity.protect_source_changes(db,uid,request_id,[candidate])
+            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(candidate),item['id']))
         if not recognition.can_auto_apply(candidate, request, batch['demo']): continue
         # Same submission/ownership/user-decision checks as the interactive endpoint.
         if teaching.submission.review_reason(teaching.submission.for_request(db, uid, request_id)): continue
@@ -568,7 +577,9 @@ def process_record(path, uid, run_id, request_id, ApiError):
                             review=len(review), review_items=review, error=None)
             else:
                 failure = next((r.get('error') for r in result['record_results'] if r.get('error')), {})
-                item.update(state='failed', error=error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)))
+                from server import recognition_diagnostics as diagnostics
+                item.update(state='failed', error=diagnostics.attach(db,uid,request_id,
+                    error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True))))
             item['seconds'] = round(time.monotonic()-started, 2)
             save(db, run)
     except Exception as exc:
@@ -582,21 +593,27 @@ def process_record(path, uid, run_id, request_id, ApiError):
             item.update(state='failed', seconds=round(time.monotonic()-started, 2),
                         error=error('source_changed' if conflict else 'model_configuration' if configuration else 'recognition_failed',
                                     exc.message if isinstance(exc, ApiError) else '识别暂时失败，已保存的其他结果不受影响。', not (conflict or configuration)))
+            from server import recognition_diagnostics as diagnostics
+            item['error'] = diagnostics.attach(db,uid,request_id,item['error'])
             save(db, run)
 
 
 def collect_recovery(db, uid, run, ApiError, path):
     targets = run['recovery_targets']
     try:
-        response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
-            guard=lambda current: guard(current, uid, run['run_id'], ApiError),
-            input_ids={item['input_id'] for item in targets.values()})
+        from server import recognition_diagnostics as diagnostics
+        with diagnostics.capture(db,uid,'collect:'+run['run_id']):
+            diagnostics.event('collection_recovery',timeout_seconds=300)
+            response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
+                guard=lambda current: guard(current, uid, run['run_id'], ApiError),
+                input_ids={item['input_id'] for item in targets.values()})
     except Exception as exc:
         if db.in_transaction: db.rollback()
         if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
         guard(db, uid, run['run_id'], ApiError)
         run = get(db, uid, run['run_id'], ApiError)
         run['error'] = error('collection_failed', exc.message if isinstance(exc,ApiError) else '异常来源暂时无法重新获取，请稍后处理。', True)
+        run['error'] = diagnostics.attach(db,uid,'collect:'+run['run_id'],run['error'])
         # A collection outage must not prevent recognition retries that can use
         # their already captured source. Incomplete sources remain unresolved.
         for item in run['records']:
@@ -650,8 +667,11 @@ def process(path, uid, run_id, ApiError):
                     save(db,run,'recognizing')
             elif not run['parent_run_id']:
                 with connection(path) as db:
-                    response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
-                                                   guard=lambda current: guard(current, uid, run_id, ApiError))
+                    from server import recognition_diagnostics as diagnostics
+                    with diagnostics.capture(db,uid,'collect:'+run_id):
+                        diagnostics.event('collection',timeout_seconds=300)
+                        response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
+                                                       guard=lambda current: guard(current, uid, run_id, ApiError))
                     if len(response['requests']) > 1000: raise ApiError(413,'单轮待识别通知超过 1000 条，请缩小采集范围')
                     run = get(db, uid, run_id, ApiError)
                     run['records'] = [record(r) for r in response['requests']]
@@ -694,6 +714,8 @@ def process(path, uid, run_id, ApiError):
             run = get(db, uid, run_id, ApiError)
             if run['state'] not in contract.ACTIVE: return
             run['error'] = error('collection_failed', exc.message if isinstance(exc, ApiError) else '同步暂时失败，请重新获取来源。', True)
+            from server import recognition_diagnostics as diagnostics
+            run['error'] = diagnostics.attach(db,uid,'collect:'+run_id,run['error'])
             for item in run['records']:
                 if item['state'] in ('queued','running'): item['state']='interrupted'
             save(db, run, 'failed')

@@ -10,8 +10,10 @@ from pathlib import Path
 import secrets
 import teaching_submission as submission
 import teaching_assets
+import teaching_identity
 from ddl_text.adapters import AgentError
 from server.model_queue import WAIT_ERROR, disconnected
+from server import recognition_diagnostics as diagnostics
 
 from contracts.teaching_io import canonical, check_request, snapshot_digest
 from contracts.teaching_capture import check_capture
@@ -34,6 +36,7 @@ def needs_source_completion(result):
 
 
 def initialize(db):
+    diagnostics.initialize(db)
     submission.initialize(db)
     teaching_assets.initialize(db)
     db.execute('''CREATE TABLE IF NOT EXISTS teaching_sources(
@@ -139,23 +142,35 @@ def register(db, uid, username, requests, *, assets=None):
             if submission.stale(previous_state,r,observation):
                 skipped += 1
                 continue
-            stable = deepcopy(entry)
-            for key in ('collected_at','snapshot_id'): stable['record'].pop(key)
-            material = dict(entry=stable,assignment=assignment) if assignment else stable
             files = (assets or {}).get(r['input_id'],[])
-            if files: material = dict(source=material,assets=teaching_assets.identity(files))
-            digest = hashlib.sha256(canonical(material)).hexdigest()
+            digest = teaching_identity.source_digest(entry, assignment, files)
             row = db.execute('SELECT * FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
                 (uid, account(username), r['input_id'])).fetchone()
-            if row and row['digest']==digest:
+            # Upgrade old fingerprints using their original capture and bytes,
+            # without needlessly re-running successful recognition on deployment.
+            previous_digest = None
+            if row and row['digest'] != digest:
+                old = json.loads(row['request'])['records'][0]
+                old_files = teaching_assets.load(db,uid,account(username),row['request_id'])
+                legacy = deepcopy(old)
+                for key in ('collected_at','snapshot_id'): legacy['record'].pop(key)
+                legacy_material = dict(entry=legacy,assignment=assignment) if assignment else legacy
+                if old_files: legacy_material = dict(source=legacy_material,assets=teaching_assets.identity(old_files))
+                if row['digest']==hashlib.sha256(canonical(legacy_material)).hexdigest():
+                    previous_digest = teaching_identity.source_digest(old, assignment, old_files)
+            if row and (row['digest']==digest or previous_digest==digest):
                 request = json.loads(row['request'])
+                db.execute('UPDATE teaching_sources SET digest=? WHERE user_id=? AND account=? AND input_id=?',
+                           (digest,uid,account(username),r['input_id']))
             else:
                 r['snapshot_id'] = 'snapshot:'+secrets.token_hex(16)
                 request = dict(contract_version='0.4', request_id='teaching:'+secrets.token_hex(16), records=[entry])
                 db.execute('INSERT INTO teaching_sources VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,account,input_id) DO UPDATE SET digest=excluded.digest,request_id=excluded.request_id,request=excluded.request',
                     (uid, account(username), r['input_id'], digest, request['request_id'], json.dumps(request)))
-            teaching_assets.prune(db,uid)
+            # Bind the new request first: pruning before this deletes an unchanged
+            # file and its validated read cache when its last old reference retires.
             teaching_assets.store(db,uid,account(username),request['request_id'],files)
+            teaching_assets.prune(db,uid)
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
                                        old_request_id=row['request_id'] if row else None,source=entry['source'],
                                        assets=teaching_assets.identity(files))
@@ -195,12 +210,14 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
         error.code = 'model_configuration'
         raise error from None
     client = ChatClient(options['key'])
+    diagnostics.event('configuration',model=settings.model,timeout_seconds=settings.timeout_seconds)
     def check_active():
         if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
     if files:
         try:
             teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
         except AgentError as error:
+            diagnostics.event('attachment_failure',code=error.code,diagnostic=error.diagnostic,schema=error.detail)
             from ddl_text.teaching_pipeline import _failure
             result = dict(contract_version='0.4',classification_mode=CLASSIFICATION_MODE,request_id=request['request_id'],
                 policy_version=policy['version'],status='failed',record_results=[_failure(request['records'][0],
@@ -210,7 +227,7 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
     check_active()
     result = process_teaching_request(request, client=client, settings=settings,
         verified_snapshot_digests={snapshot_digest(e) for e in request['records']},
-        budget_seconds=90)
+        budget_seconds=90,diagnostic_event=diagnostics.event)
     return result, policy
 
 
@@ -254,8 +271,12 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
     if not recognition._ACTIVE.acquire(): raise ApiError(503,WAIT_ERROR)
     try:
         if guard: guard(db)
-        result, policy = recognize(request,ApiError,**attachments)
-        validate_current_result(request,result,policy,ApiError)
+        with diagnostics.capture(db,uid,request['request_id']):
+            result, policy = recognize(request,ApiError,**attachments)
+            for outcome in result['record_results']:
+                failure = outcome.get('error') or {}
+                diagnostics.event('result',status=outcome['status'],code=failure.get('code'),schema=failure.get('diagnostic'))
+            validate_current_result(request,result,policy,ApiError)
         db.execute('BEGIN IMMEDIATE')
         if guard: guard(db)
         if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
@@ -268,7 +289,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
                 (json.dumps(result),json.dumps(request),hashlib.sha256(canonical(request)).hexdigest(),uid,request['request_id']))
         else:
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result)))
-        for card in result_view(request,result)['tasks']:
+        for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):
             db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                 (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
         submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))

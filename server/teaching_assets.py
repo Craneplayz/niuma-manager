@@ -14,6 +14,7 @@ from contracts.teaching_io import check_request
 from ddl_text.adapters import AgentError
 from ddl_text.image_reader import MetadataMismatch
 from ddl_text.teaching_attachment_reader import MAX_PDF_PAGES, PDF_BATCH_PAGES, read_attachment, cache_version
+from server import recognition_diagnostics as diagnostics
 
 MAX_FILE = 5 * 1024 * 1024
 MAX_ACCOUNT = 200 * 1024 * 1024
@@ -153,6 +154,7 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
         # The crawler marks graphical/annotated/unreadable PDFs as partial.
         # Reuse only complete text; do not send it through vision a second time.
         if a['mime_type']=='application/pdf' and ref['read_state']=='complete' and (ref.get('text') or '').strip():
+            diagnostics.event('attachment',file_sha256=a['sha256'],mime_type=a['mime_type'],bytes=len(a['data']),cache='captured_text')
             continue
         key = (a['sha256'],a['mime_type'])
         result = read_cache.get(key)
@@ -162,6 +164,8 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
             if cached.get('pdf_checkpoint') == 1: checkpoint = cached
             else: result = dict(read_state=cached['read_state'],text=cached['text'])
         if result is None:
+            diagnostics.event('attachment',file_sha256=a['sha256'],mime_type=a['mime_type'],bytes=len(a['data']),
+                              cache='checkpoint' if checkpoint else 'miss',completed_pages=len(checkpoint['pages']) if checkpoint else 0)
             metadata = dict(mime_type=a['mime_type'],sha256=a['sha256'],size_bytes=len(a['data']))
             pages_read = len(checkpoint['pages']) if checkpoint else 0
             def save_checkpoint(value):
@@ -170,23 +174,27 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
                 save_cache(a,version,value)
             try:
                 batch_pages=PDF_BATCH_PAGES
+                reductions_left=2
                 while True:
                     if guard: guard()
                     resume = dict(checkpoint=checkpoint, save_checkpoint=save_checkpoint,
                                   single_pdf_batch=True, pdf_batch_pages=batch_pages) if a['mime_type']=='application/pdf' else {}
                     try:
                         result = read_attachment(a['data'],metadata,client,settings,
-                                                 expires=time.monotonic()+75,guard=guard,**resume)
+                                                 expires=time.monotonic()+75,guard=guard,diagnostic_event=diagnostics.event,**resume)
                     except AgentError as error:
-                        # Only explicit output-token exhaustion permits a smaller
-                        # batch. At most 6 -> 3 -> 1; never retry timeouts/outages.
-                        if a['mime_type']=='application/pdf' and error.diagnostic=='output_truncated' and batch_pages>1:
+                        # At most two smaller attempts, retaining validated pages.
+                        # A one-page timeout or provider outage still exits.
+                        if (a['mime_type']=='application/pdf' and batch_pages>1 and reductions_left>0
+                                and (error.diagnostic=='output_truncated' or error.code=='agent_timeout')):
+                            reductions_left-=1
+                            diagnostics.event('pdf_reduce_batch',code=error.code,batch_pages=batch_pages,completed_pages=pages_read)
                             batch_pages=max(1,batch_pages//2)
                             continue
                         raise
                     if result.get('pdf_checkpoint')!=1: break
                     # Only a successful, advancing page batch permits continuation.
-                    # Timeouts and bad output propagate, with no automatic retry loop.
+                    # Failure never advances the offset; shrinking is bounded above.
                     before=len(checkpoint['pages']) if checkpoint else 0
                     if a['mime_type']!='application/pdf' or not before<len(result['pages'])<MAX_PDF_PAGES:
                         raise AgentError('file_read_failed',False)
@@ -201,6 +209,8 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
             if result['read_state'] in ('complete','partial'):
                 cached=dict(result,pdf_pages_read=pages_read) if a['mime_type']=='application/pdf' else result
                 save_cache(a,version,cached)
+        else:
+            diagnostics.event('attachment',file_sha256=a['sha256'],mime_type=a['mime_type'],bytes=len(a['data']),cache='hit')
         read_cache[key] = result
         if result['text'] is None and ref.get('text'):
             continue  # A failed visual pass must not erase a captured PDF text layer.

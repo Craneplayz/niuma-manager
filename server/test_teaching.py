@@ -22,6 +22,36 @@ from ddl_text.tests.teaching_cases import empty_reply
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_changed_source_never_auto_duplicates_prior_task_or_deleted_task(self):
+        request,drafts=example();self.drafts.update(drafts)
+        for version in range(3):
+            request['records'][0]['record']['references'] = ([] if version!=1 else [dict(
+                ref_id='file:extra',kind='content_image',label='Changed reference',read_state='unsupported',text=None)])
+            with app.connection() as db: sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+            item=self.run_request(sync['requests'][0])['items'][0]
+            status,_=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+            self.assertEqual(status,200 if version==0 else 400)
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1 if version<2 else 0)
+            if version==1:
+                with app.connection() as db:db.execute('UPDATE workspace SET value=? WHERE user_id=? AND name="tasks"',('[]',self.uid))
+
+    def test_test_environment_keeps_failure_diagnostics_after_retry_and_scopes_endpoint(self):
+        from server import recognition_diagnostics as diagnostics
+        import os
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.assertEqual(self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))[0],200)
+            with app.connection() as db:
+                with diagnostics.capture(db,self.uid,'synthetic:failed'):
+                    diagnostics.event('result',code='invalid_agent_output',schema={'schema_path':'properties/tasks/items/required','rule':'required'})
+                with diagnostics.capture(db,self.uid,'synthetic:failed'):diagnostics.event('result',status='success')
+            status,out=self.call('/recognition/diagnostics',dict(request_id='synthetic:failed'))
+            self.assertEqual(status,200);self.assertEqual(len(out['attempts']),2)
+            self.assertEqual(out['attempts'][1]['events'][0]['code'],'invalid_agent_output')
+            with app.connection() as db:self.assertEqual(diagnostics.attempts(db,'other-user','synthetic:failed'),[])
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'production'}):
+            self.assertEqual(self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))[0],200)
+            self.assertEqual(self.call('/recognition/diagnostics',dict(request_id='synthetic:failed'))[0],404)
+
     def test_shared_notices_and_tasks_auto_apply_through_same_workspace(self):
         cases=json.loads((Path(__file__).parents[1]/'contracts/examples/teaching-content-types-v04.json').read_text(encoding='utf-8'))['cases']
         expected=[]

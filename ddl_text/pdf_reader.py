@@ -22,8 +22,10 @@ class PdfLimits:
     render_seconds: float = 15
     scale: float = 2  # 144 dpi, full page including visible annotations.
     start_page: int = 0  # Zero-based offset for bounded, resumable page batches.
+    native_text: bool = False  # Teaching reader may reuse verified text-only pages.
 
     def __post_init__(self):
+        if type(self.native_text) is not bool: raise ValueError('invalid_pdf_limit')
         if type(self.start_page) is not int or not 0 <= self.start_page < 10000:
             raise ValueError('invalid_pdf_limit')
         bounds = dict(max_bytes=20 * 1024 * 1024, max_pages=16,
@@ -56,7 +58,7 @@ def _render(data, limits):
         total = len(document)
         if total == 0 or limits.start_page >= total:
             raise AgentError('file_read_failed', False)
-        pages, pixels, encoded = [], 0, 0
+        pages, native_texts, pixels, encoded = [], [], 0, 0
         batch_full = False
         end = min(total, limits.start_page + limits.max_pages)
         failure = 'limit_exceeded' if total > end else None
@@ -73,6 +75,31 @@ def _render(data, limits):
                     raise AgentError('limit_exceeded', False)
                 page = document[index]
                 try:
+                    # Be conservative: graphics, annotations, forms and unknown
+                    # object types still require the visible page. Plain text
+                    # pages in a mixed PDF need no model transcription.
+                    text = None
+                    if limits.native_text and pdfium.raw.FPDFPage_GetAnnotCount(page) == 0:
+                        try:
+                            objects = list(page.get_objects(max_depth=1))
+                            if objects and all(o.type == pdfium.raw.FPDF_PAGEOBJ_TEXT
+                                    and pdfium.raw.FPDFTextObj_GetTextRenderMode(o) in (0, 1, 2) for o in objects):
+                                textpage = page.get_textpage()
+                                try:
+                                    candidate = textpage.get_text_range()
+                                finally:
+                                    textpage.close()
+                                if (candidate.strip() and len(candidate) <= 50000 and '\ufffd' not in candidate
+                                        and all(c.isprintable() or c in '\n\r\t' for c in candidate)):
+                                    text = candidate.strip()
+                        except Exception:
+                            # An optional text shortcut must not make an otherwise
+                            # renderable page unreadable.
+                            text = None
+                    if text is not None:
+                        pages.append(b'')
+                        native_texts.append(text)
+                        continue
                     bitmap = page.render(scale=limits.scale, draw_annots=True, may_draw_forms=False)
                     try:
                         with bitmap.to_pil() as image:
@@ -87,6 +114,7 @@ def _render(data, limits):
                     batch_full = bool(pages)
                     raise AgentError('limit_exceeded', False)
                 pages.append(png)
+                native_texts.append(None)
                 pixels += count
                 encoded += len(png)
             except AgentError as error:
@@ -97,7 +125,9 @@ def _render(data, limits):
                 break
         if not pages:
             raise AgentError(failure or 'file_read_failed', False)
-        return dict(pages=pages, total_pages=total, error=failure, batch_full=batch_full)
+        result = dict(pages=pages, total_pages=total, error=failure, batch_full=batch_full)
+        if limits.native_text: result['native_texts'] = native_texts
+        return result
 
 
 def read_pdf(data, asset, limits):

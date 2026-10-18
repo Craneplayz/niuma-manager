@@ -58,6 +58,38 @@ class AssetIndexUpgradeTests(unittest.TestCase):
 
 
 class TeachingAssetsIntegrationTests(unittest.TestCase):
+    def test_upgrade_reuses_legacy_request_and_stable_file_even_if_read_status_varies(self):
+        from contracts.teaching_io import canonical
+        rid=self.sync()['requests'][0]['request_id']
+        with app.connection() as db:
+            request=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            files=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid)
+            entry=deepcopy(request['records'][0])
+            for key in ('collected_at','snapshot_id'):entry['record'].pop(key)
+            old=hashlib.sha256(canonical(dict(source=entry,assets=teaching_assets.identity(files)))).hexdigest()
+            db.execute('UPDATE teaching_sources SET digest=? WHERE user_id=?',(old,self.uid))
+            record=request['records'][0]['record'];record['references'][0].update(read_state='failed',text=None)
+            again=teaching.register(db,self.uid,'synthetic-course-user',[request],assets={record['input_id']:files})
+            self.assertEqual(again['requests'][0]['request_id'],rid)
+
+    def test_source_change_preserves_unchanged_attachment_cache(self):
+        rid=self.sync()['requests'][0]['request_id']
+        with app.connection() as db:
+            original=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            files=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid)
+            db.execute('UPDATE teaching_asset_files SET cache_version=?,result=? WHERE user_id=?',
+                       ('synthetic-version',json.dumps(dict(read_state='complete',text=TEXT)),self.uid))
+        original['records'][0]['record']['text']+=' Extra requirement'
+        input_id=original['records'][0]['record']['input_id']
+        with app.connection() as db:
+            changed=teaching.register(db,self.uid,'synthetic-course-user',[original],assets={input_id:files})
+            newer=changed['requests'][0]['request_id']
+            self.assertNotEqual(newer,rid)
+            saved=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),newer)
+            self.assertEqual(saved[0]['cache_version'],'synthetic-version')
+            self.assertEqual(json.loads(saved[0]['result'])['text'],TEXT)
+            self.assertEqual(teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid),[])
+
     def setUp(self):
         harness.TeachingIntegrationTests.setUp(self)
         transport=patch('ddl_text.teaching_attachment_reader.transcribe',
@@ -145,7 +177,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         self.assert_cached_reprocess(rid)
 
     def test_complete_pdf_capture_skips_visual_transcription_through_http_and_reprocessing(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         original='\n'.join(f'Page {i}' for i in range(1,18))+'\n'+TEXT
         rid=self.sync(pdf_bytes(('Synthetic page',)*17),'application/pdf',pdf_text=original)['requests'][0]['request_id']
         batch,vision=self.run_record(rid,AssertionError('complete PDF text must not be transcribed again'))
@@ -160,7 +192,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
     def test_long_visual_pdf_finishes_one_background_run_without_shared_75_second_deadline(self):
         import source_jobs as jobs
         import ddl_text.teaching_attachment_reader as reader
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         synced=self.sync(pdf_bytes(('Synthetic page',)*43),'application/pdf')
         rid=synced['requests'][0]['request_id'];clock=[100.0];seen=[];budgets=[]
         fake_time=SimpleNamespace(monotonic=lambda:clock[0])
@@ -203,7 +235,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         import source_jobs as jobs
         import ddl_text.teaching_attachment_reader as reader
         import threading
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         synced=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')
         entered=threading.Event();release=threading.Event();seen=[]
         def render(data,asset,limits):
@@ -232,12 +264,12 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(checkpoint['pdf_checkpoint'],1);self.assertEqual(len(checkpoint['pages']),6)
 
     def test_pdf_timeout_restart_resumes_persisted_pages_without_repeating_completed_calls(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         rid=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')['requests'][0]['request_id']
         seen=[]
         def vision(instructions,parts,settings):
             labels=[p['text'] for p in parts if p['type']=='text'];seen.append(labels)
-            if len(seen)==2:raise AgentError('agent_timeout',True)
+            if 2<=len(seen)<=4:raise AgentError('agent_timeout',True)
             return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False,note='') for i in range(len(labels))]))
         failed,_=self.run_record(rid,vision)
         self.assertEqual(failed['result']['status'],'failed')
@@ -248,7 +280,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         app.initialize()
         good,_=self.run_record(rid,vision)
         self.assertEqual(good['result']['status'],'success')
-        self.assertIn('第 7 页',seen[2][0]);self.assertEqual(len(seen),4)
+        self.assertIn('第 7 页',seen[4][0]);self.assertEqual(len(seen),6)
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
             self.assertEqual(cached['read_state'],'complete');self.assertIn('第 13 页',cached['text'])
@@ -276,7 +308,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         self.assert_cached_reprocess(rid)
 
     def test_late_pdf_checkpoint_cannot_replace_completed_shared_cache(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         rid=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')['requests'][0]['request_id']
         with app.connection() as db:
             request=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
@@ -302,7 +334,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         self.assert_cached_reprocess(rid)
 
     def test_cache_progress_writes_are_monotonic_and_version_scoped(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         rid=self.sync(pdf_bytes(('Synthetic page',)*5),'application/pdf')['requests'][0]['request_id']
         with app.connection() as db:
             old=teaching.attachment_context(db,self.uid,rid)
@@ -428,7 +460,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         self.settings=Settings(model='synthetic',endpoint='https://model.example.invalid/v1')
 
     def pdf_input(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         request,_=example();data=pdf_bytes(('Synthetic',)*13)
         request['records'][0]['record']['references']=[dict(ref_id='file:1',kind='attachment',
             label='synthetic.pdf',read_state='partial',text='Captured text with a visual gap.')]
@@ -458,7 +490,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         from unittest.mock import Mock
         import ddl_text.teaching_attachment_reader as reader
         for failure,expected in [(AgentError('invalid_agent_output',True,'output_truncated'),3),
-                                 (AgentError('agent_timeout',True),1)]:
+                                 (AgentError('agent_timeout',True),3)]:
             with self.subTest(code=failure.code):
                 request,asset=self.pdf_input()
                 def render(data,asset,limits):
@@ -503,7 +535,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
 
     def test_pdf_visual_pages_supplement_the_captured_full_text(self):
         from unittest.mock import Mock
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         data=pdf_bytes(('Page with graphics',)*6+('Deadline 2026-11-17 23:30',))
         request,_=example();record=request['records'][0]['record']
         original='\n'.join(['PDF text page '+str(n) for n in range(1,7)]+['Deadline 2026-11-17 23:30'])

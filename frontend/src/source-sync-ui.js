@@ -145,7 +145,7 @@ export function createSourceSyncUI(host) {
     const formatted = host.describeError?.(cause) || describeUserError(cause, "teaching_sync");
     if (formatted?.message && formatted.kind !== "unknown") return formatted;
     if (/^(导入服务版本不匹配|导入进度暂时无法读取)/.test(cause?.message || "")) return { message: cause.message, details: "" };
-    return { message: fallback, details: "" };
+    return { message: fallback, details: "", diagnostics: formatted?.diagnostics };
   }
   function errorMarkup(value, context) {
     return userErrorMarkup(value, "teaching_sync", context);

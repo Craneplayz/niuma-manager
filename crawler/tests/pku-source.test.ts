@@ -121,6 +121,14 @@ describe("substantive references versus page chrome", () => {
     expect(record.references).toEqual([]);
     expect(record.body).not.toContain("菜单");
   });
+  it("keeps source identity stable when a dynamic close-menu control appears", () => {
+    const plain = extractCourseSourcesFromHtml(page(contentItem("stable", "作业", `<p>${body}</p><a href="/hw.pdf">作业.pdf</a>`)), context)[0];
+    const control = '<div class="cmdiv"><a href="/menu"><img src="/images/ci/ng/close.gif" alt="关闭菜单"></a></div><img src="/images/ci/ng/close.gif" alt="关闭菜单">';
+    const toggled = extractCourseSourcesFromHtml(page(contentItem("stable", "作业", `<p>${body}</p><a href="/hw.pdf">作业.pdf</a>${control}`)), context)[0];
+    expect(toggled).toEqual(plain);
+    const [real] = extractCourseSourcesFromHtml(page(contentItem("real", "作业", '<img src="/course/tutorial.png" alt="关闭菜单">')), context);
+    expect(real.references).toHaveLength(1);
+  });
   it.each(["补充附件", "期限见附件"])("keeps an unread %s partial", (label) => {
     const [record] = extractCourseSourcesFromHtml(page(contentItem("attachment", "作业", `<p>${body}</p><a href="/hw.pdf">${label}</a>`)), context);
     expect(record.text_quality).toBe("partial");

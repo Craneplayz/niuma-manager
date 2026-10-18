@@ -25,6 +25,7 @@
 }
 .user-error { min-width: 0; color: var(--danger); font-size: 13px; line-height: 1.65; }
 .user-error-message { margin: 0; overflow-wrap: anywhere; }
+.test-error-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; font-size: .8rem; }
 .user-error-help { margin: 6px 0 0; color: var(--muted); }
 .error-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
 .error-feedback-status { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }

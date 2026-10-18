@@ -129,6 +129,7 @@ def batches(db,uid):
         if request.get('contract_version')=='0.4':
             import teaching
             output = teaching.submission.project_result(db,uid,row['request_id'],teaching.result_view(request,output))
+            output['errors'] = [teaching.diagnostics.attach(db,uid,row['request_id'],e) for e in output['errors']]
             cards = {c['candidate_id']: c for c in output['tasks']}
             # History-filtered pending proposals leave the active review view;
             # saved model runs and already applied/ignored user decisions remain.
@@ -183,6 +184,12 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
 
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
+    if path=='/api/recognition/diagnostics' and handler.command=='POST':
+        from server import recognition_diagnostics as diagnostics
+        if diagnostics.environment()!='test': raise ApiError(404,'接口不存在')
+        if set(body)!={'request_id'} or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
+            raise ApiError(400,'请提供本次导入的 request_id')
+        handler.reply(200,dict(attempts=diagnostics.attempts(db,uid,body['request_id'])));return True
     if path=='/api/recognition/task-evidence' and handler.command=='POST':
         workspace=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
         task=next((t for t in json.loads(workspace['value'] if workspace else '[]') if t.get('id')==body.get('task_id')),None)
@@ -330,6 +337,7 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             import teaching
             teaching.submission.guard_auto_apply(db,uid,row['request_id'],ApiError)
             teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
+            teaching.teaching_identity.protect_source_changes(db,uid,row['request_id'],[c])
         if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
             raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
     if action!='ignore':

@@ -46,13 +46,13 @@ def cache_version(settings):
 
 
 def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, save_checkpoint=None,
-                    single_pdf_batch=False, pdf_batch_pages=PDF_BATCH_PAGES, guard=None):
+                    single_pdf_batch=False, pdf_batch_pages=PDF_BATCH_PAGES, guard=None, diagnostic_event=None):
     if guard: guard()
     if asset['mime_type'] == PDF_MIME:
         if type(pdf_batch_pages) is not int or not 1 <= pdf_batch_pages <= PDF_BATCH_PAGES:
             raise ValueError('invalid PDF batch size')
         return _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_checkpoint,
-                                 single_pdf_batch, pdf_batch_pages, guard)
+                                 single_pdf_batch, pdf_batch_pages, guard, diagnostic_event)
     def remaining(cap):
         value = min(cap, expires - time.monotonic())
         if value <= 0: raise AgentError('agent_timeout', True)
@@ -104,7 +104,7 @@ def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, 
     return dict(read_state='complete' if complete else 'partial', text=joined)
 
 
-def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_checkpoint, single_batch, batch_pages, guard):
+def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_checkpoint, single_batch, batch_pages, guard, diagnostic_event):
     """Cache only validated page transcriptions; never cache a timeout as completion.
 
     Checkpoints are loaded by the server under account, file hash and reader/model
@@ -131,12 +131,14 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
     notes = []
     def unread(reason):
         return f'第 {len(pages)+1} 页至第 {total} 页未读取：{reason}'
+    emit = diagnostic_event or (lambda *args, **kwargs: None)
     while (total is None or len(pages) < total) and len(pages) < MAX_PDF_PAGES:
         if guard: guard()
         batch_size = min(batch_pages, MAX_PDF_PAGES-len(pages))
+        emit('pdf_render',page_start=len(pages)+1,batch_pages=batch_size,timeout_seconds=remaining(15))
         try:
             rendered = read_pdf(data, asset, PdfLimits(start_page=len(pages), max_pages=batch_size,
-                                render_seconds=remaining(15)))
+                                render_seconds=remaining(15), native_text=True))
         except AgentError as error:
             if not pages or error.retryable or error.code not in ('file_read_failed','limit_exceeded','reader_unsupported'):
                 raise
@@ -145,19 +147,31 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
         total = rendered['total_pages']
         progress['total_pages'] = total
         pictures = rendered['pages']
+        native = rendered.get('native_texts', [None] * len(pictures))
         # A full pixel/byte budget is a continuation, not an unreadable page.
         failed_page = len(pictures) < min(batch_size, total-len(pages)) and not rendered.get('batch_full')
         parts = []
-        for index, png in enumerate(pictures, len(pages) + 1):
-            parts.extend([dict(type='text', text=f'第 {index} 页（本批第 {(index-len(pages))} 页）'),
-                dict(type='image_url', image_url=dict(url='data:image/png;base64,' + base64.b64encode(png).decode()))])
+        visual_indices = [i for i, text in enumerate(native) if text is None]
+        emit('pdf_batch',page_start=len(pages)+1,page_count=len(pictures),total_pages=total,
+                          completed_pages=len(pages),native_pages=len(native)-len(visual_indices),visual_pages=len(visual_indices))
+        for local, i in enumerate(visual_indices, 1):
+            parts.extend([dict(type='text', text=f'第 {len(pages)+i+1} 页（本批第 {local} 页）'),
+                dict(type='image_url', image_url=dict(url='data:image/png;base64,' + base64.b64encode(pictures[i]).decode()))])
         if guard: guard()
-        raw = transcribe(client, SKILL.read_text(encoding='utf-8'), parts,
-                         replace(settings, timeout_seconds=remaining(60)))
+        started = time.monotonic()
+        timeout = remaining(60)
+        emit('pdf_transcription',timeout_seconds=timeout,visual_pages=len(visual_indices))
+        try:
+            raw = (transcribe(client, SKILL.read_text(encoding='utf-8'), parts,
+                             replace(settings, timeout_seconds=timeout)) if parts else '{"pages":[]}')
+        except AgentError as error:
+            emit('pdf_transcription_failed',code=error.code,diagnostic=error.diagnostic,seconds=time.monotonic()-started)
+            raise
+        emit('pdf_transcription_done',seconds=time.monotonic()-started)
         try:
             output = json.loads(raw)
             batch = output['pages']
-            if not isinstance(batch, list) or len(batch) != len(pictures): raise ValueError()
+            if not isinstance(batch, list) or len(batch) != len(visual_indices): raise ValueError()
             checked = []
             for index, page in enumerate(batch, 1):
                 if not isinstance(page, dict) or type(page.get('index')) is not int or page['index'] != index: raise ValueError()
@@ -167,7 +181,8 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
                 checked.append(dict(text=page['text'].strip() or '未见可读文字。', uncertain=page['uncertain'], note=note))
         except (ValueError, KeyError, TypeError):
             raise AgentError('invalid_agent_output', True) from None
-        pages.extend(checked)
+        visual = iter(checked)
+        pages.extend(next(visual) if text is None else dict(text=text,uncertain=False,note='',method='native') for text in native)
         if sum(len(p['text']) + len(p['note']) for p in pages) > MAX_TEXT:
             notes.append('转录文字超过长度限制，后续内容未提供。')
             if len(pages) < total: notes.append(unread('文字长度限制'))
@@ -183,7 +198,7 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
     if total is not None and len(pages) == MAX_PDF_PAGES and len(pages) < total:
         notes.append(unread('页数限制'))
     notes.extend(f"第 {i} 页：{p['note'] or '图像文字不清晰'}" for i, p in enumerate(pages, 1) if p['uncertain'])
-    text = '\n\n'.join(f"【模型转录：第 {i} 页】\n{p['text']}" for i, p in enumerate(pages, 1))
+    text = '\n\n'.join(f"【{'原件文字' if p.get('method')=='native' else '模型转录'}：第 {i} 页】\n{p['text']}" for i, p in enumerate(pages, 1))
     suffix = '\n【读取缺口】\n' + '\n'.join(notes) if notes else ''
     if len(text) + len(suffix) > MAX_TEXT:
         # Leave room for both the truncation warning and unread-page locations.

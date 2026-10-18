@@ -22,6 +22,37 @@ class SourceJobsTests(unittest.TestCase):
     call = fixture.TeachingIntegrationTests.call
     model = fixture.TeachingIntegrationTests.model
 
+    def test_repeated_collection_and_changed_source_do_not_auto_duplicate(self):
+        request,drafts=example();self.drafts.update(drafts)
+        for index,version in enumerate((0,0,1,0)):
+            request['records'][0]['record']['references'] = ([] if not version else [dict(
+                ref_id='file:extra',kind='content_image',label='Changed reference',read_state='unsupported',text=None)])
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+                run=self.start('op:revision-'+str(index));jobs.wait_for_jobs(app.DB)
+            result=self.until(run['run_id'],lambda r:r['state'] not in ('queued','crawling','recognizing'))
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+            self.assertEqual(result['counts']['added'],1 if index==0 else 0)
+
+    def test_failure_diagnostics_survive_real_job_retry_and_stay_test_only(self):
+        import os
+        request,drafts=example();self.drafts.update(drafts)
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=ValueError('DO_NOT_EXPOSE_RAW_RESPONSE')):
+                run=self.start();jobs.wait_for_jobs(app.DB)
+            failed=self.until(run['run_id'],lambda r:r['state']=='failed')
+            detail=json.loads(failed['records'][0]['error']['diagnostics'])
+            self.assertEqual(detail['events'][-1]['exception_type'],'ValueError')
+            self.assertNotIn('DO_NOT_EXPOSE_RAW_RESPONSE',json.dumps(failed))
+            with patch.object(jobs.teaching,'recognize',side_effect=self.model):
+                status,retry=self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:diagnostics',consent=True))
+                self.assertEqual(status,202);jobs.wait_for_jobs(app.DB)
+            self.until(retry['run_id'],lambda r:r['state']=='succeeded')
+            status,history=self.call('/recognition/diagnostics',dict(request_id=failed['records'][0]['request_id']))
+            self.assertEqual(status,200);self.assertEqual(len(history['attempts']),2)
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'production'}):
+            self.assertNotIn('diagnostics',jobs.view(failed)['records'][0]['error'])
+
     def tearDown(self):
         jobs.wait_for_jobs(app.DB)
         fixture.TeachingIntegrationTests.tearDown(self)
