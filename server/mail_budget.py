@@ -1,7 +1,7 @@
 """Optional shared SMTP attempt budget; stores counts/timestamps, never mail data."""
 from contextlib import closing
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sqlite3
 import time
 
@@ -12,11 +12,11 @@ class BudgetError(Exception):
     pass
 
 
-def configuration(values):
+def configuration(values, *, container=False):
     if not any(values.get(key) for key in KEYS):
         return None
     try:
-        path = Path(values['NIUMA_MAIL_BUDGET_FILE'])
+        path = (PurePosixPath if container else Path)(values['NIUMA_MAIL_BUDGET_FILE'])
         daily = int(values['NIUMA_MAIL_BUDGET_DAILY'])
         total = int(values['NIUMA_MAIL_BUDGET_TOTAL'])
         if not path.is_absolute() or not 1 <= daily <= 200 or not 1 <= total <= 2000:

@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
 import mail_delivery
@@ -32,14 +32,16 @@ class MailEnvironmentTests(unittest.TestCase):
             expected = self.write_mail(folder, password='synthetic-' + name)
             manager.initialize(name, self.root)
             self.assertEqual(manager.read_mail_config(mail), expected)
-            self.assertEqual(mail.stat().st_mode & 0o777, 0o600)
+            if os.name == 'posix':
+                self.assertEqual(mail.stat().st_mode & 0o777, 0o600)
 
     def test_old_profile_without_mail_still_checks_and_native_launches_without_inherited_secrets(self):
         folder = manager.initialize('test', self.root)
         (folder / '.env.mail').unlink()
         with patch.dict(os.environ, {'NIUMA_MAIL_FROM': 'production@mail.example.com',
                                      'NIUMA_MAIL_PASSWORD': 'synthetic-production-secret',
-                                     'NIUMA_MAIL_ENV_FILE': '/production/.env.mail'}, clear=True):
+                                     'NIUMA_MAIL_ENV_FILE': '/production/.env.mail'}, clear=True), \
+                patch.object(manager, 'git_revision', return_value='a' * 40):
             folder, config = manager.read_config('test', self.root)
             native = manager.local_environment('test', folder, config)
             self.assertFalse(any(key.startswith('NIUMA_MAIL_') for key in native))
@@ -100,7 +102,9 @@ class MailEnvironmentTests(unittest.TestCase):
             with (folder / '.env.mail').open('a', encoding='utf-8') as stream:
                 stream.write('NIUMA_MAIL_BUDGET_FILE=/mail-budget/quota.sqlite3\n'
                              'NIUMA_MAIL_BUDGET_DAILY=100\nNIUMA_MAIL_BUDGET_TOTAL=1000\n')
-            command = manager.compose_command(name, folder, manager.defaults(name))
+            with patch.object(manager, 'git_revision', return_value='a' * 40), \
+                    patch.object(manager.mail_budget, 'Path', PureWindowsPath):
+                command = manager.compose_command(name, folder, manager.defaults(name))
             self.assertEqual(command[-2:], ['-f', str(manager.DEPLOY / 'compose.mail-budget.yaml')])
             self.assertIn('/mail-budget/quota.sqlite3', (folder / '.env.mail.compose').read_text())
         override = (manager.DEPLOY / 'compose.mail-budget.yaml').read_text()
@@ -140,7 +144,8 @@ class MailEnvironmentTests(unittest.TestCase):
                     if native:
                         self.assertEqual(actual['NIUMA_MAIL_PASSWORD'], native['NIUMA_MAIL_PASSWORD'])
                     self.assertNotIn('NIUMA_MAIL_PASSWORD', resolved['services']['web'].get('environment', {}))
-                    self.assertEqual((folder / '.env.mail.compose').stat().st_mode & 0o777, 0o600)
+                    if os.name == 'posix':
+                        self.assertEqual((folder / '.env.mail.compose').stat().st_mode & 0o777, 0o600)
 
     @unittest.skipUnless(os.environ.get('NIUMA_COMPOSE_TEST_BIN') or shutil.which('docker'), 'Compose CLI required; no engine needed')
     def test_raw_compose_accepts_missing_optional_mail_file(self):

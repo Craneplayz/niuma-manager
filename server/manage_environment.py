@@ -206,7 +206,7 @@ def compose_command(name, folder, config, docker='docker'):
     env_file = folder / '.env.compose'
     write_compose_env(folder / '.env.model.compose', read_model_config(folder / '.env.model'))
     mail = read_mail_config(folder / '.env.mail')
-    budget = mail_budget.configuration(mail)
+    budget = mail_budget.configuration(mail, container=True)
     if budget and budget[0].as_posix() != '/mail-budget/quota.sqlite3':
         raise ValueError('Compose mail budget must use /mail-budget/quota.sqlite3')
     write_compose_env(folder / '.env.mail.compose', mail)

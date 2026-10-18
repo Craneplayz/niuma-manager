@@ -1,7 +1,7 @@
 import concurrent.futures
 from contextlib import closing
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import smtplib
 import sqlite3
 import subprocess
@@ -33,6 +33,18 @@ class MailBudgetTests(unittest.TestCase):
     def test_unconfigured_budget_is_backward_compatible_without_creating_files(self):
         budget.reserve(budget.configuration({}))
         self.assertFalse(self.path.exists())
+
+    def test_container_paths_use_posix_without_relaxing_native_windows_paths(self):
+        values = dict(self.values, NIUMA_MAIL_BUDGET_FILE='/mail-budget/quota.sqlite3')
+        with patch.object(budget, 'Path', PureWindowsPath):
+            with self.assertRaises(ValueError):
+                budget.configuration(values)
+            self.assertEqual(budget.configuration(values, container=True)[0].as_posix(),
+                             '/mail-budget/quota.sqlite3')
+            native = budget.configuration(dict(values, NIUMA_MAIL_BUDGET_FILE='C:/private/quota.sqlite3'))
+            self.assertTrue(native[0].is_absolute())
+            with self.assertRaises(ValueError):
+                budget.configuration(dict(values, NIUMA_MAIL_BUDGET_FILE='C:/private/quota.sqlite3'), container=True)
 
     def test_partial_invalid_or_above_free_limits_fail_configuration(self):
         for changes in (dict(NIUMA_MAIL_BUDGET_TOTAL=''), dict(NIUMA_MAIL_BUDGET_FILE='relative.db'),
