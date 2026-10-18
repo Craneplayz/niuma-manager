@@ -66,12 +66,14 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
     tearDown=harness.TeachingIntegrationTests.tearDown
     call=harness.TeachingIntegrationTests.call
 
-    def sync(self, data=None, mime=DOCX_MIME, malformed=False):
+    def sync(self, data=None, mime=DOCX_MIME, malformed=False, pdf_text=None):
         if not hasattr(self,'default_docx'): self.default_docx=package(paragraph(TEXT))
         data=data or self.default_docx  # Reuse identical ZIP bytes, including entry timestamps.
         request,_=example(); r=request['records'][0]['record']
         r.update(text='请完成附件中的作业，提交时间见附件。',references=[dict(
             ref_id='file:1',kind='attachment',label='合成作业.docx',read_state='unread',text=None)])
+        if pdf_text is not None:
+            r['references'][0].update(read_state='complete',text=pdf_text)
         digest=hashlib.sha256(data).hexdigest()
         def crawl(*args,**kwargs):
             folder=Path(kwargs['env']['PKU_ATTACHMENT_DIR'])
@@ -142,9 +144,96 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         vision.assert_called_once();self.assertTrue(batch['items'])
         self.assert_cached_reprocess(rid)
 
+    def test_complete_pdf_capture_skips_visual_transcription_through_http_and_reprocessing(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        original='\n'.join(f'Page {i}' for i in range(1,18))+'\n'+TEXT
+        rid=self.sync(pdf_bytes(('Synthetic page',)*17),'application/pdf',pdf_text=original)['requests'][0]['request_id']
+        batch,vision=self.run_record(rid,AssertionError('complete PDF text must not be transcribed again'))
+        vision.assert_not_called()
+        self.assertEqual(batch['result']['status'],'success')
+        with app.connection() as db:
+            saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
+        self.assertEqual(saved['records'][0]['record']['references'][0]['text'],original)
+        self.assertEqual(batch['items'][0]['candidate']['deadline']['value'],'2026-11-17T23:30:00+08:00')
+        self.assert_cached_reprocess(rid)
+
+    def test_long_visual_pdf_finishes_one_background_run_without_shared_75_second_deadline(self):
+        import source_jobs as jobs
+        import ddl_text.teaching_attachment_reader as reader
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        synced=self.sync(pdf_bytes(('Synthetic page',)*43),'application/pdf')
+        rid=synced['requests'][0]['request_id'];clock=[100.0];seen=[];budgets=[]
+        fake_time=SimpleNamespace(monotonic=lambda:clock[0])
+        def render(data,asset,limits):
+            clock[0]+=1
+            return dict(pages=[b'png']*min(limits.max_pages,43-limits.start_page),total_pages=43,error=None)
+        def vision(instructions,parts,settings):
+            if settings.timeout_seconds<20: raise AgentError('agent_timeout',True)
+            seen.extend(p['text'] for p in parts if p['type']=='text')
+            clock[0]+=20
+            with app.connection() as db:
+                self.assertIsNone(db.execute('SELECT result FROM recognition_batches WHERE request_id=?',(rid,)).fetchone())
+            return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False) for i in range(len(parts)//2)]))
+        def final(request,**kwargs):
+            budgets.append(kwargs['budget_seconds'])
+            self.assertIn('第 43 页',request['records'][0]['record']['references'][0]['text'])
+            return self.final_model(request,**kwargs)
+        options=dict(provider='qiniu',key='synthetic',model='synthetic-test',endpoint='https://api.qnaigc.com/v1')
+        with patch.object(jobs.source_sync,'collect',return_value=synced), \
+             patch.object(teaching,'live_options',return_value=options), \
+             patch.object(teaching,'process_teaching_request',side_effect=final), \
+             patch.object(teaching.ChatClient,'complete_json',side_effect=vision), \
+             patch.object(reader,'read_pdf',side_effect=render), \
+             patch.object(reader,'time',fake_time), patch.object(teaching_assets,'time',fake_time):
+            status,run=self.call('/sources/sync-runs',dict(contract_version='source-sync/0.1',
+                sources=['teaching_web'],consent=True,operation_id='long-pdf'))
+            self.assertEqual(status,202,run)
+            jobs.wait_for_jobs(app.DB)
+        final=self.call('/sources/sync-runs/'+run['run_id'])[1]
+        self.assertEqual(final['state'],'succeeded',final)
+        self.assertEqual(final['counts']['failed'],0)
+        self.assertEqual(len(seen),43);self.assertEqual(len(set(seen)),43)
+        self.assertGreater(clock[0]-100,75);self.assertEqual(budgets,[90])
+        with app.connection() as db:
+            cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
+            self.assertEqual(cached['read_state'],'complete')
+            self.assertIn('第 43 页',cached['text'])
+
+    def test_stop_background_pdf_keeps_checkpoint_without_starting_next_batch(self):
+        import source_jobs as jobs
+        import ddl_text.teaching_attachment_reader as reader
+        import threading
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        synced=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')
+        entered=threading.Event();release=threading.Event();seen=[]
+        def render(data,asset,limits):
+            return dict(pages=[b'png']*min(limits.max_pages,13-limits.start_page),total_pages=13,error=None)
+        def vision(instructions,parts,settings):
+            seen.append(parts[0]['text']);entered.set();release.wait(5)
+            return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False) for i in range(len(parts)//2)]))
+        options=dict(provider='qiniu',key='synthetic',model='synthetic-test',endpoint='https://api.qnaigc.com/v1')
+        with patch.object(jobs.source_sync,'collect',return_value=synced), \
+             patch.object(teaching,'live_options',return_value=options), \
+             patch.object(teaching,'process_teaching_request',side_effect=AssertionError('stopped')) as final_model, \
+             patch.object(teaching.ChatClient,'complete_json',side_effect=vision), \
+             patch.object(reader,'read_pdf',side_effect=render):
+            status,run=self.call('/sources/sync-runs',dict(contract_version='source-sync/0.1',
+                sources=['teaching_web'],consent=True,operation_id='stop-pdf'))
+            try:
+                self.assertEqual(status,202,run);self.assertTrue(entered.wait(5))
+                status,stopped=self.call('/sources/sync-runs/'+run['run_id']+'/stop',dict(contract_version='source-sync/0.1'))
+                self.assertEqual(status,200);self.assertEqual(stopped['state'],'stopped')
+            finally:
+                release.set();jobs.wait_for_jobs(app.DB)
+        final_model.assert_not_called();self.assertEqual(len(seen),1)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],0)
+            checkpoint=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
+            self.assertEqual(checkpoint['pdf_checkpoint'],1);self.assertEqual(len(checkpoint['pages']),6)
+
     def test_pdf_timeout_restart_resumes_persisted_pages_without_repeating_completed_calls(self):
         from ddl_text.tests.pdf_cases import pdf_bytes
-        rid=self.sync(pdf_bytes(('Synthetic page',)*5),'application/pdf')['requests'][0]['request_id']
+        rid=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')['requests'][0]['request_id']
         seen=[]
         def vision(instructions,parts,settings):
             labels=[p['text'] for p in parts if p['type']=='text'];seen.append(labels)
@@ -154,15 +243,15 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         self.assertEqual(failed['result']['status'],'failed')
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
-            self.assertEqual(cached['total_pages'],5);self.assertEqual(len(cached['pages']),2)
+            self.assertEqual(cached['total_pages'],13);self.assertEqual(len(cached['pages']),6)
             self.assertEqual(teaching_assets.load(db,'other-user',teaching.account('synthetic-course-user'),rid),[])
         app.initialize()
         good,_=self.run_record(rid,vision)
         self.assertEqual(good['result']['status'],'success')
-        self.assertIn('第 3 页',seen[2][0]);self.assertEqual(len(seen),4)
+        self.assertIn('第 7 页',seen[2][0]);self.assertEqual(len(seen),4)
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
-            self.assertEqual(cached['read_state'],'complete');self.assertIn('第 5 页',cached['text'])
+            self.assertEqual(cached['read_state'],'complete');self.assertIn('第 13 页',cached['text'])
         self.assert_cached_reprocess(rid)
 
     def test_pdf_later_render_failure_keeps_evidence_through_http_and_cache(self):
@@ -188,7 +277,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
 
     def test_late_pdf_checkpoint_cannot_replace_completed_shared_cache(self):
         from ddl_text.tests.pdf_cases import pdf_bytes
-        rid=self.sync(pdf_bytes(('Synthetic page',)*5),'application/pdf')['requests'][0]['request_id']
+        rid=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')['requests'][0]['request_id']
         with app.connection() as db:
             request=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
             slow=teaching.attachment_context(db,self.uid,rid)
@@ -201,7 +290,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         def delayed(instructions,parts,settings):
             if not parts[0]['text'].startswith('第 1 页（'): raise AgentError('agent_timeout',True)
             # Interleave two already loaded contexts deterministically: the faster
-            # reader commits all five pages before this reader saves its first two.
+            # reader commits all thirteen pages before this reader saves its first six.
             teaching_assets.enrich(deepcopy(request),fast['files'],SimpleNamespace(complete_json=good),settings,fast['save_cache'])
             return good(instructions,parts,settings)
         with self.assertRaises(AgentError):
@@ -209,7 +298,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
             self.assertEqual(cached.get('read_state'),'complete')
-            self.assertIn('第 5 页',cached['text'])
+            self.assertIn('第 13 页',cached['text'])
         self.assert_cached_reprocess(rid)
 
     def test_cache_progress_writes_are_monotonic_and_version_scoped(self):
@@ -338,6 +427,80 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.settings=Settings(model='synthetic',endpoint='https://model.example.invalid/v1')
 
+    def pdf_input(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes
+        request,_=example();data=pdf_bytes(('Synthetic',)*13)
+        request['records'][0]['record']['references']=[dict(ref_id='file:1',kind='attachment',
+            label='synthetic.pdf',read_state='partial',text='Captured text with a visual gap.')]
+        asset=dict(ref_id='file:1',data=data,mime_type='application/pdf',sha256=hashlib.sha256(data).hexdigest(),
+            result=None,cache_version=None)
+        return request,asset
+
+    def test_truncated_pdf_output_shrinks_batch_without_repeating_completed_pages(self):
+        from unittest.mock import Mock
+        import ddl_text.teaching_attachment_reader as reader
+        request,asset=self.pdf_input();calls=[]
+        def render(data,asset,limits):
+            calls.append((limits.start_page,limits.max_pages))
+            return dict(pages=[b'png']*min(limits.max_pages,13-limits.start_page),total_pages=13,error=None)
+        def transcribe(client,instructions,parts,settings):
+            if len(calls)>1 and len(parts)>2:raise AgentError('invalid_agent_output',True,'output_truncated')
+            return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False) for i in range(len(parts)//2)]))
+        cache=Mock()
+        with patch.object(reader,'read_pdf',side_effect=render),patch.object(reader,'transcribe',side_effect=transcribe):
+            teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
+        self.assertEqual(calls[:4],[(0,6),(6,6),(6,3),(6,1)])
+        self.assertEqual([start for start,size in calls[3:]],list(range(6,13)))
+        ref=request['records'][0]['record']['references'][0]
+        self.assertEqual(ref['read_state'],'complete');self.assertIn('第 13 页',ref['text'])
+
+    def test_single_page_truncation_and_provider_timeout_are_not_retried_forever(self):
+        from unittest.mock import Mock
+        import ddl_text.teaching_attachment_reader as reader
+        for failure,expected in [(AgentError('invalid_agent_output',True,'output_truncated'),3),
+                                 (AgentError('agent_timeout',True),1)]:
+            with self.subTest(code=failure.code):
+                request,asset=self.pdf_input()
+                def render(data,asset,limits):
+                    return dict(pages=[b'png']*limits.max_pages,total_pages=13,error=None)
+                with patch.object(reader,'read_pdf',side_effect=render), \
+                     patch.object(reader,'transcribe',side_effect=failure) as model:
+                    with self.assertRaises(AgentError):teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+                self.assertEqual(model.call_count,expected)
+
+    def test_nonadvancing_checkpoint_stops_instead_of_looping(self):
+        from unittest.mock import Mock
+        request,asset=self.pdf_input()
+        with patch.object(teaching_assets,'read_attachment',return_value=dict(pdf_checkpoint=1,total_pages=13,pages=[])) as reader:
+            teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+        reader.assert_called_once()
+        self.assertNotEqual(request['records'][0]['record']['references'][0]['read_state'],'complete')
+
+    def test_complete_pdf_still_requires_matching_captured_bytes(self):
+        from unittest.mock import Mock
+        request,asset=self.pdf_input()
+        request['records'][0]['record']['references'][0]['read_state']='complete'
+        asset['data']+=b'changed'
+        with self.assertRaises(AgentError):
+            teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+
+    def test_multiple_attachments_each_get_a_fresh_read_budget(self):
+        from unittest.mock import Mock
+        request,asset=self.pdf_input();assets=[asset,dict(asset,ref_id='file:2',data=asset['data']+b'\n')]
+        assets[1]['sha256']=hashlib.sha256(assets[1]['data']).hexdigest()
+        ref=deepcopy(request['records'][0]['record']['references'][0]);ref['ref_id']='file:2'
+        request['records'][0]['record']['references'].append(ref)
+        clock=[100.0]
+        def read(*args,expires,**kwargs):
+            self.assertEqual(expires-clock[0],75)
+            clock[0]+=70
+            return dict(read_state='complete',text=TEXT)
+        with patch.object(teaching_assets,'time',SimpleNamespace(monotonic=lambda:clock[0])), \
+             patch.object(teaching_assets,'read_attachment',side_effect=read) as reader:
+            teaching_assets.enrich(request,assets,Mock(),self.settings,Mock())
+        self.assertEqual(reader.call_count,2)
+        self.assertTrue(all(r['read_state']=='complete' for r in request['records'][0]['record']['references']))
+
     def test_pdf_visual_pages_supplement_the_captured_full_text(self):
         from unittest.mock import Mock
         from ddl_text.tests.pdf_cases import pdf_bytes
@@ -360,7 +523,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         teaching_assets.check_request(request)
         # Repeat with the persisted transcript cache and the original capture.
         asset.update(cache_version=cache.call_args.args[1],result=json.dumps(cache.call_args.args[2]))
-        ref['text']=original
+        ref.update(text=original,read_state='partial')
         with patch.object(teaching_assets,'read_attachment',side_effect=AssertionError('cached file')):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
         self.assertIn(original,ref['text']);self.assertIn('Visible page 6',ref['text'])

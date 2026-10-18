@@ -49,8 +49,8 @@ class AttachmentReaderTests(unittest.TestCase):
     def test_pdf_batches_cover_seventeen_pages_and_unclear_images_preserve_gaps(self):
         out,client=self.read(pdf_bytes(('Synthetic page',)*17),'application/pdf')
         self.assertEqual(out['read_state'],'complete');self.assertIn('第 17 页',out['text'])
-        self.assertEqual(client.complete_json.call_count,9)
-        self.assertTrue(all(len(c.args[1])<=4 for c in client.complete_json.call_args_list))
+        self.assertEqual(client.complete_json.call_count,3)
+        self.assertTrue(all(len(c.args[1])<=12 for c in client.complete_json.call_args_list))
         out,_=self.read(image_bytes(),'image/png',uncertain=True)
         self.assertEqual(out['read_state'],'partial');self.assertIn('右下角被遮挡',out['text'])
 
@@ -61,16 +61,16 @@ class AttachmentReaderTests(unittest.TestCase):
             if len(seen)==2:raise AgentError('agent_timeout',True)
             return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False) for i in range(len(parts)//2)]))
         client.complete_json.side_effect=complete
-        data=pdf_bytes(('Synthetic',)*5)
+        data=pdf_bytes(('Synthetic',)*13)
         asset=dict(mime_type='application/pdf',sha256=hashlib.sha256(data).hexdigest(),size_bytes=len(data))
         with self.assertRaises(AgentError):
             read_attachment(data,asset,client,Settings(),expires=time.monotonic()+60,save_checkpoint=checkpoints.append)
-        self.assertEqual(len(checkpoints[-1]['pages']),2)
+        self.assertEqual(len(checkpoints[-1]['pages']),6)
         out=read_attachment(data,asset,client,Settings(),expires=time.monotonic()+60,
                             checkpoint=checkpoints[-1],save_checkpoint=checkpoints.append)
-        self.assertEqual(out['read_state'],'complete');self.assertIn('第 5 页',out['text'])
+        self.assertEqual(out['read_state'],'complete');self.assertIn('第 13 页',out['text'])
         self.assertEqual(sum(s.startswith('第 1 页') for s in seen),1)
-        self.assertEqual(len(checkpoints[-1]['pages']),5)
+        self.assertEqual(len(checkpoints[-1]['pages']),13)
 
     def test_pdf_unreadable_later_page_preserves_transcripts_and_gap(self):
         import io
@@ -88,13 +88,36 @@ class AttachmentReaderTests(unittest.TestCase):
                 self.assertNotIn(f'【模型转录：第 {good_pages+1} 页】',out['text'])
                 client.complete_json.assert_called_once()
 
+    def test_pdf_pixel_budget_continues_instead_of_claiming_unreadable_pages(self):
+        from dataclasses import replace
+        from ddl_text.pdf_reader import read_pdf
+        def render(data,asset,limits):
+            return read_pdf(data,asset,replace(limits,max_total_pixels=4_100_000))
+        with patch('ddl_text.teaching_attachment_reader.read_pdf',side_effect=render):
+            out,client=self.read(pdf_bytes(('Synthetic page',)*3),'application/pdf')
+        self.assertEqual(out['read_state'],'complete');self.assertIn('第 3 页',out['text'])
+        self.assertEqual([len(c.args[1])//2 for c in client.complete_json.call_args_list],[2,1])
+
+    def test_stop_during_render_does_not_start_a_visual_call(self):
+        stopped=[False];client=Mock()
+        def guard():
+            if stopped[0]: raise RuntimeError('synthetic cancellation')
+        def render(*args):
+            stopped[0]=True
+            return dict(pages=[b'png'],total_pages=1,error=None)
+        with patch('ddl_text.teaching_attachment_reader.read_pdf',side_effect=render):
+            with self.assertRaisesRegex(RuntimeError,'synthetic cancellation'):
+                read_attachment(b'pdf',dict(mime_type='application/pdf'),client,Settings(),
+                    expires=time.monotonic()+75,guard=guard,single_pdf_batch=True)
+        client.complete_json.assert_not_called()
+
     def test_pdf_page_limit_keeps_first_128_pages_without_reading_129(self):
         def render(data,asset,limits):
             self.assertLess(limits.start_page,128)
             return dict(pages=[b'png']*limits.max_pages,total_pages=129,error='limit_exceeded')
         with patch('ddl_text.teaching_attachment_reader.read_pdf',side_effect=render):
             out,client=self.read(b'%PDF-synthetic','application/pdf')
-        self.assertEqual(out['read_state'],'partial');self.assertEqual(client.complete_json.call_count,64)
+        self.assertEqual(out['read_state'],'partial');self.assertEqual(client.complete_json.call_count,22)
         self.assertIn('【模型转录：第 128 页】',out['text'])
         self.assertIn('第 129 页',out['text'])
         self.assertNotIn('【模型转录：第 129 页】',out['text'])

@@ -19,6 +19,7 @@ from .runner import run_attempt
 SKILL = Path(__file__).parent / 'skills/teaching-file-reading/SKILL.md'
 MAX_TEXT = 50000
 MAX_PDF_PAGES = 128
+PDF_BATCH_PAGES = 6
 
 
 @dataclass
@@ -44,9 +45,14 @@ def cache_version(settings):
     return hashlib.sha256(data + (settings.model + settings.endpoint).encode()).hexdigest()
 
 
-def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, save_checkpoint=None):
+def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, save_checkpoint=None,
+                    single_pdf_batch=False, pdf_batch_pages=PDF_BATCH_PAGES, guard=None):
+    if guard: guard()
     if asset['mime_type'] == PDF_MIME:
-        return _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_checkpoint)
+        if type(pdf_batch_pages) is not int or not 1 <= pdf_batch_pages <= PDF_BATCH_PAGES:
+            raise ValueError('invalid PDF batch size')
+        return _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_checkpoint,
+                                 single_pdf_batch, pdf_batch_pages, guard)
     def remaining(cap):
         value = min(cap, expires - time.monotonic())
         if value <= 0: raise AgentError('agent_timeout', True)
@@ -70,6 +76,7 @@ def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, 
         for location, png in pictures:
             parts.extend([dict(type='text', text=location), dict(type='image_url',
                 image_url=dict(url='data:image/png;base64,' + base64.b64encode(png).decode()))])
+        if guard: guard()
         raw = transcribe(client, SKILL.read_text(encoding='utf-8'), parts,
             replace(settings, timeout_seconds=remaining(60)))
         try:
@@ -97,11 +104,13 @@ def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, 
     return dict(read_state='complete' if complete else 'partial', text=joined)
 
 
-def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_checkpoint):
+def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_checkpoint, single_batch, batch_pages, guard):
     """Cache only validated page transcriptions; never cache a timeout as completion.
 
     Checkpoints are loaded by the server under account, file hash and reader/model
-    version. Keep rendered images only for the current two-page batch.
+    version. Keep rendered images only for the current bounded batch. In step
+    mode, return a checkpoint (not a partial/complete result) when more remains;
+    the caller schedules the next step with its own call budget.
     """
     from copy import deepcopy
     progress = deepcopy(checkpoint) if checkpoint else dict(pdf_checkpoint=1, total_pages=None, pages=[])
@@ -123,7 +132,8 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
     def unread(reason):
         return f'第 {len(pages)+1} 页至第 {total} 页未读取：{reason}'
     while (total is None or len(pages) < total) and len(pages) < MAX_PDF_PAGES:
-        batch_size = min(2, MAX_PDF_PAGES-len(pages))
+        if guard: guard()
+        batch_size = min(batch_pages, MAX_PDF_PAGES-len(pages))
         try:
             rendered = read_pdf(data, asset, PdfLimits(start_page=len(pages), max_pages=batch_size,
                                 render_seconds=remaining(15)))
@@ -135,14 +145,15 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
         total = rendered['total_pages']
         progress['total_pages'] = total
         pictures = rendered['pages']
-        # A short batch indicates a page failure, unlike the normal two-page cap.
-        failed_page = len(pictures) < min(batch_size, total-len(pages))
+        # A full pixel/byte budget is a continuation, not an unreadable page.
+        failed_page = len(pictures) < min(batch_size, total-len(pages)) and not rendered.get('batch_full')
         parts = []
         for index, png in enumerate(pictures, len(pages) + 1):
             parts.extend([dict(type='text', text=f'第 {index} 页（本批第 {(index-len(pages))} 页）'),
                 dict(type='image_url', image_url=dict(url='data:image/png;base64,' + base64.b64encode(png).decode()))])
+        if guard: guard()
         raw = transcribe(client, SKILL.read_text(encoding='utf-8'), parts,
-                         replace(settings, timeout_seconds=remaining(30)))
+                         replace(settings, timeout_seconds=remaining(60)))
         try:
             output = json.loads(raw)
             batch = output['pages']
@@ -167,6 +178,8 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
             break
         # Release page images before rendering the next batch.
         del pictures, parts, rendered
+        if single_batch and len(pages) < min(total, MAX_PDF_PAGES):
+            return progress
     if total is not None and len(pages) == MAX_PDF_PAGES and len(pages) < total:
         notes.append(unread('页数限制'))
     notes.extend(f"第 {i} 页：{p['note'] or '图像文字不清晰'}" for i, p in enumerate(pages, 1) if p['uncertain'])
