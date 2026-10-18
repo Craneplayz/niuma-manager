@@ -94,6 +94,15 @@ class PdfTests(unittest.TestCase):
         self.assertEqual(result['status'], 'partial_success')
         self.assertEqual(result['errors'][0]['code'], 'limit_exceeded')
 
+    def test_encoded_batch_limit_is_distinct_from_an_unreadable_page(self):
+        first=read_pdf(self.data,self.asset,PdfLimits(max_pages=1))
+        limited=read_pdf(self.data,self.asset,PdfLimits(max_pages=6,
+            max_encoded_bytes=len(first['pages'][0])+1))
+        self.assertEqual(len(limited['pages']),1)
+        self.assertTrue(limited['batch_full']);self.assertEqual(limited['error'],'limit_exceeded')
+        last=read_pdf(self.data,self.asset,PdfLimits(start_page=1,max_pages=1))
+        self.assertFalse(last['batch_full']);self.assertIsNone(last['error'])
+
     def test_corrupt_pdf_is_read_failure(self):
         data = b'%PDF-1.7\nbroken'
         asset = pdf_request(data)['records'][0]['attachments'][0]
