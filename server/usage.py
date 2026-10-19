@@ -37,6 +37,11 @@ def initialize(db):
         is_returning INTEGER NOT NULL, PRIMARY KEY(actor,day));
     CREATE INDEX IF NOT EXISTS usage_guest_day ON usage_guest_days(day);
     ''')
+    maintain(db)
+
+def maintain(db, now=None):
+    cutoff = ((now or datetime.now(TZ)) - timedelta(days=90)).date().isoformat()
+    db.execute('DELETE FROM usage_guest_days WHERE day<?',(cutoff,))
 
 def actor(uid):
     return hashlib.sha256(('niuma-usage:' + uid).encode()).hexdigest()
@@ -58,6 +63,7 @@ def successful(status, value, request_id=None):
 
 def record(db, uid, event, success=True, duration_ms=0, quantity=1, now=None):
     now = now or datetime.now(TZ)
+    maintain(db,now)
     db.execute('INSERT INTO usage_events VALUES(?,?,?,?,?,?,?,?)',
         (secrets.token_hex(16),actor(uid),now.isoformat(),now.date().isoformat(),event,
          int(success),max(0,round(duration_ms)),max(0,quantity)))
@@ -70,6 +76,7 @@ def visit(db, uid, now=None):
     today, yesterday = now.date().isoformat(), (now-timedelta(days=1)).date().isoformat()
     key = actor(uid)
     db.execute('BEGIN IMMEDIATE')
+    maintain(db,now)
     old = db.execute('SELECT * FROM usage_visits WHERE actor=?',(key,)).fetchone()
     offer = bool(old and old['last_day']==yesterday and not old['rating_offered'])
     if old:
@@ -86,9 +93,9 @@ def guest_visit(db, token, now=None):
     today = now.date().isoformat()
     key = actor('guest:' + token)
     db.execute('BEGIN IMMEDIATE')
+    maintain(db,now)
     earlier = db.execute('SELECT 1 FROM usage_guest_days WHERE actor=? AND day<? LIMIT 1',(key,today)).fetchone()
     db.execute('INSERT OR IGNORE INTO usage_guest_days VALUES(?,?,?)',(key,today,int(bool(earlier))))
-    db.execute('DELETE FROM usage_guest_days WHERE day<?',((now-timedelta(days=90)).date().isoformat(),))
 
 def workspace_changes(db, uid, old, new):
     old = [t for t in old if t.get('content_type')!='notice']
@@ -113,6 +120,7 @@ def workspace_changes(db, uid, old, new):
     if on_time: record(db,uid,'task_on_time',quantity=on_time)
 
 def summary(db, start, end):
+    maintain(db)
     rows = [dict(r) for r in db.execute('SELECT * FROM usage_events WHERE day BETWEEN ? AND ?',(start,end))]
     excluded = {actor(uid) for uid in (os.environ.get('NIUMA_ANALYTICS_EXCLUDED_USER_IDS','')+' '+os.environ.get('NIUMA_ADMIN_USER_IDS','')).split()}
     excluded.update(r['actor'] for r in db.execute('SELECT actor FROM usage_admins'))

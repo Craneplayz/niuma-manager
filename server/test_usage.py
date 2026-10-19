@@ -100,6 +100,25 @@ class UsageTests(unittest.TestCase):
             usage.guest_visit(db,'b'*32,day)
             rows=db.execute('SELECT * FROM usage_guest_days').fetchall()
             self.assertEqual(len(rows),1);self.assertEqual(rows[0]['is_returning'],0)
+    def test_expired_guests_are_cleaned_without_anonymous_traffic(self):
+        now=datetime.now(usage.TZ)
+        cutoff=(now-timedelta(days=90)).date().isoformat()
+        for entry in ('record','visit','summary','initialize'):
+            with self.subTest(entry=entry),app.connection() as db:
+                db.execute('DELETE FROM usage_guest_days')
+                db.execute('INSERT INTO usage_guest_days VALUES(?,?,0)',('expired',(now-timedelta(days=100)).date().isoformat()))
+                db.execute('INSERT INTO usage_guest_days VALUES(?,?,0)',('boundary',cutoff))
+                db.commit()
+                if entry=='record':usage.record(db,self.uid,'login',now=now)
+                elif entry=='visit':
+                    usage.visit(db,self.uid,now);db.commit()
+                    # A same-day logged-in refresh must maintain retention too.
+                    db.execute('INSERT OR REPLACE INTO usage_guest_days VALUES(?,?,0)',('expired',(now-timedelta(days=100)).date().isoformat()))
+                    db.commit();usage.visit(db,self.uid,now)
+                elif entry=='summary':
+                    self.assertEqual(usage.summary(db,'2000-01-01','2099-01-01')['traffic']['guests'],1)
+                else:usage.initialize(db)
+                self.assertEqual([r['actor'] for r in db.execute('SELECT actor FROM usage_guest_days')],['boundary'])
     def test_feedback_rating_validation_and_duplicate(self):
         for score in (True,0,6,'5'):
             self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=score))[0],400)
