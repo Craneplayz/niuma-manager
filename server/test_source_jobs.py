@@ -8,6 +8,8 @@ import time
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
+from http.cookiejar import CookieJar
+from urllib.request import build_opener, HTTPCookieProcessor
 
 import app
 import source_jobs as jobs
@@ -178,10 +180,79 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(self.call('/sources/sync-runs')[1]['runs'],[])
 
     def test_stopped_but_unfinished_workers_still_count_toward_capacity(self):
-        with patch.object(jobs,'_workers',{('test',str(i)):object() for i in range(jobs.RUN_LIMIT)}):
+        with patch.object(jobs,'_workers',{('test',str(i)):object() for i in range(jobs.RUN_LIMIT+jobs.QUEUE_LIMIT)}):
             status,error=self.call('/sources/sync-runs',dict(contract_version='source-sync/0.1',operation_id='full:one',sources=['teaching_web'],consent=True))
             self.assertEqual(status,503);self.assertIn('释放',error['error'])
             self.assertEqual(self.call('/sources/sync-runs')[1]['runs'],[])
+
+    def test_fifth_account_waits_without_blocking_workspace_or_exceeding_execution_limit(self):
+        clients=[self.client]
+        for index in range(1,5):
+            self.client=build_opener(HTTPCookieProcessor(CookieJar()))
+            self.assertEqual(self.call('/auth/register',dict(name='Synthetic',email=f'capacity{index}@example.test',password='Synthetic-password!'))[0],200)
+            self.assertEqual(self.call('/sources/credentials',dict(username='synthetic-course-user',password='synthetic-password'))[0],200)
+            clients.append(self.client)
+        request,drafts=example(('explicit-complete',));self.drafts.update(drafts)
+        gate=threading.Event();entered=threading.Event();lock=threading.Lock()
+        active=peak=0
+        def crawl(*args,**kwargs):
+            nonlocal active,peak
+            with lock:
+                active+=1;peak=max(peak,active)
+                if active==jobs.RUN_LIMIT:entered.set()
+            try:
+                if not gate.wait(8):raise RuntimeError('synthetic crawl release timed out')
+                return SimpleNamespace(returncode=0,stdout=json.dumps(request))
+            finally:
+                with lock:active-=1
+        runs=[]
+        with patch.object(app.source_sync.subprocess,'run',side_effect=crawl),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            try:
+                for index,client in enumerate(clients):
+                    self.client=client;runs.append(self.start(f'capacity:{index}'))
+                self.assertTrue(entered.wait(5))
+                self.assertEqual(self.call('/sources/sync-runs/'+runs[-1]['run_id'])[1]['state'],'queued')
+                self.assertEqual(self.call('/workspace')[0],200)
+                self.assertEqual(self.call('/sources/sync-runs/'+runs[0]['run_id'])[0],404)
+            finally:gate.set()
+            jobs.wait_for_jobs(app.DB)
+        self.assertEqual(peak,jobs.RUN_LIMIT)
+        for client,run in zip(clients,runs):
+            self.client=client
+            self.assertEqual(self.until(run['run_id'],lambda r:r['state']=='succeeded')['counts']['added'],1)
+            tasks=self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(len(tasks),1)
+            self.assertEqual(self.start(run['operation_id'])['run_id'],run['run_id'])
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+
+    def test_stopped_waiting_run_releases_ticket_before_execution_slot_is_free(self):
+        queue=jobs.ModelQueue(limit=1,pending=1,wait=5)
+        self.assertTrue(queue.acquire())
+        try:
+            with patch.object(jobs,'_slots',queue),patch.object(app.source_sync.subprocess,'run') as crawler:
+                run=self.start('stop:waiting')
+                with queue.condition:
+                    self.assertTrue(queue.condition.wait_for(lambda:len(queue.waiters)==1,timeout=3))
+                status,stopped=self.call('/sources/sync-runs/'+run['run_id']+'/stop',dict(contract_version='source-sync/0.1'))
+                self.assertEqual(status,200);self.assertEqual(stopped['state'],'stopped')
+                jobs.wait_for_jobs(app.DB,timeout=3)
+                self.assertEqual(len(queue.waiters),0)
+                self.assertEqual(queue.active,1)
+                crawler.assert_not_called()
+        finally:queue.release()
+
+    def test_waiting_run_timeout_is_retryable_and_does_not_call_crawler(self):
+        queue=jobs.ModelQueue(limit=1,pending=1,wait=.05)
+        self.assertTrue(queue.acquire())
+        try:
+            with patch.object(jobs,'_slots',queue),patch.object(app.source_sync.subprocess,'run') as crawler:
+                run=self.start('timeout:waiting');jobs.wait_for_jobs(app.DB)
+                failed=self.until(run['run_id'],lambda r:r['state']=='failed')
+                self.assertTrue(failed['error']['retryable'])
+                self.assertIn('排队',failed['error']['message'])
+                self.assertEqual(len(queue.waiters),0)
+                crawler.assert_not_called()
+        finally:queue.release()
 
     def test_restart_marks_pending_interrupted_without_automatic_model_replay(self):
         with patch.object(jobs,'launch'):

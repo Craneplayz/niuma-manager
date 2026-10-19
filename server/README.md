@@ -28,11 +28,12 @@ server/
 ├── source_jobs.py            教学网后台同步、逐条持久进度、受控并发与自动入库。
 ├── source_schedule.py        账号定时配置、服务端调度、凭据变化暂停及环境开关。
 ├── test_source_schedule.py   定时恢复、互斥派发、关闭及迟到结果保护测试。
-├── test_source_jobs.py       HTTP 同步幂等、4 路并发、停止、账号变化与重启回归。
+├── test_source_jobs.py       HTTP 同步幂等、多账号有界排队、停止、账号变化与重启回归。
 ├── teaching.py               核验当前账号快照、调用 v0.4 并适配任务/通知卡片。
 ├── teaching_assets.py        暂存收据校验、账号隔离原件、读取缓存与证据补全。
 ├── test_teaching_assets.py   文件同步到自动入库、重试、缓存、变更与隔离回归。
 ├── benchmark_teaching_store.py 内存数据库的合成附件清理基准，不接触账号数据。
+├── benchmark_source_capacity.py 临时数据库的1/3/5账号合成同步HTTP容量基准。
 ├── run_teaching_attachment_smoke.py  合成 PDF/扫描 PDF/图片/DOCX 的真实 API 验收。
 ├── submission_runtime.py    提交状态永久行动关联、完成/重开、持久幂等与原子更新。
 ├── test_submission_runtime.py 提交生命周期、独立行动、手动重开及陈旧操作回归。
@@ -52,6 +53,7 @@ server/
 ├── test_deployment.py        公网来源、HTTPS Cookie、健康检查与本机兼容测试。
 ├── deploy/                   Docker 全栈、HTTPS 代理与持久数据部署配置。
 │   ├── ENVIRONMENTS.md        三环境启动、旧生产接管、验收与回滚步骤。
+│   ├── OPERATIONS.md          双入口登录、HTTPS跳转及多人同步排队排查。
 │   ├── TEAM_GUIDE.md          团队本机开发、SSH 测试和协作发布的简明指南。
 │   └── environments/         本机私有环境配置，不提交也不进入镜像。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
@@ -63,6 +65,12 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+## 后台同步容量
+
+教学网后台同步最多执行4轮、额外排队20轮，每账号最多一轮；复用有界FIFO等待器，排队最长180秒，停止或凭据失效会退出等待，超时可重试且不调用采集器；每轮记录仍最多4并发，模型总池仍为20并发。
+
+安装测试依赖后执行 `python server/benchmark_source_capacity.py`，记录1/3/5账号的接受/完成数、吞吐、提交与工作区P95、合成采集及模型校验耗时；仅使用临时数据库与500ms采集/250ms模型替身，无附件或真实模型调用，不代表真实教学网和供应商容量。
 
 ## 错误报告
 

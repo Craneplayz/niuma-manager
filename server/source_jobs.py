@@ -11,7 +11,7 @@ import time
 from copy import deepcopy
 
 from contracts import source_sync as contract
-from server.model_queue import cancel_if
+from server.model_queue import cancel_if, ModelQueue
 import recognition
 import source_sync
 import teaching
@@ -19,8 +19,9 @@ import usage
 
 CONCURRENCY = 4
 RUN_LIMIT = 4
+QUEUE_LIMIT = 20
 QUIET_RECEIPT_SECONDS = 24 * 60 * 60
-_slots = threading.BoundedSemaphore(RUN_LIMIT)
+_slots = ModelQueue(limit=RUN_LIMIT, pending=QUEUE_LIMIT)
 _lock = threading.Lock()
 _workers = {}
 
@@ -498,8 +499,8 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
         bind_operation(db,uid,body,parent,run['run_id'])
         return run
     with _lock:
-        if len(_workers)>=RUN_LIMIT: raise ApiError(503, '同步资源仍在使用或释放中，请稍后重试')
-    if db.execute("SELECT count(*) FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchone()[0] >= RUN_LIMIT:
+        if len(_workers)>=RUN_LIMIT+QUEUE_LIMIT: raise ApiError(503, '同步资源仍在使用或释放中，请稍后重试')
+    if db.execute("SELECT count(*) FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchone()[0] >= RUN_LIMIT+QUEUE_LIMIT:
         raise ApiError(503, '同步队列已满，请稍后重试')
     run = dict(contract_version=contract.VERSION, run_id=secrets.token_hex(16), user_id=uid,
                operation_id=body['operation_id'], sources=['teaching_web'], trigger=trigger, parent_run_id=parent,
@@ -633,9 +634,20 @@ def collect_recovery(db, uid, run, ApiError, path):
     return run
 
 
+@contextmanager
+def run_slot(path, uid, run_id, ApiError):
+    with cancel_if(lambda: cancelled(path,uid,run_id,ApiError)):
+        if not _slots.acquire():
+            raise ApiError(503,'同步排队已满、等待超时或运行已停止，请刷新进度后重试')
+    try:
+        yield
+    finally:
+        _slots.release()
+
+
 def process(path, uid, run_id, ApiError):
     try:
-        with _slots:
+        with run_slot(path,uid,run_id,ApiError):
             with connection(path) as db:
                 db.execute('BEGIN IMMEDIATE'); guard(db, uid, run_id, ApiError)
                 run = get(db, uid, run_id, ApiError)
