@@ -65,6 +65,39 @@ class PasswordRecoveryTests(email_tests.EmailVerificationTests):
         self.assertTrue(result['user']['emailVerified'])
         self.assertEqual(self.reset(challenge_id, code)[0], 400)
 
+    def test_colliding_legacy_addresses_reset_only_the_exact_selected_account(self):
+        for index,(unicode_verified,idna_verified) in enumerate(((True,True),(True,False),(False,True),(False,False))):
+            addresses=(f'collision{index}@例子.中国',f'collision{index}@xn--fsqu00a.xn--fiqs8s')
+            clients=[self.new_client(),self.new_client()]
+            ids=[self.legacy(address,client) for address,client in zip(addresses,clients)]
+            for uid,is_verified in zip(ids,(unicode_verified,idna_verified)):
+                if is_verified:
+                    with app.connection() as db:verification.mark_verified(db,uid)
+            for selected,eligible in enumerate((unicode_verified,idna_verified)):
+                with self.subTest(unicode_verified=unicode_verified,idna_verified=idna_verified,selected=selected):
+                    with app.connection() as db:
+                        db.execute('DELETE FROM email_rate_events')
+                        before={r['id']:(r['salt'],r['hash']) for r in db.execute('SELECT * FROM users')}
+                    old_mail=len(self.mailbox)
+                    status,result,_=self.call('/auth/email-code',dict(email=addresses[selected],purpose='reset_password'))
+                    self.assertEqual(status,200,result)
+                    with app.connection() as db:
+                        challenge=db.execute('SELECT * FROM email_challenges WHERE id=?',(result['challengeId'],)).fetchone()
+                        self.assertEqual(challenge['user_id'],ids[selected] if eligible else '')
+                    self.assertEqual(len(self.mailbox),old_mail+int(eligible))
+                    if not eligible:
+                        self.assertEqual(self.reset(result['challengeId'],'000000',email=addresses[selected])[0],400)
+                        continue
+                    code=self.mailbox[-1][1]
+                    # Equivalent delivery addresses do not permit selecting the other historical account.
+                    self.assertEqual(self.reset(result['challengeId'],code,email=addresses[1-selected])[0],400)
+                    self.assertEqual(self.reset(result['challengeId'],code,email=addresses[selected])[0],200)
+                    self.assertEqual(self.login(addresses[selected],NEW_PASSWORD)[1]['user']['id'],ids[selected])
+                    self.assertEqual(self.call('/auth/me',client=clients[selected])[0],401)
+                    with app.connection() as db:
+                        other=db.execute('SELECT * FROM users WHERE id=?',(ids[1-selected],)).fetchone()
+                        self.assertEqual((other['salt'],other['hash']),before[ids[1-selected]])
+
     def test_recovery_revokes_all_ordinary_and_admin_sessions_but_preserves_data(self):
         uid = self.verified_account()
         second = self.new_client()

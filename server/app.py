@@ -242,14 +242,15 @@ class Handler(BaseHTTPRequestHandler):
                     if user['emailVerified']:
                         raise email_verification.VerificationError(409, 'email_already_verified', '当前邮箱已经验证')
                 elif purpose == 'reset_password':
-                    email = email_verification.normalize_email(body.get('email'))
+                    email = body.get('email')
                     uid = ''
                 else:
                     raise email_verification.VerificationError(400, 'email_code_invalid', '验证码用途不正确')
                 result = email_verification.request_code(db, email, purpose, uid, self.email_client_ip(), DB.parent / 'email-verification.key')
                 return self.reply(200, result)
             if path=='/api/auth/reset-password' and self.command=='POST':
-                email = email_verification.normalize_email(body.get('email'))
+                email = body.get('email')
+                email_verification.normalize_email(email)
                 new = body.get('newPassword')
                 if not isinstance(new, str) or not 8 <= len(new) <= 128:
                     raise ApiError(400, '新密码需要 8–128 个字符')

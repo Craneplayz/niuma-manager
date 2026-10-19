@@ -145,6 +145,7 @@ def _event(db, kind, subjects, now, include_email=True):
 
 
 def request_code(db, email, purpose, user_id, remote_ip, key_path):
+    original_email = email
     email = normalize_email(email)
     if purpose not in ('register', 'verify_email', 'reset_password'):
         raise VerificationError(400, 'email_code_invalid', '验证码用途不正确')
@@ -158,7 +159,7 @@ def request_code(db, email, purpose, user_id, remote_ip, key_path):
     eligible = True
     account = None
     if recovery:
-        account = account_for_email(db, email)
+        account = account_for_email(db, original_email)
         eligible = bool(account and verified(db, account['id']))
         user_id = account['id'] if eligible else ''
     db.execute('DELETE FROM email_rate_events WHERE occurred_at<?', (now - 86400,))
