@@ -6,11 +6,16 @@ export function feedbackBox(){
 }
 export async function usageVisit(){
  if(document.visibilityState==='hidden')return;
- const uid=session.user?.id;if(!uid)return;
+ const uid=session.user?.id;
  const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
- const key=uid+':'+day;if(offeredFor===key)return;
+ const key=(uid||'guest')+':'+day;if(offeredFor===key)return;
  offeredFor=key;
  try{
+  if(!uid){
+   const response=await fetch('/api/usage/guest-visit',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'});
+   if(!response.ok||(await response.json()).saved!==true)throw new Error('visit unavailable');
+   return;
+  }
   const result=await api('/api/usage/visit',{});
   if(session.user?.id!==uid||!result.offerRating)return;
   // Non-modal: never replaces a task editor or blocks ongoing work.

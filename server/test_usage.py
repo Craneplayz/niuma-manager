@@ -53,6 +53,53 @@ class UsageTests(unittest.TestCase):
             usage.visit(db,self.uid,day);db.commit()
             self.assertFalse(usage.visit(db,self.uid,day+timedelta(days=3))['offerRating']);db.commit()
             self.assertTrue(usage.visit(db,self.uid,day+timedelta(days=4))['offerRating'])
+    def test_guest_refreshes_share_private_cookie_and_cannot_read_dashboard(self):
+        jar=CookieJar();self.client=build_opener(HTTPCookieProcessor(jar))
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        app.initialize(recover=False)
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        self.assertEqual(len(list(jar)),1)
+        self.assertTrue(list(jar)[0].has_nonstandard_attr('HttpOnly'))
+        self.assertEqual(self.call('/admin/usage')[0],401)
+        self.assertEqual(self.call('/usage/guest-visit',{'email':'private@example.test'})[0],400)
+        with app.connection() as db:
+            rows=[dict(r) for r in db.execute('SELECT * FROM usage_guest_days')]
+            self.assertEqual(len(rows),1)
+            self.assertNotIn(list(jar)[0].value,json.dumps(rows))
+    def test_signed_in_visit_is_not_counted_as_guest(self):
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM usage_guest_days').fetchone()[0],0)
+    def test_traffic_distinguishes_registrations_guests_and_cross_day_returns(self):
+        day=datetime(2026,10,14,12,tzinfo=usage.TZ)
+        with app.connection() as db:
+            usage.guest_visit(db,'a'*32,day);db.commit()
+            usage.guest_visit(db,'a'*32,day);db.commit()
+            usage.guest_visit(db,'a'*32,day+timedelta(days=2));db.commit()
+            usage.guest_visit(db,'b'*32,day+timedelta(days=2));db.commit()
+            usage.visit(db,self.uid,day);db.commit()
+            usage.visit(db,self.uid,day+timedelta(days=2));db.commit()
+            usage.record(db,self.uid,'register',now=day)
+            result=usage.summary(db,'2026-10-14','2026-10-16')['traffic']
+            self.assertEqual(result['guests'],2)
+            self.assertEqual(result['registrations'],1)
+            self.assertEqual(result['returningVisitors'],2)
+            self.assertEqual(result['returnVisits'],2)
+            self.assertEqual(result['registeredAccounts'],1)
+            self.assertEqual(result['daily'][-1],dict(day='2026-10-16',guests=2,registrations=0,returningVisitors=2))
+            with patch.dict(os.environ,NIUMA_ANALYTICS_EXCLUDED_USER_IDS=self.uid):
+                hidden=usage.summary(db,'2026-10-14','2026-10-16')['traffic']
+                self.assertEqual(hidden['registrations'],0);self.assertEqual(hidden['returningVisitors'],1)
+            db.commit();usage.guest_visit(db,'a'*32,day+timedelta(days=3))
+            self.assertEqual(usage.summary(db,'2026-10-14','2026-10-17')['traffic']['returnVisits'],3)
+    def test_guest_retention_never_stores_raw_identifier_or_account_data(self):
+        day=datetime(2026,10,14,12,tzinfo=usage.TZ)
+        with app.connection() as db:
+            usage.guest_visit(db,'a'*32,day-timedelta(days=100));db.commit()
+            usage.guest_visit(db,'b'*32,day)
+            rows=db.execute('SELECT * FROM usage_guest_days').fetchall()
+            self.assertEqual(len(rows),1);self.assertEqual(rows[0]['is_returning'],0)
     def test_feedback_rating_validation_and_duplicate(self):
         for score in (True,0,6,'5'):
             self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=score))[0],400)

@@ -42,6 +42,7 @@ frontend/
 │   ├── error-reports-view.js 管理员错误报告列表
 │   ├── usage-feedback.js     账号中的主动反馈与非阻塞评分
 │   ├── admin-usage.js        独立后台统计、日期筛选和反馈列表
+│   ├── traffic-view.js       后台游客、注册、回访卡片及每日明细
 │   ├── admin-usage.css       独立后台的桌面与手机样式
 │   ├── import-ui.js          文本、教学网采集与候选核对
 │   ├── import-evidence.js    摘录、完整通知、来源链接和失败身份
@@ -80,6 +81,7 @@ frontend/
 │   ├── sync-fixtures.js     后台同步契约的合成运行样例
 │   ├── team-store.test.js    任务保存、账号隔离、冲突与删除恢复
 │   ├── usage-feedback.test.js 访问去重、主动反馈及后台隔离
+│   ├── traffic-view.test.js  流量卡片、兼容旧接口及安全展示
 │   ├── task-evidence.test.js 来源链接和证据展示
 │   └── environment-badge.test.js 环境识别与版本差异
 └── docs/
@@ -113,7 +115,9 @@ frontend/
     │   ├── notice-near-desktop.png  近期任务与通知混合展示
     │   ├── notice-done-desktop.png  已完成任务与已阅读通知混合展示
     │   ├── 2026-10-14-admin-usage-desktop.png 后台桌面布局
-    │   └── 2026-10-14-admin-usage-mobile.png 后台手机布局
+    │   ├── 2026-10-14-admin-usage-mobile.png 后台手机布局
+    │   ├── 2026-10-19-traffic-desktop.png 游客、注册与回访桌面布局（合成数据）
+    │   └── 2026-10-19-traffic-mobile.png 游客、注册与回访手机布局（合成数据）
     └── archive/              历史文档与截图，不代表当前功能
 ```
 
@@ -158,6 +162,7 @@ npm run dev:api
 - 成功恢复会话、登录完成、前台恢复和键盘交互按账号和北京时间日期补记访问，失败不影响任务读取；合成预览不记录访问。
 - 管理员通过 `/admin.html` 独立登录查看使用统计；普通页面不加载后台图表脚本，服务端逐请求校验权限。
 - 后台只展示启用统计后的记录及聚合数据，空数据不生成模拟趋势；通知阅读不计入任务完成指标。
+- 后台提供游客数、新增注册、回访次数及每日明细；游客按匿名 Cookie 标识去重，回访按跨北京时间自然日再访问统计且同一标识每天最多一次，注册只计成功事件，另显示现有账号总数。
 
 ## 合成预览
 
