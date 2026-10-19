@@ -13,6 +13,8 @@ import re
 from datetime import datetime, timezone, timedelta, date
 import sys
 import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -25,23 +27,74 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
+from server import model_queue, email_telemetry
 from ddl_text.codex_client import live_options
-from ddl_text.config import Settings
+from ddl_text.config import Settings, email_model_settings, EMAIL_RECOGNITION_TIMEOUT
 from ddl_text.extraction import ExtractionAdapter
 from ddl_text.pipeline import process_request
 from ddl_text.provider import make_client
 from ddl_text.policy_version import text_policy_manifest, COMPONENTS, ROOT as POLICY_ROOT
 
 _EXECUTION = threading.local()
+
+@contextmanager
+def telemetry_context(path, uid):
+    """Enable content-free stage timing for an email recognition call."""
+    previous = getattr(_EXECUTION, 'email_telemetry', None)
+    _EXECUTION.email_telemetry = (path, str(uid))
+    try:
+        yield
+    finally:
+        _EXECUTION.email_telemetry = previous
+
+def _email_metric(stage, duration_ms, success=True):
+    context = getattr(_EXECUTION, 'email_telemetry', None)
+    if context:
+        email_telemetry.record(context[0], context[1], stage, duration_ms=duration_ms, success=success)
 _POLICY_COMPONENTS = {name:hashlib.sha256((POLICY_ROOT/name).read_text(encoding='utf-8-sig').replace('\r\n','\n').replace('\r','\n').encode()).hexdigest()
                       for name in COMPONENTS}
 
 
+def _attempt_metric(metrics):
+    context = getattr(_EXECUTION, 'email_telemetry', None)
+    if not context:
+        return
+    path, uid = context
+    if metrics.get('generation_started') and isinstance(metrics.get('generation_ms'), (int, float)):
+        email_telemetry.record_tokens(path, uid, metrics, success=metrics.get('generation_ok') is True)
+    if metrics.get('generation_started') and isinstance(metrics.get('generation_ms'), (int, float)):
+        email_telemetry.record(path, uid, 'generation', metrics['generation_ms'],
+                               success=metrics.get('generation_ok') is True)
+        if metrics.get('generation_ok') is False:
+            email_telemetry.record_diagnostic(path, uid, 'generation', 'unknown', metrics['generation_ms'])
+    if isinstance(metrics.get('validation_ms'), (int, float)):
+        email_telemetry.record(path, uid, 'validation', metrics['validation_ms'],
+                               success=metrics.get('validation_ok') is True)
+        if metrics.get('validation_ok') is False:
+            reason = metrics.get('reason', 'unknown')
+            if reason not in email_telemetry.DIAGNOSTIC_REASONS:
+                reason = 'unknown'
+            email_telemetry.record_diagnostic(path, uid, 'validation', reason, metrics['validation_ms'])
+
 def recognize(request, ApiError):
     """Queue model admission across accounts, features and transports."""
     _EXECUTION.policy = None
-    if not _ACTIVE.acquire():
+    email_request = bool(request.get('records')) and all(r.get('platform') == 'email' for r in request['records'])
+    budget_seconds = EMAIL_RECOGNITION_TIMEOUT if email_request else 90
+    queue_started = time.perf_counter()
+    identity = model_queue.background_identity() if email_request else None
+    admitted = _ACTIVE.acquire_background(identity) if identity is not None else _ACTIVE.acquire()
+    if not admitted:
+        if identity is not None:
+            raise model_queue.EmailDeferred(.25, 'model_capacity')
+        _email_metric('model_queue', (time.perf_counter() - queue_started) * 1000, False)
         raise ApiError(503, WAIT_ERROR)
+    waited_ms = (time.perf_counter()-queue_started)*1000
+    if identity is not None:
+        waited_ms = max(waited_ms,model_queue.background_wait_ms())
+    _email_metric('model_queue',waited_ms,True)
+    receipt = None
+    attempt_metrics = []
     try:
         endpoint = os.environ.get('TEXT_HARNESS_URL')
         if endpoint:
@@ -49,7 +102,7 @@ def recognize(request, ApiError):
             if os.environ.get('TEXT_HARNESS_TOKEN'):
                 headers['Authorization'] = 'Bearer ' + os.environ['TEXT_HARNESS_TOKEN']
             try:
-                with urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=95) as response:
+                with urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=budget_seconds + 5) as response:
                     return json.loads(response.read(2000000))
             except HTTPError as error:
                 busy = error.code == 503
@@ -64,8 +117,8 @@ def recognize(request, ApiError):
             if not options['key'].strip():
                 raise ValueError('missing credential')
             adapter = ExtractionAdapter(make_client(options))
-            settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
-                                timeout_seconds=90, max_retries=0)
+            settings = email_model_settings(options) if email_request else Settings(
+                mode='real', model=options['model'], endpoint=options['endpoint'], timeout_seconds=90, max_retries=0)
         except (OSError, ValueError, TypeError, KeyError):
             raise ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥') from None
         try:
@@ -76,10 +129,43 @@ def recognize(request, ApiError):
             raise ApiError(503,'识别规则与当前进程不一致，请重启后端后重试') from None
         _EXECUTION.policy = policy
         try:
-            return process_request(request, adapter, settings, budget_seconds=90)
+            provider_key, receipt, delay = model_queue.provider_reservation(
+                options, request, settings.max_output_tokens,
+                2 if settings.truncation_retry_tokens else 1,
+                fallback_tokens=settings.truncation_retry_tokens)
+        except ValueError:
+            raise ApiError(503, '模型配额设置不足以处理单封邮件，请管理员检查配置') from None
+        if delay:
+            if identity is not None:
+                raise model_queue.EmailDeferred(delay, 'provider_budget')
+            raise ApiError(503, '模型配额暂时不足，请稍后重试')
+        try:
+            def observe(metrics):
+                attempt_metrics.append(metrics)
+                _attempt_metric(metrics)
+            observer = {"attempt_observer": observe}
+            guard = {'attempt_guard': lambda: not model_queue.disconnected()} if email_request else {}
+            result = process_request(request, adapter, settings, budget_seconds=budget_seconds, **observer, **guard)
+            throttled = next((m for m in attempt_metrics if m.get('provider_status') == 429), None)
+            if throttled:
+                delay = model_queue.PROVIDER.throttled(provider_key, throttled.get('retry_after_seconds'))
+                _email_metric('provider_throttled', 0, False)
+                if identity is not None:
+                    raise model_queue.EmailDeferred(delay, 'provider_backoff')
+            return result
+        except model_queue.EmailDeferred:
+            raise
         except Exception:
             raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
     finally:
+        if receipt and attempt_metrics:
+            known = all(type(m.get('total_tokens')) is int for m in attempt_metrics)
+            # A timed-out attempt with no worker report keeps its conservative charge.
+            completed = all(m.get('generation_ok') is True or m.get('provider_status') == 429
+                            for m in attempt_metrics)
+            if completed:
+                model_queue.PROVIDER.settle(receipt, requests=len(attempt_metrics),
+                    tokens=sum(m['total_tokens'] for m in attempt_metrics) if known else None)
         _ACTIVE.release()
 
 
@@ -181,7 +267,7 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
                for row in db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1',
                                      (uid,request['request_id'])))
 
-def route(handler,db,uid,path,body,ApiError):
+def route(handler,db,uid,path,body,ApiError,email_guard=None):
     if not path.startswith('/api/recognition/'): return False
     if path=='/api/recognition/task-evidence' and handler.command=='POST':
         workspace=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
@@ -246,16 +332,28 @@ def route(handler,db,uid,path,body,ApiError):
             previous=json.loads(row['result'])
             if not retry or row['demo'] or previous['status'] in ('success','no_tasks'):
                 handler.reply(200,batches(db,uid));return True
+        if not row and not demo and any(r.get('platform') == 'email' for r in request['records']):
+            raise ApiError(400,'请通过邮箱后台导入处理新邮件')
         extraction_request=request
         if previous:
             completed={r['input_id'] for r in previous['record_results'] if r['status']!='failed'}
             extraction_request=dict(request,records=[r for r in request['records'] if r['input_id'] not in completed])
+        email_request = not demo and any(r.get('platform') == 'email' for r in request['records'])
+        if email_request and email_guard:
+            try: email_guard(db, uid, request, 'model')
+            except ValueError: raise ApiError(403,'邮箱授权已撤销、邮件已排除或来源不属于当前邮箱') from None
         if not demo:
             if not request['records']:
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
             else:
                 _EXECUTION.policy = None
-                result=recognize(extraction_request,ApiError)
+                if email_request and email_guard:
+                    def cancelled_email():
+                        try: email_guard(db,uid,request,'model'); return False
+                        except ValueError: return True
+                    with model_queue.cancel_if(cancelled_email): result=recognize(extraction_request,ApiError)
+                else:
+                    result=recognize(extraction_request,ApiError)
         policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
         try:
             result=validate_result(extraction_request,result)
@@ -274,6 +372,9 @@ def route(handler,db,uid,path,body,ApiError):
                 result=validate_result(request,result)
         except (ValueError,TypeError,KeyError): raise ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')
         db.execute('BEGIN IMMEDIATE')
+        if email_request and email_guard:
+            try: email_guard(db, uid, request, 'save')
+            except ValueError: raise ApiError(403,'邮箱授权已撤销、邮件已排除或来源不属于当前邮箱') from None
         row=db.execute('SELECT fingerprint,result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
         if row:
             if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')

@@ -15,6 +15,7 @@ from pathlib import Path
 import recognition
 import planning
 import source_sync
+import email_import
 import source_jobs
 import submission_runtime
 import public_sources
@@ -55,6 +56,7 @@ def initialize(recover=True):
     runtime_environment.validate_storage(DB)
     DB.parent.mkdir(parents=True, exist_ok=True)
     with connection() as db:
+        db.execute('PRAGMA journal_mode=WAL')
         db.executescript('''
         CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires REAL NOT NULL);
@@ -65,6 +67,7 @@ def initialize(recover=True):
         usage.initialize(db)
         error_reports.initialize(db)
         source_sync.initialize(db)
+        email_import.initialize(db, recover=recover)
         source_jobs.initialize(db, recover=recover)
         source_schedule.initialize(db)
         public_sources.initialize(db,recover=recover)
@@ -137,6 +140,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Cache-Control','no-store')
         self.send_header('Content-Length',str(len(data)))
+        if getattr(self, 'retry_after', None) is not None:
+            self.send_header('Retry-After', str(self.retry_after))
+            self.retry_after = None
+        if self.command == 'GET' and self.path.startswith('/api/sources/email/jobs'):
+            email_import.email_telemetry.observe_status(
+                (time.monotonic() - getattr(self, 'usage_started', time.monotonic())) * 1000, len(data))
         if cookie: self.send_header('Set-Cookie',cookie)
         self.end_headers()
         self.wfile.write(data)
@@ -243,10 +252,12 @@ class Handler(BaseHTTPRequestHandler):
             if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
             if source_schedule.route(self,db,uid,path,body,ApiError): return
             if public_sources.route(self,db,uid,path,body,ApiError,DB): return
+            with email_import.admission_context(path,self.command,DB):
+                if email_import.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key',DB): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if submission_runtime.route(self,db,uid,path,body,ApiError): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
-            if recognition.route(self,db,uid,path,body,ApiError): return
+            if recognition.route(self,db,uid,path,body,ApiError,email_import.recognition_guard): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
@@ -300,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
                 value=body.get('value')
                 if not isinstance(value,dict if name in ['availability','focus','preferences'] else list): raise ApiError(400,'数据格式不正确')
                 if name=='preferences' and (set(value)!=set(['askCompletionMinutes']) or type(value['askCompletionMinutes'])!=bool): raise ApiError(400,'个性化设置格式不正确')
-                if name=='sources' and (len(value)>1 or any(source!='teaching_web' for source in value)): raise ApiError(400,'来源选择不正确')
+                if name=='sources' and (len(value)>2 or any(not isinstance(source,str) or source not in ['teaching_web','email'] for source in value) or len(value)!=len(set(value))): raise ApiError(400,'来源选择不正确')
                 if name=='courses':
                     from urllib.parse import urlsplit
                     ids,names=set(),set()
@@ -417,6 +428,9 @@ class Handler(BaseHTTPRequestHandler):
             with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
         except ApiError as e:
+            retry_after = getattr(e, 'retry_after', None)
+            if type(retry_after) in (int, float) and 0 < retry_after <= 300:
+                self.retry_after = max(1, int(retry_after))
             if self.path.startswith('/api/sources/submissions'):
                 code={401:'unauthorized',403:'unauthorized',404:'not_found',409:'conflict',503:'unavailable'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(contract_version='submission-operations/0.1',code=code,message=e.message))

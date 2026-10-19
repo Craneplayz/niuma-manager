@@ -6,7 +6,7 @@ const choices = {
   view: ["list", "calendar"],
   mode: ["month", "week"],
   pane: ["day", "undated"],
-  importSource: ["text", "teaching", "files"],
+  importSource: ["text", "teaching", "email", "files"],
 };
 const choice = (key, value, fallback) => choices[key].includes(value) ? value : fallback;
 const date = (value, fallback) => shiftDay(value, 0) || fallback;

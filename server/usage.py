@@ -120,10 +120,36 @@ def summary(db, start, end):
     rating=dict(samples=len(scores),average=round(sum(scores)/len(scores),2) if scores else None)
     feedback=feedback[:100]
     for row in feedback: row.pop('actor')
-    return dict(start=start,end=end,activeUsers=len({r['actor'] for r in rows}),
+    if __package__:
+        from .email_telemetry import diagnostics, token_summary
+    else:
+        from email_telemetry import diagnostics, token_summary
+    email_diagnostics = diagnostics(db, start, end, excluded=excluded)
+    from server import model_queue
+    try:
+        from . import email_import, email_telemetry
+    except ImportError:
+        import email_import, email_telemetry
+    capacity = email_telemetry.capacity_snapshot()
+    capacity['provider'] = model_queue.PROVIDER.snapshot()
+    capacity['modelQueue'] = model_queue.capacity_snapshot()
+    try:
+        from . import email_mailbox_pool
+    except ImportError:
+        import email_mailbox_pool
+    capacity['mailbox'] = email_mailbox_pool.capacity_snapshot()
+    if hasattr(email_import, 'capacity_snapshot'):
+        capacity['scheduler'] = email_import.capacity_snapshot()
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name='email_import_jobs'").fetchone():
+            row = db.execute('''SELECT COUNT(*) AS jobs,coalesce(sum(json_extract(snapshot,'$.counts.pending')),0) AS pending,
+                max(0,(julianday('now')-min(julianday(json_extract(snapshot,'$.queued_at'))))*86400) AS age
+                FROM email_import_jobs WHERE state IN ('queued','running')''').fetchone()
+            capacity['scheduler'].update(acceptedJobs=row['jobs'],pendingEmails=row['pending'],
+                                         oldestUnfinishedAgeSeconds=row['age'])
+    return dict(start=start,end=end,emailCapacity=capacity,emailTokens=token_summary(db,start,end,excluded=excluded),emailDiagnostics=email_diagnostics,activeUsers=len({r['actor'] for r in rows}),
         daily=[dict(day=day,users=len(users)) for day,users in sorted(by_day.items())],
         metrics=metrics,feedback=feedback,rating=rating,environment=os.environ.get('NIUMA_ENVIRONMENT','development'),
-        methodology='从启用记录后统计；流程量不是同批次转化漏斗；耗时含排队，中位数为常规样本中位数，P95使用最近秩 ceil(0.95×n)；不推断历史行为或模型正确率。')
+        methodology='从启用记录后统计；流程量不是同批次转化漏斗；识别总耗时包含模型排队、生成及校验，组成阶段不可与总耗时相加；并发阶段累计时间不等于任务墙钟时间；中位数为常规样本中位数，P95使用最近秩 ceil(0.95×n)；不推断历史行为或模型正确率。')
 
 def route(handler, db, uid, path, body, error):
     if path=='/api/usage/visit' and handler.command=='POST':

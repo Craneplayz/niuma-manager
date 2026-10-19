@@ -23,8 +23,21 @@ DEPLOY = ROOT / 'server' / 'deploy'
 PROFILES = DEPLOY / 'environments'
 MODEL_KEYS = {'DDL_PROVIDER', 'DDL_MODEL', 'DDL_ENDPOINT', 'DDL_CODEX_BIN', 'QINIU_API_KEY', 'DEEPSEEK_API_KEY'}
 COMPOSE_KEYS = {'APP_ORIGIN', 'HTTP_PORT', 'HTTPS_PORT', 'SITE_ADDRESS', 'API_IMAGE', 'WEB_IMAGE', 'COOKIE_SECURE'}
+CAPACITY_FIELDS = {
+    'email_global_concurrency': (8, 1, 32), 'email_max_jobs': (60, 1, 60),
+    'email_imap_concurrency': (4, 1, 16), 'email_prefetch': (16, 1, 128),
+    'email_prefetch_bytes': (2097152, 131072, 33554432),
+    'model_requests_per_minute': (0, 0, 100000),
+    'model_tokens_per_minute': (0, 0, 100000000),
+}
+
+def capacity_environment(config):
+    return {'NIUMA_' + key.upper(): str(config.get(key, spec[0]))
+            for key, spec in CAPACITY_FIELDS.items()}
+
 FIELDS = {'environment', 'transport', 'origin', 'listen', 'port', 'api_port', 'https_port', 'site_address',
-          'api_image', 'web_image', 'data_volume', 'external_data_volume', 'adopt_existing_data', 'background_recovery', 'scheduled_sync'}
+          'api_image', 'web_image', 'data_volume', 'external_data_volume', 'adopt_existing_data', 'background_recovery',
+          'scheduled_sync', 'email_concurrency'} | set(CAPACITY_FIELDS)
 
 
 def defaults(name):
@@ -33,7 +46,8 @@ def defaults(name):
                 listen='127.0.0.1', port=public_port, api_port=public_port + 1,
                 https_port={'development':1443, 'test':1543, 'production':443}[name], site_address='', api_image='', web_image='',
                 data_volume=f'niuma-{name}-data', external_data_volume=name == 'production',
-                adopt_existing_data=False, background_recovery=name == 'production', scheduled_sync=False)
+                adopt_existing_data=False, background_recovery=name == 'production', scheduled_sync=False,
+                email_concurrency=2, **{key: spec[0] for key, spec in CAPACITY_FIELDS.items()})
 
 
 def initialize(name, root=PROFILES):
@@ -50,12 +64,19 @@ def initialize(name, root=PROFILES):
     return folder
 
 
-def read_config(name, root=PROFILES):
+def read_config(name, root=PROFILES, *, include_model_values=False):
     folder = (root / name).resolve()
     config = json.loads((folder / 'config.json').read_text(encoding='utf-8'))
-    if isinstance(config,dict): config.setdefault('scheduled_sync',False)
+    if isinstance(config, dict):
+        config.setdefault('scheduled_sync', False)
+        config.setdefault('email_concurrency', 2)
+        for key, spec in CAPACITY_FIELDS.items():
+            config.setdefault(key, spec[0])
     if not isinstance(config, dict) or set(config) != FIELDS or config['environment'] != name:
         raise ValueError('Invalid environment configuration or mismatched environment name')
+    for key, (_, minimum, maximum) in CAPACITY_FIELDS.items():
+        if type(config[key]) is not int or not minimum <= config[key] <= maximum:
+            raise ValueError(f'{key} must be an integer from {minimum} to {maximum}')
     if config['transport'] not in ('http', 'https'):
         raise ValueError('transport must be http or https')
     for key in ('port', 'api_port', 'https_port'):
@@ -91,6 +112,8 @@ def read_config(name, root=PROFILES):
     for key in ('external_data_volume', 'adopt_existing_data', 'background_recovery', 'scheduled_sync'):
         if type(config[key]) is not bool:
             raise ValueError(f'{key} must be boolean')
+    if type(config['email_concurrency']) is not int or not 1 <= config['email_concurrency'] <= 4:
+        raise ValueError('email_concurrency must be an integer from 1 to 4')
     if not isinstance(config['data_volume'], str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}', config['data_volume']):
         raise ValueError('Invalid data volume name')
     if name != 'production' and (config['data_volume'] != f'niuma-{name}-data'
@@ -102,7 +125,7 @@ def read_config(name, root=PROFILES):
         value = config[key]
         if not isinstance(value, str) or (value and not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_./:@-]{0,250}', value)):
             raise ValueError('Invalid image reference')
-    read_model_config(folder / '.env.model')
+    model_values = read_model_config(folder / '.env.model')
     # A configuration typo must not point two profiles at the same persistent volume.
     for other in ENVIRONMENTS:
         path = root / other / 'config.json'
@@ -110,7 +133,7 @@ def read_config(name, root=PROFILES):
             sibling = json.loads(path.read_text(encoding='utf-8'))
             if sibling.get('data_volume') == config['data_volume']:
                 raise ValueError('Two environments reference the same data volume')
-    return folder, config
+    return (folder, config, model_values) if include_model_values else (folder, config)
 
 
 def read_model_config(path):
@@ -129,15 +152,16 @@ def read_model_config(path):
     return values
 
 
-def write_compose_env(path, values):
-    # Double quotes preserve spaces/#/backslashes; $$ prevents interpolation.
-    # Atomically replace a private file, including when a value ends in a slash.
+def write_compose_env(path, values, prefix):
+    # Compose env files are not a safe literal encoding for arbitrary values
+    # across supported CLI versions. Keep only references here and pass the
+    # actual values in the child process environment.
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as file:
             temporary = Path(file.name)
-            for key, value in values.items():
-                file.write(key + '=' + json.dumps(value, ensure_ascii=False).replace('$', '$$') + '\n')
+            for key in values:
+                file.write(key + '=${' + prefix + '_' + key + '}\n')
         os.replace(temporary, path)
     finally:
         if temporary is not None:
@@ -156,7 +180,7 @@ def git_revision():
     return subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip()
 
 
-def compose_command(name, folder, config, docker='docker'):
+def _compose_values(name, folder, config):
     revision = git_revision()
     mode = 'ip' if config['transport'] == 'http' else 'https'
     values = dict(APP_ORIGIN=config['origin'], HTTP_PORT=f"{config['listen']}:{config['port']}",
@@ -169,11 +193,29 @@ def compose_command(name, folder, config, docker='docker'):
                   NIUMA_HTTPS_TARGET_PORT=str(urlsplit(config['origin']).port or 443),
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
                   NIUMA_ENABLE_SCHEDULED_SYNC='1' if config.get('scheduled_sync',False) else '0',
+                  NIUMA_EMAIL_CONCURRENCY=str(config['email_concurrency']),
                   NIUMA_ADOPT_EXISTING_DATA='1' if config['adopt_existing_data'] else '0',
                   NIUMA_BUILD_REVISION=revision, COOKIE_SECURE='1' if config['transport'] == 'https' else '0')
+    values.update(capacity_environment(config))
+    return values, revision, mode
+
+
+def compose_environment(name, folder, config, model_values=None):
+    values, _, _ = _compose_values(name, folder, config)
+    if model_values is None:
+        model_values = read_model_config(folder / '.env.model')
+    environment = {f'NIUMA_COMPOSE_{key}': value for key, value in values.items()}
+    environment.update({f'NIUMA_MODEL_{key}': value for key, value in model_values.items()})
+    return environment
+
+
+def compose_command(name, folder, config, docker='docker', model_values=None):
+    values, revision, mode = _compose_values(name, folder, config)
     env_file = folder / '.env.compose'
-    write_compose_env(folder / '.env.model.compose', read_model_config(folder / '.env.model'))
-    write_compose_env(env_file, values)
+    if model_values is None:
+        model_values = read_model_config(folder / '.env.model')
+    write_compose_env(folder / '.env.model.compose', model_values, 'NIUMA_MODEL')
+    write_compose_env(env_file, values, 'NIUMA_COMPOSE')
     compose = DEPLOY / ('compose.ip.yaml' if mode == 'ip' else 'compose.yaml')
     return [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
 
@@ -192,11 +234,13 @@ def local_environment(name, folder, config):
                   NIUMA_ALLOWED_ORIGINS=config['origin'], NIUMA_COOKIE_SECURE='0',
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
                   NIUMA_ENABLE_SCHEDULED_SYNC='1' if config.get('scheduled_sync',False) else '0',
+                  NIUMA_EMAIL_CONCURRENCY=str(config['email_concurrency']),
                   NIUMA_ENABLE_WECHAT='0', NIUMA_ENABLE_MANUAL_MATERIALS='1', VITE_ENABLE_WECHAT='0',
                   NIUMA_BUILD_REVISION=revision, VITE_BUILD_REVISION=revision,
                   NIUMA_SOURCE_DIRTY='unknown' if dirty is None else str(int(dirty)),
                   VITE_SOURCE_DIRTY='unknown' if dirty is None else str(int(dirty)),
                   PYTHONUTF8='1', PYTHONUNBUFFERED='1', PYTHON=sys.executable)
+    values.update(capacity_environment(config))
     return values
 
 
@@ -253,7 +297,7 @@ def main(argv=None):
         raise ValueError('Build in development/test, then promote the same verified images to production')
     if args.command in ('stop', 'status'):
         return existing_project(args.command, name)
-    folder, config = read_config(name)
+    folder, config, model_values = read_config(name, include_model_values=True)
     if args.command == 'local':
         return local_servers(name, folder, config)
     if args.command == 'check':
@@ -286,7 +330,10 @@ def main(argv=None):
     if args.command == 'up' and name == 'production':
         acceptance = args.acceptance or PROFILES / 'test' / 'accepted-images.json'
         config = dict(config, **verified_images(docker, env, config, acceptance))
-    command = compose_command(name, folder, config, docker)
+    # Read provider settings once so Compose interpolation and the child process
+    # receive the same snapshot even if the profile file changes concurrently.
+    command = compose_command(name, folder, config, docker, model_values=model_values)
+    env.update(compose_environment(name, folder, config, model_values=model_values))
     subprocess.run(command + ['config', '-q'], cwd=DEPLOY, env=env, check=True)
     if args.command == 'build' and subprocess.check_output(['git', '-C', str(ROOT), 'status', '--porcelain', '--untracked-files=normal'], text=True).strip():
         raise ValueError('Commit source changes before building a versioned deployment image')

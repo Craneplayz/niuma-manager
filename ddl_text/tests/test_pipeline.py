@@ -12,6 +12,7 @@ from pathlib import Path
 from ddl_text.adapters import ReplayAdapter
 from ddl_text.config import Settings
 from ddl_text.pipeline import process_request
+from ddl_text.extraction import ExtractionAdapter
 from ddl_text.tests.fake_adapters import ControlledAdapter, NetworkForbiddenReplay, TimeoutFirstAdapter
 
 
@@ -21,6 +22,14 @@ CASES = json.loads((ROOT / "ddl_text/tests/fixtures/text-contract-v0.1.json").re
 
 def example(name="absolute"):
     return deepcopy(next(case for case in CASES if case["case_id"] == name))
+
+
+class SyntheticDraftClient:
+    def __init__(self, response):
+        self.response = response
+
+    def generate(self, instructions, record_json, settings, attempt):
+        return self.response
 
 
 class PipelineTests(unittest.TestCase):
@@ -35,6 +44,36 @@ class PipelineTests(unittest.TestCase):
                 for error in expected["errors"]:
                     error.pop("message")
                 self.assertEqual(result, expected)
+
+    def test_spawned_extraction_propagates_only_safe_stage_metrics(self):
+        request = example("no-task")["input"]
+        observations = []
+        client = SyntheticDraftClient('{"tasks": []}')
+        result = process_request(request, ExtractionAdapter(client), Settings(timeout_seconds=5),
+                                 attempt_observer=observations.append)
+        self.assertEqual(result["status"], "no_tasks")
+        self.assertEqual(len(observations), 1)
+        metric = observations[0]
+        self.assertTrue(metric["generation_started"])
+        self.assertTrue(metric["generation_ok"])
+        self.assertTrue(metric["validation_ok"])
+        self.assertGreaterEqual(metric["generation_ms"], 0)
+        self.assertGreaterEqual(metric["validation_ms"], 0)
+        self.assertNotIn("PRIVATE", repr(metric))
+
+    def test_spawned_failure_reports_allowlisted_reason_without_output(self):
+        request = example("no-task")["input"]
+        observations = []
+        sentinel = "PRIVATE_BODY_SENTINEL"
+        result = process_request(request, ExtractionAdapter(SyntheticDraftClient(sentinel)),
+                                 Settings(timeout_seconds=5), attempt_observer=observations.append)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(len(observations), 1)
+        metric = observations[0]
+        self.assertEqual(metric["reason"], "invalid_json")
+        self.assertFalse(metric["validation_ok"])
+        self.assertNotIn(sentinel, repr(metric))
+        self.assertNotIn(sentinel, repr(result))
 
     def test_adapter_can_be_replaced_without_pipeline_change(self):
         request = example()["input"]

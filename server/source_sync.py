@@ -5,28 +5,33 @@ import os
 import subprocess
 import tempfile
 import secrets
+from datetime import datetime
 from pathlib import Path
 
 from text_contract import validate_request
 from recognition import has_unapplied_auto_tasks
 import teaching
 import teaching_assets
+import email_source
+import email_header_cache
 from contracts.teaching_capture import check_capture
 
 CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
 
 
 def initialize(db):
+    email_header_cache.initialize(db)
     teaching.initialize(db)
     db.execute('CREATE TABLE IF NOT EXISTS source_credentials(user_id TEXT PRIMARY KEY, username TEXT NOT NULL, secret BLOB NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS email_source_credentials(user_id TEXT PRIMARY KEY, address TEXT NOT NULL, username TEXT NOT NULL, secret BLOB NOT NULL)')
     db.execute('''CREATE TABLE IF NOT EXISTS source_versions(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
         digest TEXT NOT NULL, request TEXT NOT NULL,
         PRIMARY KEY(user_id,account,input_id))''')
 
 
-def incremental_requests(db, uid, username, requests):
-    """Keep the first observation of each content version, including its time anchor."""
+def incremental_requests(db, uid, username, requests, source='teaching_web'):
+    """Keep the first observation of each source content version and its time anchor."""
     account = hashlib.sha256(username.encode()).hexdigest()
     pending, seen = [], set()
     total = skipped = 0
@@ -47,7 +52,7 @@ def incremental_requests(db, uid, username, requests):
             if row and row['digest'] == digest:
                 request = json.loads(row['request'])
             else:
-                request = dict(contract_version='0.2', request_id='teaching_web:sync:' + secrets.token_hex(16), records=[record])
+                request = dict(contract_version='0.2', request_id=source + ':sync:' + secrets.token_hex(16), records=[record])
                 db.execute('INSERT INTO source_versions VALUES(?,?,?,?,?) ON CONFLICT(user_id,account,input_id) DO UPDATE SET digest=excluded.digest,request=excluded.request',
                            (uid, account, record['input_id'], digest, json.dumps(request)))
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
@@ -83,6 +88,75 @@ def cipher(key_path, ApiError, create=False):
 
 
 def route(handler, db, uid, path, body, ApiError, key_path):
+    if path == '/api/sources/email/credentials' and handler.command == 'GET':
+        row = db.execute('SELECT address,username FROM email_source_credentials WHERE user_id=?', (uid,)).fetchone()
+        handler.reply(200, {'configured': bool(row), 'address': row['address'] if row else None,
+                            'username': row['username'] if row else None})
+        return True
+    if path == '/api/sources/email/credentials' and handler.command == 'POST':
+        try:
+            address = email_source.normalize_address(body.get('address'))
+        except email_source.EmailSourceError as error:
+            raise ApiError(error.status, error.message)
+        username, password = body.get('username'), body.get('password')
+        if (not isinstance(username, str) or not username.strip() or len(username) > 200
+                or '\n' in username or '\r' in username):
+            raise ApiError(400, '请填写有效的邮箱登录账号')
+        if (not isinstance(password, str) or not password or len(password) > 200
+                or '\n' in password or '\r' in password):
+            raise ApiError(400, '请填写邮箱客户端专用密码')
+        password = password.replace(' ', '')
+        if not password:
+            raise ApiError(400, '请填写邮箱客户端专用密码')
+        encrypted = cipher(key_path, ApiError, create=True).encrypt(password.encode())
+        username = username.strip()
+        previous = db.execute('SELECT address,username FROM email_source_credentials WHERE user_id=?',(uid,)).fetchone()
+        if previous and (previous['address'] != address or previous['username'] != username):
+            email_header_cache.delete_mailbox(db, uid)
+        db.execute('INSERT INTO email_source_credentials VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,username=excluded.username,secret=excluded.secret',
+                   (uid, address, username, encrypted))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name='email_import_body_snapshots'").fetchone():
+            db.execute('DELETE FROM email_import_body_snapshots WHERE user_id=?',(uid,))
+        if body.get('consent') is not None:
+            if type(body.get('consent')) is not bool or type(body.get('process_all',False)) is not bool:
+                raise ApiError(400,'邮箱同意及处理偏好格式不正确')
+            if body['consent']:
+                db.execute('INSERT INTO email_import_preferences(user_id,mailbox,consent_version,consented_at,process_all) VALUES(?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET mailbox=excluded.mailbox,consent_version=excluded.consent_version,consented_at=excluded.consented_at,process_all=excluded.process_all',
+                           (uid,address,'email-body-recognition/1',datetime.now().astimezone().isoformat(),int(body.get('process_all',False))))
+            else:
+                db.execute('UPDATE email_import_preferences SET mailbox=NULL,consent_version=NULL,consented_at=NULL,process_all=0 WHERE user_id=?',(uid,))
+        elif previous and (previous['address'] != address or previous['username'] != username):
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='email_import_preferences'").fetchone():
+                db.execute('UPDATE email_import_preferences SET mailbox=NULL,consent_version=NULL,consented_at=NULL,process_all=0 WHERE user_id=?',(uid,))
+        handler.reply(200, {'configured': True, 'address': address, 'username': username})
+        return True
+    if path == '/api/sources/email/credentials/remove' and handler.command == 'POST':
+        email_header_cache.delete_mailbox(db, uid)
+        db.execute('DELETE FROM email_source_credentials WHERE user_id=?', (uid,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name='email_import_body_snapshots'").fetchone():
+            db.execute('DELETE FROM email_import_body_snapshots WHERE user_id=?',(uid,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='email_import_preferences'").fetchone():
+            db.execute('DELETE FROM email_import_preferences WHERE user_id=?', (uid,))
+        handler.reply(200, {'configured': False, 'address': None, 'username': None})
+        return True
+    if path == '/api/sources/email/preview' and handler.command == 'POST':
+        row = db.execute('SELECT address,username,secret FROM email_source_credentials WHERE user_id=?', (uid,)).fetchone()
+        if not row:
+            raise ApiError(400, '请先保存北大邮箱客户端凭据')
+        try:
+            from cryptography.fernet import InvalidToken
+            password = cipher(key_path, ApiError).decrypt(row['secret']).decode()
+        except (InvalidToken, UnicodeDecodeError):
+            raise ApiError(503, '无法解密邮箱凭据；请重新保存')
+        try:
+            result = email_source.preview(row['address'], row['username'], password)
+        except email_source.EmailSourceError as error:
+            raise ApiError(error.status, error.message)
+        current = db.execute('SELECT address,username,secret FROM email_source_credentials WHERE user_id=?', (uid,)).fetchone()
+        if not current or dict(current) != dict(row):
+            raise ApiError(409, '邮箱凭据在预览期间发生变化，请重新预览')
+        handler.reply(200, result)
+        return True
     if path == '/api/sources/credentials' and handler.command == 'GET':
         row = db.execute('SELECT username FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
         handler.reply(200, {'configured': bool(row), 'username': row['username'] if row else None,
@@ -107,6 +181,8 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         return True
     if path != '/api/sources/sync' or handler.command != 'POST':
         return False
+    if body.get('sources') == ['email']:
+        raise ApiError(410, '请使用邮件导入任务接口；此前的同步入口已停用')
     if body.get('sources') != ['teaching_web']:
         raise ApiError(400, '当前仅支持同步教学网；微信请使用会话文件导入')
     handler.reply(200, collect(db, uid, ApiError, key_path))

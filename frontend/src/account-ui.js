@@ -15,6 +15,9 @@ export function createAccountUI(host) {
     error = "",
     email = "",
     operation = 0;
+  const accountPanelOpen = () =>
+    !host.isDialogOpen || host.isDialogOpen("[data-account-settings-panel]");
+  const focusEmailSection = () => host.focusAccountSection?.("pku-email");
   function reset() {
     email = "";
     error = "";
@@ -37,7 +40,7 @@ export function createAccountUI(host) {
   }
   function render() {
     if (mode === "summary" && session.user)
-      return `${header("账号")}<div class="account-summary"><h3>${esc(session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${teachingAccount()}${host.feedbackBox?.() || ""}${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div>`;
+      return `<div data-account-settings-panel>${header("账号")}<div class="account-summary"><h3>${esc(session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${teachingAccount()}${host.renderEmailSettings?.() || ""}${host.feedbackBox?.() || ""}${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div></div>`;
     if (mode === "profile")
       return `<form data-account-form="profile">${header("修改昵称")}<label class="field">昵称<input name="name" required maxlength="40" autocomplete="nickname" value="${esc(session.user?.name || "")}"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">保存昵称</button></div></form>`;
     if (mode === "password")
@@ -46,9 +49,33 @@ export function createAccountUI(host) {
     return `<form data-account-form="${register ? "register" : "login"}">${header(register ? "注册账号" : "登录")}<label class="field">邮箱<input name="email" type="email" required maxlength="254" autocomplete="username" value="${esc(email)}"></label>${register ? '<label class="field">昵称<input name="displayName" maxlength="40" autocomplete="nickname" placeholder="可稍后修改"></label>' : ""}<label class="field">密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="${register ? "new-password" : "current-password"}" placeholder="至少 8 位"></label>${register ? '<label class="field">确认密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>' : ""}${errorMarkup()}<div class="dialog-actions"><button class="btn primary" type="submit">${register ? "注册并登录" : "登录"}</button><button class="btn quiet" type="button" data-account-action="${register ? "login" : "register"}">${register ? "已有账号，去登录" : "注册账号"}</button></div></form>`;
   }
   function show(nextMode) {
+    operation++;
     mode = nextMode;
     error = "";
     host.openDialog(render());
+  }
+  async function open(section) {
+    mode = session.user ? "summary" : "login";
+    error = "";
+    const attempt = ++operation;
+    const epoch = accountVersion();
+    const pending = mode === "summary" ? Promise.resolve(host.loadEmailSettings?.()) : null;
+    host.openDialog(render());
+    if (section === "pku-email" && mode === "summary") focusEmailSection();
+    if (pending) await pending;
+    if (
+      attempt === operation && epoch === accountVersion() &&
+      mode === "summary" && session.user && accountPanelOpen()
+    ) {
+      host.openDialog(render());
+      if (section === "pku-email") focusEmailSection();
+    }
+  }
+  function refresh(section) {
+    if (mode !== "summary" || !session.user || !accountPanelOpen()) return false;
+    host.openDialog(render());
+    if (section === "pku-email") focusEmailSection();
+    return true;
   }
   function formError(form, message) {
     error = message;
@@ -100,12 +127,13 @@ export function createAccountUI(host) {
     if (!action) return false;
     if (busy) return true;
     if (action === "close") {
+      operation++;
       error = "";
       host.closeDialog();
       return true;
     }
     if (action === "open") {
-      show(session.user ? "summary" : "login");
+      await open();
       return true;
     }
     if (
@@ -210,5 +238,5 @@ export function createAccountUI(host) {
     }
     return false;
   }
-  return { click, submit, input };
+  return { click, submit, input, open, refresh };
 }

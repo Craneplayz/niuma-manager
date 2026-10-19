@@ -470,6 +470,10 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
                 for source in candidate['sources']: source['platform']=platform
             with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(unsupported['expected']).encode())):
                 status,other_batches=self.call(client,'/recognition/batches','POST',unsupported['request'])
+            if platform == 'email':
+                # New email bodies must enter through consent-gated mailbox jobs.
+                self.assertEqual(status,400)
+                continue
             self.assertEqual(status,200)
             other=next(item for item in other_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
             self.assertEqual(self.call(client,'/recognition/candidates/'+other['id']+'/resolve','POST',dict(action='create',auto_apply=True,version=other['version']))[0],400)

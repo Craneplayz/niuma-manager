@@ -63,7 +63,8 @@ class ChatClientTests(unittest.TestCase):
                     if owner.status == 307:
                         self.send_header('Location', 'http://127.0.0.1:%d/redirected' % self.server.server_port)
                     self.end_headers()
-                    self.wfile.write(json.dumps(owner.reply).encode())
+                    reply = owner.reply(owner.calls[-1][2]) if callable(owner.reply) else owner.reply
+                    self.wfile.write(json.dumps(reply).encode())
                 except OSError:
                     pass
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -106,6 +107,32 @@ class ChatClientTests(unittest.TestCase):
         self.assertEqual(result['contract_version'], '0.2')
         self.assertTrue(result['tasks'])
 
+    def test_token_counters_cross_spawned_worker_for_success_and_truncation(self):
+        self.reply['usage'] = dict(prompt_tokens=120,completion_tokens=8192,total_tokens=8312,
+            completion_tokens_details=dict(reasoning_tokens=8192))
+        request = dict(contract_version='0.1',request_id='tokens',records=[self.fixture['record']])
+        metrics=[]
+        result=process_request(request,ExtractionAdapter(self.client),self.settings,attempt_observer=metrics.append)
+        self.assertEqual(result['status'],'success')
+        self.assertEqual(metrics[0]['prompt_tokens'],120)
+        self.assertEqual(metrics[0]['finish_reason'],'stop')
+        self.reply['choices'][0].update(finish_reason='length',message=dict(content='',reasoning_content='PRIVATE_TOKEN_SENTINEL'))
+        metrics=[]
+        result=process_request(request,ExtractionAdapter(self.client),self.settings,attempt_observer=metrics.append)
+        self.assertEqual(result['status'],'failed')
+        self.assertFalse(metrics[0]['generation_ok'])
+        self.assertEqual(metrics[0]['finish_reason'],'length')
+        self.assertEqual(metrics[0]['reasoning_tokens'],8192)
+        self.assertNotIn('PRIVATE_TOKEN_SENTINEL',repr(metrics))
+
+    def test_direct_client_does_not_reuse_previous_response_usage(self):
+        self.reply['usage']=dict(prompt_tokens=120)
+        self.generate()
+        self.assertEqual(self.client.response_metrics['prompt_tokens'],120)
+        self.status=503
+        with self.assertRaises(AgentError):self.generate()
+        self.assertEqual(self.client.response_metrics,{})
+
     def test_http_failures_and_redirects_are_sanitized(self):
         for status, retryable in ((401, False), (429, True), (503, True), (307, False)):
             self.status = status
@@ -137,6 +164,21 @@ class ChatClientTests(unittest.TestCase):
         self.assertEqual(caught.exception.diagnostic,'output_truncated')
         self.assertTrue(caught.exception.retryable)
         self.assertNotIn('private',str(caught.exception))
+
+    def test_email_output_fallback_uses_16k_once_and_keeps_both_usage_records(self):
+        from dataclasses import replace
+        self.reply=lambda payload: {'choices':[{'finish_reason':'length' if payload['max_tokens']==8192 else 'stop',
+            'message':{'content':'' if payload['max_tokens']==8192 else '{"tasks":[]}'}}],
+            'usage':{'prompt_tokens':100,'completion_tokens':payload['max_tokens'] if payload['max_tokens']==8192 else 5}}
+        settings=replace(self.settings,thinking_mode='disabled',truncation_retry_tokens=16384)
+        observations=[]
+        result=process_request(dict(contract_version='0.1',request_id='fallback',records=[self.fixture['record']]),
+            ExtractionAdapter(self.client),settings,budget_seconds=10,attempt_observer=observations.append)
+        self.assertEqual(result['status'],'no_tasks')
+        self.assertEqual([c[2]['max_tokens'] for c in self.calls],[8192,16384])
+        self.assertTrue(all(c[2]['thinking']=={'type':'disabled'} for c in self.calls))
+        self.assertEqual([m['completion_tokens'] for m in observations],[8192,5])
+        self.assertEqual([m['generation_ok'] for m in observations],[False,True])
 
     def test_missing_key_never_calls_network_and_timeout_is_classified(self):
         with patch('ddl_text.chat_client.build_opener') as opener:

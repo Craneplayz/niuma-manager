@@ -9,8 +9,16 @@ globalThis.CustomEvent ||= class extends Event {constructor(type,options){super(
 globalThis.FormData=class {constructor(form){this.values=form.values;}*[Symbol.iterator](){yield* Object.entries(this.values);}};
 
 const store=await import('../src/team-store.js');
-const {createImportUI,buildTextImport,buildCandidateResolution,candidateDue,shanghaiNow,buildRecognitionRequest,describeImportError}=await import('../src/import-ui.js');
+const {createImportUI:createImportController,buildTextImport,buildCandidateResolution,candidateDue,shanghaiNow,buildRecognitionRequest,describeImportError}=await import('../src/import-ui.js');
 const {createAccountUI}=await import('../src/account-ui.js');
+function createImportUI(host) {
+ const ui=createImportController(host), account=createAccountUI(host);
+ host.renderEmailSettings=()=>ui.renderEmailSettings();
+ host.loadEmailSettings=()=>ui.loadEmailSettings();
+ host.openAccountSettings=section=>account.open(section);
+ host.refreshAccountSettings=section=>account.refresh(section);
+ return ui;
+}
 const {syncRun}=await import('./sync-fixtures.js');
 const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const deadline={kind:'deadline',status:'explicit',precision:'date',value:'2026-10-20'};
@@ -69,7 +77,7 @@ function fakeForm(kind,values,extra={}){
  return {dataset:{importForm:kind,...extra},values,error,retry,submit,querySelector(selector){if(selector.includes('refresh-review'))return retry;if(selector==='[data-import-error-details]')return null;if(selector.includes('error'))return error;if(selector==='[type="submit"]')return submit;return null;},querySelectorAll(){return fields;}};
 }
 function fixture(scenario={}){
- let account='A',state,dialog='',calls=[],messages=[],batches={A:[],B:[]},taskVersion=7,deferred=null,workspaces={A:[],B:[]},teachingFailed=false,runs={A:[],B:[]};
+ let account='A',state,dialog='',calls=[],messages=[],renderCalls=0,batches={A:[],B:[]},taskVersion=7,deferred=null,workspaces={A:[],B:[]},teachingFailed=false,runs={A:[],B:[]};
  const respond=value=>({ok:true,json:async()=>structuredClone(value)});
  const reject=error=>({ok:false,status:error.status||503,json:async()=>({error:error.message})});
  const syncCases=scenario.syncCases||[teachingCase('date-only'),teachingCase('no-deadline')];
@@ -82,6 +90,20 @@ function fixture(scenario={}){
    const value=await scenario.intercept(path,body,method);
    if(value!==undefined)return respond(value);
   }
+  if(path==='/api/sources/email/credentials'&&method==='GET')return respond(scenario.emailCredentials||{configured:false,address:null,username:null});
+  if(path==='/api/sources/email/preferences'&&method==='GET')return respond(scenario.emailPreferences||{consent_granted:false,process_all:false,consent_version:null,consented_at:null});
+  if(path==='/api/sources/email/preferences'&&method==='POST'){if(scenario.emailPreferenceError)return reject(scenario.emailPreferenceError);return respond({consent_granted:body.consent,process_all:body.process_all,consent_version:body.consent?'email-v1':null,consented_at:body.consent?'2026-10-19T00:00:00Z':null});}
+  if(path==='/api/sources/email/credentials'&&method==='POST')return respond({configured:true,address:body.address,username:body.username});
+  if(path==='/api/sources/email/credentials/remove'&&method==='POST')return respond({configured:false,address:null,username:null});
+  if(path==='/api/sources/email/preview'&&method==='POST')return respond(scenario.emailPreview||{messages:[],summary:{total:0},next_offset:null});
+  if(path==='/api/sources/email/reprocess'&&method==='POST')return respond(scenario.emailReprocessJob||{kind:'reprocess',job_id:'email-reprocess-1',state:'queued',counts:{selected:body.input_ids.length,processed:0,cached:0,excluded:0,failed:0,pending:body.input_ids.length},items:body.input_ids.map(input_id=>({input_id,state:'queued'}))});
+  if(path==='/api/sources/email/exclusions'&&method==='POST')return respond({ok:true});
+  if(path==='/api/sources/email/jobs?summary=1'&&method==='GET')return respond({revision:1,jobs:(scenario.emailJobs||[]).map(job=>({...job,revision:job.revision??1}))});
+  if(path==='/api/sources/email/jobs'&&method==='GET')return respond({jobs:scenario.emailJobs||[]});
+  if(path==='/api/sources/email/jobs'&&method==='POST'){if(scenario.jobStartErrors>0){scenario.jobStartErrors--;return reject({status:503,message:'暂时失败'});}return respond(scenario.emailJob||{job_id:'email-job-1',state:'queued',counts:{selected:1,processed:0,cached:0,excluded:0,failed:0,pending:1},items:[]});}
+  if(path.startsWith('/api/sources/email/jobs/')&&method==='GET'){if(scenario.emailJobGetError)return reject(scenario.emailJobGetError);const job=(scenario.emailJobFull&& !path.endsWith('?summary=1'))?scenario.emailJobFull:(scenario.emailJob||{job_id:'email-job-1',state:'succeeded',counts:{selected:1,processed:1,cached:0,excluded:0,failed:0,pending:0},items:[]});return respond(path.endsWith('?summary=1')?((({items,...summary})=>({...summary,revision:scenario.emailSummaryRevision??job.revision??1,waiting_reason:scenario.emailWaitingReason??job.waiting_reason}))(job)):job);}
+  if(path.startsWith('/api/sources/email/jobs/')&&method==='POST'){if(path.endsWith('/retry')&&scenario.jobRetryErrors>0){scenario.jobRetryErrors--;return reject({status:503,message:'暂时失败'});}return respond(scenario.emailJob||{job_id:'email-job-1',state:'stopped',counts:{selected:1,processed:0,cached:0,excluded:0,failed:0,pending:1},items:[]});}
+  if(path==='/api/sources/sync'&&method==='POST'&&body.sources?.[0]==='email')return respond(scenario.emailSyncResponse||{requests:[],summary:{total:0,skipped:0,pending:0,selected:0,unavailable:0,partial:0}});
   if(path==='/api/auth/login'||path==='/api/auth/register'){account=body.email.split('@')[0];return respond({});}
   if(path==='/api/auth/me')return respond({user:{id:account,name:account,email:account+'@test.local'}});
   if(path==='/api/auth/logout')return respond({});
@@ -91,6 +113,9 @@ function fixture(scenario={}){
   if(path==='/api/recognition/batches'&&method==='GET'){
    if(deferred){const value=structuredClone(batches[account]);const pending=deferred;deferred=null;pending.ready();await pending.wait;return respond(value);}
    return respond(batches[account]);
+  }
+  if(path==='/api/recognition/batches'&&method==='POST'&&body.records?.some(record=>record.platform==='email')&&scenario.emailRecognitionResponse){
+   batches[account]=structuredClone(scenario.emailRecognitionResponse);return respond(batches[account]);
   }
   if((path==='/api/recognition/batches'||path==='/api/recognition/retry')&&method==='POST'){
    if(scenario.recognitionError)return reject(scenario.recognitionError);
@@ -147,9 +172,261 @@ function fixture(scenario={}){
   if(path==='/api/auth/password')return respond({});
   throw new Error('unexpected request '+path);
  };
- const host={escapeHtml,icon:()=>'',toast:message=>messages.push(message),render(){},openDialog(html){dialog=html;},closeDialog(){dialog='';},getState:()=>state,setState:value=>state=value,refresh:async()=>state=await store.refreshStore(),isDemo:()=>false};
- return {host,batch,batches,calls,messages,get dialog(){return dialog;},get state(){return state;},async login(who='A'){state=await store.authenticate('login',{email:who+'@test.local',password:'test-password'});},setVersion(value){taskVersion=value;},defer(){let resolve,ready;const wait=new Promise(r=>resolve=r),entered=new Promise(r=>ready=r);deferred={wait,ready};return {entered,release:resolve};}};
+ const focuses=[];
+ const host={focusEmailSettings:()=>focuses.push("pku-email-settings"),focusAccountSection:section=>focuses.push(section),escapeHtml,icon:()=>'',toast:message=>messages.push(message),render(){renderCalls++;},openDialog(html){dialog=html;},closeDialog(){dialog='';},isDialogOpen:selector=>dialog.includes(selector.slice(1,-1)),getState:()=>state,setState:value=>state=value,refresh:async()=>state=await store.refreshStore(),isDemo:()=>false};
+ return {host,batch,batches,calls,messages,focuses,scenario,get renderCalls(){return renderCalls;},get dialog(){return dialog;},get state(){return state;},async login(who='A'){state=await store.authenticate('login',{email:who+'@test.local',password:'test-password'});},setVersion(value){taskVersion=value;},defer(){let resolve,ready;const wait=new Promise(r=>resolve=r),entered=new Promise(r=>ready=r);deferred={wait,ready};return {entered,release:resolve};}};
 }
+
+test('email connection saves a school mailbox credential without exposing the secret in the page',async t=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ await ui.click({dataset:{importSource:'email'}});
+ assert.match(ui.render(),/邮箱/);
+ await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ assert.match(f.dialog,/data-import-form="email-credentials"/);
+ assert.match(f.dialog,/type="password"/);
+ await ui.submit(fakeForm('email-credentials',{address:' student@stu.pku.edu.cn ',username:' student ',password:'client-secret'}));
+ const saved=f.calls.find(call=>call.path==='/api/sources/email/credentials'&&call.method==='POST');
+ assert.deepEqual(saved.body,{address:'student@stu.pku.edu.cn',username:'student',password:'client-secret',consent:false,process_all:false});
+ assert.doesNotMatch(ui.render(),/client-secret/);
+ assert.ok(f.messages.includes('北大邮箱已连接'));
+});
+
+test('email management updates consent and recognition settings without resending credentials',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:'email:box:77:1',subject:'通知',excluded:false,state:'unprocessed'}],summary:{total:1},next_offset:null}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});
+ await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ assert.match(f.dialog,/留空以保留已保存的密码/);
+ assert.doesNotMatch(f.dialog,/name="password"[^>]*required/);
+ await ui.submit(fakeForm('email-credentials',{address:'student@stu.pku.edu.cn',username:'student',password:'',consent:'true',process_all:'true'}));
+ assert.equal(f.calls.filter(call=>call.path==='/api/sources/email/credentials'&&call.method==='POST').length,0);
+ const saved=f.calls.find(call=>call.path==='/api/sources/email/preferences'&&call.method==='POST');
+ assert.deepEqual(saved.body,{consent:true,process_all:true});
+ assert.match(ui.render(),/通知/,'changing preferences preserves the current mail preview');
+ assert.ok(f.messages.includes('邮箱设置已保存'));
+ assert.equal(f.dialog,'');
+ assert.match(ui.renderEmailSettings(true),/name="process_all"[^>]*checked/);
+ assert.equal(f.focuses.at(-1),'pku-email-settings');
+});
+
+test('email management requires a password to change the mailbox but permits explicit password rotation',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ const changed=fakeForm('email-credentials',{address:'other@stu.pku.edu.cn',username:'other',password:'',consent:'true'});
+ await ui.submit(changed);assert.equal(changed.error.hidden,false);
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/email/credentials'&&call.method==='POST'),false);
+ await ui.submit(fakeForm('email-credentials',{address:'student@stu.pku.edu.cn',username:'student',password:'Synthetic-rotated',consent:'true'}));
+ const saved=f.calls.find(call=>call.path==='/api/sources/email/credentials'&&call.method==='POST');
+ assert.equal(saved.body.password,'Synthetic-rotated');
+ assert.doesNotMatch(ui.render(),/Synthetic-rotated/);
+});
+
+test('email preferences persist, range preview is paged, exclusions are explicit and jobs process selected mail',async t=>{
+ const inputId='email:mailboxhash:77:7';
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false,consent_version:'email-v1',consented_at:'2026-10-14T00:00:00Z'},emailPreview:{messages:[{input_id:inputId,subject:'作业通知',sender:'teacher@example.edu.cn',received_at:'2026-10-14T10:00:00+08:00',state:'unprocessed',excluded:false,task_count:0}],summary:{total:51},next_offset:50}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-preview'}});
+ const previews=()=>f.calls.filter(call=>call.path==='/api/sources/email/preview'&&call.method==='POST');
+ assert.equal(previews()[0].body.cache_only,true);
+ assert.deepEqual(previews()[1].body,{limit:50,start_date:null,filter:'all',sort:'attention',offset:0,page_size:25,load_all:true,refresh:true,cache_only:false});
+ ui.input({target:{dataset:{emailLimit:''},value:'75'}});await ui.click({dataset:{importAction:'email-preview'}});
+ assert.deepEqual(previews().at(-1).body,{limit:75,start_date:null,filter:'all',sort:'attention',offset:0,page_size:25,load_all:true,refresh:true,cache_only:false});
+ assert.match(ui.render(),/选择全部/);assert.doesNotMatch(ui.render(),/data-email-consent|data-email-process-all/);
+ ui.input({target:{dataset:{emailMessage:inputId},checked:true}});
+ await ui.click({dataset:{emailExclude:inputId,excluded:'true'}});
+ assert.deepEqual(f.calls.find(call=>call.path==='/api/sources/email/exclusions').body,{input_ids:[inputId],excluded:true});
+ await ui.click({dataset:{importAction:'email-select-range'}});
+ await ui.click({dataset:{importAction:'email-start-job'}});
+ const job=f.calls.find(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST');
+ assert.deepEqual(Object.keys(job.body).sort(),['operation_id','range']);
+ assert.deepEqual(job.body.range,{limit:75,start_date:null});
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/sync'),false);
+ assert.match(ui.render(),/role="status"><div class="email-job-summary"><div class="email-job-copy"><div class="email-job-heading"><strong>排队中/);
+});
+
+test('email selections survive local paging and clear only when applying a new range',async t=>{
+ const first='email:box:50',second='email:box:25';
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},intercept:async(path,body,method)=>{
+  if(path==='/api/sources/email/preview'&&method==='POST')return {messages:Array.from({length:body.limit},(_,i)=>({input_id:'email:box:'+(i+1),subject:'Mail '+(i+1),state:'unprocessed',excluded:false})),summary:{total:body.limit},next_offset:null,cache:{snapshot_id:'local-selection',complete:true,miss:false}};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});await ui.click({dataset:{importAction:'email-clear-selection'}});
+ ui.input({target:{dataset:{emailMessage:first},checked:true}});const calls=f.calls.length;await ui.click({dataset:{importAction:'email-next'}});
+ assert.equal(f.calls.length,calls);assert.match(ui.render(),/Mail 25/);assert.match(ui.render(),/已选 1 封/);
+ ui.input({target:{dataset:{emailMessage:second},checked:true}});assert.match(ui.render(),/已选 2 封/);
+ ui.input({target:{dataset:{emailLimit:''},value:'75'}});await ui.click({dataset:{importAction:'email-preview'}});assert.match(ui.render(),/已选 0 封/);
+});
+
+test('email filters and sorting operate on the loaded list without API requests',async t=>{
+ const first='email:synthetic:1', second='email:synthetic:2';
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:first,subject:'样例一',state:'no_tasks',excluded:false},{input_id:second,subject:'样例二',state:'has_tasks',pending_review_count:1,excluded:false},{input_id:'email:synthetic:3',subject:'失败样例',state:'failed',excluded:false},{input_id:'email:synthetic:4',subject:'排除样例',state:'excluded',excluded:true}],summary:{total:80},next_offset:50}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});
+ const calls=f.calls.length;
+ ui.input({target:{dataset:{emailFilter:''},value:'pending_review'}});
+ assert.match(ui.render(),/匹配 1 封 \/ 本范围共 80 封/);assert.match(ui.render(),/已选 3 封/);assert.match(ui.render(),/样例二/);assert.doesNotMatch(ui.render(),/样例一|失败样例|排除样例/);
+ await ui.click({dataset:{importAction:'email-select-page'}});assert.match(ui.render(),/已选 1 封/);
+ ui.input({target:{dataset:{emailFilter:''},value:'failed'}});assert.match(ui.render(),/失败样例/);assert.doesNotMatch(ui.render(),/样例二/);
+ ui.input({target:{dataset:{emailFilter:''},value:'attention'}});assert.match(ui.render(),/样例二/);assert.match(ui.render(),/失败样例/);assert.doesNotMatch(ui.render(),/样例一|排除样例/);
+ ui.input({target:{dataset:{emailFilter:''},value:'excluded'}});assert.match(ui.render(),/排除样例/);assert.doesNotMatch(ui.render(),/样例一|样例二|失败样例/);
+ ui.input({target:{dataset:{emailFilter:''},value:'unprocessed'}});assert.match(ui.render(),/已获取邮件中没有匹配邮件/);
+ ui.input({target:{dataset:{emailFilter:''},value:'all'}});assert.match(ui.render(),/样例一/);assert.match(ui.render(),/样例二/);
+ for(let i=0;i<3;i++)await ui.click({dataset:{importAction:'email-cycle-sort'}});
+ assert.equal(f.calls.length,calls,'local filter and sort never fetch mail');assert.match(ui.render(),/已选 1 封/);
+ ui.input({target:{dataset:{emailFilter:''},value:'failed'}});
+ await ui.click({dataset:{importAction:'email-next'}});
+ const page=f.calls.filter(call=>call.path==='/api/sources/email/preview'&&call.method==='POST').at(-1).body;
+ assert.equal(page.offset,0);assert.equal(page.filter,'all');assert.equal(page.sort,'attention');
+});
+
+test('email preview restores the persistent header cache and pins pagination to its snapshot',async t=>{
+ const id='email:cache:1';
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:id,subject:'Synthetic cached header',state:'unprocessed',excluded:false}],summary:{total:51},next_offset:50,cache:{snapshot_id:'snapshot-one',miss:false,complete:true,synced_at:'2026-10-20T01:00:00Z'}}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const previews=()=>f.calls.filter(call=>call.path==='/api/sources/email/preview'&&call.method==='POST');
+ assert.equal(previews()[0].body.cache_only,true);assert.equal(previews()[0].body.refresh,false);assert.equal(previews()[0].body.snapshot_id,undefined);
+ assert.match(ui.render(),/Synthetic cached header/);
+ await ui.click({dataset:{importAction:'email-preview'}});
+ assert.equal(previews()[1].body.refresh,true);assert.equal(previews()[1].body.cache_only,false);assert.equal(previews()[1].body.snapshot_id,undefined);
+ assert.match(ui.render().match(new RegExp(`<input type="checkbox" data-email-message="${id}"[^>]*>`))[0],/checked/,'the first explicit read retains the initial-page selection behavior after cache restore');
+ await ui.click({dataset:{importAction:'email-next'}});
+ assert.equal(previews().length,2,'page navigation does not call the preview API');
+ ui.input({target:{dataset:{emailLimit:''},value:'100'}});await ui.click({dataset:{importAction:'email-preview'}});
+ assert.equal(previews()[2].body.limit,100);assert.equal(previews()[2].body.snapshot_id,undefined,'a changed range never carries the previous range token');
+});
+
+test('email cache pointer restores the applied range and page per account without persisting draft edits',async t=>{
+ const originalStorage=globalThis.localStorage, values=new Map();globalThis.localStorage={getItem:key=>values.get(key)||null,setItem:(key,value)=>values.set(key,String(value)),removeItem:key=>values.delete(key)};t.after(()=>{if(originalStorage===undefined)delete globalThis.localStorage;else globalThis.localStorage=originalStorage;});
+ const calls=[], id='email:pointer:1';
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},intercept:async(path,body,method)=>{
+  if(path!=='/api/sources/email/preview'||method!=='POST')return;
+  calls.push(structuredClone(body));
+  if(body.cache_only)return {messages:[],summary:{total:0},next_offset:null,cache:{snapshot_id:null,miss:true,complete:false}};
+  return {messages:Array.from({length:101},(_,i)=>({input_id:id+':'+i,subject:'Synthetic pointer header '+i,state:'unprocessed',excluded:false})),summary:{total:101},next_offset:body.offset===0?50:null,cache:{snapshot_id:body.start_date?'snapshot-date':'snapshot-100',miss:false,complete:true}};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ ui.input({target:{dataset:{emailLimit:''},value:'100'}});await ui.click({dataset:{importAction:'email-preview'}});await ui.click({dataset:{importAction:'email-next'}});
+ assert.equal(calls.at(-1).offset,0);assert.match(ui.render(),/第 2 页/);
+ ui.input({target:{dataset:{emailRangeLimit:''},value:'all'}});ui.input({target:{dataset:{emailStartDate:''},value:'2026-08-01'}});await ui.click({dataset:{importAction:'email-preview'}});
+ assert.equal(calls.at(-1).start_date,'2026-08-01');assert.equal(calls.at(-1).limit,null);
+ const saved=[...values.values()].join(' ');assert.match(saved,/2026-08-01/);assert.doesNotMatch(saved,/Synthetic pointer header|email:pointer/);
+ ui.reset();await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(calls.at(-1).cache_only,true);assert.equal(calls.at(-1).refresh,false);assert.equal(calls.at(-1).start_date,'2026-08-01');assert.equal(calls.at(-1).offset,0);
+ await f.login('B');await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(calls.at(-1).cache_only,true);assert.equal(calls.at(-1).limit,50);assert.equal(calls.at(-1).start_date,null);assert.equal(calls.at(-1).offset,0,'a different account does not reuse the previous account pointer');
+});
+
+test('policy drift is shown only for successful messages and explicit re-recognition confirms the saved-body resend',async t=>{
+ const ok='email:policy:1',pending='email:policy:2';
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:ok,subject:'Synthetic successful mail',state:'has_tasks',policy_status:'outdated',saved_policy_version:'old',current_policy_version:'new',excluded:false},{input_id:pending,subject:'Synthetic pending mail',state:'unprocessed',policy_status:'unknown',excluded:false}],summary:{total:2},next_offset:null,cache:{snapshot_id:'snapshot-policy',miss:false,complete:true}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(ui.render(),/Synthetic successful mail <span class="email-policy-warning"[^>]*tabindex="0"[^>]*aria-describedby="email-policy-tooltip-\d+"[^>]*>.*?class="email-sort-tooltip" role="tooltip">使用旧版规则识别<\/span><\/span><\/strong>/);assert.doesNotMatch(ui.render(),/识别规则已更新/);assert.doesNotMatch(ui.render(),/识别规则版本未知/,'pending messages do not show policy drift');
+ ui.input({target:{dataset:{emailMessage:ok},checked:true}});
+ await ui.click({dataset:{importAction:'email-reprocess'}});
+ assert.match(f.dialog,/复用系统保存的邮件正文/);assert.match(f.dialog,/再次发送至当前配置的识别服务/);assert.match(f.dialog,/已审核的任务和处理决定会保留/);
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/email/reprocess'),false,'the action requires a separate confirmation');
+ await ui.click({dataset:{importAction:'email-reprocess-confirm'}});
+ const request=f.calls.find(call=>call.path==='/api/sources/email/reprocess');
+ assert.deepEqual(request.body,{operation_id:request.body.operation_id,input_ids:[ok],consent:true});assert.ok(request.body.operation_id);
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST'),false,'re-recognition uses the explicit reprocess endpoint');
+});
+
+test('a failed explicit re-recognition retries directly through the reprocess endpoint',async t=>{
+ const id='email:policy-retry:1';
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:id,subject:'Synthetic retry mail',state:'has_tasks',policy_status:'unknown',excluded:false}],summary:{total:1},next_offset:null,cache:{snapshot_id:'snapshot-retry',miss:false,complete:true}},emailReprocessJob:{kind:'reprocess',job_id:'email-reprocess-failed',state:'failed',counts:{selected:1,processed:0,cached:0,excluded:0,failed:1,pending:0},items:[{input_id:id,state:'failed'}]}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));ui.input({target:{dataset:{emailMessage:id},checked:true}});await ui.click({dataset:{importAction:'email-reprocess'}});await ui.click({dataset:{importAction:'email-reprocess-confirm'}});
+ assert.match(ui.render(),/重试识别/);
+ let opened=0;const open=f.host.openDialog;f.host.openDialog=html=>{opened++;open(html);};await ui.click({dataset:{importAction:'email-reprocess-retry'}});assert.equal(opened,0,'retry opens no confirmation popup');
+ const calls=f.calls.filter(call=>call.path==='/api/sources/email/reprocess'&&call.method==='POST');assert.equal(calls.length,2);assert.deepEqual(calls[1].body.input_ids,[id]);assert.equal(calls[1].body.consent,true);
+ assert.equal(f.calls.some(call=>call.path.endsWith('/retry')&&call.method==='POST'),false,'reprocess retry uses persistent consent through the dedicated route');
+});
+
+test('re-recognition request errors remain inside the confirmation and retry with the same operation id',async t=>{
+ const id='email:policy-error:1';let fail=true;
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:id,subject:'Synthetic retry mail',state:'no_tasks',policy_status:'outdated',excluded:false}],summary:{total:1},next_offset:null,cache:{snapshot_id:'snapshot-error',miss:false,complete:true}},intercept:async(path)=>{if(fail&&path==='/api/sources/email/reprocess'){fail=false;throw new Error('暂时失败');}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));ui.input({target:{dataset:{emailMessage:id},checked:true}});await ui.click({dataset:{importAction:'email-reprocess'}});await ui.click({dataset:{importAction:'email-reprocess-confirm'}});
+ assert.match(f.dialog,/role="alert"/);assert.match(f.dialog,/操作未完成/);
+ await ui.click({dataset:{importAction:'email-reprocess-confirm'}});const calls=f.calls.filter(call=>call.path==='/api/sources/email/reprocess');assert.equal(calls.length,2);assert.equal(calls[0].body.operation_id,calls[1].body.operation_id);
+});
+
+test('late cached email responses are ignored after explicit retrieval and account reset',async t=>{
+ let releaseOld,releaseAccount;const oldWait=new Promise(resolve=>releaseOld=resolve),accountWait=new Promise(resolve=>releaseAccount=resolve);let count=0;
+ const result=subject=>({messages:[{input_id:'email:race:1',subject,state:'unprocessed',excluded:false}],summary:{total:1},next_offset:null,cache:{snapshot_id:'race',complete:true,miss:false}});
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},intercept:async(path,body,method)=>{
+  if(path!=='/api/sources/email/preview'||method!=='POST')return;
+  if(body.cache_only)return oldWait;
+  count++;return count===1?result('新结果'):accountWait;
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-preview'}});releaseOld(result('旧结果'));await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(ui.render(),/新结果/);assert.doesNotMatch(ui.render(),/旧结果/);
+ const late=ui.click({dataset:{importAction:'email-preview'}});await new Promise(resolve=>setTimeout(resolve,0));await f.login('B');releaseAccount(result('旧账户结果'));await late;assert.doesNotMatch(ui.render(),/旧账户结果/);
+});
+
+test('email settings live only in connection management and failed saves retain acknowledged consent',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreferenceError:{status:503,message:'暂时失败'}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});
+ assert.doesNotMatch(ui.render(),/data-email-consent|data-email-process-all|name="consent"|name="process_all"/);
+ await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ assert.match(f.dialog,/name="consent"/);assert.match(f.dialog,/name="process_all"/);
+ const form=fakeForm('email-credentials',{address:'student@stu.pku.edu.cn',username:'student',password:''});
+ await ui.submit(form);
+ assert.equal(form.error.hidden,false);assert.match(ui.renderEmailSettings(true),/name="consent"[^>]*checked/);
+ assert.match(ui.render(),/<h2>北大邮箱<\/h2><span class="email-connection-identity"><span class="status-note">student@stu.pku.edu.cn<\/span>/);
+ assert.doesNotMatch(ui.render(),/已连接 student|你已同意|标题和发件人预览不读取正文|请先在“管理连接”/);
+});
+
+test('late email preference and job responses from a prior account cannot update the new account',async t=>{
+ let releasePreference, releaseJob;
+ const preferenceWait=new Promise(resolve=>releasePreference=resolve), jobWait=new Promise(resolve=>releaseJob=resolve);
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:false,process_all:false},intercept:async(path,body,method)=>{if(path==='/api/sources/email/preferences'&&method==='POST')return await preferenceWait;if(path==='/api/sources/email/jobs'&&method==='POST')return await jobWait;}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});
+ await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ const saving=ui.submit(fakeForm('email-credentials',{address:'student@stu.pku.edu.cn',username:'student',password:'',consent:'true'}));
+ await new Promise(resolve=>setTimeout(resolve,0));await f.login('B');releasePreference({consent_granted:true,process_all:false});await saving;
+ await ui.load();await ui.click({dataset:{importSource:'email'}});assert.doesNotMatch(ui.render(),/你已同意/);
+ // A fresh authorized job response must also be ignored after an account reset.
+ await ui.click({dataset:{importAction:'email-preview'}});await ui.click({dataset:{importAction:'email-select-range'}});
+ // Persist consent for B before starting the range.
+ await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ await ui.submit(fakeForm('email-credentials',{address:'student@stu.pku.edu.cn',username:'student',password:'',consent:'true'}));
+ const starting=ui.click({dataset:{importAction:'email-start-job'}});await new Promise(resolve=>setTimeout(resolve,0));await f.login('C');releaseJob({job_id:'old-account-job',state:'queued',counts:{selected:1,processed:0,cached:0,excluded:0,failed:0,pending:1},items:[]});await starting;
+ assert.doesNotMatch(ui.render(),/old-account-job/);
+});
+
+test('email polling errors expose a resume control and retry POSTs reuse their operation id',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[{job_id:'recover-job',state:'running',counts:{selected:1,processed:0,cached:0,excluded:0,failed:0,pending:1},items:[]}],emailJobGetError:{status:503,message:'暂时失败'},jobRetryErrors:1,emailJob:{job_id:'recover-job',state:'queued',counts:{selected:1,processed:0,cached:0,excluded:0,failed:0,pending:1},items:[]}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-poll'}});assert.match(ui.render(),/继续读取状态/);
+ scenario.emailJobGetError=null;await ui.click({dataset:{importAction:'email-poll'}});assert.doesNotMatch(ui.render(),/继续读取状态/);
+ // A terminal job remains available after polling and retries with one stable operation id.
+ scenario.emailJobs=[{job_id:'recover-job',state:'stopped',counts:{selected:1,processed:0,cached:0,excluded:0,failed:1,pending:1},items:[]}];scenario.emailJob={...scenario.emailJobs[0]};await ui.load();
+ await ui.click({dataset:{importAction:'email-retry-job'}});await ui.click({dataset:{importAction:'email-retry-job'}});
+ const retries=f.calls.filter(call=>call.path.endsWith('/retry')&&call.method==='POST');assert.equal(retries.length,2);assert.equal(retries[0].body.operation_id,retries[1].body.operation_id);
+});
+
+test('email start retries reuse the operation id and latest stopped jobs remain retryable',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:'email:retry',state:'unprocessed',excluded:false}],summary:{total:1},next_offset:null},jobStartErrors:1,emailJobs:[{job_id:'stopped-job',state:'stopped',counts:{selected:1,processed:0,cached:0,excluded:0,failed:1,pending:1},items:[]}]};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(ui.render(),/重试识别/);await ui.click({dataset:{importAction:'email-preview'}});ui.input({target:{dataset:{emailMessage:'email:retry'},checked:true}});
+ await ui.click({dataset:{importAction:'email-start-job'}});await ui.click({dataset:{importAction:'email-start-job'}});
+ const starts=f.calls.filter(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST');assert.equal(starts.length,2);assert.equal(starts[0].body.operation_id,starts[1].body.operation_id);
+});
+
+test('email accepts selections above twenty and restores, polls, then stops a server job',async t=>{
+ const messages=Array.from({length:25},(_,i)=>({input_id:`email:mailboxhash:${i}`,subject:`通知 ${i}`,sender:'teacher@example.edu.cn',state:'unprocessed',excluded:false}));
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages,summary:{total:25},next_offset:null},emailJobs:[{job_id:'restored-job',state:'running',counts:{selected:25,processed:3,cached:1,excluded:0,failed:0,pending:21},items:[{input_id:messages[0].input_id,state:'has_tasks',task_count:2}]}]};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.match(ui.render(),/role="status"><div class="email-job-summary"><div class="email-job-copy"><div class="email-job-heading"><strong>正在处理/,'an active job is restored before metadata preview');
+ await ui.click({dataset:{importAction:'email-start-job'}});assert.equal(f.calls.filter(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST').length,0,'active job blocks a duplicate start');
+ scenario.emailJobs=[];await ui.click({dataset:{importAction:'email-stop-job'}});
+ assert.ok(f.calls.some(call=>call.path==='/api/sources/email/jobs/restored-job/stop'&&call.method==='POST'));
+ await ui.click({dataset:{importAction:'email-preview'}});
+ for(const message of messages)ui.input({target:{dataset:{emailMessage:message.input_id},checked:true}});
+ assert.match(ui.render(),/已选 25 封/);
+ await ui.click({dataset:{importAction:'email-start-job'}});
+ const start=f.calls.find(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST');assert.equal(start.body.input_ids.length,25);
+ await ui.click({dataset:{importAction:'email-stop-job'}});
+ assert.ok(f.calls.some(call=>call.path==='/api/sources/email/jobs/email-job-1/stop'&&call.method==='POST'));
+ assert.equal(f.calls.some(call=>call.path==='/api/recognition/batches'&&call.method==='POST'),false);
+});
 
 test('confirming a candidate without a checkbox sends reviewed plus both versions without fabricated time',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();
@@ -593,4 +870,439 @@ test('removed submission directory has no entry or background reads',async t=>{
  await ui.click({dataset:{importSource:'teaching'}});await new Promise(resolve=>setImmediate(resolve));
  assert.doesNotMatch(ui.render(),/作业与提交状态|data-submission-/);
  assert.equal(f.calls.filter(call=>call.path.startsWith('/api/sources/submissions')).length,0);
+});
+
+
+test('mail edit opens and focuses PKU settings directly while account settings retain their management row',async t=>{
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());
+ const before=f.calls.length;
+ await ui.click({dataset:{importAction:'email-credentials'}});
+ assert.match(f.dialog,/data-email-settings-dialog/);assert.match(f.dialog,/data-connection-settings="pku-email"/);
+ assert.match(f.dialog,/data-import-form="email-credentials"/);assert.doesNotMatch(f.dialog,/data-account-settings-panel/);
+ assert.deepEqual(f.calls.slice(before).map(call=>call.path).sort(),['/api/sources/email/credentials','/api/sources/email/preferences']);
+ assert.deepEqual(f.focuses,['pku-email-settings','pku-email-settings']);
+ assert.match(ui.renderEmailSettings(),/data-account-section="pku-email"/);assert.match(ui.renderEmailSettings(),/>管理连接<\/button>/);
+ const form=fakeForm('email-credentials',{});
+ await ui.click({dataset:{importAction:'remove-email-credentials'},closest:()=>form});
+ assert.equal(f.dialog,'');assert.match(ui.renderEmailSettings(true),/保存连接/);assert.doesNotMatch(ui.renderEmailSettings(true),/student@stu.pku.edu.cn/);
+});
+
+test('failed account email settings read offers retry without an editable unknown connection',async t=>{
+ let fail=true;
+ const f=fixture({intercept:async(path,body,method)=>{
+  if(fail&&path==='/api/sources/email/preferences'&&method==='GET')throw new Error('暂时无法读取设置');
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());
+ await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ assert.match(f.dialog,/重试读取设置/);
+ assert.doesNotMatch(f.dialog,/data-import-form="email-credentials"/);
+ fail=false;await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ assert.match(f.dialog,/data-import-form="email-credentials"/);
+});
+
+
+test('a settings read started during saving cannot overwrite the saved preference',async t=>{
+ let reading=false,release;
+ const pending=new Promise(resolve=>release=resolve);
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},intercept:async(path,body,method)=>{
+  if(reading&&path==='/api/sources/email/preferences'&&method==='GET')return await pending;
+ }};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());
+ await ui.click({dataset:{importAction:'email-credentials'}});await ui.click({dataset:{importAction:'email-settings'}});
+ reading=true;
+ const loading=ui.loadEmailSettings();
+ await ui.submit(fakeForm('email-credentials',{address:'student@stu.pku.edu.cn',username:'student',password:'',consent:'true',process_all:'true'}));
+ release({consent_granted:false,process_all:false});await loading;
+ assert.match(ui.renderEmailSettings(true),/name="consent"[^>]*checked/);
+ assert.match(ui.renderEmailSettings(true),/name="process_all"[^>]*checked/);
+});
+
+
+test('closing or replacing email details while loading prevents a late popup reopen',async t=>{
+ let hold=false,release;
+ const pending=new Promise(resolve=>release=resolve);
+ const f=fixture({intercept:async(path,body,method)=>{
+  if(hold&&path==='/api/sources/email/preferences'&&method==='GET')return await pending;
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());
+ await ui.click({dataset:{importAction:'email-credentials'}});
+ hold=true;const opening=ui.click({dataset:{importAction:'email-settings'}});
+ assert.match(f.dialog,/正在读取邮箱设置/);
+ f.host.closeDialog();
+ release({consent_granted:false,process_all:false});await opening;
+ assert.equal(f.dialog,'');
+});
+
+
+test('50 selected emails can start recognition, and missing consent opens settings instead of disabling',async t=>{
+ const messages=Array.from({length:50},(_,i)=>({input_id:`email:batch:${i}`,subject:`通知 ${i}`,state:'unprocessed',excluded:false}));
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:false,process_all:false},emailPreview:{messages,summary:{total:50},next_offset:null}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());
+ await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});await ui.click({dataset:{importAction:'email-cycle-page-size'}});await ui.click({dataset:{importAction:'email-select-page'}});
+ const button=ui.render().match(/<button[^>]*data-import-action="email-start-job"[^>]*>/)?.[0];
+ assert.ok(button);assert.doesNotMatch(button,/disabled/);assert.match(ui.render(),/识别邮件<span class="email-selection-badge" aria-hidden="true">50<\/span>/);assert.match(button,/aria-label="识别邮件，已选 50 封邮件"/);
+ await ui.click({dataset:{importAction:'email-start-job'}});
+ assert.match(f.dialog,/data-email-settings-dialog/);
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST'),false);
+ await ui.submit(fakeForm('email-credentials',{address:'student@stu.pku.edu.cn',username:'student',password:'',consent:'true'}));
+ await ui.click({dataset:{importAction:'email-start-job'}});
+ const job=f.calls.find(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST');
+ assert.equal(job.body.input_ids.length,50);
+ assert.deepEqual(new Set(job.body.input_ids),new Set(messages.map(message=>message.input_id)));
+});
+
+
+test('mail toolbar groups its read action and applies range edits only on explicit update',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:'email:toolbar:1',subject:'合成邮件',state:'unprocessed',excluded:false}],summary:{total:50},next_offset:null}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const toolbar=ui.render().match(/<div class="email-range-controls"[^>]*>(.*?)<\/div>/s)?.[1];
+ assert.ok(toolbar);assert.match(toolbar,/data-email-range-limit/);assert.match(toolbar,/data-email-limit/);assert.match(toolbar,/data-import-action="email-preview"/);assert.match(toolbar,/获取邮件/);
+ assert.doesNotMatch(ui.render(),/更新范围|email-apply-range/);
+ await ui.click({dataset:{importAction:'email-preview'}});
+ assert.match(ui.render(),/获取邮件/);
+ ui.input({target:{dataset:{emailLimit:''},value:'100'}});
+ ui.input({target:{dataset:{emailFilter:''},value:'attention'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(f.calls.filter(call=>call.path==='/api/sources/email/preview'&&call.method==='POST').at(-1).body.limit,50,'filtering uses the last loaded range');
+ assert.match(ui.render(),/已选 1 封/);
+ await ui.click({dataset:{importAction:'email-preview'}});
+ const request=f.calls.filter(call=>call.path==='/api/sources/email/preview'&&call.method==='POST').at(-1).body;
+ assert.equal(request.limit,100);assert.equal(request.offset,0);
+ assert.match(ui.render(),/已选 0 封/,'a newly applied range clears the prior selection');
+});
+
+
+test('clear selection disables visibly and overrides process-all for the current selection only',async t=>{
+ const id='email:clear:1';
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:true},emailPreview:{messages:[{input_id:id,subject:'Synthetic clear selection',state:'unprocessed',excluded:false}],summary:{total:50},next_offset:null}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});
+ const clear=()=>ui.render().match(/<button[^>]*data-import-action="email-clear-selection"[^>]*>/)[0];
+ assert.doesNotMatch(clear(),/disabled/);
+ await ui.click({dataset:{importAction:'email-clear-selection'}});
+ assert.match(clear(),/disabled/);assert.match(ui.render(),/已选 0 封/);
+ assert.match(ui.render().match(/<button[^>]*data-import-action="email-start-job"[^>]*>/)[0],/disabled/);
+ await ui.click({dataset:{importAction:'email-start-job'}});
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST'),false);
+ await ui.click({dataset:{importAction:'email-select-page'}});assert.doesNotMatch(clear(),/disabled/);
+ await ui.click({dataset:{importAction:'email-start-job'}});
+ const job=f.calls.find(call=>call.path==='/api/sources/email/jobs'&&call.method==='POST');assert.deepEqual(job.body.input_ids,[id]);assert.equal(job.body.range,undefined);
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/email/preferences'&&call.method==='POST'),false);
+});
+
+
+test('whole-range selection is disabled when complete but still includes other pages',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:'email:range:1',subject:'Synthetic range',state:'unprocessed',excluded:false},{input_id:'email:range:2',subject:'Synthetic excluded',state:'excluded',excluded:true}],summary:{total:2},next_offset:null}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});
+ const button=()=>ui.render().match(/<button[^>]*data-import-action="email-select-range"[^>]*>/)[0];
+ assert.match(button(),/disabled/,'all available messages in the complete range are selected');
+ await ui.click({dataset:{importAction:'email-clear-selection'}});assert.doesNotMatch(button(),/disabled/);
+ scenario.emailPreview={messages:[{input_id:'email:range:1',subject:'Synthetic range',state:'unprocessed',excluded:false}],summary:{total:100},next_offset:50};
+ await ui.click({dataset:{importAction:'email-preview'}});await ui.click({dataset:{importAction:'email-select-page'}});
+ assert.doesNotMatch(button(),/disabled/,'a selected page must not prevent selecting the other pages');
+ await ui.click({dataset:{importAction:'email-select-range'}});assert.match(button(),/disabled/);
+ await ui.click({dataset:{importAction:'email-clear-selection'}});assert.doesNotMatch(button(),/disabled/);
+});
+
+test('bulk recognition update starts directly for the loaded full range and skips unknown versions',async t=>{
+ const done={job_id:'done',state:'succeeded',counts:{selected:100,processed:98,cached:98,excluded:2,failed:0,pending:0},items:[]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[done],emailReprocessJob:{...done,kind:'reprocess',job_id:'bulk-update',state:'queued'},emailPreview:{messages:[{input_id:'email:bulk:100',subject:'Visible current mail',state:'no_tasks',policy_status:'current',excluded:false}],summary:{total:100},next_offset:50,cache:{snapshot_id:'range-100'},recognition_updates:{available:true,outdated_count:3,unknown_count:2,policy_version:'current-policy',selection_token:'confirmed-targets'}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ ui.input({target:{dataset:{emailLimit:''},value:'100'}});await ui.click({dataset:{importAction:'email-preview'}});
+ assert.match(ui.render(),/data-import-action="email-update-recognition"[^>]*>更新识别<\/button>/);assert.match(ui.render(),/旧版缓存 3/);assert.doesNotMatch(ui.render(),/更新识别（/);
+ ui.input({target:{dataset:{emailLimit:''},value:'999'}});
+ let opened=0;f.host.openDialog=()=>{opened++;};
+ assert.match(ui.render(),/aria-describedby="email-update-tooltip"/);assert.match(ui.render(),/id="email-update-tooltip" class="email-sort-tooltip" role="tooltip">复用已保存正文更新整个范围/);
+ await ui.click({dataset:{importAction:'email-update-recognition'}});
+ assert.equal(opened,0,'updating outdated results opens no confirmation');
+ const request=f.calls.find(c=>c.path==='/api/sources/email/reprocess');
+ assert.deepEqual(request.body,{operation_id:request.body.operation_id,range:{limit:100,start_date:null},snapshot_id:'range-100',policy_version:'current-policy',selection_token:'confirmed-targets',include_unknown:false,consent:true});
+ assert.doesNotMatch(ui.render(),/data-import-action="email-update-recognition"/,'updates unavailable while a job runs');
+});
+
+test('unknown-only cached results do not show the bulk update action',async t=>{
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[{job_id:'done',state:'succeeded',counts:{},items:[]}],emailPreview:{messages:[],summary:{total:1},next_offset:null,cache:{snapshot_id:'unknown-range'},recognition_updates:{available:true,outdated_count:0,unknown_count:1,policy_version:'current',selection_token:'unknown-selection'}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.doesNotMatch(ui.render(),/data-import-action="email-update-recognition"/);
+});
+
+test('pagination and page-size switches repaginate all loaded mail with zero API calls',async t=>{
+ let deny=false;
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},intercept:async(path,body,method)=>{
+  if(deny)throw new Error('Navigation must not request the server');
+  if(path==='/api/sources/email/preview'&&method==='POST')return {messages:Array.from({length:200},(_,i)=>({input_id:'email:local:'+(i+1),subject:'Mail '+(i+1),state:'unprocessed',excluded:false})),summary:{total:200},next_offset:null,cache:{snapshot_id:'full-local',complete:true,miss:false}};
+ }});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ ui.input({target:{dataset:{emailLimit:''},value:'200'}});await ui.click({dataset:{importAction:'email-preview'}});
+ const request=f.calls.filter(c=>c.path==='/api/sources/email/preview').at(-1).body;assert.equal(request.load_all,true);assert.equal(request.refresh,true);
+ const count=f.calls.length;deny=true;
+ assert.equal((ui.render().match(/data-email-message=/g)||[]).length,25);assert.match(ui.render(),/已选 25 封/);
+ await ui.click({dataset:{importAction:'email-next'}});assert.match(ui.render(),/第 2 页/);assert.match(ui.render(),/Mail 175/);
+ ui.input({target:{dataset:{emailLimit:''},value:'999'}});
+ await ui.click({dataset:{importAction:'email-cycle-page-size'}});assert.match(ui.render(),/每页 50 封/);assert.equal((ui.render().match(/data-email-message=/g)||[]).length,50);
+ await ui.click({dataset:{importAction:'email-cycle-page-size'}});assert.match(ui.render(),/每页 100 封/);assert.equal((ui.render().match(/data-email-message=/g)||[]).length,100);
+ await ui.click({dataset:{importAction:'email-next'}});assert.match(ui.render(),/第 2 页/);assert.match(ui.render(),/Mail 100/);
+ await ui.click({dataset:{importAction:'email-prev'}});assert.match(ui.render(),/第 1 页/);
+ await ui.click({dataset:{importAction:'email-cycle-page-size'}});assert.match(ui.render(),/每页 25 封/);assert.match(ui.render(),/已选 25 封/);
+ assert.equal(f.calls.length,count,'paging and all size switches make zero HTTP requests');
+});
+
+test('local pagination restores its size and offset per account with cache-only loading',async t=>{
+ const old=globalThis.localStorage,values=new Map();globalThis.localStorage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};t.after(()=>{if(old===undefined)delete globalThis.localStorage;else globalThis.localStorage=old;});
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:Array.from({length:150},(_,i)=>({input_id:'email:persist:'+i,subject:'Mail '+i,state:'unprocessed',excluded:false})),summary:{total:150},next_offset:null,cache:{snapshot_id:'persist-all',complete:true,miss:false}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const count=f.calls.length;await ui.click({dataset:{importAction:'email-cycle-page-size'}});await ui.click({dataset:{importAction:'email-next'}});assert.equal(f.calls.length,count);
+ ui.reset();await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ let request=f.calls.filter(c=>c.path==='/api/sources/email/preview').at(-1).body;assert.equal(request.page_size,50);assert.equal(request.offset,0);assert.equal(request.cache_only,true);assert.equal(request.load_all,true);assert.match(ui.render(),/第 2 页/);assert.match(ui.render(),/Mail 50/);
+ await f.login('B');await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ request=f.calls.filter(c=>c.path==='/api/sources/email/preview').at(-1).body;assert.equal(request.page_size,25);assert.match(ui.render(),/第 1 页/);
+});
+
+test('fetching mail keeps its mounted controls stable and rejects duplicate clicks',async t=>{
+ let release;
+ const pending=new Promise(resolve=>release=resolve);
+ const original={messages:[{input_id:'email:stable:1',subject:'Existing header remains visible',state:'unprocessed',excluded:false}],summary:{total:1},next_offset:null,cache:{snapshot_id:'stable',miss:false,complete:true}};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:original,intercept:async(path,body,method)=>{if(path==='/api/sources/email/preview'&&method==='POST'&&body.refresh)return pending;}});
+ let renders=0;const busyUpdates=[];f.host.render=()=>renders++;f.host.setEmailPreviewBusy=(busy,options)=>{busyUpdates.push({busy,...options});return true;};
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const before=renders;
+ const loading=ui.click({dataset:{importAction:'email-preview'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(renders,before,'starting a fetch updates busy attributes without rebuilding the page');
+ assert.deepEqual(busyUpdates.at(-1),{busy:true,fetching:true});
+ const button=ui.render().match(/<button[^>]*data-import-action="email-preview"[^>]*>.*?<\/button>/)[0];
+ assert.match(button,/aria-busy="true"/);assert.match(button,/aria-disabled="true"/);assert.match(button,/>获取邮件<\/button>/);assert.doesNotMatch(button,/正在获取/);
+ assert.doesNotMatch(button,/\sdisabled(?:\s|=|>)/,'loading does not dim the button or drop its focus');
+ assert.match(ui.render(),/Existing header remains visible/);
+ await ui.click({dataset:{importAction:'email-preview'}});
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/preview'&&c.body?.refresh).length,1);
+ release({...original,messages:[{...original.messages[0],subject:'Updated header'}]});await loading;
+ assert.equal(renders,before+1,'only finished results trigger a page render');
+ assert.match(ui.render(),/Updated header/);
+ assert.match(ui.render().match(/<button[^>]*data-import-action="email-preview"[^>]*>/)[0],/aria-busy="false"/);
+});
+
+test('a partial restored mail cache never hydrates missing headers during local navigation',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:Array.from({length:30},(_,i)=>({input_id:'email:partial:'+i,subject:'Cached '+i,state:'unprocessed',excluded:false})),summary:{total:100},next_offset:null,cache:{snapshot_id:'partial-cache',complete:false,miss:true}}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const request=f.calls.filter(c=>c.path==='/api/sources/email/preview').at(-1).body;assert.equal(request.cache_only,true);assert.equal(request.load_all,true);
+ assert.match(ui.render(),/已加载 30 \/ 100/);const count=f.calls.length;
+ await ui.click({dataset:{importAction:'email-next'}});assert.equal((ui.render().match(/data-email-message=/g)||[]).length,5);
+ await ui.click({dataset:{importAction:'email-cycle-page-size'}});assert.equal((ui.render().match(/data-email-message=/g)||[]).length,30);
+ await ui.click({dataset:{importAction:'email-cycle-page-size'}});assert.equal((ui.render().match(/data-email-message=/g)||[]).length,30);
+ assert.equal(f.calls.length,count,'missing headers remain missing until explicit retrieval');
+ scenario.emailPreview={...scenario.emailPreview,messages:Array.from({length:100},(_,i)=>({input_id:'email:partial:'+i,subject:'Cached '+i,state:'unprocessed',excluded:false})),cache:{snapshot_id:'complete-cache',complete:true,miss:false}};
+ await ui.click({dataset:{importAction:'email-preview'}});
+ const explicit=f.calls.filter(c=>c.path==='/api/sources/email/preview').at(-1).body;assert.equal(explicit.refresh,true);assert.equal(explicit.cache_only,false);assert.equal(explicit.load_all,true);
+ assert.equal((ui.render().match(/data-email-message=/g)||[]).length,100);
+});
+
+test('job status updates remain visible when navigating to another cached page',async t=>{
+ const job={job_id:'local-status',state:'running',counts:{selected:40,processed:1,pending:39},items:[{input_id:'email:status:30',state:'has_tasks',task_count:2,request_id:'recognized-30'}]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[job],emailJob:job,emailPreview:{messages:Array.from({length:40},(_,i)=>({input_id:'email:status:'+i,subject:'Status mail '+i,state:'unprocessed',excluded:false})),summary:{total:40},next_offset:null,cache:{snapshot_id:'status-cache',complete:true,miss:false}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-poll'}});const count=f.calls.length;
+ await ui.click({dataset:{importAction:'email-next'}});assert.match(ui.render(),/Status mail 30/);assert.match(ui.render(),/识别到 2 项任务/);assert.equal(f.calls.length,count);
+});
+
+test('unchanged email job summaries skip the full item fetch and rerender',async t=>{
+ const job={job_id:'steady',state:'running',revision:4,counts:{selected:3,processed:1,pending:2},items:[{input_id:'email:steady',state:'has_tasks',task_count:1}]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[job],emailJob:job,emailPreview:{messages:[],summary:{total:0},next_offset:null}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-poll'}});
+ const fullGets=f.calls.filter(c=>c.path==='/api/sources/email/jobs/steady').length, renders=f.renderCalls;
+ await ui.click({dataset:{importAction:'email-poll'}});
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/steady').length,fullGets);
+ assert.ok(f.calls.some(c=>c.path==='/api/sources/email/jobs/steady?summary=1'));
+ assert.equal(f.renderCalls,renders+2,'the manual poll action renders only its busy state and completion, with no unchanged-response render');
+});
+
+test('email job revision changes fetch item states and visibility resumes one poll loop',async t=>{
+ const previous=globalThis.document,doc=new EventTarget();doc.hidden=true;let visibilityAdds=0,visibilityRemoves=0;
+ const add=doc.addEventListener.bind(doc),remove=doc.removeEventListener.bind(doc);
+ doc.addEventListener=(type,...args)=>{if(type==='visibilitychange')visibilityAdds++;return add(type,...args);};
+ doc.removeEventListener=(type,...args)=>{if(type==='visibilitychange')visibilityRemoves++;return remove(type,...args);};
+ globalThis.document=doc;
+ t.after(()=>{globalThis.document=previous;});
+ const job={job_id:'moving',state:'running',revision:2,counts:{selected:1,processed:0,pending:1},items:[{input_id:'email:moving',state:'unprocessed'}]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[job],emailJob:{...job,revision:3,items:[{input_id:'email:moving',state:'has_tasks',task_count:2}]},emailPreview:{messages:[{input_id:'email:moving',subject:'Moving mail',state:'unprocessed',excluded:false}],summary:{total:1},next_offset:null}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving?summary=1').length,0,'hidden tab does not poll');
+ doc.hidden=false;doc.dispatchEvent(new Event('visibilitychange'));await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving').length,1,'new revision retrieves details once');
+ assert.match(ui.render(),/识别到 2 项任务/);
+ const before=f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving?summary=1').length;
+ doc.dispatchEvent(new Event('visibilitychange'));await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving?summary=1').length,before,'visible event does not add a second timer while a timer is scheduled');
+ const calls=f.calls.length;ui.reset();
+ assert.equal(visibilityRemoves,visibilityAdds,'reset removes the listener from the same document it was attached to');
+ doc.dispatchEvent(new Event('visibilitychange'));await new Promise(resolve=>setTimeout(resolve,0));
+ assert.equal(f.calls.length,calls,'a reset controller does not resume polling');
+});
+
+test('email job stores the full response revision when it advances after the summary read',async t=>{
+ const job={job_id:'revision-race',state:'running',revision:4,counts:{selected:1,processed:0,pending:1},items:[]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[job],emailJob:job,emailJobFull:{...job,revision:5},emailSummaryRevision:4,emailPreview:{messages:[],summary:{total:0},next_offset:null}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-poll'}});
+ const fullGets=()=>f.calls.filter(c=>c.path==='/api/sources/email/jobs/revision-race').length;
+ assert.equal(fullGets(),1);
+ f.scenario.emailSummaryRevision=5;
+ await ui.click({dataset:{importAction:'email-poll'}});
+ assert.equal(fullGets(),1,'the revision returned with the full details is used for the next summary comparison');
+});
+
+test('waiting reason changes render without fetching item details at an unchanged revision',async t=>{
+ const job={job_id:'waiting-reason',state:'queued',revision:7,waiting_reason:'global_capacity',counts:{selected:1,processed:0,pending:1},items:[]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[job],emailJob:job,emailSummaryRevision:7,emailWaitingReason:'global_capacity',emailPreview:{messages:[],summary:{total:0},next_offset:null}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-poll'}});
+ const fullGets=f.calls.filter(c=>c.path==='/api/sources/email/jobs/waiting-reason').length;
+ assert.match(ui.render(),/等待系统处理名额/);
+ f.scenario.emailWaitingReason='provider_backoff';
+ await ui.click({dataset:{importAction:'email-poll'}});
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/waiting-reason').length,fullGets);
+ assert.match(ui.render(),/等待邮件服务恢复/,'visible waiting metadata changes rerender the status');
+});
+
+test('a stale full job response cannot replace a newer selected job or surface its error',async t=>{
+ let entered,rejectFull;
+ const reached=new Promise(resolve=>entered=resolve),fullWait=new Promise((_,reject)=>rejectFull=reject);
+ const oldJob={job_id:'old-job',state:'running',revision:1,counts:{selected:1,processed:0,pending:1},items:[]};
+ const newJob={job_id:'new-job',state:'running',revision:9,counts:{selected:9,processed:0,pending:9},items:[]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[oldJob],emailJob:oldJob,emailPreview:{messages:[],summary:{total:0},next_offset:null},intercept:async path=>{if(path==='/api/sources/email/jobs/old-job'){entered();await fullWait;}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const oldPoll=ui.click({dataset:{importAction:'email-poll'}});await reached;
+ f.scenario.emailJobs=[newJob];
+ await ui.click({dataset:{importSource:'text'}});await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ rejectFull(new Error('stale full read failed'));await oldPoll;
+ assert.match(ui.render(),/0 \/ 9/,'the new job remains selected after the old full request settles');
+ assert.doesNotMatch(ui.render(),/继续读取状态/,'a stale request error does not set the new job poll error');
+});
+
+
+test('whole-range selection checks nonexcluded rows consistently across local pages',async t=>{
+ const messages=Array.from({length:60},(_,i)=>({input_id:'email:bulk-check:'+i,subject:'Bulk row '+i,state:i===2?'excluded':'unprocessed',excluded:i===2}));
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages,summary:{total:60},next_offset:null,cache:{snapshot_id:'bulk-checkbox',complete:true,miss:false}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const inputs=()=>[...ui.render().matchAll(/<input type="checkbox" data-email-message="([^"]+)"([^>]*)>/g)];
+ await ui.click({dataset:{importAction:'email-clear-selection'}});const calls=f.calls.length;
+ await ui.click({dataset:{importAction:'email-select-range'}});
+ for(const row of inputs())assert.equal(/\bchecked\b/.test(row[2]),row[1]!=='email:bulk-check:2');
+ await ui.click({dataset:{importAction:'email-next'}});assert.equal(inputs().length,25);assert.ok(inputs().every(row=>/\bchecked\b/.test(row[2])));
+ await ui.click({dataset:{importAction:'email-cycle-page-size'}});await ui.click({dataset:{importAction:'email-cycle-page-size'}});
+ assert.equal(inputs().length,60);assert.equal(inputs().filter(row=>/\bchecked\b/.test(row[2])).length,59);
+ assert.equal(f.calls.length,calls);
+ await ui.click({dataset:{importAction:'email-clear-selection'}});assert.ok(inputs().every(row=>!/\bchecked\b/.test(row[2])));
+ for(const message of messages.filter(m=>!m.excluded))ui.input({target:{dataset:{emailMessage:message.input_id},checked:true}});
+ assert.match(ui.render().match(/<button[^>]*data-import-action="email-select-range"[^>]*>/)[0],/disabled/);
+});
+
+test('sort and filter cover the entire fetched range before pagination with no requests',async t=>{
+ const messages=Array.from({length:60},(_,i)=>({input_id:`email:global:${i+1}`,subject:`Global ${i+1}`,state:i===0?'has_tasks':'no_tasks',pending_review_count:i===0?1:0,excluded:false}));
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages,summary:{total:60},next_offset:null}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});
+ const ids=()=>[...ui.render().matchAll(/data-email-message="email:global:(\d+)"/g)].map(m=>Number(m[1]));
+ const calls=f.calls.length, selection=ui.render().match(/已选 \d+ 封/)[0];
+ assert.deepEqual(ids(),[1,...Array.from({length:24},(_,i)=>60-i)],'oldest pending review takes priority across pages');
+ await ui.click({dataset:{importAction:'email-next'}});assert.match(ui.render(),/第 2 页/);
+ await ui.click({dataset:{importAction:'email-cycle-sort'}});
+ assert.deepEqual(ids(),Array.from({length:25},(_,i)=>60-i));assert.match(ui.render(),/第 1 页/);
+ await ui.click({dataset:{importAction:'email-next'}});assert.deepEqual(ids(),Array.from({length:25},(_,i)=>35-i));
+ await ui.click({dataset:{importAction:'email-cycle-sort'}});assert.deepEqual(ids(),Array.from({length:25},(_,i)=>i+1));
+ await ui.click({dataset:{importAction:'email-next'}});assert.deepEqual(ids(),Array.from({length:25},(_,i)=>i+26));
+ await ui.click({dataset:{importAction:'email-cycle-sort'}});
+ assert.deepEqual(ids(),[1,...Array.from({length:24},(_,i)=>60-i)],'third click restores attention ordering across the fetched range');
+ ui.input({target:{dataset:{emailFilter:''},value:'pending_review'}});
+ assert.deepEqual(ids(),[1],'filter finds mail outside the previously visible page');assert.match(ui.render(),/匹配 1 封/);assert.doesNotMatch(ui.render(),/data-import-action="email-next"/);
+ assert.ok(ui.render().includes(selection),'reordering preserves selected identities');
+ assert.equal(f.calls.length,calls,'all sort, filter, and pagination changes stay local');
+});
+
+test('active email recognition replaces counts with progress and places stop in the summary action slot',async t=>{
+ const {icon}=await import('../src/icons.js');
+ for(const state of ['queued','running','succeeded']){
+  const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailJobs:[{job_id:'progress-job',state,counts:{selected:42,processed:4,cached:0,excluded:0,failed:0,pending:38},items:[]}]});
+  f.host.icon=icon;await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+  const html=ui.render();
+  if(state==='succeeded'){
+   assert.match(html,/已处理 4 \/ 42/);assert.doesNotMatch(html,/email-job-progress|data-import-action="email-stop-job"/);
+  }else{
+   assert.match(html,/role="progressbar"[^>]*aria-valuemax="42"[^>]*aria-valuenow="4"/);
+   assert.match(html,/<strong>(?:排队中|正在处理)<\/strong><span class="email-job-progress-count">4 \/ 42<\/span>/);
+   assert.match(html,/email-job-progress-fill" style="width:10%"/);assert.doesNotMatch(html,/已处理 4 \/ 42/);
+   assert.match(html,/<\/div><\/div><span class="email-job-action-slot"><button class="btn quiet email-job-action email-job-stop"[^>]*data-import-action="email-stop-job"[^>]*><svg.*?<\/svg>停止<\/button>/);
+  }
+  ui.reset();
+ }
+});
+
+test('one summary action prioritizes stop and retries over outdated-cache updates',async t=>{
+ const {icon}=await import('../src/icons.js');
+ for(const [state,kind,failed,pending,expected] of [
+  ['running','reprocess',3,38,'email-stop-job'],
+  ['partial_success','reprocess',3,0,'email-reprocess-retry'],
+  ['failed','import',3,0,'email-retry-job'],
+  ['interrupted','reprocess',0,3,'email-reprocess-retry'],
+  ['succeeded','reprocess',0,0,'email-update-recognition'],
+ ]){
+  const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailJobs:[{job_id:'unified',kind,state,counts:{selected:42,processed:39,failed,pending},items:[]}],emailPreview:{messages:[],summary:{total:42},recognition_updates:{available:true,outdated_count:3}}});
+  f.host.icon=icon;await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+  const html=ui.render(), actions=[...html.matchAll(/<button class="btn quiet email-job-action email-job-(\w+)"[^>]*data-import-action="([^"]+)"[^>]*>(.*?)<\/button>/g)];
+  assert.equal(actions.length,1);assert.equal(actions[0][2],expected);assert.match(actions[0][3],/<svg/);
+  if(expected.includes('retry'))assert.match(actions[0][3],/重试识别/);
+  assert.equal((html.match(/data-import-action="email-(?:stop-job|reprocess-retry|retry-job|update-recognition)"/g)||[]).length,1,'no second action outside the summary');
+  assert.doesNotMatch(html,/重新确认并重试失败邮件|重试未完成项/);
+  ui.reset();
+ }
+});
+
+test('direct reprocess retry shows inline errors and reuses its operation id without a popup',async t=>{
+ const id='email:direct:1';let attempts=0;
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[{job_id:'direct-failed',kind:'reprocess',state:'failed',counts:{selected:1,failed:1,pending:0},items:[{input_id:id,state:'failed'},{input_id:'email:direct:2',state:'no_tasks'}]}],intercept:async(path)=>{if(path==='/api/sources/email/reprocess'&&++attempts===1)throw new Error('temporary');}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ let opened=0;f.host.openDialog=()=>{opened++;};
+ assert.match(ui.render(),/aria-describedby="email-retry-tooltip"/);assert.match(ui.render(),/id="email-retry-tooltip" class="email-sort-tooltip" role="tooltip">仅重试失败或中断邮件/);
+ await ui.click({dataset:{importAction:'email-reprocess-retry'}});assert.match(ui.render(),/role="alert"/);assert.equal(opened,0);
+ await ui.click({dataset:{importAction:'email-reprocess-retry'}});
+ const calls=f.calls.filter(c=>c.path==='/api/sources/email/reprocess');assert.equal(calls.length,2);assert.equal(calls[0].body.operation_id,calls[1].body.operation_id);assert.deepEqual(calls[1].body.input_ids,[id]);assert.equal(opened,0);
+});
+
+test('direct retry still requires persistent body-processing consent',async t=>{
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:false,process_all:false},emailJobs:[{job_id:'no-consent',kind:'reprocess',state:'failed',counts:{failed:1},items:[{input_id:'email:consent:1',state:'failed'}]}]});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-reprocess-retry'}});assert.match(f.dialog,/data-email-settings-dialog/);assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/reprocess').length,0);
+});
+
+
+test('email notice candidates display and save as notices through review',async t=>{
+ const f=fixture();await f.login();const b=f.batches.A[0];
+ b.request.records[0].platform='email';b.items[0].candidate.content_type='notice';
+ const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});
+ assert.match(ui.render(),/新增通知/);
+ await ui.click({dataset:{importReview:'candidate-A'}});
+ assert.match(f.dialog,/核对通知/);assert.match(f.dialog,/通知名称/);assert.match(f.dialog,/确认加入通知/);
+ await ui.submit(fakeForm('review',{action:'create',title:'上课地点调整',description:'理教408',course:'',date:'',time:''},{candidate:'candidate-A'}));
+ const call=f.calls.find(c=>c.path==='/api/recognition/candidates/candidate-A/resolve');
+ assert.equal(call.body.draft.content_type,'notice');assert.equal(call.body.reviewed,true);
+});
+
+
+test('direct outdated-cache update reports errors inline and retains its operation id',async t=>{
+ let attempts=0;
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[{job_id:'done',state:'succeeded',counts:{},items:[]}],emailPreview:{messages:[],summary:{total:100},cache:{snapshot_id:'direct-update'},recognition_updates:{available:true,outdated_count:3,unknown_count:1,policy_version:'new-policy',selection_token:'stable-targets'}},intercept:async(path)=>{if(path==='/api/sources/email/reprocess'&&++attempts===1)throw new Error('temporary');}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ let opened=0;f.host.openDialog=()=>{opened++;};
+ await ui.click({dataset:{importAction:'email-update-recognition'}});assert.match(ui.render(),/role="alert"/);
+ await ui.click({dataset:{importAction:'email-update-recognition'}});
+ const requests=f.calls.filter(c=>c.path==='/api/sources/email/reprocess');assert.equal(requests.length,2);assert.equal(requests[0].body.operation_id,requests[1].body.operation_id);assert.equal(requests[1].body.include_unknown,false);assert.equal(opened,0);
+});
+
+test('direct outdated-cache update blocks duplicates and still checks saved consent',async t=>{
+ let release;const pending=new Promise(resolve=>release=resolve);
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[{job_id:'done',state:'succeeded',counts:{},items:[]}],emailPreview:{messages:[],summary:{total:50},cache:{snapshot_id:'direct-busy'},recognition_updates:{available:true,outdated_count:2,policy_version:'new-policy',selection_token:'targets'}},intercept:async path=>{if(path==='/api/sources/email/reprocess')await pending;}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const first=ui.click({dataset:{importAction:'email-update-recognition'}});await new Promise(resolve=>setTimeout(resolve,0));await ui.click({dataset:{importAction:'email-update-recognition'}});
+ assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/reprocess').length,1);release();await first;
+ ui.reset();scenario.emailPreferences.consent_granted=false;await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ const before=f.calls.filter(c=>c.path==='/api/sources/email/reprocess').length;
+ await ui.click({dataset:{importAction:'email-update-recognition'}});assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/reprocess').length,before);assert.match(f.dialog,/data-email-settings-dialog/);
 });

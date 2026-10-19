@@ -19,6 +19,40 @@ from ddl_text.codex_client import live_options
 
 
 class EnvironmentBoundaryTests(unittest.TestCase):
+    def test_email_concurrency_profile_default_compatibility_validation_and_native_propagation(self):
+        folder = manager.initialize('test', self.root)
+        config = manager.defaults('test')
+        self.assertEqual(config['email_concurrency'], 2)
+        config.pop('email_concurrency')
+        config.pop('scheduled_sync')
+        (folder / 'config.json').write_text(json.dumps(config))
+        folder, loaded = manager.read_config('test', self.root)
+        self.assertEqual(loaded['email_concurrency'], 2)
+        with patch.dict(os.environ, {'NIUMA_EMAIL_CONCURRENCY': '4', 'NIUMA_MODEL_ENV': 'shell-model'}, clear=True):
+            child = manager.local_environment('test', folder, loaded)
+        self.assertEqual(child['NIUMA_EMAIL_CONCURRENCY'], '2')
+        self.assertEqual(child['NIUMA_MODEL_ENV'], str(folder / '.env.model'))
+        loaded['email_concurrency'] = 4
+        self.assertEqual(manager.local_environment('test', folder, loaded)['NIUMA_EMAIL_CONCURRENCY'], '4')
+
+    def test_email_concurrency_rejects_invalid_values(self):
+        folder = manager.initialize('test', self.root)
+        for invalid in (True, False, 0, 5, 1.5, '2', None):
+            config = manager.defaults('test')
+            config['email_concurrency'] = invalid
+            (folder / 'config.json').write_text(json.dumps(config))
+            with self.subTest(value=invalid), self.assertRaisesRegex(ValueError, 'email_concurrency'):
+                manager.read_config('test', self.root)
+
+    def test_email_concurrency_is_profile_scoped_in_compose_environment(self):
+        folder = manager.initialize('test', self.root)
+        config = manager.defaults('test')
+        config['email_concurrency'] = 3
+        values, _, _ = manager._compose_values('test', folder, config)
+        environment = manager.compose_environment('test', folder, config, model_values={})
+        self.assertEqual(values['NIUMA_EMAIL_CONCURRENCY'], '3')
+        self.assertEqual(environment['NIUMA_COMPOSE_NIUMA_EMAIL_CONCURRENCY'], '3')
+
     def test_scheduler_profile_defaults_off_and_old_profiles_remain_valid(self):
         for name in runtime.ENVIRONMENTS:self.assertFalse(manager.defaults(name)['scheduled_sync'])
         folder=manager.initialize('test',self.root)
@@ -136,6 +170,18 @@ class EnvironmentBoundaryTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     manager.read_config('test', self.root)
 
+    def test_compose_uses_one_model_settings_snapshot_for_interpolation_and_child_env(self):
+        folder = manager.initialize('test', self.root)
+        model_values = {'QINIU_API_KEY': 'synthetic$literal'}
+        config = manager.defaults('test')
+        with patch.object(manager, 'read_model_config', side_effect=AssertionError('unexpected second read')):
+            command = manager.compose_command('test', folder, config, model_values=model_values)
+            environment = manager.compose_environment('test', folder, config, model_values=model_values)
+        self.assertIn('QINIU_API_KEY=${NIUMA_MODEL_QINIU_API_KEY}',
+                      (folder / '.env.model.compose').read_text())
+        self.assertEqual(environment['NIUMA_MODEL_QINIU_API_KEY'], 'synthetic$literal')
+        self.assertEqual(command[-1], str(manager.DEPLOY / 'compose.ip.yaml'))
+
     def test_published_ports_and_origin_must_agree(self):
         folder = manager.initialize('test', self.root)
         for origin in ['http://localhost:bad', 'http://localhost:65536', 'http://localhost:1532',
@@ -209,7 +255,7 @@ class EnvironmentBoundaryTests(unittest.TestCase):
             read.assert_not_called()
             config = manager.defaults('test')
             config['api_image'] = 'registry.example.com/api:verified'
-            read.return_value = (self.root, config)
+            read.return_value = (self.root, config, {})
             with self.assertRaisesRegex(ValueError, 'overwrite a release tag'):
                 manager.main(['build', 'test'])
             run.assert_not_called()
@@ -255,6 +301,7 @@ class EnvironmentBoundaryTests(unittest.TestCase):
                         command = [os.environ['NIUMA_COMPOSE_TEST_BIN'], *command[2:]]
                     env = manager.clean_environment()
                     env['UNRELATED'] = 'synthetic-shell-value-must-not-win'
+                    env.update(manager.compose_environment(name, folder, config))
                     process = subprocess.run(command + ['config', '--format', 'json'], env=env,
                                              capture_output=True, text=True, encoding='utf-8', check=True, timeout=30)
                     resolved = json.loads(process.stdout.replace('$$', '$'))
@@ -262,6 +309,7 @@ class EnvironmentBoundaryTests(unittest.TestCase):
                     api = resolved['services']['api']
                     self.assertEqual(api['environment']['QINIU_API_KEY'], value)
                     self.assertEqual(api['environment']['NIUMA_ENVIRONMENT'], name)
+                    self.assertEqual(api['environment']['NIUMA_EMAIL_CONCURRENCY'], '2')
                     self.assertEqual(resolved['volumes']['app-data']['name'], config['data_volume'])
                     if transport == 'https':
                         web = resolved['services']['web']
@@ -273,6 +321,7 @@ class EnvironmentBoundaryTests(unittest.TestCase):
                         self.assertEqual(str(api['ports'][0]['published']), str(config['port']))
                     if os.name != 'nt':
                         self.assertEqual((folder / '.env.model.compose').stat().st_mode & 0o777, 0o600)
+                    self.assertNotIn(value, (folder / '.env.model.compose').read_text(encoding='utf-8'))
 
     def test_production_cannot_be_seeded(self):
         import app

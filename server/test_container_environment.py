@@ -26,7 +26,12 @@ import test_environment_isolation as environment_tests
                      for name in ('API', 'WEB_IP', 'WEB_HTTPS')), 'Requires explicit locally built smoke-test images')
 class ContainerEnvironmentTests(environment_tests.LiveEnvironmentIsolationTests):
     def command(self, args, check=True):
-        return subprocess.run(args, env=manager.clean_environment(), capture_output=True,
+        env = manager.clean_environment()
+        for name, command in getattr(self, 'stacks', {}).items():
+            if args[:len(command)] == command:
+                env.update(self.compose_envs[name])
+                break
+        return subprocess.run(args, env=env, capture_output=True,
                               text=True, encoding='utf-8', check=check, timeout=180)
 
     def free_port(self):
@@ -41,7 +46,7 @@ class ContainerEnvironmentTests(environment_tests.LiveEnvironmentIsolationTests)
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.prefix = 'niuma-smoke-' + secrets.token_hex(8)
-        self.stacks, self.volumes, self.urls = {}, {}, {}
+        self.stacks, self.compose_envs, self.volumes, self.urls = {}, {}, {}, {}
         self.used_ports = set()
         self.addCleanup(self.cleanup)
         # The HTTPS endpoint is a local synthetic fixture using Caddy's local CA.
@@ -70,9 +75,13 @@ class ContainerEnvironmentTests(environment_tests.LiveEnvironmentIsolationTests)
             self.command(['docker', 'volume', 'create', '--label', 'niuma.smoke=' + self.prefix, volume])
             self.volumes[name] = volume
             config.update(data_volume=volume, external_data_volume=True)
-            command = manager.compose_command(name, folder, config)
+            # Keep interpolation and the environment passed to Compose on the
+            # same model-settings snapshot, just as the managed CLI does.
+            model_values = manager.read_model_config(folder / '.env.model')
+            command = manager.compose_command(name, folder, config, model_values=model_values)
             command[command.index('--project-name') + 1] = self.prefix + '-' + name
             self.stacks[name] = command
+            self.compose_envs[name] = manager.compose_environment(name, folder, config, model_values=model_values)
             self.command(command + ['up', '-d', '--no-build', '--wait', '--wait-timeout', '90'])
             self.wait_ready(name)
 
@@ -163,7 +172,8 @@ print(base64.b64encode(data).decode())
             self.cookies[name] = cookie
             self.assertEqual(self.request(name, '/api/workspace', cookie=cookie)[2], self.expected[name])
             self.assertEqual(self.request(name, '/api/sources/credentials', cookie=cookie)[2],
-                             dict(configured=True, username='synthetic-'+name))
+                             dict(configured=True, username='synthetic-'+name,
+                                  source_account_id=hashlib.sha256(('synthetic-'+name).encode()).hexdigest()))
             receipt = self.receipts[name]
             content = self.read_asset(name, self.user_ids[name], receipt['file_ref'])
             self.assertEqual(content, ('Synthetic attachment '+name+'\n').encode())

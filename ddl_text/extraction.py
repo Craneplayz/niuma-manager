@@ -4,6 +4,7 @@ The client boundary has no default provider, network, tools, or credentials.
 """
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -29,10 +30,14 @@ class DraftClient(Protocol):
         ...
 
 
-def load_instructions():
+def load_instructions(record=None):
     # Single maintained rule source shared with the portable Codex skill.
-    return "\n\n".join((SKILL_DIR / name).read_text(encoding="utf-8") for name in
+    instructions = "\n\n".join((SKILL_DIR / name).read_text(encoding="utf-8") for name in
                        ("SKILL.md", "references/draft-schema.md", "references/examples.md"))
+    if record and record.get("platform") == "email" and record.get("contract_version") == "0.2":
+        from .content_types import content_type_instructions
+        instructions += "\n\n" + content_type_instructions() + "\n邮箱补充：tasks 数组同时包含 task 和 notice，每项必须输出 content_type。上述仅提取行动、无行动返回空的规则不排除符合共享定义的重要通知。通知按原意命名，通用 evidence 引用通知事实；不编造查看或确认动作。notice_type 仍描述新增/更新/延期/取消操作。普通垃圾邮件摘要、推广或无直接影响的信息返回空 tasks。通知中的活动时间以 reference 表达，不冒充行动截止。"
+    return instructions
 
 
 def _object(pairs):
@@ -53,10 +58,17 @@ def _reference(ref, available, extra=()):
 
 def compile_drafts(response, record):
     """Validate semantic proposals and evidence; copy source metadata ourselves."""
+    reason = 'schema'
     try:
-        require(isinstance(response, str) and len(response.encode("utf-8")) <= MAX_DRAFT_BYTES)
+        require(isinstance(response, str))
+        if len(response.encode("utf-8")) > MAX_DRAFT_BYTES:
+            error = AgentError("invalid_agent_output", True, 'output_truncated')
+            error.telemetry_reason = 'oversized_output'
+            raise error
+        reason = "invalid_json"
         envelope = json.loads(response, object_pairs_hook=_object,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")))
+        reason = "schema"
         require(isinstance(envelope, dict) and set(envelope) == {"tasks"})
         drafts = envelope["tasks"]
         require(isinstance(drafts, list) and len(drafts) <= 100)
@@ -66,13 +78,16 @@ def compile_drafts(response, record):
         if not drafts and v02:
             tasks.warnings.append("no_action: 未识别到需要执行的行动或变更。")
         for index, draft in enumerate(drafts, 1):
-            require(isinstance(draft, dict) and set(draft) - {"relevance"} == {"title", "description", "prerequisites",
+            require(isinstance(draft, dict) and set(draft) - {"relevance", "content_type"} == {"title", "description", "prerequisites",
                     "notice_type", "target", "course", "evidence", "times", "review_reasons"})
             require(nonempty(draft["title"]) and isinstance(draft["description"], str))
+            if "content_type" in draft:
+                require(v02 and record.get("platform") == "email" and draft["content_type"] in ("task", "notice"))
             require(draft["notice_type"] in {"create", "update", "postpone", "cancel", "uncertain"})
             for key in ("prerequisites", "review_reasons"):
                 require(isinstance(draft[key], list) and all(nonempty(s) for s in draft[key]))
             require(isinstance(draft["evidence"], list) and 0 < len(draft["evidence"]) <= 100)
+            reason = 'evidence'
             evidence = [_reference(ref, available) for ref in draft["evidence"]]
             if "relevance" in draft:
                 relevance = draft["relevance"]
@@ -120,6 +135,7 @@ def compile_drafts(response, record):
                     reasons.append("课程归属来自正文或上下文推断，请核实。")
                 elif course_ref["value"] != course:
                     reasons.append("正文课程与上游课程标注不一致，保留上游标注待核实。")
+            reason = 'time'
             require(isinstance(draft["times"], list) and len(draft["times"]) <= 20)
             times = []
             for ref in draft["times"]:
@@ -164,19 +180,33 @@ def compile_drafts(response, record):
                           "deadline": deadline, "needs_review": bool(reasons),
                           "review_reasons": list(dict.fromkeys(reasons)), "sources": sources,
                           "evidence": unique_evidence}
+            if v02 and record.get("platform") == "email":
+                task["content_type"] = draft.get("content_type", "task")
             # Validate even a discarded task, so an invented time/source cannot
             # silently turn an invalid response into successful filtering.
+            reason = 'candidate'
             validate_tasks([task], record)
             keep, extra_reasons, filtered = classify(task, draft, record)
+            reason = 'schema'
             if not keep:
                 tasks.warnings.append(filter_audit(task, draft, filtered))
                 continue
             task["review_reasons"] = list(dict.fromkeys(task["review_reasons"] + extra_reasons))
             task["needs_review"] = bool(task["review_reasons"])
             tasks.append(task)
+        reason = 'candidate'
+        reason = "candidate"
         return validate_tasks(tasks, record)
-    except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError):
-        raise AgentError("invalid_agent_output", True) from None
+    except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as error:
+        diagnostic = 'draft_json' if isinstance(error, (ValueError, json.JSONDecodeError)) else None
+        wrapped = AgentError("invalid_agent_output", True, diagnostic)
+        if isinstance(error, ValueError) and str(error) == 'duplicate JSON key':
+            wrapped.telemetry_reason = 'duplicate_keys'
+        elif isinstance(error, json.JSONDecodeError):
+            wrapped.telemetry_reason = 'invalid_json'
+        elif not getattr(wrapped, 'telemetry_reason', None):
+            wrapped.telemetry_reason = reason if reason in {'invalid_json','schema','evidence','time','candidate'} else 'unknown'
+        raise wrapped from None
 
 
 @dataclass
@@ -184,9 +214,65 @@ class ExtractionAdapter:
     client: DraftClient
 
     def extract(self, record, settings, attempt):
-        instructions = load_instructions()
-        response = self.client.generate(instructions, json.dumps(record, ensure_ascii=False), settings, attempt)
-        return compile_drafts(response, record)
+        tasks, _ = self.extract_with_metrics(record, settings, attempt)
+        return tasks
+
+    def extract_with_metrics(self, record, settings, attempt):
+        """Internal worker boundary: return safe timings beside normal tasks."""
+        metrics = {'generation_started': False}
+        instructions = load_instructions(record)
+        started = time.perf_counter()
+        metrics['generation_started'] = True
+        def capture_usage():
+            from .model_usage import TOKEN_FIELDS, FINISH_REASONS, MAX_TOKEN_COUNT
+            summary = getattr(self.client, 'response_metrics', None)
+            if not isinstance(summary, dict):
+                return
+            for field in TOKEN_FIELDS:
+                value = summary.get(field)
+                if type(value) is int and 0 <= value <= MAX_TOKEN_COUNT:
+                    metrics[field] = value
+            if summary.get('finish_reason') in FINISH_REASONS:
+                metrics['finish_reason'] = summary['finish_reason']
+            if summary.get('provider_status') == 429:
+                metrics['provider_status'] = 429
+                seconds = summary.get('retry_after_seconds')
+                if type(seconds) in (int, float) and 0 <= seconds <= 300:
+                    metrics['retry_after_seconds'] = seconds
+        try:
+            response = self.client.generate(instructions, json.dumps(record, ensure_ascii=False), settings, attempt)
+        except BaseException as error:
+            capture_usage()
+            metrics.update(generation_ms=(time.perf_counter() - started) * 1000, generation_ok=False)
+            try:
+                error.telemetry = metrics
+            except Exception:
+                pass
+            raise
+        capture_usage()
+        metrics.update(generation_ms=(time.perf_counter() - started) * 1000, generation_ok=True)
+        started = time.perf_counter()
+        try:
+            tasks = compile_drafts(response, record)
+        except BaseException as error:
+            metrics.update(validation_ms=(time.perf_counter() - started) * 1000, validation_ok=False,
+                           reason=getattr(error, 'telemetry_reason', _diagnostic_reason(error)))
+            try:
+                error.telemetry = metrics
+            except Exception:
+                pass
+            raise
+        metrics.update(validation_ms=(time.perf_counter() - started) * 1000, validation_ok=True)
+        return tasks, metrics
+
+
+def _diagnostic_reason(error):
+    """Map internal fixed diagnostics to coarse, content-free reason labels."""
+    diagnostic = getattr(error, 'diagnostic', None)
+    mapping = {'draft_json': 'invalid_json', 'output_truncated': 'oversized_output',
+               'draft_schema': 'schema', 'draft_evidence': 'evidence',
+               'draft_semantics': 'time'}
+    return mapping.get(diagnostic, 'unknown')
 
 
 @dataclass
