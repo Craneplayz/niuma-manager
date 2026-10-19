@@ -109,11 +109,11 @@ def attach(db, uid, request_id, error):
     return error
 
 
-def reference(db, uid, request_id, error):
+def reference(db, uid, request_id, error, *, attempt_id=None):
     """Bind a durable error to one retained attempt without copying its body."""
-    if not error or environment() != 'test': return error
+    if not error or environment() != 'test' or not attempt_id: return error
     row = db.execute('''SELECT id FROM recognition_attempt_diagnostics
-        WHERE user_id=? AND request_id=? ORDER BY created_at DESC,id DESC LIMIT 1''',(uid,request_id)).fetchone()
+        WHERE user_id=? AND request_id=? AND id=?''',(uid,request_id,attempt_id)).fetchone()
     if row:
         error = dict(error, _diagnostic_attempt=dict(id=row[0],request_id=request_id))
     return error

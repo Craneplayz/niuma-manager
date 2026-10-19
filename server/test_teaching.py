@@ -22,6 +22,27 @@ from ddl_text.tests.teaching_cases import empty_reply
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_competing_stored_result_does_not_inherit_losing_attempt_diagnostics(self):
+        import os
+        from ddl_text.teaching_pipeline import _failure
+        request,synced=self.capture(('explicit-complete',))
+        rid=synced['requests'][0]['request_id'];body=dict(contract_version=teaching.RUN,request_id=rid)
+        entered=False;attempt={}
+        def model(current,ApiError,**kwargs):
+            nonlocal entered
+            if not entered:
+                entered=True
+                with app.connection() as other: teaching.run(other,self.uid,body,True,ApiError)
+                return self.model(current,ApiError)
+            result,policy=self.model(current,ApiError)
+            result.update(status='failed',record_results=[_failure(current['records'][0],'agent_timeout',retryable=True,attempted=True)])
+            return result,policy
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}),patch.object(teaching,'recognize',side_effect=model),app.connection() as db:
+            teaching.run(db,self.uid,body,True,app.ApiError,diagnostic_attempt=attempt)
+            self.assertEqual(attempt,{})
+            saved=json.loads(db.execute('SELECT result FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
+            self.assertEqual(saved['record_results'][0]['error']['code'],'agent_timeout')
+
     def test_upgrade_old_changed_candidate_allows_update_even_when_sync_skips(self):
         request, drafts = example(); self.drafts.update(drafts)
         with app.connection() as db:

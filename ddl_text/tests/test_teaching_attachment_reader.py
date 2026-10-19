@@ -112,9 +112,8 @@ class AttachmentReaderTests(unittest.TestCase):
 
     def test_wholly_hidden_page_is_blank_without_transcription(self):
         out, client = self.read(visibility_pdf_bytes('transparent', visible=False), 'application/pdf')
-        self.assertEqual(out['read_state'], 'complete')
-        self.assertIn('未见可读文字', out['text'])
-        self.assertNotIn('Hidden assignment', out['text'])
+        self.assertEqual(out['read_state'], 'failed')
+        self.assertIsNone(out['text'])
         client.complete_json.assert_not_called()
 
     def test_native_checkpoint_respects_page_cap_without_transcription(self):

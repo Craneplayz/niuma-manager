@@ -16,6 +16,19 @@ import time
 
 
 class PdfTests(unittest.TestCase):
+    def test_large_text_page_does_not_consume_bitmap_budget(self):
+        from reportlab.pdfgen import canvas
+        output=io.BytesIO();document=canvas.Canvas(output,pagesize=(1684,2384))
+        document.drawString(50,2300,'Visible large-page assignment')
+        document.showPage();document.save()
+        data=output.getvalue();asset=pdf_request(data)['records'][0]['attachments'][0]
+        result=read_pdf(data,asset,PdfLimits(native_text=True,max_total_pixels=1,max_encoded_bytes=1))
+        self.assertEqual(result['native_texts'],['Visible large-page assignment'])
+        self.assertEqual(result['pages'],[b'']);self.assertIsNone(result['error'])
+        with self.assertRaises(AgentError) as caught:
+            read_pdf(data,asset,PdfLimits())
+        self.assertEqual(caught.exception.code,'limit_exceeded')
+
     def setUp(self):
         self.data = pdf_bytes(('Submit the synthetic experiment report.', 'Due October 5, 2026 at 09:00.'))
         self.request = pdf_request(self.data)

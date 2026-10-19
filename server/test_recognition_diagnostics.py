@@ -10,6 +10,25 @@ from server import recognition_diagnostics as diagnostics
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_out_of_order_failures_use_exact_attempt_and_never_fall_back(self):
+        with closing(sqlite3.connect(':memory:')) as db,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            diagnostics.initialize(db)
+            with diagnostics.capture(db,'user','request') as first:
+                with diagnostics.capture(db,'user','request') as later:
+                    diagnostics.event('exception',exception_type='TypeError')
+                diagnostics.event('exception',exception_type='ValueError')
+            # Explicit order also covers equal-clock/random-ID ordering on Windows.
+            db.execute('UPDATE recognition_attempt_diagnostics SET created_at=? WHERE id=?',('9999',later['attempt_id']))
+            error={'code':'recognition_failed'}
+            ref=diagnostics.reference(db,'user','request',error,attempt_id=first['attempt_id'])
+            detail=json.loads(diagnostics.hydrate(db,'user',ref)['diagnostics'])
+            self.assertEqual(detail['events'][-1]['exception_type'],'ValueError')
+            self.assertEqual(diagnostics.reference(db,'user','request',error),error)
+            self.assertEqual(diagnostics.reference(db,'other','request',error,attempt_id=first['attempt_id']),error)
+            self.assertEqual(diagnostics.reference(db,'user','other-request',error,attempt_id=first['attempt_id']),error)
+            db.execute('DELETE FROM recognition_attempt_diagnostics WHERE id=?',(first['attempt_id'],))
+            self.assertEqual(diagnostics.reference(db,'user','request',error,attempt_id=first['attempt_id']),error)
+
     def test_failed_attempt_can_be_saved_after_rollback_without_committing_business_data(self):
         with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
             with closing(sqlite3.connect(Path(folder)/'test.sqlite3')) as db:
@@ -32,9 +51,9 @@ class DiagnosticsTests(unittest.TestCase):
     def test_reference_keeps_exact_failure_and_owner_until_retention_expires(self):
         with closing(sqlite3.connect(':memory:')) as db,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
             diagnostics.initialize(db)
-            with diagnostics.capture(db,'user','request'):
+            with diagnostics.capture(db,'user','request') as attempt:
                 diagnostics.event('result',status='failed',code='agent_timeout')
-            error=diagnostics.reference(db,'user','request',{'code':'agent_timeout'})
+            error=diagnostics.reference(db,'user','request',{'code':'agent_timeout'},attempt_id=attempt['attempt_id'])
             self.assertNotIn('diagnostics',error)
             original=diagnostics.hydrate(db,'user',error)['diagnostics']
             with diagnostics.capture(db,'user','request'): diagnostics.event('result',status='success')
@@ -43,6 +62,7 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertNotIn('_diagnostic_attempt',diagnostics.hydrate(db,'other-user',error))
             with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'production'}):
                 self.assertEqual(diagnostics.hydrate(db,'user',error),{'code':'agent_timeout'})
+            db.execute('UPDATE recognition_attempt_diagnostics SET created_at=? WHERE id=?',('2000',attempt['attempt_id']))
             for index in range(199):
                 with diagnostics.capture(db,'user','new:'+str(index)): pass
             self.assertEqual(db.execute('SELECT count(*) FROM recognition_attempt_diagnostics').fetchone()[0],200)

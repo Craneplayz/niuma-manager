@@ -152,12 +152,6 @@ def _render(data, limits):
                 width, height = document.get_page_size(index)
                 if not all(math.isfinite(n) and n > 0 for n in (width, height)):
                     raise AgentError('file_read_failed', False)
-                count = math.ceil(width * limits.scale) * math.ceil(height * limits.scale)
-                if count > limits.max_page_pixels:
-                    raise AgentError('limit_exceeded', False)
-                if pixels + count > limits.max_total_pixels:
-                    batch_full = bool(pages)
-                    raise AgentError('limit_exceeded', False)
                 page = document[index]
                 try:
                     # Be conservative: graphics, annotations, forms and unknown
@@ -175,6 +169,13 @@ def _render(data, limits):
                         pages.append(b'')
                         native_texts.append(text)
                         continue
+                    # Pixel budgets bound bitmap allocation, not safe text extraction.
+                    count = math.ceil(width * limits.scale) * math.ceil(height * limits.scale)
+                    if count > limits.max_page_pixels:
+                        raise AgentError('limit_exceeded', False)
+                    if pixels + count > limits.max_total_pixels:
+                        batch_full = bool(pages)
+                        raise AgentError('limit_exceeded', False)
                     bitmap = page.render(scale=limits.scale, draw_annots=True, may_draw_forms=False)
                     try:
                         with bitmap.to_pil() as image:

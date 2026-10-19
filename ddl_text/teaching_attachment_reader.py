@@ -114,7 +114,8 @@ def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, 
     complete = True
     if mime == DOCX_MIME:
         result = read_docx(data, asset, DocxLimits(read_seconds=remaining(15)), ImageLimits())
-        text = [f"【DOCX 段落 {block['paragraph']}：{block['location']}】\n{block['text']}" for block in result['blocks']]
+        text = [f"【DOCX 段落 {block['paragraph']}：{block['location']}】\n{block['text']}"
+                for block in result['blocks'] if block['text'].strip()]
         pictures = [(f"DOCX 段落 {item['paragraph']} 中的图片", item['png']) for item in result['images']]
         complete = result['coverage']['complete']
         notes.extend(result['coverage']['unread_locations'])
@@ -130,6 +131,8 @@ def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, 
                 image_url=dict(url='data:image/png;base64,' + base64.b64encode(png).decode()))])
         if guard: guard()
         checked = _transcribe_pages(client, parts, settings, expires, guard, diagnostic_event)
+        if not text and all(p['text'].strip() in ('', '未见可读文字。') for p in checked):
+            return dict(read_state='failed', text=None)
         for i, page in enumerate(checked):
             text.append(f'【模型转录：{pictures[i][0]}】\n' + page['text'])
             if page['uncertain']:
@@ -141,8 +144,7 @@ def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, 
         joined = joined[:MAX_TEXT - 40] + '\n【读取缺口】附件文本超过长度限制，后续内容未提供。'
         complete = False
     if not joined:
-        joined = '【读取结果】文件未提取到可读内容，请查看原件。'
-        complete = False
+        return dict(read_state='failed', text=None)
     return dict(read_state='complete' if complete else 'partial', text=joined)
 
 
@@ -234,4 +236,6 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
         suffix = suffix[:MAX_TEXT//2]
         text = text[:MAX_TEXT-len(suffix)]
     text += suffix
+    if not any(p['text'].strip() not in ('', '未见可读文字。') for p in pages):
+        return dict(read_state='failed', text=None)
     return dict(read_state='partial' if suffix else 'complete', text=text)

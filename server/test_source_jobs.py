@@ -19,6 +19,38 @@ from contracts.source_sync import check
 
 
 class SourceJobsTests(unittest.TestCase):
+    def test_background_failure_diagnostic_is_not_replaced_by_later_manual_retry(self):
+        request,_=example();entered=threading.Event();release=threading.Event()
+        count=0;lock=threading.Lock()
+        def model(*args,**kwargs):
+            nonlocal count
+            with lock:
+                count+=1;index=count
+            if index==1:
+                entered.set()
+                if not release.wait(10):raise RuntimeError('test deadline')
+                raise ValueError('synthetic background')
+            raise TypeError('synthetic manual')
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))), \
+                 patch.object(jobs.teaching,'recognize',side_effect=model):
+                run=self.start('diagnostic-race')
+                try:
+                    self.assertTrue(entered.wait(5))
+                    active=self.call('/sources/sync-runs/'+run['run_id'])[1]
+                    rid=active['records'][0]['request_id']
+                    time.sleep(.02)
+                    status,out=self.call('/recognition/retry',dict(contract_version=jobs.teaching.RUN,request_id=rid))
+                    self.assertEqual(status,400,out)
+                finally:
+                    release.set();jobs.wait_for_jobs(app.DB)
+            failed=self.call('/sources/sync-runs/'+run['run_id'])[1]
+            detail=json.loads(failed['records'][0]['error']['diagnostics'])
+            self.assertEqual(detail['events'][-1]['exception_type'],'ValueError')
+            history=self.call('/recognition/diagnostics',dict(request_id=rid))[1]['attempts']
+            self.assertEqual({h['events'][-1]['exception_type'] for h in history},{'ValueError','TypeError'})
+
     setUp = fixture.TeachingIntegrationTests.setUp
     call = fixture.TeachingIntegrationTests.call
     model = fixture.TeachingIntegrationTests.model

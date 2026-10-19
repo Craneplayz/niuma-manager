@@ -11,7 +11,6 @@ import secrets
 import teaching_submission as submission
 import teaching_assets
 import teaching_identity
-from ddl_text.adapters import AgentError
 from server.model_queue import WAIT_ERROR, disconnected
 from server import recognition_diagnostics as diagnostics
 
@@ -213,18 +212,7 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
     diagnostics.event('configuration',model=settings.model,timeout_seconds=settings.timeout_seconds)
     def check_active():
         if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
-    if files:
-        try:
-            teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
-        except AgentError as error:
-            diagnostics.event('attachment_failure',code=error.code,diagnostic=error.diagnostic,schema=error.detail)
-            from ddl_text.teaching_pipeline import _failure, MESSAGES
-            result = dict(contract_version='0.4',classification_mode=CLASSIFICATION_MODE,request_id=request['request_id'],
-                policy_version=policy['version'],status='failed',record_results=[_failure(request['records'][0],
-                    error.code if error.code in MESSAGES else 'agent_unavailable',
-                    retryable=error.retryable,attempted=True,diagnostic=error.diagnostic,detail=error.detail)])
-            result['record_results'][0]['error']['message'] += ' 附件读取未完成；重试本条时将复用已读进度。'
-            return result,policy
+    teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
     check_active()
     result = process_teaching_request(request, client=client, settings=settings,
         verified_snapshot_digests={snapshot_digest(e) for e in request['records']},
@@ -256,7 +244,7 @@ def validate_current_result(request, result, policy, ApiError):
         raise ApiError(502,'教学网结果未通过证据和版本校验，未保存候选') from None
 
 
-def run(db, uid, body, retry, ApiError, *, guard=None):
+def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     import recognition
     if set(body)!={'contract_version','request_id'} or body['contract_version']!=RUN or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
         raise ApiError(400,'教学网运行请求仅接受服务器返回的 request_id')
@@ -272,7 +260,9 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
     if not recognition._ACTIVE.acquire(): raise ApiError(503,WAIT_ERROR)
     try:
         if guard: guard(db)
-        with diagnostics.capture(db,uid,request['request_id']):
+        with diagnostics.capture(db,uid,request['request_id']) as attempt:
+            if diagnostic_attempt is not None and attempt is not None:
+                diagnostic_attempt['id'] = attempt['attempt_id']
             result, policy = recognize(request,ApiError,**attachments)
             for outcome in result['record_results']:
                 failure = outcome.get('error') or {}
@@ -283,7 +273,11 @@ def run(db, uid, body, retry, ApiError, *, guard=None):
         if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
         if submission.controls.token(db,uid,request['request_id'])!=control_token: raise ApiError(409,'作业关联在识别期间发生变化，请重新同步')
         now = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-        if now and (not previous or now['result']!=previous['result']): return
+        if now and (not previous or now['result']!=previous['result']):
+            # The stored result belongs to the competing attempt, not this one.
+            # Without its exact ID, omit diagnostics rather than misattribute it.
+            if diagnostic_attempt is not None: diagnostic_attempt.clear()
+            return
         # Every stored teaching request is a single record. Failed/incomplete attempts have no cards.
         if previous:
             db.execute('UPDATE recognition_batches SET result=?,request=?,fingerprint=? WHERE user_id=? AND request_id=?',

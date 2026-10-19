@@ -565,6 +565,7 @@ def auto_apply(db, uid, request_id, ApiError):
 
 def process_record(path, uid, run_id, request_id, ApiError):
     started = time.monotonic()
+    diagnostic_attempt = {}
     try:
         with connection(path) as db:
             db.execute('BEGIN IMMEDIATE'); guard(db, uid, run_id, ApiError)
@@ -573,7 +574,7 @@ def process_record(path, uid, run_id, request_id, ApiError):
             save(db, run)
         with cancel_if(lambda: cancelled(path, uid, run_id, ApiError)), connection(path) as db:
             teaching.run(db, uid, dict(contract_version=teaching.RUN, request_id=request_id), True, ApiError,
-                         guard=lambda current: guard(current, uid, run_id, ApiError))
+                         guard=lambda current: guard(current, uid, run_id, ApiError), diagnostic_attempt=diagnostic_attempt)
             if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
             guard(db, uid, run_id, ApiError)
             batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
@@ -590,7 +591,8 @@ def process_record(path, uid, run_id, request_id, ApiError):
             else:
                 failure = next((r.get('error') for r in result['record_results'] if r.get('error')), {})
                 item.update(state='failed', error=diagnostics.reference(db,uid,request_id,
-                    error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True))))
+                    error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)),
+                    attempt_id=diagnostic_attempt.get('id')))
             item['seconds'] = round(time.monotonic()-started, 2)
             save(db, run)
     except Exception as exc:
@@ -604,7 +606,7 @@ def process_record(path, uid, run_id, request_id, ApiError):
             item.update(state='failed', seconds=round(time.monotonic()-started, 2),
                         error=error('source_changed' if conflict else 'model_configuration' if configuration else 'recognition_failed',
                                     exc.message if isinstance(exc, ApiError) else '识别暂时失败，已保存的其他结果不受影响。', not (conflict or configuration)))
-            item['error'] = diagnostics.reference(db,uid,request_id,item['error'])
+            item['error'] = diagnostics.reference(db,uid,request_id,item['error'],attempt_id=diagnostic_attempt.get('id'))
             save(db, run)
 
 
@@ -624,7 +626,7 @@ def collect_recovery(db, uid, run, ApiError, path):
         guard(db, uid, run['run_id'], ApiError)
         run = get(db, uid, run['run_id'], ApiError)
         run['error'] = error('collection_failed', exc.message if isinstance(exc,ApiError) else '异常来源暂时无法重新获取，请稍后处理。', True)
-        run['error'] = diagnostics.reference(db,uid,'collect:'+run['run_id'],run['error'])
+        run['error'] = diagnostics.reference(db,uid,'collect:'+run['run_id'],run['error'],attempt_id=attempt['attempt_id'] if attempt else None)
         # A collection outage must not prevent recognition retries that can use
         # their already captured source. Incomplete sources remain unresolved.
         for item in run['records']:
@@ -726,7 +728,7 @@ def process(path, uid, run_id, ApiError):
             run = get(db, uid, run_id, ApiError)
             if run['state'] not in contract.ACTIVE: return
             run['error'] = error('collection_failed', exc.message if isinstance(exc, ApiError) else '同步暂时失败，请重新获取来源。', True)
-            run['error'] = diagnostics.reference(db,uid,'collect:'+run_id,run['error'])
+            run['error'] = diagnostics.reference(db,uid,'collect:'+run_id,run['error'],attempt_id=collection_attempt['attempt_id'] if collection_attempt else None)
             for item in run['records']:
                 if item['state'] in ('queued','running'): item['state']='interrupted'
             save(db, run, 'failed')

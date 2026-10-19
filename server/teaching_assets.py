@@ -41,31 +41,38 @@ def read_capture(folder, requests, *, input_ids=None):
     folder = Path(folder).resolve()
     manifest = folder / 'manifest.json'
     if not manifest.exists(): return {}  # Compatibility with text-only captures.
-    if manifest.is_symlink() or manifest.stat().st_size > 2_000_000: raise ValueError('invalid attachment manifest')
-    entries = json.loads(manifest.read_text(encoding='utf-8'))
-    if not isinstance(entries,list) or len(entries) > 1000: raise ValueError('too many attachments')
+    try:
+        if manifest.is_symlink() or manifest.stat().st_size > 2_000_000: return {}
+        entries = json.loads(manifest.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(entries,list): return {}
     refs = {(e['record']['input_id'], r['ref_id']): r for batch in requests
         for e in batch.get('request',batch)['records'] for r in e['record']['references']}
     assets, seen, files, total = {}, set(), {}, 0
-    for item in entries:
-        if set(item) != {'input_id','ref_id','sha256','mime_type','size_bytes'}: raise ValueError('invalid receipt')
-        if input_ids is not None and item['input_id'] not in input_ids: continue
-        key = (item['input_id'],item['ref_id'])
-        if key in seen or key not in refs or refs[key]['kind'] not in ('attachment','content_image'): raise ValueError('invalid file binding')
-        seen.add(key)
-        if (not isinstance(item['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',item['sha256'])
-            or item['mime_type'] not in MIMES or type(item['size_bytes']) is not int
-            or not 0 < item['size_bytes'] <= MAX_FILE): raise ValueError('invalid file metadata')
-        path = folder / (item['sha256'] + '.bin')
-        if path.is_symlink() or path.resolve().parent != folder or path.stat().st_size != item['size_bytes']: raise ValueError('invalid staged file')
-        data = files.get(item['sha256'])
-        if data is None:
-            with path.open('rb') as file: data = file.read(MAX_FILE+1)
-            total += len(data)
-            if total > 100*1024*1024 or hashlib.sha256(data).hexdigest() != item['sha256']: raise ValueError('file integrity/size mismatch')
-            files[item['sha256']] = data
-        if len(data) != item['size_bytes']: raise ValueError('file integrity/size mismatch')
-        assets.setdefault(item['input_id'],[]).append(dict(item,data=data))
+    for item in entries[:1000]:
+        try:
+            if not isinstance(item,dict) or set(item) != {'input_id','ref_id','sha256','mime_type','size_bytes'}: continue
+            if input_ids is not None and item['input_id'] not in input_ids: continue
+            key = (item['input_id'],item['ref_id'])
+            if key in seen or key not in refs or refs[key]['kind'] not in ('attachment','content_image'): continue
+            if (not isinstance(item['sha256'],str) or not re.fullmatch('[0-9a-f]{64}',item['sha256'])
+                or item['mime_type'] not in MIMES or type(item['size_bytes']) is not int
+                or not 0 < item['size_bytes'] <= MAX_FILE): continue
+            path = folder / (item['sha256'] + '.bin')
+            if path.is_symlink() or path.resolve().parent != folder or path.stat().st_size != item['size_bytes']: continue
+            data = files.get(item['sha256'])
+            if data is None:
+                if total + item['size_bytes'] > 100*1024*1024: continue
+                with path.open('rb') as file: data = file.read(MAX_FILE+1)
+                total += len(data)
+                if len(data) != item['size_bytes'] or hashlib.sha256(data).hexdigest() != item['sha256']: continue
+                files[item['sha256']] = data
+            if len(data) != item['size_bytes']: continue
+            assets.setdefault(item['input_id'],[]).append(dict(item,data=data))
+            seen.add(key)
+        except (OSError, TypeError, ValueError):
+            continue  # Reject this file without failing the other sources/files.
     return assets
 
 
@@ -76,7 +83,7 @@ def identity(assets):
 def store(db, uid, account, request_id, assets):
     # The caller has advanced teaching_sources in this transaction. Bind all
     # retained bytes before pruning, then reclaim retired files before checking
-    # the quota for replacements. A failure rolls back source, refs and bytes.
+    # the quota for replacements. Omit new files that do not fit the quota.
     for a in assets:
         db.execute('INSERT OR REPLACE INTO teaching_asset_refs VALUES(?,?,?,?,?,?)',
             (uid,account,request_id,a['ref_id'],a['sha256'],a['mime_type']))
@@ -86,7 +93,11 @@ def store(db, uid, account, request_id, assets):
             (uid,account,a['sha256'],a['mime_type'])).fetchone()
         if not exists:
             used = db.execute('SELECT coalesce(sum(length(data)),0) FROM teaching_asset_files WHERE user_id=?',(uid,)).fetchone()[0]
-            if used + len(a['data']) > MAX_ACCOUNT: raise ValueError('教学网附件存储超过 200 MiB，请移除旧来源凭据后重新同步')
+            if used + len(a['data']) > MAX_ACCOUNT:
+                db.execute('''DELETE FROM teaching_asset_refs
+                    WHERE user_id=? AND account=? AND request_id=? AND ref_id=?''',
+                    (uid,account,request_id,a['ref_id']))
+                continue
             db.execute('INSERT INTO teaching_asset_files VALUES(?,?,?,?,?,NULL,NULL)',(uid,account,a['sha256'],a['mime_type'],a['data']))
 
 
@@ -152,9 +163,11 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
     for a in assets:
         if guard: guard()
         if a['ref_id'] not in by_ref: raise ValueError('missing attachment binding')
-        if len(a['data']) > MAX_FILE or hashlib.sha256(a['data']).hexdigest() != a['sha256']:
-            raise AgentError('agent_unavailable', False)
         ref = by_ref[a['ref_id']]
+        if (len(a['data']) > MAX_FILE or a['mime_type'] not in MIMES
+                or hashlib.sha256(a['data']).hexdigest() != a['sha256']):
+            ref.update(read_state='failed',text=None)
+            continue
         # Captured text is authentic but not necessarily visible: PDF text layers
         # may include default-off groups, transparent or clipped content. Always
         # check the raw PDF (or its versioned cache); ordinary pages stay local.
@@ -203,11 +216,9 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
                         raise AgentError('file_read_failed',False)
                     checkpoint=result
             except MetadataMismatch:
-                raise AgentError('agent_unavailable', False) from None
+                result = dict(read_state='failed', text=None)
             except AgentError as error:
-                if error.retryable or error.code in ('agent_unavailable','invalid_agent_output'):
-                    raise  # Persisted as a retryable record failure, never as no_tasks.
-                # Broken/unsupported/oversized files remain explicit evidence gaps.
+                diagnostics.event('attachment_skipped',code=error.code,diagnostic=error.diagnostic)
                 result = dict(read_state='unsupported' if error.code=='reader_unsupported' else 'failed', text=None)
             if result['read_state'] in ('complete','partial'):
                 cached=dict(result,pdf_pages_read=pages_read) if a['mime_type']=='application/pdf' else result
@@ -229,4 +240,9 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
             if ref.get('text') and not pdf: ref['read_state']='partial'
             else: ref.update(read_state='failed',text=None)
         else: ref.update(merged)
+    # Omit unavailable attachments from this execution's evidence, rather than
+    # pretending they were read. The immutable captured source remains intact.
+    record['references'] = [ref for ref in record['references']
+        if ref['kind'] not in ('attachment','content_image')
+        or ref['read_state']=='complete' and ref.get('text') and ref['text'].strip()]
     check_request(request)
