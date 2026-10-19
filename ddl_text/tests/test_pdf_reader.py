@@ -11,7 +11,7 @@ from ddl_text.image_reader import MetadataMismatch
 from ddl_text.pdf_reader import PdfLimits, read_pdf
 from ddl_text.media_pipeline import MediaLimits, process_media_request, _parts, _prepare
 from ddl_text.tests.media_cases import FakeMediaClient, good_draft, memory_loader
-from ddl_text.tests.pdf_cases import pdf_bytes, pdf_request
+from ddl_text.tests.pdf_cases import pdf_bytes, pdf_request, visibility_pdf_bytes
 import time
 
 
@@ -102,6 +102,36 @@ class PdfTests(unittest.TestCase):
         self.assertTrue(limited['batch_full']);self.assertEqual(limited['error'],'limit_exceeded')
         last=read_pdf(self.data,self.asset,PdfLimits(start_page=1,max_pages=1))
         self.assertFalse(last['batch_full']);self.assertIsNone(last['error'])
+
+    def test_native_text_filters_hidden_objects_without_using_render_budget(self):
+        for kind in ('offpage', 'transparent', 'transparent_stroke', 'transparent_fill_stroke', 'invisible'):
+            with self.subTest(kind=kind):
+                data = visibility_pdf_bytes(kind)
+                asset = pdf_request(data)['records'][0]['attachments'][0]
+                result = read_pdf(data, asset, PdfLimits(native_text=True, max_encoded_bytes=1))
+                self.assertEqual(result['native_texts'], ['Visible information'])
+                self.assertEqual(result['pages'], [b''])
+                self.assertIsNone(result['error'])
+
+    def test_native_text_uses_crop_box_and_page_rotation(self):
+        data = visibility_pdf_bytes('outside_crop')
+        writer = PdfWriter(clone_from=io.BytesIO(data))
+        writer.pages[0].cropbox.lower_left = (10, 240)
+        writer.pages[0].cropbox.upper_right = (200, 280)
+        writer.pages[0].rotate(90)
+        output = io.BytesIO(); writer.write(output)
+        data = output.getvalue(); asset = pdf_request(data)['records'][0]['attachments'][0]
+        result = read_pdf(data, asset, PdfLimits(native_text=True, max_encoded_bytes=1))
+        self.assertEqual(result['native_texts'], ['Visible information'])
+
+    def test_ambiguous_text_visibility_keeps_rendered_page(self):
+        for kind in ('translucent', 'clip', 'partial', 'white'):
+            with self.subTest(kind=kind):
+                data = visibility_pdf_bytes(kind)
+                asset = pdf_request(data)['records'][0]['attachments'][0]
+                result = read_pdf(data, asset, PdfLimits(native_text=True))
+                self.assertEqual(result['native_texts'], [None])
+                self.assertTrue(result['pages'][0].startswith(b'\x89PNG'))
 
     def test_corrupt_pdf_is_read_failure(self):
         data = b'%PDF-1.7\nbroken'

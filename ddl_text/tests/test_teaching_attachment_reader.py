@@ -10,7 +10,7 @@ from ddl_text.docx_reader import DOCX_MIME
 from ddl_text.teaching_attachment_reader import MAX_TEXT, read_attachment
 from ddl_text.tests.docx_cases import package, paragraph, drawing, relationship
 from ddl_text.tests.media_cases import image_bytes
-from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
+from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes, visibility_pdf_bytes
 
 TEXT = '请于2026年11月17日23:30前提交合成实验报告。'
 
@@ -30,6 +30,58 @@ class AttachmentReaderTests(unittest.TestCase):
         from ddl_text.tests.pdf_cases import pdf_bytes as plain_pdf
         out,client=self.read(plain_pdf(tuple('Native page '+str(i) for i in range(17))),'application/pdf')
         self.assertEqual(out['read_state'],'complete');self.assertIn('Native page 16',out['text'])
+        client.complete_json.assert_not_called()
+
+    def test_hidden_text_does_not_add_visual_calls_to_mixed_pdf(self):
+        for kind in ('offpage', 'transparent', 'invisible'):
+            with self.subTest(kind=kind):
+                out, client = self.read(visibility_pdf_bytes(kind, mixed=True), 'application/pdf')
+                self.assertEqual(out['read_state'], 'complete')
+                self.assertIn('Visible information', out['text'])
+                self.assertNotIn('Hidden assignment', out['text'])
+                self.assertIn('原件文字：第 1 页', out['text'])
+                self.assertIn('原件文字：第 3 页', out['text'])
+                client.complete_json.assert_called_once()
+                parts = client.complete_json.call_args.args[1]
+                self.assertEqual(len(parts), 2)
+                self.assertTrue(parts[0]['text'].startswith('第 2 页'))
+
+    def test_ambiguous_visibility_adds_only_the_affected_visual_page(self):
+        for kind in ('translucent', 'clip', 'partial'):
+            with self.subTest(kind=kind):
+                out, client = self.read(visibility_pdf_bytes(kind, mixed=True), 'application/pdf')
+                self.assertEqual(out['read_state'], 'complete')
+                self.assertIn('模型转录：第 1 页', out['text'])
+                self.assertIn('原件文字：第 3 页', out['text'])
+                client.complete_json.assert_called_once()
+                parts = client.complete_json.call_args.args[1]
+                self.assertEqual(len(parts), 4)
+                self.assertTrue(parts[0]['text'].startswith('第 1 页'))
+                self.assertTrue(parts[2]['text'].startswith('第 2 页'))
+
+    def test_wholly_hidden_page_is_blank_without_transcription(self):
+        out, client = self.read(visibility_pdf_bytes('transparent', visible=False), 'application/pdf')
+        self.assertEqual(out['read_state'], 'complete')
+        self.assertIn('未见可读文字', out['text'])
+        self.assertNotIn('Hidden assignment', out['text'])
+        client.complete_json.assert_not_called()
+
+    def test_native_checkpoint_respects_page_cap_without_transcription(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes as plain_pdf
+        data = plain_pdf(tuple('Native page '+str(i+1) for i in range(129)))
+        asset = dict(mime_type='application/pdf', sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data))
+        client = Mock(); checkpoints = []
+        checkpoint = read_attachment(data, asset, client, Settings(), expires=time.monotonic()+60,
+                                     save_checkpoint=checkpoints.append, single_pdf_batch=True)
+        self.assertEqual(len(checkpoint['pages']), 6)
+        self.assertTrue(all(page.get('method') == 'native' for page in checkpoint['pages']))
+        out = read_attachment(data, asset, client, Settings(), expires=time.monotonic()+60,
+                              checkpoint=checkpoint, save_checkpoint=checkpoints.append)
+        self.assertEqual(out['read_state'], 'partial')
+        self.assertIn('【原件文字：第 128 页】', out['text'])
+        self.assertNotIn('【原件文字：第 129 页】', out['text'])
+        self.assertIn('第 129 页至第 129 页未读取', out['text'])
+        self.assertEqual(len(checkpoints[-1]['pages']), 128)
         client.complete_json.assert_not_called()
 
     def setUp(self):

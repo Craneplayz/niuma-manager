@@ -74,6 +74,13 @@ def identity(assets):
 
 
 def store(db, uid, account, request_id, assets):
+    # The caller has advanced teaching_sources in this transaction. Bind all
+    # retained bytes before pruning, then reclaim retired files before checking
+    # the quota for replacements. A failure rolls back source, refs and bytes.
+    for a in assets:
+        db.execute('INSERT OR REPLACE INTO teaching_asset_refs VALUES(?,?,?,?,?,?)',
+            (uid,account,request_id,a['ref_id'],a['sha256'],a['mime_type']))
+    prune(db,uid)
     for a in assets:
         exists = db.execute('SELECT 1 FROM teaching_asset_files WHERE user_id=? AND account=? AND sha256=? AND mime_type=?',
             (uid,account,a['sha256'],a['mime_type'])).fetchone()
@@ -81,8 +88,6 @@ def store(db, uid, account, request_id, assets):
             used = db.execute('SELECT coalesce(sum(length(data)),0) FROM teaching_asset_files WHERE user_id=?',(uid,)).fetchone()[0]
             if used + len(a['data']) > MAX_ACCOUNT: raise ValueError('教学网附件存储超过 200 MiB，请移除旧来源凭据后重新同步')
             db.execute('INSERT INTO teaching_asset_files VALUES(?,?,?,?,?,NULL,NULL)',(uid,account,a['sha256'],a['mime_type'],a['data']))
-        db.execute('INSERT OR REPLACE INTO teaching_asset_refs VALUES(?,?,?,?,?,?)',
-            (uid,account,request_id,a['ref_id'],a['sha256'],a['mime_type']))
 
 
 def clear(db, uid):

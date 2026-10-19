@@ -2,6 +2,7 @@
 import hashlib
 import io
 import math
+from ctypes import byref, c_int, c_uint
 from dataclasses import dataclass
 
 from .adapters import AgentError
@@ -38,6 +39,72 @@ class PdfLimits:
             value = getattr(self, key)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value <= maximum:
                 raise ValueError('invalid_pdf_limit')
+
+
+def _native_text(page, pdfium):
+    """Reuse only visible, opaque text; the worker never saves its local edits."""
+    if pdfium.raw.FPDFPage_GetAnnotCount(page) != 0:
+        return None
+    objects = list(page.get_objects(max_depth=1))
+    if not objects or any(obj.type != pdfium.raw.FPDF_PAGEOBJ_TEXT for obj in objects):
+        return None
+    box = page.get_bbox()
+    if not all(math.isfinite(value) for value in box):
+        return None
+    left, bottom, right, top = box
+    if left >= right or bottom >= top:
+        return None
+    hidden = []
+    for obj in objects:
+        bounds = obj.get_bounds()
+        if not all(math.isfinite(value) for value in bounds):
+            return None
+        l, b, r, t = bounds
+        mode = pdfium.raw.FPDFTextObj_GetTextRenderMode(obj)
+        active = c_int()
+        if not pdfium.raw.FPDFPageObj_GetIsActive(obj, byref(active)):
+            return None
+        if not active.value or mode == 3 or r <= left or l >= right or t <= bottom or b >= top:
+            hidden.append(obj)
+            continue
+        if mode not in (0, 1, 2):
+            return None  # Text clipping modes can affect later objects too.
+        colors = []
+        for get_color in ([pdfium.raw.FPDFPageObj_GetFillColor] if mode == 0 else
+                          [pdfium.raw.FPDFPageObj_GetStrokeColor] if mode == 1 else
+                          [pdfium.raw.FPDFPageObj_GetFillColor, pdfium.raw.FPDFPageObj_GetStrokeColor]):
+            rgba = [c_uint() for _ in range(4)]
+            if not get_color(obj, *(byref(value) for value in rgba)):
+                return None
+            colors.append(tuple(value.value for value in rgba))
+        if all(color[3] == 0 for color in colors):
+            hidden.append(obj)
+            continue
+        # Cropped glyphs, nontrivial clipping and compositing need the visible
+        # page. Ordinary text and wholly hidden objects need no remote call.
+        if (l < left or b < bottom or r > right or t > top
+                or pdfium.raw.FPDFClipPath_CountPaths(pdfium.raw.FPDFPageObj_GetClipPath(obj)) >= 0
+                or pdfium.raw.FPDFPageObj_HasTransparency(obj)
+                or any(color[:3] == (255, 255, 255) for color in colors if color[3])):
+            return None
+    # GetTextRange includes off-page and transparent text. Remove only objects
+    # proven invisible before opening the textpage; rendered fallback is unchanged.
+    for obj in hidden:
+        page.remove_obj(obj)
+        obj.close()
+    if len(hidden) == len(objects):
+        return '未见可读文字。'
+    textpage = page.get_textpage()
+    try:
+        if textpage.count_chars() > 50000:
+            return None
+        candidate = textpage.get_text_range()
+    finally:
+        textpage.close()
+    if (candidate.strip() and len(candidate) <= 50000 and '\ufffd' not in candidate
+            and all(c.isprintable() or c in '\n\r\t' for c in candidate)):
+        return candidate.strip()
+    return None
 
 
 def _render(data, limits):
@@ -79,19 +146,9 @@ def _render(data, limits):
                     # object types still require the visible page. Plain text
                     # pages in a mixed PDF need no model transcription.
                     text = None
-                    if limits.native_text and pdfium.raw.FPDFPage_GetAnnotCount(page) == 0:
+                    if limits.native_text:
                         try:
-                            objects = list(page.get_objects(max_depth=1))
-                            if objects and all(o.type == pdfium.raw.FPDF_PAGEOBJ_TEXT
-                                    and pdfium.raw.FPDFTextObj_GetTextRenderMode(o) in (0, 1, 2) for o in objects):
-                                textpage = page.get_textpage()
-                                try:
-                                    candidate = textpage.get_text_range()
-                                finally:
-                                    textpage.close()
-                                if (candidate.strip() and len(candidate) <= 50000 and '\ufffd' not in candidate
-                                        and all(c.isprintable() or c in '\n\r\t' for c in candidate)):
-                                    text = candidate.strip()
+                            text = _native_text(page, pdfium)
                         except Exception:
                             # An optional text shortcut must not make an otherwise
                             # renderable page unreadable.

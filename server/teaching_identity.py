@@ -41,6 +41,7 @@ def protect_source_changes(db, uid, request_id, cards):
     if previous:
         for card in cards:
             if card['notice_type'] == 'create':
+                card['notice_type'] = 'uncertain'
                 card['needs_review'] = True
                 card['review_reasons'] = list(dict.fromkeys(card['review_reasons'] + [CHANGED_SOURCE_REVIEW]))
     return cards

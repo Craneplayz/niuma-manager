@@ -167,10 +167,9 @@ def register(db, uid, username, requests, *, assets=None):
                 request = dict(contract_version='0.4', request_id='teaching:'+secrets.token_hex(16), records=[entry])
                 db.execute('INSERT INTO teaching_sources VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,account,input_id) DO UPDATE SET digest=excluded.digest,request_id=excluded.request_id,request=excluded.request',
                     (uid, account(username), r['input_id'], digest, request['request_id'], json.dumps(request)))
-            # Bind the new request first: pruning before this deletes an unchanged
-            # file and its validated read cache when its last old reference retires.
+            # Store retains unchanged files and frees retired files before quota
+            # checks, atomically with the source revision above.
             teaching_assets.store(db,uid,account(username),request['request_id'],files)
-            teaching_assets.prune(db,uid)
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
                                        old_request_id=row['request_id'] if row else None,source=entry['source'],
                                        assets=teaching_assets.identity(files))

@@ -22,6 +22,47 @@ from ddl_text.tests.teaching_cases import empty_reply
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_changed_source_allows_explicit_update_or_create_without_overwriting_decisions(self):
+        request,drafts=example();self.drafts.update(drafts)
+        with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+        first=self.run_request(sync['requests'][0])['items'][0]
+        status,out=self.call('/recognition/candidates/'+first['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+        self.assertEqual(status,200,out)
+        tasks=self.call('/workspace')[1]['tasks']['value']
+        tasks[0].update(title='用户已修改的任务',status='completed',completedAt='2026-10-10')
+        original=deepcopy(tasks[0])
+        with app.connection() as db:
+            db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',(json.dumps(tasks),self.uid))
+            decision=dict(db.execute('SELECT state,version,resolution FROM recognition_candidates WHERE id=?',(first['id'],)).fetchone())
+        for action in ('update','create'):
+            request['records'][0]['record']['text']+=' 补充要求。'
+            with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+            item=self.run_request(sync['requests'][0])['items'][0]
+            self.assertEqual(item['candidate']['notice_type'],'uncertain')
+            self.assertTrue(item['candidate']['needs_review'])
+            saved=self.call('/workspace')[1]['tasks']
+            self.assertEqual(saved['value'],[original])
+            endpoint='/recognition/candidates/'+item['id']+'/resolve'
+            self.assertEqual(self.call(endpoint,dict(action='create',auto_apply=True,version=1))[0],400)
+            status,out=self.call(endpoint,dict(action=action,reviewed=True,version=1,tasks_version=saved['version'],
+                target_id=original['id'] if action=='update' else None,
+                draft=dict(title='核对后'+action,description='已核对变更要求',due=None)))
+            self.assertEqual(status,200,out)
+            tasks=self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(len(tasks),1 if action=='update' else 2)
+            self.assertEqual(tasks[0]['id'],original['id'])
+            self.assertEqual(tasks[0]['status'],'completed')
+            self.assertEqual(tasks[0]['completedAt'],'2026-10-10')
+            if action=='update':
+                self.assertEqual(tasks[0]['description'],'已核对变更要求')
+                self.assertEqual(len(tasks[0]['recognitionHistory']),2)
+                original=deepcopy(tasks[0])
+            else:
+                self.assertEqual(tasks[0],original)
+                self.assertNotEqual(tasks[1]['id'],original['id'])
+            with app.connection() as db:
+                self.assertEqual(dict(db.execute('SELECT state,version,resolution FROM recognition_candidates WHERE id=?',(first['id'],)).fetchone()),decision)
+
     def test_changed_source_never_auto_duplicates_prior_task_or_deleted_task(self):
         request,drafts=example();self.drafts.update(drafts)
         for version in range(3):

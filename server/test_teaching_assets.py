@@ -81,7 +81,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
                        ('synthetic-version',json.dumps(dict(read_state='complete',text=TEXT)),self.uid))
         original['records'][0]['record']['text']+=' Extra requirement'
         input_id=original['records'][0]['record']['input_id']
-        with app.connection() as db:
+        with patch.object(teaching_assets,'MAX_ACCOUNT',len(files[0]['data'])),app.connection() as db:
             changed=teaching.register(db,self.uid,'synthetic-course-user',[original],assets={input_id:files})
             newer=changed['requests'][0]['request_id']
             self.assertNotEqual(newer,rid)
@@ -89,6 +89,55 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(saved[0]['cache_version'],'synthetic-version')
             self.assertEqual(json.loads(saved[0]['result'])['text'],TEXT)
             self.assertEqual(teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid),[])
+
+    def test_replacing_attachment_near_quota_reclaims_retired_bytes_through_http(self):
+        old=package(paragraph(TEXT));new=package(paragraph(TEXT+'新的提交要求。'))
+        with patch.object(teaching_assets,'MAX_ACCOUNT',max(len(old),len(new))):
+            rid=self.sync(old)['requests'][0]['request_id']
+            newer=self.sync(new)['requests'][0]['request_id']
+        self.assertNotEqual(newer,rid)
+        with app.connection() as db:
+            self.assertEqual(teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid),[])
+            files=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),newer)
+            self.assertEqual([item['data'] for item in files],[new])
+            self.assertEqual(db.execute('SELECT sum(length(data)) FROM teaching_asset_files').fetchone()[0],len(new))
+
+    def test_mixed_attachment_revision_reclaims_quota_and_keeps_unchanged_cache(self):
+        request,_=example();record=request['records'][0]['record']
+        record['references']=[dict(ref_id=ref,kind='attachment',label=ref,read_state='unread',text=None)
+                              for ref in ('keep','replace')]
+        def asset(ref,data):
+            return dict(ref_id=ref,sha256=hashlib.sha256(data).hexdigest(),mime_type='application/pdf',data=data)
+        keep=asset('keep',b'keep');old=asset('replace',b'old!');new=asset('replace',b'new!')
+        account=teaching.account('synthetic-course-user');input_id=record['input_id']
+        with patch.object(teaching_assets,'MAX_ACCOUNT',8),app.connection() as db:
+            first=teaching.register(db,self.uid,'synthetic-course-user',[request],assets={input_id:[keep,old]})['requests'][0]['request_id']
+            db.execute('UPDATE teaching_asset_files SET cache_version=?,result=? WHERE sha256=?',
+                ('synthetic-version',json.dumps(dict(read_state='complete',text=TEXT)),keep['sha256']))
+            second=teaching.register(db,self.uid,'synthetic-course-user',[request],assets={input_id:[new,keep]})['requests'][0]['request_id']
+            self.assertNotEqual(first,second)
+            files={item['ref_id']:item for item in teaching_assets.load(db,self.uid,account,second)}
+            self.assertEqual(files['replace']['data'],b'new!')
+            self.assertEqual(files['keep']['cache_version'],'synthetic-version')
+            self.assertEqual(json.loads(files['keep']['result'])['text'],TEXT)
+            self.assertEqual(db.execute('SELECT sum(length(data)) FROM teaching_asset_files').fetchone()[0],8)
+
+    def test_attachment_over_quota_rolls_back_pruning_and_source_revision(self):
+        old=package(paragraph(TEXT));new=package(paragraph(TEXT+'新的提交要求。'))
+        rid=self.sync(old)['requests'][0]['request_id']
+        with app.connection() as db:
+            original=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            db.execute('UPDATE teaching_asset_files SET cache_version=?,result=? WHERE user_id=?',
+                ('synthetic-version',json.dumps(dict(read_state='complete',text=TEXT)),self.uid))
+        with patch.object(teaching_assets,'MAX_ACCOUNT',len(new)-1):
+            self.assertIn('存储限制',self.sync(new,expected_status=413)['error'])
+        with app.connection() as db:
+            self.assertEqual(teaching.resolve_snapshot(db,self.uid,rid,app.ApiError),original)
+            files=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid)
+            self.assertEqual([item['data'] for item in files],[old])
+            self.assertEqual(files[0]['cache_version'],'synthetic-version')
+            self.assertEqual(json.loads(files[0]['result'])['text'],TEXT)
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_files').fetchone()[0],1)
 
     def setUp(self):
         harness.TeachingIntegrationTests.setUp(self)
@@ -98,7 +147,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
     tearDown=harness.TeachingIntegrationTests.tearDown
     call=harness.TeachingIntegrationTests.call
 
-    def sync(self, data=None, mime=DOCX_MIME, malformed=False, pdf_text=None):
+    def sync(self, data=None, mime=DOCX_MIME, malformed=False, pdf_text=None, expected_status=200):
         if not hasattr(self,'default_docx'): self.default_docx=package(paragraph(TEXT))
         data=data or self.default_docx  # Reuse identical ZIP bytes, including entry timestamps.
         request,_=example(); r=request['records'][0]['record']
@@ -117,7 +166,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             status,out=self.call('/sources/sync',dict(sources=['teaching_web']))
         if malformed:
             self.assertEqual(status,502,out);return
-        self.assertEqual(status,200,out)
+        self.assertEqual(status,expected_status,out)
         return out
 
     def final_model(self,request,**kwargs):

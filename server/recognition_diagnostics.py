@@ -44,15 +44,16 @@ def event(stage, **fields):
 
 @contextmanager
 def capture(db, uid, request_id):
+    """Yield an attempt that callers can persist again after a business rollback."""
     if environment() != 'test':
-        yield
+        yield None
         return
     started = time.monotonic()
     attempt = dict(attempt_id=secrets.token_hex(12),request_id=request_id,revision=revision(),
                    started_at=datetime.now(timezone.utc).isoformat(),events=[])
     token = _active.set(attempt)
     try:
-        yield
+        yield attempt
     except Exception as error:
         event('exception',code=getattr(error,'code','recognition_failed'),exception_type=type(error).__name__,
               diagnostic=getattr(error,'diagnostic',None),schema=getattr(error,'detail',None))
@@ -68,19 +69,30 @@ def capture(db, uid, request_id):
             del attempt['events'][1]
             attempt['omitted_events'] = attempt.get('omitted_events',0)+1
         _active.reset(token)
-        def save(connection):
-            initialize(connection)
-            connection.execute('INSERT INTO recognition_attempt_diagnostics VALUES(?,?,?,?,?)',
-                (attempt['attempt_id'],uid,request_id,attempt['started_at'],json.dumps(attempt)))
-            connection.execute('''DELETE FROM recognition_attempt_diagnostics WHERE user_id=? AND id NOT IN (
-                SELECT id FROM recognition_attempt_diagnostics WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT 200)''',(uid,uid))
-        try:
-            path = db.execute('PRAGMA database_list').fetchone()[2]
-            if not path or db.in_transaction: save(db)
-            else:
-                with closing(sqlite3.connect(path,timeout=5)) as connection, connection: save(connection)
-        except sqlite3.Error:
-            pass  # Diagnostics must not obscure the original failure.
+        persist(db, uid, attempt)
+
+
+def persist(db, uid, attempt):
+    """Idempotently save after releasing any transaction that failed with the attempt.
+
+    A capture cannot commit or roll back its caller's business transaction. If
+    that transaction is rolled back, the failure handler saves the yielded
+    attempt again before starting its error-receipt transaction.
+    """
+    if environment() != 'test' or attempt is None: return
+    def save(connection):
+        initialize(connection)
+        connection.execute('INSERT OR IGNORE INTO recognition_attempt_diagnostics VALUES(?,?,?,?,?)',
+            (attempt['attempt_id'],uid,attempt['request_id'],attempt['started_at'],json.dumps(attempt)))
+        connection.execute('''DELETE FROM recognition_attempt_diagnostics WHERE user_id=? AND id NOT IN (
+            SELECT id FROM recognition_attempt_diagnostics WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT 200)''',(uid,uid))
+    try:
+        path = db.execute('PRAGMA database_list').fetchone()[2]
+        if not path or db.in_transaction: save(db)
+        else:
+            with closing(sqlite3.connect(path,timeout=5)) as connection, connection: save(connection)
+    except sqlite3.Error:
+        pass  # Diagnostics must not obscure the original failure.
 
 
 def attempts(db, uid, request_id):
@@ -94,4 +106,43 @@ def attach(db, uid, request_id, error):
     history = attempts(db,uid,request_id)
     if history:
         error = dict(error, diagnostics=json.dumps(history[0],ensure_ascii=False,indent=2))
+    return error
+
+
+def reference(db, uid, request_id, error):
+    """Bind a durable error to one retained attempt without copying its body."""
+    if not error or environment() != 'test': return error
+    row = db.execute('''SELECT id FROM recognition_attempt_diagnostics
+        WHERE user_id=? AND request_id=? ORDER BY created_at DESC,id DESC LIMIT 1''',(uid,request_id)).fetchone()
+    if row:
+        error = dict(error, _diagnostic_attempt=dict(id=row[0],request_id=request_id))
+    return error
+
+
+def compact(error):
+    """Replace legacy embedded copies with references; never resurrect pruned data."""
+    if not error or 'diagnostics' not in error: return error
+    error = dict(error)
+    detail = error.pop('diagnostics')
+    try:
+        attempt = json.loads(detail)
+        if (isinstance(attempt,dict) and isinstance(attempt.get('attempt_id'),str)
+                and re.fullmatch(r'[0-9a-f]{24}',attempt['attempt_id'])
+                and isinstance(attempt.get('request_id'),str) and len(attempt['request_id'])<=256):
+            error['_diagnostic_attempt'] = dict(id=attempt['attempt_id'],request_id=attempt['request_id'])
+    except (TypeError,ValueError):
+        pass
+    return error
+
+
+def hydrate(db, uid, error):
+    """Present the bound attempt only while it remains in the owner's history."""
+    if not error: return error
+    error = dict(compact(error))
+    ref = error.pop('_diagnostic_attempt',None)
+    if (environment() != 'test' or db is None or uid is None or not isinstance(ref,dict)
+            or not isinstance(ref.get('request_id'),str) or not isinstance(ref.get('id'),str)): return error
+    row = db.execute('''SELECT detail FROM recognition_attempt_diagnostics
+        WHERE user_id=? AND request_id=? AND id=?''',(uid,ref.get('request_id'),ref.get('id'))).fetchone()
+    if row: error['diagnostics'] = json.dumps(json.loads(row[0]),ensure_ascii=False,indent=2)
     return error
