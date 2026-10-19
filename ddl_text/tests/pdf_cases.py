@@ -80,6 +80,28 @@ def visibility_pdf_bytes(kind, *, mixed=False, visible=True):
     return output.getvalue()
 
 
+def layered_pdf_bytes(*, membership=False):
+    """Default-off OCG, optionally referenced via an OCMD inside another mark."""
+    from pypdf import PdfWriter
+    from pypdf.generic import DictionaryObject, NameObject, ArrayObject, TextStringObject, DecodedStreamObject
+    writer = PdfWriter(clone_from=io.BytesIO(pdf_bytes(('Visible information', 'Ordinary second page'))))
+    group = writer._add_object(DictionaryObject({NameObject('/Type'):NameObject('/OCG'),
+                                                NameObject('/Name'):TextStringObject('Hidden layer')}))
+    writer._root_object[NameObject('/OCProperties')] = DictionaryObject({
+        NameObject('/OCGs'):ArrayObject([group]), NameObject('/D'):DictionaryObject({
+            NameObject('/BaseState'):NameObject('/ON'), NameObject('/OFF'):ArrayObject([group])})})
+    ref = writer._add_object(DictionaryObject({NameObject('/Type'):NameObject('/OCMD'),
+        NameObject('/OCGs'):ArrayObject([group]), NameObject('/P'):NameObject('/AllOn')})) if membership else group
+    page = writer.pages[0]
+    page['/Resources'][NameObject('/Properties')] = DictionaryObject({NameObject('/HiddenOC'):ref})
+    stream = DecodedStreamObject()
+    stream.set_data(page.get_contents().get_data() + b'\n/Span BMC /OC /HiddenOC BDC '
+                    b'BT /F1 12 Tf 30 700 Td (Hidden assignment due Friday) Tj ET EMC EMC\n')
+    page[NameObject('/Contents')] = writer._add_object(stream)
+    output = io.BytesIO(); writer.write(output)
+    return output.getvalue()
+
+
 def pdf_request(data):
     request, _ = request_for(data)
     request['records'][0]['attachments'][0].update(mime_type='application/pdf', file_name='synthetic.pdf')

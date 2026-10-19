@@ -15,6 +15,7 @@ from .image_reader import ImageLimits, read_image
 from .pdf_reader import PDF_MIME, PdfLimits, read_pdf
 from .docx_reader import DOCX_MIME, DocxLimits, read_docx
 from .runner import run_attempt
+from .extraction import _object
 
 SKILL = Path(__file__).parent / 'skills/teaching-file-reading/SKILL.md'
 MAX_TEXT = 50000
@@ -43,6 +44,57 @@ def cache_version(settings):
         ('image_reader.py', 'pdf_reader.py', 'docx_reader.py', 'media_worker.py')]
     data = b''.join(p.read_bytes() for p in files)
     return hashlib.sha256(data + (settings.model + settings.endpoint).encode()).hexdigest()
+
+
+def _checked_pages(raw, count):
+    """Accept the whole ordered batch or none; never guess a missing page."""
+    try:
+        output = json.loads(raw, object_pairs_hook=_object,
+                            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
+        if not isinstance(output, dict) or set(output) != {'pages'}:
+            raise ValueError()
+        batch = output['pages']
+        if not isinstance(batch, list) or len(batch) != count:
+            raise ValueError()
+        checked = []
+        for index, page in enumerate(batch, 1):
+            if (not isinstance(page, dict) or set(page) - {'index', 'text', 'uncertain', 'note'}
+                    or type(page.get('index')) is not int or page['index'] != index
+                    or not isinstance(page.get('text'), str) or len(page['text']) > MAX_TEXT
+                    or type(page.get('uncertain')) is not bool):
+                raise ValueError()
+            note = page.get('note', '')
+            if not isinstance(note, str) or len(note) > 1000:
+                raise ValueError()
+            checked.append(dict(text=page['text'].strip() or '未见可读文字。', uncertain=page['uncertain'], note=note))
+        return checked
+    except (ValueError, KeyError, TypeError):
+        raise AgentError('invalid_agent_output', True, 'attachment_schema') from None
+
+
+def _transcribe_pages(client, parts, settings, expires, guard=None, diagnostic_event=None):
+    """One format correction inside the same 60-second batch budget.
+
+    Provider failures/timeouts propagate to the bounded batch-size recovery.
+    A partial or ambiguous but well-shaped transcript is kept as partial; it
+    must not be turned into confidence by repeated requests.
+    """
+    end = min(expires, time.monotonic() + min(60, settings.timeout_seconds))
+    instructions = SKILL.read_text(encoding='utf-8')
+    emit = diagnostic_event or (lambda *args, **kwargs: None)
+    for attempt in range(2):
+        if guard: guard()
+        remaining = end - time.monotonic()
+        if remaining <= 0: raise AgentError('agent_timeout', True)
+        raw = transcribe(client, instructions, parts, replace(settings, timeout_seconds=remaining))
+        try:
+            return _checked_pages(raw, len(parts)//2)
+        except AgentError:
+            if attempt or time.monotonic() >= end: raise
+            emit('attachment_format_retry', code='invalid_agent_output', diagnostic='attachment_schema')
+            instructions += ('\n上次响应未通过格式校验。请重新读取本批图片，只返回完整的 pages JSON；'
+                             '每张图片恰好一项，index 从 1 连续递增，text/note 为字符串，uncertain 为布尔值。'
+                             '不要省略页面、编造文字或把读取缺口改成确定内容。')
 
 
 def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, save_checkpoint=None,
@@ -77,22 +129,12 @@ def read_attachment(data, asset, client, settings, *, expires, checkpoint=None, 
             parts.extend([dict(type='text', text=location), dict(type='image_url',
                 image_url=dict(url='data:image/png;base64,' + base64.b64encode(png).decode()))])
         if guard: guard()
-        raw = transcribe(client, SKILL.read_text(encoding='utf-8'), parts,
-            replace(settings, timeout_seconds=remaining(60)))
-        try:
-            output = json.loads(raw)
-            if not isinstance(output,dict) or not isinstance(output.get('pages'),list) or len(output['pages']) != len(pictures): raise ValueError()
-            for i, page in enumerate(output['pages']):
-                if not isinstance(page,dict) or type(page.get('index')) is not int or page['index'] != i + 1: raise ValueError()
-                page.setdefault('note','')
-                if not isinstance(page['text'], str) or len(page['text']) > MAX_TEXT or type(page['uncertain']) is not bool: raise ValueError()
-                if not isinstance(page['note'], str) or len(page['note']) > 1000: raise ValueError()
-                text.append(f'【模型转录：{pictures[i][0]}】\n' + (page['text'].strip() or '未见可读文字。'))
-                if page['uncertain']:
-                    complete = False
-                    notes.append(f'{pictures[i][0]}：' + (page['note'].strip() or '图像文字不清晰'))
-        except (ValueError, KeyError, TypeError):
-            raise AgentError('invalid_agent_output', True) from None
+        checked = _transcribe_pages(client, parts, settings, expires, guard, diagnostic_event)
+        for i, page in enumerate(checked):
+            text.append(f'【模型转录：{pictures[i][0]}】\n' + page['text'])
+            if page['uncertain']:
+                complete = False
+                notes.append(f'{pictures[i][0]}：' + (page['note'].strip() or '图像文字不清晰'))
     if notes: text.append('【读取缺口】\n' + '\n'.join(notes))
     joined = '\n\n'.join(text).strip()
     if len(joined) > MAX_TEXT:
@@ -162,25 +204,11 @@ def _read_pdf_batches(data, asset, client, settings, expires, checkpoint, save_c
         timeout = remaining(60)
         emit('pdf_transcription',timeout_seconds=timeout,visual_pages=len(visual_indices))
         try:
-            raw = (transcribe(client, SKILL.read_text(encoding='utf-8'), parts,
-                             replace(settings, timeout_seconds=timeout)) if parts else '{"pages":[]}')
+            checked = _transcribe_pages(client, parts, settings, expires, guard, diagnostic_event) if parts else []
         except AgentError as error:
             emit('pdf_transcription_failed',code=error.code,diagnostic=error.diagnostic,seconds=time.monotonic()-started)
             raise
         emit('pdf_transcription_done',seconds=time.monotonic()-started)
-        try:
-            output = json.loads(raw)
-            batch = output['pages']
-            if not isinstance(batch, list) or len(batch) != len(visual_indices): raise ValueError()
-            checked = []
-            for index, page in enumerate(batch, 1):
-                if not isinstance(page, dict) or type(page.get('index')) is not int or page['index'] != index: raise ValueError()
-                if not isinstance(page.get('text'), str) or len(page['text']) > MAX_TEXT or type(page.get('uncertain')) is not bool: raise ValueError()
-                note = page.get('note', '')
-                if not isinstance(note, str) or len(note) > 1000: raise ValueError()
-                checked.append(dict(text=page['text'].strip() or '未见可读文字。', uncertain=page['uncertain'], note=note))
-        except (ValueError, KeyError, TypeError):
-            raise AgentError('invalid_agent_output', True) from None
         visual = iter(checked)
         pages.extend(next(visual) if text is None else dict(text=text,uncertain=False,note='',method='native') for text in native)
         if sum(len(p['text']) + len(p['note']) for p in pages) > MAX_TEXT:

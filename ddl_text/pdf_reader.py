@@ -2,7 +2,7 @@
 import hashlib
 import io
 import math
-from ctypes import byref, c_int, c_uint
+from ctypes import byref, c_int, c_uint, c_ulong, create_string_buffer, cast, POINTER
 from dataclasses import dataclass
 
 from .adapters import AgentError
@@ -56,6 +56,24 @@ def _native_text(page, pdfium):
         return None
     hidden = []
     for obj in objects:
+        # IsActive is an editing flag, not OCG/OCMD visibility. Let PDFium's
+        # renderer evaluate optional-content membership (including nested marks)
+        # instead of promoting invisible layer text to original evidence.
+        marks = pdfium.raw.FPDFPageObj_CountMarks(obj)
+        if marks < 0:
+            return None
+        for index in range(marks):
+            mark = pdfium.raw.FPDFPageObj_GetMark(obj, index)
+            size = c_ulong()
+            if (not mark or not pdfium.raw.FPDFPageObjMark_GetName(mark, None, 0, byref(size))
+                    or not 0 < size.value <= 256):
+                return None
+            buffer = create_string_buffer(size.value)
+            if not pdfium.raw.FPDFPageObjMark_GetName(mark,
+                    cast(buffer, POINTER(pdfium.raw.FPDF_WCHAR)), len(buffer), byref(size)):
+                return None
+            if buffer.raw.decode('utf-16-le').rstrip('\0') == 'OC':
+                return None
         bounds = obj.get_bounds()
         if not all(math.isfinite(value) for value in bounds):
             return None

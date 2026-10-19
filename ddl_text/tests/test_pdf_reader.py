@@ -133,6 +133,19 @@ class PdfTests(unittest.TestCase):
                 self.assertEqual(result['native_texts'], [None])
                 self.assertTrue(result['pages'][0].startswith(b'\x89PNG'))
 
+    def test_optional_content_uses_visible_render_without_affecting_other_pages(self):
+        from ddl_text.tests.pdf_cases import layered_pdf_bytes
+        for membership in (False, True):
+            with self.subTest(membership=membership):
+                data = layered_pdf_bytes(membership=membership)
+                asset = pdf_request(data)['records'][0]['attachments'][0]
+                normal = read_pdf(data, asset, PdfLimits())
+                optimized = read_pdf(data, asset, PdfLimits(native_text=True))
+                self.assertEqual(optimized['pages'][0], normal['pages'][0])
+                self.assertIsNone(optimized['native_texts'][0])
+                self.assertEqual(optimized['pages'][1], b'')
+                self.assertEqual(optimized['native_texts'][1], 'Ordinary second page')
+
     def test_corrupt_pdf_is_read_failure(self):
         data = b'%PDF-1.7\nbroken'
         asset = pdf_request(data)['records'][0]['attachments'][0]

@@ -226,17 +226,56 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         self.assert_cached_reprocess(rid)
 
     def test_complete_pdf_capture_skips_visual_transcription_through_http_and_reprocessing(self):
-        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
-        original='\n'.join(f'Page {i}' for i in range(1,18))+'\n'+TEXT
-        rid=self.sync(pdf_bytes(('Synthetic page',)*17),'application/pdf',pdf_text=original)['requests'][0]['request_id']
+        import io
+        from reportlab.pdfgen import canvas
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
+        out=io.BytesIO(); doc=canvas.Canvas(out,pagesize=(800,300))
+        for n in range(17):
+            doc.setFont('STSong-Light',12)
+            doc.drawString(20,250,TEXT if n==16 else f'Page {n+1}'); doc.showPage()
+        doc.save()
+        original='\n'.join(f'Page {i}' for i in range(1,17))+'\n'+TEXT
+        rid=self.sync(out.getvalue(),'application/pdf',pdf_text=original)['requests'][0]['request_id']
         batch,vision=self.run_record(rid,AssertionError('complete PDF text must not be transcribed again'))
         vision.assert_not_called()
         self.assertEqual(batch['result']['status'],'success')
         with app.connection() as db:
             saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
-        self.assertEqual(saved['records'][0]['record']['references'][0]['text'],original)
+        self.assertIn(TEXT,saved['records'][0]['record']['references'][0]['text'])
         self.assertEqual(batch['items'][0]['candidate']['deadline']['value'],'2026-11-17T23:30:00+08:00')
         self.assert_cached_reprocess(rid)
+
+    def test_complete_capture_cannot_bypass_pdf_visibility_check_or_restore_hidden_text(self):
+        from ddl_text.tests.pdf_cases import layered_pdf_bytes
+        captured='Visible information\nHidden assignment due Friday\nOrdinary second page'
+        rid=self.sync(layered_pdf_bytes(),'application/pdf',pdf_text=captured)['requests'][0]['request_id']
+        good=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False,note='')]))
+        batch,vision=self.run_record(rid,lambda *args:good)
+        self.assertEqual(batch['result']['status'],'success')
+        vision.assert_called_once()
+        self.assertEqual(len(vision.call_args.args[1]),2)
+        with app.connection() as db:
+            saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
+        text=saved['records'][0]['record']['references'][0]['text']
+        self.assertNotIn('Hidden assignment',text)
+        self.assertIn('原件文字：第 2 页',text)
+        self.assert_cached_reprocess(rid)
+
+    def test_attachment_format_failure_keeps_its_code_and_retry_recovers(self):
+        rid=self.sync(image_bytes(),'image/png')['requests'][0]['request_id']
+        failed,vision=self.run_record(rid,lambda *args:'{"pages":[]}')
+        self.assertEqual(vision.call_count,2)
+        self.assertEqual(failed['result']['errors'][0]['code'],'invalid_agent_output')
+        self.assertIn('页码',failed['result']['errors'][0]['message'])
+        self.assertFalse(failed['items'])
+        with app.connection() as db:
+            self.assertIsNone(db.execute('SELECT result FROM teaching_asset_files WHERE user_id=?',(self.uid,)).fetchone()[0])
+        good=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False)]))
+        batch,vision=self.run_record(rid,lambda *args:good)
+        self.assertEqual(batch['result']['status'],'success')
+        vision.assert_called_once()
 
     def test_long_visual_pdf_finishes_one_background_run_without_shared_75_second_deadline(self):
         import source_jobs as jobs
@@ -582,7 +621,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         self.assertEqual(reader.call_count,2)
         self.assertTrue(all(r['read_state']=='complete' for r in request['records'][0]['record']['references']))
 
-    def test_pdf_visual_pages_supplement_the_captured_full_text(self):
+    def test_pdf_verified_pages_replace_unchecked_capture_and_cache_is_reused(self):
         from unittest.mock import Mock
         from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         data=pdf_bytes(('Page with graphics',)*6+('Deadline 2026-11-17 23:30',))
@@ -599,7 +638,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         with patch('ddl_text.teaching_attachment_reader.transcribe',side_effect=transcribe):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
         ref=record['references'][0]
-        self.assertEqual(ref['read_state'],'complete');self.assertIn(original,ref['text'])
+        self.assertEqual(ref['read_state'],'complete');self.assertNotIn('PDF text page',ref['text'])
         self.assertIn('Visible page 7',ref['text']);self.assertEqual(seen,list(range(1,8)))
         teaching_assets.check_request(request)
         # Repeat with the persisted transcript cache and the original capture.
@@ -607,9 +646,9 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         ref.update(text=original,read_state='partial')
         with patch.object(teaching_assets,'read_attachment',side_effect=AssertionError('cached file')):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
-        self.assertIn(original,ref['text']);self.assertIn('Visible page 6',ref['text'])
+        self.assertNotIn('PDF text page',ref['text']);self.assertIn('Visible page 6',ref['text'])
 
-    def test_supplement_over_budget_keeps_captured_evidence(self):
+    def test_pdf_verified_partial_does_not_restore_unchecked_text(self):
         from unittest.mock import Mock
         request,_=example();record=request['records'][0]['record']
         record['text']='Source body '+ 'X'*20000
@@ -619,7 +658,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         teaching_assets.check_request(request)
         with patch.object(teaching_assets,'read_attachment',return_value=dict(read_state='partial',text='B'*40000)):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
-        self.assertEqual(record['references'][0]['text'],original)
+        self.assertEqual(record['references'][0]['text'],'B'*40000)
         self.assertEqual(record['references'][0]['read_state'],'partial')
         teaching_assets.check_request(request)
 

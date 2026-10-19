@@ -155,12 +155,10 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
         if len(a['data']) > MAX_FILE or hashlib.sha256(a['data']).hexdigest() != a['sha256']:
             raise AgentError('agent_unavailable', False)
         ref = by_ref[a['ref_id']]
-        # This is the immutable server-captured reference, not a client claim.
-        # The crawler marks graphical/annotated/unreadable PDFs as partial.
-        # Reuse only complete text; do not send it through vision a second time.
-        if a['mime_type']=='application/pdf' and ref['read_state']=='complete' and (ref.get('text') or '').strip():
-            diagnostics.event('attachment',file_sha256=a['sha256'],mime_type=a['mime_type'],bytes=len(a['data']),cache='captured_text')
-            continue
+        # Captured text is authentic but not necessarily visible: PDF text layers
+        # may include default-off groups, transparent or clipped content. Always
+        # check the raw PDF (or its versioned cache); ordinary pages stay local.
+        pdf = a['mime_type']=='application/pdf'
         key = (a['sha256'],a['mime_type'])
         result = read_cache.get(key)
         checkpoint = None
@@ -217,18 +215,18 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
         else:
             diagnostics.event('attachment',file_sha256=a['sha256'],mime_type=a['mime_type'],bytes=len(a['data']),cache='hit')
         read_cache[key] = result
-        if result['text'] is None and ref.get('text'):
-            continue  # A failed visual pass must not erase a captured PDF text layer.
+        if not pdf and result['text'] is None and ref.get('text'):
+            continue  # Retain independently captured non-PDF text on read failure.
         merged = dict(result)
-        if ref.get('text') and result['text']:
+        if not pdf and ref.get('text') and result['text']:
             merged['text'] = ref['text'] + '\n\n【原件补充读取】\n' + result['text']
         proposal = deepcopy(request)
         next(r for r in proposal['records'][0]['record']['references'] if r['ref_id']==a['ref_id']).update(merged)
         try: check_request(proposal)
         except Exception:
-            # Preserve every captured character when supplemental evidence will
-            # not fit; retain a coverage gap rather than erasing the original.
-            if ref.get('text'): ref['read_state']='partial'
+            # A storage limit is a coverage gap. Unchecked PDF text cannot be a
+            # fallback for verified evidence that will not fit the contract.
+            if ref.get('text') and not pdf: ref['read_state']='partial'
             else: ref.update(read_state='failed',text=None)
         else: ref.update(merged)
     check_request(request)

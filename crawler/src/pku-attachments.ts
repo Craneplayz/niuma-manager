@@ -216,14 +216,12 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
             if (!format || !staging && !["pdf", "txt"].includes(format)) throw new ReadFailure("unsupported_format");
             if (!isTeacherAttachmentUrl(ref.url)) throw new ReadFailure("untrusted_attachment_url");
             const file = await read(ref.url).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
-            if (format === "pdf" || format === "txt") {
-              try {
-                const { text, partial } = await parse(file, format);
-                ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? "partial_pdf" : null };
-              } catch (error) {
-                if (!staging || format !== "pdf") throw error;
-                ref = { ...ref, content_read: false, read_status: "unread", reason: "awaiting_file_reader" };
-              }
+            // Server captures hand PDF bytes to the visibility-aware reader.
+            // Avoid parsing twice, and do not label a PDF text layer complete
+            // before hidden/optional content has been checked against the page.
+            if (format === "txt" || format === "pdf" && !staging) {
+              const { text, partial } = await parse(file, format);
+              ref = { ...ref, text, content_read: !partial, read_status: partial ? "partial" : "complete", reason: partial ? "partial_pdf" : null };
             }
             if (staging && !ref.content_read && format !== "txt") {
               ref = { ...ref, asset: await stage(file, format), reason: "awaiting_file_reader" };

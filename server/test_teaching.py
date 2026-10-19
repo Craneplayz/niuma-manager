@@ -22,6 +22,43 @@ from ddl_text.tests.teaching_cases import empty_reply
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_upgrade_old_changed_candidate_allows_update_even_when_sync_skips(self):
+        request, drafts = example(); self.drafts.update(drafts)
+        with app.connection() as db:
+            first_sync = teaching.register(db, self.uid, 'synthetic-course-user', [request])
+        first = self.run_request(first_sync['requests'][0])['items'][0]
+        self.assertEqual(self.call('/recognition/candidates/'+first['id']+'/resolve',
+                                  dict(action='create', auto_apply=True, version=1))[0], 200)
+        request['records'][0]['record']['text'] += ' Additional requirement.'
+        with app.connection() as db:
+            changed = teaching.register(db, self.uid, 'synthetic-course-user', [request])
+        item = self.run_request(changed['requests'][0])['items'][0]
+        # The deployed predecessor saved the guard, but retained create.
+        legacy = dict(item['candidate'], notice_type='create')
+        with app.connection() as db:
+            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?', (json.dumps(legacy), item['id']))
+        app.initialize(recover=False)
+        app.initialize(recover=False)  # Idempotent, including candidate version.
+        with app.connection() as db:
+            repeated = teaching.register(db, self.uid, 'synthetic-course-user', [request])
+        self.assertEqual(repeated['requests'], [])
+        batches = self.call('/recognition/batches')[1]
+        current = next(c for b in batches for c in b['items'] if c['id'] == item['id'])
+        self.assertEqual(current['candidate']['notice_type'], 'uncertain')
+        self.assertEqual(current['version'], item['version'])
+        self.assertEqual(current['state'], 'pending')
+        saved = self.call('/workspace')[1]['tasks']
+        endpoint = '/recognition/candidates/'+item['id']+'/resolve'
+        self.assertEqual(self.call(endpoint, dict(action='create', auto_apply=True, version=1))[0], 400)
+        status, out = self.call(endpoint, dict(action='update', reviewed=True, version=1,
+            tasks_version=saved['version'], target_id=saved['value'][0]['id'],
+            draft=dict(title='Reviewed update', description='Reviewed', due=None)))
+        self.assertEqual(status, 200, out)
+        tasks = self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['id'], saved['value'][0]['id'])
+        self.assertEqual(tasks[0]['title'], 'Reviewed update')
+
     def test_changed_source_allows_explicit_update_or_create_without_overwriting_decisions(self):
         request,drafts=example();self.drafts.update(drafts)
         with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])

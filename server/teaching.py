@@ -46,6 +46,7 @@ def initialize(db):
     # Snapshot lookup and attachment pruning use request_id, not input_id.
     db.execute('''CREATE INDEX IF NOT EXISTS teaching_sources_request
         ON teaching_sources(user_id,account,request_id)''')
+    teaching_identity.upgrade_pending_candidates(db)
 
 
 def account(username):
@@ -217,11 +218,12 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
             teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
         except AgentError as error:
             diagnostics.event('attachment_failure',code=error.code,diagnostic=error.diagnostic,schema=error.detail)
-            from ddl_text.teaching_pipeline import _failure
+            from ddl_text.teaching_pipeline import _failure, MESSAGES
             result = dict(contract_version='0.4',classification_mode=CLASSIFICATION_MODE,request_id=request['request_id'],
                 policy_version=policy['version'],status='failed',record_results=[_failure(request['records'][0],
-                    'agent_timeout' if error.code=='agent_timeout' else 'agent_unavailable',retryable=error.retryable,attempted=True)])
-            result['record_results'][0]['error']['message']='附件读取或图像识别未完成，可重试本条记录；已读附件会复用。'
+                    error.code if error.code in MESSAGES else 'agent_unavailable',
+                    retryable=error.retryable,attempted=True,diagnostic=error.diagnostic,detail=error.detail)])
+            result['record_results'][0]['error']['message'] += ' 附件读取未完成；重试本条时将复用已读进度。'
             return result,policy
     check_active()
     result = process_teaching_request(request, client=client, settings=settings,
