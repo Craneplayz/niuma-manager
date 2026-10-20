@@ -281,7 +281,7 @@ def process(path, uid, run_id, ApiError):
                     summary['preserved']=len(protected)
                     summary['unresolved']=len(cards) if hold else 0
                     fingerprint=hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-                    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result)))
+                    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result)))
                     for rid in (item['request']['request_id'],request['request_id']):
                         db.execute('INSERT OR IGNORE INTO reprocessing_request_sources VALUES(?,?,?,?,?)',
                             (uid,item.get('kind','text'),item['account'],record['input_id'],rid))

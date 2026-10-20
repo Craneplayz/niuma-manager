@@ -43,6 +43,44 @@ class TeachingIntegrationTests(unittest.TestCase):
             saved=json.loads(db.execute('SELECT result FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
             self.assertEqual(saved['record_results'][0]['error']['code'],'agent_timeout')
 
+    def test_batch_errors_bind_the_producing_attempt_not_the_latest(self):
+        import os
+        from ddl_text.teaching_pipeline import _failure
+        entered=False
+        def model(current,ApiError,**kwargs):
+            nonlocal entered
+            if not entered:
+                entered=True
+                result,policy=self.model(current,ApiError)
+                result.update(status='failed',record_results=[_failure(current['records'][0],'invalid_agent_output',retryable=True,attempted=True)])
+                return result,policy
+            raise ValueError('later attempt outage')
+        # The test environment issues its own session cookie; register under it.
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.assertEqual(self.call('/auth/register',dict(name='Synthetic',email='binding@example.test',password='Synthetic-password!'))[0],200)
+            self.assertEqual(self.call('/sources/credentials',dict(username='synthetic-course-user',password='synthetic-password'))[0],200)
+            with app.connection() as db: uid=db.execute("SELECT id FROM users WHERE email='binding@example.test'").fetchone()['id']
+            _,synced=self.capture(('explicit-complete',))
+            rid=synced['requests'][0]['request_id'];body=dict(contract_version=teaching.RUN,request_id=rid)
+            with patch.object(teaching,'recognize',side_effect=model):
+                status,out=self.call('/recognition/retry',body)
+                self.assertEqual(status,200,out)
+                batch=next(b for b in out if b['request']['request_id']==rid)
+                self.assertTrue(batch['result']['errors'])
+                # The second run fails and persists its own attempt; the stored result keeps the first.
+                self.assertEqual(self.call('/recognition/retry',body)[0],400)
+            with app.connection() as db:
+                history=teaching.diagnostics.attempts(db,uid,rid)
+                later=next(a for a in history if any(e.get('exception_type')=='ValueError' for e in a['events']))
+                db.execute("UPDATE recognition_attempt_diagnostics SET created_at='9999' WHERE id=?",(later['attempt_id'],))
+            status,out=self.call('/recognition/batches')
+            self.assertEqual(status,200)
+            batch=next(b for b in out if b['request']['request_id']==rid)
+            error=batch['result']['errors'][0]
+            self.assertIn('diagnostics',error)
+            self.assertIn('invalid_agent_output',error['diagnostics'])
+            self.assertNotIn('ValueError',error['diagnostics'])
+
     def test_upgrade_old_changed_candidate_allows_update_even_when_sync_skips(self):
         request, drafts = example(); self.drafts.update(drafts)
         with app.connection() as db:

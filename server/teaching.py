@@ -294,11 +294,12 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             if diagnostic_attempt is not None: diagnostic_attempt.clear()
             return
         # Every stored teaching request is a single record. Failed/incomplete attempts have no cards.
+        attempt_id = attempt['attempt_id'] if attempt is not None else None
         if previous:
-            db.execute('UPDATE recognition_batches SET result=?,request=?,fingerprint=? WHERE user_id=? AND request_id=?',
-                (json.dumps(result),json.dumps(request),hashlib.sha256(canonical(request)).hexdigest(),uid,request['request_id']))
+            db.execute('UPDATE recognition_batches SET result=?,request=?,fingerprint=?,attempt_id=? WHERE user_id=? AND request_id=?',
+                (json.dumps(result),json.dumps(request),hashlib.sha256(canonical(request)).hexdigest(),attempt_id,uid,request['request_id']))
         else:
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result)))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
         cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
         teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
         for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):

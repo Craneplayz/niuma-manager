@@ -101,12 +101,9 @@ def attempts(db, uid, request_id):
         WHERE user_id=? AND request_id=? ORDER BY created_at DESC,id DESC LIMIT 20''',(uid,request_id))]
 
 
-def attach(db, uid, request_id, error):
-    if not error or environment() != 'test': return error
-    history = attempts(db,uid,request_id)
-    if history:
-        error = dict(error, diagnostics=json.dumps(history[0],ensure_ascii=False,indent=2))
-    return error
+def bind(db, uid, request_id, error, *, attempt_id=None):
+    """Attach only the exact producing attempt's detail; never guess the latest."""
+    return hydrate(db, uid, reference(db, uid, request_id, error, attempt_id=attempt_id))
 
 
 def reference(db, uid, request_id, error, *, attempt_id=None):

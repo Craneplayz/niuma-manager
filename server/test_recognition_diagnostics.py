@@ -29,6 +29,23 @@ class DiagnosticsTests(unittest.TestCase):
             db.execute('DELETE FROM recognition_attempt_diagnostics WHERE id=?',(first['attempt_id'],))
             self.assertEqual(diagnostics.reference(db,'user','request',error,attempt_id=first['attempt_id']),error)
 
+    def test_batch_errors_bind_the_producing_attempt_not_the_latest(self):
+        with closing(sqlite3.connect(':memory:')) as db,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            diagnostics.initialize(db)
+            with diagnostics.capture(db,'user','request') as first:
+                diagnostics.event('result',status='failed',code='invalid_agent_output')
+            with diagnostics.capture(db,'user','request') as later:
+                diagnostics.event('exception',exception_type='AgentError',code='agent_unavailable')
+            # Force the later attempt to be the newest so a latest-guess misattributes.
+            db.execute('UPDATE recognition_attempt_diagnostics SET created_at=? WHERE id=?',('9999',later['attempt_id']))
+            error={'code':'invalid_agent_output','message':'识别结果未通过结构或证据校验。','retryable':True}
+            bound=diagnostics.bind(db,'user','request',error,attempt_id=first['attempt_id'])
+            self.assertIn('diagnostics',bound)
+            self.assertIn('invalid_agent_output',bound['diagnostics'])
+            self.assertNotIn('agent_unavailable',bound['diagnostics'])
+            self.assertNotIn('diagnostics',diagnostics.bind(db,'user','request',error))
+            self.assertNotIn('diagnostics',diagnostics.bind(db,'user','request',error,attempt_id='0'*24))
+
     def test_failed_attempt_can_be_saved_after_rollback_without_committing_business_data(self):
         with tempfile.TemporaryDirectory() as folder,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
             with closing(sqlite3.connect(Path(folder)/'test.sqlite3')) as db:
@@ -86,9 +103,10 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertNotIn('PRIVATE',stored);self.assertNotIn('COURSE_BODY',stored);self.assertNotIn('TOKEN_URL',stored)
             with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
                 self.assertEqual(diagnostics.attempts(db,'other','request'),[])
-                self.assertIn('diagnostics',diagnostics.attach(db,'user','request',{'code':'agent_timeout'}))
+                latest=diagnostics.attempts(db,'user','request')[0]
+                self.assertIn('diagnostics',diagnostics.bind(db,'user','request',{'code':'agent_timeout'},attempt_id=latest['attempt_id']))
             with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'production'}):
-                self.assertEqual(diagnostics.attach(db,'user','request',{'code':'agent_timeout'}),{'code':'agent_timeout'})
+                self.assertEqual(diagnostics.bind(db,'user','request',{'code':'agent_timeout'},attempt_id=latest['attempt_id']),{'code':'agent_timeout'})
 
     def test_failure_is_retained_without_exception_text_and_trace_is_bounded(self):
         with closing(sqlite3.connect(':memory:')) as db,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
