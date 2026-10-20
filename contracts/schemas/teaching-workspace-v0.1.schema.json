@@ -59,6 +59,7 @@
           "properties": {
             "input_id": { "$ref": "#/$defs/id" },
             "code": { "type": "string" },
+              "diagnostics": { "type": "string", "maxLength": 65536 },
             "message": { "type": "string" },
             "retryable": { "type": "boolean" }
           }

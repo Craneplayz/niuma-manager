@@ -1,5 +1,6 @@
 """HTTP sync tests with real persistence/recognition validation, synthetic network/model."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,9 +19,129 @@ from contracts.source_sync import check
 
 
 class SourceJobsTests(unittest.TestCase):
+    def test_background_failure_diagnostic_is_not_replaced_by_later_manual_retry(self):
+        request,_=example();entered=threading.Event();release=threading.Event()
+        count=0;lock=threading.Lock()
+        def model(*args,**kwargs):
+            nonlocal count
+            with lock:
+                count+=1;index=count
+            if index==1:
+                entered.set()
+                if not release.wait(10):raise RuntimeError('test deadline')
+                raise ValueError('synthetic background')
+            raise TypeError('synthetic manual')
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))), \
+                 patch.object(jobs.teaching,'recognize',side_effect=model):
+                run=self.start('diagnostic-race')
+                try:
+                    self.assertTrue(entered.wait(5))
+                    active=self.call('/sources/sync-runs/'+run['run_id'])[1]
+                    rid=active['records'][0]['request_id']
+                    time.sleep(.02)
+                    status,out=self.call('/recognition/retry',dict(contract_version=jobs.teaching.RUN,request_id=rid))
+                    self.assertEqual(status,400,out)
+                finally:
+                    release.set();jobs.wait_for_jobs(app.DB)
+            failed=self.call('/sources/sync-runs/'+run['run_id'])[1]
+            detail=json.loads(failed['records'][0]['error']['diagnostics'])
+            self.assertEqual(detail['events'][-1]['exception_type'],'ValueError')
+            history=self.call('/recognition/diagnostics',dict(request_id=rid))[1]['attempts']
+            self.assertEqual({h['events'][-1]['exception_type'] for h in history},{'ValueError','TypeError'})
+
     setUp = fixture.TeachingIntegrationTests.setUp
     call = fixture.TeachingIntegrationTests.call
     model = fixture.TeachingIntegrationTests.model
+
+    def test_repeated_collection_and_changed_source_do_not_auto_duplicate(self):
+        request,drafts=example();self.drafts.update(drafts)
+        for index,version in enumerate((0,0,1,0)):
+            request['records'][0]['record']['references'] = ([] if not version else [dict(
+                ref_id='file:extra',kind='content_image',label='Changed reference',read_state='unsupported',text=None)])
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+                run=self.start('op:revision-'+str(index));jobs.wait_for_jobs(app.DB)
+            result=self.until(run['run_id'],lambda r:r['state'] not in ('queued','crawling','recognizing'))
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+            self.assertEqual(result['counts']['added'],1 if index==0 else 0)
+
+    def test_failure_diagnostics_survive_real_job_retry_and_stay_test_only(self):
+        from server import recognition_diagnostics as diagnostics
+        request,drafts=example();self.drafts.update(drafts)
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=ValueError('DO_NOT_EXPOSE_RAW_RESPONSE')):
+                run=self.start();jobs.wait_for_jobs(app.DB)
+            failed=self.until(run['run_id'],lambda r:r['state']=='failed')
+            detail=json.loads(failed['records'][0]['error']['diagnostics'])
+            self.assertEqual(detail['events'][-1]['exception_type'],'ValueError')
+            self.assertNotIn('DO_NOT_EXPOSE_RAW_RESPONSE',json.dumps(failed))
+            with patch.object(jobs.teaching,'recognize',side_effect=self.model):
+                status,retry=self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:diagnostics',consent=True))
+                self.assertEqual(status,202);jobs.wait_for_jobs(app.DB)
+            self.until(retry['run_id'],lambda r:r['state']=='succeeded')
+            original=self.call('/sources/sync-runs/'+run['run_id'])[1]
+            self.assertEqual(json.loads(original['records'][0]['error']['diagnostics'])['attempt_id'],detail['attempt_id'])
+            status,history=self.call('/recognition/diagnostics',dict(request_id=failed['records'][0]['request_id']))
+            self.assertEqual(status,200);self.assertEqual(len(history['attempts']),2)
+            with app.connection() as db:
+                raw=jobs.get(db,self.uid,run['run_id'],app.ApiError)
+                self.assertNotIn('diagnostics',raw['records'][0]['error'])
+                self.assertNotIn('_diagnostic_attempt',original['records'][0]['error'])
+                # Upgrade a receipt from the version that copied full diagnostics.
+                raw['records'][0]['error'].pop('_diagnostic_attempt')
+                raw['records'][0]['error']['diagnostics']=failed['records'][0]['error']['diagnostics']
+                db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?',(json.dumps(raw),run['run_id']))
+                jobs.initialize(db,recover=False)
+                migrated=jobs.get(db,self.uid,run['run_id'],app.ApiError)
+                self.assertNotIn('diagnostics',migrated['records'][0]['error'])
+                self.assertEqual(migrated['records'][0]['error']['_diagnostic_attempt']['id'],detail['attempt_id'])
+            with app.connection() as db:
+                for index in range(200):
+                    with diagnostics.capture(db,self.uid,'padding:'+str(index)): pass
+            expired=self.call('/sources/sync-runs/'+run['run_id'])[1]
+            check('run',expired)
+            self.assertNotIn('diagnostics',expired['records'][0]['error'])
+            self.assertNotIn('_diagnostic_attempt',expired['records'][0]['error'])
+            listing=self.call('/sources/sync-runs')[1];check('runs',listing)
+            self.assertNotIn('"diagnostics":',json.dumps(listing))
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'production'}):
+            self.assertNotIn('diagnostics',jobs.view(failed)['records'][0]['error'])
+
+    def test_collection_registration_rollback_preserves_full_and_recovery_diagnostics(self):
+        request,_=example();record=request['records'][0]['record'];record['body_status']='partial'
+        self.drafts[record['input_id']]=empty_reply(record,'incomplete')
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+                parent=self.start('rollback:parent');jobs.wait_for_jobs(app.DB)
+                self.assertEqual(self.call('/sources/sync-runs/'+parent['run_id'])[1]['counts']['incomplete'],1)
+                def fail_registration(db,*args,**kwargs):
+                    self.assertTrue(db.in_transaction)
+                    db.execute('UPDATE source_credentials SET username=? WHERE user_id=?',('must-roll-back',self.uid))
+                    raise ValueError('PRIVATE_QUOTA_FAILURE')
+                with patch.object(jobs.teaching,'register',side_effect=fail_registration):
+                    for recovery in (False,True):
+                        with self.subTest(recovery=recovery):
+                            if recovery:
+                                status,run=self.call('/sources/sync-runs/'+parent['run_id']+'/recover',dict(
+                                    contract_version='source-sync/0.1',operation_id='rollback:recovery',consent=True))
+                                self.assertEqual(status,202,run)
+                            else: run=self.start('rollback:full')
+                            jobs.wait_for_jobs(app.DB)
+                            failed=self.call('/sources/sync-runs/'+run['run_id'])[1];check('run',failed)
+                            self.assertEqual(failed['state'],'failed')
+                            detail=json.loads(failed['error']['diagnostics'])
+                            self.assertEqual(detail['events'][-1]['exception_type'],'ApiError')
+                            self.assertNotIn('PRIVATE_QUOTA_FAILURE',json.dumps(failed))
+                            status,out=self.call('/recognition/diagnostics',dict(request_id='collect:'+run['run_id']))
+                            self.assertEqual(status,200);self.assertEqual(len(out['attempts']),1)
+                            self.assertEqual(out['attempts'][0]['attempt_id'],detail['attempt_id'])
+                            with app.connection() as db:
+                                self.assertEqual(db.execute('SELECT username FROM source_credentials WHERE user_id=?',(self.uid,)).fetchone()[0],'synthetic-course-user')
+                                raw=jobs.get(db,self.uid,run['run_id'],app.ApiError)
+                                self.assertNotIn('diagnostics',json.dumps(raw))
 
     def tearDown(self):
         jobs.wait_for_jobs(app.DB)

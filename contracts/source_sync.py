@@ -26,6 +26,7 @@ SCHEMAS = {
 SCHEMAS['recover'] = SCHEMAS['retry']
 COUNT = {'type': 'integer', 'minimum': 0}
 ERROR = {'anyOf': [{'type': 'null'}, obj({'code': {'type': 'string'}, 'message': {'type': 'string'}, 'retryable': {'type': 'boolean'}})]}
+ERROR['anyOf'][1]['properties']['diagnostics'] = {'type': 'string', 'maxLength': 65536}
 RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'type': 'string', 'maxLength': 160},
               'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})

@@ -12,6 +12,7 @@ export function describeUserError(error, action = "general") {
   const code = error?.code || error?.kind;
   const report = (kind, message, details = "") => {
     const value = { kind, message, details, status: error?.status };
+    if (typeof error?.diagnostics === 'string' && error.diagnostics.length <= 65536) value.diagnostics = error.diagnostics;
     normalized.add(value);
     return value;
   };
@@ -112,7 +113,7 @@ export function userErrorMarkup(error, action = "general", context) {
   if (!error) return "";
   if (!actions.has(action)) action = "general";
   const { report, incident } = incidentFor(error, action, context);
-  return `<div class="user-error" role="alert"><p class="user-error-message">${esc(report.message)}</p>${report.details ? `<p class="user-error-help">${esc(report.details)}</p>` : ""}${report.kind === "validation" ? "" : `<div class="error-feedback"><button type="button" class="btn quiet" data-error-feedback="${esc(incident.id)}" ${["pending", "sent"].includes(incident.state) ? "disabled" : ""}>${buttonLabel(incident.state)}</button><span class="error-feedback-status" role="status" data-error-feedback-status="${esc(incident.id)}">${esc(incident.result)}</span></div>`}</div>`;
+  return `<div class="user-error" role="alert"><p class="user-error-message">${esc(report.message)}</p>${report.details ? `<p class="user-error-help">${esc(report.details)}</p>` : ""}${report.diagnostics ? `<details class="test-error-diagnostics"><summary>测试环境诊断详情</summary><pre>${esc(report.diagnostics)}</pre></details>` : ""}${report.kind === "validation" ? "" : `<div class="error-feedback"><button type="button" class="btn quiet" data-error-feedback="${esc(incident.id)}" ${["pending", "sent"].includes(incident.state) ? "disabled" : ""}>${buttonLabel(incident.state)}</button><span class="error-feedback-status" role="status" data-error-feedback-status="${esc(incident.id)}">${esc(incident.result)}</span></div>`}</div>`;
 }
 
 function updateIncident(incident) {

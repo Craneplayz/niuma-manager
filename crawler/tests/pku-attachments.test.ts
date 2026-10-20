@@ -9,6 +9,7 @@ import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { enrichAssignmentSource, parseAssignmentDetailHtml } from "../src/pku-assignment.js";
 import { toTeachingRequests } from "../src/pku-teaching-evidence.js";
 import { toRecognitionRequests } from "../src/pku-recognition.js";
+import { toTeachingAssetManifest } from "../src/pku-teaching.js";
 
 // Observe worker creation while still running the real, isolated PDF parser.
 vi.mock("node:child_process", async (importOriginal) => {
@@ -64,6 +65,25 @@ function pdf(text: string, blankPage = false, visual?: "stencil" | "bad-image" |
 }
 
 describe("teacher attachment acquisition", () => {
+  it("hands complete-looking PDFs to the server without parsing or losing raw bytes", async () => {
+    const folder = await mkdtemp(path.join(tmpdir(), "niuma-attachments-test-"));
+    const spawn = vi.mocked(childProcess.spawn); spawn.mockClear();
+    try {
+      const file = pdf("Potentially hidden text must be verified from raw bytes.");
+      const [out] = await enrichSourceAttachments([source("HW.pdf", url.replace("txt", "pdf"))], async () => file, folder);
+      expect(spawn).not.toHaveBeenCalled();
+      expect(out.references[0]).toMatchObject({ content_read: false, read_status: "unread", reason: "awaiting_file_reader" });
+      expect(out.references[0].text).toBeUndefined();
+      const exported = toTeachingRequests([out]);
+      expect(exported.skipped).toEqual([]);
+      const record = exported.requests[0].records[0].record;
+      expect(record.text).not.toContain("Potentially hidden");
+      expect(record.references[0].text).toBeNull();
+      const manifest = toTeachingAssetManifest([out]);
+      expect(manifest).toEqual([{ input_id: out.input_id, ref_id: record.references[0].ref_id, ...out.references[0].asset }]);
+      expect(await readFile(path.join(folder, manifest[0].sha256 + ".bin"))).toEqual(Buffer.from(file.bytes));
+    } finally { await rm(folder, { recursive: true, force: true }); spawn.mockClear(); }
+  });
   it("parses equal bytes from different URLs once without merging their sources", async () => {
     const sources = ["First", "Second", "Changed"].map((name, index) => ({
       ...source(`${name}.pdf`, url.replace("HW1.txt", `${name}.pdf`)), input_id: `synthetic:content-cache:${index}`,

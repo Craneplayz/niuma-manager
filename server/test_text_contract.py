@@ -5,6 +5,16 @@ from pathlib import Path
 from text_contract import validate_request,validate_result
 
 class TextContractTests(unittest.TestCase):
+    def test_invalid_clock_is_rejected_consistently_by_both_consumers(self):
+        from text_contract import instant
+        from ddl_text.contract_v02 import instant as model_instant
+        for parse in (instant, model_instant):
+            for invalid in ('2026-10-11T24:00:00+08:00','2026-10-11T23:60:00+08:00',
+                            '2026-10-11T23:59:60Z','2026-10-11T12:00:00+08:60'):
+                with self.subTest(parser=parse.__module__, value=invalid), self.assertRaises(ValueError):
+                    parse(invalid)
+            self.assertEqual(parse('2026-10-12T00:00:00+08:00').day, 12)
+
     def setUp(self):
         self.fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
         self.request=self.fixture['request'];self.result=self.fixture['expected']

@@ -118,9 +118,13 @@ frontend/
     │   ├── notice-near-desktop.png  近期任务与通知混合展示
     │   ├── notice-done-desktop.png  已完成任务与已阅读通知混合展示
     │   ├── 2026-10-14-admin-usage-desktop.png 后台桌面布局
-    │   └── 2026-10-14-admin-usage-mobile.png 后台手机布局
+    │   ├── 2026-10-14-admin-usage-mobile.png 后台手机布局
+    │   ├── 2026-10-18-test-diagnostics-desktop.png 测试诊断组件合成桌面截图
+    │   └── 2026-10-18-test-diagnostics-mobile.png 测试诊断组件合成手机截图
     └── archive/              历史文档与截图，不代表当前功能
 ```
+
+测试环境错误附带受限诊断时，可展开“测试环境诊断详情”查看完整 JSON，窄屏换行并滚动；反馈按钮不上传诊断内容，生产错误仍使用原有简洁提示。
 
 ## 导入入口
 

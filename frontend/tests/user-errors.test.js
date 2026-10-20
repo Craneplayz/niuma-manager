@@ -8,6 +8,16 @@ const schema = JSON.parse(await readFile(new URL("../../contracts/schemas/error-
 const examples = JSON.parse(await readFile(new URL("../../contracts/examples/error-reports-v01.json", import.meta.url))).reports;
 const receipt = { contract_version: "error-report/0.1", saved: true, report_id: "abc123".repeat(4) };
 
+test('test diagnostics survive friendly error mapping and are escaped without entering feedback payloads', () => {
+  const diagnostics = '{"stage":"pdf_transcription","page_start":7,"code":"agent_timeout","test":"<script>"}';
+  const report = describeUserError({code:'agent_timeout',message:'Timeout',diagnostics},'teaching_sync');
+  assert.equal(report.diagnostics, diagnostics);
+  const markup = userErrorMarkup(report,'teaching_sync');
+  assert.match(markup,/测试环境诊断详情/);assert.match(markup,/page_start/);
+  assert.ok(!markup.includes('<script>'));
+  assert.ok(!userErrorMarkup({code:'agent_timeout'},'teaching_sync').includes('测试环境诊断详情'));
+});
+
 function fixture(error = { status: 503, message: "文本识别配置不可用，API_KEY=PRIVATE" }, action = "text_import") {
   resetErrorFeedback();
   const html = userErrorMarkup(error, action);
