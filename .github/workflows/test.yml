@@ -27,7 +27,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
+        # Temporarily disabled to reduce GitHub Actions usage.
+        # os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -90,10 +92,11 @@ jobs:
         include:
           - os: ubuntu-latest
             node: 22
-          - os: windows-latest
-            node: 24  # same major version as the integration owner's Windows machine
-          - os: windows-latest
-            node: 24.14.0  # exact environment of the consecutive PDF crash reported in #127
+          # Temporarily disabled to reduce GitHub Actions usage.
+          # - os: windows-latest
+          #   node: 24  # same major version as the integration owner's Windows machine
+          # - os: windows-latest
+          #   node: 24.14.0  # exact environment of the consecutive PDF crash reported in #127
     defaults:
       run:
         working-directory: crawler
