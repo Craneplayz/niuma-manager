@@ -27,14 +27,12 @@ class ReviewTaskActionTests(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.client = build_opener(HTTPCookieProcessor(CookieJar()))
-        account = registration_payload(dict(name='Synthetic', email='review@example.test', password='Review-Test-2026!'),
-            lambda body: self.call('/auth/email-code', body))
-        self.uid = self.call('/auth/register', account)[1]['user']['id']
+        self.uid = self.call('/auth/register', dict(name='Synthetic', email='review@example.test', password='Review-Test-2026!'))[1]['user']['id']
         fixture = json.loads((Path(__file__).parent.parent / 'contracts/text-to-app/text-contract-v0.2.json').read_text())
         candidate = fixture['expected']['tasks'][0]
         candidate.update(needs_review=True, review_reasons=['需要用户确认'])
         with app.connection() as db:
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)', (self.uid, fixture['request']['request_id'], 'synthetic', json.dumps(fixture['request']), json.dumps(fixture['expected']), 0))
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,?)', (self.uid, fixture['request']['request_id'], 'synthetic', json.dumps(fixture['request']), json.dumps(fixture['expected']), 0))
             db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)', ('pending', self.uid, fixture['request']['request_id'], json.dumps(candidate)))
         self.body = dict(action='create', version=1, tasks_version=0, target_id=None, reviewed=True,
                          draft=dict(title=candidate['title'], description=candidate['description'], course=None, content_type='task', due=None))
@@ -48,6 +46,8 @@ class ReviewTaskActionTests(unittest.TestCase):
         self.temp.cleanup()
 
     def call(self, path, body=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request: self.call('/auth/email-code', request))
         request = Request(f'http://127.0.0.1:{self.server.server_port}/api{path}',
                           None if body is None else json.dumps(body).encode(), {'Content-Type': 'application/json'})
         try:
