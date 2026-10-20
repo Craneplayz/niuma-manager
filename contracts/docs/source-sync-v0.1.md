@@ -61,3 +61,11 @@ queued → crawling → recognizing → succeeded / partial_success / failed；�
 `error.diagnostics` 为兼容可选字符串（最长 65536 字符），仅 `NIUMA_ENVIRONMENT=test` 返回；前端以转义纯文本展示在“测试环境诊断详情”。记录请求/尝试编号、代码版本、UTC 时间、总耗时、模型名称及超时预算、附件 SHA256/MIME/大小、缓存命中及已读页码、原文/视觉页数、缩批过程、失败码和受限 Schema 校验位置；意外异常只记录类型及项目内栈位置。没有采集到的指标不伪造，完整 JSON、课程正文、凭据、令牌和模型原始响应不进入诊断。提交问题反馈仍只发送原有受限字段，不自动上传这些详情。
 
 登录后 `POST /api/recognition/diagnostics`，请求 `{"request_id":"teaching:..."}`，返回 `{"attempts":[...]}`（最近 20 次，按新到旧）。整轮采集使用 `collect:<run_id>`；请求只能读取当前用户，其他用户返回空列表，开发/生产环境返回 404。每用户最多保存 200 次尝试，每次最多 200 个阶段事件及约 60 KB；截断数量以 omitted_events 标记。同步回执只保留对应尝试的内部引用，查询时返回仍在保留范围内的诊断；达到上限后，旧回执保留错误信息但不再返回已清理的诊断详情。重试成功不会覆盖旧失败记录，历史被前端合并隐藏时仍可通过此接口查询，保留数量上限仍适用。旧版本错误没有追溯补造的诊断。
+
+## 可选采集失败原因
+
+运行或记录的 `error.code` 继续使用 `collection_failed`；可选 `error.collection_failure` 遵循 `contracts/collection_failure.py` 的独立 Schema，包含固定的 `contract_version=collection-failure/0.1`、`stage` 和 `code`，不含正文、URL、账号、路径或异常文本；共享样例见 `examples/collection-failures-v01.json`。
+
+`stage` 区分 `credentials`、`browser`、`login`、`navigation`、`export`、`collection`；`code` 为 `operation_failed`、`timeout`、`http_error`、`session_expired`。消费者用现有 `message` 获取处理建议，按已有 run_id 关联；登录失败不等于密码错误，`operation_failed` 不推断网络根因。超时及页面/整轮采集可稍后重试，凭据/浏览器/登录/导出配置问题先处理对应条件，再由用户重新发起采集，不新增自动重试。
+
+旧爬虫或无法校验的 stderr 不附加此字段，保持原错误；不能由缺失字段断言“模型失败”。字段独立于测试环境的详细诊断，可在生产回执中安全保留。后续成功及失败历史仍是不同运行，不覆盖原失败原因。

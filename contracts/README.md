@@ -2,6 +2,9 @@
 
 ```text
 contracts/
+├── collection_failure.py             # 采集失败阶段与固定原因码的受限契约及解析
+├── examples/collection-failures-v01.json # 凭据、浏览器、登录、页面与导出失败共享样例
+├── tests/test_collection_failure.py   # 旧生产方兼容、边界和敏感字段拒绝回归
 ├── README.md                         # 交接方向、样例用途及校验入口
 ├── docs/email-auth-v0.1.md            # 邮箱验证码注册、补验证、密码找回及会话字段约定
 ├── schemas/email-auth-v0.1.schema.json # 邮箱验证/密码找回请求、验证码句柄及公开响应独立根

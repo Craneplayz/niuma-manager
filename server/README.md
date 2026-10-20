@@ -161,7 +161,7 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 本机需安装 `python -m pip install -r ddl_text/media_requirements.txt`（仓库根执行）；容器已包含这些依赖。沿用七牛云模型配置和密钥，当前服务支持 `image_url` 输入。附件读取与正文识别共用原有队列，附件分批限时，正文识别单独使用 90 秒预算；配置错误、正文识别失败及取消仍按原路径处理，不被附件跳过逻辑吞掉。
 
 PDF 证据只采用通过可见性校验的本地文字或视觉转录；超过输入预算的附件整体略过，不把未校验文字层作为回退。附件模型调用在可回收进程中执行，预算到期会终止并回收，即使 HTTP 持续缓慢返回也不会无限占用调用线程。同一暂存原件供多条通知引用时只读取和累计一次文件大小，逐条绑定与完整性检查仍保留。
-合成文件端到端验收：安装 `ddl_text/media_test_requirements.txt`，然后运行 `python server/run_teaching_attachment_smoke.py --env-file <测试模型配置文件> --output <新的本地结果路径>`。覆盖真实 PDF/扫描 PDF/PNG/DOCX、采集导出、同步 API、真实模型及任务入库；不访问私人课程或校园网，结果包含输入、输出、用时和最终任务。离线回归运行 `python -m unittest discover -s server -p 'test_teaching_assets.py' -v`。
+合成文件端到端验收：安装 `ddl_text/media_test_requirements.txt`，然后运行 `python server/run_teaching_attachment_smoke.py --env-file <测试模型配置文件> --output <新的本地结果路径>`。覆盖真实 PDF/扫描 PDF/PNG/DOCX、采集导出、同步 API、真实模型及任务入库；不访问私人课程或校园网，结果包含输入、输出、用时和最终任务。追加 `--only scan.pdf image.png` 可仅复验指定格式；脚本等待附件读取及任务识别的完整预算，退出时先等待请求释放临时数据库。离线回归运行 `python -m unittest discover -s server -p 'test_teaching_assets.py' -v`。
 文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取当前环境的 `.env.model` 或容器环境变量，无需启动 1333；未设置环境身份的旧本地入口仍兼容根目录 `.env`。
 在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
 同一后端进程的文本、教学网、附件识别、重识别、规划及 AI 拆解合计最多 20 个模型请求执行，额外最多 100 个按到达顺序排队，等待上限 180 秒；队列满或等待超时返回 503，不开始模型调用。
@@ -195,7 +195,7 @@ Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为
 ### 先确认失败阶段
 
 1. 记录出错时间、使用的开发 / 测试 / 生产环境以及 `/api/version` 的 `revision`；点击“反馈此问题”提交错误分类与版本，维护者在 `/admin.html` 查看报告。反馈不含原始异常、课程正文或密码。
-2. 已登录用户可在浏览器开发者工具的 Network 中查看本轮 `GET /api/sources/sync-runs/{id}` 响应的 `state`、`error.code` 和 `error.message`；采集失败可能是 `collection_failed`，具体原因在 message 中，不能只看 HTTP 200 或该错误码。旧版同步接口则查看 `POST /api/sources/sync` 的错误响应。
+2. 已登录用户可在浏览器开发者工具的 Network 中查看本轮 `GET /api/sources/sync-runs/{id}` 响应的 `state`、`error.code`、`error.message` 和可选 `error.collection_failure`；后者区分凭据、浏览器、登录、页面导航与导出阶段及固定原因码，生产也保留，不含正文或原始异常。旧生产方没有该字段时不得猜测根因，不能只看 HTTP 200；旧同步入口查看 `POST /api/sources/sync` 的错误响应。
 3. 向维护者提供上述有限字段即可；不要公开整份网络记录、Cookie、凭据或课程内容。“已连接”只表示凭据已保存，保存时没有验证教学网登录。
 
 | 后端错误 / 页面现象 | 排查与处理 |
@@ -203,6 +203,9 @@ Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为
 | `教学网采集依赖未安装` / 上述“需要维护人员处理”提示 | 在**实际运行后端的检出目录**安装 [crawler 依赖及 Chromium](../crawler/README.md#安装与检查)；重点检查新工作树未安装依赖、只安装 `frontend/`、`--prod` 漏掉 `tsx`、后端仍运行旧目录。 |
 | `教学网采集无法启动或超时` | 检查后端进程的 Node PATH、浏览器运行条件、服务器到教学网的网络；采集子进程等待上限为 300 秒，不能仅凭此提示认定是缺依赖。 |
 | `教学网采集失败` | 爬虫已启动但非正常退出；浏览器文件 / 系统库缺失、账号登录、校园网连接和页面变化都可能导致此错误。先检查浏览器安装，再检查账号与网络；当前 API 不返回爬虫 stderr，不能从这句话确定是密码错误。 |
+| `collection_failure.stage=login` | 登录未完成，可能是网站连接、登录页变化或需人工验证；先确认学校网站能登录，再重新保存连接，不直接判断密码错误。 |
+| `collection_failure.stage=navigation` | `timeout` 为页面访问超时，`http_error` 为非成功响应，`session_expired` 为离开已登录页面；稍后重新获取来源，不重试模型。 |
+| `collection_failure.stage=export` | 来源输出未通过格式校验，交维护人员处理；不靠多次调用模型恢复。 |
 | `教学网识别配置不可用` / “暂时无法整理教学网通知，需要维护人员处理” | 来源已经进入识别，但教学网识别的配置或规则检查未通过，尚未调用本条模型；按下方步骤检查当前环境。 |
 | 单条模型输出失败 | 已尝试识别；根据该记录的错误分类排查连接、超时、输出或证据问题，不与启动配置错误混为一类。 |
 | `定时同步暂不可用，可进行单次识别` | 环境未开放定时同步；独立于采集依赖故障，单次识别仍可用。见下方说明。 |
