@@ -1565,7 +1565,7 @@ dialog p {
 .teaching-progress { padding: 0 0 14px; }
 .sync-run { color: var(--ink); padding: 12px 0; scroll-margin-top: 24px; }
 .sync-run-current { padding: 0; }
-.email-source { padding: 20px 0 28px; }
+.email-source { padding: 20px 0 28px; container-type: inline-size; }
 .email-source-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 18px; }
 .email-source-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; min-width: 0; }
 .email-source-title .status-note { overflow-wrap: anywhere; }
@@ -1903,6 +1903,13 @@ dialog p {
 .email-date-field input { width:158px; }
 .email-list-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px; margin-top:12px; }
 .email-list-toolbar .email-selection-count { margin:0 0 0 auto; text-align:right; }
+/* Follow the panel width: a sidebar can make this narrow on a wide viewport. */
+@container (max-width: 820px) {
+  .email-source-heading { align-items: flex-start; flex-direction: column; }
+  .email-source-actions { width: 100%; margin-left: 0; justify-content: flex-start; }
+  .email-list-toolbar { align-items: flex-start; }
+  .email-list-toolbar .email-selection-count { flex-basis: 100%; margin-left: 0; text-align: left; }
+}
 .email-message.is-excluded { opacity:.58; }
 .email-message > .btn { align-self:flex-start; margin:13px 8px 13px 0; flex:0 0 auto; }
 .email-job { margin:18px 0; padding:14px; border:1px solid var(--line); border-radius:10px; }

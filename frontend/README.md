@@ -192,3 +192,5 @@ npm run build
 历史贡献与来源见 [CONTRIBUTIONS.md](CONTRIBUTIONS.md)。
 
 邮件结果面板的合成预览：[桌面](docs/screenshots/email-results-desktop.png)、[手机](docs/screenshots/email-results-mobile.png)；使用真实组件与静态合成数据渲染，不代表真实邮箱验收。
+
+邮箱工具栏窄面板左对齐的合成预览：[窄内容区](docs/screenshots/email-toolbar-narrow.png)、[手机](docs/screenshots/email-toolbar-mobile.png)。
