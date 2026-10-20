@@ -887,6 +887,10 @@ dialog::backdrop {
   gap: 10px;
   margin-top: 25px;
 }
+.dialog-actions .account-recovery-link {
+  margin-right: auto;
+  padding-inline: 0;
+}
 dialog h2 {
   font-size: 22px;
   margin-bottom: 20px;
@@ -1721,6 +1725,27 @@ dialog p {
   width: 16px;
   height: 16px;
   margin: 2px 0 0;
+}
+.email-code-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.email-code-field .field {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.email-code-field .btn {
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.email-code-status {
+  margin: 8px 0 18px;
+  line-height: 1.6;
+}
+.account-verification-hint {
+  color: var(--muted);
 }
 .account-actions {
   display: flex;

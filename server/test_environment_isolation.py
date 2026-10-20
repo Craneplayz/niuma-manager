@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 import manage_environment as manager
 import runtime_environment as runtime
+from auth_test_support import seed_legacy_account
 from ddl_text.codex_client import live_options
 
 
@@ -370,12 +371,21 @@ class LiveEnvironmentIsolationTests(unittest.TestCase):
         return wechat_media.account_asset_loader(self.data_paths[name], user_id)(
             file_ref, max_bytes=10000, timeout_seconds=5)
 
+    def seed_account(self, name, account):
+        # All paths belong to this test's TemporaryDirectory. This verifies that
+        # existing accounts retain login and isolation without a mail provider.
+        self.assertTrue(self.data_paths[name].is_relative_to(Path(self.temp.name)))
+        seed_legacy_account(self.data_paths[name], account)
+
     def test_accounts_sessions_writes_and_version_are_isolated(self):
         cookies={}
         self.expected, self.receipts, self.user_ids = {}, {}, {}
         for name in self.urls:
-            status,headers,account=self.request(name,'/api/auth/register',{'email':'same@synthetic.test','password':'Synthetic-2026!','name':name})
+            credentials={'email':'same@synthetic.test','password':'Synthetic-2026!','name':name}
+            self.seed_account(name,credentials)
+            status,headers,account=self.request(name,'/api/auth/login',credentials)
             self.assertEqual(status,200)
+            self.assertFalse(account['user']['emailVerified'])
             self.user_ids[name] = account['user']['id']
             cookies[name]=headers['Set-Cookie'].split(';')[0]
             self.assertTrue(cookies[name].startswith('niuma_session_'+name+'='))

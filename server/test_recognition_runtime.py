@@ -1,5 +1,6 @@
 """Backend recognition: direct spawn workers, HTTP compatibility and busy gate."""
 import copy
+import hashlib
 import io
 import json
 import tempfile
@@ -13,6 +14,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import recognition
 from server.model_queue import ModelQueue
 from server import model_queue
@@ -72,8 +74,10 @@ class RecognitionRuntimeTests(unittest.TestCase):
 
     def new_client(self, name):
         client = build_opener(HTTPCookieProcessor(CookieJar()))
-        status, _ = self.call(client, '/auth/register', dict(
-            name='Synthetic', email=name + '@runtime.test', password='Synthetic-only-2026!'))
+        account = registration_payload(dict(
+            name='Synthetic', email=hashlib.sha256(name.encode()).hexdigest()[:32]+'@runtime.test', password='Synthetic-only-2026!'),
+            lambda body: self.call(client, '/auth/email-code', body))
+        status, _ = self.call(client, '/auth/register', account)
         self.assertEqual(status, 200)
         return client
 
