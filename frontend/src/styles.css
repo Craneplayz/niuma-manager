@@ -1950,7 +1950,7 @@ dialog p {
 .email-sender-desktop { display:none; }
 @media (min-width:701px) and (hover:hover) {
   .email-sender-full { display:none; }
-  .email-sender-desktop { display:inline-block; position:relative; cursor:help; }
+  .email-sender-desktop { display:inline-block; position:relative; cursor:help; text-decoration-line:underline; text-decoration-style:dashed; text-decoration-color:currentColor; text-underline-offset:3px; }
   .email-sender-desktop > .email-sort-tooltip { left:0; transform:none; }
   .email-sender-desktop > .email-sort-tooltip::after { left:12px; transform:none; }
   .email-sender-desktop:hover > .email-sort-tooltip,
