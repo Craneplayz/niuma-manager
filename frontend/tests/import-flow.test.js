@@ -191,6 +191,22 @@ test('email connection saves a school mailbox credential without exposing the se
  assert.ok(f.messages.includes('北大邮箱已连接'));
 });
 
+test('email senders retain full text for mobile and expose safe desktop names with address tooltips',async t=>{
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[
+  {input_id:'email:sender:1',subject:'Named sender',sender:'GitHub <noreply@github.com>',state:'unprocessed'},
+  {input_id:'email:sender:2',subject:'Quoted sender',sender:'"A & B" <updates@example.org>',state:'unprocessed'},
+  {input_id:'email:sender:3',subject:'Address only',sender:'plain@example.org',state:'unprocessed'},
+  {input_id:'email:sender:4',subject:'Untrusted sender',sender:'<img src=x onerror=alert(1)> <unsafe@example.org>',state:'unprocessed'},
+ ],summary:{total:4},next_offset:null}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});
+ const html=ui.render();
+ assert.match(html,/class="email-sender-desktop" tabindex="0" aria-describedby="(email-sender-tooltip-\d+)">GitHub<span id="\1" class="email-sort-tooltip" role="tooltip">noreply@github.com<\/span>/);
+ assert.match(html,/class="email-sender-full">GitHub &lt;noreply@github.com&gt;<\/span>/);
+ assert.match(html,/>A &amp; B<span id="email-sender-tooltip-\d+"/);
+ assert.equal((html.match(/class="email-sender-desktop"/g)||[]).length,2,'only named addresses receive a compact display');
+ assert.match(html,/plain@example.org/);assert.doesNotMatch(html,/<img src=x/);assert.match(html,/&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
 test('email management updates consent and recognition settings without resending credentials',async t=>{
  const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:'email:box:77:1',subject:'通知',excluded:false,state:'unprocessed'}],summary:{total:1},next_offset:null}};
  const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});

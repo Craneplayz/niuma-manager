@@ -1947,6 +1947,15 @@ dialog p {
 .email-password-help > button { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; padding:0; border:0; border-radius:4px; background:transparent; color:var(--muted); cursor:help; }
 .email-password-help > button:hover { color:var(--ink); }
 .email-password-help .icon { width:15px; height:15px; }
+.email-sender-desktop { display:none; }
+@media (min-width:701px) and (hover:hover) {
+  .email-sender-full { display:none; }
+  .email-sender-desktop { display:inline-block; position:relative; cursor:help; }
+  .email-sender-desktop > .email-sort-tooltip { left:0; transform:none; }
+  .email-sender-desktop > .email-sort-tooltip::after { left:12px; transform:none; }
+  .email-sender-desktop:hover > .email-sort-tooltip,
+  .email-sender-desktop:focus-within > .email-sort-tooltip { visibility:visible; opacity:1; }
+}
 .email-sort-control { position:relative; display:inline-flex; flex:0 0 36px; }
 .email-sort-tooltip { position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%); z-index:20; display:grid; gap:3px; width:max-content; max-width:240px; padding:8px 10px; border-radius:6px; background:#303237; color:#fff; font-size:12px; line-height:1.5; font-weight:400; box-shadow:0 3px 12px #00000018; visibility:hidden; opacity:0; transition:opacity 100ms ease; }
 .email-sort-tooltip::after { content:""; position:absolute; bottom:100%; left:50%; transform:translateX(-50%); border:5px solid transparent; border-bottom-color:#303237; }
