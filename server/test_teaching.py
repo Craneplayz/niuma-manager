@@ -12,6 +12,7 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import teaching
 from jsonschema import Draft202012Validator
 from contracts.teaching_io import snapshot_digest
@@ -309,6 +310,8 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.server.shutdown(); self.server.server_close();self.thread.join();app.DB=self.old_db;self.tmp.cleanup()
 
     def call(self,path,body=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request:self.call('/auth/email-code',request))
         req=Request(self.base+path, None if body is None else json.dumps(body).encode(), {'Content-Type':'application/json'})
         try:
             with self.client.open(req,timeout=120) as response:return response.status,json.load(response)

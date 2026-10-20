@@ -13,6 +13,7 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import teaching
 from ddl_text.tests.docx_cases import package, paragraph
 from ddl_text.tests.pdf_cases import pdf_bytes
@@ -53,7 +54,9 @@ def main():
                 cwd=teaching.ROOT/'crawler',input=json.dumps(dict(folder=kwargs['env']['PKU_ATTACHMENT_DIR'],files=payload)),
                 capture_output=True,text=True,encoding='utf-8',timeout=90)
         try:
-            call('/auth/register',dict(name='Synthetic attachments',email='attachment-smoke@example.test',password='Synthetic-Smoke-2026!'))
+            account=registration_payload(dict(name='Synthetic attachments',email='attachment-smoke@example.test',password='Synthetic-Smoke-2026!'),
+                                         lambda body:(200,call('/auth/email-code',body)))
+            call('/auth/register',account)
             call('/sources/credentials',dict(username='synthetic-user',password='synthetic-only'))
             with patch.object(app.source_sync.subprocess,'run',side_effect=capture):
                 pending=call('/sources/sync',dict(sources=['teaching_web']))

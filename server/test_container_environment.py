@@ -20,6 +20,7 @@ from urllib.request import Request, urlopen
 import manage_environment as manager
 import release_images as release
 import test_environment_isolation as environment_tests
+from auth_test_support import legacy_account_row
 
 
 @unittest.skipUnless(shutil.which('docker') and all(os.environ.get('NIUMA_CONTAINER_TEST_' + name)
@@ -117,6 +118,16 @@ print(base64.b64encode(data).decode())
             self.assertIn('file_ref_unavailable', result.stderr)
             raise FileNotFoundError('file_ref_unavailable')
         return base64.b64decode(result.stdout.strip(), validate=True)
+
+    def seed_account(self, name, account):
+        # Only this test's newly created, uniquely labelled volume is touched.
+        self.assertTrue(self.volumes[name].startswith(self.prefix + '-'))
+        script = '''import json, sqlite3, sys
+with sqlite3.connect('/data/niuma.sqlite3', timeout=10) as db:
+    db.execute('INSERT INTO users VALUES(?,?,?,?,?)', json.loads(sys.argv[1]))
+'''
+        self.command(self.stacks[name] + ['exec', '-T', 'api', 'python', '-c', script,
+                                        json.dumps(legacy_account_row(account))])
 
     def test_accounts_sessions_writes_and_version_are_isolated(self):
         super().test_accounts_sessions_writes_and_version_are_isolated()

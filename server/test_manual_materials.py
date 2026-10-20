@@ -12,6 +12,7 @@ from unittest.mock import patch
 from zipfile import ZipFile
 
 import app
+from auth_test_support import registration_payload
 import manual_materials
 import wechat_media
 
@@ -37,6 +38,8 @@ class ManualMaterialTests(unittest.TestCase):
         self.db.stop();self.env.stop();self.tmp.cleanup()
 
     def call(self,path,body=None,client=None,method=None,headers=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request:self.call('/auth/email-code',request,client=client,headers=headers))
         data=json.dumps(body).encode() if body is not None else None
         request=Request(self.base+path,data=data,headers={'Content-Type':'application/json',**(headers or {})},method=method)
         return self.send(request,client)

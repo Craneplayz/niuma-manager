@@ -1,0 +1,80 @@
+# 阿里云邮箱验证码服务
+
+应用已支持新账号验证码注册、老账号补验证及已验证邮箱找回密码，默认使用阿里云邮件推送 DirectMail 的 TLS SMTP。购买 ECS 不代表邮件推送已开通；未配置发信时已有账号仍可登录，新注册不能跳过验证。
+
+## 服务器负责人准备
+
+1. 在邮件推送控制台确认开通区域及实际账户配额、余额；测试和生产优先使用不同发信地址。
+2. 配置专用发信子域名，按控制台要求验证 DNS（SPF、DKIM 等）；已有企业邮箱的 DNS 不应被覆盖。
+3. 创建“触发邮件”发信地址，并为这个地址设置专用 SMTP 密码；该密码不是阿里云登录密码，也不是 AccessKey。
+4. 确认服务器可出站连接邮件站点 TCP 465；项目不使用 ECS 常见受限的 25 端口。
+
+收件用户可以使用普通可收信邮箱，不需要拥有阿里云账号。邮件是否入箱、垃圾邮件处理及发送额度以实际邮件服务和账户为准。
+
+官方说明：[发信域名](https://help.aliyun.com/zh/direct-mail/user-guide/how-to-configure-sending-domain-names)、[发信地址](https://help.aliyun.com/zh/direct-mail/user-guide/setup-sender-addresses)、[SMTP 站点](https://help.aliyun.com/zh/direct-mail/smtp-endpoints)、[SMTP 发信](https://help.aliyun.com/zh/direct-mail/user-guide/send-emails-using-smtp)、[配额限制](https://help.aliyun.com/zh/direct-mail/product-overview/limits)。
+
+## 发信预算
+
+应用的全局发码限流为每环境每小时 100 次、滚动 24 小时 500 次，只用于防滥用；不同环境独立计数，没有跨环境共享预算或累计发信预算，不能据此保证 DirectMail 免费额度内运行。
+
+零额外费用部署先核对控制台的剩余累计免费封数和当日免费余额，为 test/production 使用同一预算卷与一致上限；为账号其他发信方预留额度，无法核对或控制外部发送量时保持邮件未配置。
+
+在两环境 `.env.mail` 同时添加下列配置；数值仅为示例，不代表账号实际剩余额度：
+
+```dotenv
+NIUMA_MAIL_BUDGET_FILE=/mail-budget/quota.sqlite3
+NIUMA_MAIL_BUDGET_DAILY=100
+NIUMA_MAIL_BUDGET_TOTAL=1000
+```
+
+首次由部署者执行 `docker volume create niuma-mail-budget`，使用已验收 API 镜像、`--network none --user 0 --mount type=volume,source=niuma-mail-budget,target=/mail-budget` 执行 `chown 10001:10001 /mail-budget`；卷只保存预占次数、时间与初始上限，不存账号、收件人或验证码。
+
+统一入口检测完整预算配置后自动叠加 `compose.mail-budget.yaml`；这是显式存在的外部卷，不随测试项目重建创建新计数，用户数据库、附件、会话和密钥仍各环境独立。
+
+SMTP 连接前按 SQLite 写事务预占；所有验证码用途共用累计及滚动24小时上限，多进程并发不超发，供应商拒绝、连接失败或响应不确定均不退额度且不自动重试。
+
+预算支持每日最多200、累计最多2000；部署实际值不得超过经核对的可用免费额度，应留余量；启动、重启、重建或提高配置数值都不会提高首次保存的上限，调低配置可进一步限额。
+
+预算缺父目录、文件损坏或不可写均在建立 SMTP 连接前拒绝；三个预算字段必须一起配置，Compose 拒绝改为环境内 `/data` 计数；完全省略预算仍兼容普通 SMTP 部署，不保证免费额度。
+
+该计数仅约束经过此应用并挂载同一卷的发送，不能限制控制台或其他客户端使用同一 DirectMail 账号；余额提醒、环境发码限流和不同发件地址都不等于账号硬停发。
+
+备份和回滚须保留预算卷最新状态，禁止删除、重新初始化或恢复为更旧计数；提高初始预算须由部署者重新核对账号剩余免费额度并显式维护，不能靠更换卷名续发。
+
+## 按环境配置
+
+在仓库根运行 `python server/manage_environment.py init all`，只补齐缺失的 `.env.mail`，不覆盖已有配置。分别编辑 `server/deploy/environments/<环境>/.env.mail`；模板为 [.env.mail.example](.env.mail.example)：
+
+```dotenv
+NIUMA_MAIL_HOST=smtpdm.aliyun.com
+NIUMA_MAIL_PORT=465
+NIUMA_MAIL_FROM=
+NIUMA_MAIL_PASSWORD=
+NIUMA_MAIL_TIMEOUT=10
+```
+
+`NIUMA_MAIL_FROM` 填控制台发信地址，也作为 SMTP 用户名；`NIUMA_MAIL_PASSWORD` 填其专用 SMTP 密码。域名所属区域决定 HOST，不按 ECS 所在区域猜测；当前支持杭州、新加坡、美国弗吉尼亚和德国法兰克福的官方 SMTP 站点，只允许 465/TLS、校验证书。
+
+配置值按字面量读取，不展开 `$变量`、反斜杠或行内注释；包含空格时可用一对单双引号包裹，注释放独立行。配置须仅部署者可读，不提交 Git、不写入构建参数、前端变量或模型 `.env.model`。
+
+`python server/manage_environment.py check test` 只输出 `mail_configured` 布尔状态，不发邮件，也不证明 DNS、凭据或额度已可用。本地统一入口注入本环境配置；容器统一入口生成私有 `.env.mail.compose` 并注入 API。原始 Compose 直启读取部署目录 `.env.mail`，可缺省但不能发信，需要 Docker Compose ≥2.24。配置更新后重新创建 API 容器；IP 方案须一并重建 web，按 [环境手册](ENVIRONMENTS.md) 操作。
+
+## 升级与验收
+
+升级前备份完整 `/data`。启动会补建验证状态、验证码挑战、恢复码密码版本绑定和限流表；已有 users、任务及会话不清空。已有账号显示“邮箱未验证”，原有功能可继续使用；老账号须先登录补验证，之后才能通过邮箱找回密码。密码找回不提供邮箱换绑。
+
+注册发码、注册事务、找回和空白测试账号工具共用邮箱身份查询：精确查询未命中时，按已有邮箱保存值实际规范化匹配，兼容全角域名、等价句点及其他 IDNA 拼写；不改写或合并历史账号，不改变原密码、验证状态及工作区。已有重复身份保留各自数据，原邮箱仍可登录，不自动迁移。
+
+找回密码复用同一 `.env.mail`，无新增阿里云权限或凭据。发码和错误尝试预算与注册/补验证共享，验证码的用途分别绑定；成功重置后该账号全部普通/管理员会话失效，其他待用验证码作废，原任务和管理员角色保留，须用新密码重新登录。
+
+找回发码对未知或未验证邮箱返回同样的受理响应，不实际投递；为避免通过 SMTP 失败响应推断资格，此用途的供应商拒绝也返回相同受理响应，并把挑战记为 failed。负责人可在隔离数据库检查 `email_challenges` 的恢复码投递状态，不应把底层响应或验证码写入日志。未配置发信仍统一返回 503；响应一致不代表网络时延完全相同，也不代表邮件已实际入箱。
+
+`email-verification.key` 在对应数据目录按需生成，用于挑战和限流 HMAC，须随整个数据卷备份；不要复制生产数据或此密钥到测试环境。替换/丢失密钥会使未完成的验证码失效，已完成的验证状态仍在数据库中。
+
+在隔离 test 环境用负责人控制的邮箱依次验证：发送并实际收到验证码、错误码被拒绝、正确码注册后刷新仍登录、六十秒内不可重发；再以旧合成账号补验证，核对原任务和会话保留。缺配置/SMTP 错误应显示失败，不创建账号。把实际提交、收信结果和未通过项记入 Issue，不把配置、验证码或邮件原文贴入记录。
+
+另在已验证合成账号完成一次“忘记密码”：实际收到重置用途邮件、设置新密码、原密码登录失败、新密码登录成功，其他设备的旧会话和旧恢复码不可用，原任务及版本保持不变。未知/未验证邮箱不能据受理响应判断已发信；真实入箱仍须单独核对。
+
+离线测试使用临时数据库与投递替身，不会真实发信；它不能代替上述阿里云入箱验收。前后端打包继续使用现有 Dockerfile 和同一版本镜像，生产必须按原验收流程发布。
+
+Compose 中仅 Caddy 对外提供入口，并覆盖 `X-Niuma-Client-IP`，API 通过显式开关信任该私有头以进行客户端限流。自行直启 API 时默认使用连接地址，不应在 API 可被公网直接访问时开启 `NIUMA_TRUST_PROXY_CLIENT_IP`。

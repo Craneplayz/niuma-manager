@@ -140,3 +140,14 @@ test("administrator reports render an empty state and escape received fields", (
   assert.match(html, /&lt;img/);
   assert.doesNotMatch(html, /<img/);
 });
+
+test("email errors use safe messages and service failures retain valid report controls", () => {
+  for (const code of ["email_not_configured", "email_send_failed", "email_code_invalid", "email_code_expired", "email_code_rate_limited", "email_already_verified", "email_invalid", "email_registered"]) {
+    const error = { code, status: code === "email_code_rate_limited" ? 429 : 503, message: "PRIVATE password=PRIVATE" }, html = userErrorMarkup(error, "account");
+    assert.doesNotMatch(html, /PRIVATE/);
+    if (["email_not_configured", "email_send_failed"].includes(code)) {
+      assert.match(html, /data-error-feedback/);
+      assert.ok(schema.properties.code.enum.includes(describeUserError(error, "account").kind));
+    } else assert.doesNotMatch(html, /data-error-feedback/);
+  }
+});
