@@ -1,4 +1,5 @@
 """Offline tests for email credential, preview, and sync API routes."""
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -46,7 +47,8 @@ class EmailSourceRouteTests(unittest.TestCase):
         self.save_credentials()
         row = self.db.execute('SELECT * FROM email_source_credentials WHERE user_id=?', ('owner',)).fetchone()
         self.assertNotIn(b'clientsecret', row['secret'])
-        self.assertEqual(self.key.stat().st_mode & 0o777, 0o600)
+        if os.name != 'nt':
+            self.assertEqual(self.key.stat().st_mode & 0o777, 0o600)
 
         self.call('/api/sources/email/credentials', method='GET')
         self.assertEqual(self.responses[-1][1], {

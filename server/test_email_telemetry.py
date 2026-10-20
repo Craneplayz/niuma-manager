@@ -1,5 +1,6 @@
 """Content-free email events, diagnostics, token accounting and admin aggregates."""
 import os
+from contextlib import closing
 import sqlite3
 import tempfile
 import time
@@ -24,9 +25,30 @@ class TelemetryDatabaseCase(unittest.TestCase):
 
 class EmailTelemetryTests(TelemetryDatabaseCase):
 
+    def test_every_writer_closes_connections_after_success_and_failure(self):
+        opened = []
+        connect = sqlite3.connect
+        def tracked(*args, **kwargs):
+            db = connect(*args, **kwargs)
+            opened.append(db)
+            return db
+        for failed in (False, True):
+            with self.subTest(failed=failed), patch.object(email_telemetry.sqlite3, 'connect', side_effect=tracked):
+                path = self.path if not failed else str(Path(self.path).parent / 'missing-directory' / 'db')
+                self.assertEqual(email_telemetry.record(path,'u','queue'),not failed)
+                self.assertEqual(email_telemetry.record_diagnostic(path,'u','generation','unknown'),not failed)
+                self.assertEqual(email_telemetry.record_tokens(path,'u',{}),not failed)
+        with patch.object(email_telemetry.sqlite3, 'connect', side_effect=tracked), \
+             patch.object(usage, 'record', side_effect=ValueError('synthetic write failure')):
+            self.assertFalse(email_telemetry.record(self.path,'u','queue'))
+        self.assertEqual(len(opened),4)
+        for db in opened:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                db.execute('SELECT 1')
+
 
     def rows(self):
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             return db.execute('SELECT actor,event,success,duration_ms,quantity FROM usage_events').fetchall()
 
     def test_stage_whitelist_and_content_free_schema(self):
@@ -38,7 +60,7 @@ class EmailTelemetryTests(TelemetryDatabaseCase):
         self.assertEqual({row[1] for row in rows}, {'email_' + s for s in email_telemetry.STAGES})
         self.assertTrue(all(row[4] == 3 for row in rows))
         self.assertEqual(next(row[2] for row in rows if row[1] == 'email_failed'), 0)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             columns = {r[1] for r in db.execute('PRAGMA table_info(usage_events)')}
         self.assertEqual(columns, {'id','actor','occurred_at','day','event','success','duration_ms','quantity'})
 
@@ -55,7 +77,7 @@ class EmailTelemetryTests(TelemetryDatabaseCase):
         self.assertGreaterEqual(rows['email_fetch'][3], 5)
         self.assertGreaterEqual(rows['email_recognition'][3], 5)
         self.assertEqual(rows['email_fetch'][4], 1)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             stored = repr(db.execute('SELECT * FROM usage_events').fetchall())
         self.assertNotIn('private exception text', stored)
 
@@ -72,10 +94,10 @@ class EmailTelemetryTests(TelemetryDatabaseCase):
         metric = next(m for m in result['metrics'] if m['event'] == 'email_queue')
         self.assertEqual((metric['count'], metric['quantity'], metric['medianMs'], metric['p95Ms']), (2,5,50,75))
         cutoff_time = usage.datetime.now(usage.TZ) - usage.timedelta(days=90)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             usage.record(db, 'u', 'old_event', now=cutoff_time - usage.timedelta(days=1))
         self.assertTrue(email_telemetry.record(self.path, 'u', 'job'))
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             cutoff = cutoff_time.date().isoformat()
             self.assertFalse(db.execute('SELECT 1 FROM usage_events WHERE day<?', (cutoff,)).fetchone())
 
@@ -85,7 +107,7 @@ class EmailTelemetryTests(TelemetryDatabaseCase):
         self.assertFalse(email_telemetry.record_diagnostic(self.path, 'user-a', 'generation', sentinel))
         self.assertTrue(email_telemetry.record_diagnostic(self.path, 'user-a', 'generation', 'invalid_json', 17))
         self.assertTrue(email_telemetry.record_diagnostic(self.path, 'user-b', 'validation', 'evidence', 31))
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.row_factory = sqlite3.Row
             rows = email_telemetry.diagnostics(db, '2000-01-01', '2999-12-31')
             self.assertEqual({(r['stage'], r['reason'], r['count']) for r in rows},
@@ -101,7 +123,7 @@ class EmailTelemetryTests(TelemetryDatabaseCase):
             db.execute(f'INSERT INTO {email_telemetry.DIAGNOSTIC_TABLE} VALUES(?,?,?,?,?,?)',
                        ('old-id', usage.actor('old'), 'generation', 'unknown', 1, old))
         email_telemetry.record_diagnostic(self.path, 'user-a', 'generation', 'unknown')
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             self.assertFalse(db.execute(f'SELECT 1 FROM {email_telemetry.DIAGNOSTIC_TABLE} WHERE id=?', ('old-id',)).fetchone())
 
 

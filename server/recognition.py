@@ -95,6 +95,7 @@ def recognize(request, ApiError):
     _email_metric('model_queue',waited_ms,True)
     receipt = None
     attempt_metrics = []
+    attempts_started = 0
     try:
         endpoint = os.environ.get('TEXT_HARNESS_URL')
         if endpoint:
@@ -144,7 +145,13 @@ def recognize(request, ApiError):
                 attempt_metrics.append(metrics)
                 _attempt_metric(metrics)
             observer = {"attempt_observer": observe}
-            guard = {'attempt_guard': lambda: not model_queue.disconnected()} if email_request else {}
+            def before_attempt():
+                nonlocal attempts_started
+                if email_request and model_queue.disconnected():
+                    return False
+                attempts_started += 1
+                return True
+            guard = {'attempt_guard': before_attempt}
             result = process_request(request, adapter, settings, budget_seconds=budget_seconds, **observer, **guard)
             throttled = next((m for m in attempt_metrics if m.get('provider_status') == 429), None)
             if throttled:
@@ -161,8 +168,9 @@ def recognize(request, ApiError):
         if receipt and attempt_metrics:
             known = all(type(m.get('total_tokens')) is int for m in attempt_metrics)
             # A timed-out attempt with no worker report keeps its conservative charge.
-            completed = all(m.get('generation_ok') is True or m.get('provider_status') == 429
-                            for m in attempt_metrics)
+            completed = (len(attempt_metrics) == attempts_started and
+                         all(m.get('generation_ok') is True or m.get('provider_status') == 429
+                             for m in attempt_metrics))
             if completed:
                 model_queue.PROVIDER.settle(receipt, requests=len(attempt_metrics),
                     tokens=sum(m['total_tokens'] for m in attempt_metrics) if known else None)

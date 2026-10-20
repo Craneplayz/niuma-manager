@@ -3,6 +3,8 @@ import threading
 import os
 import sqlite3
 import socket
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -12,6 +14,29 @@ import email_scheduler
 
 
 class FairDispatcherTests(unittest.TestCase):
+    def test_shutdown_cancels_all_waiters_without_dispatching_them(self):
+        dispatcher = email_scheduler.FairDispatcher(global_limit=1, account_limit=1)
+        gate, entered = threading.Event(), threading.Event()
+        def block():
+            entered.set()
+            if not gate.wait(5):
+                raise RuntimeError('synthetic test timeout')
+        active = dispatcher.submit('active', block)
+        queued = []
+        try:
+            self.assertTrue(entered.wait(2))
+            callback = mock.Mock()
+            queued = [dispatcher.submit(account, callback) for account in ('first','first','second')]
+            dispatcher.shutdown(wait=False)
+            self.assertTrue(all(future.cancelled() for future in queued))
+            self.assertEqual(dispatcher.stats()['queued'], 0)
+            callback.assert_not_called()
+        finally:
+            gate.set()
+            active.result(timeout=3)
+            dispatcher.shutdown()
+        self.assertEqual(dispatcher.stats()['running'], 0)
+
     def test_thirty_accounts_are_served_round_robin_with_two_slots_each(self):
         dispatcher = email_scheduler.FairDispatcher(global_limit=8, account_limit=2)
         blocker = threading.Event()
@@ -98,6 +123,27 @@ class FairDispatcherTests(unittest.TestCase):
 
 
 class ProcessOwnerTests(unittest.TestCase):
+    def test_real_live_owner_survives_probe_and_second_instance(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
+                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        try:
+            self.assertTrue(email_scheduler._pid_alive(child.pid))
+            self.assertIsNone(child.poll(), 'liveness probing must not terminate the owner')
+            with tempfile.TemporaryDirectory() as temp:
+                path = os.path.join(temp, 'owner.sqlite3')
+                db = self.owner_db(path, socket.gethostname(), child.pid)
+                try:
+                    self.assertFalse(email_scheduler.register_process_owner(db, path))
+                finally:
+                    db.close()
+                self.assertFalse(email_scheduler.claim_process_owner(path))
+                self.assertIsNone(child.poll())
+        finally:
+            if child.poll() is None:
+                child.terminate()
+            child.wait(timeout=5)
+        self.assertFalse(email_scheduler._pid_alive(child.pid))
+
     def owner_db(self, path, host, pid, heartbeat=None):
         db = sqlite3.connect(path)
         db.execute('''CREATE TABLE email_import_scheduler_owner(

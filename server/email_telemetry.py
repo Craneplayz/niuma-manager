@@ -1,5 +1,5 @@
 """Content-free email pipeline telemetry in the existing usage database."""
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import sqlite3
 import time
 import math
@@ -77,7 +77,7 @@ def record(path, uid, stage, duration_ms=0, success=True, quantity=1):
     if not _valid_duration(duration_ms):
         return False
     try:
-        with sqlite3.connect(path, timeout=WRITE_TIMEOUT_SECONDS) as db:
+        with closing(sqlite3.connect(path, timeout=WRITE_TIMEOUT_SECONDS)) as db, db:
             db.execute('PRAGMA busy_timeout=250')
             usage.record(db, str(uid), EVENT_PREFIX + stage,
                          success=bool(success) and stage != 'failed',
@@ -119,7 +119,7 @@ def record_diagnostic(path, uid, stage, reason, duration_ms=0):
         return False
     now = datetime.now(usage.TZ)
     try:
-        with sqlite3.connect(path, timeout=WRITE_TIMEOUT_SECONDS) as db:
+        with closing(sqlite3.connect(path, timeout=WRITE_TIMEOUT_SECONDS)) as db, db:
             db.execute('PRAGMA busy_timeout=250')
             initialize(db)
             db.execute(f'INSERT INTO {DIAGNOSTIC_TABLE} VALUES(?,?,?,?,?,?)',
@@ -183,7 +183,7 @@ def record_tokens(path, uid, metrics, success=True):
         return False
     now = datetime.now(usage.TZ)
     try:
-        with sqlite3.connect(path, timeout=WRITE_TIMEOUT_SECONDS) as db:
+        with closing(sqlite3.connect(path, timeout=WRITE_TIMEOUT_SECONDS)) as db, db:
             db.execute('PRAGMA busy_timeout=250')
             _initialize_tokens(db)
             db.execute(f'INSERT INTO {TOKEN_TABLE} VALUES(?,?,?,?,?,?,?,?,?)',

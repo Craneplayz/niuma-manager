@@ -205,6 +205,37 @@ class WriteAdmissionTests(unittest.TestCase):
 
 
 class CapacityControlsTests(unittest.TestCase):
+    def test_missing_fallback_usage_does_not_refund_its_quota(self):
+        import recognition
+        from ddl_text.tests.test_pipeline import example
+        request = example('no-task')['input']
+        for raw in request['records']:
+            raw['platform'] = 'email'
+        options = dict(provider='qiniu',model='synthetic',endpoint='https://synthetic.invalid',key='synthetic-only')
+        for fallback_timeout in (False, True):
+            with self.subTest(fallback_timeout=fallback_timeout):
+                gate = model_queue.ProviderBudget()
+                receipt, _ = gate.reserve('synthetic', 2, 100)
+                def process(request, adapter, settings, **kwargs):
+                    self.assertTrue(kwargs['attempt_guard']())
+                    kwargs['attempt_observer'](dict(generation_started=True,generation_ok=True,
+                        generation_ms=1,total_tokens=10,finish_reason='length' if fallback_timeout else 'stop'))
+                    if fallback_timeout:
+                        self.assertTrue(kwargs['attempt_guard']())
+                        # A killed worker never delivered telemetry for this provider call.
+                        return dict(status='failed',errors=[dict(code='agent_timeout')])
+                    return dict(status='no_tasks')
+                with patch.dict(os.environ, TEXT_HARNESS_URL=''), \
+                     patch.object(recognition,'_ACTIVE',model_queue.ModelQueue(limit=1)), \
+                     patch.object(model_queue,'PROVIDER',gate), \
+                     patch.object(model_queue,'provider_reservation',return_value=('synthetic',receipt,0)), \
+                     patch.object(recognition,'live_options',return_value=options), \
+                     patch.object(recognition,'make_client'), \
+                     patch.object(recognition,'text_policy_manifest',return_value=dict(components=recognition._POLICY_COMPONENTS)), \
+                     patch.object(recognition,'process_request',side_effect=process):
+                    recognition.recognize(request, RuntimeError)
+                self.assertEqual(receipt[1][1:], [2,100] if fallback_timeout else [1,10])
+
     def test_quota_window_refund_and_provider_isolation(self):
         now = [0.0]
         gate = model_queue.ProviderBudget(window=60, clock=lambda: now[0])

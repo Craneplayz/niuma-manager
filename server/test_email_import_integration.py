@@ -146,7 +146,8 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         status, initial = self.call('/sources/email/jobs',
             dict(operation_id='range', range=dict(limit=61, start_date=None)))
         self.assertEqual(status, 202, initial)
-        job = self.settled(initial['job_id'])
+        # This exercises 61 real SQLite commits, not an import latency target.
+        job = self.settled(initial['job_id'], timeout=30)
         self.assertEqual(job['counts']['selected'], 61, job)
         self.assertEqual(job['counts']['failed'], 1, job)
         self.assertEqual(job['counts']['processed'], 60, job)

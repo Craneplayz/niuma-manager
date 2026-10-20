@@ -2,6 +2,7 @@
 from dataclasses import replace
 import json
 import os
+from contextlib import closing
 import sqlite3
 import tempfile
 import threading
@@ -46,7 +47,8 @@ class EmailThinkingTests(unittest.TestCase):
                 self.assertEqual(run.call_args.args[2].timeout_seconds,270 if platform=='email' else 90)
                 self.assertEqual(run.call_args.kwargs['budget_seconds'],270 if platform=='email' else 90)
                 self.assertEqual(run.call_args.args[2].truncation_retry_tokens,16384 if platform=='email' else None)
-                self.assertEqual('attempt_guard' in run.call_args.kwargs,platform=='email')
+                with patch.object(recognition.model_queue, 'disconnected', return_value=True):
+                    self.assertEqual(run.call_args.kwargs['attempt_guard'](), platform!='email')
 
     def test_harness_http_wait_covers_email_budget_without_changing_manual_timeout(self):
         import io
@@ -88,7 +90,7 @@ class SyntheticFallbackClient:
 class EmailRecognitionTimingTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.path = Path(self.temp.name) / 'metrics.sqlite3'
-        with sqlite3.connect(self.path) as db: usage.initialize(db)
+        with closing(sqlite3.connect(self.path)) as db, db: usage.initialize(db)
         self.env = patch.dict(os.environ, {**dict.fromkeys(ENV_KEYS, ''), 'TEXT_HARNESS_URL':''})
         self.env.start(); self.addCleanup(self.env.stop); self.addCleanup(self.temp.cleanup)
     def recognize(self, client, queue, email=False):
@@ -98,7 +100,7 @@ class EmailRecognitionTimingTests(unittest.TestCase):
             if email: request['records'][0]['platform']='email'
             return recognition.recognize(request, RuntimeError)
     def rows(self):
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             return db.execute('SELECT event,success,duration_ms FROM usage_events').fetchall()
     def test_queue_wait_is_separate_from_provider_and_validation(self):
         queue = ModelQueue(limit=1); self.assertTrue(queue.acquire())
@@ -115,7 +117,7 @@ class EmailRecognitionTimingTests(unittest.TestCase):
     def test_validation_failure_is_classified_without_raw_response(self):
         result = self.recognize(SyntheticClient('PRIVATE_RESPONSE_SENTINEL'), ModelQueue())
         self.assertEqual(result['status'], 'failed')
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             diagnostic = db.execute('SELECT stage,reason FROM email_recognition_diagnostics').fetchall()
             stored = repr(db.execute('SELECT * FROM email_recognition_diagnostics').fetchall()) + repr(self.rows())
         self.assertEqual(diagnostic, [('validation','invalid_json')])
@@ -132,7 +134,7 @@ class EmailRecognitionTimingTests(unittest.TestCase):
     def test_token_usage_reaches_database_once_per_successful_or_failed_attempt(self):
         for fail in (False,True):
             self.recognize(SyntheticTokenClient(fail=fail),ModelQueue())
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             rows=db.execute('SELECT success,finish_reason,prompt_tokens,completion_tokens,total_tokens,reasoning_tokens FROM email_model_token_usage ORDER BY created_at').fetchall()
         self.assertEqual(rows,[(1,'stop',100,8192,8292,8192),(0,'length',100,8192,8292,8192)])
         self.assertNotIn('PRIVATE_TOKEN_SENTINEL',repr(rows))
@@ -140,7 +142,7 @@ class EmailRecognitionTimingTests(unittest.TestCase):
     def test_email_fallback_persists_usage_for_both_attempts(self):
         result=self.recognize(SyntheticFallbackClient(),ModelQueue(),email=True)
         self.assertEqual(result['status'],'no_tasks')
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             rows=db.execute('SELECT success,finish_reason,completion_tokens FROM email_model_token_usage ORDER BY created_at').fetchall()
         self.assertEqual(rows,[(0,'length',8192),(1,'stop',5)])
         self.assertEqual(sum(row[2] for row in rows),8197)

@@ -43,6 +43,10 @@ No new queue backend or production-serving dependency is introduced by this clea
 
 Before deployment, confirm there is one scheduler-owning API process per database and verify the isolated environment's capacity profile. Do not configure multiple replicas against this scheduler. Existing model configuration remains environment scoped; do not copy secrets from another profile.
 
+Process-owner checks are read-only: Windows uses a synchronize-only process handle, never `os.kill(pid, 0)`, which terminates processes on Windows. A second instance must leave a live owner running. Dispatcher shutdown cancels all queued work without dispatching it and drains already running work. Provider quota is refunded only when every started model attempt reported completed usage; an unreported timeout after an output-truncation retry retains the conservative reservation.
+
+Telemetry writers explicitly close their SQLite connections after either commit or rollback. SQLite's transaction context alone does not close a connection; diagnostics must not retain handles until garbage collection or prevent test database cleanup on Windows.
+
 On restart, completed recognition remains reusable and queued/processing items become interrupted. A user must explicitly retry unfinished work; startup never automatically retransmits saved private mail. Stop prevents new dispatch and late result persistence but cannot recall a provider request already sent. Keep stopped/draining jobs in the admission count until their coordinators exit. Retry and cache updates retain operation-ID idempotency and reviewed decisions.
 
 If latency rises, inspect dispatch waiting, shared model waiting, provider backoff, generation, IMAP and database waiting independently. A full model pool calls for provider/capacity diagnosis, not additional API replicas. An interrupted job calls for explicit retry after checking service health. Consent revocation, exclusion, connection changes and disconnect still purge affected pending body snapshots and block their use.

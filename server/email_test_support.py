@@ -108,6 +108,9 @@ class EmailHTTPTestCase(unittest.TestCase):
         self.addCleanup(environment.stop)
         app.initialize(recover=False)
         self.server = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
+        # Join request handlers before removing their SQLite database. A response
+        # can arrive just before the handler exits its database context.
+        self.server.daemon_threads = False
         thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=.01), daemon=True)
         thread.start()
         def close_server():
@@ -158,15 +161,15 @@ class EmailHTTPTestCase(unittest.TestCase):
         self.assertEqual(status, 200)
         return client
 
-    def settled(self, job_id):
-        deadline = time.monotonic() + 10
+    def settled(self, job_id, timeout=10):
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             status, job = self.call('/sources/email/jobs/' + job_id)
             self.assertEqual(status, 200, job)
             if job['state'] in FINAL:
                 return job
             time.sleep(.02)
-        self.fail('synthetic email job did not reach a terminal state')
+        self.fail(f'synthetic email job did not reach a terminal state: {job}')
 
     def start(self, ids, operation):
         status, job = self.call('/sources/email/jobs', dict(operation_id=operation, input_ids=ids))

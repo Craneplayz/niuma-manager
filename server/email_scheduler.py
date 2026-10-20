@@ -56,6 +56,8 @@ class FairDispatcher:
         return result
 
     def _pump(self):
+        if self.closed:
+            return
         while self.running < self.global_limit and self.rotation:
             visited = 0
             account = None
@@ -129,11 +131,11 @@ class FairDispatcher:
     def shutdown(self, wait=True):
         with self.lock:
             self.closed = True
-            for queue in self.queues.values():
-                for future, *_ in queue:
-                    future.cancel()
+            pending = [future for queue in self.queues.values() for future, *_ in queue]
             self.queues.clear()
             self.rotation.clear()
+        for future in pending:
+            future.cancel()
         self.executor.shutdown(wait=wait, cancel_futures=True)
 
 
@@ -150,6 +152,25 @@ def _path_key(path):
 
 def _pid_alive(pid):
     """Treat permission failures as alive and only reclaim proven-dead PIDs."""
+    if os.name == 'nt':
+        # os.kill(pid, 0) terminates the target on Windows. A synchronize-only
+        # handle can inspect liveness without requesting termination rights.
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel.CloseHandle.restype = wintypes.BOOL
+        handle = kernel.OpenProcess(0x00100000, False, int(pid))  # SYNCHRONIZE
+        if not handle:
+            return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER: no such PID
+        try:
+            return kernel.WaitForSingleObject(handle, 0) != 0  # WAIT_OBJECT_0: exited
+        finally:
+            kernel.CloseHandle(handle)
     try:
         os.kill(int(pid), 0)
     except ProcessLookupError:

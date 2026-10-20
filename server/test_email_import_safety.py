@@ -93,10 +93,15 @@ class EmailImportSafetyTests(unittest.TestCase):
         self.environment.stop()
         self.temp.cleanup()
 
+    @contextmanager
     def _connect(self):
         db = sqlite3.connect(app.DB, timeout=10)
         db.row_factory = sqlite3.Row
-        return db
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def _email_call(self, path, body=None, uid=None, command='POST'):
         uid = uid or self.uid

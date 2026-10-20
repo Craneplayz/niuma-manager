@@ -1,5 +1,6 @@
 """Durable email storage migration and transaction regression checks."""
 import json
+from contextlib import closing
 import sqlite3
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ import email_import_store as store
 
 class EmailImportStoreTests(unittest.TestCase):
     def test_legacy_migration_is_idempotent_and_preserves_account_item_order(self):
-        with sqlite3.connect(':memory:') as db:
+        with closing(sqlite3.connect(':memory:')) as db, db:
             db.row_factory = sqlite3.Row
             db.execute("""CREATE TABLE email_import_jobs(
                 user_id TEXT,job_id TEXT,operation_id TEXT,state TEXT,snapshot TEXT,
