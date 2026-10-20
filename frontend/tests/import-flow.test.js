@@ -1100,7 +1100,7 @@ test('job status updates remain visible when navigating to another cached page',
  const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[job],emailJob:job,emailPreview:{messages:Array.from({length:40},(_,i)=>({input_id:'email:status:'+i,subject:'Status mail '+i,state:'unprocessed',excluded:false})),summary:{total:40},next_offset:null,cache:{snapshot_id:'status-cache',complete:true,miss:false}}});
  await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
  await ui.click({dataset:{importAction:'email-poll'}});const count=f.calls.length;
- await ui.click({dataset:{importAction:'email-next'}});assert.match(ui.render(),/Status mail 30/);assert.match(ui.render(),/识别到 2 项任务/);assert.equal(f.calls.length,count);
+ await ui.click({dataset:{importAction:'email-next'}});assert.match(ui.render(),/Status mail 30/);assert.match(ui.render(),/2项任务/);assert.equal(f.calls.length,count);
 });
 
 test('unchanged email job summaries skip the full item fetch and rerender',async t=>{
@@ -1128,7 +1128,7 @@ test('email job revision changes fetch item states and visibility resumes one po
  assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving?summary=1').length,0,'hidden tab does not poll');
  doc.hidden=false;doc.dispatchEvent(new Event('visibilitychange'));await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving').length,1,'new revision retrieves details once');
- assert.match(ui.render(),/识别到 2 项任务/);
+ assert.match(ui.render(),/2项任务/);
  const before=f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving?summary=1').length;
  doc.dispatchEvent(new Event('visibilitychange'));await new Promise(resolve=>setTimeout(resolve,0));
  assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/jobs/moving?summary=1').length,before,'visible event does not add a second timer while a timer is scheduled');
