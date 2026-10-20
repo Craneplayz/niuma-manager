@@ -141,6 +141,10 @@ Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File
 备份数据库时需同时安全备份 `credential.key`，密钥丢失后须重新保存教学网凭据。
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。
 
+## 待核对任务操作
+
+待核对任务支持从普通任务清单直接编辑或完成，复用候选确认接口；`complete: true` 将新增、完成和候选确认放在同一事务中，失败整体回滚，约定见 [待核对任务用户操作](../contracts/docs/review-task-actions.md)。
+
 ## 教学网导入排障
 
 “暂时无法从教学网获取通知，需要维护人员处理。你可以先粘贴通知内容。”对应前端 `crawler_dependency` 分类，通常是采集依赖缺失，并非模型识别失败。后端在启动采集前检查 `crawler/node_modules/tsx` 或 `.bin/tsx` 是否存在，缺失即返回“教学网采集依赖未安装”；前端也会将匹配的模块加载错误归入此类。仅凭页面提示不能确定具体机器或安装步骤，应先核对实际后端版本和本轮错误。

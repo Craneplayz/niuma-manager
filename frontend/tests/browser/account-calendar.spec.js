@@ -31,6 +31,7 @@ async function openApp(page, { holdCredentials = false } = {}) {
     } else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, revision: 0, interval_minutes: 60, sources: ["teaching_web"] };
     else if (path === "/api/version") value = { environment: "test", revision: "a7fe0a8", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
+    else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };
     else throw new Error("Unmocked API: " + path);
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });

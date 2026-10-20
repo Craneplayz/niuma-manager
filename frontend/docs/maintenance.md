@@ -21,6 +21,7 @@
 | `user-errors.js` | 用户错误分类、统一反馈控件、确认回执及同一问题重试 |
 | `error-reports-view.js` | 管理员错误报告展示，不加载到普通页面 |
 | `usage-feedback.js` | 账号中的主动反馈、按账号与北京时间日期去重的访问及非阻塞评分 |
+| `review-tasks.js` / `candidate-data.js` | 待核对清单投影、日期显示与变更关联；用户完成或编辑通过候选接口原子确认 |
 | `admin-usage.js` / `admin-usage.css` | 管理员独立入口的统计、日期筛选、反馈与手机布局 |
 | `team-store.js` | 同源 API、任务与回收站状态、账号请求隔离、保存队列与冲突处理 |
 | `demo.js` | 不持久化、不提交识别的合成任务预览 |
@@ -129,3 +130,5 @@ npm run build
 ## 文档规则
 
 `README.md` 提供目录、启动和验证入口，`design.md` 描述当前产品规格，`CONTRIBUTIONS.md` 保留历史贡献和设计参考。历史资料位于 `docs/archive/`，不能据此宣称当前仍有相应入口。文档不记录临时阶段进度；功能变化应直接更新当前规格和对应验证要求。
+
+`tests/review-tasks.test.js` 与 `tests/browser/review-task-list.spec.js` 验证待核对混排、搜索筛选、忽略撤销、普通完成与编辑确认、失败保留和重新打开；服务端 `test_review_task_actions.py` 验证原子完成、幂等、版本冲突、账号隔离及事务回滚。

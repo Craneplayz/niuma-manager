@@ -1,5 +1,7 @@
 # 模块交接契约
 
+待核对任务通过普通完成和编辑操作确认的接口约定见 [待核对任务用户操作](docs/review-task-actions.md)，包含可选 `complete`、原子保存及重试规则。
+
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
