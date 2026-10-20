@@ -9,6 +9,18 @@ EXAMPLES=json.loads((Path(__file__).parents[1]/'examples/source-sync-v01.json').
 
 
 class SourceSyncContractTests(unittest.TestCase):
+    def test_optional_collection_cause_is_validated_without_changing_legacy_runs(self):
+        from contracts.tests.test_collection_failure import EXAMPLES as FAILURES
+        value = deepcopy(EXAMPLES['run'])
+        value['error'] = dict(code='collection_failed', message='采集未完成', retryable=True,
+                              collection_failure=FAILURES[3])
+        check('run', value)
+        value['error']['collection_failure'] = dict(FAILURES[3], body='PRIVATE')
+        with self.assertRaises(ValueError):
+            check('run', value)
+        value['error'].pop('collection_failure')
+        check('run', value)
+
     def test_examples_and_independent_roots(self):
         for kind in SCHEMAS:Draft202012Validator.check_schema(root_schema(kind))
         for kind,value in EXAMPLES.items():check(kind,value)

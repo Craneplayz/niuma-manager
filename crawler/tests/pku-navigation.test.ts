@@ -26,8 +26,10 @@ describe("authenticated course navigation", () => {
   });
   it("propagates navigation failures without continuing on the previous page", async () => {
     const mock = page();
-    vi.mocked(mock.goto).mockRejectedValue(new Error("navigation timeout"));
-    await expect(navigateCoursePage(mock, "https://course.pku.edu.cn/course")).rejects.toThrow("navigation timeout");
+    const timeout = new Error("PRIVATE_URL_TOKEN");
+    timeout.name = "TimeoutError";
+    vi.mocked(mock.goto).mockRejectedValue(timeout);
+    await expect(navigateCoursePage(mock, "https://course.pku.edu.cn/course")).rejects.toMatchObject({stage:"navigation", code:"timeout", message:"timeout"});
     expect(mock.locator).not.toHaveBeenCalled();
   });
   it("accepts a successful authenticated listing", async () => {

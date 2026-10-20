@@ -93,6 +93,22 @@ def error(code, message, retryable=False):
     return dict(code=code, message=message, retryable=retryable)
 
 
+def collection_error(exc, ApiError):
+    # Preserve the public category used by retry/recovery and add an optional
+    # bounded cause so production failures remain diagnosable without raw logs.
+    from contracts.collection_failure import parse_failure
+    try:
+        failure = parse_failure(json.dumps(getattr(exc, 'collection_failure', None)))
+    except (ValueError, TypeError, RecursionError):
+        failure = None
+    result = error('collection_failed', exc.message if isinstance(exc, ApiError) else
+                   '同步暂时失败，请重新获取来源。', True)
+    if failure:
+        result['collection_failure'] = failure
+        result['retryable'] = failure['stage'] in ('navigation', 'collection') or failure['code'] == 'timeout'
+    return result
+
+
 def counts(run):
     result = {key: sum(r['state'] == key for r in run['records']) for key in contract.ITEM_STATES}
     result.update(total=len(run['records']), skipped=run['skipped'], added=sum(r['added'] for r in run['records']),
@@ -625,7 +641,7 @@ def collect_recovery(db, uid, run, ApiError, path):
         if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
         guard(db, uid, run['run_id'], ApiError)
         run = get(db, uid, run['run_id'], ApiError)
-        run['error'] = error('collection_failed', exc.message if isinstance(exc,ApiError) else '异常来源暂时无法重新获取，请稍后处理。', True)
+        run['error'] = collection_error(exc, ApiError)
         run['error'] = diagnostics.reference(db,uid,'collect:'+run['run_id'],run['error'],attempt_id=attempt['attempt_id'] if attempt else None)
         # A collection outage must not prevent recognition retries that can use
         # their already captured source. Incomplete sources remain unresolved.
@@ -727,7 +743,7 @@ def process(path, uid, run_id, ApiError):
             db.execute('BEGIN IMMEDIATE')
             run = get(db, uid, run_id, ApiError)
             if run['state'] not in contract.ACTIVE: return
-            run['error'] = error('collection_failed', exc.message if isinstance(exc, ApiError) else '同步暂时失败，请重新获取来源。', True)
+            run['error'] = collection_error(exc, ApiError)
             run['error'] = diagnostics.reference(db,uid,'collect:'+run_id,run['error'],attempt_id=collection_attempt['attempt_id'] if collection_attempt else None)
             for item in run['records']:
                 if item['state'] in ('queued','running'): item['state']='interrupted'

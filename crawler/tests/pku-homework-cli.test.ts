@@ -23,6 +23,26 @@ async function run(args: string[]) {
 }
 
 describe("campus source export CLI", () => {
+  it("emits only a safe structured failure and never private exception text", async () => {
+    // Import after module resets so the thrown error has the CLI's class identity.
+    const { CollectionFailure: Failure } = await import("../src/collection-failure.js");
+    scrape.mockRejectedValue(new Failure("login", "operation_failed", "PRIVATE_URL_PASSWORD"));
+    const { log, error } = await run([]);
+    expect(log).not.toHaveBeenCalled();
+    expect(JSON.parse(error.mock.calls[0][0])).toEqual({contract_version:"collection-failure/0.1",stage:"login",code:"operation_failed"});
+    expect(JSON.stringify(error.mock.calls)).not.toContain("PRIVATE");
+    expect(process.exitCode).toBe(1);
+  });
+  it("keeps unknown exceptions generic and export failures distinct", async () => {
+    scrape.mockRejectedValue(new Error("PRIVATE_BODY_TOKEN"));
+    const first = await run([]);
+    expect(JSON.parse(first.error.mock.calls[0][0]).stage).toBe("collection");
+    expect(JSON.stringify(first.error.mock.calls)).not.toContain("PRIVATE");
+    vi.restoreAllMocks(); vi.resetModules();
+    scrape.mockResolvedValue({source_records:null});
+    const second = await run(["--format=teaching"]);
+    expect(JSON.parse(second.error.mock.calls[0][0]).stage).toBe("export");
+  });
   it("targeted diagnosis never enables a course/section scan", async () => {
     scrape.mockResolvedValue({ source_records: sources });
     const args = ['--source-page=https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1_1&method=search',
