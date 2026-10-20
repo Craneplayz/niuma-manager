@@ -230,7 +230,7 @@ test('email preferences persist, range preview is paged, exclusions are explicit
  assert.deepEqual(previews()[1].body,{limit:50,start_date:null,filter:'all',sort:'attention',offset:0,page_size:25,load_all:true,refresh:true,cache_only:false});
  ui.input({target:{dataset:{emailLimit:''},value:'75'}});await ui.click({dataset:{importAction:'email-preview'}});
  assert.deepEqual(previews().at(-1).body,{limit:75,start_date:null,filter:'all',sort:'attention',offset:0,page_size:25,load_all:true,refresh:true,cache_only:false});
- assert.match(ui.render(),/选择全部/);assert.doesNotMatch(ui.render(),/data-email-consent|data-email-process-all/);
+ assert.match(ui.render(),/选择所有/);assert.doesNotMatch(ui.render(),/data-email-consent|data-email-process-all/);
  ui.input({target:{dataset:{emailMessage:inputId},checked:true}});
  await ui.click({dataset:{emailExclude:inputId,excluded:'true'}});
  assert.deepEqual(f.calls.find(call=>call.path==='/api/sources/email/exclusions').body,{input_ids:[inputId],excluded:true});
