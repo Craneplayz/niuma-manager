@@ -21,6 +21,7 @@ crawler/
 │   ├── normalizer.ts                 将候选事件规范化
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
+│   ├── producer-observation.ts       可选实际附件下载计时及无正文回调
 │   ├── collection-failure.ts         采集阶段与固定原因码，阻止原始异常进入 CLI 输出
 │   ├── pku-homework.ts               登录并采集课程内容
 │   ├── pku-attachments.ts            同源附件下载、PDF/TXT 文本提取、图片/DOCX/扫描页暂存
@@ -55,6 +56,7 @@ crawler/
 │   ├── fetcher.test.ts               测试 HTTP 获取器
 │   ├── normalizer.test.ts             测试事件规范化
 │   ├── pku-homework-cli.test.ts       测试课程采集命令行
+│   ├── producer-observation.test.ts   验证下载计时、缓存不重复计时及观测故障隔离
 │   ├── collection-failure.test.ts     采集失败共享契约、隐私和旧逻辑兼容测试
 │   ├── pku-browser-lifecycle.test.ts  创建上下文、页面及登录失败后的浏览器清理
 │   ├── pku-homework-html.test.ts      测试课程页面解析
@@ -90,6 +92,8 @@ crawler/
 ```
 
 ## 安装与检查
+
+维护端可通过 `--observe-downloads` 或 `downloadObserver` 接收实际下载耗时，CLI 仅向 stderr 输出独立观测 JSONL，默认不启用；接口与接入边界见 [观测契约](../contracts/docs/producer-observation-v0.1.md)。
 
 课程采集失败时 stderr 输出 `collection-failure/0.1` 的受限阶段/原因码，不输出 Playwright 原始异常、URL 或凭据；stdout 仍使用原业务契约，详见 [同步错误交接](../contracts/docs/source-sync-v0.1.md)。
 

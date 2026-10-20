@@ -6,6 +6,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { DEFAULT_TIMEZONE, parseEventTime } from "./core/time.js";
 import { enrichAssignmentSources } from "./pku-assignment.js";
 import { authenticatedAttachmentReader, enrichSourceAttachments } from "./pku-attachments.js";
+import type { DownloadObserver } from "./producer-observation.js";
 import { CollectionFailure, collectionStage } from "./collection-failure.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
@@ -44,6 +45,7 @@ export interface HomeworkScrapeResult {
 }
 
 export interface ScrapeOptions {
+  downloadObserver?: DownloadObserver;
   secretPath?: string;
   term?: string | null;
   asOf?: DateTime;
@@ -120,7 +122,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       await navigateCoursePage(page, target.url);
       const selected = selectSourceTarget(await page.content(), target, asOf.toISO()!);
       const detailed = await enrichAssignmentSources(page, selected);
-      const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR);
+      const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
       return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
         asOf, term: null, coursesChecked: 1, sectionsChecked: 1, sourceRecords,
         scopeWarning: "Only the requested source item and its references were inspected.",
@@ -168,7 +170,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     }
 
     const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
-    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR);
+    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
     return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
       asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
       allSections: options.allSections ?? false, coverageWarnings,

@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BrowserContext } from "playwright";
+import { observeDownload, type DownloadObserver } from "./producer-observation.js";
 import { UNREAD_REFERENCE_WARNING, sourceTextFits, type CourseSourceRecord, type SourceReference } from "./pku-source.js";
 
 const ORIGIN = "https://course.pku.edu.cn";
@@ -164,7 +165,7 @@ export async function extractAttachmentText(file: AttachmentFile, format: "pdf" 
 }
 
 /** Preserve failed/unread evidence, never synthesize dates or task decisions. */
-export async function enrichSourceAttachments(sources: CourseSourceRecord[], read: AttachmentReader, staging?: string): Promise<CourseSourceRecord[]> {
+export async function enrichSourceAttachments(sources: CourseSourceRecord[], read: AttachmentReader, staging?: string, observer?: DownloadObserver): Promise<CourseSourceRecord[]> {
   const results: CourseSourceRecord[] = [];
   const cache = new Map<string, SourceReference>();
   // Different course/assignment URLs can serve the same PDF. Keep only bounded
@@ -215,7 +216,7 @@ export async function enrichSourceAttachments(sources: CourseSourceRecord[], rea
           try {
             if (!format || !staging && !["pdf", "txt"].includes(format)) throw new ReadFailure("unsupported_format");
             if (!isTeacherAttachmentUrl(ref.url)) throw new ReadFailure("untrusted_attachment_url");
-            const file = await read(ref.url).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
+            const file = await observeDownload(() => read(ref.url), observer).catch((error: unknown) => { throw error instanceof ReadFailure ? error : new ReadFailure("download_failed"); });
             // Server captures hand PDF bytes to the visibility-aware reader.
             // Avoid parsing twice, and do not label a PDF text layer complete
             // before hidden/optional content has been checked against the page.
