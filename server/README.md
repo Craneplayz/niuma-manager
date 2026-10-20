@@ -3,6 +3,8 @@ server/
 ├── README.md                 本目录的文件说明与启动命令。
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
+├── account_avatar.py         当前账号头像的 PNG 校验、去除元数据与 SQLite 保存。
+├── test_account_avatar.py    真实 HTTP 头像保存、恢复、账号隔离与非法图片回归。
 ├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
 ├── error_reports.py          用户主动错误报告、受限字段、去重、限流与保留。
 ├── test_error_reports.py     真实 HTTP 提交、匿名反馈、权限与私人字段拒绝回归。
@@ -45,7 +47,7 @@ server/
 ├── test_teaching.py          教学网同步、自动入库、重试和来源变化的 HTTP 回归。
 ├── run_teaching_smoke.py     合成网页经真实 API 到任务入库的手动验收脚本。
 ├── start-local-test.ps1      Windows 统一环境启动入口，Ctrl+C 停止本次服务。
-├── requirements.txt          定义账号凭据加密所需的 Python 依赖。
+├── requirements.txt          定义账号凭据加密、头像处理与业务校验所需的 Python 依赖。
 ├── requirements-test.txt     安装完整业务测试及共享附件读取依赖。
 ├── text_contract.py          文本识别结果的服务端契约校验。
 ├── test_api.py               账号与业务 API 测试。
@@ -63,6 +65,12 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+## 账号头像
+
+登录用户通过 `POST /api/auth/avatar` 保存裁切后的 PNG，`avatar: null` 恢复默认；头像按账号保存在当前环境 SQLite 的 `user_avatars` 表，随会话、登录和昵称更新返回，刷新及重启后保留，详见 [头像接口约定](../contracts/docs/account-avatar.md)。
+
+服务端真实解码并重写为 256×256 静态 PNG，去除原图片元数据；拒绝超过 512 KiB 的 data URL、边长超过 512px、动画、损坏或伪造图片，失败保留旧头像。验证运行 `python -m unittest discover -s server -p test_account_avatar.py -v`，使用临时数据库和合成图片。
 
 ## 错误报告
 

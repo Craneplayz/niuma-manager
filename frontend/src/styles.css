@@ -330,6 +330,63 @@ button .icon {
   justify-self: center;
   flex: none;
 }
+.avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+.account-avatar {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  border: 1px solid #dfe4e4;
+  overflow: hidden;
+  font-size: 26px;
+  cursor: pointer;
+}
+.account-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #555e68a6;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+@media (hover: hover) {
+  .account-avatar:hover .account-avatar-overlay { opacity: 1; }
+}
+.account-avatar:focus-visible .account-avatar-overlay { opacity: 1; }
+.account-avatar:focus-visible { outline: 2px solid #7e9db7; outline-offset: 3px; }
+.account-summary-copy { min-width: 0; }
+.account-summary-copy h3, .account-summary-copy p { overflow-wrap: anywhere; }
+.avatar-editor { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.avatar-editor p { margin: 0; font-size: 12px; text-align: center; }
+.avatar-editor-preview {
+  width: min(220px, 100%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid #e0e5e5;
+  background: #f2f4f3;
+}
+.avatar-editor-current, [data-avatar-preview] { width: 100%; height: 100%; }
+.avatar-editor-current { font-size: 64px; }
+.avatar-crop-controls { display: grid; gap: 12px; margin: 24px 0 0; }
+.avatar-crop-controls label { display: grid; grid-template-columns: 60px minmax(0, 1fr); align-items: center; gap: 12px; font-size: 13px; color: #697781; }
+.avatar-crop-controls input[type="range"] { width: 100%; min-width: 0; padding: 0; accent-color: #627e95; cursor: pointer; }
+.avatar-editor-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-top: 25px; }
+.avatar-editor-actions .dialog-actions { margin: 0 0 0 auto; }
+@media (prefers-reduced-motion: reduce) {
+  .account-avatar-overlay { transition: none; }
+}
 .account-name {
   display: flex;
   flex-direction: column;
@@ -900,8 +957,8 @@ dialog p {
 }
 .account-summary {
   display: flex;
-  flex-direction: column;
-  gap: 9px;
+  align-items: center;
+  gap: 18px;
   padding: 4px 0 12px;
 }
 .trash-list > div {

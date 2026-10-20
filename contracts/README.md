@@ -2,9 +2,12 @@
 
 待核对任务通过普通完成和编辑操作确认的接口约定见 [待核对任务用户操作](docs/review-task-actions.md)，包含可选 `complete`、原子保存及重试规则。
 
+账号头像上传、恢复默认、用户返回字段及图片边界见 [账号头像](docs/account-avatar.md)。
+
 ```text
 contracts/
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── docs/account-avatar.md            # 当前账号头像、服务端持久化与图片校验约定
 ├── public_import.py                  # 公开活动采集、预览、选择导入的独立根及一致性校验
 ├── schemas/public-import-v0.1.schema.json # 公开活动自包含 Schema 包
 ├── examples/public-import-v01.json   # 生产方与前端共用的合成公开活动样例

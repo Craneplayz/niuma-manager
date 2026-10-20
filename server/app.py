@@ -26,6 +26,7 @@ import reprocessing
 import runtime_environment
 import usage
 import error_reports
+import account_avatar
 from server import model_queue
 
 
@@ -61,6 +62,7 @@ def initialize(recover=True):
         CREATE TABLE IF NOT EXISTS workspace(user_id TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(user_id,name));
         CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
         ''')
+        account_avatar.initialize(db)
         recognition.initialize(db)
         usage.initialize(db)
         error_reports.initialize(db)
@@ -165,7 +167,7 @@ class Handler(BaseHTTPRequestHandler):
         token=hashlib.sha256(raw.value.encode()).hexdigest() if raw else ''
         row=db.execute('SELECT users.id,email,name FROM sessions JOIN users ON user_id=users.id WHERE token=? AND expires>?',(token,time.time())).fetchone()
         if not row: raise ApiError(401,'登录已失效，请重新登录')
-        return dict(row),token
+        return dict(row,avatar=account_avatar.read(db,row['id'])),token
 
     def route(self):
         origin=self.headers.get('Origin')
@@ -226,7 +228,9 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
                 usage.record(db,row['id'],'register' if path.endswith('register') else 'login')
-                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400,administrator))
+                public_user={k:row[k] for k in ['id','name','email']}
+                public_user['avatar']=account_avatar.read(db,row['id'])
+                return self.reply(200,dict(user=public_user),session_cookie(token,86400,administrator))
             bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
             if bearer:
                 uid,token,user=bearer,None,None
@@ -257,6 +261,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
                 db.execute('UPDATE users SET name=? WHERE id=?',(name,uid))
                 return self.reply(200,dict(user=dict(user,name=name)))
+            if path=='/api/auth/avatar' and self.command=='POST':
+                avatar=account_avatar.save(db,uid,body,ApiError)
+                return self.reply(200,dict(user=dict(user,avatar=avatar)))
             if path=='/api/auth/password' and self.command=='POST':
                 current=str(body.get('currentPassword',''))
                 new=str(body.get('newPassword',''))

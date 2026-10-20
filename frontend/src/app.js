@@ -15,6 +15,7 @@ import {
   setStoredTaskDeadline,
 } from "./team-store.js";
 import { icon } from "./icons.js";
+import { avatarContent } from "./account-avatar.js";
 import { newId } from "./id.js";
 import {
   todayKey,
@@ -244,6 +245,9 @@ function openDialog(html) {
 function closeDialog() {
   dialog.close();
 }
+dialog.addEventListener("close", () => {
+  if (!dialog.open) account.closed?.();
+});
 async function refresh() {
   if (demo) return;
   state = await refreshStore();
@@ -286,7 +290,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${avatarContent(session.user, esc)}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
 }
 function hideSidebarTooltip() {
   clearTimeout(sidebarTooltipTimer);
@@ -970,6 +974,7 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("change", (e) => {
   imports.cancelRecoveryNavigation();
+  if (account.change?.(e)) return;
   if (e.target.dataset.noticeRead) {
     void toggleTask(e.target.dataset.noticeRead);
     return;

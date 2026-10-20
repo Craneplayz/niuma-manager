@@ -6,6 +6,7 @@ import {
   accountVersion,
 } from "./team-store.js";
 import { describeUserError, userErrorMarkup } from "./user-errors.js";
+import { avatarContent, readAvatarFile, drawAvatar } from "./account-avatar.js";
 
 export function createAccountUI(host) {
   const esc = host.escapeHtml;
@@ -15,7 +16,14 @@ export function createAccountUI(host) {
     error = "",
     email = "",
     operation = 0;
+  let avatarImage = null, selection = 0, selecting = false;
+  function clearAvatarDraft() {
+    selection++;
+    avatarImage = null;
+    selecting = false;
+  }
   function reset() {
+    clearAvatarDraft();
     email = "";
     error = "";
     mode = session.user ? "summary" : "login";
@@ -37,7 +45,9 @@ export function createAccountUI(host) {
   }
   function render() {
     if (mode === "summary" && session.user)
-      return `${header("账号")}<div class="account-summary"><h3>${esc(session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${teachingAccount()}${host.feedbackBox?.() || ""}${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div>`;
+      return `${header("账号")}<div class="account-summary"><button type="button" class="avatar account-avatar" data-account-action="avatar" aria-label="更改头像" ${busy ? "disabled" : ""}>${avatarContent(session.user, esc)}<span class="account-avatar-overlay" aria-hidden="true">更改头像</span></button><div class="account-summary-copy"><h3>${esc(session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p></div></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${teachingAccount()}${host.feedbackBox?.() || ""}${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div>`;
+    if (mode === "avatar")
+      return `<form data-account-form="avatar">${header("更改头像")}<div class="avatar-editor"><div class="avatar-editor-preview"><div class="avatar avatar-editor-current">${avatarContent(session.user, esc)}</div><canvas data-avatar-preview width="256" height="256" role="img" aria-label="头像裁切预览" hidden></canvas></div><button type="button" class="btn" data-account-action="avatar-choose">选择图片</button><input type="file" data-avatar-file accept="image/png,image/jpeg,image/webp" aria-label="选择头像图片" hidden><p class="status-note">支持 JPG、PNG、WebP，最大 5 MB</p><p class="status-note" data-avatar-selection-status role="status" hidden></p></div><div class="avatar-crop-controls" data-avatar-controls hidden><label>缩放<input type="range" name="zoom" min="1" max="3" step="0.01" value="1"></label><label>水平位置<input type="range" name="x" min="-100" max="100" value="0"></label><label>垂直位置<input type="range" name="y" min="-100" max="100" value="0"></label></div>${errorMarkup()}<div class="avatar-editor-actions">${session.user?.avatar ? '<button type="button" class="btn quiet" data-account-action="avatar-reset">恢复默认头像</button>' : ""}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="avatar-cancel">取消</button><button type="submit" class="btn primary" disabled>保存头像</button></div></div></form>`;
     if (mode === "profile")
       return `<form data-account-form="profile">${header("修改昵称")}<label class="field">昵称<input name="name" required maxlength="40" autocomplete="nickname" value="${esc(session.user?.name || "")}"></label>${errorMarkup()}<div class="dialog-actions"><button type="submit" class="btn primary">保存昵称</button></div></form>`;
     if (mode === "password")
@@ -46,6 +56,7 @@ export function createAccountUI(host) {
     return `<form data-account-form="${register ? "register" : "login"}">${header(register ? "注册账号" : "登录")}<label class="field">邮箱<input name="email" type="email" required maxlength="254" autocomplete="username" value="${esc(email)}"></label>${register ? '<label class="field">昵称<input name="displayName" maxlength="40" autocomplete="nickname" placeholder="可稍后修改"></label>' : ""}<label class="field">密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="${register ? "new-password" : "current-password"}" placeholder="至少 8 位"></label>${register ? '<label class="field">确认密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>' : ""}${errorMarkup()}<div class="dialog-actions"><button class="btn primary" type="submit">${register ? "注册并登录" : "登录"}</button><button class="btn quiet" type="button" data-account-action="${register ? "login" : "register"}">${register ? "已有账号，去登录" : "注册账号"}</button></div></form>`;
   }
   function show(nextMode) {
+    clearAvatarDraft();
     mode = nextMode;
     error = "";
     host.openDialog(render());
@@ -100,6 +111,7 @@ export function createAccountUI(host) {
     if (!action) return false;
     if (busy) return true;
     if (action === "close") {
+      clearAvatarDraft();
       error = "";
       host.closeDialog();
       return true;
@@ -108,10 +120,22 @@ export function createAccountUI(host) {
       show(session.user ? "summary" : "login");
       return true;
     }
+    if (action === "avatar-choose") {
+      button.closest("form")?.querySelector("[data-avatar-file]")?.click();
+      return true;
+    }
+    if (action === "avatar-cancel") {
+      show("summary");
+      return true;
+    }
+    if (action === "avatar-reset") {
+      await saveAvatar(button.closest("form"), null);
+      return true;
+    }
     if (
-      ["login", "register", "profile", "password"].includes(action)
+      ["login", "register", "profile", "password", "avatar"].includes(action)
     ) {
-      if (["profile", "password"].includes(action) && !session.user)
+      if (["profile", "password", "avatar"].includes(action) && !session.user)
         show("login");
       else show(action);
       return true;
@@ -126,6 +150,11 @@ export function createAccountUI(host) {
     const kind = form.dataset.accountForm;
     if (!kind) return false;
     if (busy) return true;
+    if (kind === "avatar") {
+      if (avatarImage && !selecting)
+        await saveAvatar(form, form.querySelector("[data-avatar-preview]").toDataURL("image/png"));
+      return true;
+    }
     const values = Object.fromEntries(new FormData(form));
     if (kind === "register" && values.password !== values.confirmPassword) {
       formError(form, "两次输入的密码不一致");
@@ -201,6 +230,11 @@ export function createAccountUI(host) {
     return true;
   }
   function input(event) {
+    const avatarForm = event.target.closest?.('[data-account-form="avatar"]');
+    if (avatarForm && ["zoom", "x", "y"].includes(event.target.name)) {
+      if (avatarImage && !busy) updateAvatarPreview(avatarForm);
+      return true;
+    }
     if (
       event.target.name === "email" &&
       event.target.closest?.("[data-account-form]")
@@ -210,5 +244,88 @@ export function createAccountUI(host) {
     }
     return false;
   }
-  return { click, submit, input };
+  function updateAvatarPreview(form) {
+    drawAvatar(form.querySelector("[data-avatar-preview]"), avatarImage, {
+      zoom: Number(form.elements.zoom.value),
+      x: Number(form.elements.x.value),
+      y: Number(form.elements.y.value),
+    });
+  }
+  async function selectAvatar(input) {
+    const file = input.files?.[0], form = input.closest("form");
+    if (!file || busy) return;
+    const attempt = ++selection, epoch = accountVersion();
+    const current = () => attempt === selection && epoch === accountVersion() && formIsOpen(form);
+    selecting = true;
+    const save = form.querySelector('[type="submit"]'), status = form.querySelector("[data-avatar-selection-status]");
+    save.disabled = true;
+    status.textContent = "正在读取图片…";
+    status.hidden = false;
+    formError(form, "");
+    try {
+      const image = await readAvatarFile(file);
+      if (!current()) return;
+      avatarImage = image;
+      for (const name of ["zoom", "x", "y"]) form.elements[name].value = name === "zoom" ? "1" : "0";
+      updateAvatarPreview(form);
+      form.querySelector("[data-avatar-preview]").hidden = false;
+      form.querySelector(".avatar-editor-current").hidden = true;
+      form.querySelector("[data-avatar-controls]").hidden = false;
+    } catch (error) {
+      if (current()) formError(form, error);
+    } finally {
+      if (attempt === selection) {
+        selecting = false;
+        save.disabled = !avatarImage;
+        status.hidden = true;
+        input.value = "";
+      }
+    }
+  }
+  async function saveAvatar(form, avatar) {
+    if (busy || !session.user || !formIsOpen(form)) return;
+    const attempt = ++operation, epoch = accountVersion();
+    const current = () => attempt === operation && epoch === accountVersion();
+    busy = true;
+    // A pending file decode cannot replace the preview being saved or restored.
+    selection++;
+    selecting = false;
+    formError(form, "");
+    lock(form, true);
+    const save = form.querySelector('[type="submit"]');
+    save.textContent = "正在保存…";
+    try {
+      const result = await api("/api/auth/avatar", { avatar });
+      if (!current()) return;
+      session.user = result.user;
+      busy = false;
+      if (formIsOpen(form)) show("summary");
+      host.render();
+      host.toast(avatar === null ? "已恢复默认头像" : "头像已更新");
+    } catch (error) {
+      if (current() && formIsOpen(form)) formError(form, error);
+    } finally {
+      if (current()) {
+        busy = false;
+        lock(form, false);
+        save.textContent = "保存头像";
+        save.disabled = !avatarImage;
+        form.querySelector("[data-avatar-selection-status]").hidden = true;
+      }
+    }
+  }
+  function change(event) {
+    if (!event.target.matches?.("[data-avatar-file]")) return false;
+    void selectAvatar(event.target);
+    return true;
+  }
+  function closed() {
+    if (mode === "avatar") {
+      clearAvatarDraft();
+      // Escape may dismiss an in-flight save; its response may update the user,
+      // but must not prevent opening a different account form.
+      busy = false;
+    }
+  }
+  return { click, submit, input, change, closed };
 }
