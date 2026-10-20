@@ -4,7 +4,9 @@ import { toTeachingRequests, toTeachingCaptures, toTeachingAssetManifest } from 
 import { toTeachingRequests as exportEvidence } from "./pku-teaching-evidence.js";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { collectionFailureEvent, CollectionFailure } from "./collection-failure.js";
 
+let exporting = false;
 try {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
   if (args.includes("--help")) {
@@ -27,6 +29,7 @@ try {
     const targetSource = targetValues.every(Boolean) ? { url: targetValues[0]!, itemId: targetValues[1]!, course: targetValues[2]!, section: targetValues[3]! } : undefined;
     const result = await scrapePkuHomeworks({ term, ...(targetSource ? { targetSource } : {}), allSections: args.includes("--all-sections"), ...(["teaching", "teaching-capture"].includes(format) ? { teachingSections: true } : {}),
       ...(args.includes("--observe-downloads") ? { downloadObserver: (event: import("./producer-observation.js").DownloadObservation) => { console.error(JSON.stringify(event)); } } : {}) });
+    exporting = true;
     if (format === "teaching-v04") {
       const output = exportEvidence(result.source_records, requestId);
       for (const skipped of output.skipped) console.error(JSON.stringify({ type: "teaching_export_skipped", ...skipped }));
@@ -46,6 +49,7 @@ try {
     }
   }
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
+  // No raw Playwright message/stack: these can contain URLs, form values or paths.
+  console.error(JSON.stringify(collectionFailureEvent(exporting ? new CollectionFailure("export", "operation_failed") : error)));
   process.exitCode = 1;
 }

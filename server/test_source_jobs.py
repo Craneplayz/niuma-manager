@@ -19,6 +19,33 @@ from contracts.source_sync import check
 
 
 class SourceJobsTests(unittest.TestCase):
+    def test_production_collection_cause_survives_http_and_successful_retry(self):
+        from source_sync import collection_exception
+        request, drafts = example(); self.drafts.update(drafts)
+        failure = collection_exception(app.ApiError, 502, 'login')
+        with patch.object(jobs.diagnostics, 'environment', return_value='production'), \
+                patch.object(app.source_sync, 'collect', side_effect=failure):
+            first = self.start('collection-cause')
+            jobs.wait_for_jobs(app.DB)
+            failed = self.call('/sources/sync-runs/' + first['run_id'])[1]
+        check('run', failed)
+        self.assertEqual(failed['state'], 'failed')
+        self.assertFalse(failed['error']['retryable'])
+        self.assertEqual(failed['error']['collection_failure']['stage'], 'login')
+        self.assertNotIn('diagnostics', failed['error'])
+        with patch.object(app.source_sync.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout=json.dumps(request))), \
+                patch.object(jobs.teaching, 'recognize', side_effect=self.model):
+            second = self.start('collection-cause-retry')
+            jobs.wait_for_jobs(app.DB)
+        succeeded = self.call('/sources/sync-runs/' + second['run_id'])[1]
+        check('run', succeeded)
+        self.assertEqual(succeeded['state'], 'succeeded')
+        self.assertIsNone(succeeded['error'])
+        self.assertTrue(self.call('/workspace')[1]['tasks']['value'])
+        # Later success does not rewrite the historical error's original cause.
+        previous = self.call('/sources/sync-runs/' + first['run_id'])[1]
+        self.assertEqual(previous['error']['collection_failure']['stage'], 'login')
+
     def test_background_failure_diagnostic_is_not_replaced_by_later_manual_retry(self):
         request,_=example();entered=threading.Event();release=threading.Event()
         count=0;lock=threading.Lock()
