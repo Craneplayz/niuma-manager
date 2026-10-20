@@ -58,6 +58,81 @@ class AssetIndexUpgradeTests(unittest.TestCase):
 
 
 class TeachingAssetsIntegrationTests(unittest.TestCase):
+    def test_quota_recovery_recognizes_newly_retained_attachment_once(self):
+        with patch.object(teaching_assets,'MAX_ACCOUNT',0):
+            old=self.sync()['requests'][0]['request_id']
+            batch,_=self.run_record(old)
+            self.assertEqual(batch['result']['status'],'no_tasks')
+            self.assertEqual(self.sync()['summary']['pending'],0)
+        app.initialize()  # Existing saved results must recover after a restart too.
+        recovered=self.sync()
+        self.assertEqual(recovered['summary']['pending'],1,recovered)
+        new=recovered['requests'][0]['request_id']
+        self.assertNotEqual(new,old)
+        self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=old))[0],409)
+        batch,_=self.run_record(new)
+        self.assertEqual(batch['result']['status'],'success')
+        card=batch['items'][0]
+        self.assertEqual(card['candidate']['evidence'][0]['field'],'file:1')
+        self.assertEqual(self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.assertEqual(self.sync()['summary']['pending'],0)
+        again,_=self.run_record(new)
+        self.assertEqual(len(again['items']),1)
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+
+    def test_quota_recovery_preserves_existing_task_and_manual_decisions(self):
+        for action in ('create','ignore'):
+            data=package(paragraph(TEXT+action))
+            with self.subTest(action=action),patch.object(teaching_assets,'MAX_ACCOUNT',0):
+                old=self.sync(data,body=TEXT,source_suffix=action)['requests'][0]['request_id']
+                batch,_=self.run_record(old);card=batch['items'][0]
+                self.assertEqual(self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action=action,auto_apply=action=='create',version=1))[0],200)
+            before=self.call('/workspace')[1]['tasks']['value']
+            recovered=self.sync(data,body=TEXT,source_suffix=action)
+            self.assertEqual(recovered['summary']['pending'],1,recovered)
+            new=recovered['requests'][0]['request_id']
+            batch,_=self.run_record(new);replacement=batch['items'][0]
+            self.assertEqual(replacement['candidate']['notice_type'],'uncertain')
+            self.assertTrue(replacement['candidate']['needs_review'])
+            self.assertEqual(self.call('/recognition/candidates/'+replacement['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+            self.assertEqual(self.call('/workspace')[1]['tasks']['value'],before)
+            self.assertEqual(self.sync(data,body=TEXT,source_suffix=action)['summary']['pending'],0)
+            with app.connection() as db:
+                saved=db.execute('SELECT state,resolution FROM recognition_candidates WHERE id=?',(card['id'],)).fetchone()
+                self.assertIsNotNone(saved['resolution'])
+                self.assertNotEqual(saved['state'],'pending')
+
+    def test_newly_retained_unreadable_attachment_does_not_repeat_each_sync(self):
+        broken=b'%PDF-1.7\nbroken'
+        with patch.object(teaching_assets,'MAX_ACCOUNT',0):
+            old=self.sync(broken,'application/pdf')['requests'][0]['request_id']
+            self.run_record(old)
+        recovered=self.sync(broken,'application/pdf')
+        self.assertEqual(recovered['summary']['pending'],1,recovered)
+        batch,_=self.run_record(recovered['requests'][0]['request_id'])
+        self.assertEqual(batch['result']['status'],'no_tasks')
+        self.assertEqual(self.sync(broken,'application/pdf')['summary']['pending'],0)
+
+    def test_legacy_omitted_attachment_already_retained_recovers_after_upgrade(self):
+        with patch.object(teaching_assets,'MAX_ACCOUNT',0):
+            old=self.sync()['requests'][0]['request_id'];self.run_record(old)
+        with app.connection() as db:
+            # The previous release retained bytes on a later sync but kept the
+            # original no_tasks result; there was no execution-input receipt.
+            data=self.default_docx
+            teaching_assets.store(db,self.uid,teaching.account('synthetic-course-user'),old,
+                [dict(ref_id='file:1',sha256=hashlib.sha256(data).hexdigest(),mime_type=DOCX_MIME,data=data)])
+            db.execute('DELETE FROM teaching_asset_inputs')
+        app.initialize()
+        recovered=self.sync()
+        self.assertEqual(recovered['summary']['pending'],1,recovered)
+        new=recovered['requests'][0]['request_id']
+        batch,_=self.run_record(new)
+        self.assertEqual(batch['result']['status'],'success')
+        card=batch['items'][0]
+        self.assertEqual(self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.assertEqual(self.sync()['summary']['pending'],0)
+
     def test_unusable_attachments_do_not_block_body_tasks_or_force_review(self):
         cases=[('oversize',b'x'*(teaching_assets.MAX_FILE+1),'application/pdf',False),
                ('broken-pdf',b'%PDF-1.7\nbroken','application/pdf',False),

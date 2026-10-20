@@ -34,6 +34,9 @@ def initialize(db):
     # Avoid scanning every reference for every stored file during pruning.
     db.execute('''CREATE INDEX IF NOT EXISTS teaching_asset_refs_file
         ON teaching_asset_refs(user_id,account,sha256,mime_type)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS teaching_asset_inputs(
+        user_id TEXT NOT NULL, account TEXT NOT NULL, request_id TEXT NOT NULL, identity TEXT NOT NULL,
+        PRIMARY KEY(user_id,account,request_id))''')
 
 
 def read_capture(folder, requests, *, input_ids=None):
@@ -80,6 +83,31 @@ def identity(assets):
     return sorted([(a['ref_id'],a['sha256'],a['mime_type']) for a in assets])
 
 
+def retained_identity(db, uid, account, request_id):
+    """Compare retained originals without loading their bytes or read caches."""
+    return {tuple(row) for row in db.execute('''SELECT r.ref_id,r.sha256,r.mime_type
+        FROM teaching_asset_refs r JOIN teaching_asset_files f USING(user_id,account,sha256,mime_type)
+        WHERE r.user_id=? AND r.account=? AND r.request_id=?''',(uid,account,request_id))}
+
+
+def attempted_identity(db, uid, account, request_id):
+    row=db.execute('SELECT identity FROM teaching_asset_inputs WHERE user_id=? AND account=? AND request_id=?',
+        (uid,account,request_id)).fetchone()
+    if row: return {tuple(item) for item in json.loads(row[0])}
+    batch=db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?',
+        (uid,request_id)).fetchone()
+    if not batch: return None
+    # Legacy results have no attempt receipt. Included references are known to
+    # have participated; omitted retained files get one opportunity to recover.
+    refs={r['ref_id'] for e in json.loads(batch[0])['records'] for r in e['record']['references']}
+    return {item for item in retained_identity(db,uid,account,request_id) if item[0] in refs}
+
+
+def remember_inputs(db, uid, account, request_id, files):
+    db.execute('INSERT OR REPLACE INTO teaching_asset_inputs VALUES(?,?,?,?)',
+        (uid,account,request_id,json.dumps(identity(files))))
+
+
 def store(db, uid, account, request_id, assets):
     # The caller has advanced teaching_sources in this transaction. Bind all
     # retained bytes before pruning, then reclaim retired files before checking
@@ -104,6 +132,7 @@ def store(db, uid, account, request_id, assets):
 def clear(db, uid):
     db.execute('DELETE FROM teaching_asset_refs WHERE user_id=?',(uid,))
     db.execute('DELETE FROM teaching_asset_files WHERE user_id=?',(uid,))
+    db.execute('DELETE FROM teaching_asset_inputs WHERE user_id=?',(uid,))
 
 
 def rebind(db, uid, account, old_request_id, new_request_id):
@@ -122,6 +151,9 @@ def prune(db, uid):
         SELECT 1 FROM teaching_asset_refs r WHERE r.user_id=teaching_asset_files.user_id
         AND r.account=teaching_asset_files.account AND r.sha256=teaching_asset_files.sha256
         AND r.mime_type=teaching_asset_files.mime_type)''',(uid,))
+    db.execute('''DELETE FROM teaching_asset_inputs WHERE user_id=? AND NOT EXISTS (
+        SELECT 1 FROM teaching_sources s WHERE s.user_id=teaching_asset_inputs.user_id
+        AND s.account=teaching_asset_inputs.account AND s.request_id=teaching_asset_inputs.request_id)''',(uid,))
 
 
 def load(db, uid, account, request_id):

@@ -169,7 +169,22 @@ def register(db, uid, username, requests, *, assets=None):
                     (uid, account(username), r['input_id'], digest, request['request_id'], json.dumps(request)))
             # Store retains unchanged files and frees retired files before quota
             # checks, atomically with the source revision above.
+            attempted = teaching_assets.attempted_identity(db,uid,account(username),request['request_id'])
+            retained = attempted if attempted is not None else teaching_assets.retained_identity(db,uid,account(username),request['request_id'])
             teaching_assets.store(db,uid,account(username),request['request_id'],files)
+            if (row and request['request_id']==row['request_id']
+                    and teaching_assets.retained_identity(db,uid,account(username),request['request_id']) - retained):
+                # Captured bytes were known but not retained (e.g. quota). Their
+                # arrival is new recognition input even though the source digest
+                # is unchanged. Advance the snapshot, preserving prior results
+                # and decisions; late attempts on the old snapshot must not win.
+                old_request_id=request['request_id']
+                request=deepcopy(request)
+                request['request_id']='teaching:'+secrets.token_hex(16)
+                request['records'][0]['record']['snapshot_id']='snapshot:'+secrets.token_hex(16)
+                db.execute('UPDATE teaching_sources SET request_id=?,request=? WHERE user_id=? AND account=? AND input_id=?',
+                    (request['request_id'],json.dumps(request),uid,account(username),r['input_id']))
+                teaching_assets.rebind(db,uid,account(username),old_request_id,request['request_id'])
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
                                        old_request_id=row['request_id'] if row else None,source=entry['source'],
                                        assets=teaching_assets.identity(files))
@@ -284,6 +299,8 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
                 (json.dumps(result),json.dumps(request),hashlib.sha256(canonical(request)).hexdigest(),uid,request['request_id']))
         else:
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result)))
+        cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+        teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
         for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):
             db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                 (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
