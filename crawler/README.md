@@ -21,6 +21,8 @@ crawler/
 │   ├── normalizer.ts                 将候选事件规范化
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
+│   ├── producer-observation.ts       可选实际附件下载计时及无正文回调
+│   ├── collection-failure.ts         采集阶段与固定原因码，阻止原始异常进入 CLI 输出
 │   ├── pku-homework.ts               登录并采集课程内容
 │   ├── pku-attachments.ts            同源附件下载、PDF/TXT 文本提取、图片/DOCX/扫描页暂存
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
@@ -54,6 +56,9 @@ crawler/
 │   ├── fetcher.test.ts               测试 HTTP 获取器
 │   ├── normalizer.test.ts             测试事件规范化
 │   ├── pku-homework-cli.test.ts       测试课程采集命令行
+│   ├── producer-observation.test.ts   验证下载计时、缓存不重复计时及观测故障隔离
+│   ├── collection-failure.test.ts     采集失败共享契约、隐私和旧逻辑兼容测试
+│   ├── pku-browser-lifecycle.test.ts  创建上下文、页面及登录失败后的浏览器清理
 │   ├── pku-homework-html.test.ts      测试课程页面解析
 │   ├── pku-homework.test.ts           测试课程采集规则
 │   ├── pku-attachment-download.test.ts 测试流式大小限制、重定向及鉴权边界
@@ -87,6 +92,10 @@ crawler/
 ```
 
 ## 安装与检查
+
+维护端可通过 `--observe-downloads` 或 `downloadObserver` 接收实际下载耗时，CLI 仅向 stderr 输出独立观测 JSONL，默认不启用；接口与接入边界见 [观测契约](../contracts/docs/producer-observation-v0.1.md)。
+
+课程采集失败时 stderr 输出 `collection-failure/0.1` 的受限阶段/原因码，不输出 Playwright 原始异常、URL 或凭据；stdout 仍使用原业务契约，详见 [同步错误交接](../contracts/docs/source-sync-v0.1.md)。
 
 需要 Node.js 20.19+、22.13+ 或 24+，以及 pnpm 10.17.1；所有命令均从 `crawler/` 运行。
 
@@ -149,6 +158,7 @@ pnpm pku:homework -- --format=recognition
 在 `crawler/` 运行 `node --import tsx tests/benchmarks/teaching-attachments.mjs` 可串行测量 10 个不同地址返回相同合成 PDF 的解析耗时（3 轮取中位数）；可追加本地输出路径比对完整来源结果。只使用合成下载与真实 PDF 解析器，不测校园网或模型延迟。
 
 教师容器自身或祖先属于私人表单、提交、尝试、成绩或导航区域时排除整块文字及引用；原生作业页允许已知 uploadAssignmentForm 外层表单，先移除私人区域和控件，再读取教师说明、标题与教师信息行中的日期。未找到教师说明时保留列表并标记详情未读，单条追加超限不会影响共享附件缓存；响应式图片的 srcset / picture 候选同样保留未读，PDF 文档级内嵌附件保留 partial_pdf，不递归提取。
+后台同步启用原件暂存时，所有教师 PDF 直接保存原件并标为待读取，由后端统一检查可见性和缓存，不在爬虫中重复解析文字层；未启用暂存的独立导出沿用原有 PDF 文本提取。
 
 日期支持教师信息区内的相邻值节点，遇下一字段标签（包括原生 label / th 和 ARIA 行列头）、行或说明边界即停止，父容器查找只穿过纯标签包装；表格只读取同一行紧邻的一个 td 值单元格。空值保持未读，明确“未设置 / Not set”表示无日期，读取失败或值冲突时提示人工核对。过滤后的“作业信息 / Assignment Information”标题仍可识别页面，嵌套说明只读取最外层匹配容器，独立说明按页面顺序保留。
 

@@ -1,11 +1,13 @@
 import { test, expect } from "@playwright/test";
 
-async function openApp(page, { avatar = null, failSaveOnce = false, holdSave = false } = {}) {
+async function openApp(page, { avatar = null, failSaveOnce = false, holdSave = false, holdProfile = false } = {}) {
   let user = { id: "avatar-synthetic", name: "测试账号", email: "avatar-preview@example.test", emailVerified: true, avatar };
   const writes = [];
-  let releaseSave, markSaveRequested;
+  let releaseSave, markSaveRequested, releaseProfile, markProfileRequested;
   const saveGate = new Promise(resolve => { releaseSave = resolve; });
   const saveRequested = new Promise(resolve => { markSaveRequested = resolve; });
+  const profileGate = new Promise(resolve => { releaseProfile = resolve; });
+  const profileRequested = new Promise(resolve => { markProfileRequested = resolve; });
   await page.route("**/api/**", async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     let value, status = 200;
@@ -23,6 +25,12 @@ async function openApp(page, { avatar = null, failSaveOnce = false, holdSave = f
         user = { ...user, avatar: body.avatar };
         value = { user };
       }
+    } else if (path === "/api/auth/profile") {
+      const name = request.postDataJSON().name;
+      value = { user: { ...user, name } };
+      markProfileRequested();
+      if (holdProfile) await profileGate;
+      user = { ...user, name };
     } else if (path === "/api/workspace") value = { tasks: { version: 1, value: [] } };
     else if (path === "/api/version") value = { environment: "test", revision: "avatar-synthetic", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
@@ -35,7 +43,7 @@ async function openApp(page, { avatar = null, failSaveOnce = false, holdSave = f
   });
   await page.goto("/");
   await expect(page.locator(".loading-state")).toHaveCount(0);
-  return { writes, saveRequested, releaseSave };
+  return { writes, saveRequested, releaseSave, profileRequested, releaseProfile };
 }
 
 async function openAccount(page) {
@@ -210,8 +218,8 @@ test("unsupported, oversized and damaged images never enable a save or send an a
   expect(f.writes).toEqual([]);
 });
 
-test("a save that completes after Escape updates the avatar without closing a later account form", async ({ page }) => {
-  const f = await openApp(page, { holdSave: true });
+test("a save that completes after Escape updates the avatar without closing or being overwritten by a later nickname form", async ({ page }) => {
+  const f = await openApp(page, { holdSave: true, holdProfile: true });
   await openAccount(page);
   const form = await openAvatar(page);
   await chooseImage(page, form, await syntheticImage(page));
@@ -224,11 +232,45 @@ test("a save that completes after Escape updates the avatar without closing a la
     await page.locator("#dialog").getByRole("button", { name: "修改昵称", exact: true }).click();
     const nickname = page.locator('[data-account-form="profile"]');
     await nickname.getByLabel("昵称", { exact: true }).fill("仍在编辑的昵称");
+    await nickname.getByRole("button", { name: "保存昵称", exact: true }).click();
+    await f.profileRequested;
     const response = page.waitForResponse("**/api/auth/avatar");
     f.releaseSave();
     await response;
     await expect(page.locator(".account-entry .avatar img")).toHaveAttribute("src", f.writes[0].avatar);
     await expect(nickname).toBeVisible();
     await expect(nickname.getByLabel("昵称", { exact: true })).toHaveValue("仍在编辑的昵称");
-  } finally { f.releaseSave(); }
+    const profileResponse = page.waitForResponse("**/api/auth/profile");
+    f.releaseProfile();
+    await profileResponse;
+    await expect(nickname).not.toBeVisible();
+    await expect(page.locator(".account-entry .avatar img")).toHaveAttribute("src", f.writes[0].avatar);
+    await expect(page.locator(".account-name")).toContainText("仍在编辑的昵称");
+  } finally { f.releaseSave(); f.releaseProfile(); }
+});
+
+test("closing during image decoding discards the selection and leaves a later form untouched", async ({ page }) => {
+  const f = await openApp(page);
+  const image = await syntheticImage(page);
+  await page.evaluate(() => {
+    const decode = Image.prototype.decode;
+    Image.prototype.decode = async function () {
+      await decode.call(this);
+      window.avatarDecodePending = true;
+      await new Promise(resolve => { window.releaseAvatarDecode = resolve; });
+    };
+  });
+  await openAccount(page);
+  const form = await openAvatar(page);
+  await form.locator("[data-avatar-file]").setInputFiles(image);
+  await expect.poll(() => page.evaluate(() => window.avatarDecodePending)).toBe(true);
+  await page.keyboard.press("Escape");
+  await openAccount(page);
+  await page.locator("#dialog").getByRole("button", { name: "修改昵称", exact: true }).click();
+  const nickname = page.locator('[data-account-form="profile"]');
+  await nickname.getByLabel("昵称", { exact: true }).fill("保留我的输入");
+  await page.evaluate(() => window.releaseAvatarDecode());
+  await expect(nickname).toBeVisible();
+  await expect(nickname.getByLabel("昵称", { exact: true })).toHaveValue("保留我的输入");
+  expect(f.writes).toEqual([]);
 });

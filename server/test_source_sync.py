@@ -35,6 +35,49 @@ class SourceSyncTests(unittest.TestCase):
     def save(self, username='course-user', password='course-password'):
         self.call('/api/sources/credentials', {'username': username, 'password': password})
 
+    def test_collection_causes_are_allowlisted_and_old_crawlers_remain_compatible(self):
+        from contracts.tests.test_collection_failure import EXAMPLES
+        from source_jobs import collection_error
+        self.save()
+        crawler = Path(self.folder.name) / 'crawler'
+        (crawler / 'node_modules' / 'tsx').mkdir(parents=True)
+        for event in EXAMPLES:
+            result = SimpleNamespace(returncode=1, stdout='', stderr='PRIVATE_PATH_URL_PASSWORD\n' + json.dumps(event))
+            with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', return_value=result):
+                with self.assertRaises(app.ApiError) as caught:
+                    self.call('/api/sources/sync', {'sources': ['teaching_web']})
+            receipt = collection_error(caught.exception, app.ApiError)
+            self.assertEqual(receipt['code'], 'collection_failed')
+            self.assertEqual(receipt['collection_failure'], event)
+            self.assertNotIn('PRIVATE', json.dumps(receipt))
+        for stderr in ('PRIVATE_ACCOUNT_PASSWORD', json.dumps(dict(EXAMPLES[0], body='PRIVATE'))):
+            result = SimpleNamespace(returncode=1, stdout='', stderr=stderr)
+            with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', return_value=result):
+                with self.assertRaises(app.ApiError) as caught:
+                    self.call('/api/sources/sync', {'sources': ['teaching_web']})
+            receipt = collection_error(caught.exception, app.ApiError)
+            self.assertNotIn('collection_failure', receipt)
+            self.assertNotIn('PRIVATE', json.dumps(receipt))
+
+    def test_export_and_launch_failures_keep_distinct_causes(self):
+        self.save()
+        crawler = Path(self.folder.name) / 'crawler'
+        (crawler / 'node_modules' / 'tsx').mkdir(parents=True)
+        for failure, stage, code in ((OSError('PRIVATE'), 'browser', 'operation_failed'),
+                                     (subprocess.TimeoutExpired('PRIVATE', 300), 'collection', 'timeout')):
+            with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', side_effect=failure):
+                with self.assertRaises(app.ApiError) as caught:
+                    self.call('/api/sources/sync', {'sources': ['teaching_web']})
+            self.assertEqual(caught.exception.collection_failure['stage'], stage)
+            self.assertEqual(caught.exception.collection_failure['code'], code)
+            self.assertNotIn('PRIVATE', caught.exception.message)
+        result = SimpleNamespace(returncode=0, stdout='PRIVATE_INVALID_JSON')
+        with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', return_value=result):
+            with self.assertRaises(app.ApiError) as caught:
+                self.call('/api/sources/sync', {'sources': ['teaching_web']})
+        self.assertEqual(caught.exception.collection_failure['stage'], 'export')
+        self.assertEqual(self.db.execute('SELECT count(*) FROM teaching_sources').fetchone()[0], 0)
+
     def test_credentials_are_account_scoped_encrypted_and_removable(self):
         with self.assertRaises(app.ApiError) as invalid:
             self.call('/api/sources/credentials', {'username': 'u', 'password': 'line\nbreak'})

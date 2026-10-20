@@ -290,7 +290,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${avatarContent(session.user, esc)}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small></span>${icon("chevron")}</button></div></aside>`;
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${avatarContent(session.user, esc)}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small>${!demo && session.user && !session.user.emailVerified ? '<small class="account-verification-hint">邮箱待验证</small>' : ""}</span>${icon("chevron")}</button></div></aside>`;
 }
 function hideSidebarTooltip() {
   clearTimeout(sidebarTooltipTimer);

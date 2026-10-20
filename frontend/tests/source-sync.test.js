@@ -107,6 +107,17 @@ check('rendering is read-only and hidden, demo or signed-out components make no 
   assert.equal(f.calls.length, 0); assert.equal(markup(f.ui), '');
 });
 
+check('test diagnostics survive unknown-error formatting and are escaped', async () => {
+  const run = syncRun({state:'failed',states:['failed']});
+  run.records[0].error = {code:'unrecognized_failure',message:'Private raw detail',retryable:true,
+    diagnostics:'{"stage":"pdf_batch","page_start":7,"detail":"<script>"}'};
+  const f=fixture([run]);await f.ui.load();
+  await category(f.ui,run.run_id,'error');await problem(f.ui,run.run_id,0);
+  const html=markup(f.ui);
+  assert.match(html,/测试环境诊断详情/);assert.match(html,/page_start/);
+  assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>|Private raw detail/);
+});
+
 check('only useful completed runs remain in collapsed history; empty stops and skips are hidden', async () => {
   const stopped = syncRun({id: 'run:empty', state: 'stopped', states: []});
   const f = fixture([stopped, syncRun({skipped:52}), syncRun({id:'run:useful',added:1})]); await f.ui.load();

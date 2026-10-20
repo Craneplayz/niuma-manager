@@ -14,6 +14,7 @@ from PIL import Image, PngImagePlugin
 
 import app
 import account_avatar
+from auth_test_support import registration_payload
 
 
 class AccountAvatarTests(unittest.TestCase):
@@ -49,7 +50,9 @@ class AccountAvatarTests(unittest.TestCase):
 
     def register(self, client, suffix):
         email = self._testMethodName + suffix + '@test.local'
-        status, result = self.call(client, '/auth/register', 'POST', dict(name='Test', email=email, password='Test-password-2026'))
+        account = registration_payload(dict(name='Test', email=email, password='Test-password-2026'),
+            lambda body: self.call(client, '/auth/email-code', 'POST', body))
+        status, result = self.call(client, '/auth/register', 'POST', account)
         self.assertEqual(status, 200)
         self.assertIsNone(result['user']['avatar'])
         return result['user']

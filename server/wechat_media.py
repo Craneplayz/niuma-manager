@@ -657,7 +657,7 @@ def _store_candidates(db, row, result, origin_job_id=None):
     request = json.loads(row['request'])
     task_row = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (row['user_id'],)).fetchone()
     applied = {history.get('storageId') for task in json.loads(task_row['value']) for history in task.get('recognitionHistory', [])} if task_row else set()
-    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET result=excluded.result',
+    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL) ON CONFLICT(user_id,request_id) DO UPDATE SET result=excluded.result',
                (row['user_id'], row['request_id'], row['fingerprint'], row['request'], json.dumps(result, ensure_ascii=False)))
     if origin_job_id and origin_job_id != row['id']:
         return

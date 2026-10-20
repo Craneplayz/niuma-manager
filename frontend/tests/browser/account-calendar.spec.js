@@ -52,6 +52,7 @@ test("account management can update, remove and reconnect teaching credentials w
   await openAccount(page);
   const dialog = page.locator("#dialog");
   const entry = dialog.getByRole("region", { name: "教学网账号管理" });
+  await expect(dialog.getByRole("button", { name: "验证邮箱", exact: true })).toBeVisible();
   await expect(entry.getByText("教学网账号", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "修改密码", exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("account-teaching-entry.png"), fullPage: true });

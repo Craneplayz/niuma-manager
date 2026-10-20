@@ -1,8 +1,10 @@
 """Explicit environment entry point; never deletes data or copies production secrets."""
 import argparse
+import getpass
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import subprocess
@@ -14,6 +16,9 @@ from urllib.parse import urlsplit
 
 from runtime_environment import ENVIRONMENTS, ROOT, source_identity
 from release_images import record_acceptance, verified_images
+from mail_delivery import MAIL_KEYS, configured as mail_configured
+import mail_budget
+from dev_accounts import AccountError, ERRORS as ACCOUNT_ERRORS, validate_identity, validate_password
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -40,7 +45,8 @@ def initialize(name, root=PROFILES):
     folder = root / name
     folder.mkdir(parents=True, exist_ok=True)
     for filename, content in [('config.json', json.dumps(defaults(name), ensure_ascii=False, indent=2) + '\n'),
-                              ('.env.model', (DEPLOY / '.env.model.example').read_text(encoding='utf-8'))]:
+                              ('.env.model', (DEPLOY / '.env.model.example').read_text(encoding='utf-8')),
+                              ('.env.mail', (DEPLOY / '.env.mail.example').read_text(encoding='utf-8'))]:
         path = folder / filename
         try:
             with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
@@ -103,6 +109,7 @@ def read_config(name, root=PROFILES):
         if not isinstance(value, str) or (value and not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_./:@-]{0,250}', value)):
             raise ValueError('Invalid image reference')
     read_model_config(folder / '.env.model')
+    read_mail_config(folder / '.env.mail')
     # A configuration typo must not point two profiles at the same persistent volume.
     for other in ENVIRONMENTS:
         path = root / other / 'config.json'
@@ -126,6 +133,30 @@ def read_model_config(path):
         raise ValueError('Model file must contain unique literal provider settings only') from None
     if any(any(ord(c) < 32 for c in value) for value in values.values()):
         raise ValueError('Model settings must not contain control characters')
+    return values
+
+
+def read_mail_config(path):
+    """The same literal dotenv subset, limited to mail keys and no expansion."""
+    # Existing profiles without mail configuration keep serving existing accounts.
+    if not path.is_file():
+        return {}
+    values = {}
+    for line in path.read_text(encoding='utf-8-sig').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        key, separator, value = line.partition('=')
+        key, value = key.strip(), value.strip()
+        if not separator or key not in MAIL_KEYS or key in values:
+            raise ValueError('Mail file must contain unique literal mail settings only')
+        if value[:1] in {"'", '"'}:
+            if len(value) < 2 or value[-1] != value[0]:
+                raise ValueError('Mail file must contain unique literal mail settings only')
+            value = value[1:-1]
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError('Mail settings must not contain control characters')
+        values[key] = value
     return values
 
 
@@ -166,6 +197,7 @@ def compose_command(name, folder, config, docker='docker'):
                   NIUMA_ENVIRONMENT=name, NIUMA_DATA_VOLUME=config['data_volume'],
                   NIUMA_DATA_VOLUME_EXTERNAL=str(config['external_data_volume']).lower(),
                   NIUMA_MODEL_ENV_FILE=(folder / '.env.model.compose').as_posix(),
+                  NIUMA_MAIL_ENV_FILE=(folder / '.env.mail.compose').as_posix(),
                   NIUMA_HTTPS_TARGET_PORT=str(urlsplit(config['origin']).port or 443),
                   NIUMA_BACKGROUND_RECOVERY='1' if config['background_recovery'] else '0',
                   NIUMA_ENABLE_SCHEDULED_SYNC='1' if config.get('scheduled_sync',False) else '0',
@@ -173,9 +205,17 @@ def compose_command(name, folder, config, docker='docker'):
                   NIUMA_BUILD_REVISION=revision, COOKIE_SECURE='1' if config['transport'] == 'https' else '0')
     env_file = folder / '.env.compose'
     write_compose_env(folder / '.env.model.compose', read_model_config(folder / '.env.model'))
+    mail = read_mail_config(folder / '.env.mail')
+    budget = mail_budget.configuration(mail, container=True)
+    if budget and budget[0].as_posix() != '/mail-budget/quota.sqlite3':
+        raise ValueError('Compose mail budget must use /mail-budget/quota.sqlite3')
+    write_compose_env(folder / '.env.mail.compose', mail)
     write_compose_env(env_file, values)
     compose = DEPLOY / ('compose.ip.yaml' if mode == 'ip' else 'compose.yaml')
-    return [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
+    command = [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
+    if budget:
+        command += ['-f', str(DEPLOY / 'compose.mail-budget.yaml')]
+    return command
 
 
 def local_environment(name, folder, config):
@@ -184,6 +224,7 @@ def local_environment(name, folder, config):
     if urlsplit(config['origin']).hostname not in ('127.0.0.1', 'localhost'):
         raise ValueError('Native origin must use localhost or 127.0.0.1')
     values = clean_environment()
+    values.update(read_mail_config(folder / '.env.mail'))
     revision, dirty = source_identity()
     data = ROOT / 'server' / 'data' / name
     values.update(NIUMA_ENVIRONMENT=name, NIUMA_DB=str(data / 'niuma.sqlite3'),
@@ -229,14 +270,81 @@ def local_servers(name, folder, config):
                     child.wait(timeout=5)
 
 
+def create_test_account(name, folder, config, *, email=None, display_name=None,
+                        container=False, generate_password=False, password_stdin=False):
+    if name not in ('development', 'test'):
+        raise AccountError('production_forbidden')
+    email, display_name = validate_identity(
+        'tester-' + secrets.token_hex(5) + '@niuma.test' if email is None else email,
+        display_name if display_name is not None else '测试账号')
+    if generate_password:
+        password = secrets.token_urlsafe(24)
+    elif password_stdin:
+        # One bounded line; password contents never become a command argument.
+        password = sys.stdin.readline(131).removesuffix('\n').removesuffix('\r')
+    else:
+        if not sys.stdin.isatty():
+            raise ValueError('Use --generate-password or --password-stdin in non-interactive sessions')
+        password = getpass.getpass('测试账号密码（至少 8 位，不显示输入）: ')
+        if password != getpass.getpass('再次输入密码: '):
+            raise ValueError('Passwords do not match; no account was created')
+    validate_password(password)
+    payload = json.dumps(dict(email=email, name=display_name, password=password), ensure_ascii=False)
+    if container:
+        docker = shutil.which('docker')
+        if not docker:
+            raise ValueError('Docker with Compose v2 is required for --container')
+        env, cwd = clean_environment(), DEPLOY
+        command = compose_command(name, folder, config, docker) + [
+            'exec', '-T', 'api', 'python', 'server/dev_accounts.py', name]
+    else:
+        env, cwd = local_environment(name, folder, config), ROOT
+        # This operation does not need mail/model credentials or background jobs.
+        for key in MAIL_KEYS | MODEL_KEYS:
+            env.pop(key, None)
+        env.update(NIUMA_BACKGROUND_RECOVERY='0', NIUMA_ENABLE_SCHEDULED_SYNC='0')
+        command = [sys.executable, str(ROOT / 'server' / 'dev_accounts.py'), name]
+    result = subprocess.run(command, input=payload, text=True, encoding='utf-8',
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd, env=env, timeout=30)
+    try:
+        user = json.loads(result.stdout)
+    except ValueError:
+        raise AccountError('create_failed') from None
+    if result.returncode:
+        code = user.get('error') if isinstance(user, dict) else None
+        raise AccountError(code if isinstance(code, str) and code in ACCOUNT_ERRORS else 'create_failed')
+    if (not isinstance(user, dict) or set(user) != {'id', 'email', 'name', 'emailVerified'}
+            or not isinstance(user['id'], str) or user['email'] != email
+            or user['name'] != display_name or user['emailVerified'] is not True):
+        raise AccountError('create_failed')
+    output = dict(environment=name, storage='container' if container else 'native', user=user)
+    if generate_password:
+        # Explicit opt-in: show a newly generated password only after creation.
+        # It is not persisted to a credentials file or printed on failure.
+        output['password'] = password
+    print(json.dumps(output, ensure_ascii=False))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=('init', 'check', 'build', 'up', 'stop', 'status', 'api', 'web', 'local', 'accept'))
+    parser.add_argument('command', choices=('init', 'check', 'build', 'up', 'stop', 'status', 'api', 'web', 'local', 'accept', 'test-account'))
     parser.add_argument('environment', choices=(*ENVIRONMENTS, 'all'))
     parser.add_argument('--evidence', help='Acceptance result/link; required for accept test')
     parser.add_argument('--acceptance', type=Path, help='Saved acceptance record for up production (including rollback)')
+    parser.add_argument('--email', help='Reserved .test address for test-account; random when omitted')
+    parser.add_argument('--name', help='Display name for test-account')
+    parser.add_argument('--container', action='store_true', help='Create test-account in the running environment API container')
+    passwords = parser.add_mutually_exclusive_group()
+    passwords.add_argument('--generate-password', action='store_true', help='Generate and display a new test-account password once')
+    passwords.add_argument('--password-stdin', action='store_true', help='Read the test-account password from one stdin line')
     args = parser.parse_args(argv)
     name = args.environment
+    if args.command != 'test-account' and (args.email is not None or args.name is not None
+            or args.container or args.generate_password or args.password_stdin):
+        parser.error('Account options are only valid with test-account')
+    if args.command == 'test-account' and name not in ('development', 'test'):
+        parser.error('test-account is allowed only in development/test; production is disabled')
     if args.evidence is not None and args.command != 'accept':
         parser.error('--evidence is only valid with accept test')
     if args.acceptance is not None and (args.command, name) != ('up', 'production'):
@@ -254,11 +362,16 @@ def main(argv=None):
     if args.command in ('stop', 'status'):
         return existing_project(args.command, name)
     folder, config = read_config(name)
+    if args.command == 'test-account':
+        return create_test_account(name, folder, config, email=args.email, display_name=args.name,
+                                   container=args.container, generate_password=args.generate_password,
+                                   password_stdin=args.password_stdin)
     if args.command == 'local':
         return local_servers(name, folder, config)
     if args.command == 'check':
         print(json.dumps({'environment': name, 'project': f'niuma-{name}', 'origin': config['origin'],
                           'data_volume': config['data_volume'], 'background_recovery': config['background_recovery'],
+                          'mail_configured': mail_configured(read_mail_config(folder / '.env.mail')),
                           'scheduled_sync_available': config.get('scheduled_sync',False)}, ensure_ascii=False))
         return 0
     if args.command in ('api', 'web'):

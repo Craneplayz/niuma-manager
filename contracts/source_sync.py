@@ -1,6 +1,7 @@
 """Shared HTTP envelopes for durable, account-scoped source synchronization."""
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
+from contracts.collection_failure import SCHEMA as COLLECTION_FAILURE
 
 VERSION = 'source-sync/0.1'
 ACTIVE = ('queued', 'crawling', 'recognizing')
@@ -26,6 +27,8 @@ SCHEMAS = {
 SCHEMAS['recover'] = SCHEMAS['retry']
 COUNT = {'type': 'integer', 'minimum': 0}
 ERROR = {'anyOf': [{'type': 'null'}, obj({'code': {'type': 'string'}, 'message': {'type': 'string'}, 'retryable': {'type': 'boolean'}})]}
+ERROR['anyOf'][1]['properties']['diagnostics'] = {'type': 'string', 'maxLength': 65536}
+ERROR['anyOf'][1]['properties']['collection_failure'] = COLLECTION_FAILURE
 RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'type': 'string', 'maxLength': 160},
               'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})

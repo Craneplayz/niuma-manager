@@ -12,6 +12,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!server/deploy/.env.mail.example
 
 # Logs and temporary files
 *.log

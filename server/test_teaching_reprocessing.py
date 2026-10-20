@@ -67,7 +67,7 @@ class TeachingReprocessingTests(unittest.TestCase):
         decision.update(recommendation='candidate',review_codes=['model_review'],review_reasons=['旧规则要求核对正文'])
         card=teaching.result_view(self.request,result)['tasks'][0]
         with app.connection() as db:
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(self.uid,self.request['request_id'],'old',json.dumps(self.request),json.dumps(result)))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',(self.uid,self.request['request_id'],'old',json.dumps(self.request),json.dumps(result)))
             db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state) VALUES(?,?,?,?,?)',('old-card',self.uid,self.request['request_id'],json.dumps(card),state))
 
     def launch(self):
@@ -229,7 +229,7 @@ class TeachingReprocessingTests(unittest.TestCase):
         result['status']='failed'
         result['record_results'][0].update(status='failed',decisions=[],error=dict(code='agent_timeout',message='Agent 调用超时。',retryable=True))
         with app.connection() as db:
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(self.uid,self.request['request_id'],'failed',json.dumps(self.request),json.dumps(result)))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',(self.uid,self.request['request_id'],'failed',json.dumps(self.request),json.dumps(result)))
         self.assertTrue(self.call('/recognition/batches')[1][0]['result']['errors'])
         with patch.object(teaching,'recognize',side_effect=self.model): self.assertEqual(self.saved(self.launch())['state'],'succeeded')
         batches=self.call('/recognition/batches')[1]

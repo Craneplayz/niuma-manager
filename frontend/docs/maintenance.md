@@ -17,7 +17,7 @@
 | `source-schedule-ui.js` | 单次 / 定时统一启动、停止后保留频率、明确授权 |
 | `materials-ui.js` | 文件选择、持久作业、幂等重试与历史记录 |
 | `source-sync-ui.js` | 后台同步、分类名称列表、有效结果历史、最近检查、停止与逐条 / 批量重试 |
-| `account-ui.js` | 登录、注册、退出、昵称和密码表单及教学网连接入口 |
+| `account-ui.js` | 登录、验证码注册、邮箱补验证、密码找回、退出、昵称、密码表单及教学网连接入口 |
 | `user-errors.js` | 用户错误分类、统一反馈控件、确认回执及同一问题重试 |
 | `error-reports-view.js` | 管理员错误报告展示，不加载到普通页面 |
 | `usage-feedback.js` | 账号中的主动反馈、按账号与北京时间日期去重的访问及非阻塞评分 |
@@ -33,6 +33,10 @@
 ## 数据与边界
 
 网页通过同源 `/api` 调用服务端，开发代理默认指向 `127.0.0.1:1332`。真实工作区保存到登录账号的服务端存储；浏览器保留会话 Cookie 和界面偏好，不保存工作区、密码或模型密钥。
+
+邮箱注册与补验证遵循 [email-auth/0.1](../../contracts/docs/email-auth-v0.1.md)：注册透传 `challengeId/code`，补验证只更新当前 `session.user`，不触发账号切换或刷新工作区；发码结果按账号、表单和操作版本丢弃迟到响应。密码与验证码只保留在当前表单中，修改邮箱时失效原挑战；倒计时不是后端限流的替代。`tests/browser/email-verification.spec.js` 覆盖桌面和窄屏的注册、补验证、失败重试及关闭/退出竞态。
+
+找回密码使用 `purpose=reset_password`，挑战同时绑定表单用途和邮箱，不能复用注册或补验证挑战。提交 `{email,challengeId,code,newPassword}` 成功后仅返回登录面板，不自动登录或改写已登录账号的工作区；邮箱资格不从发码响应推断。后台撤销所有旧会话，当前浏览器再次使用时由原鉴权流程处理过期状态。
 
 客户端工作区只有 `tasks` 与 `trash`；任务使用字符串 ID、`due: YYYY-MM-DD`、可选 `dueTime: HH:MM` 和 `status: todo | doing | done`。`team-store.js` 只缓存任务与其版本，保存只写任务，不保存 `courses` 或 `materials`；导入核对通过 `getTaskVersion()` 读取任务版本。账号昵称使用服务端的 `name` 字段。编辑表单保存前校验打开时的可编辑字段，目标被删除或内容已变化时保留草稿并提示重新核对；状态等独立变化不阻止编辑。日历只读取未完成任务的截止日期，不维护 `schedule`、学习时段日期转换、估时、子任务编辑或依赖关系恢复等旧界面适配，也不包含历史任务迁移。
 
@@ -132,3 +136,5 @@ npm run build
 `README.md` 提供目录、启动和验证入口，`design.md` 描述当前产品规格，`CONTRIBUTIONS.md` 保留历史贡献和设计参考。历史资料位于 `docs/archive/`，不能据此宣称当前仍有相应入口。文档不记录临时阶段进度；功能变化应直接更新当前规格和对应验证要求。
 
 `tests/review-tasks.test.js` 与 `tests/browser/review-task-list.spec.js` 验证待核对混排、搜索筛选、忽略撤销、普通完成与编辑确认、失败保留和重新打开；服务端 `test_review_task_actions.py` 验证原子完成、幂等、版本冲突、账号隔离及事务回滚。
+
+`account-avatar.js` 只接受本地 JPG/PNG/WebP，限制 5 MB、最长边 8192px 与 2000 万像素；裁切为 256×256 PNG 后交给 [头像接口](../../contracts/docs/account-avatar.md)。账号与侧栏只展示服务端返回的 PNG data URL，不读取外部头像地址；文件解码校验账号版本、选择序号和原表单是否仍打开。保存串行发送并独立检查头像请求序号，关闭后的成功响应只更新同一账号的头像，不能关闭新表单或覆盖其他资料；账号切换丢弃旧响应。`tests/browser/account-avatar.spec.js` 覆盖桌面、390px、320px 下的悬停/键盘/触屏入口、裁切保存与刷新、取消/恢复默认、失败重试和关闭期间迟到响应。

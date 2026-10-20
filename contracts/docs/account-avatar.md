@@ -10,7 +10,7 @@
 
 服务端限制完整 data URL 最多 524288 个 ASCII 字符，严格解码 Base64，验证实际图片为静态 PNG 且宽高均不超过 512px；随后居中裁切、重采样并重写为 256×256 RGBA PNG，丢弃原图元数据，不直接保存输入文件。
 
-成功返回 HTTP 200：`{"user":{"id":"...","name":"...","email":"...","avatar":"data:image/png;base64,..."}}`；恢复默认时 `avatar` 为 `null`。`GET /api/auth/me`、注册、登录及修改昵称也返回此字段，旧账号默认 `null`。
+成功返回 HTTP 200：`{"user":{"id":"...","name":"...","email":"...","emailVerified":true,"avatar":"data:image/png;base64,..."}}`；恢复默认时 `avatar` 为 `null`。`GET /api/auth/me`、注册、登录及修改昵称也返回此字段，旧账号默认 `null`。
 
 未登录返回 401；请求字段、编码、真实格式、动画或完整性不合法返回 400；编码长度或尺寸超限返回 413；错误使用现有 `{"error":"..."}` 结构，失败不改变原头像。
 

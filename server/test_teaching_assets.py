@@ -21,7 +21,7 @@ from ddl_text.docx_reader import DOCX_MIME
 from ddl_text.teaching_pipeline import process_teaching_request
 from ddl_text.tests.docx_cases import package, paragraph
 from ddl_text.tests.media_cases import image_bytes
-from ddl_text.tests.teaching_cases import policy_case, model_task
+from ddl_text.tests.teaching_cases import policy_case, model_task, empty_reply
 from ddl_text.tests.test_teaching_pipeline import example, RecordClient
 from contracts.teaching_io import snapshot_digest
 
@@ -58,6 +58,203 @@ class AssetIndexUpgradeTests(unittest.TestCase):
 
 
 class TeachingAssetsIntegrationTests(unittest.TestCase):
+    def test_quota_recovery_recognizes_newly_retained_attachment_once(self):
+        with patch.object(teaching_assets,'MAX_ACCOUNT',0):
+            old=self.sync()['requests'][0]['request_id']
+            batch,_=self.run_record(old)
+            self.assertEqual(batch['result']['status'],'no_tasks')
+            self.assertEqual(self.sync()['summary']['pending'],0)
+        app.initialize()  # Existing saved results must recover after a restart too.
+        recovered=self.sync()
+        self.assertEqual(recovered['summary']['pending'],1,recovered)
+        new=recovered['requests'][0]['request_id']
+        self.assertNotEqual(new,old)
+        self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=old))[0],409)
+        batch,_=self.run_record(new)
+        self.assertEqual(batch['result']['status'],'success')
+        card=batch['items'][0]
+        self.assertEqual(card['candidate']['evidence'][0]['field'],'file:1')
+        self.assertEqual(self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.assertEqual(self.sync()['summary']['pending'],0)
+        again,_=self.run_record(new)
+        self.assertEqual(len(again['items']),1)
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+
+    def test_quota_recovery_preserves_existing_task_and_manual_decisions(self):
+        for action in ('create','ignore'):
+            data=package(paragraph(TEXT+action))
+            with self.subTest(action=action),patch.object(teaching_assets,'MAX_ACCOUNT',0):
+                old=self.sync(data,body=TEXT,source_suffix=action)['requests'][0]['request_id']
+                batch,_=self.run_record(old);card=batch['items'][0]
+                self.assertEqual(self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action=action,auto_apply=action=='create',version=1))[0],200)
+            before=self.call('/workspace')[1]['tasks']['value']
+            recovered=self.sync(data,body=TEXT,source_suffix=action)
+            self.assertEqual(recovered['summary']['pending'],1,recovered)
+            new=recovered['requests'][0]['request_id']
+            batch,_=self.run_record(new);replacement=batch['items'][0]
+            self.assertEqual(replacement['candidate']['notice_type'],'uncertain')
+            self.assertTrue(replacement['candidate']['needs_review'])
+            self.assertEqual(self.call('/recognition/candidates/'+replacement['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+            self.assertEqual(self.call('/workspace')[1]['tasks']['value'],before)
+            self.assertEqual(self.sync(data,body=TEXT,source_suffix=action)['summary']['pending'],0)
+            with app.connection() as db:
+                saved=db.execute('SELECT state,resolution FROM recognition_candidates WHERE id=?',(card['id'],)).fetchone()
+                self.assertIsNotNone(saved['resolution'])
+                self.assertNotEqual(saved['state'],'pending')
+
+    def test_newly_retained_unreadable_attachment_does_not_repeat_each_sync(self):
+        broken=b'%PDF-1.7\nbroken'
+        with patch.object(teaching_assets,'MAX_ACCOUNT',0):
+            old=self.sync(broken,'application/pdf')['requests'][0]['request_id']
+            self.run_record(old)
+        recovered=self.sync(broken,'application/pdf')
+        self.assertEqual(recovered['summary']['pending'],1,recovered)
+        batch,_=self.run_record(recovered['requests'][0]['request_id'])
+        self.assertEqual(batch['result']['status'],'no_tasks')
+        self.assertEqual(self.sync(broken,'application/pdf')['summary']['pending'],0)
+
+    def test_legacy_omitted_attachment_already_retained_recovers_after_upgrade(self):
+        with patch.object(teaching_assets,'MAX_ACCOUNT',0):
+            old=self.sync()['requests'][0]['request_id'];self.run_record(old)
+        with app.connection() as db:
+            # The previous release retained bytes on a later sync but kept the
+            # original no_tasks result; there was no execution-input receipt.
+            data=self.default_docx
+            teaching_assets.store(db,self.uid,teaching.account('synthetic-course-user'),old,
+                [dict(ref_id='file:1',sha256=hashlib.sha256(data).hexdigest(),mime_type=DOCX_MIME,data=data)])
+            db.execute('DELETE FROM teaching_asset_inputs')
+        app.initialize()
+        recovered=self.sync()
+        self.assertEqual(recovered['summary']['pending'],1,recovered)
+        new=recovered['requests'][0]['request_id']
+        batch,_=self.run_record(new)
+        self.assertEqual(batch['result']['status'],'success')
+        card=batch['items'][0]
+        self.assertEqual(self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.assertEqual(self.sync()['summary']['pending'],0)
+
+    def test_unusable_attachments_do_not_block_body_tasks_or_force_review(self):
+        cases=[('oversize',b'x'*(teaching_assets.MAX_FILE+1),'application/pdf',False),
+               ('broken-pdf',b'%PDF-1.7\nbroken','application/pdf',False),
+               ('broken-docx',b'not a zip',DOCX_MIME,False),
+               ('empty-docx',package(paragraph('')),DOCX_MIME,False),
+               ('unsupported',b'other file type','application/octet-stream',False),
+               ('invalid-receipt',b'cannot bind this file',DOCX_MIME,True)]
+        for name,data,mime,malformed in cases:
+            with self.subTest(name=name):
+                rid=self.sync(data,mime,malformed=malformed,body=TEXT,source_suffix=name)['requests'][0]['request_id']
+                batch,calls=self.run_record(rid,AssertionError('invalid file must not reach model'))
+                calls.assert_not_called()
+                self.assertEqual(batch['result']['status'],'success');self.assertEqual(batch['result']['errors'],[])
+                card=batch['items'][0]
+                self.assertFalse(card['candidate']['needs_review'])
+                self.assertEqual(card['candidate']['evidence'][0]['field'],'body')
+                with app.connection() as db:
+                    saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
+                    self.assertEqual(saved['records'][0]['record']['references'],[])
+                status,out=self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+                self.assertEqual(status,200,out)
+
+    def test_bad_attachment_does_not_hide_another_readable_attachment(self):
+        request,_=example();record=request['records'][0]['record']
+        record.update(text='请完成附件中的作业。',references=[dict(ref_id=rid,kind='attachment',label=rid,read_state='unread',text=None)
+            for rid in ('broken','file:1')])
+        def crawl(*args,**kwargs):
+            folder=Path(kwargs['env']['PKU_ATTACHMENT_DIR']);manifest=[]
+            for rid,data,mime in [('broken',b'%PDF-1.7 broken','application/pdf'),('file:1',package(paragraph(TEXT)),DOCX_MIME)]:
+                digest=hashlib.sha256(data).hexdigest();(folder/(digest+'.bin')).write_bytes(data)
+                manifest.append(dict(input_id=record['input_id'],ref_id=rid,sha256=digest,mime_type=mime,size_bytes=len(data)))
+            (folder/'manifest.json').write_text(json.dumps(manifest),encoding='utf-8')
+            return SimpleNamespace(returncode=0,stdout=json.dumps(request))
+        with patch.object(app.source_sync.subprocess,'run',side_effect=crawl):
+            status,synced=self.call('/sources/sync',dict(sources=['teaching_web']))
+        self.assertEqual(status,200)
+        batch,calls=self.run_record(synced['requests'][0]['request_id'])
+        calls.assert_not_called();self.assertEqual(batch['result']['errors'],[])
+        self.assertFalse(batch['items'][0]['candidate']['needs_review'])
+        self.assertEqual(batch['items'][0]['candidate']['evidence'][0]['field'],'file:1')
+
+    def test_upgrade_reuses_legacy_request_and_stable_file_even_if_read_status_varies(self):
+        from contracts.teaching_io import canonical
+        rid=self.sync()['requests'][0]['request_id']
+        with app.connection() as db:
+            request=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            files=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid)
+            entry=deepcopy(request['records'][0])
+            for key in ('collected_at','snapshot_id'):entry['record'].pop(key)
+            old=hashlib.sha256(canonical(dict(source=entry,assets=teaching_assets.identity(files)))).hexdigest()
+            db.execute('UPDATE teaching_sources SET digest=? WHERE user_id=?',(old,self.uid))
+            record=request['records'][0]['record'];record['references'][0].update(read_state='failed',text=None)
+            again=teaching.register(db,self.uid,'synthetic-course-user',[request],assets={record['input_id']:files})
+            self.assertEqual(again['requests'][0]['request_id'],rid)
+
+    def test_source_change_preserves_unchanged_attachment_cache(self):
+        rid=self.sync()['requests'][0]['request_id']
+        with app.connection() as db:
+            original=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            files=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid)
+            db.execute('UPDATE teaching_asset_files SET cache_version=?,result=? WHERE user_id=?',
+                       ('synthetic-version',json.dumps(dict(read_state='complete',text=TEXT)),self.uid))
+        original['records'][0]['record']['text']+=' Extra requirement'
+        input_id=original['records'][0]['record']['input_id']
+        with patch.object(teaching_assets,'MAX_ACCOUNT',len(files[0]['data'])),app.connection() as db:
+            changed=teaching.register(db,self.uid,'synthetic-course-user',[original],assets={input_id:files})
+            newer=changed['requests'][0]['request_id']
+            self.assertNotEqual(newer,rid)
+            saved=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),newer)
+            self.assertEqual(saved[0]['cache_version'],'synthetic-version')
+            self.assertEqual(json.loads(saved[0]['result'])['text'],TEXT)
+            self.assertEqual(teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid),[])
+
+    def test_replacing_attachment_near_quota_reclaims_retired_bytes_through_http(self):
+        old=package(paragraph(TEXT));new=package(paragraph(TEXT+'新的提交要求。'))
+        with patch.object(teaching_assets,'MAX_ACCOUNT',max(len(old),len(new))):
+            rid=self.sync(old)['requests'][0]['request_id']
+            newer=self.sync(new)['requests'][0]['request_id']
+        self.assertNotEqual(newer,rid)
+        with app.connection() as db:
+            self.assertEqual(teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),rid),[])
+            files=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),newer)
+            self.assertEqual([item['data'] for item in files],[new])
+            self.assertEqual(db.execute('SELECT sum(length(data)) FROM teaching_asset_files').fetchone()[0],len(new))
+
+    def test_mixed_attachment_revision_reclaims_quota_and_keeps_unchanged_cache(self):
+        request,_=example();record=request['records'][0]['record']
+        record['references']=[dict(ref_id=ref,kind='attachment',label=ref,read_state='unread',text=None)
+                              for ref in ('keep','replace')]
+        def asset(ref,data):
+            return dict(ref_id=ref,sha256=hashlib.sha256(data).hexdigest(),mime_type='application/pdf',data=data)
+        keep=asset('keep',b'keep');old=asset('replace',b'old!');new=asset('replace',b'new!')
+        account=teaching.account('synthetic-course-user');input_id=record['input_id']
+        with patch.object(teaching_assets,'MAX_ACCOUNT',8),app.connection() as db:
+            first=teaching.register(db,self.uid,'synthetic-course-user',[request],assets={input_id:[keep,old]})['requests'][0]['request_id']
+            db.execute('UPDATE teaching_asset_files SET cache_version=?,result=? WHERE sha256=?',
+                ('synthetic-version',json.dumps(dict(read_state='complete',text=TEXT)),keep['sha256']))
+            second=teaching.register(db,self.uid,'synthetic-course-user',[request],assets={input_id:[new,keep]})['requests'][0]['request_id']
+            self.assertNotEqual(first,second)
+            files={item['ref_id']:item for item in teaching_assets.load(db,self.uid,account,second)}
+            self.assertEqual(files['replace']['data'],b'new!')
+            self.assertEqual(files['keep']['cache_version'],'synthetic-version')
+            self.assertEqual(json.loads(files['keep']['result'])['text'],TEXT)
+            self.assertEqual(db.execute('SELECT sum(length(data)) FROM teaching_asset_files').fetchone()[0],8)
+
+    def test_attachment_over_quota_is_omitted_without_failing_source(self):
+        old=package(paragraph(TEXT));new=package(paragraph(TEXT+'新的提交要求。'))
+        rid=self.sync(old)['requests'][0]['request_id']
+        with app.connection() as db:
+            original=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            db.execute('UPDATE teaching_asset_files SET cache_version=?,result=? WHERE user_id=?',
+                ('synthetic-version',json.dumps(dict(read_state='complete',text=TEXT)),self.uid))
+        with patch.object(teaching_assets,'MAX_ACCOUNT',len(new)-1):
+            newer=self.sync(new)['requests'][0]['request_id']
+        with app.connection() as db:
+            self.assertNotEqual(newer,rid)
+            self.assertEqual(teaching.resolve_snapshot(db,self.uid,newer,app.ApiError)['records'][0]['record']['text'],original['records'][0]['record']['text'])
+            self.assertEqual(teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),newer),[])
+            self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_files').fetchone()[0],0)
+        batch,_=self.run_record(newer)
+        self.assertEqual(batch['result']['status'],'no_tasks');self.assertEqual(batch['result']['errors'],[])
+
     def setUp(self):
         harness.TeachingIntegrationTests.setUp(self)
         transport=patch('ddl_text.teaching_attachment_reader.transcribe',
@@ -66,11 +263,12 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
     tearDown=harness.TeachingIntegrationTests.tearDown
     call=harness.TeachingIntegrationTests.call
 
-    def sync(self, data=None, mime=DOCX_MIME, malformed=False, pdf_text=None):
+    def sync(self, data=None, mime=DOCX_MIME, malformed=False, pdf_text=None, expected_status=200, body=None, source_suffix=''):
         if not hasattr(self,'default_docx'): self.default_docx=package(paragraph(TEXT))
         data=data or self.default_docx  # Reuse identical ZIP bytes, including entry timestamps.
         request,_=example(); r=request['records'][0]['record']
-        r.update(text='请完成附件中的作业，提交时间见附件。',references=[dict(
+        r['input_id']+=source_suffix
+        r.update(text=body or '请完成附件中的作业，提交时间见附件。',references=[dict(
             ref_id='file:1',kind='attachment',label='合成作业.docx',read_state='unread',text=None)])
         if pdf_text is not None:
             r['references'][0].update(read_state='complete',text=pdf_text)
@@ -83,17 +281,21 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             return SimpleNamespace(returncode=0,stdout=json.dumps(request))
         with patch.object(app.source_sync.subprocess,'run',side_effect=crawl):
             status,out=self.call('/sources/sync',dict(sources=['teaching_web']))
-        if malformed:
-            self.assertEqual(status,502,out);return
-        self.assertEqual(status,200,out)
+        self.assertEqual(status,expected_status,out)
         return out
 
     def final_model(self,request,**kwargs):
         record=request['records'][0]['record']
-        self.assertIn(TEXT,record['references'][0]['text'])
+        if not record['references'] and TEXT not in record['text']:
+            out=process_teaching_request(request,client=RecordClient({record['input_id']:empty_reply(record)}),
+                settings=Settings(),verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
+            out['policy_version']=teaching.teaching_policy_manifest(kwargs['settings'])['version']
+            return out
+        part='file:1' if record['references'] else 'body'
+        self.assertIn(TEXT,record['references'][0]['text'] if record['references'] else record['text'])
         pair=policy_case('explicit-complete')['pair'];pair['record']=deepcopy(record)
         pair['assessment']['input_id']=record['input_id']
-        quote=dict(part_id='file:1',quote=TEXT)
+        quote=dict(part_id=part,quote=TEXT)
         pair['assessment']['action']=dict(state='supported',evidence=[quote])
         pair['assessment']['deadline']=dict(value='2026-11-17T23:30:00+08:00',precision='datetime',
             derivation='absolute',anchor=None,evidence=[quote])
@@ -135,32 +337,86 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         self.call('/sources/credentials/remove',{})
         with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM teaching_asset_files').fetchone()[0],0)
 
-    def test_image_timeout_can_retry_and_reprocessing_reuses_read_cache(self):
+    def test_image_timeout_is_ignored_and_explicit_reprocessing_can_read_it(self):
         rid=self.sync(image_bytes(),'image/png')['requests'][0]['request_id']
         failed,_=self.run_record(rid,AgentError('agent_timeout',True))
-        self.assertEqual(failed['result']['status'],'failed');self.assertFalse(failed['items'])
+        self.assertEqual(failed['result']['status'],'no_tasks');self.assertFalse(failed['items'])
+        self.assertEqual(failed['result']['errors'],[])
         good=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False,note='')]))
-        batch,vision=self.run_record(rid,lambda *args:good)
-        vision.assert_called_once();self.assertTrue(batch['items'])
+        result,vision=self.reprocess_with_vision(rid,lambda *args:good)
+        vision.assert_called_once();self.assertEqual(result['status'],'success')
         self.assert_cached_reprocess(rid)
 
     def test_complete_pdf_capture_skips_visual_transcription_through_http_and_reprocessing(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
-        original='\n'.join(f'Page {i}' for i in range(1,18))+'\n'+TEXT
-        rid=self.sync(pdf_bytes(('Synthetic page',)*17),'application/pdf',pdf_text=original)['requests'][0]['request_id']
+        import io
+        from reportlab.pdfgen import canvas
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
+        out=io.BytesIO(); doc=canvas.Canvas(out,pagesize=(800,300))
+        for n in range(17):
+            doc.setFont('STSong-Light',12)
+            doc.drawString(20,250,TEXT if n==16 else f'Page {n+1}'); doc.showPage()
+        doc.save()
+        original='\n'.join(f'Page {i}' for i in range(1,17))+'\n'+TEXT
+        rid=self.sync(out.getvalue(),'application/pdf',pdf_text=original)['requests'][0]['request_id']
         batch,vision=self.run_record(rid,AssertionError('complete PDF text must not be transcribed again'))
         vision.assert_not_called()
         self.assertEqual(batch['result']['status'],'success')
         with app.connection() as db:
             saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
-        self.assertEqual(saved['records'][0]['record']['references'][0]['text'],original)
+        self.assertIn(TEXT,saved['records'][0]['record']['references'][0]['text'])
         self.assertEqual(batch['items'][0]['candidate']['deadline']['value'],'2026-11-17T23:30:00+08:00')
         self.assert_cached_reprocess(rid)
+
+    def test_large_native_pdf_page_reaches_task_without_visual_rendering(self):
+        import io
+        from reportlab.pdfgen import canvas
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+        pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
+        out=io.BytesIO();doc=canvas.Canvas(out,pagesize=(1684,2384))
+        doc.setFont('STSong-Light',12);doc.drawString(20,2300,TEXT);doc.save()
+        rid=self.sync(out.getvalue(),'application/pdf')['requests'][0]['request_id']
+        batch,vision=self.run_record(rid,AssertionError('native page must not reach vision'))
+        vision.assert_not_called();self.assertEqual(batch['result']['status'],'success')
+        self.assertFalse(batch['items'][0]['candidate']['needs_review'])
+        self.assertEqual(batch['items'][0]['candidate']['deadline']['value'],'2026-11-17T23:30:00+08:00')
+
+    def test_complete_capture_cannot_bypass_pdf_visibility_check_or_restore_hidden_text(self):
+        from ddl_text.tests.pdf_cases import layered_pdf_bytes
+        captured='Visible information\nHidden assignment due Friday\nOrdinary second page'
+        rid=self.sync(layered_pdf_bytes(),'application/pdf',pdf_text=captured)['requests'][0]['request_id']
+        good=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False,note='')]))
+        batch,vision=self.run_record(rid,lambda *args:good)
+        self.assertEqual(batch['result']['status'],'success')
+        vision.assert_called_once()
+        self.assertEqual(len(vision.call_args.args[1]),2)
+        with app.connection() as db:
+            saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
+        text=saved['records'][0]['record']['references'][0]['text']
+        self.assertNotIn('Hidden assignment',text)
+        self.assertIn('原件文字：第 2 页',text)
+        self.assert_cached_reprocess(rid)
+
+    def test_attachment_format_failure_is_ignored_and_reprocessing_recovers(self):
+        rid=self.sync(image_bytes(),'image/png')['requests'][0]['request_id']
+        failed,vision=self.run_record(rid,lambda *args:'{"pages":[]}')
+        self.assertEqual(vision.call_count,2)
+        self.assertEqual(failed['result']['errors'],[])
+        self.assertEqual(failed['result']['status'],'no_tasks')
+        self.assertFalse(failed['items'])
+        with app.connection() as db:
+            self.assertIsNone(db.execute('SELECT result FROM teaching_asset_files WHERE user_id=?',(self.uid,)).fetchone()[0])
+        good=json.dumps(dict(pages=[dict(index=1,text=TEXT,uncertain=False)]))
+        result,vision=self.reprocess_with_vision(rid,lambda *args:good)
+        self.assertEqual(result['status'],'success')
+        vision.assert_called_once()
 
     def test_long_visual_pdf_finishes_one_background_run_without_shared_75_second_deadline(self):
         import source_jobs as jobs
         import ddl_text.teaching_attachment_reader as reader
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         synced=self.sync(pdf_bytes(('Synthetic page',)*43),'application/pdf')
         rid=synced['requests'][0]['request_id'];clock=[100.0];seen=[];budgets=[]
         fake_time=SimpleNamespace(monotonic=lambda:clock[0])
@@ -203,7 +459,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         import source_jobs as jobs
         import ddl_text.teaching_attachment_reader as reader
         import threading
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         synced=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')
         entered=threading.Event();release=threading.Event();seen=[]
         def render(data,asset,limits):
@@ -232,29 +488,30 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(checkpoint['pdf_checkpoint'],1);self.assertEqual(len(checkpoint['pages']),6)
 
     def test_pdf_timeout_restart_resumes_persisted_pages_without_repeating_completed_calls(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         rid=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')['requests'][0]['request_id']
         seen=[]
         def vision(instructions,parts,settings):
             labels=[p['text'] for p in parts if p['type']=='text'];seen.append(labels)
-            if len(seen)==2:raise AgentError('agent_timeout',True)
+            if 2<=len(seen)<=4:raise AgentError('agent_timeout',True)
             return json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False,note='') for i in range(len(labels))]))
         failed,_=self.run_record(rid,vision)
-        self.assertEqual(failed['result']['status'],'failed')
+        self.assertEqual(failed['result']['status'],'no_tasks')
+        self.assertEqual(failed['result']['errors'],[])
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
             self.assertEqual(cached['total_pages'],13);self.assertEqual(len(cached['pages']),6)
             self.assertEqual(teaching_assets.load(db,'other-user',teaching.account('synthetic-course-user'),rid),[])
         app.initialize()
-        good,_=self.run_record(rid,vision)
-        self.assertEqual(good['result']['status'],'success')
-        self.assertIn('第 7 页',seen[2][0]);self.assertEqual(len(seen),4)
+        good,_=self.reprocess_with_vision(rid,vision)
+        self.assertEqual(good['status'],'success')
+        self.assertIn('第 7 页',seen[4][0]);self.assertEqual(len(seen),6)
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
             self.assertEqual(cached['read_state'],'complete');self.assertIn('第 13 页',cached['text'])
         self.assert_cached_reprocess(rid)
 
-    def test_pdf_later_render_failure_keeps_evidence_through_http_and_cache(self):
+    def test_pdf_later_render_failure_omits_attachment_but_retains_internal_progress(self):
         import io
         from pypdf import PdfWriter
         writer=PdfWriter()
@@ -265,18 +522,18 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         vision=lambda *args:json.dumps(dict(pages=[dict(index=i+1,text=TEXT,uncertain=False) for i in range(2)]))
         batch,calls=self.run_record(rid,vision)
         calls.assert_called_once()
-        self.assertTrue(batch['items'])
-        self.assertEqual(batch['items'][0]['candidate']['deadline']['value'],'2026-11-17T23:30:00+08:00')
+        self.assertFalse(batch['items'])
+        self.assertEqual(batch['result']['status'],'no_tasks');self.assertEqual(batch['result']['errors'],[])
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
             self.assertEqual(cached['read_state'],'partial')
             self.assertIn(TEXT,cached['text']);self.assertIn('第 3 页',cached['text'])
             saved=json.loads(db.execute('SELECT request FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
-            self.assertEqual(saved['records'][0]['record']['references'][0]['read_state'],'partial')
-        self.assert_cached_reprocess(rid)
+            self.assertEqual(saved['records'][0]['record']['references'],[])
+        self.assert_cached_reprocess(rid,expected_status='no_tasks')
 
     def test_late_pdf_checkpoint_cannot_replace_completed_shared_cache(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         rid=self.sync(pdf_bytes(('Synthetic page',)*13),'application/pdf')['requests'][0]['request_id']
         with app.connection() as db:
             request=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
@@ -293,8 +550,9 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             # reader commits all thirteen pages before this reader saves its first six.
             teaching_assets.enrich(deepcopy(request),fast['files'],SimpleNamespace(complete_json=good),settings,fast['save_cache'])
             return good(instructions,parts,settings)
-        with self.assertRaises(AgentError):
-            teaching_assets.enrich(deepcopy(request),slow['files'],SimpleNamespace(complete_json=delayed),settings,slow['save_cache'])
+        execution=deepcopy(request)
+        teaching_assets.enrich(execution,slow['files'],SimpleNamespace(complete_json=delayed),settings,slow['save_cache'])
+        self.assertEqual(execution['records'][0]['record']['references'],[])
         with app.connection() as db:
             cached=json.loads(db.execute('SELECT result FROM teaching_asset_files').fetchone()[0])
             self.assertEqual(cached.get('read_state'),'complete')
@@ -302,7 +560,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
         self.assert_cached_reprocess(rid)
 
     def test_cache_progress_writes_are_monotonic_and_version_scoped(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         rid=self.sync(pdf_bytes(('Synthetic page',)*5),'application/pdf')['requests'][0]['request_id']
         with app.connection() as db:
             old=teaching.attachment_context(db,self.uid,rid)
@@ -328,7 +586,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             self.assertEqual(row['cache_version'],'version-b')
             self.assertEqual(len(json.loads(row['result'])['pages']),2)
 
-    def assert_cached_reprocess(self,rid):
+    def assert_cached_reprocess(self,rid,expected_status='success'):
         # Same account-bound execution context is used by the reprocessing worker.
         import reprocessing
         with app.connection() as db:
@@ -339,7 +597,17 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
              patch.object(teaching,'process_teaching_request',side_effect=self.final_model), \
              patch.object(teaching.ChatClient,'complete_json',side_effect=AssertionError('must use cached transcript')):
             result,_=reprocessing.recognize_saved(request,True,app.ApiError,attachments=context)
-        self.assertEqual(result['status'],'success')
+        self.assertEqual(result['status'],expected_status)
+
+    def reprocess_with_vision(self,rid,vision):
+        with app.connection() as db:
+            request=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+            context=teaching.attachment_context(db,self.uid,rid)
+        with patch.object(teaching,'live_options',return_value=dict(provider='qiniu',key='synthetic',model='synthetic-test',endpoint='https://api.qnaigc.com/v1')), \
+             patch.object(teaching,'process_teaching_request',side_effect=self.final_model), \
+             patch.object(teaching.ChatClient,'complete_json',side_effect=vision) as calls:
+            result,_=reprocessing.recognize_saved(request,True,app.ApiError,attachments=context)
+        return result,calls
 
     def test_changed_file_changes_snapshot_and_forged_path_rejected(self):
         rid=self.sync()['requests'][0]['request_id']
@@ -428,7 +696,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         self.settings=Settings(model='synthetic',endpoint='https://model.example.invalid/v1')
 
     def pdf_input(self):
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         request,_=example();data=pdf_bytes(('Synthetic',)*13)
         request['records'][0]['record']['references']=[dict(ref_id='file:1',kind='attachment',
             label='synthetic.pdf',read_state='partial',text='Captured text with a visual gap.')]
@@ -458,14 +726,15 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         from unittest.mock import Mock
         import ddl_text.teaching_attachment_reader as reader
         for failure,expected in [(AgentError('invalid_agent_output',True,'output_truncated'),3),
-                                 (AgentError('agent_timeout',True),1)]:
+                                 (AgentError('agent_timeout',True),3)]:
             with self.subTest(code=failure.code):
                 request,asset=self.pdf_input()
                 def render(data,asset,limits):
                     return dict(pages=[b'png']*limits.max_pages,total_pages=13,error=None)
                 with patch.object(reader,'read_pdf',side_effect=render), \
                      patch.object(reader,'transcribe',side_effect=failure) as model:
-                    with self.assertRaises(AgentError):teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+                    teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+                self.assertEqual(request['records'][0]['record']['references'],[])
                 self.assertEqual(model.call_count,expected)
 
     def test_nonadvancing_checkpoint_stops_instead_of_looping(self):
@@ -474,15 +743,15 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         with patch.object(teaching_assets,'read_attachment',return_value=dict(pdf_checkpoint=1,total_pages=13,pages=[])) as reader:
             teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
         reader.assert_called_once()
-        self.assertNotEqual(request['records'][0]['record']['references'][0]['read_state'],'complete')
+        self.assertEqual(request['records'][0]['record']['references'],[])
 
     def test_complete_pdf_still_requires_matching_captured_bytes(self):
         from unittest.mock import Mock
         request,asset=self.pdf_input()
         request['records'][0]['record']['references'][0]['read_state']='complete'
         asset['data']+=b'changed'
-        with self.assertRaises(AgentError):
-            teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+        teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
+        self.assertEqual(request['records'][0]['record']['references'],[])
 
     def test_multiple_attachments_each_get_a_fresh_read_budget(self):
         from unittest.mock import Mock
@@ -501,9 +770,9 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         self.assertEqual(reader.call_count,2)
         self.assertTrue(all(r['read_state']=='complete' for r in request['records'][0]['record']['references']))
 
-    def test_pdf_visual_pages_supplement_the_captured_full_text(self):
+    def test_pdf_verified_pages_replace_unchecked_capture_and_cache_is_reused(self):
         from unittest.mock import Mock
-        from ddl_text.tests.pdf_cases import pdf_bytes
+        from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes
         data=pdf_bytes(('Page with graphics',)*6+('Deadline 2026-11-17 23:30',))
         request,_=example();record=request['records'][0]['record']
         original='\n'.join(['PDF text page '+str(n) for n in range(1,7)]+['Deadline 2026-11-17 23:30'])
@@ -518,7 +787,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         with patch('ddl_text.teaching_attachment_reader.transcribe',side_effect=transcribe):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
         ref=record['references'][0]
-        self.assertEqual(ref['read_state'],'complete');self.assertIn(original,ref['text'])
+        self.assertEqual(ref['read_state'],'complete');self.assertNotIn('PDF text page',ref['text'])
         self.assertIn('Visible page 7',ref['text']);self.assertEqual(seen,list(range(1,8)))
         teaching_assets.check_request(request)
         # Repeat with the persisted transcript cache and the original capture.
@@ -526,9 +795,9 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         ref.update(text=original,read_state='partial')
         with patch.object(teaching_assets,'read_attachment',side_effect=AssertionError('cached file')):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,cache)
-        self.assertIn(original,ref['text']);self.assertIn('Visible page 6',ref['text'])
+        self.assertNotIn('PDF text page',ref['text']);self.assertIn('Visible page 6',ref['text'])
 
-    def test_supplement_over_budget_keeps_captured_evidence(self):
+    def test_pdf_verified_partial_does_not_restore_unchecked_text(self):
         from unittest.mock import Mock
         request,_=example();record=request['records'][0]['record']
         record['text']='Source body '+ 'X'*20000
@@ -538,8 +807,7 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
         teaching_assets.check_request(request)
         with patch.object(teaching_assets,'read_attachment',return_value=dict(read_state='partial',text='B'*40000)):
             teaching_assets.enrich(request,[asset],Mock(),self.settings,Mock())
-        self.assertEqual(record['references'][0]['text'],original)
-        self.assertEqual(record['references'][0]['read_state'],'partial')
+        self.assertEqual(record['references'],[])
         teaching_assets.check_request(request)
 
     def test_shared_capture_file_counted_and_read_once_with_each_binding_checked(self):
@@ -566,4 +834,5 @@ class TeachingAssetsEvidenceTests(unittest.TestCase):
             self.assertTrue(all(a[0]['data'] is assets['input:0'][0]['data'] for a in assets.values()))
             entries[-1]['size_bytes']-=1
             manifest.write_text(json.dumps(entries),encoding='utf-8')
-            with self.assertRaises(ValueError):teaching_assets.read_capture(folder,batches)
+            retained=teaching_assets.read_capture(folder,batches)
+            self.assertEqual(len(retained),20);self.assertNotIn('input:20',retained)
