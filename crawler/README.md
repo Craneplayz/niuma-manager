@@ -21,6 +21,7 @@ crawler/
 │   ├── normalizer.ts                 将候选事件规范化
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
+│   ├── producer-observation.ts       可选实际附件下载计时及无正文回调
 │   ├── pku-homework.ts               登录并采集课程内容
 │   ├── pku-attachments.ts            同源附件下载、PDF/TXT 文本提取、图片/DOCX/扫描页暂存
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
@@ -54,6 +55,7 @@ crawler/
 │   ├── fetcher.test.ts               测试 HTTP 获取器
 │   ├── normalizer.test.ts             测试事件规范化
 │   ├── pku-homework-cli.test.ts       测试课程采集命令行
+│   ├── producer-observation.test.ts   验证下载计时、缓存不重复计时及观测故障隔离
 │   ├── pku-homework-html.test.ts      测试课程页面解析
 │   ├── pku-homework.test.ts           测试课程采集规则
 │   ├── pku-attachment-download.test.ts 测试流式大小限制、重定向及鉴权边界
@@ -87,6 +89,8 @@ crawler/
 ```
 
 ## 安装与检查
+
+维护端可通过 `--observe-downloads` 或 `downloadObserver` 接收实际下载耗时，CLI 仅向 stderr 输出独立观测 JSONL，默认不启用；接口与接入边界见 [观测契约](../contracts/docs/producer-observation-v0.1.md)。
 
 需要 Node.js 20.19+、22.13+ 或 24+，以及 pnpm 10.17.1；所有命令均从 `crawler/` 运行。
 

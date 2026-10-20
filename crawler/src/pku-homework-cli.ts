@@ -8,10 +8,11 @@ import path from "node:path";
 try {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
   if (args.includes("--help")) {
+    console.log("--observe-downloads: emit content-free per-download observations as JSONL on stderr; stdout is unchanged.");
     console.log("Single-source diagnosis: --source-page=URL --source-item=ID --course-label=NAME --section-label=NAME --format=raw (no term/section scan options). Only that item and its references are read.");
     console.log("pku:homework [--term=LABEL | --all-terms] [--all-sections] [--format=raw|recognition|teaching-v04|teaching|teaching-capture] [--request-id=ID]\nBy default only assignment sections are collected; --all-sections also collects course announcements and every content section.\nraw: JSON with all source_records and legacy homework views.\nrecognition: JSONL, one v0.2 request per line (up to 100 records and 2,000,000 UTF-8 bytes); exports only, does not call a model.");
   } else {
-    if (args.some((arg) => !["--all-terms", "--all-sections"].includes(arg) && !/^--(?:term|format|request-id|source-page|source-item|course-label|section-label)=.+$/.test(arg))) throw new Error("unknown or empty argument; use --help");
+    if (args.some((arg) => !["--all-terms", "--all-sections", "--observe-downloads"].includes(arg) && !/^--(?:term|format|request-id|source-page|source-item|course-label|section-label)=.+$/.test(arg))) throw new Error("unknown or empty argument; use --help");
     const termArg = args.find((arg) => arg.startsWith("--term="));
     if (termArg && args.includes("--all-terms")) throw new Error("--term and --all-terms cannot be combined");
     const term = args.includes("--all-terms") ? null : termArg?.slice("--term=".length);
@@ -24,7 +25,8 @@ try {
       throw new Error("source diagnosis requires all four target options, raw format, and no term/section scan options");
     }
     const targetSource = targetValues.every(Boolean) ? { url: targetValues[0]!, itemId: targetValues[1]!, course: targetValues[2]!, section: targetValues[3]! } : undefined;
-    const result = await scrapePkuHomeworks({ term, ...(targetSource ? { targetSource } : {}), allSections: args.includes("--all-sections"), ...(["teaching", "teaching-capture"].includes(format) ? { teachingSections: true } : {}) });
+    const result = await scrapePkuHomeworks({ term, ...(targetSource ? { targetSource } : {}), allSections: args.includes("--all-sections"), ...(["teaching", "teaching-capture"].includes(format) ? { teachingSections: true } : {}),
+      ...(args.includes("--observe-downloads") ? { downloadObserver: (event: import("./producer-observation.js").DownloadObservation) => { console.error(JSON.stringify(event)); } } : {}) });
     if (format === "teaching-v04") {
       const output = exportEvidence(result.source_records, requestId);
       for (const skipped of output.skipped) console.error(JSON.stringify({ type: "teaching_export_skipped", ...skipped }));

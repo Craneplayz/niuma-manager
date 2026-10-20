@@ -19,6 +19,7 @@ ddl_text/
 ├── __main__.py           # CLI 参数、输入文件和输出
 ├── adapters.py           # 调用协议及离线回放适配器
 ├── chat_client.py        # 七牛兼容 API 请求和错误处理
+├── call_observation.py   # 可选模型耗时、固定结果码及供应商实际 token 用量
 ├── classification.py    # 旧 v0.2 的历史过滤与待核实判断（教学网 model-v1 不使用）
 ├── codex_client.py       # 环境配置读取及可选 Codex 适配器
 ├── config.py             # 超时、重试和运行参数校验
@@ -96,6 +97,7 @@ ddl_text/
 │   ├── test_classification.py # 分类、历史过滤、证据及跨进程透传测试
 │   ├── run_time_smoke.py # 显式启用的真实模型时间验证入口
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
+│   ├── test_call_observation.py # 供应商实际用量、缺失值、隐私和观测故障隔离
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
 │   ├── test_extraction.py      # 草稿编译、时间合并和原文证据测试
 │   ├── test_homework.py        # 真实合成作业草稿回放与前后端分类一致性检查

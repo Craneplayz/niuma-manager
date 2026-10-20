@@ -23,6 +23,17 @@ async function run(args: string[]) {
 }
 
 describe("campus source export CLI", () => {
+  it("exports observations only on opt-in stderr and leaves stdout unchanged", async () => {
+    const event = { contract_version: "producer-observation/0.1", stage: "attachment_download", duration_ms: 12, result_code: "ok" };
+    scrape.mockImplementation(async options => {
+      options.downloadObserver?.(event);
+      return { source_records: sources };
+    });
+    const { log, error } = await run(["--format=recognition", "--request-id=test:cli", "--observe-downloads"]);
+    expect(JSON.parse(error.mock.calls[0][0])).toEqual(event);
+    expect(JSON.parse(log.mock.calls[0][0]).records[0].source_label).toBe("教材");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("producer-observation");
+  });
   it("targeted diagnosis never enables a course/section scan", async () => {
     scrape.mockResolvedValue({ source_records: sources });
     const args = ['--source-page=https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1_1&method=search',
