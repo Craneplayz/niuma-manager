@@ -34,7 +34,7 @@ export function createAccountUI(host) {
     retryAt = 0;
   }
   let avatarImage = null, selection = 0, selecting = false,
-    avatarRequest = 0, avatarSaves = Promise.resolve();
+    avatarSaves = Promise.resolve();
   function clearAvatarDraft() {
     selection++;
     avatarImage = null;
@@ -422,8 +422,7 @@ export function createAccountUI(host) {
   }
   async function saveAvatar(form, avatar) {
     if (busy || !session.user || !formIsOpen(form)) return;
-    const attempt = ++operation, epoch = accountVersion(),
-      request = ++avatarRequest, userId = session.user.id;
+    const attempt = ++operation, epoch = accountVersion(), userId = session.user.id;
     const current = () => attempt === operation && epoch === accountVersion();
     const sameAccount = () => epoch === accountVersion() && session.user?.id === userId;
     busy = true;
@@ -442,7 +441,7 @@ export function createAccountUI(host) {
       });
       avatarSaves = pending;
       const result = await pending;
-      if (!sameAccount() || request !== avatarRequest) return;
+      if (!sameAccount()) return;
       if (result.user?.id !== userId || !(result.user.avatar === null ||
           typeof result.user.avatar === "string" && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(result.user.avatar)))
         throw new Error("头像保存结果无法确认，请重试");

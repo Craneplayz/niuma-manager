@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-async function openApp(page, { avatar = null, failSaveOnce = false, holdSave = false, holdProfile = false } = {}) {
+async function openApp(page, { avatar = null, failSaveOnce = false, failSaveAt = failSaveOnce ? 1 : 0, holdSave = false, holdProfile = false } = {}) {
   let user = { id: "avatar-synthetic", name: "测试账号", email: "avatar-preview@example.test", emailVerified: true, avatar };
   const writes = [];
   let releaseSave, markSaveRequested, releaseProfile, markProfileRequested;
@@ -18,7 +18,7 @@ async function openApp(page, { avatar = null, failSaveOnce = false, holdSave = f
       writes.push(body);
       markSaveRequested();
       if (holdSave) await saveGate;
-      if (failSaveOnce && writes.length === 1) {
+      if (writes.length === failSaveAt) {
         status = 503;
         value = { error: "Synthetic avatar service unavailable" };
       } else {
@@ -273,4 +273,27 @@ test("closing during image decoding discards the selection and leaves a later fo
   await expect(nickname).toBeVisible();
   await expect(nickname.getByLabel("昵称", { exact: true })).toHaveValue("保留我的输入");
   expect(f.writes).toEqual([]);
+});
+
+test("a later failed avatar choice keeps an earlier successful save visible", async ({ page }) => {
+  const f = await openApp(page, { holdSave: true, failSaveAt: 2 });
+  await openAccount(page);
+  let form = await openAvatar(page);
+  await chooseImage(page, form, await syntheticImage(page));
+  await form.getByRole("button", { name: "保存头像", exact: true }).click();
+  await f.saveRequested;
+  await page.keyboard.press("Escape");
+  await openAccount(page);
+  form = await openAvatar(page);
+  await chooseImage(page, form, await syntheticImage(page, { width: 400, height: 900 }));
+  await form.getByRole("button", { name: "保存头像", exact: true }).click();
+  // The second upload waits for the first response before it is sent.
+  expect(f.writes).toHaveLength(1);
+  f.releaseSave();
+  await expect(form.locator("[data-account-error]")).toBeVisible();
+  expect(f.writes).toHaveLength(2);
+  expect(f.writes[0].avatar).not.toBe(f.writes[1].avatar);
+  await expect(page.locator(".account-entry .avatar img")).toHaveAttribute("src", f.writes[0].avatar);
+  await form.getByRole("button", { name: "取消", exact: true }).click();
+  await expect(page.locator("#dialog .account-avatar img")).toHaveAttribute("src", f.writes[0].avatar);
 });

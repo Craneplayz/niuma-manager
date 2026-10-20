@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import app
 import usage
+from auth_test_support import registration_payload
 
 
 class ReviewTaskActionTests(unittest.TestCase):
@@ -26,7 +27,9 @@ class ReviewTaskActionTests(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.client = build_opener(HTTPCookieProcessor(CookieJar()))
-        self.uid = self.call('/auth/register', dict(name='Synthetic', email='review@example.test', password='Review-Test-2026!'))[1]['user']['id']
+        account = registration_payload(dict(name='Synthetic', email='review@example.test', password='Review-Test-2026!'),
+            lambda body: self.call('/auth/email-code', body))
+        self.uid = self.call('/auth/register', account)[1]['user']['id']
         fixture = json.loads((Path(__file__).parent.parent / 'contracts/text-to-app/text-contract-v0.2.json').read_text())
         candidate = fixture['expected']['tasks'][0]
         candidate.update(needs_review=True, review_reasons=['需要用户确认'])

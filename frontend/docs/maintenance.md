@@ -137,4 +137,4 @@ npm run build
 
 `tests/review-tasks.test.js` 与 `tests/browser/review-task-list.spec.js` 验证待核对混排、搜索筛选、忽略撤销、普通完成与编辑确认、失败保留和重新打开；服务端 `test_review_task_actions.py` 验证原子完成、幂等、版本冲突、账号隔离及事务回滚。
 
-`account-avatar.js` 只接受本地 JPG/PNG/WebP，限制 5 MB、最长边 8192px 与 2000 万像素；裁切为 256×256 PNG 后交给 [头像接口](../../contracts/docs/account-avatar.md)。账号与侧栏只展示服务端返回的 PNG data URL，不读取外部头像地址；文件解码校验账号版本、选择序号和原表单是否仍打开。保存串行发送并独立检查头像请求序号，关闭后的成功响应只更新同一账号的头像，不能关闭新表单或覆盖其他资料；账号切换丢弃旧响应。`tests/browser/account-avatar.spec.js` 覆盖桌面、390px、320px 下的悬停/键盘/触屏入口、裁切保存与刷新、取消/恢复默认、失败重试和关闭期间迟到响应。
+`account-avatar.js` 只接受本地 JPG/PNG/WebP，限制 5 MB、最长边 8192px 与 2000 万像素；裁切为 256×256 PNG 后交给 [头像接口](../../contracts/docs/account-avatar.md)。账号与侧栏只展示服务端返回的 PNG data URL，不读取外部头像地址；文件解码校验账号版本、选择序号和原表单是否仍打开。保存串行发送，每次成功响应更新对应已保存头像，关闭后的成功响应只更新同一账号的头像，不能关闭新表单或覆盖其他资料；账号切换丢弃旧响应。`tests/browser/account-avatar.spec.js` 覆盖桌面、390px、320px 下的悬停/键盘/触屏入口、裁切保存与刷新、取消/恢复默认、失败重试和关闭期间迟到响应。
