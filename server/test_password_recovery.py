@@ -193,6 +193,68 @@ class PasswordRecoveryTests(email_tests.EmailVerificationTests):
                         self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?', (challenges[selected],)).fetchone()[0], 'superseded')
                     self.assertEqual(self.login(addresses[selected], new)[1]['user']['id'], uid)
 
+    def test_recovery_contextual_sigma_case_and_dot_variants_never_cross_domains(self):
+        for index, separator in enumerate(('.', '。', '．', '｡')):
+            target=f'sigma-{index}@ος{separator}test'
+            uppercase=f'sigma-{index}@ΟΣ{separator}test'
+            other=f'sigma-{index}@οσ{separator}test'
+            owner=self.new_client()
+            uid=self.legacy(target,owner)
+            status,challenge,_=self.call('/auth/email-code',dict(purpose='verify_email'),owner)
+            self.assertEqual(status,200,challenge)
+            self.assertEqual(self.mailbox[-1][0],f'sigma-{index}@xn--0xag.test')
+            self.assertEqual(self.call('/auth/verify-email',dict(challengeId=challenge['challengeId'],code=self.mailbox[-1][1]),owner)[0],200)
+            count=len(self.mailbox)
+            status,unavailable,_=self.call('/auth/email-code',dict(email=uppercase,purpose='reset_password'))
+            self.assertEqual(status,200,unavailable)
+            self.assertEqual(len(self.mailbox),count)
+            self.assertEqual(self.login(uppercase)[0],401)
+            with patch.dict(app.os.environ,NIUMA_ADMIN_USER_IDS=uid):
+                self.assertEqual(self.call('/admin/auth/login',dict(email=uppercase,password=OLD_PASSWORD),self.new_client())[0],401)
+            self.assertEqual(self.reset(unavailable['challengeId'],'000000',email=uppercase)[0],400)
+            other_uid=self.verified_account(other,self.new_client())
+            self.assertEqual(self.login(uppercase)[1]['user']['id'],other_uid)
+            with patch.dict(app.os.environ,NIUMA_ADMIN_USER_IDS=uid):
+                self.assertEqual(self.call('/admin/auth/login',dict(email=uppercase,password=OLD_PASSWORD),self.new_client())[0],403)
+            with app.connection() as db:
+                db.execute('DELETE FROM email_rate_events')
+                before=tuple(db.execute('SELECT salt,hash FROM users WHERE id=?',(uid,)).fetchone())
+            challenge_id,code=self.recovery(uppercase)
+            self.assertEqual(self.mailbox[-1][0],f'sigma-{index}@xn--0xai.test')
+            self.assertEqual(self.reset(challenge_id,code,email=target)[0],400)
+            self.assertEqual(self.reset(challenge_id,code,email=uppercase)[0],200)
+            with app.connection() as db:
+                self.assertEqual(tuple(db.execute('SELECT salt,hash FROM users WHERE id=?',(uid,)).fetchone()),before)
+                db.execute('DELETE FROM email_rate_events')
+            self.assertEqual(self.call('/auth/me',client=owner)[1]['user']['id'],uid)
+            self.assertEqual(self.login(target)[1]['user']['id'],uid)
+            self.assertEqual(self.login(uppercase,NEW_PASSWORD)[1]['user']['id'],other_uid)
+
+    def test_recovery_rejects_mismatched_delivery_owner_at_issue_and_consumption(self):
+        target='binding@ος。test'
+        recipient='binding@xn--0xai.test'
+        uid=self.verified_account(target)
+        with app.connection() as db:
+            account=db.execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
+        count=len(self.mailbox)
+        with patch.object(verification,'account_for_email',return_value=account):
+            status,challenge,_=self.call('/auth/email-code',dict(email=recipient,purpose='reset_password'))
+        self.assertEqual(status,200,challenge)
+        self.assertEqual(len(self.mailbox),count)
+        # An existing challenge with a valid hash must not authorize a different mailbox.
+        with app.connection() as db:
+            key=verification._key(app.DB.parent/'email-verification.key')
+            challenge_id=challenge['challengeId']
+            code='123456'
+            db.execute("UPDATE email_challenges SET status='active',code_hash=? WHERE id=?",
+                       (verification._hash(key,challenge_id,recipient,'reset_password',uid,code),challenge_id))
+            db.execute('INSERT INTO email_reset_credentials VALUES(?,?)',
+                       (challenge_id,verification._credential_version(key,account)))
+            with self.assertRaises(verification.VerificationError):
+                verification.consume_code(db,recipient,'reset_password',uid,challenge_id,code,'127.0.0.1',
+                                          app.DB.parent/'email-verification.key',credentials=account)
+            self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?',(challenge_id,)).fetchone()[0],'active')
+
     def test_recovery_changes_password_without_automatically_logging_in(self):
         uid = self.verified_account()
         challenge_id, code = self.recovery(client=self.new_client())

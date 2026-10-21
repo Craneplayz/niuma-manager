@@ -105,10 +105,14 @@ def account_for_email(db, email):
     # Keep indexed lookups and exact historical identities first. IDNA is not
     # reversible: full-width letters, alternate dots and other spellings can
     # share one canonical address, so compare the actual stored values on a miss.
-    for candidate in dict.fromkeys((email.strip().lower(), canonical)):
+    for candidate in dict.fromkeys((email.strip(), email.strip().lower(), canonical)):
         row = db.execute('SELECT * FROM users WHERE email=?', (candidate,)).fetchone()
         if row:
-            return row
+            try:
+                if normalize_email(row['email']) == canonical:
+                    return row
+            except VerificationError:
+                continue
     for row in db.execute('SELECT * FROM users'):
         try:
             if normalize_email(row['email']) == canonical:
@@ -192,6 +196,12 @@ def request_code(db, email, purpose, user_id, remote_ip, key_path):
         account = account_for_email(db, original_email)
         eligible = bool(account and verified(db, account['id']))
         user_id = account['id'] if eligible else ''
+    if eligible and user_id:
+        owner = db.execute('SELECT email FROM users WHERE id=?', (user_id,)).fetchone()
+        try:
+            eligible = bool(owner and normalize_email(owner['email']) == email)
+        except VerificationError:
+            eligible = False
     db.execute('DELETE FROM email_rate_events WHERE occurred_at<?', (now - 86400,))
     db.execute('DELETE FROM email_challenges WHERE created_at<?', (now - 86400,))
     db.execute('DELETE FROM email_reset_credentials WHERE challenge_id NOT IN (SELECT id FROM email_challenges)')
@@ -237,6 +247,13 @@ def consume_code(db, email, purpose, user_id, challenge_id, code, remote_ip, key
     row = db.execute('SELECT * FROM email_challenges WHERE id=?',
                      (challenge_id if isinstance(challenge_id, str) and len(challenge_id) <= 100 else '',)).fetchone()
     matches = (row and row['email'] == email and row['purpose'] == purpose and row['user_id'] == user_id)
+    identity_matches = True
+    if matches and user_id:
+        owner = db.execute('SELECT email FROM users WHERE id=?', (user_id,)).fetchone()
+        try:
+            identity_matches = bool(owner and normalize_email(owner['email']) == email)
+        except VerificationError:
+            identity_matches = False
     credential_matches = True
     if matches and purpose == 'reset_password':
         version = db.execute('SELECT credential_version FROM email_reset_credentials WHERE challenge_id=?', (row['id'],)).fetchone()
@@ -247,7 +264,7 @@ def consume_code(db, email, purpose, user_id, challenge_id, code, remote_ip, key
     limits = GUESS_LIMITS if matches else tuple(limit for limit in GUESS_LIMITS if limit[0] != 'email')
     _limit(db, 'guess', subjects, limits, now)
     expired = matches and row['expires_at'] <= now
-    valid = (matches and credential_matches and not expired and row['status'] == 'active' and row['attempts'] < MAX_ATTEMPTS
+    valid = (matches and identity_matches and credential_matches and not expired and row['status'] == 'active' and row['attempts'] < MAX_ATTEMPTS
              and isinstance(code, str) and bool(re.fullmatch(r'[0-9]{6}', code))
              and hmac.compare_digest(row['code_hash'], _hash(key, row['id'], email, purpose, user_id, code)))
     if not valid:
