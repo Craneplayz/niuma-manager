@@ -271,12 +271,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not 8<=len(password)<=128 or '@' not in email or len(email)>254: raise ApiError(400,'请输入有效邮箱和至少 8 位密码')
                 row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
                 if not row and not path.endswith('register'):
-                    # Preserve legacy logins while accepting the canonical IDNA address of new accounts.
+                    # Preserve exact legacy logins, then look up equivalent Unicode/A-label spellings.
                     try:
-                        canonical_email=email_verification.normalize_email(email)
+                        row=email_verification.account_for_email(db,str(body.get('email','')))
                     except email_verification.VerificationError:
-                        canonical_email=email
-                    row=db.execute('SELECT * FROM users WHERE email=?',(canonical_email,)).fetchone()
+                        pass
                 if path.endswith('register'):
                     email = email_verification.normalize_email(body.get('email'))
                     name=str(body.get('name','')).strip()

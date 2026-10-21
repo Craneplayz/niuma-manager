@@ -1,6 +1,7 @@
 """Password recovery through real HTTP; delivery only uses a synthetic mailbox."""
 import concurrent.futures
 import json
+import sqlite3
 import threading
 import unittest
 from unittest.mock import patch
@@ -49,6 +50,149 @@ class PasswordRecoveryTests(email_tests.EmailVerificationTests):
         return self.call('/auth/login', dict(email=email, password=password),
                          client or self.new_client())
 
+    def legacy_delivery_challenge(self, email, verify=True):
+        client = self.new_client()
+        uid = self.legacy(email, client)
+        def old_normalize(value):
+            local, domain = value.strip().lower().split('@')
+            return local + '@' + domain.encode('idna').decode('ascii')
+        with patch.object(verification, 'normalize_email', side_effect=old_normalize):
+            with app.connection() as db:
+                db.execute('DELETE FROM email_rate_events')
+            status, challenge, _ = self.call('/auth/email-code', dict(purpose='verify_email'), client)
+            self.assertEqual(status, 200, challenge)
+            code = self.mailbox[-1][1]
+            if verify:
+                self.assertEqual(self.call('/auth/verify-email', dict(challengeId=challenge['challengeId'], code=code), client)[0], 200)
+                with app.connection() as db:
+                    db.execute('DELETE FROM email_rate_events')
+                challenge_id, code = self.recovery(email)
+            else:
+                challenge_id = challenge['challengeId']
+        return uid, client, challenge_id, code, self.mailbox[-1][0]
+
+    def test_recovery_upgrade_revokes_only_provably_changed_unicode_identities_once(self):
+        changed = ('old@faß.test', 'sigma@ος.test')
+        preserved = ('old@fass.test', 'old@xn--fa-hia.test', 'full@ｅｘａｍｐｌｅ.test',
+                     'chinese@例子.中国', 'dot@example。test', 'dot@example．test',
+                     'dot@example｡test', 'nfc@bu\u0308cher.test')
+        fixtures = {email: self.legacy_delivery_challenge(email) for email in (*changed, *preserved)}
+        self.assertEqual(fixtures[changed[0]][4], 'old@fass.test')
+        self.assertEqual(fixtures[changed[1]][4], 'sigma@xn--0xai.test')
+        with app.connection() as db:
+            for email, (uid, _, _, _, _) in fixtures.items():
+                db.execute('INSERT INTO workspace VALUES(?,?,?,?)', (uid, 'tasks', '[{"id":"preserve"}]', 7))
+                db.execute('INSERT INTO sessions VALUES(?,?,?)', ('synthetic-admin-' + uid, uid, 9999999999))
+            users_before = [tuple(row) for row in db.execute('SELECT * FROM users ORDER BY id')]
+            workspace_before = [tuple(row) for row in db.execute('SELECT * FROM workspace ORDER BY user_id')]
+            sessions_before = {uid: [tuple(row) for row in db.execute('SELECT * FROM sessions WHERE user_id=? ORDER BY token', (uid,))]
+                               for uid, *_ in fixtures.values()}
+            # This table did not exist in bb33179; all other rows are old state.
+            db.execute('DROP TABLE email_identity_migrations')
+        app.initialize(recover=False)
+        with app.connection() as db:
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM users ORDER BY id')], users_before)
+            self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM workspace ORDER BY user_id')], workspace_before)
+            for email, (uid, _, challenge_id, _, _) in fixtures.items():
+                self.assertEqual(verification.verified(db, uid), email in preserved)
+                self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?', (challenge_id,)).fetchone()[0],
+                                 'active' if email in preserved else 'superseded')
+                sessions = [tuple(row) for row in db.execute('SELECT * FROM sessions WHERE user_id=? ORDER BY token', (uid,))]
+                self.assertEqual(sessions, sessions_before[uid] if email in preserved else [])
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM email_identity_migrations').fetchone()[0], 1)
+        for email in changed:
+            uid, client, challenge_id, code, wrong_recipient = fixtures[email]
+            self.assertEqual(self.call('/auth/me', client=client)[0], 401)
+            for address in (email, wrong_recipient, verification.normalize_email(email)):
+                self.assertEqual(self.reset(challenge_id, code, email=address)[0], 400)
+            self.assertEqual(self.login(email)[1]['user']['id'], uid)
+        # A legitimate old ASCII challenge still works and targets only its owner.
+        uid, client, challenge_id, code, _ = fixtures['old@fass.test']
+        self.assertEqual(self.call('/auth/me', client=client)[0], 200)
+        self.assertEqual(self.reset(challenge_id, code, email='old@fass.test')[0], 200)
+        self.assertEqual(self.login('old@fass.test', NEW_PASSWORD)[1]['user']['id'], uid)
+        # Reverification to the correct mailbox survives subsequent restarts.
+        uid, *_ = fixtures[changed[0]]
+        self.assertEqual(self.login(changed[0], client=self.client)[0], 200)
+        with app.connection() as db:
+            db.execute('DELETE FROM email_rate_events')
+        status, challenge, _ = self.call('/auth/email-code', dict(purpose='verify_email'))
+        self.assertEqual(status, 200, challenge)
+        self.assertEqual(self.mailbox[-1][0], 'old@xn--fa-hia.test')
+        self.assertEqual(self.call('/auth/verify-email', dict(challengeId=challenge['challengeId'], code=self.mailbox[-1][1]))[0], 200)
+        with app.connection() as db:
+            db.execute('DELETE FROM email_rate_events')
+        challenge_id, code = self.recovery(changed[0])
+        app.initialize(recover=False)
+        self.assertEqual(self.call('/auth/me')[1]['user']['id'], uid)
+        self.assertTrue(self.call('/auth/me')[1]['user']['emailVerified'])
+        self.assertEqual(self.reset(challenge_id, code, email=changed[0])[0], 200)
+
+    def test_recovery_upgrade_unverified_wrong_target_code_preserves_its_session(self):
+        uid, client, challenge_id, code, _ = self.legacy_delivery_challenge('unverified@faß.test', verify=False)
+        with app.connection() as db:
+            db.execute("UPDATE email_challenges SET status='pending' WHERE id=?", (challenge_id,))
+            db.execute('DROP TABLE email_identity_migrations')
+        app.initialize(recover=False)
+        with app.connection() as db:
+            self.assertFalse(verification.verified(db, uid))
+            self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?', (challenge_id,)).fetchone()[0], 'superseded')
+        self.assertEqual(self.call('/auth/me', client=client)[0], 200)
+        self.assertEqual(self.call('/auth/verify-email', dict(challengeId=challenge_id, code=code), client)[0], 400)
+
+    def test_recovery_upgrade_failure_rolls_back_revocation_and_can_retry(self):
+        uid, client, challenge_id, _, _ = self.legacy_delivery_challenge('rollback@faß.test')
+        with app.connection() as db:
+            db.execute('DROP TABLE email_identity_migrations')
+            db.execute("CREATE TRIGGER synthetic_upgrade_failure BEFORE DELETE ON sessions "
+                       "BEGIN SELECT RAISE(ABORT, 'synthetic upgrade failure'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            app.initialize(recover=False)
+        with app.connection() as db:
+            self.assertTrue(verification.verified(db, uid))
+            self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?', (challenge_id,)).fetchone()[0], 'active')
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM email_identity_migrations').fetchone()[0], 0)
+            db.execute('DROP TRIGGER synthetic_upgrade_failure')
+        self.assertEqual(self.call('/auth/me', client=client)[0], 200)
+        app.initialize(recover=False)
+        self.assertEqual(self.call('/auth/me', client=client)[0], 401)
+        with app.connection() as db:
+            self.assertFalse(verification.verified(db, uid))
+            self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?', (challenge_id,)).fetchone()[0], 'superseded')
+
+    def test_recovery_profile_and_password_routes_keep_exact_colliding_identity(self):
+        for group, domains in enumerate((('faß.test', 'xn--fa-hia.test', 'fass.test'),
+                                         ('ος.test', 'xn--0xag.test', 'οσ.test'))):
+            addresses = [f'route-{group}@{domain}' for domain in domains]
+            clients = [self.new_client() for _ in addresses]
+            ids = [self.verified_account(address, client) for address, client in zip(addresses, clients)]
+            challenges = []
+            for address in addresses:
+                with app.connection() as db:
+                    db.execute('DELETE FROM email_rate_events')
+                challenges.append(self.recovery(address)[0])
+            for selected, uid in enumerate(ids):
+                with self.subTest(address=addresses[selected]):
+                    with app.connection() as db:
+                        other_users = [tuple(row) for row in db.execute('SELECT * FROM users WHERE id!=? ORDER BY id', (uid,))]
+                        other_sessions = [tuple(row) for row in db.execute('SELECT * FROM sessions WHERE user_id!=? ORDER BY token', (uid,))]
+                        other_codes = [tuple(row) for row in db.execute('SELECT * FROM email_challenges WHERE user_id!=? ORDER BY id', (uid,))]
+                    other_email = addresses[(selected + 1) % len(addresses)]
+                    status, result, _ = self.call('/auth/profile', dict(name='Updated', email=other_email), clients[selected])
+                    self.assertEqual(status, 200, result)
+                    self.assertEqual(result['user']['id'], uid)
+                    self.assertEqual(result['user']['email'], addresses[selected])
+                    new = f'Route-Password-{group}-{selected}!'
+                    self.assertEqual(self.call('/auth/password', dict(currentPassword=OLD_PASSWORD, newPassword=new,
+                                                                    email=other_email), clients[selected])[0], 200)
+                    self.assertEqual(self.call('/auth/me', client=clients[selected])[1]['user']['id'], uid)
+                    with app.connection() as db:
+                        self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM users WHERE id!=? ORDER BY id', (uid,))], other_users)
+                        self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM sessions WHERE user_id!=? ORDER BY token', (uid,))], other_sessions)
+                        self.assertEqual([tuple(row) for row in db.execute('SELECT * FROM email_challenges WHERE user_id!=? ORDER BY id', (uid,))], other_codes)
+                        self.assertEqual(db.execute('SELECT status FROM email_challenges WHERE id=?', (challenges[selected],)).fetchone()[0], 'superseded')
+                    self.assertEqual(self.login(addresses[selected], new)[1]['user']['id'], uid)
+
     def test_recovery_changes_password_without_automatically_logging_in(self):
         uid = self.verified_account()
         challenge_id, code = self.recovery(client=self.new_client())
@@ -65,9 +209,13 @@ class PasswordRecoveryTests(email_tests.EmailVerificationTests):
         self.assertTrue(result['user']['emailVerified'])
         self.assertEqual(self.reset(challenge_id, code)[0], 400)
 
-    def test_colliding_legacy_addresses_reset_only_the_exact_selected_account(self):
-        for index,(unicode_verified,idna_verified) in enumerate(((True,True),(True,False),(False,True),(False,False))):
-            addresses=(f'collision{index}@例子.中国',f'collision{index}@xn--fsqu00a.xn--fiqs8s')
+    def test_recovery_colliding_legacy_addresses_reset_only_the_exact_selected_account(self):
+        cases = ((domain, canonical, flags)
+                 for domain, canonical in (('例子.中国', 'xn--fsqu00a.xn--fiqs8s'),
+                                           ('faß.test', 'xn--fa-hia.test'), ('ος.test', 'xn--0xag.test'))
+                 for flags in ((True, True), (True, False), (False, True), (False, False)))
+        for index, (domain, canonical, (unicode_verified, idna_verified)) in enumerate(cases):
+            addresses=(f'collision{index}@{domain}',f'collision{index}@{canonical}')
             clients=[self.new_client(),self.new_client()]
             ids=[self.legacy(address,client) for address,client in zip(addresses,clients)]
             for uid,is_verified in zip(ids,(unicode_verified,idna_verified)):
@@ -504,6 +652,96 @@ class PasswordRecoveryTests(email_tests.EmailVerificationTests):
         self.assertEqual(status, 200, result)
         self.assertEqual(result['user']['id'], uid)
         self.assertEqual(result['user']['email'], canonical)
+
+    def test_recovery_unicode_alabel_login_verification_and_reset_in_both_directions(self):
+        for domain, canonical in (('faß.test', 'xn--fa-hia.test'), ('ος.test', 'xn--0xag.test')):
+            for reverse in (False, True):
+                local = f'old-{int(reverse)}'
+                unicode_email, ascii_email = local + '@' + domain, local + '@' + canonical
+                stored, alias = (ascii_email, unicode_email) if reverse else (unicode_email, ascii_email.upper())
+                with self.subTest(domain=domain, reverse=reverse):
+                    uid = self.legacy(stored)
+                    status, account, _ = self.login(alias, client=self.client)
+                    self.assertEqual(status, 200, account)
+                    self.assertEqual(account['user']['id'], uid)
+                    self.assertEqual(account['user']['email'], stored)
+                    self.assertFalse(account['user']['emailVerified'])
+                    status, challenge, _ = self.call('/auth/email-code', dict(purpose='verify_email', email='ignored@example.test'))
+                    self.assertEqual(status, 200, challenge)
+                    self.assertEqual(self.mailbox[-1][0], ascii_email)
+                    self.assertEqual(self.call('/auth/verify-email', dict(challengeId=challenge['challengeId'], code=self.mailbox[-1][1]))[0], 200)
+                    for requested, submitted in ((alias, stored), (stored, alias)):
+                        with app.connection() as db:
+                            db.execute('DELETE FROM email_rate_events')
+                        challenge_id, code = self.recovery(requested)
+                        self.assertEqual(self.mailbox[-1][0], ascii_email)
+                        self.assertEqual(self.reset(challenge_id, code, email=submitted)[0], 200)
+                    for address in (stored, alias):
+                        status, result, _ = self.login(address, NEW_PASSWORD)
+                        self.assertEqual(status, 200, result)
+                        self.assertEqual(result['user']['id'], uid)
+                        self.assertEqual(result['user']['email'], stored)
+
+    def test_recovery_sharp_s_and_final_sigma_do_not_merge_distinct_domains(self):
+        for index, domains in enumerate((('faß.test', 'fass.test'), ('ος.test', 'οσ.test'))):
+            emails = [f'independent-{index}@{domain}' for domain in domains]
+            canonical = ('xn--fa-hia.test', 'fass.test') if index == 0 else ('xn--0xag.test', 'xn--0xai.test')
+            clients = [self.new_client(), self.new_client()]
+            first_id = self.legacy(emails[0], clients[0])
+            # The unrelated ASCII/sigma domain remains available for registration.
+            status, _, _ = self.call('/auth/email-code', dict(email=emails[1], purpose='register'))
+            self.assertEqual(status, 200)
+            second_id = self.legacy(emails[1], clients[1])
+            for selected, uid in enumerate((first_id, second_id)):
+                other = (second_id, first_id)[selected]
+                with self.subTest(domain=domains[selected]):
+                    with app.connection() as db:
+                        db.execute('DELETE FROM email_rate_events')
+                        before = dict(db.execute('SELECT * FROM users WHERE id=?', (other,)).fetchone())
+                        other_verified = verification.verified(db, other)
+                    status, challenge, _ = self.call('/auth/email-code', dict(purpose='verify_email'), clients[selected])
+                    self.assertEqual(status, 200, challenge)
+                    self.assertEqual(self.mailbox[-1][0], f'independent-{index}@{canonical[selected]}')
+                    self.assertEqual(self.call('/auth/verify-email', dict(challengeId=challenge['challengeId'], code=self.mailbox[-1][1]), clients[selected])[0], 200)
+                    with app.connection() as db:
+                        db.execute('DELETE FROM email_rate_events')
+                    challenge_id, code = self.recovery(emails[selected])
+                    self.assertEqual(self.reset(challenge_id, code, email=emails[1-selected])[0], 400)
+                    self.assertEqual(self.reset(challenge_id, code, email=emails[selected])[0], 200)
+                    with app.connection() as db:
+                        self.assertEqual(dict(db.execute('SELECT * FROM users WHERE id=?', (other,)).fetchone()), before)
+                        self.assertEqual(verification.verified(db, other), other_verified)
+                    self.assertEqual(self.call('/auth/me', client=clients[1-selected])[0], 200 if selected == 0 else 401)
+                    self.assertEqual(self.login(emails[selected], NEW_PASSWORD)[1]['user']['id'], uid)
+
+    def test_recovery_pre_fix_wrong_domain_codes_cannot_be_consumed(self):
+        email, wrong_email = 'old@faß.test', 'old@fass.test'
+        uid = self.legacy(email)
+        normalize = verification.normalize_email
+        def old_normalize(value):
+            return normalize(value.replace('faß.test', 'fass.test'))
+        # Simulate challenges issued by the old IDNA2003 implementation.
+        with patch.object(verification, 'normalize_email', side_effect=old_normalize):
+            status, challenge, _ = self.call('/auth/email-code', dict(purpose='verify_email'))
+            self.assertEqual(status, 200, challenge)
+            verify_code = self.mailbox[-1][1]
+            self.assertEqual(self.mailbox[-1][0], wrong_email)
+            with app.connection() as db:
+                verification.mark_verified(db, uid)
+                db.execute('DELETE FROM email_rate_events')
+            reset_id, reset_code = self.recovery(email)
+        other_uid = self.verified_account(wrong_email, self.new_client())
+        with app.connection() as db:
+            other_before = dict(db.execute('SELECT * FROM users WHERE id=?', (other_uid,)).fetchone())
+            db.execute('DELETE FROM verified_emails WHERE user_id=?', (uid,))
+        self.assertEqual(self.call('/auth/verify-email', dict(challengeId=challenge['challengeId'], code=verify_code))[0], 400)
+        with app.connection() as db:
+            verification.mark_verified(db, uid)
+        for address in (email, wrong_email, 'old@xn--fa-hia.test'):
+            self.assertEqual(self.reset(reset_id, reset_code, email=address)[0], 400)
+        self.assertEqual(self.login(email)[1]['user']['id'], uid)
+        with app.connection() as db:
+            self.assertEqual(dict(db.execute('SELECT * FROM users WHERE id=?', (other_uid,)).fetchone()), other_before)
 
 
 def load_tests(loader, standard_tests, pattern):

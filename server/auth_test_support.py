@@ -13,7 +13,8 @@ LEGACY_EMAIL_DOMAINS = (
     ('example。test', 'example.test'),
     ('example．test', 'example.test'),
     ('example｡test', 'example.test'),
-    ('faß.test', 'fass.test'),
+    ('faß.test', 'xn--fa-hia.test'),
+    ('ος.test', 'xn--0xag.test'),
     ('bu\u0308cher.test', 'xn--bcher-kva.test'),
 )
 
@@ -35,7 +36,7 @@ def registration_payload(account, request_code):
     if status != 200 or len(sent) != 1:
         raise AssertionError(f'Synthetic email challenge failed: HTTP {status}: {challenge}')
     email, code, purpose = sent[0]
-    if email != account['email'].strip().lower() or purpose != 'register':
+    if email != app.email_verification.normalize_email(account['email']) or purpose != 'register':
         raise AssertionError('Synthetic email challenge recipient or purpose mismatch')
     return {**account, 'challengeId': challenge['challengeId'], 'code': code}
 

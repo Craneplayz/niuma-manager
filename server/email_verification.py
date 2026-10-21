@@ -8,6 +8,7 @@ import secrets
 import time
 from pathlib import Path
 
+import idna
 import mail_delivery
 
 CODE_TTL = 600
@@ -30,10 +31,12 @@ class VerificationError(Exception):
 def normalize_email(value):
     if not isinstance(value, str) or len(value) > 254:
         raise VerificationError(400, 'email_invalid', '请输入有效的邮箱地址')
-    value = value.strip().lower()
+    value = value.strip()
     try:
         local, domain = value.split('@')
-        domain = domain.encode('idna').decode('ascii')
+        local = local.lower()
+        # Let UTS46 map domain case; Python lower() applies contextual sigma rules.
+        domain = idna.encode(domain, uts46=True, transitional=False, std3_rules=True).decode('ascii').lower()
         labels = domain.split('.')
         valid = (len(local) <= 64 and bool(re.fullmatch(r"[a-z0-9!#$%&'*+/=?^_`{|}~.-]+", local))
                  and not local.startswith('.') and not local.endswith('.') and '..' not in local
@@ -59,7 +62,34 @@ def initialize(db):
         CREATE INDEX IF NOT EXISTS email_rate_lookup ON email_rate_events(kind,subject,occurred_at);
         CREATE TABLE IF NOT EXISTS email_reset_credentials(
             challenge_id TEXT PRIMARY KEY, credential_version TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS email_identity_migrations(version TEXT PRIMARY KEY);
     ''')
+    # Old verification rows have no algorithm/delivery provenance. Only revoke
+    # identities whose stored Unicode spelling proves the delivery target changed.
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        version = 'uts46-nontransitional-std3-v1'
+        if db.execute('SELECT 1 FROM email_identity_migrations WHERE version=?', (version,)).fetchone():
+            return
+        for uid, email in db.execute('SELECT id,email FROM users').fetchall():
+            if email.isascii():
+                continue
+            try:
+                local, domain = email.strip().lower().split('@')
+                # Comparison only; never use this legacy target for delivery or lookup.
+                previous = local + '@' + domain.encode('idna').decode('ascii')
+                current = normalize_email(email)
+            except (ValueError, UnicodeError, VerificationError):
+                # No safe canonical target to compare; never guess an identity.
+                continue
+            if previous == current:
+                continue
+            was_verified = verified(db, uid)
+            db.execute('DELETE FROM verified_emails WHERE user_id=?', (uid,))
+            invalidate_account_codes(db, uid)
+            if was_verified:
+                db.execute('DELETE FROM sessions WHERE user_id=?', (uid,))
+        db.execute('INSERT INTO email_identity_migrations VALUES(?)', (version,))
 
 
 def verified(db, uid):
