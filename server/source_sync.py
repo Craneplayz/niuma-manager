@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import secrets
+from server import operations
 from pathlib import Path
 
 from text_contract import validate_request
@@ -114,6 +115,13 @@ def route(handler, db, uid, path, body, ApiError, key_path):
 
 
 def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
+    with operations.span('collection'):
+        result=_collect(db,uid,ApiError,key_path,guard=guard,input_ids=input_ids)
+    if result['summary'].get('skipped'):operations.emit('outcome',code='cache_hit',quantity=result['summary']['skipped'])
+    return result
+
+
+def _collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
     """Collect outside a write transaction, then validate ownership before saving."""
     if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()

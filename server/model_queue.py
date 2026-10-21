@@ -5,6 +5,7 @@ import threading
 import time
 import select
 import socket
+from server import operations
 
 CONCURRENCY = 20
 QUEUE_LIMIT = 100
@@ -13,13 +14,25 @@ _request = threading.local()
 
 
 class ModelQueue:
-    def __init__(self, limit=CONCURRENCY, pending=QUEUE_LIMIT, wait=QUEUE_SECONDS):
+    def __init__(self, limit=CONCURRENCY, pending=QUEUE_LIMIT, wait=QUEUE_SECONDS, name='model_queue'):
         self.limit, self.pending, self.wait = limit, pending, wait
         self.condition = threading.Condition()
         self.active = 0
         self.waiters = deque()
+        self.waiting_at = {}
+        self.name = name
 
     def acquire(self, blocking=True):
+        start=time.monotonic()
+        acquired=self._acquire(blocking)
+        operations.emit(self.name,(time.monotonic()-start)*1000,result='ok' if acquired else 'failed',code='ok' if acquired else 'queue_unavailable')
+        return acquired
+
+    def snapshot(self):
+        with self.condition:
+            return dict(running=self.active,queued=len(self.waiters),oldestWaitSeconds=round(max(0,time.monotonic()-min(self.waiting_at.values())),1) if self.waiting_at else 0)
+
+    def _acquire(self, blocking=True):
         with self.condition:
             if disconnected():
                 return False
@@ -30,6 +43,7 @@ class ModelQueue:
                 return False
             ticket = object()
             self.waiters.append(ticket)
+            self.waiting_at[ticket]=time.monotonic()
             self.condition.notify_all()
             expires = time.monotonic() + self.wait
             try:
@@ -44,6 +58,7 @@ class ModelQueue:
                 return True
             finally:
                 self.waiters.remove(ticket)
+                self.waiting_at.pop(ticket,None)
                 self.condition.notify_all()
 
     def release(self):

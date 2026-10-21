@@ -28,6 +28,7 @@ from jsonschema import ValidationError
 
 from contracts.check_v031_examples import check_pair, check_request, check_job, check_retry_result, schema, request_fingerprint, retryable_records, check_asset_metadata
 from server.model_queue import CONCURRENCY, QUEUE_LIMIT
+from server import operations
 
 MAX_ASSET = 20 * 1024 * 1024
 BODY_SECONDS = 30
@@ -38,9 +39,19 @@ _workers_lock = threading.Lock()
 
 
 def _start_job(db_path, job_id):
+    observation=operations.captured()
+    with operations.scope(db_path,run_id=job_id,operation='materials'):
+        operations.emit('run',code='queued')
     def run():
         try:
-            _process(db_path, job_id)
+            with operations.scope(db_path,request_id=(observation or {}).get('request_id'),run_id=job_id,operation='materials'),operations.span('recognition','materials'):
+                _process(db_path, job_id)
+                with closing(sqlite3.connect(db_path)) as db:
+                    row=db.execute('SELECT status,json_extract(result,\'$.status\') FROM wechat_jobs WHERE id=?',(job_id,)).fetchone()
+                if row:
+                    state={'partial_failed':'partial_success','cancelled':'stopped'}.get(row[0],row[0])
+                    if state in operations.CODES:operations.emit('run',code=state,result='ok' if state=='succeeded' else 'failed')
+                    if row[1]=='no_tasks':operations.emit('outcome',code='no_tasks')
         finally:
             with _workers_lock:
                 _workers.discard((db_path, thread))
@@ -567,7 +578,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
             raise MediaError(503,'agent_unavailable','图片识别配置不可用，请检查模型配置') from None
         settings = Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=45,max_retries=0)
         if checkpoint is None:
-            return process_media_request(request,assets,ChatClient(options['key']),settings)
+            return process_media_request(request,assets,operations.observe_chat(ChatClient(options['key'])),settings)
         check_request(request)
         potential_errors = 3 * len(request['records']) + sum(
             len(asset['errors']) + (2 if asset.get('content_mode')=='file' and asset['status']=='available' else 0)
@@ -575,7 +586,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
         if potential_errors > 200:
             raise MediaError(413,'limit_exceeded','本次处理记录过多，请拆分导入')
         saved, parts = completed or {}, []
-        client = ChatClient(options['key'])
+        client = operations.observe_chat(ChatClient(options['key']))
         expires = time.monotonic() + 180
         for index,record in enumerate(request['records']):
             single = dict(request,records=[record])

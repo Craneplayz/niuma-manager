@@ -241,6 +241,46 @@ class SourceJobsTests(unittest.TestCase):
                 crawler.assert_not_called()
         finally:queue.release()
 
+    def test_large_run_yields_to_waiting_account_without_recrawling_or_losing_records(self):
+        large_client=self.client
+        self.client=build_opener(HTTPCookieProcessor(CookieJar()))
+        self.assertEqual(self.call('/auth/register',dict(name='Other',email='fairness@example.test',password='Synthetic-password!'))[0],200)
+        self.assertEqual(self.call('/sources/credentials',dict(username='synthetic-course-user',password='synthetic-password'))[0],200)
+        small_client=self.client
+        large,drafts=example(('explicit-complete',)*8);self.drafts.update(drafts)
+        small,drafts=example(('explicit-complete',));self.drafts.update(drafts)
+        gate=threading.Event();entered=threading.Event();lock=threading.Lock()
+        calls=completed=0;crawl_after=[]
+        def crawl(*args,**kwargs):
+            with lock:
+                crawl_after.append(completed)
+                request=large if len(crawl_after)==1 else small
+            return SimpleNamespace(returncode=0,stdout=json.dumps(request))
+        def model(request,error):
+            nonlocal calls,completed
+            with lock:
+                calls+=1
+                if calls==4:entered.set()
+            if not gate.wait(8):raise RuntimeError('synthetic fairness release timed out')
+            result=self.model(request,error)
+            with lock:completed+=1
+            return result
+        queue=jobs.ModelQueue(limit=1,pending=20,name='sync_queue')
+        with patch.object(jobs,'_slots',queue),patch.object(app.source_sync.subprocess,'run',side_effect=crawl),patch.object(jobs.teaching,'recognize',side_effect=model):
+            try:
+                self.client=large_client;first=self.start('fair:large')
+                self.assertTrue(entered.wait(5))
+                self.client=small_client;second=self.start('fair:small')
+                with queue.condition:self.assertTrue(queue.condition.wait_for(lambda:len(queue.waiters)==1,timeout=3))
+                self.assertEqual(self.call('/workspace')[0],200)
+            finally:gate.set()
+            jobs.wait_for_jobs(app.DB)
+        self.assertEqual(crawl_after,[0,4])
+        for client,run,expected in ((large_client,first,8),(small_client,second,1)):
+            self.client=client
+            self.assertEqual(self.until(run['run_id'],lambda r:r['state']=='succeeded')['counts']['added'],expected)
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),expected)
+
     def test_waiting_run_timeout_is_retryable_and_does_not_call_crawler(self):
         queue=jobs.ModelQueue(limit=1,pending=1,wait=.05)
         self.assertTrue(queue.acquire())

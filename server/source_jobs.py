@@ -12,6 +12,7 @@ from copy import deepcopy
 
 from contracts import source_sync as contract
 from server.model_queue import cancel_if, ModelQueue
+from server import operations
 import recognition
 import source_sync
 import teaching
@@ -21,7 +22,7 @@ CONCURRENCY = 4
 RUN_LIMIT = 4
 QUEUE_LIMIT = 20
 QUIET_RECEIPT_SECONDS = 24 * 60 * 60
-_slots = ModelQueue(limit=RUN_LIMIT, pending=QUEUE_LIMIT)
+_slots = ModelQueue(limit=RUN_LIMIT, pending=QUEUE_LIMIT, name='sync_queue')
 _lock = threading.Lock()
 _workers = {}
 
@@ -32,7 +33,7 @@ def stamp():
 
 @contextmanager
 def connection(path):
-    db = sqlite3.connect(path, timeout=20)
+    db = sqlite3.connect(path, timeout=20, factory=operations.TimedConnection)
     db.row_factory = sqlite3.Row
     try:
         with db: yield db
@@ -543,7 +544,19 @@ def auto_apply(db, uid, request_id, ApiError):
     return added_items(db, uid, request_id, applied)
 
 
-def process_record(path, uid, run_id, request_id, ApiError):
+def process_record(path, uid, run_id, request_id, ApiError, observation=None):
+    with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=run_id,operation='sync.record'):
+        _process_record(path,uid,run_id,request_id,ApiError)
+        with connection(path) as db:
+            run=get(db,uid,run_id,ApiError)
+            item=next((r for r in run['records'] if r['request_id']==request_id),None)
+            if item and item['state'] not in ('queued','running'):
+                code=(item.get('error') or {}).get('code') or item['state']
+                if code not in operations.CODES:code='upstream_error'
+                operations.emit('run',code=code,result='ok' if item['state']=='succeeded' else 'failed')
+
+
+def _process_record(path, uid, run_id, request_id, ApiError):
     started = time.monotonic()
     try:
         with connection(path) as db:
@@ -646,13 +659,27 @@ def run_slot(path, uid, run_id, ApiError):
 
 
 def process(path, uid, run_id, ApiError):
+    with operations.scope(path,run_id=run_id,operation='sync'):
+        _process(path,uid,run_id,ApiError)
+        with connection(path) as db:
+            run=get(db,uid,run_id,ApiError)
+            if run['state'] in contract.FINAL:
+                operations.emit('run',code=run['state'],result='ok' if run['state']=='succeeded' else 'cancelled' if run['state']=='stopped' else 'failed')
+
+
+def _process(path, uid, run_id, ApiError):
+    first=True
+    while _process_turn(path,uid,run_id,ApiError,first):first=False
+
+
+def _process_turn(path, uid, run_id, ApiError, first):
     try:
         with run_slot(path,uid,run_id,ApiError):
             with connection(path) as db:
                 db.execute('BEGIN IMMEDIATE'); guard(db, uid, run_id, ApiError)
                 run = get(db, uid, run_id, ApiError)
-                save(db, run, 'recognizing' if run['parent_run_id'] and not run.get('recover_sources') else 'crawling')
-            if run.get('recover_sources'):
+                save(db, run, 'recognizing' if not first or run['parent_run_id'] and not run.get('recover_sources') else 'crawling')
+            if first and run.get('recover_sources'):
                 with connection(path) as db:
                     run = collect_recovery(db, uid, run, ApiError, path)
                     for item in run['records']:
@@ -660,7 +687,7 @@ def process(path, uid, run_id, ApiError):
                             db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET import_id=excluded.import_id,created_at=excluded.created_at,source=excluded.source,archived=0',
                                 (uid,item['request_id'],run_id,run['created_at'],'教学网'))
                     save(db,run,'recognizing')
-            elif not run['parent_run_id']:
+            elif first and not run['parent_run_id']:
                 with connection(path) as db:
                     response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
                                                    guard=lambda current: guard(current, uid, run_id, ApiError))
@@ -678,12 +705,16 @@ def process(path, uid, run_id, ApiError):
             with ThreadPoolExecutor(max_workers=CONCURRENCY, thread_name_prefix='source-record') as pool:
                 futures = set()
                 exhausted = False
+                dispatched = 0
                 while not exhausted or futures:
                     if cancelled(path, uid, run_id, ApiError): break
+                    if dispatched>=CONCURRENCY and _slots.snapshot()['queued']:
+                        exhausted=True  # Yield after this in-flight slice; do not monopolize a run slot.
                     while not exhausted and len(futures) < CONCURRENCY:
                         item = next(pending, None)
                         if item is None: exhausted=True;break
-                        futures.add(pool.submit(process_record, path, uid, run_id, item['request_id'], ApiError))
+                        futures.add(pool.submit(process_record, path, uid, run_id, item['request_id'], ApiError, operations.captured()))
+                        dispatched+=1
                     if futures:
                         done, futures = wait(futures, timeout=.25, return_when=FIRST_COMPLETED)
                         for future in done: future.result()
@@ -697,6 +728,9 @@ def process(path, uid, run_id, ApiError):
                     for item in run['records']:
                         if item['state'] in ('queued','running'):
                             item.update(state='failed',error=run['error'])
+                if any(item['state']=='queued' for item in run['records']):
+                    save(db,run,'queued')
+                    return True
                 bad = bool(run.get('error')) or any(r['state'] != 'succeeded' for r in run['records'])
                 good = any(r['state'] == 'succeeded' for r in run['records'])
                 save(db, run, ('partial_success' if good else 'failed') if bad else 'succeeded')
@@ -713,8 +747,11 @@ def process(path, uid, run_id, ApiError):
 
 def launch(path, uid, run_id, ApiError):
     key = (str(path), run_id)
+    observation=operations.captured()
     def work():
-        try: process(path, uid, run_id, ApiError)
+        try:
+            with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=run_id,operation='sync'):
+                process(path, uid, run_id, ApiError)
         finally:
             with _lock: _workers.pop(key, None)
     with _lock:

@@ -141,6 +141,17 @@ def route(handler, db, uid, path, body, error):
         return handler.reply(200,dict(saved=True)) or True
     if path.startswith('/api/admin/'):
         if not admin(uid,db): raise error(403,'此账号没有后台访问权限')
+        if path=='/api/admin/operations' and handler.command=='GET':
+            from server import operations
+            query=parse_qs(urlsplit(handler.path).query)
+            now=datetime.now(TZ)
+            try:
+                start=datetime.strptime(query['start'][0],'%Y-%m-%d').replace(tzinfo=TZ) if 'start' in query else now-timedelta(days=1)
+                end=datetime.strptime(query['end'][0],'%Y-%m-%d').replace(tzinfo=TZ)+timedelta(days=1) if 'end' in query else now
+                if start>=end or (end-start).days>90:raise ValueError()
+            except (ValueError,KeyError):raise error(400,'请选择不超过90天的有效日期范围')
+            result=operations.summary(handler.media_db_path,db,start.timestamp(),end.timestamp())
+            return handler.reply(200,result) or True
         if path!='/api/admin/usage' or handler.command!='GET': raise error(404,'接口不存在')
         query=parse_qs(urlsplit(handler.path).query)
         today=datetime.now(TZ).date()
