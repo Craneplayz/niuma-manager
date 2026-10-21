@@ -318,6 +318,8 @@ def resolve_candidate(db, uid, cid, body, ApiError):
     if not row: raise ApiError(404,'候选不存在')
     canonical=json.dumps(body,sort_keys=True)
     action=body.get('action')
+    if 'complete' in body and (type(body['complete']) is not bool or action!='create' or body.get('auto_apply') is True or body.get('reviewed') is not True):
+        raise ApiError(400,'完成操作需要用户主动确认新增任务')
     if action=='reopen':
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
         if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
@@ -390,6 +392,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             if action=='create' or (action=='update' and c['prerequisites']):
                 target['sourceRequirements']=c['prerequisites']
         else: target['status']='cancelled'
+        if body.get('complete') is True:
+            target['status']='completed'
+            target['completedAt']=datetime.now(usage.TZ).date().isoformat()
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)

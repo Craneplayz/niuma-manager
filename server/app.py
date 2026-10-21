@@ -26,6 +26,7 @@ import reprocessing
 import runtime_environment
 import usage
 import error_reports
+import account_avatar
 import email_verification
 import ipaddress
 from server import model_queue
@@ -56,6 +57,7 @@ def password_hash(password, salt):
 
 def initialize_accounts(db):
     """Account schema only; safe for tools that must not recover or prune jobs."""
+    account_avatar.initialize(db)
     db.executescript('''
     CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires REAL NOT NULL);
@@ -124,7 +126,7 @@ def session_cookie(token, max_age, admin=False):
     return name+'='+token+'; HttpOnly; SameSite=Strict; Path='+('/api/admin' if admin else '/api')+'; Max-Age='+str(max_age)+secure
 
 def public_user(db, row):
-    return dict(id=row['id'], name=row['name'], email=row['email'],
+    return dict(id=row['id'], name=row['name'], email=row['email'], avatar=account_avatar.read(db, row['id']),
                 emailVerified=email_verification.verified(db, row['id']))
 
 class Handler(BaseHTTPRequestHandler):
@@ -280,14 +282,20 @@ class Handler(BaseHTTPRequestHandler):
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
                 if not 8<=len(password)<=128 or '@' not in email or len(email)>254: raise ApiError(400,'请输入有效邮箱和至少 8 位密码')
-                row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
-                if not row and not path.endswith('register'):
-                    # Preserve legacy logins while accepting the canonical IDNA address of new accounts.
+                row=None
+                if not path.endswith('register'):
                     try:
-                        canonical_email=email_verification.normalize_email(email)
+                        row=email_verification.account_for_email(db,str(body.get('email','')))
                     except email_verification.VerificationError:
-                        canonical_email=email
-                    row=db.execute('SELECT * FROM users WHERE email=?',(canonical_email,)).fetchone()
+                        # Legacy addresses outside current validation can still log in.
+                        row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
+                        if row:
+                            try:
+                                email_verification.normalize_email(row['email'])
+                            except email_verification.VerificationError:
+                                pass
+                            else:
+                                row=None
                 if path.endswith('register'):
                     email = email_verification.normalize_email(body.get('email'))
                     name=str(body.get('name','')).strip()
@@ -358,6 +366,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
                 db.execute('UPDATE users SET name=? WHERE id=?',(name,uid))
                 return self.reply(200,dict(user=dict(user,name=name)))
+            if path=='/api/auth/avatar' and self.command=='POST':
+                avatar=account_avatar.save(db,uid,body,ApiError)
+                return self.reply(200,dict(user=dict(user,avatar=avatar)))
             if path=='/api/auth/password' and self.command=='POST':
                 current=str(body.get('currentPassword',''))
                 new=str(body.get('newPassword',''))

@@ -1,3 +1,5 @@
+import { candidateDue, zonedParts } from "./candidate-data.js";
+export { candidateDue } from "./candidate-data.js";
 import { describeUserError, userErrorMarkup } from "./user-errors.js";
 import {
   api,
@@ -27,21 +29,6 @@ const platforms = {
   email: "邮箱",
   wechat: "微信",
 };
-const zonedParts = (value) =>
-  Object.fromEntries(
-    new Intl.DateTimeFormat("sv-SE", {
-      timeZone: "Asia/Shanghai",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    })
-      .formatToParts(value)
-      .map((part) => [part.type, part.value]),
-  );
 
 export function shanghaiNow(value = new Date()) {
   const p = zonedParts(value);
@@ -105,29 +92,7 @@ export function buildTextImport(
     ],
   };
 }
-export function candidateDue(deadline = {}) {
-  if (
-    deadline.kind !== "deadline" ||
-    !["explicit", "inferred"].includes(deadline.status) ||
-    !deadline.value
-  )
-    return { date: "", time: "" };
-  if (deadline.precision === "date") return { date: deadline.value, time: "" };
-  if (
-    deadline.precision !== "datetime" ||
-    !Number.isFinite(Date.parse(deadline.value))
-  )
-    return { date: "", time: "" };
-  const value = new Date(deadline.value),
-    p = zonedParts(value);
-  return {
-    date: `${p.year}-${p.month}-${p.day}`,
-    time:
-      value.getUTCSeconds() || value.getUTCMilliseconds()
-        ? ""
-        : `${p.hour}:${p.minute}`,
-  };
-}
+
 export function buildCandidateResolution(item, values, tasks, tasksVersion) {
   const action = values.action,
     target = tasks.find((task) => task.id === values.target_id);
@@ -238,6 +203,7 @@ export function createImportUI(host) {
     controller = null,
     revision = 0,
     batchesRevision = 0;
+  let taskReviewsLoading = false, taskReviewsError = '';
   const historyCategories = new Map(), historyProblems = new Map();
   const current = () => ({ epoch: accountVersion(), revision });
   const valid = (stamp) =>
@@ -246,6 +212,7 @@ export function createImportUI(host) {
     if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
     batches = next;
     batchesRevision++;
+    taskReviewsError = '';
   }
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
@@ -327,6 +294,8 @@ export function createImportUI(host) {
     text = "";
     published = shanghaiNow();
     batches = [];
+    taskReviewsLoading = false;
+    taskReviewsError = '';
     credentials = null;
     loaded = false;
     loading = false;
@@ -342,6 +311,50 @@ export function createImportUI(host) {
     historyCategories.clear(); historyProblems.clear();
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
+  async function loadTaskReviews() {
+    if (taskReviewsLoading || busy || loading || !session.user || session.changing || demo()) return;
+    const stamp = current(), previousBatchesRevision = batchesRevision;
+    taskReviewsLoading = true;
+    taskReviewsError = '';
+    try {
+      const next = await api('/api/recognition/batches');
+      if (valid(stamp) && previousBatchesRevision === batchesRevision && !busy) acceptBatches(next);
+    } catch (error) {
+      if (valid(stamp)) taskReviewsError = error;
+    } finally {
+      if (valid(stamp)) { taskReviewsLoading = false; refresh(); }
+    }
+  }
+  const taskReviewsStatus = () => taskReviewsError
+    ? `<div class="task-review-load-error">${userErrorMarkup(taskReviewsError, 'import_review')}<button type="button" class="btn quiet" data-import-action="refresh-task-reviews">重试读取待核对</button></div>` : '';
+  async function confirmTask(id, task, complete = false, expectedVersion = task.reviewVersion) {
+    if (blocked() || !allowed()) throw new Error('正在处理，请稍后重试');
+    const stamp = current(), item = itemById(id);
+    if (!item || item.state !== 'pending' || item.version !== expectedVersion) {
+      const error = new Error('候选已变化，请刷新后重新操作'); error.status = 409; throw error;
+    }
+    if (!['create', 'uncertain'].includes(item.candidate.notice_type)) throw new Error('请选择明确的变更操作并核对目标任务');
+    busy = true;
+    refresh();
+    try {
+      await flushStore();
+      if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
+      const body = buildCandidateResolution(item, { action: 'create', title: task.title,
+        description: task.notes || '', course: task.course || '', date: task.due || '', time: task.dueTime || '' },
+        host.getState().tasks, getTaskVersion());
+      body.draft.content_type = task.content_type || 'task';
+      if (complete) body.complete = true;
+      const result = await api('/api/recognition/candidates/' + encodeURIComponent(id) + '/resolve', body);
+      if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
+      acceptBatches(result.batches);
+      try { await host.refresh(); }
+      catch { throw new Error('任务已保存，但页面更新失败。请刷新结果。'); }
+      if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
+      return host.getState().tasks.find(saved => saved.recognitionHistory?.some(event => event.storageId === id));
+    } finally {
+      if (valid(stamp)) { busy = false; refresh(); }
+    }
+  }
   async function load() {
     if (loading || busy || !session.user || demo()) return;
     const stamp = current(), previousBatchesRevision = batchesRevision;
@@ -487,7 +500,7 @@ export function createImportUI(host) {
         course: item.candidate.course_or_project || "",
         date: due.date,
         time: due.time,
-        target_id: "",
+        target_id: host.getState().tasks.some(task => task.id === item.candidate.target_reference) ? item.candidate.target_reference : "",
       },
     };
     showReview();
@@ -680,10 +693,18 @@ export function createImportUI(host) {
       );
       if (valid(stamp)) {
         acceptBatches(result.batches);
-        host.toast(action === "ignore" ? "已忽略" : "已恢复待核对");
+        host.toast(action === "ignore" ? "已忽略" : "已恢复待核对", action === 'ignore' ? async () => {
+          const restored = await resolveSmall(itemById(item.id), 'reopen');
+          if (!restored) throw new Error('无法恢复待核对，请稍后重试');
+        } : undefined);
+        return true;
       }
     } catch (e) {
-      if (valid(stamp)) error = describeImportError(e);
+      if (valid(stamp)) {
+        error = describeImportError(e);
+        if (host.isImportVisible?.() === false) host.reportReviewError?.(e);
+      }
+      return false;
     } finally {
       if (valid(stamp)) {
         busy = false;
@@ -793,6 +814,7 @@ export function createImportUI(host) {
     }
     const action = d.importAction;
     if (!action) return false;
+    if (action === 'refresh-task-reviews') { await loadTaskReviews(); return true; }
     if (action === "close") {
       if (!busy) {
         modal = null;
@@ -1052,5 +1074,8 @@ export function createImportUI(host) {
     notice = "";
     return true;
   }
-  return { render, click, submit, input, reset, load, setVisible, setSource, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
+  return { render, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
+    reviewEvidence: id => evidence(itemById(id)),
+    getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: blocked,
+    setVisible, setSource, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
 }

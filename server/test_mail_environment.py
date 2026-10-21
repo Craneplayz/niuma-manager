@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -14,6 +15,28 @@ import manage_environment as manager
 
 
 class MailEnvironmentTests(unittest.TestCase):
+    def test_idna_dependency_reaches_tests_and_the_api_image(self):
+        server = Path(__file__).resolve().parent
+        requirements = (server / 'requirements.txt').read_text()
+        self.assertIn('idna>=3.10,<4', requirements.splitlines())
+        self.assertIn('-r requirements.txt', (server / 'requirements-test.txt').read_text().splitlines())
+        api_stage = (server / 'deploy/Dockerfile').read_text().split(' AS api\n', 1)[1].split('FROM caddy:', 1)[0]
+        self.assertIn('COPY server/requirements.txt server/', api_stage)
+        self.assertIn('uv pip install --system --no-cache -r server/requirements.txt', api_stage)
+
+    def test_host_mail_imports_work_without_inherited_pythonpath(self):
+        server = Path(__file__).resolve().parent
+        script = '''import sys
+sys.path.insert(0, sys.argv[1])
+import idna, email_verification, mail_delivery
+assert email_verification.normalize_email('Student@faß.test') == 'student@xn--fa-hia.test'
+assert email_verification.normalize_email('Student@ος.test') == 'student@xn--0xag.test'
+assert not mail_delivery.configured({})
+'''
+        process = subprocess.run([sys.executable, '-I', '-c', script, str(server)],
+                                 env={}, capture_output=True, text=True, timeout=15)
+        self.assertEqual(process.returncode, 0, process.stderr)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

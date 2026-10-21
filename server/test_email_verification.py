@@ -24,6 +24,19 @@ def check_response(name, value):
                           '$ref': '#/$defs/' + name}).validate(value)
 
 
+class EmailNormalizationTests(unittest.TestCase):
+    def test_uts46_nontransitional_domains_and_case(self):
+        pairs = (*LEGACY_EMAIL_DOMAINS, ('οσ.test', 'xn--0xai.test'),
+                 ('例子.中国', 'xn--fsqu00a.xn--fiqs8s'), ('FAẞ.TEST', 'xn--fa-hia.test'),
+                 ('ΟΣ.TEST', 'xn--0xai.test'), ('fass.test', 'fass.test'))
+        for domain, canonical in pairs:
+            with self.subTest(domain=domain):
+                self.assertEqual(verification.normalize_email(' Student@' + domain + ' '), 'student@' + canonical)
+                self.assertEqual(verification.normalize_email('STUDENT@' + canonical.upper()), 'student@' + canonical)
+        self.assertNotEqual(verification.normalize_email('a@faß.test'), verification.normalize_email('a@fass.test'))
+        self.assertNotEqual(verification.normalize_email('a@ος.test'), verification.normalize_email('a@οσ.test'))
+
+
 class EmailVerificationTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -219,7 +232,9 @@ class EmailVerificationTests(unittest.TestCase):
             before = '\n'.join(db.iterdump())
             self.assertEqual(verification.account_for_email(db, canonical)['id'], uid)
             self.assertIsNone(verification.account_for_email(db, 'missing@example.test'))
-            self.assertIsNone(verification.account_for_email(db, 'user@xn--a.test'))
+            with self.assertRaises(verification.VerificationError) as invalid:
+                verification.account_for_email(db, 'user@xn--a.test')
+            self.assertEqual(invalid.exception.code, 'email_invalid')
             self.assertEqual('\n'.join(db.iterdump()), before)
         # Already conflicting historical identities are never rewritten or merged.
         canonical_uid = self.legacy(canonical, self.new_client())
@@ -381,6 +396,76 @@ class EmailVerificationTests(unittest.TestCase):
         status, account, _ = self.call('/auth/login', dict(email=email, password='Synthetic-2026!'), self.new_client())
         self.assertEqual(status, 200, account)
         self.assertTrue(account['user']['emailVerified'])
+
+    def test_unicode_and_alabel_registration_and_login_in_both_directions(self):
+        for domain, canonical in (('faß.test', 'xn--fa-hia.test'), ('ος.test', 'xn--0xag.test')):
+            for reverse in (False, True):
+                local = f'student-{int(reverse)}'
+                unicode_email, ascii_email = local + '@' + domain, local + '@' + canonical
+                requested, submitted = (ascii_email.upper(), unicode_email) if reverse else (unicode_email, ascii_email.upper())
+                with self.subTest(domain=domain, reverse=reverse):
+                    status, challenge, _ = self.call('/auth/email-code', dict(email=requested, purpose='register'))
+                    self.assertEqual(status, 200, challenge)
+                    self.assertEqual(self.mailbox[-1][0], ascii_email)
+                    code = self.mailbox[-1][1]
+                    status, account, _ = self.register(submitted, challenge['challengeId'], code)
+                    self.assertEqual(status, 200, account)
+                    self.assertEqual(account['user']['email'], ascii_email)
+                    self.assertTrue(account['user']['emailVerified'])
+                    for address in (unicode_email, ascii_email.upper()):
+                        status, result, _ = self.call('/auth/login', dict(email=address, password='Synthetic-2026!'), self.new_client())
+                        self.assertEqual(status, 200, result)
+                        self.assertEqual(result['user']['id'], account['user']['id'])
+                        self.assertEqual(self.call('/auth/email-code', dict(email=address, purpose='register'))[0], 409)
+
+    def test_invalid_idna_never_sends_and_exact_legacy_login_remains_available(self):
+        domains = ('xn--a.test', 'xn--abc-.test', 'xn--ls8h.test', 'ab--cd.test',
+                   'under_score.test', 'a\u200db.test', '☃.test')
+        for index, domain in enumerate(domains):
+            email = f'old-{index}@{domain}'
+            with self.subTest(domain=domain):
+                uid = self.legacy(email)
+                with app.connection() as db:
+                    before = '\n'.join(db.iterdump())
+                for purpose in ('register', 'verify_email', 'reset_password'):
+                    status, result, _ = self.call('/auth/email-code', dict(email=email, purpose=purpose))
+                    self.assertEqual(status, 400, result)
+                    self.assertEqual(result['code'], 'email_invalid')
+                self.assertEqual(self.call('/auth/reset-password', dict(email=email, newPassword='Changed-2026!'))[0], 400)
+                self.assertEqual(self.register(email)[0], 400)
+                self.assertEqual(self.call('/auth/me')[1]['user']['id'], uid)
+                with app.connection() as db:
+                    self.assertEqual('\n'.join(db.iterdump()), before)
+                status, result, _ = self.call('/auth/login', dict(email=email, password='Legacy-2026!'), self.new_client())
+                self.assertEqual(status, 200, result)
+                self.assertEqual(result['user']['id'], uid)
+                with patch.dict(app.os.environ, NIUMA_ADMIN_USER_IDS=uid):
+                    self.assertEqual(self.call('/admin/auth/login', dict(email=email, password='Legacy-2026!'), self.new_client())[0], 200)
+        self.assertEqual(self.mailbox, [])
+
+    def test_upgrade_old_registration_code_is_bound_to_its_actual_ascii_recipient(self):
+        email, delivered = 'register@faß.test', 'register@fass.test'
+        normalize = verification.normalize_email
+        with patch.object(verification, 'normalize_email', side_effect=lambda value: normalize(value.replace('faß.test', 'fass.test'))):
+            status, challenge, _ = self.call('/auth/email-code', dict(email=email, purpose='register'))
+        self.assertEqual(status, 200, challenge)
+        self.assertEqual(self.mailbox[-1][0], delivered)
+        code = self.mailbox[-1][1]
+        with app.connection() as db:
+            db.execute('DROP TABLE email_identity_migrations')
+        app.initialize(recover=False)
+        for address in (email, 'register@xn--fa-hia.test'):
+            self.assertEqual(self.register(address, challenge['challengeId'], code)[0], 400)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM users').fetchone()[0], 0)
+        # The old handle has no original input provenance; its actual recipient
+        # may still prove possession of that ASCII mailbox, never the Unicode one.
+        status, account, _ = self.register(delivered, challenge['challengeId'], code)
+        self.assertEqual(status, 200, account)
+        self.assertEqual(account['user']['email'], delivered)
+        app.initialize(recover=False)
+        self.assertEqual(self.call('/auth/me')[1]['user'], account['user'])
+        self.assertEqual(self.call('/auth/login', dict(email=email, password='Synthetic-2026!'), self.new_client())[0], 401)
 
 
 if __name__ == '__main__':

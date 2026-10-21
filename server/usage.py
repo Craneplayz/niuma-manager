@@ -134,9 +134,9 @@ def route(handler, db, uid, path, body, error):
             raise error(400,'反馈格式不正确')
         if kind=='rating' and (type(score)!=int or not 1<=score<=5): raise error(400,'请选择1至5分')
         if kind=='feedback' and (not message.strip() or score is not None): raise error(400,'请填写反馈')
-        if kind=='rating' and db.execute('SELECT 1 FROM usage_feedback WHERE actor=? AND kind="rating"',(actor(uid),)).fetchone():
-            return handler.reply(200,dict(saved=True)) or True
-        db.execute('INSERT OR IGNORE INTO usage_feedback VALUES(?,?,?,?,?,?)',
+        db.execute('''INSERT INTO usage_feedback VALUES(?,?,?,?,?,?)
+            ON CONFLICT(actor) WHERE kind='rating' DO UPDATE SET
+                score=excluded.score,created_at=excluded.created_at,message=excluded.message''',
             (secrets.token_hex(16),actor(uid),datetime.now(TZ).isoformat(),kind,score,message.strip()))
         return handler.reply(200,dict(saved=True)) or True
     if path.startswith('/api/admin/'):
