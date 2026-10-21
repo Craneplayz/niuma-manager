@@ -3,3 +3,4 @@ idna>=3.10,<4
 jsonschema>=4.23,<5
 rfc3339-validator>=0.1.4,<1
 tzdata>=2024.1
+Pillow>=12.3,<13

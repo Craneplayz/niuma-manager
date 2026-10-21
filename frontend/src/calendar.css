@@ -442,6 +442,75 @@ body.is-calendar-dragging * {
   font-weight: 550;
 }
 
+.review-label {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 6px;
+  border: 1px solid #ebd79e;
+  border-radius: 5px;
+  background: #fff8e6;
+  color: #8b691e;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.7;
+  letter-spacing: 0;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+.task-row .task-review-marker > span {
+  display: grid;
+  place-items: center;
+  color: #b28b37;
+}
+.task-review-marker .icon { width: 20px; height: 20px; }
+.task-review-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.task-row .task-review-ignore {
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+.task-row .task-review-ignore:hover { color: var(--ink); background: #edf0f2; }
+.task-row .task-deadline.is-unconfirmed { color: #8b691e; }
+.task-review-changes {
+  grid-column: 2 / -1;
+  margin-top: -3px;
+}
+.task-review-change { display: flex; align-items: center; gap: 10px; }
+.task-review-change > button:first-child {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8b691e;
+  font-size: 12px;
+}
+.task-review-change .review-label { vertical-align: baseline; }
+.task-review-load-error { margin-bottom: 16px; }
+@media (max-width: 700px) {
+  .task-row.is-pending-review .task-review-actions {
+    grid-column: 2;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: -4px;
+  }
+  .task-row.is-pending-review .task-review-actions .task-deadline {
+    padding: 0;
+    white-space: normal;
+  }
+  .task-row .task-review-ignore { min-width: 44px; }
+}
+
 .task-row.is-completed .task-title {
   color: var(--muted);
   text-decoration: line-through;

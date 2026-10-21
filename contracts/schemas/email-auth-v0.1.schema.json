@@ -114,7 +114,14 @@
           "type": "string", "minLength": 3, "maxLength": 254,
           "description": "New accounts use canonical IDNA addresses. Legacy account addresses are preserved."
         },
-        "emailVerified": {"type": "boolean"}
+        "emailVerified": {"type": "boolean"},
+        "avatar": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "maxLength": 524288, "pattern": "^data:image/png;base64,[A-Za-z0-9+/]+=*$"}
+          ],
+          "description": "Optional account-owned PNG avatar; null or omitted uses the display-name initial."
+        }
       },
       "additionalProperties": false
     },

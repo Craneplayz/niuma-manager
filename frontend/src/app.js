@@ -15,6 +15,7 @@ import {
   setStoredTaskDeadline,
 } from "./team-store.js";
 import { icon } from "./icons.js";
+import { avatarContent } from "./account-avatar.js";
 import { newId } from "./id.js";
 import {
   todayKey,
@@ -26,6 +27,7 @@ import {
   deadlineLabel,
 } from "./task-model.js";
 import { renderTaskList, renderDayPanel } from "./task-views.js";
+import { projectReviewTasks } from "./review-tasks.js";
 import { renderCalendar } from "./calendar.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
@@ -90,6 +92,7 @@ const host = {
   escapeHtml: esc,
   icon,
   toast,
+  reportReviewError: error => toastError(error, 'import_review'),
   render,
   renderPageHeading: workspaceHeading,
   revealImportResult(id) {
@@ -140,6 +143,7 @@ const host = {
     resetAccountUI();
     render();
     if (ui.page === "import") void imports.load();
+    else void imports.loadTaskReviews();
   },
 };
 const imports = createImportUI(host),
@@ -241,32 +245,38 @@ function openDialog(html) {
 function closeDialog() {
   dialog.close();
 }
+dialog.addEventListener("close", () => {
+  if (!dialog.open) account.closed?.();
+});
 async function refresh() {
   if (demo) return;
   state = await refreshStore();
   render();
 }
-const filtered = () => filterTasks(state.tasks, { ...ui, today });
+const listItems = () => projectReviewTasks(state.tasks, imports.getReviewItems(), today);
+const editableTask = id => state.tasks.find(task => task.id === id)
+  || listItems().find(task => task.id === id && task.reviewCandidateId && !task.reviewChange);
+const filtered = () => filterTasks(listItems(), { ...ui, today });
 const taskView = () => (ui.scope === "all" ? ui.view : "list");
 const calendarItems = () => filterTasks(state.tasks, { scope: "calendar", today });
 const headingCount = () => taskView() === "calendar"
   ? filterTasks(state.tasks, { scope: "all", today }).length
   : filtered().length;
 const courses = () =>
-  [...new Set(state.tasks.map((t) => t.course).filter(Boolean))].sort((a, b) =>
+  [...new Set(listItems().map((t) => t.course).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "zh"),
   );
 const sources = () =>
-  [...new Set(state.tasks.map((t) => t.source || "手动添加"))].sort();
+  [...new Set(listItems().map((t) => t.source || "手动添加"))].sort();
 function sidebar() {
   const mobile = matchMedia("(max-width: 700px)").matches;
   const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
   const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
   const counts = {
-    all: filterTasks(state.tasks, { scope: "all", today }).length,
-    near: filterTasks(state.tasks, { scope: "near", today }).length,
+    all: filterTasks(listItems(), { scope: "all", today }).length,
+    near: filterTasks(listItems(), { scope: "near", today }).length,
     done: filterTasks(state.tasks, { scope: "done", today }).length,
-    notices: filterTasks(state.tasks, { scope: "notices", today }).length,
+    notices: filterTasks(listItems(), { scope: "notices", today }).length,
   };
   return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
@@ -280,7 +290,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${esc((session.user?.name || "我").slice(0, 1))}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small>${!demo && session.user && !session.user.emailVerified ? '<small class="account-verification-hint">邮箱待验证</small>' : ""}</span>${icon("chevron")}</button></div></aside>`;
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${avatarContent(session.user, esc)}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small>${!demo && session.user && !session.user.emailVerified ? '<small class="account-verification-hint">邮箱待验证</small>' : ""}</span>${icon("chevron")}</button></div></aside>`;
 }
 function hideSidebarTooltip() {
   clearTimeout(sidebarTooltipTimer);
@@ -366,7 +376,7 @@ function calendarTools() {
 }
 function taskResults() {
   if (taskView() === "list")
-    return renderTaskList(filtered(), { escapeHtml: esc, icon, today, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" });
+    return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
   return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today })}</div>`;
 }
@@ -527,7 +537,7 @@ function openTask(id, editing = false) {
   if (!drawer.open) drawer.showModal();
 }
 function updateDrawer() {
-  const task = state.tasks.find((t) => t.id === drawerId) || {
+  const task = editableTask(drawerId) || {
     title: "",
     due: "",
     dueTime: "",
@@ -545,7 +555,8 @@ function updateDrawer() {
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
   if (!drawerEditing && task.id) {
     const evidence = drawer.querySelector("#task-evidence");
-    if (demo)
+    if (task.reviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId);
+    else if (demo)
       evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
     else void loadTaskEvidence(task.id, evidence, api);
   }
@@ -627,8 +638,29 @@ async function dropTaskOnDate(id, date) {
 async function toggleTask(id) {
   if (taskBusy || !requireAccount()) return;
   const epoch = accountVersion(),
-    task = state.tasks.find((t) => t.id === id);
+    task = editableTask(id);
   if (!task) return;
+  if (task.reviewCandidateId) {
+    taskBusy = true;
+    drawerError = null;
+    render();
+    if (drawer.open) updateDrawer();
+    try {
+      const saved = await imports.confirmTask(task.reviewCandidateId, task, true);
+      if (epoch !== accountVersion()) return;
+      if (drawerId === id && saved) drawerId = saved.id;
+      toast(isNotice(task) ? '通知已标记为已阅读' : '任务已完成', saved ? () => toggleTask(saved.id) : undefined);
+    } catch (error) {
+      if (epoch !== accountVersion()) return;
+      drawerError = { error, action: 'tasks_save' };
+      toastError(error, 'tasks_save');
+    } finally {
+      taskBusy = false;
+      render();
+      if (drawer.open) updateDrawer();
+    }
+    return;
+  }
   drawerError = null;
   const notice = isNotice(task);
   const readFocus = notice ? focusToken(document.activeElement) : null;
@@ -924,6 +956,8 @@ document.addEventListener("click", async (e) => {
       return;
     }
     await imports.click(button);
+    if (button.dataset.importIgnore && drawer.open && drawerId === `review:${button.dataset.importIgnore}` &&
+        !imports.getReviewItems().some(item => item.id === button.dataset.importIgnore)) closeDrawer();
   } catch (error) {
     toastError(error, button.dataset.restoreTask ? "tasks_restore" : "general");
   }
@@ -940,6 +974,7 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("change", (e) => {
   imports.cancelRecoveryNavigation();
+  if (account.change?.(e)) return;
   if (e.target.dataset.noticeRead) {
     void toggleTask(e.target.dataset.noticeRead);
     return;
@@ -979,7 +1014,7 @@ document.addEventListener("submit", async (e) => {
       error.textContent = "请先填写截止日期";
       return;
     }
-    const existing = state.tasks.find((t) => t.id === form.dataset.id);
+    const existing = editableTask(form.dataset.id);
     if (form.dataset.id) {
       try {
         assertCurrentTaskEdit(existing, form.dataset.taskEditSnapshot);
@@ -989,6 +1024,37 @@ document.addEventListener("submit", async (e) => {
       }
     }
     const epoch = accountVersion();
+    if (existing?.reviewCandidateId) {
+      const edited = { ...existing, ...values, title: values.title.trim(), course: values.course.trim() };
+      if (taskEditSnapshot(edited) === taskEditSnapshot(existing)) {
+        drawerEditing = false;
+        updateDrawer();
+        toast('没有修改，仍保留待核对状态');
+        return;
+      }
+      taskBusy = true;
+      form.querySelectorAll('button,input,textarea,select').forEach(field => { field.disabled = true; });
+      render();
+      try {
+        const saved = await imports.confirmTask(existing.reviewCandidateId, edited, false, Number(form.dataset.reviewVersion));
+        if (epoch !== accountVersion()) return;
+        if (form.isConnected && drawer.open) closeDrawer();
+        toast(isNotice(edited) ? '通知已保存' : '任务已保存');
+        if (saved) restoreFocus({ key: 'taskOpen', value: saved.id });
+      } catch (cause) {
+        if (epoch === accountVersion()) {
+          if (form.isConnected) error.innerHTML = userErrorMarkup(cause, 'tasks_save');
+          else toastError(cause, 'tasks_save');
+        }
+      } finally {
+        taskBusy = false;
+        if (form.isConnected) form.querySelectorAll('button,input,textarea,select').forEach(field => {
+          if (!field.dataset.errorFeedback) field.disabled = false;
+        });
+        render();
+      }
+      return;
+    }
     taskBusy = true;
     form.querySelectorAll("button,input,textarea,select").forEach((field) => {
       field.disabled = true;
@@ -1167,6 +1233,7 @@ async function initialize() {
       loading = false;
       render();
       if (ui.page === "import") void imports.load();
+      else void imports.loadTaskReviews();
     }
   }
 }

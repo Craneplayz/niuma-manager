@@ -21,6 +21,7 @@
 | `user-errors.js` | 用户错误分类、统一反馈控件、确认回执及同一问题重试 |
 | `error-reports-view.js` | 管理员错误报告展示，不加载到普通页面 |
 | `usage-feedback.js` | 账号中的主动反馈、按账号与北京时间日期去重的访问及非阻塞评分 |
+| `review-tasks.js` / `candidate-data.js` | 待核对清单投影、日期显示与变更关联；用户完成或编辑通过候选接口原子确认 |
 | `admin-usage.js` / `admin-usage.css` | 管理员独立入口的统计、日期筛选、反馈与手机布局 |
 | `team-store.js` | 同源 API、任务与回收站状态、账号请求隔离、保存队列与冲突处理 |
 | `demo.js` | 不持久化、不提交识别的合成任务预览 |
@@ -122,7 +123,7 @@ npm run build
 - `materials.test.js`：文件回执、稳定重试、结果刷新与重试耗尽。
 - `source-sync.test.js`：后台运行、失败重试、刷新恢复、幂等和账号隔离，以及分类切换、真实结果身份、名称与计数校验、有效结果过滤、更新回执、无变化检查与单次提示。
 - `team-store.test.js`：任务保存、通知阅读与取消阅读的持久化、接口要求的字段透传、账号隔离、冲突重试、刷新与保存交错、迟到版本保护及删除恢复；月历日期赋值与撤销、失败不重放、过期日期检查和版本冲突。
-- `usage-feedback.test.js`：主动反馈入口、每日访问去重、跨北京时间日期、只读会话恢复、键盘使用和失败重试，以及后台入口隔离。
+- `usage-feedback.test.js`：主动反馈入口、每日访问去重、跨北京时间日期、只读会话恢复、键盘使用和失败重试，以及后台入口隔离；`tests/browser/usage-rating.spec.js` 验证同排配色、可修改评分、快速选择顺序、反馈草稿与重试、动画及 1.5 秒内自动收起。
 - `task-evidence.test.js`：来源 URL 校验、原文和证据摘录。
 - `environment-badge.test.js`：服务环境、版本差异及本地构建标识。
 
@@ -133,3 +134,7 @@ npm run build
 ## 文档规则
 
 `README.md` 提供目录、启动和验证入口，`design.md` 描述当前产品规格，`CONTRIBUTIONS.md` 保留历史贡献和设计参考。历史资料位于 `docs/archive/`，不能据此宣称当前仍有相应入口。文档不记录临时阶段进度；功能变化应直接更新当前规格和对应验证要求。
+
+`tests/review-tasks.test.js` 与 `tests/browser/review-task-list.spec.js` 验证待核对混排、搜索筛选、忽略撤销、普通完成与编辑确认、失败保留和重新打开；服务端 `test_review_task_actions.py` 验证原子完成、幂等、版本冲突、账号隔离及事务回滚。
+
+`account-avatar.js` 只接受本地 JPG/PNG/WebP，限制 5 MB、最长边 8192px 与 2000 万像素；裁切为 256×256 PNG 后交给 [头像接口](../../contracts/docs/account-avatar.md)。账号与侧栏只展示服务端返回的 PNG data URL，不读取外部头像地址；文件解码校验账号版本、选择序号和原表单是否仍打开。保存串行发送，每次成功响应更新对应已保存头像，关闭后的成功响应只更新同一账号的头像，不能关闭新表单或覆盖其他资料；账号切换丢弃旧响应。`tests/browser/account-avatar.spec.js` 覆盖桌面、390px、320px 下的悬停/键盘/触屏入口、裁切保存与刷新、取消/恢复默认、失败重试和关闭期间迟到响应。

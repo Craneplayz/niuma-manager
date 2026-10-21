@@ -26,6 +26,7 @@ import reprocessing
 import runtime_environment
 import usage
 import error_reports
+import account_avatar
 import email_verification
 import ipaddress
 from server import model_queue
@@ -55,6 +56,7 @@ def password_hash(password, salt):
 
 def initialize_accounts(db):
     """Account schema only; safe for tools that must not recover or prune jobs."""
+    account_avatar.initialize(db)
     db.executescript('''
     CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires REAL NOT NULL);
@@ -121,7 +123,7 @@ def session_cookie(token, max_age, admin=False):
     return name+'='+token+'; HttpOnly; SameSite=Strict; Path='+('/api/admin' if admin else '/api')+'; Max-Age='+str(max_age)+secure
 
 def public_user(db, row):
-    return dict(id=row['id'], name=row['name'], email=row['email'],
+    return dict(id=row['id'], name=row['name'], email=row['email'], avatar=account_avatar.read(db, row['id']),
                 emailVerified=email_verification.verified(db, row['id']))
 
 class Handler(BaseHTTPRequestHandler):
@@ -353,6 +355,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
                 db.execute('UPDATE users SET name=? WHERE id=?',(name,uid))
                 return self.reply(200,dict(user=dict(user,name=name)))
+            if path=='/api/auth/avatar' and self.command=='POST':
+                avatar=account_avatar.save(db,uid,body,ApiError)
+                return self.reply(200,dict(user=dict(user,avatar=avatar)))
             if path=='/api/auth/password' and self.command=='POST':
                 current=str(body.get('currentPassword',''))
                 new=str(body.get('newPassword',''))

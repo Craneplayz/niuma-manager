@@ -117,6 +117,10 @@ class EmailAuthContractTests(unittest.TestCase):
         self.assertFalse(validator('publicUser').is_valid(missing))
         for key in ('salt', 'hash', 'password', 'token'):
             self.assertFalse(validator('publicUser').is_valid(dict(original, **{key: 'synthetic-private-value'})))
+        for avatar in (None, 'data:image/png;base64,aGVsbG8='):
+            self.assertTrue(validator('publicUser').is_valid(dict(original, avatar=avatar)))
+        for avatar in (True, 1, {}, 'https://example.test/avatar.png', 'data:image/svg+xml;base64,aGVsbG8='):
+            self.assertFalse(validator('publicUser').is_valid(dict(original, avatar=avatar)))
         legacy = EXAMPLES['userResponse'][0]
         validator('userResponse').validate(legacy)
         self.assertFalse(validator('verifiedUserResponse').is_valid(legacy))
