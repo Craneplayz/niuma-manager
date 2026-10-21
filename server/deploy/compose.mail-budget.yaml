@@ -1,0 +1,9 @@
+# Explicit opt-in, shared operational counters only; no account/workspace data.
+services:
+  api:
+    volumes:
+      - mail-budget:/mail-budget
+volumes:
+  mail-budget:
+    name: niuma-mail-budget
+    external: true

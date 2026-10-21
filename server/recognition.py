@@ -86,11 +86,13 @@ def recognize(request, ApiError):
 def initialize(db):
     usage.initialize(db)
     db.executescript('''
-    CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
+    CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, attempt_id TEXT, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
     CREATE TABLE IF NOT EXISTS recognition_import_records(user_id TEXT NOT NULL,request_id TEXT NOT NULL,import_id TEXT NOT NULL,created_at TEXT NOT NULL,source TEXT NOT NULL,archived INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
+    if not db.execute("SELECT 1 FROM pragma_table_info('recognition_batches') WHERE name='attempt_id'").fetchone():
+        db.execute('ALTER TABLE recognition_batches ADD COLUMN attempt_id TEXT')
 
 def was_automatically_withdrawn(candidate):
     """Only the first system withdrawal is replaceable, never a user decision."""
@@ -129,6 +131,7 @@ def batches(db,uid):
         if request.get('contract_version')=='0.4':
             import teaching
             output = teaching.submission.project_result(db,uid,row['request_id'],teaching.result_view(request,output))
+            output['errors'] = [teaching.diagnostics.bind(db,uid,row['request_id'],e,attempt_id=row['attempt_id']) for e in output['errors']]
             cards = {c['candidate_id']: c for c in output['tasks']}
             # History-filtered pending proposals leave the active review view;
             # saved model runs and already applied/ignored user decisions remain.
@@ -183,6 +186,12 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
 
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
+    if path=='/api/recognition/diagnostics' and handler.command=='POST':
+        from server import recognition_diagnostics as diagnostics
+        if diagnostics.environment()!='test': raise ApiError(404,'接口不存在')
+        if set(body)!={'request_id'} or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
+            raise ApiError(400,'请提供本次导入的 request_id')
+        handler.reply(200,dict(attempts=diagnostics.attempts(db,uid,body['request_id'])));return True
     if path=='/api/recognition/task-evidence' and handler.command=='POST':
         workspace=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
         task=next((t for t in json.loads(workspace['value'] if workspace else '[]') if t.get('id')==body.get('task_id')),None)
@@ -286,7 +295,7 @@ def route(handler,db,uid,path,body,ApiError):
                         (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         else:
             db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,NULL)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
             for record in request['records']:
                 db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
@@ -308,6 +317,8 @@ def resolve_candidate(db, uid, cid, body, ApiError):
     if not row: raise ApiError(404,'候选不存在')
     canonical=json.dumps(body,sort_keys=True)
     action=body.get('action')
+    if 'complete' in body and (type(body['complete']) is not bool or action!='create' or body.get('auto_apply') is True or body.get('reviewed') is not True):
+        raise ApiError(400,'完成操作需要用户主动确认新增任务')
     if action=='reopen':
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
         if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
@@ -330,6 +341,7 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             import teaching
             teaching.submission.guard_auto_apply(db,uid,row['request_id'],ApiError)
             teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
+            teaching.teaching_identity.protect_source_changes(db,uid,row['request_id'],[c])
         if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
             raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
     if action!='ignore':
@@ -379,6 +391,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             if action=='create' or (action=='update' and c['prerequisites']):
                 target['sourceRequirements']=c['prerequisites']
         else: target['status']='cancelled'
+        if body.get('complete') is True:
+            target['status']='completed'
+            target['completedAt']=datetime.now(usage.TZ).date().isoformat()
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)

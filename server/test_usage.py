@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 import app
+from auth_test_support import registration_payload
 import usage
 
 class UsageTests(unittest.TestCase):
@@ -24,6 +25,8 @@ class UsageTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join();app.DB=self.old;self.env.stop();self.temp.cleanup()
     def call(self,path,body=None,method=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request:self.call('/auth/email-code',request))
         try:r=self.client.open(Request(f'http://127.0.0.1:{self.server.server_port}/api'+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'},method=method))
         except HTTPError as e:r=e
         return r.status,json.load(r)
@@ -126,6 +129,19 @@ class UsageTests(unittest.TestCase):
         for _ in range(2):self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=4))[0],200)
         self.assertEqual(self.call('/usage/feedback',dict(kind='feedback',message='希望更简洁'))[0],200)
         with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM usage_feedback').fetchone()[0],2)
+    def test_rating_changes_keep_only_the_final_score_per_account(self):
+        for score in (1,5,3):
+            self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=score)),(200,dict(saved=True)))
+        with app.connection() as db:
+            rows=db.execute('SELECT score FROM usage_feedback WHERE actor=? AND kind="rating"',(usage.actor(self.uid),)).fetchall()
+            self.assertEqual([row['score'] for row in rows],[3])
+            result=usage.summary(db,'2000-01-01','2099-01-01')
+            self.assertEqual(result['rating'],dict(samples=1,average=3))
+        self.call('/auth/register',dict(name='Other',email='other-usage@example.test',password='Usage-Test-2026!'))
+        self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=2))[0],200)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT score FROM usage_feedback WHERE actor=? AND kind="rating"',(usage.actor(self.uid),)).fetchone()['score'],3)
+            self.assertEqual(usage.summary(db,'2000-01-01','2099-01-01')['rating'],dict(samples=2,average=2.5))
     def test_task_counts_only_committed_changes_and_no_content(self):
         task=dict(id='secret-task-id',title='PRIVATE-TITLE',description='PRIVATE-CONTENT',status='not_started',plans=[],subtasks=[],due=None)
         self.assertEqual(self.call('/data/tasks',dict(value=[task],version=0),'PUT')[0],200)

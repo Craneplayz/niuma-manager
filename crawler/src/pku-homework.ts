@@ -6,6 +6,8 @@ import { chromium, type Browser, type Page } from "playwright";
 import { DEFAULT_TIMEZONE, parseEventTime } from "./core/time.js";
 import { enrichAssignmentSources } from "./pku-assignment.js";
 import { authenticatedAttachmentReader, enrichSourceAttachments } from "./pku-attachments.js";
+import type { DownloadObserver } from "./producer-observation.js";
+import { CollectionFailure, collectionStage } from "./collection-failure.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const PKU_LOGIN_URL = `${PKU_ORIGIN}/webapps/bb-sso-BBLEARN/login.html`;
@@ -43,6 +45,7 @@ export interface HomeworkScrapeResult {
 }
 
 export interface ScrapeOptions {
+  downloadObserver?: DownloadObserver;
   secretPath?: string;
   term?: string | null;
   asOf?: DateTime;
@@ -107,19 +110,19 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
   if (options.targetSource) validateSourceTarget(options.targetSource.url, options.targetSource.itemId);
   const asOf = (options.asOf ?? DateTime.now()).setZone(DEFAULT_TIMEZONE);
   const term = options.term === undefined ? currentAcademicTerm(asOf) : options.term;
-  const credentials = await readCredentials(options.secretPath ?? process.env.PKU_SECRET_PATH ?? "secret");
-  const browser = await launchBrowser(options.executablePath ?? process.env.PLAYWRIGHT_EXECUTABLE_PATH);
-  const context = await browser.newContext({ locale: "zh-CN", timezoneId: DEFAULT_TIMEZONE });
-  const page = await context.newPage();
+  const credentials = await collectionStage("credentials", () => readCredentials(options.secretPath ?? process.env.PKU_SECRET_PATH ?? "secret"));
+  const browser = await collectionStage("browser", () => launchBrowser(options.executablePath ?? process.env.PLAYWRIGHT_EXECUTABLE_PATH));
 
   try {
-    await login(page, credentials.username, credentials.password);
+    const context = await collectionStage("browser", () => browser.newContext({ locale: "zh-CN", timezoneId: DEFAULT_TIMEZONE }));
+    const page = await collectionStage("browser", () => context.newPage());
+    await collectionStage("login", () => login(page, credentials.username, credentials.password));
     if (options.targetSource) {
       const target = options.targetSource;
       await navigateCoursePage(page, target.url);
       const selected = selectSourceTarget(await page.content(), target, asOf.toISO()!);
       const detailed = await enrichAssignmentSources(page, selected);
-      const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR);
+      const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
       return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
         asOf, term: null, coursesChecked: 1, sectionsChecked: 1, sourceRecords,
         scopeWarning: "Only the requested source item and its references were inspected.",
@@ -167,7 +170,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     }
 
     const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
-    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR);
+    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
     return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
       asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
       allSections: options.allSections ?? false, coverageWarnings,
@@ -297,12 +300,12 @@ export function extractHomeworkRecords(text: string, context: { course: string; 
 
 /** An error page or expired login must not masquerade as a successful empty course. */
 export async function navigateCoursePage(page: Pick<Page, "goto" | "url" | "locator">, url: string, timeout = 45_000): Promise<void> {
-  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout });
-  if (!response || !response.ok()) throw new Error(`course page request failed (HTTP ${response?.status() ?? "unknown"})`);
+  const response = await collectionStage("navigation", () => page.goto(url, { waitUntil: "domcontentloaded", timeout }));
+  if (!response || !response.ok()) throw new CollectionFailure("navigation", "http_error", `course page request failed (HTTP ${response?.status() ?? "unknown"})`);
   const destination = new URL(page.url());
   if (destination.origin !== PKU_ORIGIN || !/^\/webapps\/(?:portal|blackboard|announcement)\//i.test(destination.pathname)
     || await page.locator('input[type="password"]').count()) {
-    throw new Error("course page left the authenticated area; login may have expired");
+    throw new CollectionFailure("navigation", "session_expired", "course page left the authenticated area; login may have expired");
   }
 }
 

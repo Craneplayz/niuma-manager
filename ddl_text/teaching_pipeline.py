@@ -37,7 +37,7 @@ def _failure(entry,code,retryable=False,attempted=False,diagnostic=None,detail=N
     return row
 
 
-def process_teaching_request(request,*,client,settings,verified_snapshot_digests=(),budget_seconds=90):
+def process_teaching_request(request,*,client,settings,verified_snapshot_digests=(),budget_seconds=90,diagnostic_event=None):
     """Return v0.4 JSON for a bounded batch; JSON itself never grants source trust.
 
     The server computes verified_snapshot_digests only after resolving the exact
@@ -60,6 +60,7 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
     result=dict(contract_version='0.4',classification_mode=CLASSIFICATION_MODE,request_id=request['request_id'],
         policy_version=policy['version'] if policy else None,status='failed',record_results=[])
     expires=time.monotonic()+budget_seconds
+    emit = diagnostic_event or (lambda *args, **kwargs: None)
     def unchanged_policy():
         if policy is None:return
         try:
@@ -75,6 +76,8 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
             if remaining<=0:raise AgentError('agent_timeout',True)
             unchanged_policy()
             attempted=True
+            started=time.monotonic()
+            emit('task_recognition',timeout_seconds=min(settings.timeout_seconds,remaining))
             preview=process_teaching_draft(entry['record'],client=client,
                 settings=replace(settings,timeout_seconds=min(settings.timeout_seconds,remaining)),
                 source_verified=snapshot_digest(entry) in trusted)
@@ -89,9 +92,12 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
             validate_teaching_result(single,dict(result,record_results=[row],status=aggregate_status([row])),
                                      verified_snapshot_digests=single_trust)
         except AgentError as error:
+            emit('task_recognition_failed',code=error.code,diagnostic=error.diagnostic,schema=error.detail,
+                 seconds=time.monotonic()-started if attempted else 0)
             code=error.code if error.code in MESSAGES else 'agent_unavailable'
             row=_failure(entry,code,error.retryable is True,attempted=attempted,diagnostic=error.diagnostic,detail=error.detail)
-        except Exception:
+        except Exception as error:
+            emit('task_validation_failed',code='invalid_agent_output',exception_type=type(error).__name__)
             row=_failure(entry,'invalid_agent_output',attempted=attempted)
         # Reserve exact safe failure envelopes for all later records. A large
         # earlier result must not swallow normal later records or truncate proof.
@@ -100,5 +106,6 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
         proposal=dict(result,status='partial_success',record_results=result['record_results']+[row]+reserve)
         if len(canonical(proposal))>MAX_BYTES:row=_failure(entry,'limit_exceeded',attempted=attempted)
         result['record_results'].append(row)
+        emit('task_result',status=row['status'])
     result['status']=aggregate_status(result['record_results'])
     return validate_teaching_result(request,result,verified_snapshot_digests=trusted)

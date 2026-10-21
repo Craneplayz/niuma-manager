@@ -31,6 +31,7 @@ async function openApp(page, { holdCredentials = false } = {}) {
     } else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, revision: 0, interval_minutes: 60, sources: ["teaching_web"] };
     else if (path === "/api/version") value = { environment: "test", revision: "a7fe0a8", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
+    else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };
     else throw new Error("Unmocked API: " + path);
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
@@ -51,6 +52,7 @@ test("account management can update, remove and reconnect teaching credentials w
   await openAccount(page);
   const dialog = page.locator("#dialog");
   const entry = dialog.getByRole("region", { name: "教学网账号管理" });
+  await expect(dialog.getByRole("button", { name: "验证邮箱", exact: true })).toBeVisible();
   await expect(entry.getByText("教学网账号", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "修改密码", exact: true })).toBeVisible();
   await page.screenshot({ path: info.outputPath("account-teaching-entry.png"), fullPage: true });

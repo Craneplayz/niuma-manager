@@ -13,6 +13,9 @@ services:
     init: true
     env_file:
       - ${NIUMA_MODEL_ENV_FILE:-.env.model}
+      # Compose >= 2.24: old deployments may not have mail settings yet.
+      - path: ${NIUMA_MAIL_ENV_FILE:-.env.mail}
+        required: false
     environment:
       NIUMA_HOST: 127.0.0.1
       NIUMA_ENVIRONMENT: ${NIUMA_ENVIRONMENT:-production}
@@ -26,6 +29,8 @@ services:
       NIUMA_ENABLE_MANUAL_MATERIALS: '1'
       NIUMA_ALLOWED_ORIGINS: ${APP_ORIGIN:?Set the complete HTTP IP origin}
       NIUMA_COOKIE_SECURE: '0'
+      # Only Caddy can reach this loopback API; it replaces the client IP header.
+      NIUMA_TRUST_PROXY_CLIENT_IP: '1'
     ports:
       - ${HTTP_PORT:-1331}:1331
     volumes:

@@ -281,7 +281,7 @@ def process(path, uid, run_id, ApiError):
                     summary['preserved']=len(protected)
                     summary['unresolved']=len(cards) if hold else 0
                     fingerprint=hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-                    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result)))
+                    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result)))
                     for rid in (item['request']['request_id'],request['request_id']):
                         db.execute('INSERT OR IGNORE INTO reprocessing_request_sources VALUES(?,?,?,?,?)',
                             (uid,item.get('kind','text'),item['account'],record['input_id'],rid))
@@ -309,6 +309,8 @@ def process(path, uid, run_id, ApiError):
                                 item['request']['request_id'],request['request_id'])
                             db.execute('UPDATE teaching_sources SET request=?,request_id=? WHERE user_id=? AND account=? AND input_id=?',
                                 (json.dumps(captured),request['request_id'],uid,item['account'],record['input_id']))
+                            teaching.teaching_assets.remember_inputs(db,uid,item['account'],
+                                request['request_id'],attachments.get('files',[]))
                             # Superseded failures must not keep offering retry in the active inbox.
                             # Keep their request/result in storage; never hide handled decisions.
                             for rid in {item['request']['request_id'],*(c['request_id'] for c in replaceable)}:

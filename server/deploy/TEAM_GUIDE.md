@@ -16,7 +16,7 @@
 
 本机前后端显示同一个启动提交号，未提交修改会单独标明；这不是源码内容的实时指纹，修改后重新启动再核对。
 
-三个环境须分别注册账号、设置个人来源；生产账号不会自动出现在测试环境。不同测试账号的数据也彼此隔离，共享测试服务时各成员使用自己的账号。云端 test 的模型已由部署者配置，测试成员不需要各自填写 API key；本机 development 的模型由开发者配置。
+三个环境的账号和个人来源分别保存；生产账号不会自动出现在测试环境。development/test 可注册账号，或按下方步骤创建空白测试账号。不同测试账号的数据也彼此隔离，共享测试服务时各成员使用自己的账号。云端 test 的模型已由部署者配置，测试成员不需要各自填写 API key；本机 development 的模型由开发者配置。
 
 云端账号和任务仍保留；迁移后 Cookie 名称改变，生产用户重新登录即可。当前部署目录、镜像和备份位置以 [PR #150](https://github.com/Craneplayz/niuma-manager/pull/150) / [Issue #149](https://github.com/Craneplayz/niuma-manager/issues/149) 的交接记录为准。
 
@@ -49,6 +49,16 @@ npm --prefix frontend ci
 ```
 
 在编辑器打开 `server/deploy/environments/development/.env.model`，填写 provider、model、endpoint、API key；已有配置则沿用。环境入口**不读取根目录 `.env`**，也不把密钥放进前端。配置文件已被 Git 忽略，勿手动强制提交。
+
+新注册需要当前环境的 `.env.mail` 阿里云发信配置，见 [邮箱服务说明](EMAIL.md)。邮件配置未就绪时，可先创建自己的空白测试账号：
+
+```powershell
+.\.venv\Scripts\python.exe server/manage_environment.py test-account development
+```
+
+终端显示随机 `.test` 邮箱，密码隐藏输入并再次确认，随后从网页正常登录。需要自动生成密码时加 `--generate-password`，密码只输出一次，勿将输出分享至公开日志；不提供通用密码或网页登录捷径。账号无预置任务、反馈、偏好或管理权限，不发送邮件。相同邮箱再次创建会失败，原密码与数据保留；可正常登录复用，或换一个 `.test` 邮箱。固定邮箱、自动化密码输入与环境保护见 [空白测试账号操作](ENVIRONMENTS.md#空白测试账号)。
+
+测试账号的“邮箱已验证”状态仅供联调，不代表真实邮箱归属；注册、补验证和找回密码邮件仍需单独验收。当前未提供本地验证码收件箱。验证码注册和邮件内容导入是不同功能。
 
 ```powershell
 .\.venv\Scripts\python.exe server/manage_environment.py check development
@@ -83,12 +93,14 @@ Linux 缺少浏览器系统依赖时按 [爬虫说明](../../crawler/README.md) 
 ssh -i "YOUR_PRIVATE_KEY_PATH" -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -L 127.0.0.1:1531:127.0.0.1:1531 niuma-yourname@47.94.152.31
 ```
 
-3. 保持终端运行，浏览器打开 **`http://127.0.0.1:1531`**，注册自己的测试账号；使用 `127.0.0.1`，不要随意换成 `localhost` 或其他端口，否则可能与允许的 Origin 不符。
+3. 保持终端运行，浏览器打开 **`http://127.0.0.1:1531`**，注册自己的测试账号，或由部署者按下方方式创建账号后正常登录；使用 `127.0.0.1`，不要随意换成 `localhost` 或其他端口，否则可能与允许的 Origin 不符。
 4. 结束时 Ctrl+C 关闭隧道，服务器 test 仍在运行，测试数据保留。
 
 服务器 test 只监听回环地址，直接访问公网 IP 的 1531 端口不会打开测试站。若本机 1531 被本地 test 占用，先停止那个本地服务；日常 development 在 1431，可以与隧道同时使用。
 
 共享 test 是**单一候选版本**；更换版本前在对应 PR 说明提交号和验收内容，并协调正在测试的人。不要在生产页清数据或复现破坏性操作，也不要在共享 test 随意清除他人的账号。
+
+需要空白账号时，请当前测试部署者（服务器现由 Dranix123 部署）在实际部署工作目录执行 `python server/manage_environment.py test-account test --container --generate-password`，通过已授权的私密渠道交付该成员自己的凭据。命令只访问当前运行的 test API 容器及其数据卷；镜像须先包含本工具，更新主机源码不会更新旧容器。普通网页测试成员无需 Docker 权限；不要省略 `--container`，否则操作的是服务器检出目录的本地 test 数据库。production 禁止创建此类测试账号。
 
 使用合成、脱敏或明确授权的材料；测试环境默认关闭后台恢复，手动识别仍会真实调用模型并产生费用。环境分开不等于模型预算分开，使用同一课程 API key 仍共享额度；定时同步尚未实现。
 

@@ -9,6 +9,7 @@ from .config import Settings
 
 # Only fixed labels may cross the worker boundary, never provider/validator text.
 OUTPUT_DIAGNOSTICS = {
+    'attachment_schema': '附件转录的页数、页码或字段格式不符合约定，结果未采纳，请重试。',
     'output_truncated': '模型输出达到长度上限，尚未生成完整结果，请重试。',
     'provider_response': '模型服务返回的响应不完整或格式异常，请重试。',
     'draft_json': '模型没有返回有效的任务 JSON，请重试。',

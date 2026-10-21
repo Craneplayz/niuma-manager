@@ -1,8 +1,24 @@
 # 模块交接契约
 
+待核对任务通过普通完成和编辑操作确认的接口约定见 [待核对任务用户操作](docs/review-task-actions.md)，包含可选 `complete`、原子保存及重试规则。
+
+账号头像上传、恢复默认、用户返回字段及图片边界见 [账号头像](docs/account-avatar.md)。
+
 ```text
 contracts/
+├── schemas/producer-observation-v0.1.schema.json # 下载计时与模型实际用量的无正文事件
+├── examples/producer-observations-v01.json # 已知用量、未知用量及失败事件共享样例
+├── tests/test_producer_observations.py # 观测契约及敏感字段拒绝检查
+├── docs/producer-observation-v0.1.md # 可选生产方回调、CLI 及服务端接收边界
+├── collection_failure.py             # 采集失败阶段与固定原因码的受限契约及解析
+├── examples/collection-failures-v01.json # 凭据、浏览器、登录、页面与导出失败共享样例
+├── tests/test_collection_failure.py   # 旧生产方兼容、边界和敏感字段拒绝回归
 ├── README.md                         # 交接方向、样例用途及校验入口
+├── docs/account-avatar.md            # 当前账号头像、服务端持久化与图片校验约定
+├── docs/email-auth-v0.1.md            # 邮箱验证码注册、补验证、密码找回及会话字段约定
+├── schemas/email-auth-v0.1.schema.json # 邮箱验证/密码找回请求、验证码句柄及公开响应独立根
+├── examples/email-auth-v01.json      # 新旧账号、密码找回、IDNA邮箱、限流及投递错误样例
+├── tests/test_email_auth.py          # 邮箱接口共享正例、字段缺失和敏感响应字段反例
 ├── public_import.py                  # 公开活动采集、预览、选择导入的独立根及一致性校验
 ├── schemas/public-import-v0.1.schema.json # 公开活动自包含 Schema 包
 ├── examples/public-import-v01.json   # 生产方与前端共用的合成公开活动样例
