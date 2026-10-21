@@ -127,8 +127,9 @@ class DevAccountTests(unittest.TestCase):
         self.assertEqual(call('/auth/me')[0], 401)
         status, result = call('/auth/login', dict(email=user['email'], password=PASSWORD))
         self.assertEqual(status, 200, result)
-        self.assertEqual(result, {'user': user})
-        self.assertEqual(call('/auth/me'), (200, {'user': user}))
+        public_user = dict(user, avatar=None)
+        self.assertEqual(result, {'user': public_user})
+        self.assertEqual(call('/auth/me'), (200, {'user': public_user}))
         self.assertEqual(call('/workspace'), (200, {}))
         self.assertEqual(call('/admin/auth/login', dict(email=user['email'], password=PASSWORD))[0], 403)
 
