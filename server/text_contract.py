@@ -21,7 +21,7 @@ def strings(value):
 
 def instant(value):
     string(value,nonempty=True)
-    require(bool(re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)',value)))
+    require(bool(re.fullmatch(r'\d{4}-\d\d-\d\dT(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)',value)))
     return datetime.fromisoformat(value.replace('Z','+00:00'))
 
 def timezone(value):

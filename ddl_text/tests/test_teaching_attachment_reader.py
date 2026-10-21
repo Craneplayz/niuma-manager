@@ -10,12 +10,130 @@ from ddl_text.docx_reader import DOCX_MIME
 from ddl_text.teaching_attachment_reader import MAX_TEXT, read_attachment
 from ddl_text.tests.docx_cases import package, paragraph, drawing, relationship
 from ddl_text.tests.media_cases import image_bytes
-from ddl_text.tests.pdf_cases import pdf_bytes
+from ddl_text.tests.pdf_cases import visual_pdf_bytes as pdf_bytes, visibility_pdf_bytes
 
 TEXT = '请于2026年11月17日23:30前提交合成实验报告。'
 
 
 class AttachmentReaderTests(unittest.TestCase):
+    def test_hidden_optional_content_cannot_become_original_task_evidence(self):
+        from ddl_text.tests.pdf_cases import layered_pdf_bytes
+        out, client = self.read(layered_pdf_bytes(), 'application/pdf')
+        self.assertEqual(out['read_state'], 'complete')
+        self.assertNotIn('Hidden assignment', out['text'])
+        self.assertIn('模型转录：第 1 页', out['text'])
+        self.assertIn('原件文字：第 2 页', out['text'])
+        client.complete_json.assert_called_once()
+        self.assertEqual(len(client.complete_json.call_args.args[1]), 2)
+
+    def test_attachment_format_repair_is_bounded_and_preserves_coverage(self):
+        from ddl_text.teaching_attachment_reader import _transcribe_pages
+        parts = [dict(type='text',text='第 9 页（本批第 1 页）'), dict(type='image_url',image_url={})]
+        valid = json.dumps(dict(pages=[dict(index=1,text='Visible text',uncertain=True,note='Blurred corner')]))
+        invalid = ['not json', '[]', '{"pages":[]}', '{"pages":[],"pages":[]}',
+                   json.dumps(dict(pages=[dict(index=9,text='Text',uncertain=False)])),
+                   json.dumps(dict(pages=[dict(index=1,text='Text',uncertain='false')]))]
+        for broken in invalid:
+            with self.subTest(broken=broken):
+                client = Mock(); client.complete_json.side_effect = [broken,valid]
+                out = _transcribe_pages(client,parts,Settings(),time.monotonic()+60)
+                self.assertEqual(out,[dict(text='Visible text',uncertain=True,note='Blurred corner')])
+                self.assertEqual(client.complete_json.call_count,2)
+                first,second = client.complete_json.call_args_list
+                self.assertLessEqual(second.args[2].timeout_seconds,first.args[2].timeout_seconds)
+                self.assertEqual(first.args[1],second.args[1])
+        client = Mock(); client.complete_json.return_value = '{"pages":[]}'
+        with self.assertRaises(AgentError) as caught:
+            _transcribe_pages(client,parts,Settings(),time.monotonic()+60)
+        self.assertEqual(caught.exception.diagnostic,'attachment_schema')
+        self.assertEqual(client.complete_json.call_count,2)
+
+    def test_attachment_repair_does_not_restart_timeout_or_ignore_stop(self):
+        from ddl_text.teaching_attachment_reader import _transcribe_pages
+        parts = [dict(type='text',text='Image'),dict(type='image_url',image_url={})]
+        for error in (AgentError('agent_timeout',True), AgentError('agent_unavailable',True)):
+            client = Mock(); client.complete_json.side_effect = error
+            with self.assertRaises(AgentError):
+                _transcribe_pages(client,parts,Settings(),time.monotonic()+60)
+            client.complete_json.assert_called_once()
+        client = Mock(); client.complete_json.return_value = 'broken'
+        guard = Mock(side_effect=[None,RuntimeError('stopped')])
+        with self.assertRaisesRegex(RuntimeError,'stopped'):
+            _transcribe_pages(client,parts,Settings(),time.monotonic()+60,guard)
+        client.complete_json.assert_called_once()
+        client.reset_mock()
+        with patch('ddl_text.teaching_attachment_reader.time.monotonic',side_effect=[0,0,61]):
+            with self.assertRaises(AgentError):
+                _transcribe_pages(client,parts,Settings(),60)
+        client.complete_json.assert_called_once()
+
+    def test_mixed_pdf_reuses_text_pages_and_reads_only_graphical_page(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes as plain_pdf
+        out,client=self.read(plain_pdf(('Native first page',image_bytes(),'Native third page')),'application/pdf')
+        self.assertEqual(out['read_state'],'complete')
+        self.assertIn('原件文字：第 1 页',out['text']);self.assertIn('Native third page',out['text'])
+        self.assertIn('模型转录：第 2 页',out['text'])
+        self.assertEqual(client.complete_json.call_count,1)
+        parts=client.complete_json.call_args.args[1]
+        self.assertEqual(len(parts),2);self.assertTrue(parts[0]['text'].startswith('第 2 页'))
+
+    def test_long_text_only_pdf_uses_no_transcription_calls(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes as plain_pdf
+        out,client=self.read(plain_pdf(tuple('Native page '+str(i) for i in range(17))),'application/pdf')
+        self.assertEqual(out['read_state'],'complete');self.assertIn('Native page 16',out['text'])
+        client.complete_json.assert_not_called()
+
+    def test_hidden_text_does_not_add_visual_calls_to_mixed_pdf(self):
+        for kind in ('offpage', 'transparent', 'invisible'):
+            with self.subTest(kind=kind):
+                out, client = self.read(visibility_pdf_bytes(kind, mixed=True), 'application/pdf')
+                self.assertEqual(out['read_state'], 'complete')
+                self.assertIn('Visible information', out['text'])
+                self.assertNotIn('Hidden assignment', out['text'])
+                self.assertIn('原件文字：第 1 页', out['text'])
+                self.assertIn('原件文字：第 3 页', out['text'])
+                client.complete_json.assert_called_once()
+                parts = client.complete_json.call_args.args[1]
+                self.assertEqual(len(parts), 2)
+                self.assertTrue(parts[0]['text'].startswith('第 2 页'))
+
+    def test_ambiguous_visibility_adds_only_the_affected_visual_page(self):
+        for kind in ('translucent', 'clip', 'partial'):
+            with self.subTest(kind=kind):
+                out, client = self.read(visibility_pdf_bytes(kind, mixed=True), 'application/pdf')
+                self.assertEqual(out['read_state'], 'complete')
+                self.assertIn('模型转录：第 1 页', out['text'])
+                self.assertIn('原件文字：第 3 页', out['text'])
+                client.complete_json.assert_called_once()
+                parts = client.complete_json.call_args.args[1]
+                self.assertEqual(len(parts), 4)
+                self.assertTrue(parts[0]['text'].startswith('第 1 页'))
+                self.assertTrue(parts[2]['text'].startswith('第 2 页'))
+
+    def test_wholly_hidden_page_is_blank_without_transcription(self):
+        out, client = self.read(visibility_pdf_bytes('transparent', visible=False), 'application/pdf')
+        self.assertEqual(out['read_state'], 'failed')
+        self.assertIsNone(out['text'])
+        client.complete_json.assert_not_called()
+
+    def test_native_checkpoint_respects_page_cap_without_transcription(self):
+        from ddl_text.tests.pdf_cases import pdf_bytes as plain_pdf
+        data = plain_pdf(tuple('Native page '+str(i+1) for i in range(129)))
+        asset = dict(mime_type='application/pdf', sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data))
+        client = Mock(); checkpoints = []
+        checkpoint = read_attachment(data, asset, client, Settings(), expires=time.monotonic()+60,
+                                     save_checkpoint=checkpoints.append, single_pdf_batch=True)
+        self.assertEqual(len(checkpoint['pages']), 6)
+        self.assertTrue(all(page.get('method') == 'native' for page in checkpoint['pages']))
+        out = read_attachment(data, asset, client, Settings(), expires=time.monotonic()+60,
+                              checkpoint=checkpoint, save_checkpoint=checkpoints.append)
+        self.assertEqual(out['read_state'], 'partial')
+        self.assertIn('【原件文字：第 128 页】', out['text'])
+        self.assertNotIn('【原件文字：第 129 页】', out['text'])
+        self.assertIn('第 129 页至第 129 页未读取', out['text'])
+        self.assertEqual(len(checkpoints[-1]['pages']), 128)
+        client.complete_json.assert_not_called()
+
     def setUp(self):
         # Content tests isolate transport; real wall-clock transport is tested below.
         transport=patch('ddl_text.teaching_attachment_reader.transcribe',

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 
 const { scrape } = vi.hoisted(() => ({ scrape: vi.fn() }));
@@ -23,6 +24,59 @@ async function run(args: string[]) {
 }
 
 describe("campus source export CLI", () => {
+  it("exports observations only on opt-in stderr and leaves stdout unchanged", async () => {
+    const event = { contract_version: "producer-observation/0.1", stage: "attachment_download", duration_ms: 12, result_code: "ok" };
+    scrape.mockImplementation(async options => {
+      options.downloadObserver?.(event);
+      return { source_records: sources };
+    });
+    const { log, error } = await run(["--format=recognition", "--request-id=test:cli", "--observe-downloads"]);
+    expect(JSON.parse(error.mock.calls[0][0])).toEqual(event);
+    expect(JSON.parse(log.mock.calls[0][0]).records[0].source_label).toBe("教材");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("producer-observation");
+  });
+  it.each(["navigation", "export"])("retains the %s failure after emitting download observations", async stage => {
+    const { CollectionFailure: Failure } = await import("../src/collection-failure.js");
+    const event = { contract_version: "producer-observation/0.1", stage: "attachment_download", duration_ms: 12, result_code: "ok" };
+    scrape.mockImplementation(async options => {
+      options.downloadObserver(event);
+      if (stage === "navigation") throw new Failure("navigation", "timeout", "PRIVATE_URL_PASSWORD");
+      return { source_records: null };
+    });
+    const { log, error } = await run(["--format=teaching", "--observe-downloads"]);
+    const failure = { contract_version: "collection-failure/0.1", stage, code: stage === "navigation" ? "timeout" : "operation_failed" };
+    const lines = error.mock.calls.map(call => call[0]);
+    expect(lines.map(line => JSON.parse(line))).toEqual([event, failure]);
+    expect(log).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    expect(lines.join("\n")).not.toContain("PRIVATE");
+    // The backend must still consume the failure from the shared stderr stream.
+    const checked = spawnSync(process.env.CONTRACT_PYTHON ?? "python", ["-c",
+      "import json,sys; sys.path.insert(0,'..'); from contracts.collection_failure import parse_failure; print(json.dumps(parse_failure(sys.stdin.read())))"],
+    { input: lines.join("\n"), encoding: "utf8", timeout: 15_000, windowsHide: true });
+    expect(checked.status, checked.stderr).toBe(0);
+    expect(JSON.parse(checked.stdout)).toEqual(failure);
+  });
+  it("emits only a safe structured failure and never private exception text", async () => {
+    // Import after module resets so the thrown error has the CLI's class identity.
+    const { CollectionFailure: Failure } = await import("../src/collection-failure.js");
+    scrape.mockRejectedValue(new Failure("login", "operation_failed", "PRIVATE_URL_PASSWORD"));
+    const { log, error } = await run([]);
+    expect(log).not.toHaveBeenCalled();
+    expect(JSON.parse(error.mock.calls[0][0])).toEqual({contract_version:"collection-failure/0.1",stage:"login",code:"operation_failed"});
+    expect(JSON.stringify(error.mock.calls)).not.toContain("PRIVATE");
+    expect(process.exitCode).toBe(1);
+  });
+  it("keeps unknown exceptions generic and export failures distinct", async () => {
+    scrape.mockRejectedValue(new Error("PRIVATE_BODY_TOKEN"));
+    const first = await run([]);
+    expect(JSON.parse(first.error.mock.calls[0][0]).stage).toBe("collection");
+    expect(JSON.stringify(first.error.mock.calls)).not.toContain("PRIVATE");
+    vi.restoreAllMocks(); vi.resetModules();
+    scrape.mockResolvedValue({source_records:null});
+    const second = await run(["--format=teaching"]);
+    expect(JSON.parse(second.error.mock.calls[0][0]).stage).toBe("export");
+  });
   it("targeted diagnosis never enables a course/section scan", async () => {
     scrape.mockResolvedValue({ source_records: sources });
     const args = ['--source-page=https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1_1&method=search',

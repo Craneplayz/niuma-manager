@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 import app
+from auth_test_support import registration_payload
 import usage
 
 class UsageTests(unittest.TestCase):
@@ -24,6 +25,8 @@ class UsageTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join();app.DB=self.old;self.env.stop();self.temp.cleanup()
     def call(self,path,body=None,method=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request:self.call('/auth/email-code',request))
         try:r=self.client.open(Request(f'http://127.0.0.1:{self.server.server_port}/api'+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'},method=method))
         except HTTPError as e:r=e
         return r.status,json.load(r)

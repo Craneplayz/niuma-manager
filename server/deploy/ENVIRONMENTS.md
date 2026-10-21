@@ -12,6 +12,8 @@
 
 配置在 `server/deploy/environments/<环境>/config.json`，模型配置在同目录 `.env.model`，二者均不入 Git / 镜像；开发和测试不继承仓库根 `.env` 或终端遗留的模型、Compose 配置。
 
+邮箱验证码配置使用同目录独立 `.env.mail`，初始化只补充缺失模板，未配置不阻断已有账号登录；新注册和补验证需先完成 [阿里云发信配置](EMAIL.md)。本地与容器均只读取当前环境邮件配置，Compose 入口生成私有 `.env.mail.compose`；邮件凭据不得放入模型文件或前端变量。Compose 需 2.24 或更新版本。
+
 模型配置沿用本地识别器的字面量格式，不展开 `$变量`、反斜杠或行内注释；注释单独成行。容器入口自动生成同目录私有 `.env.model.compose` 和 `.env.compose`，不要手工编辑或提交它们。[Compose 变量展开规则](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)
 
 本地数据在 `server/data/<环境>/`，容器数据在独立卷的 `/data`，包括 SQLite、凭据加密密钥、附件及作业记录；不得跨环境共享或复制生产数据来初始化测试。
@@ -54,6 +56,33 @@ python server/manage_environment.py local test
 Windows 也可运行 `powershell -ExecutionPolicy Bypass -File server/start-local-test.ps1 -Environment test`；旧 `server/data/teaching-test.sqlite3` 保留原处，不会自动复制到新测试环境。
 
 需要单独调试进程时使用 `api <环境>` 与 `web <环境>` 两个命令；原 `npm run dev:api` 保留兼容旧本地安装，不能用它代替生产或隔离测试入口。
+
+### 空白测试账号
+
+development/test 可显式创建普通测试账号，无需等待阿里云配置。先初始化当前环境配置，再在同一工作树执行：
+
+```bash
+python server/manage_environment.py init development
+python server/manage_environment.py test-account development
+# 需要固定测试邮箱和昵称时：
+python server/manage_environment.py test-account development --email tester@niuma.test --name 测试账号
+```
+
+默认邮箱为随机的 `tester-<随机值>@niuma.test`，只接受保留 `.test` 域名；默认密码通过终端隐藏输入并再次确认。自动生成密码时加 `--generate-password`，安全随机密码仅输出一次；自动化可改用 `--password-stdin` 从标准输入提供密码，与自动生成互斥。不要把明文密码放入命令参数、环境变量、版本控制或公开日志。
+
+创建后用普通网页登录，不提供开发者登录按钮。账号的邮箱状态为已验证，但不发送邮件、不验证真实邮箱归属；工作区为空，不预装任务、反馈、个人偏好、角色或会话。重复邮箱会失败并保留原密码与数据，正常登录可复用账号；需要新账号时换一个 `.test` 邮箱。
+
+本机方式只访问当前工作树 `server/data/development/` 或 `server/data/test/`，统一入口清理继承的生产数据库、配置与环境变量。环境配置必须先初始化；production、未受管或环境标记不匹配的数据目录均被拒绝，不提供覆盖已有账号、重置密码或删除数据的选项。
+
+服务器 test 已运行时，由具备该环境容器操作权限的部署者在实际部署工作目录执行：
+
+```bash
+python server/manage_environment.py test-account test --container --generate-password
+```
+
+该命令进入**选定环境当前运行的 API 容器**，使用该容器的数据卷与环境身份，不另起容器，也不写服务器检出目录的本地数据库。当前 API 镜像必须已包含 `server/dev_accounts.py`；旧镜像需按既有测试发布流程构建、部署后再使用，单独更新主机源码不够。容器未运行、环境不匹配或选中 production 时拒绝操作。共享测试各成员使用独立账号，通过已授权的私密渠道领取凭据，不为此向普通测试成员开放 Docker 权限。
+
+账号工具不验证注册、补验证或密码找回的实际发信；这些流程仍按 [邮件部署验收](EMAIL.md) 使用真实阿里云配置检查。当前不包含本地验证码收件箱，剩余事项见 [#173](https://github.com/Craneplayz/niuma-manager/issues/173) / [#176](https://github.com/Craneplayz/niuma-manager/issues/176)。
 
 ## 3. 测试服务器与构建
 

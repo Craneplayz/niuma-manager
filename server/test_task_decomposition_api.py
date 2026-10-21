@@ -10,6 +10,7 @@ from unittest.mock import patch
 from jsonschema import Draft202012Validator
 
 import app
+from auth_test_support import registration_payload
 
 CONTRACTS = Path(__file__).resolve().parent.parent / 'contracts' / 'task-decomposition'
 EXAMPLES = json.loads((CONTRACTS / 'examples-v0.1.json').read_text(encoding='utf-8'))
@@ -63,8 +64,9 @@ class TaskDecompositionApiTests(unittest.TestCase):
         return response.status, json.loads(response.read())
 
     def register(self, client, email):
-        status, _ = self.call(client, '/auth/register',
-                              dict(name='拆解测试', email=email, password='Test-password-2026'))
+        account = registration_payload(dict(name='拆解测试', email=email, password='Test-password-2026'),
+                                       lambda body: self.call(client, '/auth/email-code', body))
+        status, _ = self.call(client, '/auth/register', account)
         self.assertEqual(status, 200)
 
     def save_task(self, client, task, version=0):
