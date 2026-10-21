@@ -137,5 +137,46 @@ assert recognition._ACTIVE is planning._ACTIVE is task_decomposition._ACTIVE is 
         self.assertEqual(queue.active,0)
         self.assertTrue(queue.acquire());queue.release()
 
+    def test_slow_cancellation_probe_does_not_block_release_or_snapshot(self):
+        queue=model_queue.ModelQueue(limit=1)
+        self.assertTrue(queue.acquire())
+        probing,finish=threading.Event(),threading.Event()
+        calls=0
+        def probe():
+            nonlocal calls
+            calls+=1
+            if calls==2:
+                probing.set()
+                self.assertTrue(finish.wait(3))
+            return False
+        def wait():
+            with model_queue.cancel_if(probe):return queue.acquire()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future=pool.submit(wait)
+            try:
+                self.assertTrue(probing.wait(2))
+                released=pool.submit(queue.release)
+                released.result(timeout=.5)
+                self.assertEqual(queue.snapshot()['running'],0)
+            finally:finish.set()
+            self.assertTrue(future.result(timeout=2))
+        queue.release()
+
+    def test_failure_reason_is_thread_local_and_long_occupancy_times_out_cleanly(self):
+        queue=model_queue.ModelQueue(limit=1,pending=1,wait=.05)
+        self.assertTrue(queue.acquire())
+        def wait():return queue.acquire(),queue.failure
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(wait)
+            self.queued(queue,1)
+            self.assertFalse(queue.acquire())
+            self.assertEqual(queue.failure,'queue_full')
+            self.assertEqual(future.result(timeout=2),(False,'queue_timeout'))
+        self.assertEqual(queue.failure,'queue_full')
+        queue.release()
+        self.assertTrue(queue.acquire())
+        self.assertIsNone(queue.failure)
+        queue.release()
+
 
 if __name__=='__main__':unittest.main()

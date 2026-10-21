@@ -65,6 +65,25 @@ class OperationsTests(unittest.TestCase):
         self.wait_for(lambda:any(r['request_id']==rid for r in self.events()))
         self.assertNotIn('PRIVATE-INJECTED',json.dumps(self.events()))
 
+    def test_producer_observations_validate_closed_schema_and_preserve_unknown_usage(self):
+        event=dict(contract_version='producer-observation/0.1',stage='model_call',duration_ms=12.5,
+                   result_code='ok',input_tokens=12,output_tokens=0,total_tokens=None)
+        with ops.scope(app.DB,request_id='1'*32,run_id='2'*32,operation='sync'):
+            self.assertTrue(ops.producer(event))
+            self.assertTrue(ops.producer(dict(event,input_tokens=None)))
+            for invalid in (dict(event,password='PRIVATE'),dict(event,input_tokens=True),dict(event,duration_ms=float('inf')),dict(event,total_tokens=-1)):
+                self.assertFalse(ops.producer(invalid))
+            ops.producer_stderr('PRIVATE-RAW-LOG\n'+json.dumps(dict(contract_version='producer-observation/0.1',stage='attachment_download',duration_ms=4,result_code='ok')))
+        with app.connection() as db:summary=ops.summary(app.DB,db,time.time()-60,time.time()+1)
+        self.assertEqual(summary['providerUsage']['observedCalls'],2)
+        self.assertEqual(summary['providerUsage']['input_tokens'],dict(value=12,known=1,unknown=1))
+        self.assertEqual(summary['providerUsage']['output_tokens'],dict(value=0,known=2,unknown=0))
+        self.assertEqual(summary['providerUsage']['total_tokens'],dict(value=None,known=0,unknown=2))
+        self.assertIn('attachment_download',[row['stage'] for row in summary['stages']])
+        with ops.connection(app.DB) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM producer_events').fetchone()[0],3)
+            self.assertNotIn('PRIVATE','\n'.join(db.iterdump()))
+
     def test_admin_only_separate_session_and_date_validation(self):
         self.assertEqual(self.call('/admin/operations')[0],401)
         with patch.dict(app.os.environ,NIUMA_ADMIN_USER_IDS=self.uid):
@@ -111,7 +130,7 @@ class OperationsTests(unittest.TestCase):
         with ops.scope(app.DB,operation='recognition'):
             with self.assertRaises(ValueError):
                 with ops.span('validation'):raise ValueError('PRIVATE-TASK-AND-KEY')
-        row=self.events()[-1]
+        row=next(r for r in self.events() if r['stage']=='validation' and r['operation']=='recognition')
         self.assertEqual(row['code'],'internal_error')
         self.assertNotIn('PRIVATE',json.dumps(self.events()))
 
@@ -152,6 +171,10 @@ class OperationsTests(unittest.TestCase):
             process.join(3);self.assertFalse(process.is_alive());self.assertEqual(process.exitcode,0)
             row=next(r for r in self.events() if r['stage']=='model_call')
             self.assertEqual(row['request_id'],'e'*32)
+            with ops.connection(app.DB) as db:
+                observed=db.execute('SELECT * FROM producer_events').fetchone()
+                self.assertEqual(observed['request_id'],'e'*32)
+                self.assertIsNone(observed['total_tokens'])
             self.assertNotIn('PRIVATE',json.dumps(self.events()))
         finally:
             if process.is_alive():process.terminate();process.join(2)
@@ -171,8 +194,25 @@ class OperationsTests(unittest.TestCase):
             self.assertFalse(done.is_set())
         finally:locked.__exit__(None,None,None)
         worker.join(3);self.assertFalse(worker.is_alive())
-        row=next(r for r in self.events() if r['stage']=='database_lock')
+        row=next(r for r in self.events() if r['stage']=='database_lock' and r['operation']=='workspace.put')
         self.assertGreaterEqual(row['duration_ms'],80)
+
+    def test_rolled_back_business_outcomes_are_not_counted(self):
+        with ops.scope(app.DB,operation='sync'):
+            with self.assertRaises(RuntimeError):
+                with app.connection() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    ops.after_commit(db,'outcome',code='no_tasks')
+                    raise RuntimeError('synthetic rollback')
+            with app.connection() as db:
+                db.execute('BEGIN IMMEDIATE')
+                ops.after_commit(db,'outcome',code='filtered',quantity=2)
+            with app.connection() as db:
+                db.execute('BEGIN IMMEDIATE')
+                ops.after_commit(db,'outcome',code='no_tasks')
+                db.rollback()
+        rows=[r for r in self.events() if r['stage']=='outcome']
+        self.assertEqual([(r['code'],r['quantity']) for r in rows],[('filtered',2)])
 
     def test_queue_snapshot_tracks_waiting_age_and_removes_cancelled_ticket(self):
         queue=model_queue.ModelQueue(limit=1,wait=.05)

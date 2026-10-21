@@ -9,6 +9,14 @@ test('operations defaults to the server 24-hour range and encodes explicit usage
  assert.equal(operationsUrl('2026-10-01'),'/api/admin/operations');
  assert.ok(!operationsUrl('x&extra=1','y').includes('&extra='));
 });
+test('provider usage separates partial known totals from unknown observations',()=>{
+ const html=renderOperations({providerUsage:{observedCalls:3,input_tokens:{value:25,known:2,unknown:1},output_tokens:{value:0,known:2,unknown:1},total_tokens:{value:null,known:0,unknown:3}}});
+ assert.match(html,/模型实际用量/);
+ assert.match(html,/<td>输入<\/td><td>25<\/td><td>2<\/td><td>1<\/td>/);
+ assert.match(html,/<td>输出<\/td><td>0<\/td>/);
+ assert.match(html,/<td>总计<\/td><td>—<\/td><td>0<\/td><td>3<\/td>/);
+ assert.match(html,/缺失值不算零/);
+});
 test('missing fields and unavailable historical resources render without invented zeros',()=>{
  for(const data of [undefined,null,{}, {requests:[null],resources:null}, {resources:{available:false,cpuPercent:0,memoryUsedBytes:0,restarts:0}}]){
   const html=renderOperations(data);

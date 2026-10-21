@@ -22,8 +22,9 @@ import usage
 CONCURRENCY = 4
 RUN_LIMIT = 4
 QUEUE_LIMIT = 20
+QUEUE_SECONDS = 180
 QUIET_RECEIPT_SECONDS = 24 * 60 * 60
-_slots = ModelQueue(limit=RUN_LIMIT, pending=QUEUE_LIMIT, name='sync_queue')
+_slots = ModelQueue(limit=RUN_LIMIT, pending=QUEUE_LIMIT, wait=QUEUE_SECONDS, name='sync_queue')
 _lock = threading.Lock()
 _workers = {}
 
@@ -96,6 +97,8 @@ def error(code, message, retryable=False):
 
 
 def collection_error(exc, ApiError):
+    if isinstance(exc, ApiError) and getattr(exc, 'code', None) in ('queue_timeout','queue_full','stopped','source_changed'):
+        return error(exc.code, exc.message, exc.code in ('queue_timeout','queue_full'))
     # Preserve the public category used by retry/recovery and add an optional
     # bounded cause so production failures remain diagnosable without raw logs.
     from contracts.collection_failure import parse_failure
@@ -496,7 +499,10 @@ def get(db, uid, run_id, ApiError):
 def guard(db, uid, run_id, ApiError):
     row = db.execute('SELECT credential,state FROM source_sync_runs WHERE user_id=? AND run_id=?', (uid, run_id)).fetchone()
     if not row or row['state'] not in contract.ACTIVE: raise ApiError(409, '本轮同步已停止或失效')
-    if credential(db, uid) != row['credential']: raise ApiError(409, '教学网凭据已变化，请重新同步')
+    if credential(db, uid) != row['credential']:
+        exc=ApiError(409, '教学网凭据已变化，请重新同步')
+        exc.code='source_changed'
+        raise exc
 
 
 def operation_signature(parent, selection, recover=False):
@@ -697,7 +703,15 @@ def collect_recovery(db, uid, run, ApiError, path):
 def run_slot(path, uid, run_id, ApiError):
     with cancel_if(lambda: cancelled(path,uid,run_id,ApiError)):
         if not _slots.acquire():
-            raise ApiError(503,'同步排队已满、等待超时或运行已停止，请刷新进度后重试')
+            code = _slots.failure or 'queue_timeout'
+            if code == 'stopped':
+                with connection(path) as db:guard(db,uid,run_id,ApiError)
+            message = {'queue_full':'同步排队已满，请稍后重试；尚未开始采集。',
+                       'queue_timeout':'同步排队等待超时，请重试；尚未开始采集。',
+                       'stopped':'本轮同步已停止。'}[code]
+            exc = ApiError(409 if code == 'stopped' else 503, message)
+            exc.code = code
+            raise exc
     try:
         yield
     finally:

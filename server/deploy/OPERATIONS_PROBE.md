@@ -25,7 +25,7 @@ HTTP GET 只检查 `/api/health` 返回 200，不读正文、不跟随重定向�
 | queue_backlog | 仅 source_sync_runs 教学网同步队列：queued 轮次最老 updated_at 距今严格超过 120 秒，并持续至少 120 秒；updated_at 缺失或 null 时回退 created_at，中途让出运行槽后重新排队从本次保存时间计时 |
 | disk_low | 可用磁盘严格少于总容量 10% 或严格少于 1 GiB，持续至少 120 秒 |
 
-持续失败仅计入 succeeded/partial_success/failed/stopped/interrupted 五种终态；部分成功、主动停止或中断会阻止“全部失败”告警，queued/running 不计入分子或分母。四类导入操作在当前环境内合并判断，仅统计已启用观测后落库的 run 事件，不把启用前未观测的历史当成成功或失败。积压告警不覆盖 reprocessing、public、manual_material_jobs 或模型队列；管理员汇总页的队列统计范围可比本探针更广，未观测材料队列时间不用于猜测等待年龄。附件下载耗时与供应商 usage 的生产方缺口由 #198 跟进，不阻塞本探针。
+持续失败仅计入 succeeded/partial_success/failed/stopped/interrupted 五种终态；部分成功、主动停止或中断会阻止“全部失败”告警，queued/running 不计入分子或分母。四类导入操作在当前环境内合并判断，仅统计已启用观测后落库的 run 事件，不把启用前未观测的历史当成成功或失败。积压告警不覆盖 reprocessing、public、manual_material_jobs 或模型队列；管理员汇总页的队列统计范围可比本探针更广，未观测材料队列时间不用于猜测等待年龄。
 
 每个环境各 code 一条状态，成功通知后至少 1800 秒才重复，条件消失发送一次 recovered；发送失败持久化 delivery_error=1，下分钟重试（每次仍须重新预留共享邮件额度）。失败不更新 last_notified，返回非零退出码并输出固定 `notice_delivery_pending`。恢复投递失败同样重试；告警与恢复均只含环境名、固定 code、状态，不含资源值、地址、异常详情或业务内容。
 

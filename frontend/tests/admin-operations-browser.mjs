@@ -14,6 +14,7 @@ const synthetic={environment:'test',revision:'synthetic-189',generatedAt:'2026-1
  requests:[{operation:'recognition.post',count:20,success:18,failures:2,p50Ms:125,p95Ms:1800,errors:[{code:'agent_timeout',count:2}]},{operation:'auth.login',count:10,success:10,failures:0,p50Ms:80,p95Ms:400,errors:[]}],
  stages:[{stage:'collection',count:12,success:12,failures:0,p50Ms:50,p95Ms:120},{stage:'model_call',count:20,success:18,failures:2,p50Ms:120,p95Ms:1700}],
  queue:{queued:2,running:1,oldestWaitSeconds:12,modelQueued:1,modelRunning:1,modelOldestWaitSeconds:8},runs:{succeeded:12,partial_success:2,failed:1,stopped:1,interrupted:0,no_tasks:3,filtered:2},outcomes:[{code:'no_tasks',count:3}],
+ providerUsage:{observedCalls:20,input_tokens:{value:9000,known:18,unknown:2},output_tokens:{value:2100,known:19,unknown:1},total_tokens:{value:10800,known:18,unknown:2}},
  resources:{available:true,observedAt,cpuPercent:12.5,memoryUsedBytes:1024**3,memoryTotalBytes:4*1024**3,diskUsedBytes:10*1024**3,diskTotalBytes:40*1024**3,restarts:0},
  alerts:[{code:'agent_timeout',state:'resolved',firstSeen:observedAt-3600,lastSeen:observedAt-3300,lastNotified:null,deliveryError:false},{code:'database_busy',state:'recovering',firstSeen:observedAt-600,lastSeen:observedAt-10,lastNotified:null,deliveryError:true}],trace:[{at:observedAt,requestId:'synthetic-request-'+'a'.repeat(80),runId:'synthetic-run',stage:'model_call',operation:'recognition.post',result:'failed',code:'agent_timeout',durationMs:1800}],droppedEvents:0,methodology:'合成验收数据；仅统计有限状态码和耗时，不包含正文。'};
 try{

@@ -136,7 +136,7 @@ python server/manage_environment.py test-account development
 - 请求ID由服务端签发并放入 `X-Request-ID`，后台同步和子进程模型调用使用同一请求/运行标识；日志只输出固定操作、结果码、版本及耗时，不输出原始URL、参数、异常文本、账号、会话或正文。
 - 后台提供接口量、成功/失败、P50/P95、同步与模型队列、阶段耗时、缓存/重试/无任务/过滤、最新主机采样、告警状态与只读追踪；阶段可能嵌套，不相加作总耗时。
 - `database_lock` 表示显式 `BEGIN IMMEDIATE` 的写锁获取耗时，`commit` 表示事务提交；识别模型调用不含排队，规划/拆解的 `*.harness` 调用包含该模块内部校验，不伪称纯网络耗时。
-- 采集计时包含子进程附件下载；当前生产方未透出独立下载耗时和供应商usage时不推断，观测接口由 [#198](https://github.com/Craneplayz/niuma-manager/issues/198) 对齐。
+- 采集总计时包含下载，另按 [producer-observation/0.1](../contracts/docs/producer-observation-v0.1.md) 校验并记录 stderr 中独立下载事件；模型客户端回调只收集有界事件，调用结束后在实际执行进程写入共享 sidecar，spawn 子进程不会丢到父进程普通列表。供应商用量分别保留已知合计、已知与未知调用数，不补算缺失值或费用；旧生产方和硬终止无事件时不可观测。
 - 资源由 [主机探针](deploy/OPERATIONS_PROBE.md) 每分钟写入，超过180秒标为过期；API无Docker socket，通知、凭据和共享邮件预算仅放服务器私有配置。
 
 - 后台位于 `/admin.html`，普通应用导航不显示入口，统计 API 仅允许服务器授予权限的已登录用户。

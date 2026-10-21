@@ -42,7 +42,7 @@ class SourceSyncTests(unittest.TestCase):
         crawler = Path(self.folder.name) / 'crawler'
         (crawler / 'node_modules' / 'tsx').mkdir(parents=True)
         for event in EXAMPLES:
-            result = SimpleNamespace(returncode=1, stdout='', stderr='PRIVATE_PATH_URL_PASSWORD\n' + json.dumps(event))
+            result = SimpleNamespace(returncode=1, stdout='', stderr='PRIVATE_PATH_URL_PASSWORD\n' * 1000 + json.dumps(event))
             with patch.object(source_sync, 'CRAWLER', crawler), patch.object(source_sync.subprocess, 'run', return_value=result):
                 with self.assertRaises(app.ApiError) as caught:
                     self.call('/api/sources/sync', {'sources': ['teaching_web']})

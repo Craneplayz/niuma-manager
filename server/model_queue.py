@@ -21,6 +21,11 @@ class ModelQueue:
         self.waiters = deque()
         self.waiting_at = {}
         self.name = name
+        self._local = threading.local()
+
+    @property
+    def failure(self):
+        return getattr(self._local, 'failure', None)
 
     def acquire(self, blocking=True):
         start=time.monotonic()
@@ -33,30 +38,39 @@ class ModelQueue:
             return dict(running=self.active,queued=len(self.waiters),oldestWaitSeconds=round(max(0,time.monotonic()-min(self.waiting_at.values())),1) if self.waiting_at else 0)
 
     def _acquire(self, blocking=True):
+        self._local.failure = None
+        # Cancellation may perform SQLite I/O; never hold the condition while probing.
+        if disconnected():
+            self._local.failure = 'stopped'
+            return False
         with self.condition:
-            if disconnected():
-                return False
             if self.active < self.limit and not self.waiters:
                 self.active += 1
                 return True
             if not blocking or len(self.waiters) >= self.pending:
+                self._local.failure = 'queue_full'
                 return False
             ticket = object()
             self.waiters.append(ticket)
             self.waiting_at[ticket]=time.monotonic()
             self.condition.notify_all()
             expires = time.monotonic() + self.wait
-            try:
-                while self.active >= self.limit or self.waiters[0] is not ticket:
-                    remaining = expires - time.monotonic()
-                    if remaining <= 0 or disconnected():
-                        return False
-                    self.condition.wait(min(remaining, .25))
-                if time.monotonic() >= expires or disconnected():
+        try:
+            while True:
+                if disconnected():
+                    self._local.failure = 'stopped'
                     return False
-                self.active += 1
-                return True
-            finally:
+                with self.condition:
+                    remaining = expires - time.monotonic()
+                    if remaining <= 0:
+                        self._local.failure = 'queue_timeout'
+                        return False
+                    if self.active < self.limit and self.waiters[0] is ticket:
+                        self.active += 1
+                        return True
+                    self.condition.wait(min(remaining, .25))
+        finally:
+            with self.condition:
                 self.waiters.remove(ticket)
                 self.waiting_at.pop(ticket,None)
                 self.condition.notify_all()
@@ -64,7 +78,7 @@ class ModelQueue:
     def release(self):
         with self.condition:
             if not self.active:
-                raise RuntimeError('model slot released without admission')
+                raise RuntimeError('queue slot released without admission')
             self.active -= 1
             self.condition.notify_all()
 

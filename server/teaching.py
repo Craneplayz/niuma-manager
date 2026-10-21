@@ -324,5 +324,10 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
         submission.controls.refresh_request(db,uid,request['request_id'])
         operations.emit('save',(time.monotonic()-saving)*1000)
+        for row in result['record_results']:
+            code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])
+            if code in operations.CODES:operations.after_commit(db,'outcome',code=code,result='failed' if row['status']=='failed' else 'ok')
+            filtered=sum(decision.get('recommendation')=='filtered' for decision in row.get('decisions',[]))
+            if filtered:operations.after_commit(db,'outcome',code='filtered',quantity=filtered)
     finally:
         recognition._ACTIVE.release()

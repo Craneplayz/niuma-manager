@@ -183,7 +183,8 @@ class SourceJobsTests(unittest.TestCase):
         return run
 
     def until(self, run_id, predicate):
-        for _ in range(250):
+        deadline=time.monotonic()+30
+        while time.monotonic()<deadline:
             status, run = self.call('/sources/sync-runs/'+run_id)
             self.assertEqual(status, 200, run)
             check('run',run)
@@ -429,6 +430,22 @@ class SourceJobsTests(unittest.TestCase):
             self.assertEqual(self.until(run['run_id'],lambda r:r['state']=='succeeded')['counts']['added'],expected)
             self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),expected)
 
+    def test_waiting_credentials_change_is_not_reported_as_user_stop(self):
+        queue=jobs.ModelQueue(limit=1,pending=1,wait=5)
+        self.assertTrue(queue.acquire())
+        try:
+            with patch.object(jobs,'_slots',queue),patch.object(app.source_sync.subprocess,'run') as crawler:
+                run=self.start('change:waiting')
+                with queue.condition:self.assertTrue(queue.condition.wait_for(lambda:len(queue.waiters)==1,timeout=3))
+                self.assertEqual(self.call('/sources/credentials',dict(username='changed-user',password='synthetic-password'))[0],200)
+                jobs.wait_for_jobs(app.DB,timeout=3)
+                failed=self.call('/sources/sync-runs/'+run['run_id'])[1]
+                self.assertEqual(failed['state'],'failed')
+                self.assertEqual(failed['error']['code'],'source_changed')
+                self.assertFalse(failed['error']['retryable'])
+                crawler.assert_not_called()
+        finally:queue.release()
+
     def test_waiting_run_timeout_is_retryable_and_does_not_call_crawler(self):
         queue=jobs.ModelQueue(limit=1,pending=1,wait=.05)
         self.assertTrue(queue.acquire())
@@ -437,10 +454,22 @@ class SourceJobsTests(unittest.TestCase):
                 run=self.start('timeout:waiting');jobs.wait_for_jobs(app.DB)
                 failed=self.until(run['run_id'],lambda r:r['state']=='failed')
                 self.assertTrue(failed['error']['retryable'])
+                self.assertEqual(failed['error']['code'],'queue_timeout')
+                check('run',failed)
+                self.assertNotIn('recovered_by',failed)
                 self.assertIn('排队',failed['error']['message'])
                 self.assertEqual(len(queue.waiters),0)
                 crawler.assert_not_called()
         finally:queue.release()
+
+        request,drafts=example(('explicit-complete',));self.drafts.update(drafts)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            later=self.start('timeout:fresh-retry')
+            jobs.wait_for_jobs(app.DB)
+        self.assertEqual(self.call('/sources/sync-runs/'+later['run_id'])[1]['state'],'succeeded')
+        old=self.call('/sources/sync-runs/'+run['run_id'])[1]
+        self.assertEqual(old['error']['code'],'queue_timeout')
+        self.assertNotIn('recovered_by',old)
 
     def test_restart_marks_pending_interrupted_without_automatic_model_replay(self):
         with patch.object(jobs,'launch'):
