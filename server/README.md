@@ -63,7 +63,7 @@ server/
 ├── test_teaching.py          教学网同步、自动入库、重试和来源变化的 HTTP 回归。
 ├── run_teaching_smoke.py     合成网页经真实 API 到任务入库的手动验收脚本。
 ├── start-local-test.ps1      Windows 统一环境启动入口，Ctrl+C 停止本次服务。
-├── requirements.txt          定义账号凭据加密、头像处理与业务校验所需的 Python 依赖。
+├── requirements.txt          定义账号凭据加密、头像处理、邮箱 IDNA 校验等服务端 Python 依赖。
 ├── requirements-test.txt     安装完整业务测试及共享附件读取依赖。
 ├── text_contract.py          文本识别结果的服务端契约校验。
 ├── test_api.py               账号与业务 API 测试。
@@ -96,6 +96,10 @@ server/
 ## 邮箱注册与验证
 
 新账号创建前必须通过邮箱验证码；旧账号保持原有登录和数据权限，在账号入口补验证当前邮箱。已验证邮箱可用独立用途验证码找回密码，成功后撤销该账号全部会话并作废其他待用验证码，保留任务和账号权限，用户重新登录；尚不提供邮箱换绑。接口见 [email-auth/0.1](../contracts/docs/email-auth-v0.1.md)，阿里云发信及环境配置见 [邮箱服务部署](deploy/EMAIL.md)。未配置邮件时发码返回 503，不提供跳过验证的注册模式。
+
+邮箱域名采用 UTS46 非过渡处理与 STD3 校验，Unicode 与合法 A-label 共享规范地址，`faß` 与 `fass` 等不同域名保持独立；历史账号仍优先按原有精确地址登录，不因新校验改写或合并账号，域名不符合现行规则时发码返回 `email_invalid`。
+
+首次升级仅对保存为 Unicode、且旧新算法算出不同收件地址的账号撤回邮箱验证及待用验证码；其中原已验证账号的会话一并撤销，账号、密码和工作区保留。升级事务与版本标记保证重启不会撤回后续正确验证；全角、等价点号、中文等收件地址未变的账号以及来源不可反推的 ASCII 账号不迁移，详见 [升级边界](deploy/EMAIL.md#升级与验收)。
 
 运行 `python -m unittest discover -s server -p 'test_email_verification.py' -v` 与 `python -m unittest discover -s server -p 'test_mail*.py' -v` 使用临时数据库和合成邮件，不会真实发信。
 
