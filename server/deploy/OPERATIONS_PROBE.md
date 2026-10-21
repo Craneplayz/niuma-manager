@@ -14,7 +14,7 @@ Linux CPU 从 `/proc/stat` 两次间隔 100ms 的差值计算，排除重复 gue
 
 HTTP GET 只检查 `/api/health` 返回 200，不读正文、不跟随重定向、不使用环境代理。HTTP 失败或任一指定服务无容器/未运行时 serviceAvailable=false；HTTP 成功且两个服务均运行时 true；Docker 无法读取且 HTTP 成功时 null。每个 Docker 命令与 HTTP 各有 5 秒超时。
 
-业务库以 SQLite `mode=ro` 打开，SQL 仅筛选 queued 状态并投影 snapshot 内 `COALESCE(updated_at,created_at)`；Python 不取得完整 snapshot，不读取用户、凭据、会话或正文。失败聚合仅读 sidecar 的 run 阶段 code/quantity/at。只保存聚合告警状态，不保存业务时间戳。时间戳必须包含时区；数据库不可读、JSON/时间戳损坏时对应判断为未知，不伪造恢复。
+业务库以 SQLite `mode=ro` 打开，只查询 queued 时间戳；同步/重识别取 snapshot 内 `COALESCE(updated_at,created_at)`，公共来源取 created_at，主动上传材料取作业编号的散列与 sidecar 最近 queued 观测时间。Python 不取得完整 snapshot，不读取用户、凭据、会话或正文；未关联 manual_material_jobs 的微信作业不查询。失败聚合仅读 sidecar 的 run 阶段 code/quantity/at。只保存聚合告警状态，不保存业务编号或时间戳。字符串时间戳必须包含时区，sidecar 观测用有限 Unix 秒；数据库不可读、JSON/时间戳损坏时对应判断为未知，不伪造恢复。
 
 ## 告警语义
 
@@ -22,10 +22,12 @@ HTTP GET 只检查 `/api/health` 返回 200，不读正文、不跟随重定向�
 | --- | --- |
 | service_unavailable | serviceAvailable=false 连续至少 120 秒 |
 | import_failures | 过去 600 秒已观测 stage=run、operation 为 sync/materials/reprocessing/public 的终态事件 quantity 合计至少 3，且全部 code=failed；立即触发（sync.record 不计入） |
-| queue_backlog | 仅 source_sync_runs 教学网同步队列：queued 轮次最老 updated_at 距今严格超过 120 秒，并持续至少 120 秒；updated_at 缺失或 null 时回退 created_at，中途让出运行槽后重新排队从本次保存时间计时 |
+| queue_backlog | 同步、重识别、公共来源及主动上传材料任一 queued 作业等待严格超过30秒，并持续至少60秒；同步/重识别的 updated_at 缺失或null时回退 created_at，中途让出运行槽后重新排队从本次保存时间计时 |
 | disk_low | 可用磁盘严格少于总容量 10% 或严格少于 1 GiB，持续至少 120 秒 |
 
-持续失败仅计入 succeeded/partial_success/failed/stopped/interrupted 五种终态；部分成功、主动停止或中断会阻止“全部失败”告警，queued/running 不计入分子或分母。四类导入操作在当前环境内合并判断，仅统计已启用观测后落库的 run 事件，不把启用前未观测的历史当成成功或失败。积压告警不覆盖 reprocessing、public、manual_material_jobs 或模型队列；管理员汇总页的队列统计范围可比本探针更广，未观测材料队列时间不用于猜测等待年龄。
+持续失败仅计入 succeeded/partial_success/failed/stopped/interrupted 五种终态；部分成功、主动停止或中断会阻止“全部失败”告警，queued/running 不计入分子或分母。四类导入操作在当前环境内合并判断，仅统计已启用观测后落库的 run 事件，不把启用前未观测的历史当成成功或失败。未观测材料排队时间不猜测等待年龄：其他已知作业积压时仍触发；否则保持未知而不发送恢复。模型进程内队列由管理员页实时展示，不从宿主机猜测进程内等待票据。
+
+积压阈值为180秒准入上限预留处理时间：每分钟采样时，连续等待约90–150秒可触发，而不是等到作业已超时后才告警；短时排队及中途未知采样不会满足持续条件。
 
 每个环境各 code 一条状态，成功通知后至少 1800 秒才重复，条件消失发送一次 recovered；发送失败持久化 delivery_error=1，下分钟重试（每次仍须重新预留共享邮件额度）。失败不更新 last_notified，返回非零退出码并输出固定 `notice_delivery_pending`。恢复投递失败同样重试；告警与恢复均只含环境名、固定 code、状态，不含资源值、地址、异常详情或业务内容。
 

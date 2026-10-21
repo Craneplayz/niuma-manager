@@ -3,6 +3,7 @@ import io
 import json
 import pickle
 import multiprocessing
+import os
 import sqlite3
 import threading
 import time
@@ -30,6 +31,26 @@ class SyntheticProvider(BaseHTTPRequestHandler):
         self.rfile.read(int(self.headers.get('Content-Length','0')))
         data=json.dumps(dict(choices=[dict(finish_reason='stop',message=dict(content='{"tasks":[]}'))])).encode()
         self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
+
+
+class CapacityBenchmarkTests(unittest.TestCase):
+    def test_attachment_fixture_is_byte_identical(self):
+        from benchmark_source_capacity import synthetic_docx
+        self.assertEqual(synthetic_docx('Synthetic assignment'),synthetic_docx('Synthetic assignment'))
+
+    def test_attachment_http_reader_save_and_resource_sampling(self):
+        from benchmark_source_capacity import measure
+        with patch.dict(os.environ,NIUMA_ENVIRONMENT='test',NIUMA_ENABLE_WECHAT='0'):
+            result=measure(1,attachments=True)
+        self.assertEqual(result['completed'],1)
+        self.assertTrue(result['workspace_available'])
+        self.assertGreater(result['attachment_bytes'],0)
+        self.assertGreater(result['host_samples'],0)
+        self.assertGreater(result['host_disk_peak_used_bytes'],0)
+        stages={row['stage']:row for row in result['observed_stages']}
+        for stage in ('attachment_download','attachment_read','save','database_lock'):
+            self.assertGreater(stages[stage]['count'],0,stage)
+        self.assertEqual(result['provider_usage']['observedCalls'],0)
 
 
 class OperationsTests(unittest.TestCase):

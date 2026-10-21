@@ -29,8 +29,13 @@ class ModelQueue:
 
     def acquire(self, blocking=True):
         start=time.monotonic()
-        acquired=self._acquire(blocking)
-        operations.emit(self.name,(time.monotonic()-start)*1000,result='ok' if acquired else 'failed',code='ok' if acquired else 'queue_unavailable')
+        try:
+            acquired=self._acquire(blocking)
+        except Exception as error:
+            operations.emit(self.name,(time.monotonic()-start)*1000,result='failed',code=operations.classify(error))
+            raise
+        code='ok' if acquired else self.failure or 'queue_unavailable'
+        operations.emit(self.name,(time.monotonic()-start)*1000,result='ok' if acquired else 'cancelled' if code=='stopped' else 'failed',code=code)
         return acquired
 
     def snapshot(self):

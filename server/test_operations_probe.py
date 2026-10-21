@@ -211,16 +211,16 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.notices, [('test', 'import_failures', 'firing')])
 
     def test_queue_oldest_strict_threshold_and_persistence(self):
-        self.run_record('queued', 120)
+        self.run_record('queued', 30)
         self.tick()
         self.tick(1)
-        self.tick(61)
+        self.tick(31)
         self.assertEqual(self.notices, [])
-        self.tick(121)
+        self.tick(61)
         self.assertEqual(self.notices, [('test', 'queue_backlog', 'firing')])
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE source_sync_runs SET state='succeeded'")
-        self.tick(181)
+        self.tick(121)
         self.assertEqual(self.notices[-1][-1], 'recovered')
 
     def test_requeued_long_run_waits_from_updated_at(self):
@@ -228,14 +228,63 @@ class ProbeTests(unittest.TestCase):
         updated = datetime.fromtimestamp(self.now, timezone.utc).isoformat()
         with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE source_sync_runs SET snapshot=json_set(snapshot,'$.updated_at',?)", (updated,))
-        for at in (0, 60, 120):
+        for at in (0, 30):
             self.assertFalse(probe.business_conditions(self.path, self.now + at)['queue_backlog'])
             self.tick(at)
         self.assertEqual(self.notices, [])
         self.assertIsNone(self.alert('queue_backlog'))
-        for at in (121, 181, 241):
+        for at in (31, 61, 91):
             self.tick(at)
         self.assertEqual(self.notices, [('test', 'queue_backlog', 'firing')])
+
+    def test_queue_notice_precedes_admission_expiry_with_minute_sampling(self):
+        import source_jobs
+        self.run_record('queued',0)
+        for at in (0,60,120):self.tick(at)
+        self.assertEqual(self.notices,[('test','queue_backlog','firing')])
+        self.assertLess(120,source_jobs.QUEUE_SECONDS)
+
+    def test_all_persistent_import_queues_trigger_and_recover(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('CREATE TABLE reprocessing_runs(snapshot TEXT)')
+            db.execute('CREATE TABLE public_source_runs(state TEXT,created_at TEXT)')
+            db.execute('CREATE TABLE manual_material_jobs(job_id TEXT)')
+            db.execute('CREATE TABLE wechat_jobs(id TEXT,status TEXT)')
+        stamp=datetime.fromtimestamp(self.now-121,timezone.utc).isoformat()
+        for kind in ('reprocessing','public','materials'):
+            with self.subTest(kind=kind):
+                with closing(sqlite3.connect(self.path)) as db, db:
+                    if kind=='reprocessing':db.execute('INSERT INTO reprocessing_runs VALUES(?)',(json.dumps(dict(state='queued',created_at=stamp,updated_at=stamp,private='PRIVATE')),))
+                    elif kind=='public':db.execute("INSERT INTO public_source_runs VALUES('queued',?)",(stamp,))
+                    else:
+                        db.execute("INSERT INTO wechat_jobs VALUES('private-material','queued')")
+                        db.execute("INSERT INTO manual_material_jobs VALUES('private-material')")
+                if kind=='materials':
+                    with ops.scope(self.path,run_id='private-material',operation='materials'):
+                        ops.emit('run',code='queued',at=self.now-121)
+                self.assertTrue(probe.business_conditions(self.path,self.now)['queue_backlog'])
+                self.tick();self.tick(120)
+                self.assertEqual(self.notices[-1],('test','queue_backlog','firing'))
+                with closing(sqlite3.connect(self.path)) as db, db:
+                    for table in ('reprocessing_runs','public_source_runs','wechat_jobs','manual_material_jobs'):
+                        db.execute('DELETE FROM '+table)
+                self.tick(180)
+                self.assertEqual(self.notices[-1],('test','queue_backlog','recovered'))
+                with ops.connection(self.path) as db:db.execute('DELETE FROM alerts')
+
+    def test_unobserved_material_wait_is_unknown_not_a_false_recovery(self):
+        with closing(sqlite3.connect(self.path)) as db, db:
+            db.execute('CREATE TABLE manual_material_jobs(job_id TEXT)')
+            db.execute('CREATE TABLE wechat_jobs(id TEXT,status TEXT)')
+            db.execute("INSERT INTO manual_material_jobs VALUES('unknown')")
+            db.execute("INSERT INTO wechat_jobs VALUES('unknown','queued')")
+        self.assertIsNone(probe.business_conditions(self.path,self.now)['queue_backlog'])
+        self.run_record('queued',121)
+        self.assertTrue(probe.business_conditions(self.path,self.now)['queue_backlog'])
+        self.tick();self.tick(120)
+        with closing(sqlite3.connect(self.path)) as db, db:db.execute('DELETE FROM source_sync_runs')
+        self.tick(180)
+        self.assertEqual(self.notices,[('test','queue_backlog','firing')])
 
     def test_queue_timestamp_falls_back_to_created_at(self):
         self.run_record('queued', 121)

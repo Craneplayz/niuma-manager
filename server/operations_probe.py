@@ -4,6 +4,7 @@ from contextlib import closing
 from datetime import datetime
 import importlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -25,6 +26,8 @@ except ModuleNotFoundError:
     import operations
 
 DELAY = 120
+QUEUE_AGE = 30
+QUEUE_DELAY = 60
 REPEAT = 1800
 CODES = ('service_unavailable', 'import_failures', 'queue_backlog', 'disk_low')
 
@@ -147,6 +150,8 @@ def sample(disk_path, project, health_url):
 
 def timestamp(value):
     try:
+        if type(value) in (int,float):
+            return value if math.isfinite(value) else None
         parsed = datetime.fromisoformat(value)
         return parsed.timestamp() if parsed.tzinfo is not None else None
     except (TypeError, ValueError, OverflowError):
@@ -161,6 +166,21 @@ def business_conditions(path, now):
             rows = db.execute("""SELECT COALESCE(json_extract(snapshot,'$.updated_at'),
                 json_extract(snapshot,'$.created_at'))
                 FROM source_sync_runs WHERE state='queued'""").fetchall()
+            tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'reprocessing_runs' in tables:
+                rows+=db.execute("""SELECT COALESCE(json_extract(snapshot,'$.updated_at'),
+                    json_extract(snapshot,'$.created_at')) FROM reprocessing_runs
+                    WHERE json_extract(snapshot,'$.state')='queued'""").fetchall()
+            if 'public_source_runs' in tables:
+                rows+=db.execute("SELECT created_at FROM public_source_runs WHERE state='queued'").fetchall()
+            if {'manual_material_jobs','wechat_jobs'}.issubset(tables):
+                materials=db.execute("""SELECT j.id FROM wechat_jobs j JOIN manual_material_jobs m
+                    ON m.job_id=j.id WHERE j.status='queued'""").fetchall()
+                if materials:
+                    with closing(sqlite3.connect(operations.database(Path(path).resolve()).as_uri()+'?mode=ro',uri=True,timeout=.2)) as observed:
+                        times=dict(observed.execute("""SELECT run_id,MAX(at) FROM events
+                            WHERE stage='run' AND operation='materials' AND code='queued' GROUP BY run_id"""))
+                    rows.extend((times.get(operations.identifier(identity)),) for (identity,) in materials)
         queued, unknown_queue = [], False
         for (queued_at,) in rows:
             at = timestamp(queued_at)
@@ -168,7 +188,7 @@ def business_conditions(path, now):
                 unknown_queue = True
             else:
                 queued.append(now - at)
-        backlog = True if queued and max(queued) > 120 else None if unknown_queue else False
+        backlog = True if queued and max(queued) > QUEUE_AGE else None if unknown_queue else False
     except (OSError, sqlite3.Error):
         pass
     failures = None
@@ -211,7 +231,7 @@ def advance(db, code, condition, now):
             alert['first_seen'] = now
         if alert['state'] == 'pending' and (now < alert['last_seen'] or now - alert['last_seen'] > 180):
             alert['first_seen'] = now
-        delay = 0 if code == 'import_failures' else DELAY
+        delay = 0 if code == 'import_failures' else QUEUE_DELAY if code == 'queue_backlog' else DELAY
         if alert['state'] == 'pending' and now - alert['first_seen'] >= delay:
             alert.update(state='firing', active_since=now)
         alert['last_seen'] = now

@@ -1,4 +1,5 @@
 import socket
+import sqlite3
 import os
 from pathlib import Path
 import subprocess
@@ -15,6 +16,21 @@ from server import model_queue
 
 
 class ModelQueueTests(unittest.TestCase):
+    def test_wait_observations_distinguish_full_timeout_stop_and_probe_failure(self):
+        for queue,code,stop in ((model_queue.ModelQueue(limit=0,pending=0),'queue_full',False),
+                                (model_queue.ModelQueue(limit=0,wait=0),'queue_timeout',False),
+                                (model_queue.ModelQueue(),'stopped',True)):
+            with self.subTest(code=code),patch.object(model_queue.operations,'emit') as emit:
+                with model_queue.cancel_if(lambda:stop):self.assertFalse(queue.acquire())
+                self.assertEqual(emit.call_args.kwargs['code'],code)
+                self.assertEqual(emit.call_args.kwargs['result'],'cancelled' if stop else 'failed')
+        queue=model_queue.ModelQueue()
+        with patch.object(model_queue,'disconnected',side_effect=sqlite3.OperationalError('locked PRIVATE')), \
+             patch.object(model_queue.operations,'emit') as emit:
+            with self.assertRaises(sqlite3.OperationalError):queue.acquire()
+            self.assertEqual(emit.call_args.kwargs['code'],'database_busy')
+            self.assertNotIn('PRIVATE',str(emit.call_args))
+
     def test_root_package_imports_share_the_same_model_queue(self):
         root = Path(__file__).resolve().parent.parent
         env = dict(os.environ)
