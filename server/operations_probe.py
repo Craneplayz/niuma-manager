@@ -271,6 +271,8 @@ def run_once(path, environment, resource, send_notice, *, now=None):
                    row['state'] == 'active' and (row['delivery_error'] or row['last_notified'] is None or
                                                 now - row['last_notified'] >= REPEAT))]
     for alert in pending:
+        if send_notice is None:
+            continue  # Sampling only: retain pending state, never claim delivery.
         recovery = alert['state'] == 'recovering'
         try:
             if send_notice(environment, alert['code'], 'recovered' if recovery else 'firing') is False:
@@ -284,7 +286,7 @@ def run_once(path, environment, resource, send_notice, *, now=None):
                            ('resolved' if recovery else 'active', now,
                             None if recovery else alert['active_since'], alert['code']))
     with operations.connection(path) as db:
-        return db.execute('SELECT COUNT(*) FROM alerts WHERE delivery_error<>0').fetchone()[0]
+        return db.execute('SELECT COUNT(*) FROM alerts WHERE delivery_error<>0').fetchone()[0] if send_notice is not None else 0
 
 
 def smtp_notifier(config):
@@ -342,6 +344,7 @@ def load_config(filename):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', required=True, help='Private JSON, owned by this UID, mode 0600')
+    parser.add_argument('--sample-only',action='store_true',help='Persist samples and alert state without sending notifications')
     args = parser.parse_args(argv)
     os.umask(0o077)
     try:
@@ -355,7 +358,7 @@ def main(argv=None):
                 return 0
             errors = run_once(config['database'], config['environment'],
                               sample(config['disk_path'], config['compose_project'], config['health_url']),
-                              smtp_notifier(config))
+                              None if args.sample_only else smtp_notifier(config))
         if errors:
             print('operations_probe: notice_delivery_pending', file=sys.stderr)
             return 1

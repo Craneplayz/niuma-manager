@@ -44,22 +44,27 @@ class ModelQueue:
 
     def _acquire(self, blocking=True):
         self._local.failure = None
+        reserved = getattr(self._local, 'continuation', None)
+        self._local.continuation = None
         # Cancellation may perform SQLite I/O; never hold the condition while probing.
-        if disconnected():
+        if reserved is None and disconnected():
             self._local.failure = 'stopped'
             return False
         with self.condition:
-            if self.active < self.limit and not self.waiters:
-                self.active += 1
-                return True
-            if not blocking or len(self.waiters) >= self.pending:
-                self._local.failure = 'queue_full'
-                return False
-            ticket = object()
-            self.waiters.append(ticket)
-            self.waiting_at[ticket]=time.monotonic()
-            self.condition.notify_all()
-            expires = time.monotonic() + self.wait
+            if reserved is not None:
+                ticket, expires = reserved
+            else:
+                if self.active < self.limit and not self.waiters:
+                    self.active += 1
+                    return True
+                if not blocking or len(self.waiters) >= self.pending:
+                    self._local.failure = 'queue_full'
+                    return False
+                ticket = object()
+                self.waiters.append(ticket)
+                self.waiting_at[ticket]=time.monotonic()
+                self.condition.notify_all()
+                expires = time.monotonic() + self.wait
         try:
             while True:
                 if disconnected():
@@ -80,10 +85,16 @@ class ModelQueue:
                 self.waiting_at.pop(ticket,None)
                 self.condition.notify_all()
 
-    def release(self):
+    def release(self, *, requeue=False):
         with self.condition:
             if not self.active:
                 raise RuntimeError('queue slot released without admission')
+            if requeue:
+                ticket = object()
+                now = time.monotonic()
+                self.waiters.append(ticket)
+                self.waiting_at[ticket] = now
+                self._local.continuation = (ticket, now + self.wait)
             self.active -= 1
             self.condition.notify_all()
 

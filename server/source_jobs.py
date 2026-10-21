@@ -712,10 +712,11 @@ def run_slot(path, uid, run_id, ApiError):
             exc = ApiError(409 if code == 'stopped' else 503, message)
             exc.code = code
             raise exc
+    turn = dict(requeue=False)
     try:
-        yield
+        yield turn
     finally:
-        _slots.release()
+        _slots.release(requeue=turn['requeue'])
 
 
 def process(path, uid, run_id, ApiError):
@@ -735,7 +736,7 @@ def _process(path, uid, run_id, ApiError):
 def _process_turn(path, uid, run_id, ApiError, first):
     collection_attempt = None
     try:
-        with run_slot(path,uid,run_id,ApiError):
+        with run_slot(path,uid,run_id,ApiError) as turn:
             with connection(path) as db:
                 db.execute('BEGIN IMMEDIATE'); guard(db, uid, run_id, ApiError)
                 run = get(db, uid, run_id, ApiError)
@@ -793,10 +794,15 @@ def _process_turn(path, uid, run_id, ApiError, first):
                             item.update(state='failed',error=run['error'])
                 if any(item['state']=='queued' for item in run['records']):
                     save(db,run,'queued')
-                    return True
-                bad = bool(run.get('error')) or any(r['state'] != 'succeeded' for r in run['records'])
-                good = any(r['state'] == 'succeeded' for r in run['records'])
-                save(db, run, ('partial_success' if good else 'failed') if bad else 'succeeded')
+                    continuing = True
+                else:
+                    continuing = False
+                    bad = bool(run.get('error')) or any(r['state'] != 'succeeded' for r in run['records'])
+                    good = any(r['state'] == 'succeeded' for r in run['records'])
+                    save(db, run, ('partial_success' if good else 'failed') if bad else 'succeeded')
+            if continuing:
+                turn['requeue'] = True  # Atomically move this accepted slot to the FIFO tail.
+                return True
     except Exception as exc:
         with connection(path) as db:
             diagnostics.persist(db,uid,collection_attempt)

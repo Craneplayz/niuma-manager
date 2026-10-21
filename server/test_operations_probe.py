@@ -99,6 +99,16 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(self.notices[-1][-1], 'recovered')
         self.assertEqual(self.alert()['delivery_error'], 0)
 
+    def test_sample_only_preserves_pending_notices_without_claiming_delivery(self):
+        self.resource['serviceAvailable']=False
+        self.assertEqual(probe.run_once(self.path,'test',self.resource,None,now=self.now),0)
+        self.assertEqual(probe.run_once(self.path,'test',self.resource,None,now=self.now+120),0)
+        self.assertEqual(self.alert()['state'],'firing')
+        self.assertIsNone(self.alert()['last_notified'])
+        self.assertEqual(self.alert()['delivery_error'],0)
+        self.tick(180)
+        self.assertEqual(self.notices,[('test','service_unavailable','firing')])
+
     def test_failed_reminder_retries_before_repeat_interval(self):
         self.resource['serviceAvailable'] = False
         self.tick()
@@ -434,6 +444,8 @@ class ProbeTests(unittest.TestCase):
         self.assertIn('context', smtp.call_args.kwargs)
         message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
         self.assertNotIn('PRIVATE', message.as_string())
+        self.assertEqual(message['To'],config['recipient'])
+        self.assertEqual(smtp.return_value.__enter__.return_value.send_message.call_args.kwargs['to_addrs'],[config['recipient']])
 
     def test_smtp_missing_dependency_budget_or_tls_safely_fails_before_network(self):
         config = dict(mail={}, recipient='ops@example.invalid', smtp_tls='implicit')
@@ -476,6 +488,13 @@ class ProbeTests(unittest.TestCase):
                                          compose_project='niuma-test', health_url='http://127.0.0.1:1331/api/health')), encoding='utf-8')
         config.chmod(0o600)
         return config
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX private configuration')
+    def test_sample_only_cli_never_constructs_mail_notifier(self):
+        config=self.config_file()
+        with patch.object(probe,'sample',return_value=self.resource),patch.object(probe,'smtp_notifier') as notifier:
+            self.assertEqual(probe.main(['--config',str(config),'--sample-only']),0)
+            notifier.assert_not_called()
 
     @unittest.skipUnless(os.name == 'posix', 'POSIX private configuration')
     def test_private_config_permissions_and_secret_free_cli_errors(self):

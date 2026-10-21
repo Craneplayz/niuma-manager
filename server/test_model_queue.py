@@ -16,6 +16,50 @@ from server import model_queue
 
 
 class ModelQueueTests(unittest.TestCase):
+    def test_reserved_continuation_is_removed_on_stop_or_timeout(self):
+        for stop,wait,code in ((True,5,'stopped'),(False,0,'queue_timeout')):
+            with self.subTest(code=code):
+                queue=model_queue.ModelQueue(limit=1,pending=0,wait=wait)
+                self.assertTrue(queue.acquire())
+                queue.release(requeue=True)
+                with model_queue.cancel_if(lambda:stop):self.assertFalse(queue.acquire())
+                self.assertEqual(queue.failure,code)
+                self.assertEqual(queue.snapshot()['queued'],0)
+                self.assertEqual(queue.active,0)
+
+    def test_accepted_continuation_keeps_fifo_eligibility_with_twenty_waiters(self):
+        queue=model_queue.ModelQueue(limit=4,pending=20,wait=5)
+        for _ in range(4):self.assertTrue(queue.acquire())
+        unblock=threading.Event();counts=threading.local();order=[]
+        def probe():
+            counts.value=getattr(counts,'value',0)+1
+            if counts.value>1 and not unblock.wait(5):raise TimeoutError('synthetic gate')
+            return False
+        def work(index):
+            with model_queue.cancel_if(probe):accepted=queue.acquire()
+            self.assertTrue(accepted)
+            try:order.append(index)
+            finally:queue.release()
+        def resume():
+            queue.release(requeue=True)
+            self.assertTrue(queue.acquire())
+            try:order.append('continued')
+            finally:queue.release()
+        with ThreadPoolExecutor(max_workers=21) as pool:
+            waiting=[pool.submit(work,i) for i in range(20)]
+            try:
+                self.queued(queue,20)
+                continuation=pool.submit(resume)
+                self.queued(queue,21)
+                self.assertFalse(queue.acquire(blocking=False))
+            finally:unblock.set()
+            for future in waiting:future.result(timeout=5)
+            continuation.result(timeout=5)
+        self.assertEqual(order[-1],'continued')
+        self.assertEqual(len(order),21)
+        for _ in range(3):queue.release()
+        self.assertEqual(queue.snapshot()['queued'],0)
+
     def test_wait_observations_distinguish_full_timeout_stop_and_probe_failure(self):
         for queue,code,stop in ((model_queue.ModelQueue(limit=0,pending=0),'queue_full',False),
                                 (model_queue.ModelQueue(limit=0,wait=0),'queue_timeout',False),

@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 from http.cookiejar import CookieJar
+from concurrent.futures import ThreadPoolExecutor
 from urllib.request import build_opener, HTTPCookieProcessor
 
 import app
@@ -21,6 +22,73 @@ from contracts.source_sync import check
 
 
 class SourceJobsTests(unittest.TestCase):
+    def test_full_queue_fair_yield_finishes_all_eight_records_without_recrawling(self):
+        request,drafts=example(('explicit-complete',)*8);self.drafts.update(drafts)
+        queue=jobs.ModelQueue(limit=4,pending=20,wait=60,name='sync_queue')
+        for _ in range(3):self.assertTrue(queue.acquire())
+        model_gate=threading.Event();waiter_gate=threading.Event();entered=threading.Event()
+        calls=0;lock=threading.Lock();probes=threading.local()
+        def model(request,error):
+            nonlocal calls
+            with lock:
+                calls+=1
+                if calls==4:entered.set()
+            if not model_gate.wait(40):raise TimeoutError('synthetic model gate')
+            return self.model(request,error)
+        def probe():
+            probes.count=getattr(probes,'count',0)+1
+            if probes.count>1 and not waiter_gate.wait(40):raise TimeoutError('synthetic waiter gate')
+            return False
+        def waiter():
+            with jobs.cancel_if(probe):accepted=queue.acquire()
+            self.assertTrue(accepted)
+            queue.release()
+        try:
+            with patch.object(jobs,'_slots',queue), \
+                    patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler, \
+                    patch.object(jobs.teaching,'recognize',side_effect=model),ThreadPoolExecutor(max_workers=20) as pool:
+                run=self.start('fair:full-queue')
+                waiting=[]
+                try:
+                    self.assertTrue(entered.wait(5))
+                    waiting=[pool.submit(waiter) for _ in range(20)]
+                    with queue.condition:self.assertTrue(queue.condition.wait_for(lambda:len(queue.waiters)==20,timeout=5))
+                    model_gate.set()
+                    # Include disposable model-process startup on the 2-vCPU Linux host.
+                    with queue.condition:continued=queue.condition.wait_for(lambda:len(queue.waiters)==21,timeout=30)
+                    self.assertTrue(continued,(queue.snapshot(),self.call('/sources/sync-runs/'+run['run_id'])[1]))
+                finally:
+                    model_gate.set();waiter_gate.set()
+                for future in waiting:future.result(timeout=5)
+                jobs.wait_for_jobs(app.DB,timeout=40)
+                completed=self.until(run['run_id'],lambda r:r['state'] in ('succeeded','failed'))
+                self.assertEqual(completed['state'],'succeeded',completed.get('error'))
+                self.assertEqual(completed['counts']['added'],8)
+                self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),8)
+                self.assertEqual(crawler.call_count,1)
+        finally:
+            model_gate.set();waiter_gate.set()
+            for _ in range(3):queue.release()
+
+    def test_quiet_receipt_expiry_preserves_observed_success_count(self):
+        from server import operations
+        request,_=example()
+        for entry in request['records']:
+            self.drafts[entry['record']['input_id']]=empty_reply(entry['record'])
+        start=time.time()-1
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))), \
+                patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            run=self.start('observed:quiet-expiry');jobs.wait_for_jobs(app.DB)
+        self.until(run['run_id'],lambda r:r['state']=='succeeded')
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM source_sync_quiet_runs WHERE run_id=?',(run['run_id'],)).fetchone()[0],1)
+            before=operations.summary(app.DB,db,start,time.time()+1)['runs']
+            jobs.prune_quiet(db,now=time.time()+jobs.QUIET_RECEIPT_SECONDS+1)
+            self.assertIsNone(db.execute('SELECT run_id FROM source_sync_runs WHERE run_id=?',(run['run_id'],)).fetchone())
+            after=operations.summary(app.DB,db,start,time.time()+1)['runs']
+        self.assertEqual(before['succeeded'],1)
+        self.assertEqual(after,before)
+
     def test_production_collection_cause_survives_http_and_successful_retry(self):
         from source_sync import collection_exception
         request, drafts = example(); self.drafts.update(drafts)

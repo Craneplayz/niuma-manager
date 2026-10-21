@@ -2,11 +2,15 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {createServer} from 'vite';
 const require=createRequire(import.meta.url);
 const {chromium}=require('playwright');
 const frontend=fileURLToPath(new URL('..',import.meta.url));
-const server=await createServer({configFile:false,root:frontend,server:{host:'127.0.0.1',port:0}});
+const cache=await mkdtemp(join(tmpdir(),'niuma-admin-browser-'));
+const server=await createServer({configFile:false,root:frontend,cacheDir:cache,server:{host:'127.0.0.1',port:0}});
 let browser;
 const usage={start:'2026-10-01',end:'2026-10-20',environment:'test',activeUsers:7,metrics:[],daily:[],feedback:[],rating:{samples:0,average:null},methodology:'合成使用数据'};
 const observedAt=Date.parse('2026-10-20T08:00:00Z')/1000;
@@ -110,4 +114,4 @@ try{
   await page.getByText(/版本：after-login/).waitFor();
   assert.deepEqual(errors,[]);await page.close();console.log(`${name}: switching, dates, resource gaps, errors, escaping, races and overflow passed`);
  }
-}finally{await browser?.close();await server.close();}
+}finally{await browser?.close();await server.close();await rm(cache,{recursive:true,force:true});}

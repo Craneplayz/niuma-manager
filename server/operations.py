@@ -295,14 +295,17 @@ def summary(path,business_db,start,end):
     for row in records:
         state=row['state']
         def stamp(value):return float(value) if isinstance(value,(int,float)) else datetime.fromisoformat(value).timestamp()
-        try:created=stamp(row['created_at'])
-        except (ValueError,KeyError,TypeError):created=None
         if state=='queued':
             queued+=1
             try:oldest=max(oldest,now-stamp(row['queued_at']))
             except (ValueError,TypeError):unknown_wait+=1
         if state in ('crawling','recognizing','running','stopping'):running+=1
-        if created is not None and start<=created<end and state in runs:runs[state]+=1
+    # Completed runs outlive short-lived business receipts in the independent observation store.
+    terminal={}
+    for row in rows:
+        if row['stage']=='run' and row['operation'] in ('sync','materials','reprocessing','public') and row['code'] in ('succeeded','partial_success','failed','stopped','interrupted') and row['run_id']:
+            terminal[(row['operation'],row['run_id'])]=row['code']
+    for state in terminal.values():runs[state]+=1
     outcomes={}
     for row in rows:
         if row['stage']=='outcome':outcomes[row['code']]=outcomes.get(row['code'],0)+row['quantity']
@@ -317,4 +320,4 @@ def summary(path,business_db,start,end):
         runs=runs,outcomes=[dict(code=k,count=v) for k,v in sorted(outcomes.items())],resources=resources,
         providerUsage=dict(observedCalls=len(model_calls),**{key:dict(known=sum(r[key] is not None for r in model_calls),unknown=sum(r[key] is None for r in model_calls),value=sum(r[key] for r in model_calls if r[key] is not None) if any(r[key] is not None for r in model_calls) else None) for key in ('input_tokens','output_tokens','total_tokens')}),
         alerts=alerts,trace=[dict(at=r['at'],requestId=r['request_id'],runId=r['run_id'],stage=r['stage'],operation=r['operation'],result=r['result'],code=r['code'],durationMs=r['duration_ms']) for r in trace],droppedEvents=_dropped,
-        methodology='阶段仅记录启用后的观测，轮次状态来自已有实际记录；阶段可嵌套，不能相加作总耗时；数据库锁耗时为显式BEGIN IMMEDIATE获取写锁时间。模型调用不含排队；供应商未透出用量时不估算费用。资源为最新主机探针采样，超过180秒视为过期；详细事件保留14天且最多50000条，达到上限会裁剪最旧记录。')
+        methodology='历史终态按范围内独立观测去重统计，当前队列读取业务记录；阶段仅记录启用后的观测，可嵌套，不能相加作总耗时；数据库锁耗时为显式BEGIN IMMEDIATE获取写锁时间。模型调用不含排队；供应商未透出用量时不估算费用。资源为最新主机探针采样，超过180秒视为过期；详细事件保留14天且最多50000条，达到上限会裁剪最旧记录。')

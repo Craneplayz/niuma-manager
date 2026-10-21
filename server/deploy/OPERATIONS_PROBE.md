@@ -39,9 +39,13 @@ HTTP GET 只检查 `/api/health` 返回 200，不读正文、不跟随重定向�
 
 ## 私有 SMTP 配置与依赖
 
+告警和恢复通知只发送私有配置 `recipient` 指定的运维负责人，不读取用户邮箱、不向普通用户发送；验证码邮件与告警分属独立用途。
+
 安装依赖为 #177 的 `mail_delivery.py`/`mail_budget.py` 共享实现（接口参考 bb33179）；启用通知前须先安装并验证共享额度配置。探针不复制或另建计数器，依赖缺失时告警状态照常落库、delivery_error=1、退出 1，SMTP 不连接。
 
 CLI 通过独立 `smtp_notifier(config)` 生成 `send_notice(environment,code,transition)` callable；测试或集成可向 run_once 传替身。没有 shell 通知命令入口；Docker 参数用列表传递且不执行 shell。
+
+尚未启用自动邮件时，在探针命令后加 `--sample-only`，只保存资源与告警状态，不构建发信器、不调用SMTP、不预占邮件预算、不更新 last_notified；已有待投递状态保留，返回0仅表示采样与状态处理成功。此模式的私有配置无需 recipient、smtp_tls 和 mail，只有明确启用通知后才按下文配置发信并移除此参数。
 
 SMTP 复用 `mail_delivery._configuration`、地址校验及 `mail_delivery.mail_budget.configuration/reserve`（bb33179 实际共享配额接口名是 mail_budget）。仅支持私有配置显式 `smtp_tls=implicit`、465 端口和已获共享实现允许的主机，使用默认 CA 验证的 SMTP_SSL；禁用明文回退及 SMTP 调试。
 
