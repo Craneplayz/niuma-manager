@@ -17,7 +17,7 @@ async function openApp(page, { holdCredentials = false } = {}) {
     else if (path === "/api/workspace") value = { tasks: { version, value: tasks } };
     else if (path === "/api/data/tasks") {
       const body = request.postDataJSON();
-      writes.push(body); tasks = body.value; value = { version: ++version };
+      writes.push(body); tasks = body.value; value = { version: ++version, operationId: body.operation?.id };
     } else if (path === "/api/sources/credentials") {
       credentialCalls.push(request.method());
       if (request.method() === "GET") {

@@ -1,5 +1,6 @@
 // Maps the task UI to the account workspace API.
 import { todayKey as dayKey, shiftDay, assertCurrentTaskEdit } from "./task-model.js";
+import { appendOperation, readOperations, removeOperations, clearJournal } from './task-journal.js';
 export const session = {
   user: null,
   sync: "saved",
@@ -17,6 +18,7 @@ let canonicalTasks = [],
   pendingChanges = [];
 const clone = (value) => structuredClone(value);
 let accountEpoch = 0, editRevision = 0, retrying = null;
+let staging = Promise.resolve(), journalLoaded = null, order = 0;
 const requests = new Set();
 export const accountVersion = () => accountEpoch;
 function resetAccount() {
@@ -30,6 +32,8 @@ function resetAccount() {
   latest = null;
   failed = false;
   pendingChanges = [];
+  journalLoaded = null;
+  retrying = null;
   session.conflict = false;
   window.dispatchEvent(new CustomEvent("niuma:account-reset"));
 }
@@ -145,11 +149,14 @@ function toCanonical(task, previous = {}) {
   };
 }
 function view() {
+  return viewOf(canonicalTasks);
+}
+function viewOf(tasks) {
   return clone({
-    tasks: canonicalTasks
+    tasks: tasks
       .filter((task) => task.status !== "cancelled" && !task.recycleBin)
       .map(toView),
-    trash: canonicalTasks
+    trash: tasks
       .filter((task) => task.recycleBin)
       .map((task) => toView({ ...task, status: task.recycleBin.status })),
   });
@@ -182,10 +189,36 @@ async function loadSession(discardPending = false) {
         taskVersion = next.tasks?.version || 0;
       }
       if (discardPending) {
+        await removeOperations(session.user.id, pendingChanges.map(change => change.operation.id));
+        if (epoch !== accountEpoch) throw new Error('账号已切换');
         latest = null;
         failed = false;
         pendingChanges = [];
         session.conflict = false;
+      }
+      if (journalLoaded !== session.user.id) {
+        const operations = await readOperations(session.user.id);
+        if (epoch !== accountEpoch) throw new Error('账号已切换');
+        pendingChanges = operations.map(operation => ({ operation, epoch, retryOnFailure: true, reloadOnStale: true }));
+        journalLoaded = session.user.id;
+        if (pendingChanges.length) {
+          await reconcileChanges(epoch);
+          let projected = clone(canonicalTasks);
+          try {
+            for (const change of pendingChanges) projected = transformIntent(change.operation.intent)(projected);
+          } catch (error) {
+            failed = true;
+            session.conflict = true;
+            report('error', error);
+          }
+          const restored = viewOf(projected);
+          if (!failed) {
+            report(pendingChanges.length ? 'saving' : 'saved');
+            for (const change of pendingChanges) enqueueChange(change).catch(() => {});
+          }
+          window.dispatchEvent(new CustomEvent('niuma:session-ready'));
+          return restored;
+        }
       }
       report("saved");
       window.dispatchEvent(new CustomEvent("niuma:session-ready"));
@@ -277,44 +310,54 @@ function removeChange(change) {
   pendingChanges = pendingChanges.filter(item => item !== change);
 }
 function enqueueChange(change) {
-  const { epoch, transform, retryOnFailure, reloadOnStale } = change;
+  const { epoch, retryOnFailure, reloadOnStale, operation } = change;
   const update = queue.then(async () => {
+    await change.staged;
     if (epoch !== accountEpoch) throw new Error("账号已切换");
+    if (!pendingChanges.includes(change)) return;
     if (failed) {
-      if (!retryOnFailure) removeChange(change);
       throw new Error(session.error || "还有未保存的数据");
     }
     let value;
     try {
       // Apply each intent to the last acknowledged tasks, never a stale UI list.
-      value = transform(clone(canonicalTasks));
+      value = transformIntent(operation.intent)(clone(canonicalTasks));
     } catch (error) {
-      removeChange(change);
       if (reloadOnStale) {
         // An optimistic edit based on stale content needs a fresh workspace.
         failed = true;
         session.conflict = true;
         report("error", error);
-      } else report(latest || pendingChanges.length ? "saving" : "saved");
+      } else {
+        await removeOperations(operation.owner, [operation.id]);
+        removeChange(change);
+        report(latest || pendingChanges.length ? "saving" : "saved");
+      }
       throw error;
     }
     report("saving");
     try {
       const result = await api(
-        "/api/data/tasks", { value, version: taskVersion }, "PUT",
+        "/api/data/tasks", { value, version: taskVersion, operation: operationIdentity(operation) }, "PUT",
       );
       if (epoch !== accountEpoch) throw new Error("账号已切换");
+      if (result.operationId !== operation.id) throw new Error('服务器未确认操作编号，请更新服务后重试；本地操作仍保留');
       taskVersion = result.version;
-      canonicalTasks = clone(value);
+      canonicalTasks = clone(result.replayed ? result.value : value);
+      await removeOperations(operation.owner, [operation.id]);
+      if (epoch !== accountEpoch) throw new Error('账号已切换');
       removeChange(change);
       session.conflict = false;
       report(latest || pendingChanges.length ? "saving" : "saved");
     } catch (error) {
       if (epoch === accountEpoch) {
         session.conflict = error.status === 409;
-        if (!retryOnFailure) removeChange(change);
+        if (!retryOnFailure && error.status) {
+          await removeOperations(operation.owner, [operation.id]);
+          removeChange(change);
+        }
         // Preserve the failed intent and every following edit for explicit retry.
-        if (retryOnFailure || session.conflict) {
+        if (retryOnFailure || session.conflict || !error.status) {
           failed = true;
           report("error", error);
         } else report(latest || pendingChanges.length ? "saving" : "saved");
@@ -325,20 +368,57 @@ function enqueueChange(change) {
   queue = update.catch(() => {});
   return update;
 }
-function changeStoredTasks(transform, { retryOnFailure = true, reloadOnStale = false } = {}) {
-  if (!session.user || session.changing)
-    return Promise.reject(new Error("请先登录账号，或等待账号切换完成"));
+function operationIdentity({ id, owner, intent }) { return { id, owner, intent }; }
+async function reconcileChanges(epoch) {
+  if (!pendingChanges.length) return;
+  const result = await api('/api/tasks/reconcile', {
+    owner: session.user.id, operations: pendingChanges.map(change => operationIdentity(change.operation)),
+  });
+  if (epoch !== accountEpoch) throw new Error('账号已切换');
+  if (!Array.isArray(result.applied) || !Array.isArray(result.tasks?.value) || !Number.isInteger(result.tasks.version))
+    throw new Error('服务器未提供有效的保存回执，请更新服务后重试；本地操作仍保留');
+  await removeOperations(session.user.id, result.applied);
+  if (epoch !== accountEpoch) throw new Error('账号已切换');
+  pendingChanges = pendingChanges.filter(change => !result.applied.includes(change.operation.id));
+  canonicalTasks = clone(result.tasks.value);
+  taskVersion = result.tasks.version;
+}
+function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = false } = {}) {
+  if (!session.user || session.changing) {
+    const rejected = Promise.reject(new Error("请先登录账号，或等待账号切换完成"));
+    rejected.staged = rejected; rejected.catch(() => {});
+    return rejected;
+  }
   editRevision++;
-  const change = { transform, retryOnFailure, reloadOnStale, epoch: accountEpoch };
+  const operation = { format: 1, id: [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2, '0')).join(''), owner: session.user.id,
+    order: order = Math.max(Date.now(), order + 1), intent: clone(intent) };
+  const change = { operation, retryOnFailure, reloadOnStale, epoch: accountEpoch };
   pendingChanges.push(change);
-  return enqueueChange(change);
+  change.staged = staging.then(async () => {
+    if (change.epoch !== accountEpoch) throw new Error('账号已切换');
+    await appendOperation(operation);
+    if (change.epoch !== accountEpoch) throw new Error('账号已切换');
+  }).catch(error => { removeChange(change); throw error; });
+  staging = change.staged.catch(() => {});
+  const update = enqueueChange(change);
+  update.staged = change.staged;
+  update.catch(() => {});
+  return update;
 }
 export function saveStoredTask(task, expected) {
-  const draft = clone(task), createdAt = new Date().toISOString();
-  return changeStoredTasks(tasks => {
+  const draft = Object.fromEntries(['id', 'title', 'notes', 'course', 'content_type', 'due', 'dueTime'].map(key => [key, task[key] ?? '']));
+  draft.content_type ||= 'task';
+  return changeStoredTasks({ kind: 'save', draft, expected: expected ?? null, createdAt: new Date().toISOString() }, { reloadOnStale: true });
+}
+export function setStoredTaskStatus(id, next, expected) {
+  return changeStoredTasks({ kind: 'status', id, next, expected }, { reloadOnStale: true });
+}
+function transformIntent(intent) {
+  const { kind, id, next, expected, draft, createdAt } = intent;
+  if (kind === 'save') return tasks => {
     const index = tasks.findIndex(item => item.id === draft.id);
     const current = tasks[index];
-    if (expected !== undefined) {
+    if (expected !== null) {
       assertCurrentTaskEdit(current && !current.recycleBin && current.status !== "cancelled" ? toView(current) : null, expected);
     } else if (current) throw new Error("任务已存在，请重新读取后核对");
     const previous = current || { createdAt };
@@ -350,10 +430,8 @@ export function saveStoredTask(task, expected) {
     if (index < 0) tasks.push(next);
     else tasks[index] = next;
     return tasks;
-  }, { reloadOnStale: true });
-}
-export function setStoredTaskStatus(id, next, expected) {
-  return changeStoredTasks(tasks => {
+  };
+  if (kind === 'status') return tasks => {
     const task = tasks.find(item => item.id === id && !item.recycleBin && item.status !== "cancelled");
     if (!task || status[task.status] !== expected.status ||
         (task.completedAt || "") !== (expected.completedAt || ""))
@@ -361,14 +439,8 @@ export function setStoredTaskStatus(id, next, expected) {
     task.status = canonicalStatus[next.status];
     task.completedAt = next.completedAt || "";
     return tasks;
-  }, { reloadOnStale: true });
-}
-export async function setStoredTaskDeadline(id, next, expected) {
-  if ((next.due && !shiftDay(next.due, 0)) || (next.dueTime &&
-      (!next.due || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(next.dueTime))))
-    throw new Error("截止日期或时刻无效");
-  const epoch = accountEpoch;
-  await changeStoredTasks((tasks) => {
+  };
+  if (kind === 'deadline') return tasks => {
     const task = tasks.find((item) => item.id === id && !item.recycleBin && item.status !== "cancelled");
     if (!task ||
         (task.due?.date || "") !== expected.due ||
@@ -380,13 +452,9 @@ export async function setStoredTaskDeadline(id, next, expected) {
       ...(next.dueTime ? { time: next.dueTime } : {}),
     } : null;
     return tasks;
-  }, { retryOnFailure: false });
-  if (epoch !== accountEpoch) throw new Error("账号已切换");
-  return view();
-}
-export function trashStoredTasks(ids) {
-  const selected = new Set(ids);
-  return changeStoredTasks((tasks) => {
+  };
+  const selected = new Set(intent.ids);
+  if (kind === 'trash') return tasks => {
     if (
       !selected.size ||
       [...selected].some(
@@ -395,7 +463,7 @@ export function trashStoredTasks(ids) {
         ),
       )
     ) throw new Error("要删除的任务不存在，请刷新后重试");
-    const deletedAt = new Date().toISOString();
+    const deletedAt = intent.deletedAt;
     return tasks.map((task) => selected.has(task.id)
       ? {
           ...task,
@@ -404,11 +472,8 @@ export function trashStoredTasks(ids) {
         }
       : task,
     );
-  });
-}
-export function restoreStoredTasks(ids) {
-  const selected = new Set(ids);
-  return changeStoredTasks((tasks) => {
+  };
+  if (kind === 'restore') return tasks => {
     if (
       !selected.size ||
       [...selected].some(
@@ -420,7 +485,23 @@ export function restoreStoredTasks(ids) {
       const { recycleBin, ...restored } = task;
       return { ...restored, status: recycleBin.status };
     });
-  });
+  };
+  throw new Error('待保存操作版本不受支持，请更新页面后恢复');
+}
+export async function setStoredTaskDeadline(id, next, expected) {
+  if ((next.due && !shiftDay(next.due, 0)) || (next.dueTime &&
+      (!next.due || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(next.dueTime))))
+    throw new Error('截止日期或时刻无效');
+  const epoch = accountEpoch;
+  await changeStoredTasks({ kind: 'deadline', id, next, expected }, { retryOnFailure: false });
+  if (epoch !== accountEpoch) throw new Error('账号已切换');
+  return view();
+}
+export function trashStoredTasks(ids) {
+  return changeStoredTasks({ kind: 'trash', ids: [...ids], deletedAt: new Date().toISOString() });
+}
+export function restoreStoredTasks(ids) {
+  return changeStoredTasks({ kind: 'restore', ids: [...ids] });
 }
 async function drainWrites() {
   let pending;
@@ -445,6 +526,7 @@ async function retryPendingChanges() {
   await drainWrites();
   if (epoch !== accountEpoch) throw new Error("账号已切换");
   if (session.conflict) throw new Error("数据已被其他页面修改，请刷新后再编辑");
+  await reconcileChanges(epoch);
   failed = false;
   await Promise.all([...pendingChanges].map(change => enqueueChange(change)));
   if (latest) await enqueue(latest);
@@ -455,6 +537,7 @@ export async function authenticate(mode, credentials) {
   session.changing = true;
   try {
     await flushStore();
+    if (session.user) await clearJournal(session.user.id);
     resetAccount();
     await api(
       "/api/auth/" + mode,
@@ -478,6 +561,8 @@ export async function logout() {
   session.changing = true;
   try {
     await flushStore();
+    const owner = session.user?.id;
+    if (owner) await clearJournal(owner);
     resetAccount();
     await api("/api/auth/logout", {});
     report("saved");

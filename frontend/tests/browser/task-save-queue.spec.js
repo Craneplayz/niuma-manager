@@ -18,9 +18,10 @@ async function openApp(page, { firstStatus = 200 } = {}) {
       if (writes.length === 1) { await gate; status = firstStatus; }
       if (status === 200) {
         expect(body.version).toBe(version);
-        tasks = body.value; value = { version: ++version };
+        tasks = body.value; value = { version: ++version, operationId: body.operation?.id };
       } else value = { error: status === 409 ? '数据已在其他窗口修改' : '合成暂时保存失败' };
-    } else if (path === '/api/recognition/batches') value = [];
+    } else if (path === '/api/tasks/reconcile') value = { tasks: { value: tasks, version }, applied: [] };
+    else if (path === '/api/recognition/batches') value = [];
     else if (path === '/api/recognition/task-evidence') value = { evidence: [] };
     else if (path === '/api/usage/guest-visit') value = {};
     else if (path === '/api/usage/visit') value = { offerRating: false };

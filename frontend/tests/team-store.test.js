@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import 'fake-indexeddb/auto';
 import { taskEditSnapshot } from "../src/task-model.js";
 
 globalThis.window = new EventTarget();
@@ -36,9 +37,11 @@ const task = (id, overrides = {}) => ({
 function fixture(user, initialTasks, otherRows = {}) {
   let tasks = structuredClone(initialTasks), version = 1;
   const writes = [];
+  const receipts = new Set();
   globalThis.fetch = async (path, options = {}) => {
     if (path === "/api/auth/me") return reply({ user: { id: user, name: "测试" } });
     if (path === "/api/workspace") return reply({ ...otherRows, tasks: { value: tasks, version } });
+    if (path === '/api/tasks/reconcile') return reply({ tasks: { value: tasks, version }, applied: [...receipts] });
     if (path === "/api/data/tasks" && options.method === "PUT") {
       const body = JSON.parse(options.body);
       assert.equal(body.version, version);
@@ -50,7 +53,8 @@ function fixture(user, initialTasks, otherRows = {}) {
       }
       writes.push(body);
       tasks = structuredClone(body.value);
-      return reply({ version: ++version });
+      if (body.operation) receipts.add(body.operation.id);
+      return reply({ version: ++version, operationId: body.operation?.id });
     }
     throw new Error("unexpected request " + path);
   };

@@ -26,7 +26,7 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
     let value = {}, status = 200;
     if (path === '/api/auth/me') value = { user: { id: 'review-user', name: '合成账号' } };
     else if (path === '/api/workspace') value = { tasks: { version, value: tasks } };
-    else if (path === '/api/data/tasks') { const body = request.postDataJSON(); writes.push(body); tasks = body.value; value = { version: ++version }; }
+    else if (path === '/api/data/tasks') { const body = request.postDataJSON(); writes.push(body); tasks = body.value; value = { version: ++version, operationId: body.operation?.id }; }
     else if (path === '/api/recognition/text-jobs') value = { jobs: [] };
     else if (path === '/api/recognition/batches') {
       if (failReadOnce && !readOnce) { readOnce = true; status = 503; value = { error: 'Synthetic unavailable' }; }

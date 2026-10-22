@@ -107,6 +107,18 @@ function finishTask(id, epoch, repaint = false) {
   // Another operation must not replace an open editor's unsent draft.
   if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
 }
+async function stageTaskSave(saving, id, epoch) {
+  try {
+    await saving.staged;
+    return epoch === accountVersion();
+  } catch (error) {
+    if (epoch === accountVersion()) {
+      toast(error.message);
+      finishTask(id, epoch);
+    }
+    return false;
+  }
+}
 let preferences = {};
 try {
   preferences = JSON.parse(localStorage.getItem("niuma.task-ui.v2") || "{}");
@@ -698,9 +710,10 @@ async function saveStatus(id, next, expected) {
   if (!task || task.status !== expected.status || (task.completedAt || "") !== expected.completedAt)
     throw new Error("任务状态已变化，无法撤销这次操作");
   const notice = isNotice(task);
-  Object.assign(task, next);
   busyTasks.add(id);
   const saving = demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
+  if (!await stageTaskSave(saving, id, epoch)) return;
+  Object.assign(task, next);
   render();
   if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
   try {
@@ -728,6 +741,7 @@ async function trashTask() {
   const epoch = accountVersion();
   busyTasks.add(id);
   const saving = demo ? Promise.resolve() : trashStoredTasks([id]);
+  if (!await stageTaskSave(saving, id, epoch)) return;
   state.tasks = state.tasks.filter(task => task.id !== id);
   state.trash.push(task);
   closeDrawer();
@@ -754,6 +768,7 @@ async function restoreTask(id) {
   const epoch = accountVersion();
   busyTasks.add(id);
   const saving = demo ? Promise.resolve() : restoreStoredTasks([id]);
+  if (!await stageTaskSave(saving, id, epoch)) return;
   state.trash = state.trash.filter(task => task.id !== id);
   const { recycleBin, ...restored } = task;
   state.tasks.push(restored);
@@ -1099,6 +1114,7 @@ document.addEventListener("submit", async (e) => {
     form.dataset.id = draftId;
     busyTasks.add(draftId);
     const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
+    if (!await stageTaskSave(saving, draftId, epoch)) return;
     if (existing) Object.assign(existing, task);
     else state.tasks.push(task);
     closeDrawer();
