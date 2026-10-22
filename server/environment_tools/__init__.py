@@ -7,14 +7,62 @@ from pathlib import Path
 import secrets
 import threading
 import time
+import weakref
 
 import runtime_environment
 import usage
 
 MODULE_URL = '/api/environment-tools.js'
 RESET_URL = '/api/environment-tools/reset-account'
-# Bound memory while serializing foreground requests with an account reset.
-_locks = [threading.RLock() for _ in range(64)]
+
+
+class _AccountBarrier:
+    """Normal requests share admission; only reset waits for exclusive access."""
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.readers = 0
+        self.writer = False
+        self.waiting_writers = 0
+
+    @contextmanager
+    def hold(self, exclusive):
+        with self.condition:
+            if exclusive:
+                self.waiting_writers += 1
+                try:
+                    self.condition.wait_for(lambda: not self.writer and not self.readers)
+                    self.writer = True
+                finally:
+                    self.waiting_writers -= 1
+                    self.condition.notify_all()
+            else:
+                # Give a queued reset a turn instead of starving it with polling.
+                self.condition.wait_for(lambda: not self.writer and not self.waiting_writers)
+                self.readers += 1
+        try:
+            yield
+        finally:
+            with self.condition:
+                if exclusive: self.writer = False
+                else: self.readers -= 1
+                self.condition.notify_all()
+
+
+# Active/waiting requests retain their barrier; idle accounts consume no slots.
+_barriers = weakref.WeakValueDictionary()
+_barriers_lock = threading.Lock()
+
+
+def _account_barrier(database, uid):
+    with _barriers_lock:
+        key = (database, uid)
+        barrier = _barriers.get(key)
+        if barrier is None:
+            barrier = _AccountBarrier()
+            _barriers[key] = barrier
+        return barrier
+
+
 OWNER_TABLES = (
     'proposals', 'decomposition_proposals', 'recognition_candidates',
     'recognition_batches', 'recognition_import_records', 'recognition_record_policies',
@@ -39,9 +87,9 @@ def enabled():
 
 @contextmanager
 def account_request(handler, connection, ApiError):
-    # Re-authenticate inside the lock in the normal route. A waiting old request
-    # cannot write after reset rotates all of this account's sessions.
-    lock = nullcontext()
+    # Re-authenticate after admission in the normal route. Requests queued behind
+    # a reset must not write with a session that the reset has since revoked.
+    admission = nullcontext()
     if enabled():
         with connection() as db:
             try:
@@ -49,8 +97,11 @@ def account_request(handler, connection, ApiError):
             except ApiError as error:
                 if error.status != 401: raise
             else:
-                lock = _locks[int(hashlib.sha256(user['id'].encode()).hexdigest()[:8], 16) % len(_locks)]
-    with lock:
+                database = db.execute('PRAGMA database_list').fetchone()[2]
+                barrier = _account_barrier(database, user['id'])
+                exclusive = handler.command == 'POST' and handler.path.split('?')[0] == RESET_URL
+                admission = barrier.hold(exclusive)
+    with admission:
         yield
 
 

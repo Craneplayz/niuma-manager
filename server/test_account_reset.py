@@ -1,5 +1,5 @@
 """Real HTTP reset isolation with temporary databases and synthetic accounts."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import hashlib
 from http.cookiejar import CookieJar
 import json
@@ -33,7 +33,7 @@ class AccountResetTests(unittest.TestCase):
                 salt = secrets.token_hex(16)
                 db.execute('INSERT INTO users VALUES(?,?,?,?,?)', (uid,uid+'@example.test',uid,salt,app.password_hash('Synthetic-2026!',salt)))
                 app.email_verification.mark_verified(db, uid)
-                db.execute('INSERT INTO source_credentials VALUES(?,?,?)', (uid,'campus-'+uid,'synthetic-secret'))
+                db.execute('INSERT INTO source_credentials VALUES(?,?,?)', (uid,'campus-'+uid,b'synthetic-secret'))
                 db.execute('INSERT INTO workspace VALUES(?,?,?,7)', (uid,'tasks',json.dumps([dict(id=uid,title=uid,status='not_started',plans=[],subtasks=[],due=None)])))
                 db.execute('INSERT INTO source_versions VALUES(?,?,?,?,?)', (uid,'account','same-input','digest','{}'))
                 db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,?)', (uid,'same-request','fingerprint','{}','{}',0,None))
@@ -139,23 +139,79 @@ class AccountResetTests(unittest.TestCase):
             self.assertEqual(tuple(db.execute('SELECT enabled,revision FROM source_sync_schedules WHERE user_id="alice"').fetchone()),(0,5))
             self.assertEqual(db.execute('SELECT token_hash FROM wechat_credentials WHERE user_id="alice"').fetchone()[0],'token')
 
-    def test_reset_waits_for_inflight_foreground_writes_and_invalidates_waiters(self):
+    def test_normal_reads_progress_and_stop_remain_parallel_with_a_slow_request(self):
         entered=threading.Event(); release=threading.Event()
         original=app.Handler.route
+        with app.connection() as db:
+            run=app.source_jobs.start(db,'alice',dict(contract_version='source-sync/0.1',sources=['teaching_web'],consent=True,operation_id='parallel-stop'),app.ApiError)
         def route(handler):
-            if handler.path=='/api/workspace':
+            if handler.path=='/api/workspace?slow=1':
                 entered.set(); release.wait(5)
             return original(handler)
         try:
             with patch.object(app.Handler,'route',route),ThreadPoolExecutor(max_workers=2) as pool:
-                read=pool.submit(self.call,self.clients['alice'],'/api/workspace')
+                slow=pool.submit(self.call,self.clients['alice'],'/api/workspace?slow=1')
+                self.assertTrue(entered.wait(3))
+                for path,body in (('/api/workspace',None),('/api/sources/sync-runs/'+run['run_id'],None),
+                                  ('/api/sources/sync-runs/'+run['run_id']+'/stop',dict(contract_version='source-sync/0.1'))):
+                    response=pool.submit(self.call,self.clients['alice'],path,body)
+                    self.assertEqual(response.result(timeout=2)[0],200,path)
+                    self.assertFalse(slow.done())
+                release.set();self.assertEqual(slow.result(timeout=2)[0],200)
+        finally: release.set()
+
+    def test_reset_waits_for_inflight_writes_and_then_clears_their_result(self):
+        entered=threading.Event(); release=threading.Event()
+        original=app.Handler.route
+        def route(handler):
+            if handler.path=='/api/data/tasks' and handler.command=='PUT':
+                entered.set(); release.wait(5)
+            return original(handler)
+        try:
+            with patch.object(app.Handler,'route',route),ThreadPoolExecutor(max_workers=2) as pool:
+                task=dict(id='late',title='旧请求任务',status='not_started',plans=[],subtasks=[],due=None)
+                write=pool.submit(self.call,self.clients['alice'],'/api/data/tasks',dict(value=[task],version=7),'PUT')
                 self.assertTrue(entered.wait(3))
                 reset=pool.submit(self.reset)
-                self.assertFalse(reset.done())
+                with self.assertRaises(TimeoutError):reset.result(timeout=.1)
                 release.set()
-                self.assertEqual(read.result()[0],200)
-                self.assertEqual(reset.result()[0],200)
+                self.assertEqual(write.result(timeout=2)[0],200)
+                self.assertEqual(reset.result(timeout=2)[0],200)
+            workspace=self.call(self.clients['alice'],'/api/workspace')[1]
+            self.assertEqual(workspace['tasks']['value'],[])
+            self.assertEqual(workspace['tasks']['version'],9)
         finally: release.set()
+
+    def test_exclusive_reset_rejects_queued_old_writes_but_not_other_accounts(self):
+        entered=threading.Event();release=threading.Event();queued=threading.Event()
+        reset_impl=tools.reset; user_impl=app.Handler.user
+        # Deliberately collide with the previous fixed-bucket implementation.
+        bucket=int(hashlib.sha256(b'alice').hexdigest()[:8],16)%64
+        uid=next('other-'+str(i) for i in range(1000) if int(hashlib.sha256(('other-'+str(i)).encode()).hexdigest()[:8],16)%64==bucket)
+        other=build_opener(HTTPCookieProcessor(CookieJar()))
+        with app.connection() as db:
+            salt=secrets.token_hex(16)
+            db.execute('INSERT INTO users VALUES(?,?,?,?,?)',(uid,uid+'@example.test',uid,salt,app.password_hash('Synthetic-2026!',salt)))
+        self.assertEqual(self.call(other,'/api/auth/login',dict(email=uid+'@example.test',password='Synthetic-2026!'))[0],200)
+        old=build_opener(HTTPCookieProcessor(CookieJar()))
+        self.call(old,'/api/auth/login',dict(email='alice@example.test',password='Synthetic-2026!'))
+        def held_reset(*args,**kwargs):
+            entered.set();release.wait(5)
+            return reset_impl(*args,**kwargs)
+        def user(handler,db):
+            result=user_impl(handler,db)
+            if handler.headers.get('X-Reset-Test')=='waiting-old': queued.set()
+            return result
+        try:
+            with patch.object(tools,'reset',side_effect=held_reset),patch.object(app.Handler,'user',user),ThreadPoolExecutor(max_workers=3) as pool:
+                reset=pool.submit(self.reset);self.assertTrue(entered.wait(3))
+                write=pool.submit(self.call,old,'/api/data/tasks',dict(value=[],version=7),'PUT',{'X-Reset-Test':'waiting-old'})
+                self.assertTrue(queued.wait(3))
+                with self.assertRaises(TimeoutError):write.result(timeout=.1)
+                self.assertEqual(pool.submit(self.call,other,'/api/workspace').result(timeout=2)[0],200)
+                release.set();self.assertEqual(reset.result(timeout=2)[0],200)
+                self.assertEqual(write.result(timeout=2)[0],401)
+        finally:release.set()
 
     def test_failure_before_commit_rolls_back_business_records_and_session_rotation(self):
         with app.connection() as db:
