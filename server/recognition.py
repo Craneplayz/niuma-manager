@@ -44,7 +44,9 @@ def recognize(request, ApiError):
     """Queue model admission across accounts, features and transports."""
     _EXECUTION.policy = None
     if not _ACTIVE.acquire():
-        raise ApiError(503, WAIT_ERROR)
+        error=ApiError(503, WAIT_ERROR)
+        error.code, error.diagnostic='agent_unavailable','model_busy'
+        raise error
     try:
         endpoint = os.environ.get('TEXT_HARNESS_URL')
         if endpoint:
@@ -56,12 +58,22 @@ def recognize(request, ApiError):
                     return json.loads(response.read(2000000))
             except HTTPError as error:
                 busy = error.code == 503
+                diagnostics.event('harness',http_status=error.code,status='failed')
                 error.close()
-                if busy:
-                    raise ApiError(503, '文本识别正在处理其他请求，请稍后重试') from None
-                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
-            except Exception:
-                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+                failure=ApiError(503 if busy else 502,'文本识别服务调用失败')
+                failure.code, failure.diagnostic='agent_unavailable','model_busy' if busy else 'model_unavailable'
+                raise failure from None
+            except Exception as cause:
+                from ddl_text import diagnostics as trace
+                from urllib.error import URLError
+                reason = ('model_timeout' if isinstance(cause,TimeoutError) or isinstance(cause,URLError) and isinstance(cause.reason,TimeoutError)
+                    else 'provider_response' if isinstance(cause,(ValueError,UnicodeError))
+                    else 'model_unavailable' if isinstance(cause,(OSError,URLError)) else 'internal_error')
+                trace.failure(cause,stage='harness',reason=reason)
+                failure=ApiError(502,'文本识别服务调用失败')
+                failure.code='invalid_agent_output' if reason=='provider_response' else 'agent_timeout' if reason=='model_timeout' else 'agent_unavailable'
+                failure.diagnostic=reason
+                raise failure from None
         try:
             options = live_options(model_env_path(ROOT))
             if not options['key'].strip():
@@ -79,12 +91,20 @@ def recognize(request, ApiError):
             if policy['components'] != _POLICY_COMPONENTS:
                 raise ValueError('policy_changed_after_startup')
         except (OSError,ValueError,KeyError,TypeError):
-            raise ApiError(503,'识别规则与当前进程不一致，请重启后端后重试') from None
+            error=ApiError(503,'识别规则与当前进程不一致，请重启后端后重试')
+            error.code, error.diagnostic='agent_unavailable','recognition_rules'
+            raise error from None
         _EXECUTION.policy = policy
+        diagnostics.event('configuration',model=settings.model,provider=options['provider'],
+                          timeout_seconds=settings.timeout_seconds,policy_version=policy['version'])
         try:
             return process_request(request, adapter, settings, budget_seconds=90, diagnostic_event=diagnostics.event)
-        except Exception:
-            raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+        except Exception as cause:
+            from ddl_text import diagnostics as trace
+            trace.failure(cause, stage='text_server')
+            error = ApiError(502, '识别程序发生内部异常，请反馈诊断编号')
+            error.code, error.diagnostic = 'agent_unavailable', 'internal_error'
+            raise error from None
     finally:
         _ACTIVE.release()
 
@@ -195,7 +215,9 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
     if path=='/api/recognition/diagnostics' and handler.command=='POST':
-        if diagnostics.environment()!='test': raise ApiError(404,'接口不存在')
+        if not diagnostics.detailed(): raise ApiError(404,'接口不存在')
+        if set(body)=={'diagnostic_id'} and isinstance(body['diagnostic_id'],str) and re.fullmatch(r'[0-9a-f]{24}',body['diagnostic_id']):
+            handler.reply(200,dict(attempts=diagnostics.lookup(db,uid,body['diagnostic_id'])));return True
         if set(body)!={'request_id'} or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
             raise ApiError(400,'请提供本次导入的 request_id')
         handler.reply(200,dict(attempts=diagnostics.attempts(db,uid,body['request_id'])));return True
@@ -273,7 +295,7 @@ def route(handler,db,uid,path,body,ApiError):
                     result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
                 else:
                     _EXECUTION.policy = None
-                    result=recognize(extraction_request,ApiError)
+                    result=diagnostics.stamp(recognize(extraction_request,ApiError))
             policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
             try:
                 result=validate_result(extraction_request,result)
@@ -294,25 +316,25 @@ def route(handler,db,uid,path,body,ApiError):
                 error = ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')
                 error.code = 'invalid_agent_output'
                 raise error from None
-        attempt_id = attempt['attempt_id'] if attempt else None
-        db.execute('BEGIN IMMEDIATE')
-        row=db.execute('SELECT fingerprint,result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-        if row:
-            if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')
-            # Another request may have finished during the model call. Never overwrite it.
-            if previous is not None and json.loads(row['result'])==previous:
-                db.execute('UPDATE recognition_batches SET result=?,attempt_id=? WHERE user_id=? AND request_id=?',(json.dumps(result),attempt_id,uid,request['request_id']))
-                for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
-                for record in extraction_request['records']:
-                    db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
+            attempt_id = attempt['attempt_id'] if attempt else None
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT fingerprint,result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
+            if row:
+                if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')
+                # Another request may have finished during the model call. Never overwrite it.
+                if previous is not None and json.loads(row['result'])==previous:
+                    db.execute('UPDATE recognition_batches SET result=?,attempt_id=? WHERE user_id=? AND request_id=?',(json.dumps(result),attempt_id,uid,request['request_id']))
+                    for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+                    for record in extraction_request['records']:
+                        db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
+                            (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
+            else:
+                db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
+                db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo),attempt_id))
+                for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+                for record in request['records']:
+                    db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
                         (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
-        else:
-            db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo),attempt_id))
-            for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
-            for record in request['records']:
-                db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
-                    (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         handler.reply(200,batches(db,uid));return True
     if path.startswith('/api/recognition/candidates/') and path.endswith('/resolve') and handler.command=='POST':
         from urllib.parse import unquote

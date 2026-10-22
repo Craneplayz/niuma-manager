@@ -788,6 +788,14 @@
         },
         "diagnostic": {
           "$ref": "#/$defs/common__recognition_diagnostic"
+        },
+        "diagnostic_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{24}$"
+        },
+        "diagnostics": {
+          "type": "string",
+          "maxLength": 65536
         }
       }
     },
@@ -803,6 +811,7 @@
         "reason": {
           "type": "string",
           "enum": [
+            "recognition_dependency",
             "invalid_input",
             "unsupported_version",
             "input_limit",
@@ -827,7 +836,12 @@
             "draft_evidence",
             "draft_semantics",
             "result_contract",
-            "save_failed"
+            "save_failed",
+            "internal_error",
+            "recognition_rules",
+            "model_busy",
+            "worker_terminated",
+            "worker_timeout"
           ]
         },
         "category": {
@@ -838,6 +852,7 @@
             "content",
             "evidence",
             "input",
+            "internal",
             "output",
             "service",
             "source",
@@ -853,6 +868,7 @@
             "parse",
             "prepare",
             "read",
+            "runtime",
             "save",
             "validate"
           ]
@@ -888,7 +904,49 @@
             "pattern",
             "anyOf",
             "allOf",
-            "oneOf"
+            "oneOf",
+            "maximum",
+            "minimum"
+          ]
+        },
+        "instance_path": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9_$/]*$"
+        },
+        "missing_fields": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_]+$"
+          }
+        },
+        "expected_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
+          ]
+        },
+        "actual_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
           ]
         }
       }
@@ -1384,6 +1442,14 @@
         },
         "diagnostic": {
           "$ref": "#/$defs/common__recognition_diagnostic"
+        },
+        "diagnostic_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{24}$"
+        },
+        "diagnostics": {
+          "type": "string",
+          "maxLength": 65536
         }
       }
     },
@@ -2767,6 +2833,14 @@
         },
         "diagnostic": {
           "$ref": "#/$defs/common__recognition_diagnostic"
+        },
+        "diagnostic_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{24}$"
+        },
+        "diagnostics": {
+          "type": "string",
+          "maxLength": 65536
         }
       }
     },

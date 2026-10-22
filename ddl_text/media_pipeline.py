@@ -17,6 +17,7 @@ from contracts.check_v03_examples import coverage
 from contracts.recognition_errors import describe
 from .adapters import AgentError
 from .draft_recovery import recover
+from . import diagnostics
 from .config import Settings
 from .image_reader import IMAGE_MIMES, READER_VERSION, ImageLimits, MetadataMismatch, read_image
 from .pdf_reader import PDF_MIME, READER_VERSION as PDF_READER_VERSION, PdfLimits, read_pdf
@@ -146,8 +147,9 @@ def _prepare(record, loader, limits, expires):
                 raise AgentError('file_read_failed', True) from None
             except AgentError:
                 raise
-            except Exception:
-                raise AgentError('file_read_failed', False) from None
+            except Exception as error:
+                diagnostics.failure(error, stage='attachment_loader')
+                raise AgentError('file_read_failed', False, 'internal_error') from None
             remaining = expires - time.monotonic()
             if remaining <= 0:
                 raise AgentError('file_read_failed', True)
@@ -186,7 +188,8 @@ def _prepare(record, loader, limits, expires):
             code = error.code if error.code in ('reader_unsupported', 'limit_exceeded', 'file_ref_unavailable', 'file_read_failed') else 'file_read_failed'
             if code == 'reader_unsupported':
                 summary['status'] = 'unsupported'
-            errors.append(_error(record, code, 'read', asset['asset_id'], error.retryable))
+            diagnostics.failure(error,stage='attachment_read')
+            errors.append(_error(record, code, 'read', asset['asset_id'], error.retryable,error.diagnostic,error.detail))
     return summaries, errors, pictures, documents
 
 
@@ -385,7 +388,13 @@ def _record(request_id, record, loader, client, settings, limits, expires, emit)
                 except (ValueError, ValidationError, KeyError, TypeError) as error:
                     reason = 'draft_evidence' if str(error) in {'fabricated_quote', 'foreign_evidence', 'unknown_asset',
                         'unknown_block', 'missing_evidence_field', 'unread_file_evidence', 'fabricated_deadline_raw'} else 'draft_semantics'
-                    raise AgentError('invalid_agent_output', True, reason) from None
+                    diagnostics.failure(error, stage='draft_validation', reason=reason)
+                    failure = AgentError('invalid_agent_output', True, reason)
+                    if isinstance(error, ValidationError):
+                        from contracts.recognition_errors import validation_detail
+                        failure.diagnostic = 'draft_schema'
+                        failure.detail = validation_detail(error)
+                    raise failure from None
             tasks = recover(call, checked, attempt)
 
         except (ValueError, ValidationError, KeyError, TypeError):
@@ -411,6 +420,7 @@ def _record(request_id, record, loader, client, settings, limits, expires, emit)
     return _finish(record, summaries, tasks, errors), tasks, errors
 
 
+@diagnostics.traced
 def process_media_request(request, asset_loader: AssetLoader, client, settings=None, limits=None, *, diagnostic_event=None):
     """Recognize v0.3.1 without opening an HTTP route or writing application tasks.
 
@@ -435,8 +445,9 @@ def process_media_request(request, asset_loader: AssetLoader, client, settings=N
     result = dict(contract_version='0.3.1', request_id=request['request_id'], status='failed',
                   record_results=[], tasks=[], errors=[])
     expires = time.monotonic() + limits.batch_seconds
-    emit = diagnostic_event or (lambda *args, **kwargs: None)
-    for record in request['records']:
+    emit = diagnostics.emit
+    for record_index, record in enumerate(request['records']):
+        emit('record', record_index=record_index, status='started')
         outcome, tasks, errors = _record(request['request_id'], record, asset_loader, client, settings, limits,
                                          min(expires, time.monotonic() + limits.record_seconds), emit)
         emit('media_result', status=outcome['status'])

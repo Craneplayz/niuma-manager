@@ -1,2 +1,3 @@
-# Optional teaching v0.4 entry and policy validation; v0.2 does not import these.
+# Optional teaching v0.4 entry and policy validation, including core text dependencies.
+-r text_requirements.txt
 -r ../contracts/requirements-teaching-dev.txt

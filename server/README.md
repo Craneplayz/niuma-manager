@@ -348,4 +348,4 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 接线回归：`python -m unittest server.test_submission_runtime server.test_public_sources server.test_source_jobs server.test_source_schedule server.test_teaching_reprocessing server.test_manual_materials -q`（`PYTHONPATH` 包含仓库根及 `server`）；浏览器完整入口验收按 [前端说明](../frontend/README.md) 执行，合成外部服务与真实模型联调须分别记录。
 
-文本、教学网和手动文件导入的错误分类与校验位置见 [统一错误约定](../contracts/docs/recognition-errors.md)。文本和文件沿用原有总预算，仅允许一次草稿纠错；DeepSeek 文本/文件识别与教学网一致关闭思考模式，无须改配置。测试诊断接口也覆盖文本和文件请求。
+文本、教学网和手动文件导入的错误分类、诊断编号及验证边界见 [统一错误约定](../contracts/docs/recognition-errors.md)。文本和文件沿用原有总预算，仅允许一次草稿纠错；DeepSeek 文本/文件识别与教学网一致关闭思考模式，无须改配置。开发和测试环境均可查看详情；生产保留安全诊断供维护人员排查，只向用户返回分类和编号。所有环境都不记录原文、模型回答、异常消息和凭据。

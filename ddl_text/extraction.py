@@ -14,6 +14,8 @@ from .contracts import ContractError, nonempty, normalize_record, require, valid
 from .dates import combine_times
 from .time_validation import validate_time
 from .draft_recovery import recover
+from . import diagnostics
+from contracts.recognition_errors import validation_detail
 
 
 SKILL_DIR = Path(__file__).resolve().parent / "skills/text-task-extraction"
@@ -61,19 +63,20 @@ def compile_drafts(response, record, *, spans=None):
         envelope = json.loads(response, object_pairs_hook=_object,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")))
         stage = 'draft_schema'
-        from jsonschema import Draft202012Validator, ValidationError
+        try:
+            from jsonschema import Draft202012Validator, ValidationError
+        except ImportError as error:
+            diagnostics.failure(error,stage='prepare',reason='recognition_dependency')
+            raise AgentError('agent_unavailable',False,'recognition_dependency') from None
         from .draft_schema import draft_schema
         schema_record = dict(record, evidence_catalog=spans) if spans is not None else record
-        # Historical offline fixtures may omit relevance; live calls require it.
-        schema = draft_schema(schema_record)
-        if spans is None:
-            schema['properties']['tasks']['items']['required'].remove('relevance')
+        # Generation constraints are not retroactively applied to saved drafts.
+        schema = draft_schema(schema_record, historical=spans is None)
         try:
             Draft202012Validator(schema).validate(envelope)
         except ValidationError as error:
             failure = AgentError('invalid_agent_output', True, stage)
-            from .adapters import safe_schema_detail
-            failure.detail = safe_schema_detail(dict(schema_path='/'.join(map(str, error.absolute_schema_path)), rule=error.validator))
+            failure.detail = validation_detail(error)
             raise failure from None
         if spans is not None:
             from .evidence_spans import expand
@@ -197,7 +200,12 @@ def compile_drafts(response, record, *, spans=None):
             task["needs_review"] = bool(task["review_reasons"])
             tasks.append(task)
         return validate_tasks(tasks, record)
-    except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError):
+    except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as error:
+        if stage != 'draft_json' and isinstance(error,(TypeError,KeyError,AttributeError)):
+            diagnostics.failure(error,stage='draft_validation',reason='internal_error')
+            raise AgentError('agent_unavailable',False,'internal_error') from None
+        diagnostics.failure(error, stage='draft_validation', reason=stage,
+                            line=getattr(error,'lineno',None), column=getattr(error,'colno',None))
         raise AgentError("invalid_agent_output", True, stage) from None
 
 

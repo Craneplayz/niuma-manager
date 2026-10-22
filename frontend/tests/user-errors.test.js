@@ -28,9 +28,23 @@ test('test diagnostics survive friendly error mapping and are escaped without en
   const report = describeUserError({code:'agent_timeout',message:'Timeout',diagnostics},'teaching_sync');
   assert.equal(report.diagnostics, diagnostics);
   const markup = userErrorMarkup(report,'teaching_sync');
-  assert.match(markup,/测试环境诊断详情/);assert.match(markup,/page_start/);
+  assert.match(markup,/识别诊断详情/);assert.match(markup,/page_start/);
   assert.ok(!markup.includes('<script>'));
-  assert.ok(!userErrorMarkup({code:'agent_timeout'},'teaching_sync').includes('测试环境诊断详情'));
+  assert.ok(!userErrorMarkup({code:'agent_timeout'},'teaching_sync').includes('识别诊断详情'));
+});
+
+test('schema failures expose safe missing fields and bind feedback to the exact attempt', async () => {
+  const diagnostic_id='a1'.repeat(12);
+  const f=fixture({code:'invalid_agent_output',failure:{reason:'draft_schema'},diagnostic_id,
+    diagnostic:{schema_path:'properties/tasks/items/required',rule:'required',instance_path:'tasks/0',missing_fields:['prerequisites'],expected_type:'array',actual_type:'null'},
+    diagnostics:'{"stage":"validation","secret":"PRIVATE-DETAIL"}'});
+  assert.match(f.html,/prerequisites/);
+  assert.match(f.html,/tasks\/0/);
+  assert.match(f.html,new RegExp(diagnostic_id));
+  const calls=[];
+  await submitErrorFeedback(f.button,{send:async payload=>{calls.push(payload);return receipt;}});
+  assert.equal(calls[0].diagnostic_id,diagnostic_id);
+  assert.doesNotMatch(JSON.stringify(calls),/PRIVATE-DETAIL|diagnostics|missing_fields/);
 });
 
 function fixture(error = { status: 503, message: "文本识别配置不可用，API_KEY=PRIVATE" }, action = "text_import") {

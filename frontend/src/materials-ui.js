@@ -1,4 +1,4 @@
-import { describeUserError } from "./user-errors.js";
+import { describeUserError, diagnosticMarkup } from "./user-errors.js";
 import { api, session, accountVersion, flushStore } from "./team-store.js";
 import { newId } from "./id.js";
 
@@ -141,7 +141,7 @@ export function createMaterialsUI(host) {
     const names = Object.values(job.sources || {}).flatMap(source => Object.values(source.assets || {}));
     const assets = (job.result?.record_results || []).flatMap(record => (record.attachments || []).map(asset => `<li>${esc(job.sources?.[record.input_id]?.assets?.[asset.asset_id] || "附件")} · ${esc(attachmentLabels[asset.status] || "请查看识别结果")}${asset.coverage?.unread_locations?.length ? `<span class="status-note">${esc(asset.coverage.unread_locations.join("；"))}</span>` : ""}</li>`));
     return `<article class="material-job"><div class="material-job-heading"><h3>${esc(names.join("、") || "文件导入")}</h3><span class="status-note" role="status">${esc(labels[job.status] || "处理中")}</span></div>
-      ${errors.map(item => `<p class="error">${esc(errorLabel(item))}</p>`).join("")}
+      ${errors.map(item => `<p class="error">${esc(errorLabel(item))}</p>${diagnosticMarkup(item)}`).join("")}
       ${assets.length ? `<details class="source-disclosure"><summary>文件读取情况</summary><ul>${assets.join("")}</ul></details>` : ""}
       ${job.result?.status === "no_tasks" ? '<p class="status-note">未发现需要处理的任务。</p>' : ""}
       ${exhausted ? '<p class="status-note">本次导入的重试次数已用完，请重新上传失败的文件；成功结果已保留。</p>' : ""}

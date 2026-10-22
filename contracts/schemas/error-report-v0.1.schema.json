@@ -14,6 +14,10 @@
     "status"
   ],
   "properties": {
+    "diagnostic_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{24}$"
+    },
     "contract_version": {
       "const": "error-report/0.1"
     },
@@ -66,7 +70,11 @@
         "draft_evidence",
         "draft_semantics",
         "result_contract",
-        "save_failed"
+        "save_failed",
+        "internal_error",
+        "worker_terminated",
+        "worker_timeout",
+        "recognition_dependency"
       ]
     },
     "action": {

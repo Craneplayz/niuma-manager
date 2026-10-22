@@ -24,7 +24,7 @@ RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/
     && npm install -g pnpm@10.17.1
 WORKDIR /app
 COPY server/requirements.txt server/
-COPY ddl_text/media_requirements.txt ddl_text/teaching_requirements.txt ddl_text/
+COPY ddl_text/text_requirements.txt ddl_text/media_requirements.txt ddl_text/teaching_requirements.txt ddl_text/
 COPY contracts/requirements-dev.txt contracts/requirements-teaching-dev.txt contracts/
 ARG UV_INDEX_URL=https://pypi.org/simple
 RUN --mount=from=ghcr.io/astral-sh/uv:0.13.0,source=/uv,target=/bin/uv \

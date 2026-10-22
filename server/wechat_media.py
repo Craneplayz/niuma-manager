@@ -1,6 +1,7 @@
 """Account-scoped v0.3.1 WeChat asset and asynchronous import transport."""
 from contracts.recognition_errors import describe
 from server import recognition_diagnostics as diagnostics
+from ddl_text import diagnostics as trace
 import hashlib
 import copy
 import io
@@ -433,6 +434,8 @@ def _origin_job(db, job_id):
 def _job(row, db=None):
     total = len(json.loads(row['request'])['records'])
     result = json.loads(row['result']) if row['result'] else None
+    if result and db:
+        result['errors'] = diagnostics.hydrate_errors(db,row['user_id'],result['errors'])
     finished = total if row['status'] in ('succeeded', 'partial_failed', 'failed') else 0
     failed = total if row['status'] == 'failed' else sum(r['status'] in ('failed', 'partial_success') for r in result['record_results']) if result else 0
     if row['previous_result'] and row['status'] in ('queued','running'):
@@ -538,7 +541,7 @@ def _interrupted_record(request, record, message=None, code='agent_unavailable',
         message=message or '处理进程中断，未自动重复模型请求；可定向重试。',retryable=code=='agent_unavailable')
     result = dict(contract_version='0.3.1',request_id=request['request_id'],status='failed',record_results=[outcome],tasks=[],errors=[describe(item) for item in errors]+[describe(error,reason=diagnostic)])
     check_pair(dict(request,records=[record]),result)
-    return result
+    return diagnostics.stamp(result)
 
 
 def _combine_records(request, parts):
@@ -582,6 +585,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
             raise MediaError(503,'agent_unavailable','图片识别配置不可用，请检查模型配置') from None
         settings = Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=45,max_retries=0,
                             thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
+        diagnostics.event('configuration',model=settings.model,timeout_seconds=settings.timeout_seconds)
         if checkpoint is None:
             return process_media_request(request,assets,operations.observe_chat(ChatClient(options['key'])),settings,diagnostic_event=diagnostics.event)
         check_request(request)
@@ -594,6 +598,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
         client = operations.observe_chat(ChatClient(options['key']))
         expires = time.monotonic() + 180
         for index,record in enumerate(request['records']):
+            diagnostics.event('media_record',record_index=index,status='started')
             single = dict(request,records=[record])
             if record['input_id'] in saved:
                 part = saved[record['input_id']]
@@ -607,10 +612,12 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
                     part = process_media_request(single,assets,client,settings,
                         MediaLimits(record_seconds=min(70,remaining),batch_seconds=remaining), diagnostic_event=diagnostics.event)
                     check_pair(single,part)
-                except (ValueError, ValidationError, KeyError, TypeError):
+                except (ValueError, ValidationError, KeyError, TypeError) as error:
+                    trace.failure(error, stage='media_result_validation', reason='result_contract')
                     part = _interrupted_record(request,record,'此记录的识别结果未通过校验；其他记录保留。','invalid_agent_output')
-                except Exception:
-                    part = _interrupted_record(request,record,'此记录处理失败；其他记录保留，可定向重试。')
+                except Exception as error:
+                    trace.failure(error, stage='media_record_failed')
+                    part = _interrupted_record(request,record,'此记录处理失败；其他记录保留，可定向重试。', diagnostic='internal_error')
                 # Reserve a failure envelope for every remaining record before saving a result.
                 reserved = [saved.get(item['input_id']) or _interrupted_record(request,item,
                     '本批结果容量不足，请拆分导入。','limit_exceeded') for item in request['records'][index+1:]]
@@ -618,6 +625,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
                     _combine_records(request,parts+[part]+reserved)
                 except (ValueError,ValidationError) as error:
                     limited = str(error)=='result_too_large' or isinstance(error,ValidationError) and error.validator=='maxItems'
+                    trace.failure(error,stage='media_result_validation',reason='input_limit' if limited else 'result_contract')
                     part = _interrupted_record(request,record,
                         '本批结果容量不足，请拆分导入；此前结果保留。' if limited else '此记录与批次结果不一致；此前结果保留。',
                         'limit_exceeded' if limited else 'invalid_agent_output')
@@ -628,8 +636,8 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
         return _combine_records(request,parts)
 
 
-def _failed_result(request, code='agent_unavailable', message='附件识别暂不可用；没有将其当作无任务'):
-    return dict(contract_version='0.3.1', request_id=request['request_id'], status='failed', record_results=[], tasks=[], errors=[describe(dict(input_id=None, asset_id=None, block_id=None, stage='request', code=code, message=message, retryable=code=='agent_unavailable'))])
+def _failed_result(request, code='agent_unavailable', message='附件识别暂不可用；没有将其当作无任务', diagnostic=None):
+    return diagnostics.stamp(dict(contract_version='0.3.1', request_id=request['request_id'], status='failed', record_results=[], tasks=[], errors=[describe(dict(input_id=None, asset_id=None, block_id=None, stage='request', code=code, message=message, retryable=code=='agent_unavailable'),reason=diagnostic)]))
 
 
 def _apply_clear_tasks(db, row, result):
@@ -700,145 +708,152 @@ def _process(db_path, job_id):
             extraction = dict(request, records=[item for item in request['records'] if item['input_id'] in selected])
             db.execute("UPDATE wechat_jobs SET status='running' WHERE id=?", (job_id,))
             db.commit()
-            attempt_errors = []
-            origin_job_id, content_key = job_id, None
-            try:
-                assets = account_asset_loader(db_path, row['user_id'])
-                content_key = _content_key(request)
-                cached = db.execute('''SELECT j.* FROM wechat_content_cache c JOIN wechat_jobs j ON j.id=c.job_id
-                    WHERE c.user_id=? AND c.content_key=? AND j.user_id=? AND j.status='succeeded' ''',
-                    (row['user_id'],content_key,row['user_id'])).fetchone() if content_key and not previous else None
-                if cached:
-                    # A cached semantic result does not grant access to revoked/corrupt files.
-                    expires = time.monotonic() + 180
-                    for record in request['records']:
-                        for asset in record['attachments']:
-                            if asset.get('content_mode')=='file' and asset['status']=='available':
-                                remaining = expires-time.monotonic()
-                                if remaining<=0:
-                                    raise MediaError(503,'file_read_failed','缓存原件核验超时，请拆分导入',True)
-                                assets(asset['file_ref'],max_bytes=asset['size_bytes'],timeout_seconds=min(10,remaining))
-                    result = dict(json.loads(cached['result']),request_id=request['request_id'])
-                    origin_job_id = _origin_job(db,cached['id'])
-                else:
-                    def checkpoint(record, part):
-                        db.execute('BEGIN IMMEDIATE')
-                        current = db.execute('SELECT status,retry_id FROM wechat_jobs WHERE id=? AND user_id=?',(job_id,row['user_id'])).fetchone()
-                        if not current or current['status']!='running' or current['retry_id']!=row['retry_id']:
-                            db.rollback()
-                            raise FileNotFoundError('job_removed')
-                        db.execute('INSERT INTO wechat_record_runs VALUES(?,?,?,?) ON CONFLICT(job_id,retry_id,input_id) DO UPDATE SET result=excluded.result',
-                            (job_id,row['retry_id'] or '',record['input_id'],json.dumps(part,ensure_ascii=False) if part is not None else None))
-                        db.commit()
-                    completed = {item['input_id']:json.loads(item['result']) if item['result'] is not None else None
-                        for item in db.execute('SELECT input_id,result FROM wechat_record_runs WHERE job_id=? AND retry_id=?',(job_id,row['retry_id'] or ''))}
-                    # Recovered results may belong to a previous deployment/configuration.
-                    if completed:
-                        content_key = None
-                    with diagnostics.capture(db,row['user_id'],request['request_id']):
-                        result = recognize_v03(extraction, assets,checkpoint=checkpoint,completed=completed)
-                check_pair(extraction, result)
-                attempt_errors = result['errors']
-                if previous and not result['record_results']:
-                    result = previous
-                elif previous:
-                    outcomes = {item['input_id']:copy.deepcopy(item) for item in previous['record_results']}
-                    outcomes.update({item['input_id']:item for item in result['record_results']})
-                    prior = {item['candidate_id']: item for item in previous['tasks']}
-                    tasks = list(prior.values())
-                    for item in result['tasks']:
-                        if item['candidate_id'] in prior:
-                            if item == prior[item['candidate_id']]:
-                                continue
-                            item = dict(item,candidate_id='retry:'+hashlib.sha256((row['retry_id']+':'+item['candidate_id']).encode()).hexdigest())
-                        tasks.append(item)
-                    for outcome in outcomes.values():
-                        outcome['task_ids'] = [item['candidate_id'] for item in tasks if item['input_id'] == outcome['input_id']]
-                    errors = [item for item in previous['errors'] if item['input_id'] in done] + result['errors']
-                    failures = sum(item['status']=='failed' for item in outcomes.values())
-                    partial = any(item['status']=='partial_success' for item in outcomes.values())
-                    status = ('failed' if failures==len(request['records']) else 'partial_success') if failures else 'partial_success' if partial else 'success' if tasks else 'no_tasks'
-                    result = dict(contract_version='0.3.1', request_id=request['request_id'], status=status,
-                                  record_results=[outcomes[item['input_id']] for item in request['records']], tasks=tasks, errors=errors)
-                    check_pair(request, result)
-                if previous:
-                    check_retry_result(request,previous,result,sorted(selected))
-            except NotImplementedError:
-                attempt_errors = _failed_result(request)['errors']
-                result = previous if previous else _failed_result(request, message='附件读取适配器尚未接入；没有将其当作无任务')
-            except MediaError as error:
-                attempt_errors = _failed_result(request,error.code,error.message)['errors']
-                result = previous if previous else _failed_result(request,error.code,error.message)
-            except FileNotFoundError:
-                attempt_errors = _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')['errors']
-                result = previous if previous else _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')
-            except (ValueError, ValidationError, KeyError, TypeError) as error:
-                limited = str(error)=='result_too_large' or isinstance(error,ValidationError) and error.validator=='maxItems'
-                code = 'limit_exceeded' if limited else 'invalid_agent_output'
-                message = '合并结果超过容量限制，请拆分导入；已有结果保留。' if limited else '识别结果未通过 v0.3.1 校验；任务未新增'
-                attempt_errors = _failed_result(request,code,message)['errors']
-                result = previous if previous else _failed_result(request,code,message)
-            except Exception:
-                attempt_errors = _failed_result(request)['errors']
-                result = previous if previous else _failed_result(request)
-            status = {'success':'succeeded', 'no_tasks':'succeeded', 'partial_success':'partial_failed', 'failed':'failed'}[result['status']]
-            try:
-                db.execute('BEGIN IMMEDIATE')
-                current = db.execute('SELECT status FROM wechat_jobs WHERE id=? AND user_id=?',(job_id,row['user_id'])).fetchone()
-                if not current or current['status']!='running':
-                    db.rollback()
-                    return
-                revoked = set()
-                for record in extraction['records']:
-                    try:
-                        _validate_assets(db,row['user_id'],dict(extraction,records=[record]))
-                    except MediaError as error:
-                        if error.status!=404:raise
-                        revoked.add(record['input_id'])
-                if revoked:
-                    message='附件已撤销或失效；未发布本次识别结果，请重新上传。'
-                    attempt_errors = _failed_result(request,'file_ref_unavailable',message)['errors']
-                    content_key = None
-                    if previous:
+            with diagnostics.capture(db,row['user_id'],request['request_id']) as diagnostic_attempt:
+                attempt_errors = []
+                origin_job_id, content_key = job_id, None
+                try:
+                    assets = account_asset_loader(db_path, row['user_id'])
+                    content_key = _content_key(request)
+                    cached = db.execute('''SELECT j.* FROM wechat_content_cache c JOIN wechat_jobs j ON j.id=c.job_id
+                        WHERE c.user_id=? AND c.content_key=? AND j.user_id=? AND j.status='succeeded' ''',
+                        (row['user_id'],content_key,row['user_id'])).fetchone() if content_key and not previous else None
+                    if cached:
+                        # A cached semantic result does not grant access to revoked/corrupt files.
+                        expires = time.monotonic() + 180
+                        for record in request['records']:
+                            for asset in record['attachments']:
+                                if asset.get('content_mode')=='file' and asset['status']=='available':
+                                    remaining = expires-time.monotonic()
+                                    if remaining<=0:
+                                        raise MediaError(503,'file_read_failed','缓存原件核验超时，请拆分导入',True)
+                                    assets(asset['file_ref'],max_bytes=asset['size_bytes'],timeout_seconds=min(10,remaining))
+                        result = dict(json.loads(cached['result']),request_id=request['request_id'])
+                        origin_job_id = _origin_job(db,cached['id'])
+                    else:
+                        def checkpoint(record, part):
+                            if part is not None: diagnostics.stamp(part)
+                            db.execute('BEGIN IMMEDIATE')
+                            current = db.execute('SELECT status,retry_id FROM wechat_jobs WHERE id=? AND user_id=?',(job_id,row['user_id'])).fetchone()
+                            if not current or current['status']!='running' or current['retry_id']!=row['retry_id']:
+                                db.rollback()
+                                raise FileNotFoundError('job_removed')
+                            db.execute('INSERT INTO wechat_record_runs VALUES(?,?,?,?) ON CONFLICT(job_id,retry_id,input_id) DO UPDATE SET result=excluded.result',
+                                (job_id,row['retry_id'] or '',record['input_id'],json.dumps(part,ensure_ascii=False) if part is not None else None))
+                            db.commit()
+                        completed = {item['input_id']:json.loads(item['result']) if item['result'] is not None else None
+                            for item in db.execute('SELECT input_id,result FROM wechat_record_runs WHERE job_id=? AND retry_id=?',(job_id,row['retry_id'] or ''))}
+                        # Recovered results may belong to a previous deployment/configuration.
+                        if completed:
+                            content_key = None
+                        result = diagnostics.stamp(recognize_v03(extraction, assets,checkpoint=checkpoint,completed=completed))
+                    check_pair(extraction, result)
+                    attempt_errors = result['errors']
+                    if previous and not result['record_results']:
                         result = previous
-                    elif not result['record_results']:
-                        result = _failed_result(request,'file_ref_unavailable',message)
-                    else:
-                        parts = []
-                        outcomes = {item['input_id']:item for item in result['record_results']}
-                        for index,record in enumerate(request['records']):
-                            rid = record['input_id']
-                            if rid in revoked:
-                                parts.append(_interrupted_record(request,record,message,'file_ref_unavailable'))
-                            else:
-                                parts.append(dict(record_results=[outcomes[rid]],tasks=[item for item in result['tasks'] if item['input_id']==rid],
-                                    errors=[item for item in result['errors'] if item['input_id']==rid or (index==0 and item['input_id'] is None)]))
-                        result = _combine_records(request,parts)
-                    status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[result['status']]
-                if status in ('succeeded', 'partial_failed'):
-                    if origin_job_id == job_id:
-                        _apply_clear_tasks(db, row, result)
-                        _store_candidates(db, row, result)
-                    else:
-                        db.execute('INSERT INTO wechat_job_origins VALUES(?,?)',(job_id,origin_job_id))
-                        _store_candidates(db,row,result,origin_job_id)
-                db.execute('UPDATE wechat_jobs SET status=?,result=?,previous_result=NULL WHERE id=?', (status, json.dumps(result, ensure_ascii=False), job_id))
-                if content_key and status=='succeeded' and not attempt_errors:
-                    db.execute('INSERT INTO wechat_content_cache VALUES(?,?,?) ON CONFLICT(user_id,content_key) DO UPDATE SET job_id=excluded.job_id',
-                               (row['user_id'],content_key,origin_job_id))
-                if row['retry_id']:
-                    db.execute('UPDATE wechat_retries SET status=?,errors=? WHERE job_id=? AND retry_id=?', (status,json.dumps(attempt_errors,ensure_ascii=False),job_id,row['retry_id']))
-                db.commit()
-            except Exception:
-                db.rollback()
-                failure = previous if previous else _failed_result(request)
-                fallback_status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[failure['status']]
-                db.execute('UPDATE wechat_jobs SET status=?,result=?,previous_result=NULL WHERE id=?',
-                           (fallback_status, json.dumps(failure, ensure_ascii=False), job_id))
-                if row['retry_id']:
-                    db.execute('UPDATE wechat_retries SET status=?,errors=? WHERE job_id=? AND retry_id=?',
-                               (fallback_status,json.dumps(_failed_result(request)['errors']),job_id,row['retry_id']))
-                db.commit()
+                    elif previous:
+                        outcomes = {item['input_id']:copy.deepcopy(item) for item in previous['record_results']}
+                        outcomes.update({item['input_id']:item for item in result['record_results']})
+                        prior = {item['candidate_id']: item for item in previous['tasks']}
+                        tasks = list(prior.values())
+                        for item in result['tasks']:
+                            if item['candidate_id'] in prior:
+                                if item == prior[item['candidate_id']]:
+                                    continue
+                                item = dict(item,candidate_id='retry:'+hashlib.sha256((row['retry_id']+':'+item['candidate_id']).encode()).hexdigest())
+                            tasks.append(item)
+                        for outcome in outcomes.values():
+                            outcome['task_ids'] = [item['candidate_id'] for item in tasks if item['input_id'] == outcome['input_id']]
+                        errors = [item for item in previous['errors'] if item['input_id'] in done] + result['errors']
+                        failures = sum(item['status']=='failed' for item in outcomes.values())
+                        partial = any(item['status']=='partial_success' for item in outcomes.values())
+                        status = ('failed' if failures==len(request['records']) else 'partial_success') if failures else 'partial_success' if partial else 'success' if tasks else 'no_tasks'
+                        result = dict(contract_version='0.3.1', request_id=request['request_id'], status=status,
+                                      record_results=[outcomes[item['input_id']] for item in request['records']], tasks=tasks, errors=errors)
+                        check_pair(request, result)
+                    if previous:
+                        check_retry_result(request,previous,result,sorted(selected))
+                except NotImplementedError as error:
+                    trace.failure(error,stage='media_job_failed',reason='attachment_unsupported')
+                    attempt_errors = _failed_result(request)['errors']
+                    result = previous if previous else _failed_result(request, message='附件读取适配器尚未接入；没有将其当作无任务')
+                except MediaError as error:
+                    trace.failure(error,stage='media_job_failed')
+                    attempt_errors = _failed_result(request,error.code,error.message)['errors']
+                    result = previous if previous else _failed_result(request,error.code,error.message)
+                except FileNotFoundError as error:
+                    trace.failure(error,stage='media_job_failed',reason='attachment_unavailable')
+                    attempt_errors = _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')['errors']
+                    result = previous if previous else _failed_result(request,'file_ref_unavailable','附件已删除或失效，请重新上传')
+                except (ValueError, ValidationError, KeyError, TypeError) as error:
+                    limited = str(error)=='result_too_large' or isinstance(error,ValidationError) and error.validator=='maxItems'
+                    trace.failure(error,stage='media_result_validation',reason='input_limit' if limited else 'result_contract')
+                    code = 'limit_exceeded' if limited else 'invalid_agent_output'
+                    message = '合并结果超过容量限制，请拆分导入；已有结果保留。' if limited else '识别结果未通过 v0.3.1 校验；任务未新增'
+                    attempt_errors = _failed_result(request,code,message)['errors']
+                    result = previous if previous else _failed_result(request,code,message)
+                except Exception as error:
+                    trace.failure(error, stage='media_job_failed')
+                    attempt_errors = _failed_result(request, diagnostic='internal_error')['errors']
+                    result = previous if previous else _failed_result(request, diagnostic='internal_error')
+                status = {'success':'succeeded', 'no_tasks':'succeeded', 'partial_success':'partial_failed', 'failed':'failed'}[result['status']]
+                try:
+                    db.execute('BEGIN IMMEDIATE')
+                    current = db.execute('SELECT status FROM wechat_jobs WHERE id=? AND user_id=?',(job_id,row['user_id'])).fetchone()
+                    if not current or current['status']!='running':
+                        db.rollback()
+                        return
+                    revoked = set()
+                    for record in extraction['records']:
+                        try:
+                            _validate_assets(db,row['user_id'],dict(extraction,records=[record]))
+                        except MediaError as error:
+                            if error.status!=404:raise
+                            revoked.add(record['input_id'])
+                    if revoked:
+                        message='附件已撤销或失效；未发布本次识别结果，请重新上传。'
+                        attempt_errors = _failed_result(request,'file_ref_unavailable',message)['errors']
+                        content_key = None
+                        if previous:
+                            result = previous
+                        elif not result['record_results']:
+                            result = _failed_result(request,'file_ref_unavailable',message)
+                        else:
+                            parts = []
+                            outcomes = {item['input_id']:item for item in result['record_results']}
+                            for index,record in enumerate(request['records']):
+                                rid = record['input_id']
+                                if rid in revoked:
+                                    parts.append(_interrupted_record(request,record,message,'file_ref_unavailable'))
+                                else:
+                                    parts.append(dict(record_results=[outcomes[rid]],tasks=[item for item in result['tasks'] if item['input_id']==rid],
+                                        errors=[item for item in result['errors'] if item['input_id']==rid or (index==0 and item['input_id'] is None)]))
+                            result = _combine_records(request,parts)
+                        status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[result['status']]
+                    if status in ('succeeded', 'partial_failed'):
+                        if origin_job_id == job_id:
+                            _apply_clear_tasks(db, row, result)
+                            _store_candidates(db, row, result)
+                        else:
+                            db.execute('INSERT INTO wechat_job_origins VALUES(?,?)',(job_id,origin_job_id))
+                            _store_candidates(db,row,result,origin_job_id)
+                    db.execute('UPDATE wechat_jobs SET status=?,result=?,previous_result=NULL WHERE id=?', (status, json.dumps(result, ensure_ascii=False), job_id))
+                    if content_key and status=='succeeded' and not attempt_errors:
+                        db.execute('INSERT INTO wechat_content_cache VALUES(?,?,?) ON CONFLICT(user_id,content_key) DO UPDATE SET job_id=excluded.job_id',
+                                   (row['user_id'],content_key,origin_job_id))
+                    if row['retry_id']:
+                        db.execute('UPDATE wechat_retries SET status=?,errors=? WHERE job_id=? AND retry_id=?', (status,json.dumps(attempt_errors,ensure_ascii=False),job_id,row['retry_id']))
+                    db.commit()
+                except Exception as error:
+                    trace.failure(error, stage='media_save_failed', reason='save_failed')
+                    db.rollback()
+                    failure = previous if previous else _failed_result(request, diagnostic='save_failed')
+                    fallback_status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[failure['status']]
+                    db.execute('UPDATE wechat_jobs SET status=?,result=?,previous_result=NULL WHERE id=?',
+                               (fallback_status, json.dumps(failure, ensure_ascii=False), job_id))
+                    if row['retry_id']:
+                        db.execute('UPDATE wechat_retries SET status=?,errors=? WHERE job_id=? AND retry_id=?',
+                                   (fallback_status,json.dumps(_failed_result(request, diagnostic='save_failed')['errors']),job_id,row['retry_id']))
+                    db.commit()
         finally:
             db.close()
 
@@ -914,7 +929,7 @@ def route(handler, db, uid, path, body, data_dir):
             attempt = db.execute('SELECT errors FROM wechat_retries WHERE job_id=? AND retry_id=?', (row['id'],row['retry_id'])).fetchone()
             origin = db.execute('SELECT request_id FROM wechat_jobs WHERE id=? AND user_id=?',(_origin_job(db,row['id']),uid)).fetchone()
             items = [dict(id=item['id'],candidate_id=json.loads(item['candidate'])['candidate_id'],state=item['state'],version=item['version']) for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,origin['request_id']))]
-            jobs.append(dict(_job(row,db),sources=_sources(json.loads(row['request'])),items=items,last_attempt_errors=json.loads(attempt['errors']) if attempt and attempt['errors'] else []))
+            jobs.append(dict(_job(row,db),sources=_sources(json.loads(row['request'])),items=items,last_attempt_errors=[diagnostics.hydrate(db,uid,error) for error in json.loads(attempt['errors'])] if attempt and attempt['errors'] else []))
             if getattr(handler,'user_materials',False):
                 jobs[-1]['retry_remaining']=max(0,3-row['attempts'])
         handler.reply(200, dict(jobs=jobs))

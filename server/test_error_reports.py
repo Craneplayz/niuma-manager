@@ -17,6 +17,15 @@ CASES = json.loads((Path(__file__).resolve().parent.parent / 'contracts/examples
 
 
 class ErrorReportTests(unittest.TestCase):
+    def test_explicit_feedback_preserves_diagnostic_id_without_details(self):
+        payload=dict(CASES[0],diagnostic_id='a1'*12)
+        self.assertEqual(self.call('/error-reports',payload)[0],200)
+        with app.connection() as db:
+            saved=json.loads(db.execute('SELECT report FROM error_reports').fetchone()[0])
+        self.assertEqual(saved['diagnostic_id'],payload['diagnostic_id'])
+        self.assertNotIn('diagnostics',saved)
+        self.assertEqual(self.call('/error-reports',dict(payload,diagnostics='PRIVATE-DETAIL'))[0],400)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.old = app.DB

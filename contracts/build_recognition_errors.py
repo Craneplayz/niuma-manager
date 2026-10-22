@@ -20,6 +20,8 @@ def generate(check=False):
                 if {'code', 'message', 'retryable'} <= properties.keys():
                     properties['failure'] = {'$ref': '#/$defs/recognition_failure'}
                     properties['diagnostic'] = {'$ref': '#/$defs/recognition_diagnostic'}
+                    properties['diagnostic_id'] = {'type': 'string', 'pattern': '^[0-9a-f]{24}$'}
+                    properties['diagnostics'] = {'type': 'string', 'maxLength': 65536}
                 for value in node.values(): visit(value)
             elif isinstance(node, list):
                 for value in node: visit(value)

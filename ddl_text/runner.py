@@ -8,6 +8,7 @@ import time
 
 from .adapters import AgentError, safe_schema_detail
 from .classification import CandidateTasks
+from . import diagnostics
 
 
 MESSAGES = {
@@ -24,7 +25,8 @@ MAX_RESPONSE_BYTES = 1024 * 1024
 
 def _worker(connection, adapter, record, settings, attempt):
     # Prevent adapter debug prints and exceptions from leaking private input.
-    with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+    event = diagnostics.forwarding_sink(lambda value: connection.send_bytes(json.dumps(dict(event=value)).encode('utf-8')))
+    with diagnostics.scope(event), open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
         try:
             try:
                 tasks = adapter.extract(record, settings, attempt)
@@ -36,14 +38,15 @@ def _worker(connection, adapter, record, settings, attempt):
                 if len(encoded) > MAX_RESPONSE_BYTES:
                     raise AgentError("invalid_agent_output", False)
             except AgentError as error:
+                diagnostics.failure(error, boundary='text_worker')
                 code = error.code if isinstance(error.code, str) and error.code in AGENT_CODES else "agent_unavailable"
                 encoded = json.dumps({"ok": False, "code": code,
                                       "retryable": error.retryable is True,
                                       "diagnostic": AgentError(diagnostic=error.diagnostic).diagnostic,
                                       "detail": safe_schema_detail(error.detail)}).encode("utf-8")
-            except Exception:
-                # Do not serialize exception messages, stack traces or secrets.
-                encoded = b'{"ok":false,"code":"agent_unavailable","retryable":false}'
+            except Exception as error:
+                diagnostics.failure(error, boundary='text_worker')
+                encoded = b'{"ok":false,"code":"agent_unavailable","retryable":false,"diagnostic":"internal_error"}'
             connection.send_bytes(encoded)
         finally:
             connection.close()
@@ -59,20 +62,27 @@ def run_attempt(adapter, record, settings, attempt):
             return adapter.extract(record, settings, attempt)
         except AgentError:
             raise
-        except Exception:
-            raise AgentError("agent_unavailable", False) from None
+        except Exception as error:
+            diagnostics.failure(error, boundary='direct_adapter')
+            raise AgentError("agent_unavailable", False, 'internal_error') from None
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_worker, args=(sender, adapter, record, settings, attempt), daemon=True)
     started = False
     deadline = time.monotonic() + settings.timeout_seconds
+    diagnostics.emit('worker', status='started', timeout_seconds=settings.timeout_seconds, boundary='text_worker')
     try:
         process.start()
         started = True
         sender.close()
-        if not receiver.poll(max(0, deadline - time.monotonic())):
-            raise AgentError("agent_timeout", True)
-        response = json.loads(receiver.recv_bytes(MAX_RESPONSE_BYTES).decode("utf-8"))
+        while True:
+            if not receiver.poll(max(0, deadline - time.monotonic())):
+                diagnostics.emit('worker', status='timeout', boundary='text_worker', timeout_seconds=settings.timeout_seconds)
+                raise AgentError("agent_timeout", True, 'worker_timeout')
+            response = json.loads(receiver.recv_bytes(MAX_RESPONSE_BYTES).decode("utf-8"))
+            if 'event' not in response: break
+            event = response['event']
+            diagnostics.emit(event.pop('stage'), **event)
         if not response["ok"]:
             error = AgentError(response["code"], response["retryable"], response.get('diagnostic'))
             error.detail = safe_schema_detail(response.get('detail'))
@@ -83,8 +93,13 @@ def run_attempt(adapter, record, settings, attempt):
         return CandidateTasks(response["tasks"], response.get("warnings", []))
     except AgentError:
         raise
-    except Exception:
-        raise AgentError("agent_unavailable", False) from None
+    except (EOFError, BrokenPipeError) as error:
+        process.join(timeout=.05)
+        diagnostics.failure(error, boundary='text_worker', exit_code=process.exitcode)
+        raise AgentError('agent_unavailable', False, 'worker_terminated') from None
+    except Exception as error:
+        diagnostics.failure(error, boundary='text_worker_transport')
+        raise AgentError("agent_unavailable", False, 'internal_error') from None
     finally:
         receiver.close()
         sender.close()
@@ -96,4 +111,5 @@ def run_attempt(adapter, record, settings, attempt):
             if process.is_alive():
                 process.kill()
                 process.join(timeout=1)
+            diagnostics.emit('worker_exit', boundary='text_worker', exit_code=process.exitcode)
             process.close()

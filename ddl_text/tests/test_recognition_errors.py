@@ -54,6 +54,31 @@ def schema_failure():
 
 
 class RecognitionErrorTests(unittest.TestCase):
+    def test_missing_text_validator_is_dependency_failure_not_provider_failure(self):
+        import builtins
+        original=builtins.__import__
+        def without_validator(name,*args,**kwargs):
+            if name=='jsonschema': raise ModuleNotFoundError('synthetic missing validator')
+            return original(name,*args,**kwargs)
+        with patch('builtins.__import__',side_effect=without_validator):
+            with self.assertRaises(AgentError) as caught:
+                compile_drafts('{"tasks":[]}',message())
+        self.assertEqual(caught.exception.diagnostic,'recognition_dependency')
+        self.assertFalse(caught.exception.retryable)
+
+    def test_historical_course_quotes_keep_upstream_and_validate_evidence(self):
+        for upstream, quoted in (('ICS','ICS'),('数据科学','数据科学'),('主课程','讨论课')):
+            record=message(quoted+'请交报告。',course_or_project=upstream)
+            item=draft(record,course=dict(input_id=record['input_id'],quote=quoted,value=quoted))
+            tasks=compile_drafts(json.dumps(dict(tasks=[item])),record)
+            self.assertEqual(len(tasks),1)
+            self.assertEqual(tasks[0]['course_or_project'],upstream)
+            if upstream!=quoted:
+                self.assertTrue(tasks[0]['needs_review'])
+                self.assertTrue(any('课程' in reason for reason in tasks[0]['review_reasons']))
+            item['course']['quote']='并不存在的证据'
+            with self.assertRaises(AgentError): compile_drafts(json.dumps(dict(tasks=[item])),record)
+
     def test_catalog_contract_and_messages_are_content_free(self):
         generate(check=True)
         for reason in CATALOG:

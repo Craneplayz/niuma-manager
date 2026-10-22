@@ -81,7 +81,8 @@ def parse_draft(raw, image_ids):
         Draft202012Validator(draft_schema(), format_checker=FORMATS).validate(draft)
     except ValidationError as exc:
         error = AgentError('invalid_agent_output', True, 'draft_schema')
-        error.detail = safe_schema_detail(dict(schema_path='/'.join(map(str, exc.absolute_schema_path)), rule=exc.validator))
+        from contracts.recognition_errors import validation_detail
+        error.detail = validation_detail(exc)
         raise error from None
     qualities = draft['image_quality']
     if len(qualities) != len(image_ids) or {q['asset_id'] for q in qualities} != set(image_ids):

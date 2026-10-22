@@ -1,4 +1,4 @@
-"""Bounded test-only attempt diagnostics. Never store prompts, bodies or secrets."""
+"""Bounded content-free diagnostics; detailed views are development/test only."""
 from contextlib import contextmanager, closing
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -8,12 +8,34 @@ import secrets
 import sqlite3
 import time
 import traceback
+import logging
 from pathlib import Path
 
 from ddl_text.adapters import safe_schema_detail
 from server.runtime_environment import environment, revision
+from ddl_text import diagnostics as trace
+from contracts.recognition_errors import describe, DEFAULTS
 
 _active = ContextVar('recognition_diagnostic_attempt', default=None)
+
+
+def detailed():
+    return environment() in ('development', 'test')
+
+
+def current_id():
+    attempt = _active.get()
+    return attempt['attempt_id'] if attempt else None
+
+
+def stamp(result):
+    """Stamp fresh errors only; preserved retry/checkpoint errors keep their IDs."""
+    identity = current_id()
+    if not identity: return result
+    errors = list(result.get('errors', []))
+    errors.extend(row['error'] for row in result.get('record_results', []) if row.get('error'))
+    for error in errors: error.setdefault('diagnostic_id', identity)
+    return result
 
 
 def initialize(db):
@@ -30,38 +52,41 @@ def event(stage, **fields):
         attempt['omitted_events'] = attempt.get('omitted_events', 0) + 1
         # Retain the failure/terminal event even for a long document.
         del attempt['events'][1]
-    safe = {'stage': stage}
-    for key in ('code','diagnostic','exception_type','mime_type','file_sha256','cache','model','status'):
-        value = fields.get(key)
-        if isinstance(value,str) and re.fullmatch(r'[A-Za-z0-9_.:/-]{1,100}',value): safe[key] = value
-    for key in ('seconds','timeout_seconds','bytes','page_start','page_count','total_pages','completed_pages','native_pages','visual_pages','batch_pages'):
-        value = fields.get(key)
-        if type(value) in (int,float) and 0 <= value < 1e12: safe[key] = round(value,3)
-    detail = safe_schema_detail(fields.get('schema'))
-    if detail: safe['schema'] = detail
-    attempt['events'].append(safe)
+    safe = trace.sanitize(stage, fields)
+    if safe:
+        safe['sequence'] = attempt.get('event_count', 0)
+        attempt['event_count'] = safe['sequence'] + 1
+        attempt['events'].append(safe)
 
 
 @contextmanager
 def capture(db, uid, request_id):
     """Yield an attempt that callers can persist again after a business rollback."""
-    if environment() != 'test':
-        yield None
-        return
     started = time.monotonic()
     attempt = dict(attempt_id=secrets.token_hex(12),request_id=request_id,revision=revision(),
-                   started_at=datetime.now(timezone.utc).isoformat(),events=[])
+                   environment=environment(),started_at=datetime.now(timezone.utc).isoformat(),events=[])
     token = _active.set(attempt)
+    raised = None
     try:
-        yield attempt
+        with trace.scope(event): yield attempt
     except Exception as error:
-        event('exception',code=getattr(error,'code','recognition_failed'),exception_type=type(error).__name__,
-              diagnostic=getattr(error,'diagnostic',None),schema=getattr(error,'detail',None))
-        root = Path(__file__).resolve().parents[1]
-        attempt['locations'] = [dict(file=str(Path(f.filename).resolve().relative_to(root)).replace('\\','/'),
-                                    line=f.lineno,function=f.name)
-            for f in traceback.extract_tb(error.__traceback__)[-12:]
-            if Path(f.filename).resolve().is_relative_to(root)]
+        raised = error
+        error._recognition_attempt = attempt
+        code = getattr(error,'code', None)
+        status = getattr(error,'status',None)
+        reason = getattr(error,'diagnostic',None) or DEFAULTS.get(code) or (
+            'save_failed' if isinstance(error,sqlite3.Error) else
+            'source_changed' if status==409 else
+            'invalid_input' if status==400 else
+            'model_unavailable' if status in (502,503) else
+            'model_timeout' if status in (408,504) else
+            'model_rate_limited' if status==429 else 'internal_error')
+        event('exception',code=code or 'agent_unavailable',exception_type=type(error).__name__,
+              diagnostic=reason,schema=getattr(error,'detail',None), locations=trace.locations(error))
+        retryable = getattr(error,'retryable',reason in (
+            'internal_error','save_failed','model_unavailable','model_timeout','model_rate_limited','model_busy'))
+        error._recognition_failure = describe(dict(code=code or 'agent_unavailable', retryable=retryable is True,
+            diagnostic_id=attempt['attempt_id']), reason=reason, detail=getattr(error,'detail',None))
         raise
     finally:
         attempt['seconds'] = round(time.monotonic()-started,3)
@@ -69,7 +94,10 @@ def capture(db, uid, request_id):
             del attempt['events'][1]
             attempt['omitted_events'] = attempt.get('omitted_events',0)+1
         _active.reset(token)
-        persist(db, uid, attempt)
+        saved = persist(db, uid, attempt)
+        if raised is not None and detailed():
+            raised._recognition_failure['diagnostics'] = json.dumps(dict(attempt,
+                persistence='saved' if saved else 'unavailable'), ensure_ascii=False, indent=2)
 
 
 def persist(db, uid, attempt):
@@ -79,7 +107,7 @@ def persist(db, uid, attempt):
     that transaction is rolled back, the failure handler saves the yielded
     attempt again before starting its error-receipt transaction.
     """
-    if environment() != 'test' or attempt is None: return
+    if attempt is None: return False
     def save(connection):
         initialize(connection)
         connection.execute('INSERT OR IGNORE INTO recognition_attempt_diagnostics VALUES(?,?,?,?,?)',
@@ -87,18 +115,59 @@ def persist(db, uid, attempt):
         connection.execute('''DELETE FROM recognition_attempt_diagnostics WHERE user_id=? AND id NOT IN (
             SELECT id FROM recognition_attempt_diagnostics WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT 200)''',(uid,uid))
     try:
+        if db is None: raise sqlite3.OperationalError('diagnostic_connection_unavailable')
         path = db.execute('PRAGMA database_list').fetchone()[2]
         if not path or db.in_transaction: save(db)
         else:
             with closing(sqlite3.connect(path,timeout=5)) as connection, connection: save(connection)
-    except sqlite3.Error:
-        pass  # Diagnostics must not obscure the original failure.
+        return True
+    except (sqlite3.Error,OSError):
+        # Bounded, sanitized fallback, no exception text or request/user identity.
+        logging.getLogger('recognition_diagnostics').error(json.dumps(dict(
+            diagnostic_id=attempt['attempt_id'], persistence='unavailable', events=attempt['events'])))
+        return False
+
+
+def finalize_error(db, uid, error):
+    """The request failed: roll back writes before saving its diagnostic independently."""
+    value = getattr(error, '_recognition_failure', None)
+    attempt = getattr(error, '_recognition_attempt', None)
+    if not value: return None
+    if attempt is not None:
+        if db is not None: db.rollback()
+        saved = persist(db, uid, attempt)
+        if detailed():
+            value = dict(value, diagnostics=json.dumps(dict(attempt,
+                persistence='saved' if saved else 'unavailable'),ensure_ascii=False,indent=2))
+    return value
 
 
 def attempts(db, uid, request_id):
-    if environment() != 'test': return []
+    if not detailed(): return []
     return [json.loads(row[0]) for row in db.execute('''SELECT detail FROM recognition_attempt_diagnostics
         WHERE user_id=? AND request_id=? ORDER BY created_at DESC,id DESC LIMIT 20''',(uid,request_id))]
+
+
+def lookup(db, uid, identity):
+    if not detailed(): return []
+    return [json.loads(row[0]) for row in db.execute(
+        'SELECT detail FROM recognition_attempt_diagnostics WHERE user_id=? AND id=?',(uid,identity))]
+
+
+def hydrate_errors(db, uid, errors):
+    """Inline a bounded preview once per attempt; IDs always allow exact lookup."""
+    result, seen, size = [], set(), 0
+    for error in errors:
+        current = hydrate(db,uid,error)
+        detail = current.get('diagnostics')
+        if detail:
+            identity = current.get('diagnostic_id') or detail
+            if identity in seen or size + len(detail.encode('utf-8')) > 120000:
+                current.pop('diagnostics')
+            else:
+                seen.add(identity); size += len(detail.encode('utf-8'))
+        result.append(current)
+    return result
 
 
 def bind(db, uid, request_id, error, *, attempt_id=None):
@@ -108,7 +177,7 @@ def bind(db, uid, request_id, error, *, attempt_id=None):
 
 def reference(db, uid, request_id, error, *, attempt_id=None):
     """Bind a durable error to one retained attempt without copying its body."""
-    if not error or environment() != 'test' or not attempt_id: return error
+    if not error or error.get('diagnostic_id') or not attempt_id: return error
     row = db.execute('''SELECT id FROM recognition_attempt_diagnostics
         WHERE user_id=? AND request_id=? AND id=?''',(uid,request_id,attempt_id)).fetchone()
     if row:
@@ -137,7 +206,13 @@ def hydrate(db, uid, error):
     if not error: return error
     error = dict(compact(error))
     ref = error.pop('_diagnostic_attempt',None)
-    if (environment() != 'test' or db is None or uid is None or not isinstance(ref,dict)
+    identity = error.get('diagnostic_id')
+    if isinstance(identity,str) and re.fullmatch(r'[0-9a-f]{24}',identity):
+        if not detailed() or db is None or uid is None: return error
+        row = db.execute('SELECT detail FROM recognition_attempt_diagnostics WHERE user_id=? AND id=?',(uid,identity)).fetchone()
+        if row: error['diagnostics'] = json.dumps(json.loads(row[0]),ensure_ascii=False,indent=2)
+        return error
+    if (not detailed() or db is None or uid is None or not isinstance(ref,dict)
             or not isinstance(ref.get('request_id'),str) or not isinstance(ref.get('id'),str)): return error
     row = db.execute('''SELECT detail FROM recognition_attempt_diagnostics
         WHERE user_id=? AND request_id=? AND id=?''',(uid,ref.get('request_id'),ref.get('id'))).fetchone()

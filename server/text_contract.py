@@ -149,7 +149,9 @@ def validate_result(request,result):
             validate_failure(error['failure'])
         if isinstance(error, dict) and 'diagnostic' in error:
             require(safe_schema_detail(error['diagnostic']) is not None)
-        fields({k: v for k, v in error.items() if k not in ('failure', 'diagnostic')} if isinstance(error, dict) else error,'input_id code message retryable')
+        if isinstance(error, dict) and 'diagnostic_id' in error:
+            require(isinstance(error['diagnostic_id'],str) and re.fullmatch(r'[0-9a-f]{24}',error['diagnostic_id']))
+        fields({k: v for k, v in error.items() if k not in ('failure', 'diagnostic', 'diagnostic_id')} if isinstance(error, dict) else error,'input_id code message retryable')
         require(error['input_id'] is None or error['input_id'] in records)
         string(error['code'],nonempty=True);string(error['message']);require(type(error['retryable']) is bool)
     if any(e['input_id'] is None for e in result['errors']):

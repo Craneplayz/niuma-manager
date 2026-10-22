@@ -119,7 +119,7 @@ def result_view(request, result):
         if failed:
             failure = row['error'] or dict(code='incomplete_source',message=SOURCE_INCOMPLETE,retryable=False)
             errors.append(dict(input_id=row['input_id'], **{k:failure[k] for k in
-                ('code','message','retryable','failure','diagnostic') if k in failure}))
+                ('code','message','retryable','failure','diagnostic','diagnostic_id') if k in failure}))
     return dict(contract_version=VIEW, request_id=request['request_id'], status=result['status'],
         record_results=rows, tasks=tasks, errors=errors)
 
@@ -262,8 +262,13 @@ def validate_current_result(request, result, policy, ApiError):
         if result.get('classification_mode') != CLASSIFICATION_MODE: raise ValueError()
         validate_teaching_result(request,result,verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
         if not policy or result['policy_version']!=policy['version']: raise ValueError()
-    except Exception:
-        raise ApiError(502,'教学网结果未通过证据和版本校验，未保存候选') from None
+    except Exception as cause:
+        from ddl_text import diagnostics as trace
+        trace.failure(cause,stage='result_validation',reason='result_contract')
+        error=ApiError(502,'教学网结果未通过证据和版本校验，未保存候选')
+        error.code='invalid_agent_output'
+        error.diagnostic='result_contract'
+        raise error from None
 
 
 def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
@@ -282,53 +287,58 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     if previous:operations.emit('outcome',code='retry')
     if previous and needs_source_completion(json.loads(previous['result'])):
         raise ApiError(409,SOURCE_INCOMPLETE)
-    if not recognition._ACTIVE.acquire(): raise ApiError(503,WAIT_ERROR)
+    if not recognition._ACTIVE.acquire():
+        with diagnostics.capture(db,uid,request['request_id']):
+            error=ApiError(503,WAIT_ERROR)
+            error.code,error.diagnostic='agent_unavailable','model_busy'
+            raise error
     try:
         if guard: guard(db)
         with diagnostics.capture(db,uid,request['request_id']) as attempt:
             if diagnostic_attempt is not None and attempt is not None:
                 diagnostic_attempt['id'] = attempt['attempt_id']
             result, policy = recognize(request,ApiError,**attachments)
+            diagnostics.stamp(result)
             for outcome in result['record_results']:
                 failure = outcome.get('error') or {}
                 diagnostics.event('result',status=outcome['status'],code=failure.get('code'),schema=failure.get('diagnostic'))
             with operations.span('validation'):validate_current_result(request,result,policy,ApiError)
-        saving=time.monotonic()
-        db.execute('BEGIN IMMEDIATE')
-        if guard: guard(db)
-        if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
-        if submission.controls.token(db,uid,request['request_id'])!=control_token: raise ApiError(409,'作业关联在识别期间发生变化，请重新同步')
-        now = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-        if now and (not previous or now['result']!=previous['result']):
-            # The stored result belongs to the competing attempt, not this one.
-            # Without its exact ID, omit diagnostics rather than misattribute it.
-            if diagnostic_attempt is not None: diagnostic_attempt.clear()
-            return
-        # Every stored teaching request is a single record. Failed/incomplete attempts have no cards.
-        attempt_id = attempt['attempt_id'] if attempt is not None else None
-        if previous:
-            db.execute('UPDATE recognition_batches SET result=?,request=?,fingerprint=?,attempt_id=? WHERE user_id=? AND request_id=?',
-                (json.dumps(result),json.dumps(request),hashlib.sha256(canonical(request)).hexdigest(),attempt_id,uid,request['request_id']))
-        else:
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
-        cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-        teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
-        for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):
-            db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
-                (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
-        submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))
-        for saved in db.execute("SELECT id,candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state='pending'",
-                                (uid,request['request_id'])).fetchall():
-            card = submission.decorate(db,uid,request['request_id'],json.loads(saved['candidate']))
-            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),saved['id']))
-        db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
-            (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
-        submission.controls.refresh_request(db,uid,request['request_id'])
-        operations.emit('save',(time.monotonic()-saving)*1000)
-        for row in result['record_results']:
-            code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])
-            if code in operations.CODES:operations.after_commit(db,'outcome',code=code,result='failed' if row['status']=='failed' else 'ok')
-            filtered=sum(decision.get('recommendation')=='filtered' for decision in row.get('decisions',[]))
-            if filtered:operations.after_commit(db,'outcome',code='filtered',quantity=filtered)
+            saving=time.monotonic()
+            db.execute('BEGIN IMMEDIATE')
+            if guard: guard(db)
+            if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
+            if submission.controls.token(db,uid,request['request_id'])!=control_token: raise ApiError(409,'作业关联在识别期间发生变化，请重新同步')
+            now = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
+            if now and (not previous or now['result']!=previous['result']):
+                # The stored result belongs to the competing attempt, not this one.
+                # Without its exact ID, omit diagnostics rather than misattribute it.
+                if diagnostic_attempt is not None: diagnostic_attempt.clear()
+                return
+            # Every stored teaching request is a single record. Failed/incomplete attempts have no cards.
+            attempt_id = attempt['attempt_id'] if attempt is not None else None
+            if previous:
+                db.execute('UPDATE recognition_batches SET result=?,request=?,fingerprint=?,attempt_id=? WHERE user_id=? AND request_id=?',
+                    (json.dumps(result),json.dumps(request),hashlib.sha256(canonical(request)).hexdigest(),attempt_id,uid,request['request_id']))
+            else:
+                db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
+            cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+            teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
+            for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):
+                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
+                    (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
+            submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))
+            for saved in db.execute("SELECT id,candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state='pending'",
+                                    (uid,request['request_id'])).fetchall():
+                card = submission.decorate(db,uid,request['request_id'],json.loads(saved['candidate']))
+                db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),saved['id']))
+            db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
+                (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
+            submission.controls.refresh_request(db,uid,request['request_id'])
+            operations.emit('save',(time.monotonic()-saving)*1000)
+            for row in result['record_results']:
+                code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])
+                if code in operations.CODES:operations.after_commit(db,'outcome',code=code,result='failed' if row['status']=='failed' else 'ok')
+                filtered=sum(decision.get('recommendation')=='filtered' for decision in row.get('decisions',[]))
+                if filtered:operations.after_commit(db,'outcome',code='filtered',quantity=filtered)
     finally:
         recognition._ACTIVE.release()

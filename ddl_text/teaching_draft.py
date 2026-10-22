@@ -226,10 +226,16 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
         failure = AgentError('invalid_agent_output', True, 'draft_schema')
         # Feedback stays inside this model attempt, never in HTTP errors/logs.
         path = '/'.join(map(str, error.absolute_schema_path))[:512]
-        failure.detail = dict(schema_path=path, rule=str(error.validator))
+        from contracts.recognition_errors import validation_detail
+        failure.detail = validation_detail(error)
         failure.model_feedback = 'Schema rule: ' + path + '; rule=' + str(error.validator) + '; required shape=' + json.dumps(error.schema, ensure_ascii=False)[:3000]
         raise failure from None
     except Exception as error:
+        from . import diagnostics
+        diagnostics.failure(error, stage='draft_validation', reason=stage,
+                            line=getattr(error,'lineno',None), column=getattr(error,'colno',None))
+        if not isinstance(error, (ValueError, RecursionError)):
+            raise AgentError('agent_unavailable', False, 'internal_error') from None
         failure = AgentError('invalid_agent_output', True, stage)
         failure.model_feedback = str(error)[:512] if isinstance(error, ValueError) else stage
         raise failure from None

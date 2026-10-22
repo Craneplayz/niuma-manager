@@ -32,6 +32,7 @@ import email_verification
 import ipaddress
 from server import model_queue
 from server import operations
+from server import recognition_diagnostics
 
 
 class ThreadingHTTPServer(_ThreadingHTTPServer):
@@ -543,6 +544,14 @@ class Handler(BaseHTTPRequestHandler):
     def handle_request(self):
         with operations.scope(DB):self._handle_request()
 
+    def recognition_failure(self, error):
+        # route() has already closed/rolled back its request connection.
+        try:
+            with connection() as db:
+                return recognition_diagnostics.finalize_error(db,self.usage_uid,error)
+        except (sqlite3.Error,OSError):
+            return recognition_diagnostics.finalize_error(None,self.usage_uid,error)
+
     def _handle_request(self):
         self.usage_started=time.monotonic()
         self.usage_uid=None
@@ -555,6 +564,9 @@ class Handler(BaseHTTPRequestHandler):
             with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e:
             self.ops_code=operations.classify(e)
+            if getattr(e,'_recognition_failure',None):
+                value=self.recognition_failure(e)
+                self.reply(e.status,dict(error=value));return
             from contracts.recognition_errors import describe
             error = dict(code=e.code,message=e.message,retryable=e.retryable)
             if e.code in ('agent_unavailable','agent_timeout','invalid_agent_output','file_read_failed'):
@@ -568,7 +580,10 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(e.status, value)
         except ApiError as e:
             self.ops_code=operations.classify(e)
-            if self.path.startswith('/api/sources/submissions'):
+            if getattr(e,'_recognition_failure',None):
+                value = dict(self.recognition_failure(e))
+                self.reply(e.status,dict(error=value.pop('message'), **value))
+            elif self.path.startswith('/api/sources/submissions'):
                 code={401:'unauthorized',403:'unauthorized',404:'not_found',409:'conflict',503:'unavailable'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(contract_version='submission-operations/0.1',code=code,message=e.message))
             elif self.path.startswith(('/api/sources/wechat/','/api/materials/')):
@@ -579,14 +594,21 @@ class Handler(BaseHTTPRequestHandler):
                 value = describe(dict(code=e.code, message=e.message))
                 self.reply(e.status,dict(error=value.pop('message'), **value))
             else: self.reply(e.status,dict(error=e.message))
-        except (ValueError,KeyError,TypeError):
+        except (ValueError,KeyError,TypeError) as e:
+            if getattr(e,'_recognition_failure',None):
+                self.ops_code=operations.classify(e)
+                value=self.recognition_failure(e)
+                self.reply(500,dict(error=value));return
             self.ops_code='http_400'
             if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 self.reply(400,dict(error=dict(code='invalid_request',message='数据格式不正确',retryable=False)))
             else: self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
             self.ops_code=operations.classify(e)
-            if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
+            if getattr(e,'_recognition_failure',None):
+                value=self.recognition_failure(e)
+                self.reply(500,dict(error=value))
+            elif self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 self.reply(503,dict(error=dict(code='queue_busy',message='附件服务暂不可用，请稍后重试',retryable=True)))
             else:
                 self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))

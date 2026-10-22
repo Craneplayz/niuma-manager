@@ -1,4 +1,5 @@
 {
+  "recognition_dependency": {"category":"configuration","stage":"prepare","message":"识别程序的运行依赖未安装完整。","action":"请维护人员按当前版本的依赖清单安装并重启服务，再重试。"},
   "invalid_input": {"category":"input","stage":"prepare","message":"输入内容或格式不符合要求。","action":"请检查内容后重新导入。"},
   "unsupported_version": {"category":"input","stage":"prepare","message":"当前服务不支持此输入格式。","action":"请更新前后端后重试。"},
   "input_limit": {"category":"input","stage":"prepare","message":"输入或结果超过处理容量。","action":"请拆分内容或减小文件后重试。"},
@@ -23,5 +24,10 @@
   "draft_evidence": {"category":"evidence","stage":"validate","message":"模型引用无法在提供的原文或已读取内容中找到，结果未采纳。","action":"请重试或核对原文后手动添加。"},
   "draft_semantics": {"category":"content","stage":"validate","message":"模型结果中的日期、任务或来源关系相互矛盾。","action":"请核对原文后重试或手动添加。"},
   "result_contract": {"category":"output","stage":"validate","message":"识别结果未通过最终一致性校验，未保存不可信内容。","action":"请反馈本次识别记录。"},
-  "save_failed": {"category":"storage","stage":"save","message":"识别结果尚未确认保存成功。","action":"请先刷新结果，再决定是否重试，避免重复操作。"}
+  "save_failed": {"category":"storage","stage":"save","message":"识别结果尚未确认保存成功。","action":"请先刷新结果，再决定是否重试，避免重复操作。"},
+  "internal_error": {"category":"internal","stage":"runtime","message":"识别程序发生内部异常。","action":"请反馈本次诊断编号，由维护人员定位；不能据此判断为模型服务故障。"},
+  "recognition_rules": {"category":"configuration","stage":"prepare","message":"识别规则与当前运行进程不一致。","action":"请维护人员重启后端后重试，重试输入不能刷新已加载代码。"},
+  "model_busy": {"category":"service","stage":"prepare","message":"识别服务排队已满或等待超时。","action":"请稍后重试，已完成的结果保留。"},
+  "worker_terminated": {"category":"internal","stage":"runtime","message":"识别工作进程意外退出，未取得完整结果。","action":"请反馈诊断编号，检查工作进程退出码及资源情况。"},
+  "worker_timeout": {"category":"timeout","stage":"runtime","message":"本次处理超过总时间预算，已停止工作进程。","action":"请根据诊断中的最后阶段确认卡在读取、模型调用还是校验，再重试失败部分。"}
 }

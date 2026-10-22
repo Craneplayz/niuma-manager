@@ -18,6 +18,29 @@ import wechat_media
 
 
 class ManualMaterialTests(unittest.TestCase):
+    def test_file_job_failure_keeps_safe_diagnostic_through_saved_job_and_http(self):
+        from server import recognition_diagnostics as diagnostics
+        _,receipt=self.upload(b'synthetic text','task.txt')
+        body=self.request(receipt,supported=False)
+        with patch.object(diagnostics,'environment',return_value='development'), \
+                patch.object(wechat_media,'recognize_v03',side_effect=RuntimeError('PRIVATE-FILE')):
+            status,accepted=self.call('/materials/imports',body)
+            self.assertEqual(status,202,accepted)
+            wechat_media.wait_for_jobs(app.DB)
+            status,job=self.call('/materials/imports/'+accepted['job_id'])
+            self.assertEqual(status,200,job)
+            error=job['result']['errors'][0]
+            self.assertEqual(error['failure']['reason'],'internal_error')
+            self.assertIn('media_job_failed',error['diagnostics'])
+            self.assertNotIn('PRIVATE-FILE',json.dumps(job))
+            status,trace=self.call('/recognition/diagnostics',{'diagnostic_id':error['diagnostic_id']})
+            self.assertEqual(status,200)
+            self.assertEqual(trace['attempts'][0]['attempt_id'],error['diagnostic_id'])
+        with patch.object(diagnostics,'environment',return_value='production'):
+            job=self.call('/materials/imports/'+accepted['job_id'])[1]
+            self.assertNotIn('diagnostics',job['result']['errors'][0])
+            self.assertEqual(job['result']['errors'][0]['diagnostic_id'],error['diagnostic_id'])
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()
         self.env=patch.dict(app.os.environ,NIUMA_ENABLE_WECHAT='0',NIUMA_ENABLE_MANUAL_MATERIALS='1')

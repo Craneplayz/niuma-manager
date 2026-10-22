@@ -8,6 +8,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from .adapters import AgentError
 from .draft_schema import draft_schema
 from .call_observation import actual_usage, observe_call
+from . import diagnostics
 
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -56,6 +57,7 @@ class ChatClient:
             with build_opener(NoRedirect()).open(request, timeout=settings.timeout_seconds) as response:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as error:
+            diagnostics.emit('provider_http', http_status=error.code)
             # Fixed error classes only; never expose provider error bodies.
             retryable = error.code == 429 or 500 <= error.code < 600
             event['result_code'] = 'rate_limited' if error.code == 429 else 'http_error'

@@ -13,7 +13,7 @@ POLICY_FORMAT = 'niuma-text-policy/1'
 # Explicit runtime closure: changes in rendering, tests and README do not change
 # recognition; changes in any runtime/validation/skill component below do.
 COMPONENTS = (
-    'policy_version.py', 'config.py', 'adapters.py', 'pipeline.py', 'runner.py',
+    'policy_version.py', 'config.py', 'adapters.py', 'pipeline.py', 'runner.py', 'diagnostics.py',
     'provider.py', 'chat_client.py', 'codex_client.py', 'extraction.py',
     'classification.py', 'dates.py', 'time_validation.py', 'contracts.py',
     'contract_v02.py', 'draft_schema.py', 'draft_recovery.py', 'evidence_spans.py',

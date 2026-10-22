@@ -31,6 +31,7 @@ ERROR = {'anyOf': [{'type': 'null'}, obj({'code': {'type': 'string'}, 'message':
 ERROR['anyOf'][1]['properties']['diagnostics'] = {'type': 'string', 'maxLength': 65536}
 ERROR['anyOf'][1]['properties']['collection_failure'] = COLLECTION_FAILURE
 ERROR['anyOf'][1]['properties'].update(failure=failure_schema(), diagnostic=diagnostic_schema())
+ERROR['anyOf'][1]['properties']['diagnostic_id'] = {'type':'string','pattern':'^[0-9a-f]{24}$'}
 RECORD = obj({'request_id': {'type': 'string', 'maxLength': 256}, 'label': {'type': 'string', 'maxLength': 160},
               'course': {'type': ['string', 'null']}, 'state': {'enum': list(ITEM_STATES)}, 'added': COUNT,
               'seconds': {'type': ['number', 'null'], 'minimum': 0}, 'error': ERROR})
