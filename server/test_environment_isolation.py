@@ -393,7 +393,11 @@ class LiveEnvironmentIsolationTests(unittest.TestCase):
             self.assertEqual(status,200)
             self.assertEqual(version['environment'],name)
             self.assertFalse(version['background_recovery'])
-            self.assertEqual(set(version),{'environment','managed','revision','source_dirty','background_recovery','scheduled_sync_available'})
+            expected={'environment','managed','revision','source_dirty','background_recovery','scheduled_sync_available'}
+            if name!='production':
+                expected.add('accountTools')
+                self.assertEqual(version['accountTools'],'/api/environment-tools.js')
+            self.assertEqual(set(version),expected)
         for source in self.urls:
             for target in self.urls:
                 if source == target: continue

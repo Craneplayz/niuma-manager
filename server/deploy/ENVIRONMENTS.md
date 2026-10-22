@@ -159,3 +159,11 @@ python server/manage_environment.py accept test --evidence "验收链接或合�
 教学网定时同步使用各环境私有 `config.json` 的 `scheduled_sync` 布尔开关，省略时兼容为 false；统一入口将其注入 `NIUMA_ENABLE_SCHEDULED_SYNC`，不会继承其他环境终端的值。三个环境均默认关闭，开发 / 测试只在独立合成账号验收时显式设为 true 并重启。`/api/version` 的 `scheduled_sync_available` 表示环境是否开放该能力，账号还须在来源设置中选定来源、间隔并同意启用。`background_recovery` 不能替代此开关。定时运行与手动同步共用队列、数据库和状态保护，详见 [接口约定](../../contracts/docs/source-sync-v0.1.md)。
 
 Compose 配置、镜像启动、服务器挂载和真实业务联调须由对应环境分别验收，不能由本地回归结果推定生产已隔离。[Compose 项目与环境变量规则](https://docs.docker.com/compose/how-tos/project-name/)
+
+## 清空测试数据
+
+用统一入口 `local development`、`local test` 或 `up development/test` 启动后，在已登录账号面板点击「清空测试数据」并确认；只清空当前账号，保留登录资料、邮箱验证、头像和教学网连接，可重新导入相同内容。定时同步关闭，需要时重新开启；其他会话失效，旧窗口须刷新。
+
+工具要求显式 development/test 且数据库目录环境标记匹配；旧配置或无法确认环境时不开放。`server/environment_tools/` 和清空回归文件从 Docker 构建上下文排除，前端仅在非正式 API 返回工具地址时加载独立脚本，正式网页产物没有清空文案或处理逻辑。
+
+统一容器入口只在 development/test 追加 `compose.testing-tools.yaml`，将当前检出的工具源码只读挂载到 API；生产不挂载也不加载工具，仍发布测试验收过的相同 API/网页镜像。直接执行旧 Compose 命令不会自动提供测试工具。工具源码必须与测试候选提交一起记录，升级后随 API 重启；测试服务器可继续沿用原账号，无须反复注册。

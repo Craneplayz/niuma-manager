@@ -1239,7 +1239,7 @@ async function initialize() {
 }
 void initialize();
 api("/api/version")
-  .then((version) => {
+  .then(async (version) => {
     backendRevision = version.revision;
     environment = describeEnvironment(
       version,
@@ -1248,5 +1248,10 @@ api("/api/version")
     );
     const el = document.querySelector(".account-entry");
     if (el) el.title = environment.detail;
+    if (!demo && ["development", "test"].includes(version.environment) && version.accountTools === "/api/environment-tools.js") {
+      const module = await import(/* @vite-ignore */ version.accountTools);
+      host.accountTools = module.createAccountTools({ ...host, api, session, accountVersion, flushStore,
+        reload: () => location.reload() });
+    }
   })
   .catch(() => {});

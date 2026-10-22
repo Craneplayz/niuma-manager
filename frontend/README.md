@@ -42,7 +42,7 @@ frontend/
 │   ├── navigation.js         网址导航状态、日期与参数校验
 │   ├── page-layout.js        共用标题、导航、控件、操作与日期区域渲染器
 │   ├── account-avatar.js     头像选图校验、圆形预览裁切与共用显示
-│   ├── account-ui.js         登录、验证码注册、邮箱补验证、密码找回、昵称、密码及教学网连接管理入口
+│   ├── account-ui.js         可选环境账号工具及登录、验证码注册、邮箱补验证、密码找回、昵称、密码及教学网连接管理入口
 │   ├── user-errors.js        共用用户报错、反馈入口和提交状态
 │   ├── error-reports-view.js 管理员错误报告列表
 │   ├── usage-feedback.js     账号中的主动反馈与非阻塞评分
@@ -76,6 +76,7 @@ frontend/
 │   ├── browser/error-feedback.spec.js 桌面与手机的可见提示、按钮及提交状态
 │   ├── browser/email-verification.spec.js 验证码注册、补验证、重发和迟到响应交互
 │   ├── browser/password-recovery.spec.js 找回密码、用途隔离、倒计时及关闭/切换竞态
+│   ├── account-tools.test.js 测试专用清空工具的确认、失败状态与切换账号保护
 │   ├── account-ui.test.js    密码找回、草稿保留、迟到响应和已登录状态保护
 │   ├── browser/account-avatar.spec.js 头像悬停、选图裁切、保存恢复与关闭期间响应
 │   ├── browser/account-calendar.spec.js 账号连接管理、月周拖动改期与撤销
@@ -100,6 +101,8 @@ frontend/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
     ├── screenshots/
+    │   ├── test-account-reset.png 测试账号面板的清空入口
+    │   ├── test-account-reset-mobile.png 手机清空确认弹窗
     │   ├── 2026-10-20-admin-operations-desktop.png 合成运行监控桌面验收
     │   ├── 2026-10-20-admin-operations-mobile.png 合成运行监控手机验收
     │   ├── compact-header-desktop.jpg 统一页头与日期左侧添加入口
@@ -212,3 +215,7 @@ npm run build
 `playwright.config.js` 配置隔离浏览器回归。安装浏览器组件后运行 `npm run test:browser`，使用全合成 API 检查 1440px、390px 和 320px 下的报错、反馈按钮、提交成功 / 失败与弹窗操作。CI 的 Linux 前端作业执行这些检查并上传截图及失败跟踪。
 
 历史贡献与来源见 [CONTRIBUTIONS.md](CONTRIBUTIONS.md)。
+
+本地/测试的「清空测试数据」入口由 API 提供独立脚本，网页构建不打包清空文案与逻辑，正式 API 不提供脚本地址；使用方式见 [环境说明](../server/deploy/ENVIRONMENTS.md#清空测试数据)。`tests/account-tools.test.js` 验证确认、未保存处理、重复点击和切换账号保护。
+
+清空入口与手机确认界面的合成账号截图：`docs/screenshots/test-account-reset.png`、`docs/screenshots/test-account-reset-mobile.png`。

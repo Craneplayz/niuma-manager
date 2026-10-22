@@ -138,3 +138,5 @@ npm run build
 `tests/review-tasks.test.js` 与 `tests/browser/review-task-list.spec.js` 验证待核对混排、搜索筛选、忽略撤销、普通完成与编辑确认、失败保留和重新打开；服务端 `test_review_task_actions.py` 验证原子完成、幂等、版本冲突、账号隔离及事务回滚。
 
 `account-avatar.js` 只接受本地 JPG/PNG/WebP，限制 5 MB、最长边 8192px 与 2000 万像素；裁切为 256×256 PNG 后交给 [头像接口](../../contracts/docs/account-avatar.md)。账号与侧栏只展示服务端返回的 PNG data URL，不读取外部头像地址；文件解码校验账号版本、选择序号和原表单是否仍打开。保存串行发送，每次成功响应更新对应已保存头像，关闭后的成功响应只更新同一账号的头像，不能关闭新表单或覆盖其他资料；账号切换丢弃旧响应。`tests/browser/account-avatar.spec.js` 覆盖桌面、390px、320px 下的悬停/键盘/触屏入口、裁切保存与刷新、取消/恢复默认、失败重试和关闭期间迟到响应。
+
+账号面板仅提供通用环境工具插槽；`/api/version` 在显式 development/test 且工具源码存在时返回固定同源模块地址，独立 UI 脚本放在 `server/environment_tools/` 随测试工具挂载，不静态导入前端源码或打包到正式网页。清空确认绑定账号及操作版本，等待已有保存结束后丢弃失败草稿，后台成功才刷新；切换账号丢弃迟到结果。
