@@ -480,24 +480,18 @@
                     "type": "boolean"
                   },
                   "diagnostic": {
-                    "type": "object",
-                    "properties": {
-                      "schema_path": {
-                        "type": "string",
-                        "minLength": 0,
-                        "maxLength": 512
-                      },
-                      "rule": {
-                        "type": "string",
-                        "minLength": 0,
-                        "maxLength": 40
-                      }
-                    },
-                    "required": [
-                      "schema_path",
-                      "rule"
-                    ],
-                    "additionalProperties": false
+                    "$ref": "#/$defs/recognition_diagnostic"
+                  },
+                  "failure": {
+                    "$ref": "#/$defs/recognition_failure"
+                  },
+                  "diagnostic_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{24}$"
+                  },
+                  "diagnostics": {
+                    "type": "string",
+                    "maxLength": 65536
                   }
                 },
                 "required": [
@@ -782,6 +776,158 @@
         }
       },
       "additionalProperties": false
+    },
+    "recognition_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "category",
+        "stage"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "recognition_dependency",
+            "invalid_input",
+            "unsupported_version",
+            "input_limit",
+            "source_incomplete",
+            "source_changed",
+            "collection_dependency",
+            "collection_failed",
+            "attachment_unavailable",
+            "attachment_unsupported",
+            "attachment_unreadable",
+            "attachment_schema",
+            "content_uncertain",
+            "content_incomplete",
+            "model_configuration",
+            "model_rate_limited",
+            "model_timeout",
+            "model_unavailable",
+            "provider_response",
+            "output_truncated",
+            "draft_json",
+            "draft_schema",
+            "draft_evidence",
+            "draft_semantics",
+            "result_contract",
+            "save_failed",
+            "internal_error",
+            "recognition_rules",
+            "model_busy",
+            "worker_terminated",
+            "worker_timeout"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "attachment",
+            "configuration",
+            "content",
+            "evidence",
+            "input",
+            "internal",
+            "output",
+            "service",
+            "source",
+            "storage",
+            "timeout"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "collect",
+            "model",
+            "parse",
+            "prepare",
+            "read",
+            "runtime",
+            "save",
+            "validate"
+          ]
+        }
+      }
+    },
+    "recognition_diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_path",
+        "rule"
+      ],
+      "properties": {
+        "schema_path": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9_$/]*$"
+        },
+        "rule": {
+          "type": "string",
+          "enum": [
+            "type",
+            "enum",
+            "const",
+            "required",
+            "additionalProperties",
+            "maxLength",
+            "minLength",
+            "maxItems",
+            "minItems",
+            "format",
+            "pattern",
+            "anyOf",
+            "allOf",
+            "oneOf",
+            "maximum",
+            "minimum"
+          ]
+        },
+        "instance_path": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9_$/]*$"
+        },
+        "missing_fields": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_]+$"
+          }
+        },
+        "expected_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
+          ]
+        },
+        "actual_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
+          ]
+        }
+      }
     }
   }
 }

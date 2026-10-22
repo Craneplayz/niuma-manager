@@ -114,7 +114,7 @@ check('test diagnostics survive unknown-error formatting and are escaped', async
   const f=fixture([run]);await f.ui.load();
   await category(f.ui,run.run_id,'error');await problem(f.ui,run.run_id,0);
   const html=markup(f.ui);
-  assert.match(html,/测试环境诊断详情/);assert.match(html,/page_start/);
+  assert.match(html,/识别诊断详情/);assert.match(html,/page_start/);
   assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>|Private raw detail/);
 });
 

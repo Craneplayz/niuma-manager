@@ -177,8 +177,8 @@ const incomplete = (batch) =>
     (error) => error.code === "incomplete_source",
   );
 
-function batchErrorReport(batch) {
-  const reports = (batch.result?.errors || []).map(describeImportError);
+function batchErrorReport(batch, inputId) {
+  const reports = (batch.result?.errors || []).filter(error => !inputId || error.input_id == null || error.input_id === inputId).map(describeImportError);
   return reports.find(report=>report.kind!=="unknown") || {
     kind:"recognition_failed",message:"部分通知识别失败，可重试识别。",details:"",
   };
@@ -467,7 +467,7 @@ export function createImportUI(host) {
       return `<li><button id="${esc(region)}-${category}-${index}" class="sync-result-name" type="button" data-import-history-item="${index}" data-import-history-batch="${esc(group.id)}" title="${esc([item.label,item.course,status.label].filter(Boolean).join(" · "))}" ${category === "error" ? `aria-expanded="${historyProblems.get(group.id) === index}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${importStatusMarkup(status)}</button></li>`;
     }).join("");
     const problem = category === "error" ? items[historyProblems.get(group.id)] : null;
-    const detail = problem ? `<div class="sync-problem" role="region" aria-label="${esc(problem.label)}的处理情况"><strong>${esc(problem.label)}</strong>${errorMarkup(batchErrorReport(problem.batch), source === "teaching" ? "teaching_sync" : "text_import", JSON.stringify(["recognition",problem.batch.request.request_id,problem.input_id]))}${problem.links ? `<p class="status-note">${problem.links}</p>` : ""}</div>` : "";
+    const detail = problem ? `<div class="sync-problem" role="region" aria-label="${esc(problem.label)}的处理情况"><strong>${esc(problem.label)}</strong>${errorMarkup(batchErrorReport(problem.batch, problem.input_id), source === "teaching" ? "teaching_sync" : "text_import", JSON.stringify(["recognition",problem.batch.request.request_id,problem.input_id]))}${problem.links ? `<p class="status-note">${problem.links}</p>` : ""}</div>` : "";
     const job = group.job;
     const retry = group.batches.filter(batch => ["failed", "partial_success"].includes(batch.result?.status) && !incomplete(batch));
     const results = group.added.length || group.review.length || group.updated.length;
@@ -732,7 +732,10 @@ export function createImportUI(host) {
       if (!valid(stamp)) return;
       await host.refresh();
       if (!valid(stamp)) return;
+      const retried = next.find(item => item.request?.request_id === batch.request.request_id);
+      const failed = ["failed", "partial_success"].includes(retried?.result?.status);
       notice = controller.signal.aborted ? "已停止导入，后台已开始的识别可能继续，可刷新查看结果。" :
+        failed ? "仍有内容识别失败，请查看具体原因；成功结果已保留。" :
         "识别结果已更新" + (automatic.applied ? `，已自动加入 ${automatic.applied} 项任务` : "");
     } catch (e) {
       if (valid(stamp))

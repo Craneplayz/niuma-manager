@@ -5,6 +5,7 @@ WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+COPY contracts/recognition-errors.json /build/contracts/recognition-errors.json
 ENV VITE_ENABLE_WECHAT=0
 ARG NIUMA_BUILD_REVISION=unknown
 ENV VITE_BUILD_REVISION=$NIUMA_BUILD_REVISION
@@ -23,7 +24,7 @@ RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/
     && npm install -g pnpm@10.17.1
 WORKDIR /app
 COPY server/requirements.txt server/
-COPY ddl_text/media_requirements.txt ddl_text/teaching_requirements.txt ddl_text/
+COPY ddl_text/text_requirements.txt ddl_text/media_requirements.txt ddl_text/teaching_requirements.txt ddl_text/
 COPY contracts/requirements-dev.txt contracts/requirements-teaching-dev.txt contracts/
 ARG UV_INDEX_URL=https://pypi.org/simple
 RUN --mount=from=ghcr.io/astral-sh/uv:0.13.0,source=/uv,target=/bin/uv \

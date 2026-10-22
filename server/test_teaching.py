@@ -69,7 +69,8 @@ class TeachingIntegrationTests(unittest.TestCase):
                 batch=next(b for b in out if b['request']['request_id']==rid)
                 self.assertTrue(batch['result']['errors'])
                 # The second run fails and persists its own attempt; the stored result keeps the first.
-                self.assertEqual(self.call('/recognition/retry',body)[0],400)
+                # A server-side failure is not malformed user input (HTTP 400).
+                self.assertEqual(self.call('/recognition/retry',body)[0],500)
             with app.connection() as db:
                 history=teaching.diagnostics.attempts(db,uid,rid)
                 later=next(a for a in history if any(e.get('exception_type')=='ValueError' for e in a['events']))

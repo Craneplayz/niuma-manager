@@ -151,6 +151,48 @@ class TextJobsTests(unittest.TestCase):
         self.assertEqual(job['error']['code'],'model_configuration')
         old=self.call('/recognition/batches')[1][0]
         self.assertEqual(old['result']['errors'][0]['code'],'invalid_agent_output')
+        current_id=job['error']['diagnostic_id']
+        previous_id=old['result']['errors'][0]['diagnostic_id']
+        self.assertNotEqual(current_id,previous_id)
+        self.assertEqual(job['error']['failure']['reason'],'model_configuration')
+        self.assertEqual(json.loads(job['error']['diagnostics'])['attempt_id'],current_id)
+        self.assertEqual(json.loads(old['result']['errors'][0]['diagnostics'])['attempt_id'],previous_id)
+        lookup=self.call('/recognition/diagnostics',dict(diagnostic_id=current_id))[1]
+        self.assertEqual(lookup['attempts'][0]['attempt_id'],current_id)
+        self.assertEqual(self.call('/recognition/diagnostics',dict(diagnostic_id=current_id),uid='B')[1]['attempts'],[])
+        with patch('server.recognition_diagnostics.detailed',return_value=False):
+            public=self.job()['error']
+        self.assertEqual(public['diagnostic_id'],current_id)
+        self.assertNotIn('diagnostics',public)
+
+    def test_failed_candidate_save_keeps_safe_diagnostic_without_partial_candidates(self):
+        with app.connection() as db:
+            db.execute("""CREATE TRIGGER synthetic_save_failure BEFORE INSERT ON recognition_candidates
+                BEGIN SELECT RAISE(FAIL,'private synthetic storage error'); END""")
+        with patch.object(recognition,'recognize',lambda req,err,**kw:self.outcome(req,task=True)):
+            self.call(body=self.request); text_jobs.wait_for_jobs(app.DB)
+        error=self.job()['error']
+        self.assertEqual(error['failure']['reason'],'save_failed')
+        self.assertNotIn('private synthetic',json.dumps(error))
+        self.assertEqual(self.call('/recognition/batches')[1],[])
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM recognition_candidates').fetchone()[0],0)
+        lookup=self.call('/recognition/diagnostics',dict(diagnostic_id=error['diagnostic_id']))[1]
+        self.assertEqual(len(lookup['attempts']),1)
+
+    def test_safe_model_validation_detail_survives_job_storage_and_schema(self):
+        from contracts.recognition_errors import describe
+        def invalid(request,ApiError,**kwargs):
+            result=self.outcome(request,failed=True)
+            result['errors']=[describe(result['errors'][0],reason='result_contract',
+                detail=dict(schema_path='properties/tasks/items/required',rule='required',missing_fields=['title']))]
+            return result
+        with patch.object(recognition,'recognize',invalid):
+            self.call(body=self.request); text_jobs.wait_for_jobs(app.DB)
+        error=self.job()['error']
+        self.assertEqual(error['diagnostic']['missing_fields'],['title'])
+        self.assertEqual(error['failure']['reason'],'result_contract')
+        self.assertEqual(len(error['diagnostic_id']),24)
 
     def test_legacy_job_rows_gain_a_stable_internal_worker_identity(self):
         with app.connection() as db:

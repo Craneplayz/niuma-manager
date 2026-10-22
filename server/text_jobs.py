@@ -10,6 +10,8 @@ import time
 from urllib.parse import unquote
 
 import recognition
+from server import recognition_diagnostics as diagnostics
+from contracts.recognition_errors import describe
 from server.model_queue import cancel_if
 
 ACTIVE = ('queued', 'recognizing')
@@ -60,9 +62,14 @@ def view(row):
 
 def listing(db, uid):
     # Active jobs cannot fall out of the history window.
-    return dict(contract_version='text-import-jobs/0.1', jobs=[view(row) for row in db.execute(
-        '''SELECT * FROM text_import_jobs WHERE user_id=?
-           ORDER BY state IN ('queued','recognizing') DESC,updated_at DESC LIMIT 100''', (uid,))])
+    jobs = [view(row) for row in db.execute(
+        """SELECT * FROM text_import_jobs WHERE user_id=?
+           ORDER BY state IN ('queued','recognizing') DESC,updated_at DESC LIMIT 100""", (uid,))]
+    errors = diagnostics.hydrate_errors(db,uid,[describe(job['error']) for job in jobs if job['error']])
+    hydrated = iter(errors)
+    for job in jobs:
+        if job['error']: job['error'] = next(hydrated)
+    return dict(contract_version='text-import-jobs/0.1', jobs=jobs)
 
 
 def find(db, uid, rid, ApiError):
@@ -143,17 +150,18 @@ def process(path, uid, rid, attempt, ApiError, *, instance_id):
     except Superseded:
         pass
     except Exception as exc:
-        # Fixed public errors only: never persist provider bodies or private text.
-        message = exc.message if isinstance(exc,ApiError) else '文本识别未完成，请重试。'
-        code = getattr(exc,'code',None) if isinstance(exc,ApiError) else None
-        if code not in ('model_configuration','agent_timeout','agent_unavailable','invalid_agent_output','model_busy','queue_busy','recognition_rules'):
-            code = 'invalid_agent_output' if isinstance(exc,ApiError) and exc.status == 502 and '契约' in message else 'agent_unavailable'
         try:
             with connection(path) as db:
+                guard(db)
+                error = diagnostics.finalize_error(db,uid,exc)
+                if error is None:
+                    error = describe(dict(code='agent_unavailable',retryable=True),reason='internal_error')
+                # Store the safe attempt reference, never the embedded detail.
+                error = diagnostics.compact(error)
                 db.execute('BEGIN IMMEDIATE')
                 guard(db)
                 db.execute("UPDATE text_import_jobs SET state='failed',error=?,updated_at=? WHERE user_id=? AND request_id=?",
-                           (json.dumps(dict(code=code,message=message,retryable=True)),stamp(),uid,rid))
+                           (json.dumps(error),stamp(),uid,rid))
         except Superseded:
             pass
 

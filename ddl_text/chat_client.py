@@ -8,6 +8,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from .adapters import AgentError
 from .draft_schema import draft_schema
 from .call_observation import actual_usage, observe_call
+from . import diagnostics
 
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -36,7 +37,7 @@ class ChatClient:
 
     def _complete_json(self, instructions, input_json, settings, event):
         if not self._key.strip():
-            raise AgentError("agent_unavailable", False)
+            raise AgentError("agent_unavailable", False, 'model_configuration')
         payload = {
             "model": settings.model,
             "messages": [
@@ -56,11 +57,13 @@ class ChatClient:
             with build_opener(NoRedirect()).open(request, timeout=settings.timeout_seconds) as response:
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
         except HTTPError as error:
+            diagnostics.emit('provider_http', http_status=error.code)
             # Fixed error classes only; never expose provider error bodies.
             retryable = error.code == 429 or 500 <= error.code < 600
             event['result_code'] = 'rate_limited' if error.code == 429 else 'http_error'
             error.close()
-            raise AgentError("agent_unavailable", retryable) from None
+            raise AgentError("agent_unavailable", retryable,
+                'model_rate_limited' if error.code == 429 else 'model_configuration' if error.code in (401,403) else 'model_unavailable') from None
         except (TimeoutError, socket.timeout):
             event['result_code'] = 'timeout'
             raise AgentError("agent_timeout", True) from None

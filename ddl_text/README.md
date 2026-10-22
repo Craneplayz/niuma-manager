@@ -1,5 +1,7 @@
 # 文本识别模块
 
+文本、教学网和文件入口使用统一错误目录与一次有界草稿纠错，见 [错误约定](../contracts/docs/recognition-errors.md)；文本按原文句段生成证据编号，长句按词和日期边界切成最多 768 字的重叠片段，模型只选择引用，服务端还原原文并校验日期。图片证据仍标记为模型读取，不能视为已核实的文字证据。
+
 教学网 v0.4 识别结果区分 `content_type=task/notice`；任务和通知均可携带有依据的日期，类型不由日期决定，规则见 `skills/teaching-task-extraction/SKILL.md`。旧文本/微信入口暂保持原契约与默认 task。
 
 通知按“漏看会直接影响用户”收录；普通课件发布忽略，考核规则、课程群要求及教学内容中的作业保留；既有任务的变更保留新日期，等待关联后处理。
@@ -28,6 +30,9 @@ ddl_text/
 ├── dates.py              # 合并时间提案、催促语和冲突处理
 ├── docx_reader.py        # DOCX 受限解包、段落/表格/附属文字和内嵌图片读取
 ├── draft_schema.py       # 模型草稿的 JSON Schema
+├── draft_recovery.py     # 原有预算内仅一次格式、引用和语义纠错
+├── diagnostics.py        # 所有识别入口共用的安全事件与工作进程诊断通道
+├── evidence_spans.py     # 文本原文句段编号及精确引文恢复
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
 ├── image_reader.py       # JPG/PNG 字节核对、解码与元数据清理
@@ -48,6 +53,7 @@ ddl_text/
 ├── teaching_pipeline.py  # 显式 v0.4 批次调用、逐条失败和消费端复核
 ├── teaching_policy.py    # 教学网实际运行规则和模型配置的独立版本
 ├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
+├── text_requirements.txt # 文本入口的 JSON Schema 校验依赖及 Windows 时区数据
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
 │   ├── teaching-file-reading/
@@ -82,6 +88,8 @@ ddl_text/
 │   ├── test_media_pipeline.py # 文件/证据/质量/超时与兼容验证
 │   ├── test_media_transport.py # 本机模拟服务验证图片传输和重定向隔离
 │   ├── run_media_smoke.py # 显式启用的非私人图片真实模型验证
+│   ├── run_recognition_diagnostics_smoke.py # 显式 --live 的合成文本/图片实测及安全诊断
+│   ├── test_diagnostic_boundaries.py # HTTP 故障、子进程崩溃、超时和诊断跨进程回归
 │   ├── run_chinese_media_smoke.py # 本机字体生成中文长图、多任务及模糊图实测
 │   ├── reprocessing_cases.py # #112 旧/新结果及用户决定的合成交接案例
 │   ├── test_policy_version.py # 版本稳定性、变更与回归输入校验
@@ -105,6 +113,7 @@ ddl_text/
 │   ├── test_frontend_contract.py # v0.2 契约及本机 HTTP 测试
 │   ├── test_output_validation.py # 非法模型输出测试
 │   ├── test_pipeline.py        # 批量处理、超时和重试测试
+│   ├── test_recognition_errors.py # 分类、隐私、纠错预算及真实子进程协议回归
 │   └── test_render.py          # 文字输出测试
 └── docs/                 # 当前配置说明与历史归档
     ├── api-setup.md      # 供应商配置及故障定位
@@ -167,9 +176,9 @@ ddl_text/
 
 ## 运行与测试
 
-以下命令均在**仓库根目录**执行。需要 Python 3.9+，模块使用标准库；Windows 缺少时区数据库时安装 `tzdata`。
+以下命令均在**仓库根目录**执行。文本入口需要 Python 3.9+，先运行 `python -m pip install -r ddl_text/text_requirements.txt` 安装草稿校验依赖（包含 Windows 所需的时区数据）；完整后端的 `server/requirements.txt` 已包含这些依赖。缺依赖会报告 `recognition_dependency`，不会归因于模型故障。
 
-附件入口另需 Python 3.10+，先运行 `python -m pip install -r ddl_text/media_requirements.txt`；全部模块测试安装 `ddl_text/media_test_requirements.txt`，旧 v0.2 运行入口不会自动加载这些依赖。
+附件入口另需 Python 3.10+，先运行 `python -m pip install -r ddl_text/media_requirements.txt`；全部模块测试安装 `ddl_text/media_test_requirements.txt`。图片、PDF、DOCX 读取依赖仍为可选，纯文本入口不加载它们。
 
 ```powershell
 # 人工草稿回放：不访问模型，不代表真实模型识别成功

@@ -139,7 +139,7 @@ class SourceJobsTests(unittest.TestCase):
                     rid=active['records'][0]['request_id']
                     time.sleep(.02)
                     status,out=self.call('/recognition/retry',dict(contract_version=jobs.teaching.RUN,request_id=rid))
-                    self.assertEqual(status,400,out)
+                    self.assertEqual(status,500,out)
                 finally:
                     release.set();jobs.wait_for_jobs(app.DB)
             failed=self.call('/sources/sync-runs/'+run['run_id'])[1]

@@ -10,6 +10,91 @@ from server import recognition_diagnostics as diagnostics
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_sqlite_full_cannot_report_success_after_business_transaction_is_lost(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            with closing(sqlite3.connect(Path(folder)/'full.sqlite3')) as db:
+                diagnostics.initialize(db)
+                db.execute('CREATE TABLE business(value TEXT)')
+                db.commit()
+                pages = db.execute('PRAGMA page_count').fetchone()[0]
+                db.execute('PRAGMA max_page_count='+str(pages))
+                with self.assertLogs('recognition_diagnostics',level='ERROR'):
+                    with self.assertRaises(sqlite3.OperationalError) as caught:
+                        with diagnostics.capture(db,'user','full'):
+                            db.execute('INSERT INTO business VALUES(?)',('fits existing page',))
+                            self.assertTrue(db.in_transaction)
+                            for _ in range(100):
+                                diagnostics.event('pdf_batch',visual_pages=6,timeout_seconds=60,model='synthetic')
+                self.assertFalse(db.in_transaction)
+                self.assertEqual(db.execute('SELECT count(*) FROM business').fetchone()[0],0)
+                self.assertEqual(caught.exception._recognition_failure['failure']['reason'],'save_failed')
+                self.assertEqual(caught.exception._recognition_attempt['persistence_error']['code'],'SQLITE_FULL')
+                # The HTTP failure handler can safely finalize it after rollback.
+                db.execute('PRAGMA max_page_count=1000')
+                failure = diagnostics.finalize_error(db,'user',caught.exception)
+                self.assertEqual(failure['failure']['reason'],'save_failed')
+                self.assertEqual(len(diagnostics.lookup(db,'user',failure['diagnostic_id'])),1)
+
+    def test_statement_failure_rolls_back_only_diagnostics_and_keeps_business_writes(self):
+        with closing(sqlite3.connect(':memory:')) as db:
+            diagnostics.initialize(db)
+            db.execute('CREATE TABLE business(value TEXT)')
+            # RAISE(FAIL) preserves the INSERT before the trigger fails. Our
+            # savepoint must undo it without undoing the caller's earlier row.
+            db.execute("""CREATE TRIGGER fail_diagnostic AFTER INSERT ON recognition_attempt_diagnostics
+                BEGIN SELECT RAISE(FAIL,'synthetic diagnostic failure'); END""")
+            db.commit()
+            with self.assertLogs('recognition_diagnostics',level='ERROR'):
+                with diagnostics.capture(db,'user','statement'):
+                    db.execute("INSERT INTO business VALUES('saved')")
+            self.assertTrue(db.in_transaction)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_attempt_diagnostics').fetchone()[0],0)
+            db.commit()
+            self.assertEqual(db.execute('SELECT value FROM business').fetchone()[0],'saved')
+
+    def test_connection_failure_during_error_response_keeps_original_diagnostic(self):
+        from server import app
+        with closing(sqlite3.connect(':memory:')) as db:
+            try:
+                with diagnostics.capture(db,'user','request'):
+                    raise RuntimeError('PRIVATE-SENTINEL')
+            except RuntimeError as error:
+                handler=object.__new__(app.Handler);handler.usage_uid='user'
+                with patch.object(app,'connection',side_effect=sqlite3.OperationalError('PRIVATE-DB')):
+                    with self.assertLogs('recognition_diagnostics',level='ERROR') as logs:
+                        result=handler.recognition_failure(error)
+                self.assertEqual(result['failure']['reason'],'internal_error')
+                self.assertEqual(result['diagnostic_id'],error._recognition_attempt['attempt_id'])
+                self.assertNotIn('PRIVATE-',str(logs.output)+json.dumps(result))
+
+    def test_persistence_failure_has_safe_log_fallback_and_does_not_replace_error(self):
+        with closing(sqlite3.connect(':memory:')) as db,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'development'}):
+            diagnostics.initialize(db)
+            db.execute('PRAGMA query_only=ON')
+            with self.assertLogs('recognition_diagnostics',level='ERROR') as logs:
+                with self.assertRaisesRegex(RuntimeError,'PRIVATE-SENTINEL') as caught:
+                    with diagnostics.capture(db,'user','request'):
+                        raise RuntimeError('PRIVATE-SENTINEL')
+            self.assertNotIn('PRIVATE-SENTINEL',str(logs.output))
+            public=caught.exception._recognition_failure
+            self.assertEqual(public['failure']['reason'],'internal_error')
+            self.assertEqual(json.loads(public['diagnostics'])['persistence'],'unavailable')
+
+    def test_error_ids_survive_retry_and_lookup_is_exact_and_owner_scoped(self):
+        with closing(sqlite3.connect(':memory:')) as db,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'development'}):
+            with diagnostics.capture(db,'user','request') as first:
+                original=diagnostics.stamp(dict(errors=[dict(code='agent_timeout')]))
+            with diagnostics.capture(db,'user','request') as second:
+                diagnostics.stamp(original)
+            identity=original['errors'][0]['diagnostic_id']
+            self.assertEqual(identity,first['attempt_id'])
+            self.assertNotEqual(identity,second['attempt_id'])
+            self.assertEqual(diagnostics.lookup(db,'other',identity),[])
+            self.assertEqual(diagnostics.lookup(db,'user',identity)[0]['attempt_id'],identity)
+            db.execute('DELETE FROM recognition_attempt_diagnostics WHERE id=?',(identity,))
+            self.assertEqual(diagnostics.lookup(db,'user',identity),[])
+            self.assertNotIn('diagnostics',diagnostics.hydrate(db,'user',original['errors'][0]))
+
     def test_out_of_order_failures_use_exact_attempt_and_never_fall_back(self):
         with closing(sqlite3.connect(':memory:')) as db,patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
             diagnostics.initialize(db)
@@ -88,7 +173,7 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertNotIn('diagnostics',legacy)
             self.assertNotIn('diagnostics',diagnostics.hydrate(db,'user',legacy))
 
-    def test_only_test_environment_records_and_only_safe_metadata_survives(self):
+    def test_every_environment_records_safe_metadata_but_only_nonproduction_returns_details(self):
         with closing(sqlite3.connect(':memory:')) as db:
             diagnostics.initialize(db)
             for env in ('production','development','test'):
@@ -98,7 +183,7 @@ class DiagnosticsTests(unittest.TestCase):
                                           secret='PRIVATE',body='COURSE_BODY',url='TOKEN_URL',
                                           schema={'schema_path':'properties/tasks/items/required','rule':'required'})
                     out=diagnostics.attempts(db,'user','request')
-                    self.assertEqual(len(out),1 if env=='test' else 0)
+                    self.assertEqual(len(out),0 if env=='production' else 2 if env=='development' else 3)
             stored=db.execute('SELECT detail FROM recognition_attempt_diagnostics').fetchone()[0]
             self.assertNotIn('PRIVATE',stored);self.assertNotIn('COURSE_BODY',stored);self.assertNotIn('TOKEN_URL',stored)
             with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):

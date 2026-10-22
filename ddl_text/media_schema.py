@@ -2,9 +2,10 @@
 import copy
 import json
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 from contracts.check_v031_examples import BUNDLE, FORMATS
 from .extraction import _object
+from .adapters import AgentError, safe_schema_detail
 
 
 GENERATED = {'candidate_id', 'input_id', 'sources', 'needs_review'}
@@ -70,14 +71,23 @@ def prompt_schema():
 
 def parse_draft(raw, image_ids):
     if not isinstance(raw, str) or len(raw.encode('utf-8')) > 1024 * 1024:
-        raise ValueError('invalid_agent_output')
-    draft = json.loads(raw, object_pairs_hook=_object,
-                       parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite')))
-    Draft202012Validator(draft_schema(), format_checker=FORMATS).validate(draft)
+        raise AgentError('invalid_agent_output', False, 'output_truncated')
+    try:
+        draft = json.loads(raw, object_pairs_hook=_object,
+                           parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite')))
+    except (ValueError, TypeError, RecursionError):
+        raise AgentError('invalid_agent_output', True, 'draft_json') from None
+    try:
+        Draft202012Validator(draft_schema(), format_checker=FORMATS).validate(draft)
+    except ValidationError as exc:
+        error = AgentError('invalid_agent_output', True, 'draft_schema')
+        from contracts.recognition_errors import validation_detail
+        error.detail = validation_detail(exc)
+        raise error from None
     qualities = draft['image_quality']
     if len(qualities) != len(image_ids) or {q['asset_id'] for q in qualities} != set(image_ids):
-        raise ValueError('image_quality_mismatch')
+        raise AgentError('invalid_agent_output', True, 'draft_semantics')
     for item in qualities:
         if bool(item['quality_notes']) != (item['quality'] == 'uncertain'):
-            raise ValueError('image_quality_mismatch')
+            raise AgentError('invalid_agent_output', True, 'draft_semantics')
     return draft

@@ -57,13 +57,30 @@ class ChatClientTests(unittest.TestCase):
             def do_POST(self):
                 owner.calls.append((self.path, self.headers.get('Authorization'),
                                     json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
+                payload = owner.calls[-1][2]
+                data = json.loads(payload['messages'][1]['content'])
+                reply = json.loads(json.dumps(owner.reply))
+                if 'evidence_catalog' in data:
+                    # This fake provider follows the live indexed generation schema.
+                    catalog = data['evidence_catalog']
+                    def indexed(value):
+                        if isinstance(value, list): return [indexed(item) for item in value]
+                        if not isinstance(value, dict): return value
+                        if 'input_id' in value and 'quote' in value:
+                            key = next(key for key, span in catalog.items() if span['input_id'] == value['input_id'] and value['quote'] in span['quote'])
+                            return dict(span_id=key, **{k:indexed(v) for k,v in value.items() if k not in ('input_id','quote')})
+                        return {key:indexed(item) for key,item in value.items()}
+                    response = json.loads(reply['choices'][0]['message']['content'])
+                    for task in response['tasks']:
+                        task.setdefault('relevance', dict(state='current',reason='合成样例行动',evidence=[]))
+                    reply['choices'][0]['message']['content'] = json.dumps(indexed(response))
                 time.sleep(owner.delay)
                 try:
                     self.send_response(owner.status)
                     if owner.status == 307:
                         self.send_header('Location', 'http://127.0.0.1:%d/redirected' % self.server.server_port)
                     self.end_headers()
-                    self.wfile.write(json.dumps(owner.reply).encode())
+                    self.wfile.write(json.dumps(reply).encode())
                 except OSError:
                     pass
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -94,7 +111,10 @@ class ChatClientTests(unittest.TestCase):
         self.assertEqual(payload['response_format'], {'type': 'json_object'})
         self.assertNotIn('tools', payload)
         self.assertIn('text-task-extraction', payload['messages'][0]['content'])
-        self.assertEqual(json.loads(payload['messages'][1]['content'])['text'], self.fixture['record']['text'])
+        data = json.loads(payload['messages'][1]['content'])
+        self.assertNotIn('text', data)
+        self.assertEqual(''.join(span['quote'] for span in data['evidence_catalog'].values()
+                              if span['input_id'] == self.fixture['record']['input_id']), self.fixture['record']['text'])
 
     def test_v02_pipeline_keeps_frontend_contract(self):
         entries = json.loads((ROOT / 'ddl_text/tests/fixtures/text-frontend-v02-drafts.json').read_text(encoding='utf-8'))
