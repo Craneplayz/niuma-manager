@@ -113,6 +113,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     }
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
+    else if (path === "/api/recognition/text-jobs") value = { contract_version: "text-import-jobs/0.1", jobs: [] };
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs: [] };
     else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, interval_minutes: 180, revision: 0 };
     else if (path === "/api/materials/jobs") value = [];

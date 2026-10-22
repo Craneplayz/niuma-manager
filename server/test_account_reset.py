@@ -8,17 +8,55 @@ from pathlib import Path
 import secrets
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import build_opener, HTTPCookieProcessor, Request
 
 import app
+import recognition
+import text_jobs
 import environment_tools as tools
 import manage_environment as manager
 
 
 class AccountResetTests(unittest.TestCase):
+    def test_reset_cancels_text_worker_even_if_same_request_and_attempt_are_reused(self):
+        fixture=json.loads((Path(__file__).resolve().parents[1]/'contracts/text-to-app/text-contract-v0.2.json').read_text())
+        request=dict(fixture['request'],request_id='reset-text',records=[dict(fixture['request']['records'][0],platform='manual')])
+        gates=[threading.Event(),threading.Event()]; started=[threading.Event(),threading.Event()]; calls=[]
+        def recognize(request,ApiError,*,on_admitted=None):
+            index=len(calls);calls.append(request['request_id'])
+            if on_admitted:on_admitted()
+            started[index].set()
+            if not gates[index].wait(8):raise RuntimeError('synthetic release missing')
+            return dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',tasks=[],errors=[],
+                        record_results=[dict(input_id=request['records'][0]['input_id'],status='no_tasks',task_ids=[],warnings=[])])
+        with patch.object(recognition,'recognize',recognize):
+            try:
+                self.assertEqual(self.call(self.clients['alice'],'/api/recognition/text-jobs',request)[0],200)
+                self.assertTrue(started[0].wait(3))
+                self.assertEqual(self.reset()[0],200)
+                self.assertEqual(self.call(self.clients['alice'],'/api/recognition/text-jobs')[1]['jobs'],[])
+                self.assertEqual(self.call(self.clients['alice'],'/api/recognition/text-jobs',request)[0],200)
+                self.assertTrue(started[1].wait(3),'the new incarnation must launch independently of the removed worker')
+                gates[0].set(); deadline=time.monotonic()+3
+                while time.monotonic()<deadline:
+                    with text_jobs._lock:
+                        remaining=sum(key[0]==str(app.DB) for key in text_jobs._workers)
+                    if remaining==1:break
+                    time.sleep(.01)
+                self.assertEqual(remaining,1)
+                self.assertEqual(self.call(self.clients['alice'],'/api/recognition/text-jobs')[1]['jobs'][0]['state'],'recognizing')
+                with app.connection() as db:
+                    self.assertIsNone(db.execute('SELECT 1 FROM recognition_batches WHERE user_id="alice" AND request_id="reset-text"').fetchone())
+                gates[1].set();text_jobs.wait_for_jobs(app.DB)
+                self.assertEqual(self.call(self.clients['alice'],'/api/recognition/text-jobs')[1]['jobs'][0]['state'],'no_tasks')
+            finally:
+                for gate in gates:gate.set()
+                text_jobs.wait_for_jobs(app.DB)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

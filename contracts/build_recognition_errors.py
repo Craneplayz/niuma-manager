@@ -10,7 +10,8 @@ ROOT = Path(__file__).parent
 
 def generate(check=False):
     paths = [ROOT / name for name in ('schemas/common-v0.3.1.schema.json',
-        'schemas/teaching-result-v0.4.schema.json', 'schemas/teaching-workspace-v0.1.schema.json')]
+        'schemas/teaching-result-v0.4.schema.json', 'schemas/teaching-workspace-v0.1.schema.json',
+        'schemas/text-import-jobs-v0.1.schema.json')]
     for path in paths:
         doc = json.loads(path.read_text(encoding='utf-8'))
         doc.setdefault('$defs', {}).update(recognition_failure=schema(), recognition_diagnostic=diagnostic_schema())
