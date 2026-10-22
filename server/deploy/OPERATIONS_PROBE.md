@@ -2,6 +2,8 @@
 
 `operations_probe.py` 是主机每分钟启动一次的短进程；API 不导入探针、不挂 Docker socket，探针只通过带 Compose 项目及 api/web 服务标签的 Docker CLI 查询 RestartCount 和运行状态。
 
+容器还须具备 Compose 的 `config-hash` 且 `oneoff=False`，排除继承镜像标签的临时验证容器和一次性作业，避免它们退出后误报服务故障。
+
 ## 接口与隔离
 
 API 必须先调用 `operations.initialize(business_database_path)`；探针使用同一 `operations.database(path)`、`connection(path)`，不初始化或迁移数据库，不创建缺失的业务库或 sidecar。
@@ -119,6 +121,8 @@ WantedBy=timers.target
 为执行用户预置读取业务库及其环境标记、写 sidecar/其父目录和共享额度文件的权限；不 chmod 整个生产数据卷。Docker 组属于主机管理权限，只授予专用主机账号，API 容器不获得该权限。外层 flock 与 CLI 内部 `<database>.operations.sqlite3.probe.lock` 均防重叠；所有调度与手动调用使用同一路径，锁文件不能在进程运行时删除。CLI 是 Unix 主机程序；Windows 不执行该入口，但采样函数在无 /proc 时可降级。
 
 先在独立 test 环境用通知替身验证，再由部署人按授权启用真实收件人。启用模板命令示例为 `systemctl enable --now niuma-probe@test.timer`；production 必须有独立配置并核对现有卷、Compose 项目和健康端口后再启用。不要为了制造告警停止生产服务、填满磁盘或读取真实微信数据。
+
+发布、备份或回滚前先暂停对应环境的 timer 并等待在途 oneshot 结束，再停止 API 备份完整数据卷（含 sidecar）；恢复 API/网页并验证健康后再恢复 timer，避免备份期间写入或把计划维护当成故障。
 
 ## 验证
 

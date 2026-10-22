@@ -14,6 +14,10 @@ server/
 ├── test_mail_delivery.py     SMTP TLS、凭据隔离、地址校验与错误脱敏测试。
 ├── test_mail_environment.py  三环境邮件配置隔离、缺省兼容及 Compose 字面量测试。
 ├── auth_test_support.py      仅用于测试和合成验收的验证码投递替身与旧账号夹具。
+├── environment_tools/       仅 development/test 从源码加载，正式镜像排除整个目录。
+│   ├── __init__.py           当前账号清空、环境保护、会话轮换和附件清理。
+│   └── account-tools.js      账号面板中的测试入口、确认弹窗与完成刷新。
+├── test_account_reset.py     真实 HTTP 清空、账号隔离、并发和正式环境拒绝回归。
 ├── dev_accounts.py           仅为 development/test 创建空白、已验证的普通测试账号。
 ├── test_dev_accounts.py      测试账号登录、空数据、重复保护与生产环境拒绝回归。
 ├── test_dev_account_environment.py 环境入口、容器选择、密码传递和生产拒绝回归。
@@ -81,6 +85,7 @@ server/
 │   ├── OPERATIONS_PROBE.md    主机探针、私有通知配置和定时执行步骤。
 │   ├── TEAM_GUIDE.md          团队本机开发、SSH 测试和协作发布的简明指南。
 │   ├── EMAIL.md               阿里云发信准备、配置、验收与旧账号升级说明。
+│   ├── compose.testing-tools.yaml 仅 development/test 挂载只读测试工具源码。
 │   ├── compose.mail-budget.yaml  显式挂载共享发信计数卷，不共享用户数据。
 │   └── environments/         本机私有环境配置，不提交也不进入镜像。
 ├── test_source_sync.py       教学网同步权限与请求转换测试。
@@ -125,6 +130,14 @@ server/
 运行 `python -m unittest discover -s server -p 'test_email_verification.py' -v` 与 `python -m unittest discover -s server -p 'test_mail*.py' -v` 使用临时数据库和合成邮件，不会真实发信。
 
 密码找回回归运行 `python -m unittest discover -s server -p 'test_password_recovery.py' -v`；验证码绑定发码时密码版本，正常改密码也使旧恢复码失效。登录与已登录改密在写入前重新核对凭据/会话，避免重置期间的旧请求恢复访问。
+
+## 清空测试数据
+
+通过统一入口启动 development/test 后，登录并打开「账号 → 测试工具 → 清空测试数据」，确认后清空当前账号的工作区、导入/识别/来源快照与去重记录、附件、规划、使用反馈和错误报告；关闭定时同步，保留账号、密码、邮箱验证、头像、教学网连接及管理权限。
+
+普通请求可并行读取、查询进度和停止作业；仅清空请求独占当前账号，等待已开始的请求结束并阻止新的旧会话写回。清空后保留当前登录并刷新页面，其他会话失效；旧页面的工作区版本和定时配置版本不能恢复旧数据；附件删除失败保留清理队列并提示刷新继续。过程运行记录和邮件验证码限流不重置。正式镜像与网页构建不包含工具模块；容器测试仅额外挂载该目录，详见 [环境入口](deploy/ENVIRONMENTS.md#清空测试数据)。
+
+回归：`python -m unittest discover -s server -p test_account_reset.py -v`；前端确认、切换账号与错误处理：`npm --prefix frontend test`。
 
 ## 空白测试账号
 

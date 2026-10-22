@@ -89,6 +89,24 @@ class DockerBuildContextTests(unittest.TestCase):
                 sorted(path.relative_to(output).as_posix() for path in output.rglob('*') if path.is_file()),
                 ['crawler/package.json', 'crawler/src/fixture.ts'])
 
+    def test_reset_tools_are_absent_from_release_build_context(self):
+        with tempfile.TemporaryDirectory() as folder:
+            context=Path(folder)/'context'
+            deploy=context/'server/deploy';deploy.mkdir(parents=True)
+            dockerfile=deploy/'Dockerfile'
+            dockerfile.write_text('FROM scratch\nCOPY server/ /server/\n',encoding='utf-8')
+            shutil.copyfile(DeploymentConfigTests.root/'Dockerfile.dockerignore',deploy/'Dockerfile.dockerignore')
+            for name in ('server/environment_tools/__init__.py','server/environment_tools/account-tools.js',
+                         'server/test_account_reset.py','server/runtime-fixture.py'):
+                path=context/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('synthetic fixture')
+            output=Path(folder)/'output'
+            result=subprocess.run(['docker','build','-f',str(dockerfile),'--output','type=local,dest='+str(output),str(context)],
+                                  capture_output=True,text=True,timeout=60)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertTrue((output/'server/runtime-fixture.py').exists())
+            self.assertFalse((output/'server/environment_tools').exists())
+            self.assertFalse((output/'server/test_account_reset.py').exists())
+
 
 class DeploymentTests(unittest.TestCase):
     def setUp(self):

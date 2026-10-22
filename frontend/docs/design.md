@@ -179,3 +179,7 @@
 ![跨批次及分类恢复高亮，保留完整批次标题](screenshots/import-recovery-multiple-batches.png)
 
 ![未读通知按关键日期排序，过去日期共用任务红色](screenshots/notice-unread-overdue.png)
+
+## 本地与测试账号复用
+
+显式 development/test 环境的账号面板提供「清空测试数据」；确认弹窗说明删除范围、保留账号与教学网连接并关闭定时同步，成功后保留登录并刷新，可重新导入同一内容。清空逻辑和文案仅由测试源码提供，正式网页产物和正式 API 镜像不包含该工具。

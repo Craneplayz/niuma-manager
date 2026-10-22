@@ -634,6 +634,7 @@ def _process_record(path, uid, run_id, request_id, ApiError):
     except Exception as exc:
         with connection(path) as db:
             db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone(): return
             run = get(db, uid, run_id, ApiError)
             if run['state'] not in contract.ACTIVE: return
             item = next(r for r in run['records'] if r['request_id']==request_id)
@@ -723,7 +724,9 @@ def process(path, uid, run_id, ApiError):
     with operations.scope(path,run_id=run_id,operation='sync'):
         _process(path,uid,run_id,ApiError)
         with connection(path) as db:
-            run=get(db,uid,run_id,ApiError)
+            row=db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone()
+            if not row: return
+            run=json.loads(row['snapshot'])
             if run['state'] in contract.FINAL:
                 operations.emit('run',code=run['state'],result='ok' if run['state']=='succeeded' else 'cancelled' if run['state']=='stopped' else 'failed')
 
@@ -807,6 +810,7 @@ def _process_turn(path, uid, run_id, ApiError, first):
         with connection(path) as db:
             diagnostics.persist(db,uid,collection_attempt)
             db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone(): return
             run = get(db, uid, run_id, ApiError)
             if run['state'] not in contract.ACTIVE: return
             run['error'] = collection_error(exc, ApiError)
