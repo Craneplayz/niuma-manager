@@ -11,6 +11,7 @@ from urllib.request import build_opener, HTTPCookieProcessor, Request
 from urllib.error import HTTPError
 
 import app
+import task_operations
 
 
 class TaskOperationTests(unittest.TestCase):
@@ -79,6 +80,30 @@ class TaskOperationTests(unittest.TestCase):
         self.assertEqual(self.write()[0], 200)
         self.assertEqual(self.write(operation=dict(self.operation, owner='bob'), user='bob')[0], 200)
         self.assertEqual(self.call('/tasks/reconcile', dict(owner='bob', operations=[dict(self.operation, owner='bob')]), 'bob')[1]['applied'], [self.operation['id']])
+
+    def test_reset_rejects_unsent_old_operations_but_can_acknowledge_already_committed_ones(self):
+        self.assertEqual(self.write()[0], 200)
+        with app.connection() as db:
+            task_operations.invalidate_pending(db, 'alice')
+            db.execute('UPDATE workspace SET value="[]",version=2 WHERE user_id="alice" AND name="tasks"')
+        unknown = dict(self.operation, id='2222222222222222')
+        self.assertEqual(self.write(2, unknown)[0], 409)
+        self.assertEqual(self.write()[1]['value'], [])
+        fresh = dict(unknown, intent=dict(unknown['intent'], workspaceGeneration=1))
+        self.assertEqual(self.write(2, fresh)[0], 200)
+
+    def test_shared_contract_example_matches_server_validation(self):
+        from jsonschema import Draft202012Validator
+        contracts = Path(__file__).resolve().parents[1] / 'contracts'
+        schema = json.loads((contracts/'schemas/task-writes-v0.1.schema.json').read_text())
+        examples = json.loads((contracts/'examples/task-writes-v01.json').read_text())
+        for name in ('operation','reconcile'): Draft202012Validator(schema).validate(examples[name])
+        operation = examples['operation']
+        self.assertEqual(task_operations.identity(operation, operation['owner'], app.ApiError)[0], operation['id'])
+        for bad in (dict(operation, id='short'), dict(operation, intent=dict(kind='other')),
+                    dict(operation, intent=dict(kind='status', workspaceGeneration=True))):
+            self.assertFalse(Draft202012Validator(schema).is_valid(bad))
+            with self.assertRaises(app.ApiError): task_operations.identity(bad, operation['owner'], app.ApiError)
 
 
 if __name__ == '__main__': unittest.main()

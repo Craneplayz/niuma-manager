@@ -667,14 +667,14 @@ test("calendar assignment and undo save only the date while preserving task meta
   assert.equal(f.tasks[0].description, "设置日期后补充的说明");
 });
 
-test("a failed calendar drop stays undated and is never replayed by retry or a later edit", async () => {
+test("a rejected calendar drop stays undated and is never replayed by retry or a later edit", async () => {
   const f = fixture("calendar-failure", [task("calendar")]);
   const state = await initSession(), originalFetch = globalThis.fetch;
   let fail = true;
   globalThis.fetch = async (path, options) => {
     if (fail && path === "/api/data/tasks") {
       fail = false;
-      return { ok: false, status: 503, json: async () => ({ error: "合成保存失败" }) };
+      return { ok: false, status: 400, json: async () => ({ error: "合成保存失败" }) };
     }
     return originalFetch(path, options);
   };

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import 'fake-indexeddb/auto';
 
 // A small DOM boundary for running the real controller with synthetic API data.
 class Surface {
@@ -109,8 +110,9 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     if (path === "/api/auth/me") value = { user: { id: "synthetic-" + instanceId, name: "合成账号" } };
     else if (path === "/api/workspace") value = { tasks: { version: 1, value: tasks } };
     else if (path === "/api/data/tasks") {
-      if (failWrite) return { ok: false, status: 503, json: async () => ({ error: "合成保存失败" }) };
-      writes.push(JSON.parse(options.body)); value = { version: writes.length + 1 };
+      if (failWrite) return { ok: false, status: 400, json: async () => ({ error: "合成保存失败" }) };
+      const body = JSON.parse(options.body);
+      writes.push(body); value = { version: writes.length + 1, operationId: body.operation?.id };
     }
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
@@ -122,7 +124,9 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     else assert.ok(["/api/version", "/api/sources/credentials", "/api/recognition/task-evidence"].includes(path), "unexpected synthetic request: " + path);
     return { ok: true, json: async () => structuredClone(value) };
   };
+  const ready = new Promise(resolve => win.addEventListener('niuma:session-ready', resolve));
   await import(`../src/app.js?date-test=${instanceId}`);
+  await ready;
   await new Promise(setImmediate);
   const click = dataset => doc.emit("click", { closest: () => ({ dataset }) });
   const drag = async (date = "2026-10-20", id = "undated") => {
@@ -138,6 +142,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     await doc.emit("pointermove", source, { ...pointer, clientX: 100 });
     await doc.emit("pointerup", source, { ...pointer, clientX: 100 });
     await doc.emit("click", { closest: () => ({ dataset: { taskOpen: id } }) }, { detail: 1 });
+    await (await import('../src/team-store.js')).flushStore().catch(() => {});
     await new Promise(setImmediate);
   };
   return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, entries, toast: elements.get("#toast") };

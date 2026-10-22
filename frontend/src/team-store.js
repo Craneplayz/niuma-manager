@@ -204,7 +204,14 @@ async function loadSession(discardPending = false) {
         pendingChanges = operations.map(operation => ({ operation, epoch, retryOnFailure: true, reloadOnStale: true }));
         journalLoaded = session.user.id;
         if (pendingChanges.length) {
-          await reconcileChanges(epoch);
+          try { await reconcileChanges(epoch); }
+          catch (error) {
+            if (epoch !== accountEpoch) throw error;
+            if (error.status !== 409) throw error;
+            failed = true; session.conflict = true; report('error', error);
+            window.dispatchEvent(new CustomEvent('niuma:session-ready'));
+            return view();
+          }
           let projected = clone(canonicalTasks);
           try {
             for (const change of pendingChanges) projected = transformIntent(change.operation.intent)(projected);
@@ -238,6 +245,15 @@ async function loadSession(discardPending = false) {
   }
 }
 export async function initSession() {
+  return loadSession();
+}
+export async function reconnectStore() {
+  const epoch = accountEpoch;
+  await drainWrites();
+  if (epoch !== accountEpoch) throw new Error('账号已切换');
+  journalLoaded = null;
+  failed = false;
+  session.conflict = false;
   return loadSession();
 }
 export async function refreshStore() {
@@ -349,17 +365,19 @@ function enqueueChange(change) {
       await removeOperations(operation.owner, [operation.id]);
       if (epoch !== accountEpoch) throw new Error('账号已切换');
       removeChange(change);
+      if (result.replayed && pendingChanges.length) await reconcileChanges(epoch);
       session.conflict = false;
       report(latest || pendingChanges.length ? "saving" : "saved");
     } catch (error) {
       if (epoch === accountEpoch) {
         session.conflict = error.status === 409;
-        if (!retryOnFailure && error.status) {
+        const rejected = error.status >= 400 && error.status < 500;
+        if (!retryOnFailure && rejected) {
           await removeOperations(operation.owner, [operation.id]);
           removeChange(change);
         }
         // Preserve the failed intent and every following edit for explicit retry.
-        if (retryOnFailure || session.conflict || !error.status) {
+        if (retryOnFailure || session.conflict || !rejected) {
           failed = true;
           report("error", error);
         } else report(latest || pendingChanges.length ? "saving" : "saved");

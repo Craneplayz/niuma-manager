@@ -1,0 +1,10 @@
+{
+  "operation": {
+    "id": "0123456789abcdef0123456789abcdef", "owner": "synthetic-account",
+    "intent": {"kind": "status", "id": "task-a", "workspaceGeneration": 0,
+      "expected": {"status": "todo", "completedAt": ""}, "next": {"status": "done", "completedAt": "2026-10-22"}}
+  },
+  "acknowledgement": {"version": 2, "operationId": "0123456789abcdef0123456789abcdef"},
+  "reconcile": {"owner": "synthetic-account", "operations": []},
+  "reconciled": {"applied": [], "tasks": {"value": [], "version": 0}, "generation": 0}
+}

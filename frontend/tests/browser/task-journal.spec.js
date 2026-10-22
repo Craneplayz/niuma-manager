@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -178,4 +178,50 @@ test('blocked local storage does not optimistically alter a task or send a PUT',
   await row(page,'a').locator('[data-task-complete]').click();
   await expect(page.locator('#toast')).toContainText('浏览器存储');
   await expect(row(page,'a')).toBeVisible(); expect(writes).toBe(0);
+});
+
+test('acknowledged changes and encryption key are cleared on explicit logout', async ({page,context}) => {
+  await open(page,context); await edit(page,'a','已保存的合成修改');
+  await expect.poll(async ()=>(await pending(page)).length).toBe(0);
+  await page.evaluate(async () => (await import('/src/team-store.js')).logout());
+  const keys=await page.evaluate(()=>new Promise(resolve=>{
+    const request=indexedDB.open('niuma-task-journal-v1');
+    request.onsuccess=()=>{const db=request.result,tx=db.transaction('keys');
+      tx.objectStore('keys').getAllKeys().onsuccess=e=>resolve(e.target.result);tx.oncomplete=()=>db.close();};
+  }));
+  expect(keys).not.toContain('alice');
+});
+
+test('a forced browser-process exit preserves already-staged changes in the disk profile', async ({playwright,baseURL}) => {
+  test.skip(process.platform!=='linux','Forced process lifecycle check runs in the isolated Linux runner');
+  const profile=await mkdtemp(join(tmpdir(),'niuma-journal-crash-'));
+  let context, processes=[];
+  const stamp=async id=>{
+    try { return (await readFile(`/proc/${id}/stat`,'utf8')).split(') ')[1].split(' ')[19]; }
+    catch { return null; }
+  };
+  try {
+    context=await playwright.chromium.launchPersistentContext(profile,{baseURL,headless:true});
+    const page=context.pages()[0]; await open(page,context);
+    await page.route('**/api/data/tasks',route=>route.abort());
+    await edit(page,'a','强制退出前已暂存');
+    await expect(page.getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
+    expect(await pending(page)).toHaveLength(1);
+    const cdp=await context.browser().newBrowserCDPSession();
+    const {processInfo}=await cdp.send('SystemInfo.getProcessInfo');
+    processes=await Promise.all(processInfo.map(async p=>({...p,stamp:await stamp(p.id)})));
+    const browser=processes.find(p=>p.type==='browser');
+    const closed=context.waitForEvent('close');
+    process.kill(browser.id,'SIGKILL'); await closed;
+    for(const p of processes) if(p.stamp && await stamp(p.id)===p.stamp) { try {process.kill(p.id,'SIGKILL');} catch {} }
+    context=await playwright.chromium.launchPersistentContext(profile,{baseURL,headless:true});
+    const reopened=context.pages()[0]; await open(reopened,context);
+    await expect(row(reopened,'a')).toContainText('强制退出前已暂存');
+    await expect.poll(async ()=>(await pending(reopened)).length).toBe(0);
+    expect((await workspace(reopened)).tasks.version).toBe(2);
+  } finally {
+    await context?.close().catch(()=>{});
+    for(const p of processes) if(p.stamp && await stamp(p.id)===p.stamp) { try {process.kill(p.id,'SIGKILL');} catch {} }
+    await rm(profile,{recursive:true,force:true});
+  }
 });

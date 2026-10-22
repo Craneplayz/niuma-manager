@@ -32,6 +32,8 @@ def identity(operation, uid, ApiError):
     intent = operation['intent']
     if not isinstance(intent, dict) or intent.get('kind') not in ('save', 'status', 'deadline', 'trash', 'restore'):
         raise ApiError(400, '任务保存操作类型无效')
+    if type(intent.get('workspaceGeneration', 0)) is not int or intent.get('workspaceGeneration', 0) < 0:
+        raise ApiError(400, '任务保存代次无效')
     encoded = json.dumps(intent, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
     if len(encoded.encode()) > 100000:
         raise ApiError(400, '单条待保存操作过大')
@@ -59,6 +61,8 @@ def workspace(db, uid):
 
 
 def reconcile(handler, db, uid, body, ApiError):
+    if set(body) != {'owner', 'operations'}:
+        raise ApiError(400, '待恢复操作请求格式不正确')
     if body.get('owner') != uid:
         raise ApiError(409, '账号已切换，请重新登录原账号恢复待保存操作')
     operations = body.get('operations')

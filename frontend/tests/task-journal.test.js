@@ -2,9 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { appendOperation, readOperations, removeOperations, clearJournal } from '../src/task-journal.js';
+import example from '../../contracts/examples/task-writes-v01.json' with { type: 'json' };
 
 const operation = (owner, id = crypto.randomUUID()) => ({ format: 1, id, owner, order: Date.now(),
   intent: { kind: 'save', draft: { title: '仅本账号可恢复的合成草稿', notes: '合成私密说明' } } });
+test('the shared operation identity survives encryption and recovery without mutation', async () => {
+  const record = { ...example.operation, format: 1, order: 1 };
+  await appendOperation(record);
+  assert.deepEqual(await readOperations(record.owner), [record]);
+  await clearJournal(record.owner, true);
+});
 test('durable encrypted records recover after module reload and isolate accounts', async () => {
   const first = operation('alice'), second = operation('bob');
   await appendOperation(first); await appendOperation(second);

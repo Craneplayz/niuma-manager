@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "operation": {
+      "type": "object", "required": ["id", "owner", "intent"], "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{16,100}$"},
+        "owner": {"type": "string", "minLength": 1},
+        "intent": {"type": "object", "required": ["kind"], "properties": {
+          "kind": {"enum": ["save", "status", "deadline", "trash", "restore"]},
+          "workspaceGeneration": {"type": "integer", "minimum": 0}
+        }}
+      }
+    },
+    "reconcile": {
+      "type": "object", "required": ["owner", "operations"], "additionalProperties": false,
+      "properties": {"owner": {"type": "string", "minLength": 1},
+        "operations": {"type": "array", "maxItems": 500, "items": {"$ref": "#/$defs/operation"}}}
+    }
+  },
+  "oneOf": [{"$ref": "#/$defs/operation"}, {"$ref": "#/$defs/reconcile"}]
+}
