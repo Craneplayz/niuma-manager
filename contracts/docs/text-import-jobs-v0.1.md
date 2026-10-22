@@ -1,0 +1,22 @@
+# 文本导入后台作业 text-import-jobs/0.1
+
+文本内容和候选继续使用 text v0.2；作业信封以 [Schema](../schemas/text-import-jobs-v0.1.schema.json) 和[共享样例](../examples/text-import-jobs-v01.json)为准。
+
+| 接口 | 请求 | 返回 |
+| --- | --- | --- |
+| `GET /api/recognition/text-jobs` | 当前账号会话 | 当前账号的作业信封 |
+| `POST /api/recognition/text-jobs` | 一条 `platform=manual`、1～4000 字的 v0.2 请求 | 持久化后返回作业信封 |
+| `POST /api/recognition/text-jobs/{request_id}/stop` | `{"attempt":1}` | 停止后返回作业信封 |
+| `POST /api/recognition/text-jobs/{request_id}/retry` | `{"attempt":1}` | 重试后返回作业信封 |
+
+作业先以 `queued` 保存，获得共享模型名额后变为 `recognizing`；终态为 `success/no_tasks/partial_success/failed/stopped/interrupted`。信封包含最近 100 条作业，进行中的作业优先；不返回通知正文、凭据或模型原始响应。完整结果与候选通过原 `GET /api/recognition/batches` 查询。
+
+同账号的 `request_id` 绑定完整请求指纹，相同请求重放不重复调用，内容变化返回 409；不同账号独立。每账号最多一个活动文本作业，全服务最多接纳 20 个活动文本作业并使用共享模型队列。超限返回 409/503，不创建无归属的执行。
+
+`attempt` 从 1 递增，停止和重试仅作用于所传的当前尝试；旧尝试重放返回最新状态，不重复启动、不停止新尝试。失败、部分成功、停止和中断可重试；已成功和无任务的识别不重跑。重试复用原候选及用户决定，只处理尚未成功的记录。
+
+接受请求后先提交数据库，再启动工作线程，再发送回执；浏览器断开不取消工作。停止与候选保存通过同一 SQLite 写事务串行化，已停止或旧尝试的迟到结果不能入库。正在发出的模型调用不保证立即取消，等待模型名额的已停止作业不会发出调用。
+
+候选、结果和作业终态在同一事务保存；服务启动把尚未完成的作业标为 `interrupted`，不自动重复调用模型，由账号主动重试。单 API 进程使用，每个工作线程独立关闭数据库连接，模型调用期间不持有数据库写锁。
+
+前端在文本栏目可见时查询作业，活动作业每 2 秒更新，空闲时每 30 秒更新；刷新后恢复活动状态及结果，不自动重提文本。主动文本导入的 `no_tasks` 结果也保留在历史中。

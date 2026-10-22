@@ -6,6 +6,9 @@
 
 ```text
 contracts/
+├── docs/text-import-jobs-v0.1.md      # 文本后台作业、幂等、停止与刷新恢复约定
+├── schemas/text-import-jobs-v0.1.schema.json # 文本后台作业状态信封 Schema
+├── examples/text-import-jobs-v01.json # 前后端共用的排队、识别及全部终态样例
 ├── schemas/producer-observation-v0.1.schema.json # 下载计时与模型实际用量的无正文事件
 ├── examples/producer-observations-v01.json # 已知用量、未知用量及失败事件共享样例
 ├── tests/test_producer_observations.py # 观测契约及敏感字段拒绝检查

@@ -69,7 +69,7 @@ function fakeForm(kind,values,extra={}){
  return {dataset:{importForm:kind,...extra},values,error,retry,submit,querySelector(selector){if(selector.includes('refresh-review'))return retry;if(selector==='[data-import-error-details]')return null;if(selector.includes('error'))return error;if(selector==='[type="submit"]')return submit;return null;},querySelectorAll(){return fields;}};
 }
 function fixture(scenario={}){
- let account='A',state,dialog='',calls=[],messages=[],batches={A:[],B:[]},taskVersion=7,deferred=null,workspaces={A:[],B:[]},teachingFailed=false,runs={A:[],B:[]};
+ let account='A',state,dialog='',calls=[],messages=[],batches={A:[],B:[]},taskVersion=7,deferred=null,workspaces={A:[],B:[]},teachingFailed=false,runs={A:[],B:[]},textJobs={A:[],B:[]};
  const respond=value=>({ok:true,json:async()=>structuredClone(value)});
  const reject=error=>({ok:false,status:error.status||503,json:async()=>({error:error.message})});
  const syncCases=scenario.syncCases||[teachingCase('date-only'),teachingCase('no-deadline')];
@@ -85,6 +85,17 @@ function fixture(scenario={}){
   if(path==='/api/auth/login'||path==='/api/auth/register'){account=body.email.split('@')[0];return respond({});}
   if(path==='/api/auth/me')return respond({user:{id:account,name:account,email:account+'@test.local'}});
   if(path==='/api/auth/logout')return respond({});
+  if(path==='/api/recognition/text-jobs'){
+   if(method==='POST'){
+    if(scenario.recognitionError)return reject(scenario.recognitionError);
+    const now='2026-10-22T02:00:00Z';
+    if(!textJobs[account].some(job=>job.request_id===body.request_id)){
+     textJobs[account].push({request_id:body.request_id,state:'success',attempt:1,created_at:now,updated_at:now,error:null});
+     batches[account].push({request:body,result:{status:'success'},items:[]});
+    }
+   }
+   return respond({contract_version:'text-import-jobs/0.1',jobs:textJobs[account]});
+  }
   if(path==='/api/workspace')return respond({tasks:{version:taskVersion,value:workspaces[account]}});
   if (path === '/api/sources/sync-schedule') return respond({contract_version:'source-sync/0.1', enabled:false, available:true, interval_minutes:180, revision:0});
   if(path==='/api/sources/credentials'){if(method==='POST'&&scenario.credentialError)return reject(scenario.credentialError);return respond({configured:true,username:account+'-campus'});}
@@ -555,7 +566,7 @@ test('active teaching sync permits navigation, text recognition and candidate re
  await ui.submit(form);assert.equal(f.state.tasks.length,1);assert.equal(f.dialog,'');
  await ui.submit(fakeForm('text',{text:'独立文本识别',published:'2026-10-14T12:00:00'}));
  await ui.click({dataset:{importAction:'sync'}});
- assert.equal(f.calls.filter(c=>c.path==='/api/recognition/batches'&&c.method==='POST').length,1);
+ assert.equal(f.calls.filter(c=>c.path==='/api/recognition/text-jobs'&&c.method==='POST').length,1);
  assert.equal(f.calls.filter(c=>c.path==='/api/sources/sync-runs'&&c.method==='POST').length,0);
  assert.equal(f.calls.filter(c=>c.path.endsWith('/stop')).length,1);
 });

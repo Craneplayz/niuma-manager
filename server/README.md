@@ -35,6 +35,8 @@ server/
 ├── test_recognition_diagnostics.py 测试环境开关、敏感字段拒绝与历史保留回归。
 ├── teaching_identity.py      稳定来源指纹及已处理来源变更的防重复保护。
 ├── test_teaching_identity.py  附件字节、引用顺序与读取状态变化的身份回归。
+├── text_jobs.py              文本后台识别作业、停止保护与中断恢复。
+├── test_text_jobs.py         文本作业真实 HTTP、幂等、账号隔离和迟到结果回归。
 ├── recognition.py            文本识别批次与候选确认接口。
 ├── reprocessing.py           已保存教学网通知的定向运行、停止与持久进度。
 ├── test_reprocessing.py      来源分页、幂等、账号隔离、停止与旧结果保留测试。
@@ -347,3 +349,5 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 公开活动路由见 [public-import/0.1](../contracts/docs/public-import-v0.1.md)：仅开放三个现有网站，不接受任意 URL；最多 2 轮公开采集并行、每账号 1 轮，每轮最多 6 页/150 秒。预览不建任务，用户选中后按任务版本原子写入通知；重复导入不复制、不复活回收站记录。
 
 接线回归：`python -m unittest server.test_submission_runtime server.test_public_sources server.test_source_jobs server.test_source_schedule server.test_teaching_reprocessing server.test_manual_materials -q`（`PYTHONPATH` 包含仓库根及 `server`）；浏览器完整入口验收按 [前端说明](../frontend/README.md) 执行，合成外部服务与真实模型联调须分别记录。
+
+文本导入后台接口见 [text-import-jobs/0.1](../contracts/docs/text-import-jobs-v0.1.md)：接受后立即持久化，复用原识别队列和候选保存；刷新不重提请求，停止拒绝迟到入库，重启标记中断并等待用户重试。验证：`python -m unittest discover -s server -p test_text_jobs.py -v`，使用临时数据库和合成模型，不读取私人数据。

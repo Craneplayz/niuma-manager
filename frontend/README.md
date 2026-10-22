@@ -50,6 +50,7 @@ frontend/
 │   ├── traffic-view.js       后台游客、注册、回访卡片及每日明细
 │   ├── admin-operations.js   独立管理员运行监控、只读追踪和资源缺失适配
 │   ├── admin-usage.css       独立后台的桌面与手机样式
+│   ├── text-import-jobs.js   文本作业提交、状态轮询和刷新恢复
 │   ├── import-ui.js          文本、教学网采集与候选核对
 │   ├── import-evidence.js    摘录、完整通知、来源链接和失败身份
 │   ├── materials-ui.js       文件选择、后台识别与失败重试
@@ -80,6 +81,8 @@ frontend/
 │   ├── browser/account-avatar.spec.js 头像悬停、选图裁切、保存恢复与关闭期间响应
 │   ├── browser/account-calendar.spec.js 账号连接管理、月周拖动改期与撤销
 │   ├── task-model.test.js    筛选、截止分组、月周日历和安全渲染
+│   ├── text-import-jobs.test.js 文本状态恢复、迟到读取和账号切换回归
+│   ├── browser/text-import-jobs.spec.js 真实前后端、合成模型的刷新、停止与重试验收
 │   ├── import-flow.test.js   通知时间、候选确认、教学网和账号隔离
 │   ├── import-auto.test.js   后台导入、幂等恢复、停止与账号隔离
 │   ├── import-evidence.test.js 原文、来源身份与安全渲染
@@ -212,3 +215,5 @@ npm run build
 `playwright.config.js` 配置隔离浏览器回归。安装浏览器组件后运行 `npm run test:browser`，使用全合成 API 检查 1440px、390px 和 320px 下的报错、反馈按钮、提交成功 / 失败与弹窗操作。CI 的 Linux 前端作业执行这些检查并上传截图及失败跟踪。
 
 历史贡献与来源见 [CONTRIBUTIONS.md](CONTRIBUTIONS.md)。
+
+文本提交使用后台作业，显示等待识别、正在识别和最终状态；刷新或重新打开文本栏目会恢复记录，未识别出任务也保留在历史导入中。失败、停止或服务中断可在原记录重试；未提交的文本草稿仍不保存。接口见 [文本后台作业](../contracts/docs/text-import-jobs-v0.1.md)。
