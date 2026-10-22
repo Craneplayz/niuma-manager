@@ -1,6 +1,7 @@
 """Optional, content-free observations from the model transport."""
 
 import time
+from . import diagnostics
 
 
 def actual_usage(envelope):
@@ -24,10 +25,13 @@ def observe_call(observer, invoke):
     event = dict(contract_version='producer-observation/0.1', stage='model_call',
                  result_code='unavailable', **actual_usage(None))
     started = time.monotonic()
+    diagnostics.emit('model_transport', status='started')
     try:
         return invoke(event)
     finally:
         event['duration_ms'] = max(0, round((time.monotonic() - started) * 1000, 3))
+        diagnostics.emit('model_transport', status=event['result_code'], seconds=event['duration_ms']/1000,
+                         **{k:event[k] for k in ('input_tokens','output_tokens','total_tokens')})
         if callable(observer):
             try:
                 observer(dict(event))

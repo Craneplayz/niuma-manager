@@ -66,6 +66,10 @@ export async function api(path, body, method = "POST", options = {}) {
       );
       error.status = response.status;
       error.code = typeof data.error === "object" ? data.error?.code : data.code;
+      error.failure = typeof data.error === "object" ? data.error?.failure : data.failure;
+      error.diagnostic = typeof data.error === "object" ? data.error?.diagnostic : data.diagnostic;
+      error.diagnostic_id = typeof data.error === "object" ? data.error?.diagnostic_id : data.diagnostic_id;
+      error.diagnostics = typeof data.error === "object" ? data.error?.diagnostics : data.diagnostics;
       if (Number.isFinite(data.retryAfter)) error.retryAfter = data.retryAfter;
       throw error;
     }

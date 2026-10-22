@@ -627,12 +627,22 @@ def _process_record(path, uid, run_id, request_id, ApiError):
             else:
                 failure = next((r.get('error') for r in result['record_results'] if r.get('error')), {})
                 item.update(state='failed', error=diagnostics.reference(db,uid,request_id,
-                    error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)),
+                    dict(error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)),
+                         **{key:failure[key] for key in ('failure','diagnostic','diagnostic_id') if key in failure}),
                     attempt_id=diagnostic_attempt.get('id')))
             item['seconds'] = round(time.monotonic()-started, 2)
             save(db, run)
     except Exception as exc:
         with connection(path) as db:
+            if not getattr(exc,'_recognition_attempt',None):
+                # Cover post-recognition auto-apply/storage failures as well as
+                # model failures; never rerun recognition to obtain diagnostics.
+                try:
+                    with diagnostics.capture(db,uid,request_id):
+                        raise exc
+                except Exception:
+                    pass
+            diagnostics.persist(db,uid,getattr(exc,'_recognition_attempt',None))
             db.execute('BEGIN IMMEDIATE')
             if not db.execute('SELECT 1 FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone(): return
             run = get(db, uid, run_id, ApiError)
@@ -644,6 +654,11 @@ def _process_record(path, uid, run_id, request_id, ApiError):
                         error=error('source_changed' if conflict else 'model_configuration' if configuration else 'recognition_failed',
                                     exc.message if isinstance(exc, ApiError) else '识别暂时失败，已保存的其他结果不受影响。', not (conflict or configuration)))
             item['error'] = diagnostics.reference(db,uid,request_id,item['error'],attempt_id=diagnostic_attempt.get('id'))
+            if getattr(exc, '_recognition_failure', None):
+                # Uncoded ApiErrors retain the source-sync legacy code; classification
+                # and retryability must survive without changing receipt identities.
+                item['error'].update({k:v for k,v in exc._recognition_failure.items()
+                                     if k not in ('diagnostics','code') or k=='code' and getattr(exc,'code',None)})
             save(db, run)
 
 

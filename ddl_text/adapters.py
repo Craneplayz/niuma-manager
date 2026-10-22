@@ -17,16 +17,12 @@ OUTPUT_DIAGNOSTICS = {
     'draft_evidence': '模型引用未能在已读取原文中找到，结果未采纳，请重试。',
     'draft_semantics': '模型返回的日期、引用关系或字段相互矛盾，请重试。',
 }
+# Share public classification labels without permitting arbitrary provider text.
+from contracts.recognition_errors import CATALOG
+OUTPUT_DIAGNOSTICS.update({key: value['message'] + value['action'] for key, value in CATALOG.items()})
 
 
-def safe_schema_detail(value):
-    """Only trusted schema vocabulary crosses worker/API boundaries, no values."""
-    words = set('properties tasks items assessment action state evidence span_id deadline value precision derivation anchor unread_relations ref_id role other_review_reasons notice_type target relevance reason title description content_type time_role submission_relation empty_decision status anyOf allOf oneOf type enum const required additionalProperties maxLength minLength maxItems minItems format pattern $defs quote deadline_quote part_id'.split())
-    if not isinstance(value,dict) or set(value) != {'schema_path','rule'}: return None
-    path, rule = value['schema_path'], value['rule']
-    if not isinstance(path,str) or len(path)>512 or not isinstance(rule,str) or rule not in words: return None
-    if any(token not in words and not (token.isascii() and token.isdigit() and len(token)<5) for token in path.split('/') if token): return None
-    return dict(schema_path=path,rule=rule)
+from contracts.recognition_errors import safe_schema_detail
 
 
 class AgentError(Exception):

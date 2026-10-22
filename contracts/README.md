@@ -6,6 +6,10 @@
 
 ```text
 contracts/
+├── recognition-errors.json          # 识别错误原因、类别、阶段及前后端共用文案
+├── recognition_errors.py            # 兼容错误转换、诊断脱敏与字段 Schema
+├── build_recognition_errors.py      # 生成协议错误字段及校验目录同步
+├── docs/recognition-errors.md        # 统一错误字段、纠错边界及测试诊断接口
 ├── schemas/producer-observation-v0.1.schema.json # 下载计时与模型实际用量的无正文事件
 ├── examples/producer-observations-v01.json # 已知用量、未知用量及失败事件共享样例
 ├── tests/test_producer_observations.py # 观测契约及敏感字段拒绝检查

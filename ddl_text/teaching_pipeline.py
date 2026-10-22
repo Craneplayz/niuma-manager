@@ -12,6 +12,8 @@ from .adapters import AgentError, OUTPUT_DIAGNOSTICS, safe_schema_detail
 from .chat_client import ChatClient
 from .teaching_draft import CLASSIFICATION_MODE, process_teaching_draft
 from .teaching_policy import teaching_policy_manifest
+from contracts.recognition_errors import describe
+from . import diagnostics
 
 MESSAGES={
     'agent_timeout':'识别超时，保留其他记录的结果。',
@@ -33,10 +35,12 @@ def _failure(entry,code,retryable=False,attempted=False,diagnostic=None,detail=N
         error=dict(code=code,message=(OUTPUT_DIAGNOSTICS.get(diagnostic, MESSAGES[code])
                    if code=='invalid_agent_output' else MESSAGES[code]),retryable=retryable))
     safe_detail = safe_schema_detail(detail)
+    row['error'] = describe(row['error'], reason=diagnostic)
     if safe_detail and diagnostic == 'draft_schema': row['error']['diagnostic'] = safe_detail
     return row
 
 
+@diagnostics.traced
 def process_teaching_request(request,*,client,settings,verified_snapshot_digests=(),budget_seconds=90,diagnostic_event=None):
     """Return v0.4 JSON for a bounded batch; JSON itself never grants source trust.
 
@@ -60,7 +64,7 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
     result=dict(contract_version='0.4',classification_mode=CLASSIFICATION_MODE,request_id=request['request_id'],
         policy_version=policy['version'] if policy else None,status='failed',record_results=[])
     expires=time.monotonic()+budget_seconds
-    emit = diagnostic_event or (lambda *args, **kwargs: None)
+    emit = diagnostics.emit
     def unchanged_policy():
         if policy is None:return
         try:
@@ -70,6 +74,7 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
         raise AgentError('agent_unavailable',False)
 
     for i,entry in enumerate(request['records']):
+        emit('record', record_index=i, status='started')
         attempted=False
         try:
             remaining=expires-time.monotonic()
@@ -97,8 +102,10 @@ def process_teaching_request(request,*,client,settings,verified_snapshot_digests
             code=error.code if error.code in MESSAGES else 'agent_unavailable'
             row=_failure(entry,code,error.retryable is True,attempted=attempted,diagnostic=error.diagnostic,detail=error.detail)
         except Exception as error:
-            emit('task_validation_failed',code='invalid_agent_output',exception_type=type(error).__name__)
-            row=_failure(entry,'invalid_agent_output',attempted=attempted)
+            from jsonschema import ValidationError
+            reason = 'result_contract' if isinstance(error,(ValueError,ValidationError)) else 'internal_error'
+            diagnostics.failure(error, stage='task_validation_failed',reason=reason)
+            row=_failure(entry,'invalid_agent_output' if reason=='result_contract' else 'agent_unavailable',attempted=attempted,diagnostic=reason)
         # Reserve exact safe failure envelopes for all later records. A large
         # earlier result must not swallow normal later records or truncate proof.
         reserve=[_failure(e,'limit_exceeded') for e in request['records'][i+1:]]
