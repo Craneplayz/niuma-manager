@@ -25,7 +25,7 @@ async function openApp(page, { anonymous = false, workspaceFailure = false, fail
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/sources/sync-runs") {
       value = { contract_version: "source-sync/0.1", runs: [] };
-      if (teachingFailure && request.method() === "POST") { status = 503; value = { error: "教学网识别配置不可用 API_KEY=PRIVATE" }; }
+      if (teachingFailure && request.method() === "POST") { status = 503; value = { error: typeof teachingFailure === 'object' ? teachingFailure : "教学网识别配置不可用 API_KEY=PRIVATE" }; }
     }
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };
     else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, revision: 0, interval_minutes: 60, sources: ["teaching_web"] };
@@ -126,6 +126,27 @@ test("teaching failures offer user guidance and a report instead of maintenance 
   await expect(alert.getByText("已提交，感谢反馈。")).toBeVisible();
   expect(reports[0].code).toBe("teaching_model_configuration");
   expect(reports[0].action).toBe("teaching_sync");
+});
+
+test("recognition diagnosis reaches the browser and feedback keeps only its identifier", async ({ page }) => {
+  const diagnostic_id='a1'.repeat(12);
+  const reports=await openApp(page,{teachingFailure:{code:'invalid_agent_output',failure:{reason:'draft_schema'},diagnostic_id,
+    diagnostic:{schema_path:'properties/tasks/items/required',rule:'required',instance_path:'tasks/0',missing_fields:['prerequisites']},
+    diagnostics:'{"stage":"validation","attempt":2,"escaped":"<script>PRIVATE-DETAIL</script>"}'}});
+  if(await page.locator('#sidebar-show').isVisible()) await page.locator('#sidebar-show').click();
+  await page.getByRole('button',{name:'导入内容',exact:true}).click();
+  await page.getByRole('button',{name:'教学网',exact:true}).click();
+  await page.locator('[data-import-action="sync"]').click();
+  const alert=page.getByRole('alert').filter({hasText:'prerequisites'});
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText(diagnostic_id);
+  await alert.getByText('识别诊断详情',{exact:true}).click();
+  await expect(alert.locator('pre')).toContainText('validation');
+  await expect(alert.locator('script')).toHaveCount(0);
+  await alert.getByRole('button',{name:'反馈此问题'}).click();
+  await expect(alert.getByText('已提交，感谢反馈。')).toBeVisible();
+  expect(reports[0].diagnostic_id).toBe(diagnostic_id);
+  expect(JSON.stringify(reports)).not.toMatch(/PRIVATE-DETAIL|diagnostics|missing_fields/);
 });
 
 test("administrator dashboard displays received reports in its own section", async ({ page }) => {
