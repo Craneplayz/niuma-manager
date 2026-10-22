@@ -33,7 +33,15 @@ def initialize(db):
     CREATE TABLE IF NOT EXISTS usage_admin_audit(id TEXT PRIMARY KEY, actor TEXT NOT NULL,
         created_at TEXT NOT NULL, action TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS usage_admins(actor TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS usage_guest_days(actor TEXT NOT NULL, day TEXT NOT NULL,
+        is_returning INTEGER NOT NULL, PRIMARY KEY(actor,day));
+    CREATE INDEX IF NOT EXISTS usage_guest_day ON usage_guest_days(day);
     ''')
+    maintain(db)
+
+def maintain(db, now=None):
+    cutoff = ((now or datetime.now(TZ)) - timedelta(days=90)).date().isoformat()
+    db.execute('DELETE FROM usage_guest_days WHERE day<?',(cutoff,))
 
 def actor(uid):
     return hashlib.sha256(('niuma-usage:' + uid).encode()).hexdigest()
@@ -55,6 +63,7 @@ def successful(status, value, request_id=None):
 
 def record(db, uid, event, success=True, duration_ms=0, quantity=1, now=None):
     now = now or datetime.now(TZ)
+    maintain(db,now)
     db.execute('INSERT INTO usage_events VALUES(?,?,?,?,?,?,?,?)',
         (secrets.token_hex(16),actor(uid),now.isoformat(),now.date().isoformat(),event,
          int(success),max(0,round(duration_ms)),max(0,quantity)))
@@ -67,6 +76,7 @@ def visit(db, uid, now=None):
     today, yesterday = now.date().isoformat(), (now-timedelta(days=1)).date().isoformat()
     key = actor(uid)
     db.execute('BEGIN IMMEDIATE')
+    maintain(db,now)
     old = db.execute('SELECT * FROM usage_visits WHERE actor=?',(key,)).fetchone()
     offer = bool(old and old['last_day']==yesterday and not old['rating_offered'])
     if old:
@@ -77,6 +87,15 @@ def visit(db, uid, now=None):
     # One visit per actor/day, not every page refresh.
     if not old or old['last_day']!=today: record(db,uid,'visit',now=now)
     return dict(offerRating=offer)
+
+def guest_visit(db, token, now=None):
+    now = now or datetime.now(TZ)
+    today = now.date().isoformat()
+    key = actor('guest:' + token)
+    db.execute('BEGIN IMMEDIATE')
+    maintain(db,now)
+    earlier = db.execute('SELECT 1 FROM usage_guest_days WHERE actor=? AND day<? LIMIT 1',(key,today)).fetchone()
+    db.execute('INSERT OR IGNORE INTO usage_guest_days VALUES(?,?,?)',(key,today,int(bool(earlier))))
 
 def workspace_changes(db, uid, old, new):
     old = [t for t in old if t.get('content_type')!='notice']
@@ -101,6 +120,7 @@ def workspace_changes(db, uid, old, new):
     if on_time: record(db,uid,'task_on_time',quantity=on_time)
 
 def summary(db, start, end):
+    maintain(db)
     rows = [dict(r) for r in db.execute('SELECT * FROM usage_events WHERE day BETWEEN ? AND ?',(start,end))]
     excluded = {actor(uid) for uid in (os.environ.get('NIUMA_ANALYTICS_EXCLUDED_USER_IDS','')+' '+os.environ.get('NIUMA_ADMIN_USER_IDS','')).split()}
     excluded.update(r['actor'] for r in db.execute('SELECT actor FROM usage_admins'))
@@ -120,7 +140,22 @@ def summary(db, start, end):
     rating=dict(samples=len(scores),average=round(sum(scores)/len(scores),2) if scores else None)
     feedback=feedback[:100]
     for row in feedback: row.pop('actor')
+    guests = [dict(r) for r in db.execute('SELECT * FROM usage_guest_days WHERE day BETWEEN ? AND ?',(start,end))]
+    first_days = {r['actor']:r['first_day'] for r in db.execute('SELECT actor,first_day FROM usage_visits')}
+    returns = [r for r in rows if r['event']=='visit' and first_days.get(r['actor'],r['day'])<r['day']]
+    registrations = [r for r in rows if r['event']=='register' and r['success']]
+    days = sorted({r['day'] for r in guests+rows})
+    traffic = dict(guests=len({r['actor'] for r in guests}),
+        registrations=len({r['actor'] for r in registrations}),
+        returningVisitors=len({r['actor'] for r in guests if r['is_returning']} | {r['actor'] for r in returns}),
+        returnVisits=sum(r['is_returning'] for r in guests)+len(returns),
+        registeredAccounts=sum(actor(r['id']) not in excluded for r in db.execute('SELECT id FROM users')),
+        daily=[dict(day=day,guests=sum(r['day']==day for r in guests),
+                    registrations=len({r['actor'] for r in registrations if r['day']==day}),
+                    returningVisitors=sum(r['day']==day and r['is_returning'] for r in guests)+
+                        len({r['actor'] for r in returns if r['day']==day})) for day in days])
     return dict(start=start,end=end,activeUsers=len({r['actor'] for r in rows}),
+        traffic=traffic,
         daily=[dict(day=day,users=len(users)) for day,users in sorted(by_day.items())],
         metrics=metrics,feedback=feedback,rating=rating,environment=os.environ.get('NIUMA_ENVIRONMENT','development'),
         methodology='从启用记录后统计；流程量不是同批次转化漏斗；耗时含排队，中位数为常规样本中位数，P95使用最近秩 ceil(0.95×n)；不推断历史行为或模型正确率。')

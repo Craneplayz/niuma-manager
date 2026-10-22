@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import math
+import re
 import secrets
 import sqlite3
 import time
@@ -235,6 +236,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,dict(status='ok'))
             if path=='/api/version' and self.command=='GET':
                 return self.reply(200,runtime_environment.public_version())
+            if path=='/api/usage/guest-visit' and self.command=='POST':
+                if body: raise ApiError(400,'访问统计不接受额外字段')
+                try:
+                    self.user(db)
+                    return self.reply(200,dict(saved=True))
+                except ApiError as error:
+                    if error.status!=401: raise
+                name=runtime_environment.cookie_name()+'_visitor'
+                cookie=SimpleCookie(self.headers.get('Cookie',''))
+                token=cookie[name].value if name in cookie else ''
+                if not re.fullmatch('[0-9a-f]{32}',token): token=secrets.token_hex(16)
+                usage.guest_visit(db,token)
+                secure='; Secure' if os.environ.get('NIUMA_COOKIE_SECURE')=='1' else ''
+                return self.reply(200,dict(saved=True),name+'='+token+'; HttpOnly; SameSite=Strict; Path=/api/usage; Max-Age=7776000'+secure)
             if path=='/api/error-reports' and self.command=='POST':
                 try:
                     report_user,_=self.user(db)

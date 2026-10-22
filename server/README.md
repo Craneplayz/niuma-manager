@@ -156,6 +156,9 @@ python server/manage_environment.py test-account development
 - 资源由 [主机探针](deploy/OPERATIONS_PROBE.md) 每分钟写入，超过180秒标为过期；API无Docker socket，通知、凭据和共享邮件预算仅放服务器私有配置。
 
 - 后台位于 `/admin.html`，普通应用导航不显示入口，统计 API 仅允许服务器授予权限的已登录用户。
+- `POST /api/usage/guest-visit` 仅接收空对象，以 HttpOnly 随机 Cookie 记录未登录浏览器的每日访问；数据库仅保存标识摘要、日期及回访标志，已登录访问不重复计游客。
+- 游客明细在启动、登录访问、行为写入及后台查询时清理90天之前的数据；停机或完全无请求期间不运行定时清理，恢复上述任一入口即清理且旧日期不再展示。
+- 游客按查询范围内标识去重；新增注册来自成功事件；回访为首次访问后的跨日访问（游客按浏览器、登录者按账号分别去重）；清除 Cookie、换浏览器或域名会产生独立游客标识，不做指纹关联，历史游客数据不补造。
 - 后台登录使用独立 `/api/admin` Cookie，登录或退出后台不切换普通页面账号，避免跨标签页混入数据。
 - 部署人执行 `docker exec niuma-production-api-1 python server/usage.py --grant <用户ID> --db /data/niuma.sqlite3` 授权，将 `--grant` 改为 `--revoke` 撤销，角色随环境数据卷持久化，不通过注册、昵称或客户端字段授权。
 - 本机直启可用 `NIUMA_ADMIN_USER_IDS` 空格分隔用户 ID，管理员操作默认从统计中排除；不要将管理员配置放入模型 `.env`。
