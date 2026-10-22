@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
+import secrets
 import sqlite3
 import threading
 import time
@@ -36,8 +37,13 @@ def initialize(db, recover=True):
     db.execute('''CREATE TABLE IF NOT EXISTS text_import_jobs(
         user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         request TEXT NOT NULL, state TEXT NOT NULL, attempt INTEGER NOT NULL,
-        error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, instance_id TEXT NOT NULL,
         PRIMARY KEY(user_id,request_id))''')
+    if not db.execute("SELECT 1 FROM pragma_table_info('text_import_jobs') WHERE name='instance_id'").fetchone():
+        db.execute('ALTER TABLE text_import_jobs ADD COLUMN instance_id TEXT')
+    for row in db.execute('SELECT user_id,request_id FROM text_import_jobs WHERE instance_id IS NULL').fetchall():
+        db.execute('UPDATE text_import_jobs SET instance_id=? WHERE user_id=? AND request_id=?',
+                   (secrets.token_hex(16),row['user_id'],row['request_id']))
     db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS text_import_one_active
         ON text_import_jobs(user_id) WHERE state IN ('queued','recognizing')''')
     if recover:
@@ -92,8 +98,8 @@ def create(db, uid, request, ApiError):
     if previous and previous['fingerprint'] != fingerprint: raise ApiError(409, '同一导入编号不能用于不同内容')
     capacity(db, uid, ApiError)
     now = stamp()
-    db.execute('INSERT INTO text_import_jobs VALUES(?,?,?,?,?,?,?,?,?)',
-               (uid,rid,fingerprint,json.dumps(request),'queued',1,None,now,now))
+    db.execute('INSERT INTO text_import_jobs VALUES(?,?,?,?,?,?,?,?,?,?)',
+               (uid,rid,fingerprint,json.dumps(request),'queued',1,None,now,now,secrets.token_hex(16)))
     return find(db, uid, rid, ApiError)
 
 
@@ -101,10 +107,10 @@ class Superseded(Exception):
     pass
 
 
-def process(path, uid, rid, attempt, ApiError):
+def process(path, uid, rid, attempt, ApiError, *, instance_id):
     def guard(db):
-        row = db.execute('SELECT state,attempt FROM text_import_jobs WHERE user_id=? AND request_id=?', (uid,rid)).fetchone()
-        if not row or row['attempt'] != attempt or row['state'] not in ACTIVE:
+        row = db.execute('SELECT state,attempt,instance_id FROM text_import_jobs WHERE user_id=? AND request_id=?', (uid,rid)).fetchone()
+        if not row or row['instance_id'] != instance_id or row['attempt'] != attempt or row['state'] not in ACTIVE:
             raise Superseded()
         if not db.execute('SELECT 1 FROM users WHERE id=?', (uid,)).fetchone(): raise Superseded()
 
@@ -139,7 +145,9 @@ def process(path, uid, rid, attempt, ApiError):
     except Exception as exc:
         # Fixed public errors only: never persist provider bodies or private text.
         message = exc.message if isinstance(exc,ApiError) else '文本识别未完成，请重试。'
-        code = 'invalid_agent_output' if isinstance(exc,ApiError) and exc.status == 502 and '契约' in message else 'agent_unavailable'
+        code = getattr(exc,'code',None) if isinstance(exc,ApiError) else None
+        if code not in ('model_configuration','agent_timeout','agent_unavailable','invalid_agent_output','model_busy','queue_busy','recognition_rules'):
+            code = 'invalid_agent_output' if isinstance(exc,ApiError) and exc.status == 502 and '契约' in message else 'agent_unavailable'
         try:
             with connection(path) as db:
                 db.execute('BEGIN IMMEDIATE')
@@ -150,10 +158,10 @@ def process(path, uid, rid, attempt, ApiError):
             pass
 
 
-def launch(path, uid, rid, attempt, ApiError):
-    key = (str(path),uid,rid,attempt)
+def launch(path, uid, rid, attempt, ApiError, *, instance_id):
+    key = (str(path),uid,rid,attempt,instance_id)
     def work():
-        try: process(path,uid,rid,attempt,ApiError)
+        try: process(path,uid,rid,attempt,ApiError,instance_id=instance_id)
         finally:
             with _lock: _workers.pop(key,None)
             _slots.release()
@@ -207,12 +215,12 @@ def route(handler, db, uid, path, body, ApiError, database):
     db.commit()
     if launch_row is not None and launch_row['state'] in ACTIVE:
         try:
-            launch(database,uid,launch_row['request_id'],launch_row['attempt'],ApiError)
+            launch(database,uid,launch_row['request_id'],launch_row['attempt'],ApiError,instance_id=launch_row['instance_id'])
         except Exception:
             db.execute("""UPDATE text_import_jobs SET state='failed',error=?,updated_at=?
-                WHERE user_id=? AND request_id=? AND attempt=? AND state='queued'""",
+                WHERE user_id=? AND request_id=? AND attempt=? AND instance_id=? AND state='queued'""",
                 (json.dumps(dict(code='agent_unavailable',message='识别暂时无法启动，请稍后重试。',retryable=True)),
-                 stamp(),uid,launch_row['request_id'],launch_row['attempt']))
+                 stamp(),uid,launch_row['request_id'],launch_row['attempt'],launch_row['instance_id']))
             db.commit()
     handler.reply(200,listing(db,uid))
     return True

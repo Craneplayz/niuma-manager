@@ -13,7 +13,7 @@ function fixture(value = example('recognizing')) {
   const host = {
     accountVersion: () => account, isAuthenticated: () => true, isDemo: () => false,
     escapeHtml: value => String(value).replaceAll('"', '&quot;'), render: () => renders++,
-    onChanged: async () => { updates++; return refreshResult; },
+    onChanged: async () => { updates++; if (refreshResult instanceof Error) throw refreshResult; return refreshResult; },
     setTimer: (fn,ms) => { const timer = {ms,fn: () => { timers = timers.filter(value => value !== timer); return fn(); }}; timers.push(timer); return timer; },
     clearTimer: timer => { timers = timers.filter(value => value !== timer); },
     api: async (path,body,method,options) => {
@@ -60,6 +60,39 @@ test('a completion arriving while another edit is busy keeps retrying result ref
   f.refreshResult(null); await page.load();
   f.refreshResult(true); await page.load();
   assert.equal(f.updates(),2);
+});
+
+test('a terminal retry receipt keeps refreshing unchanged state after a failed result read', async () => {
+  for (const failure of [new Error('网络连接中断'), false, null]) {
+    const f = fixture(example('failed')), page = createTextImportJobs(f.host);
+    await page.load();
+    f.response(example('success')); f.refreshResult(failure);
+    await page.click({dataset:{textJobAction:'retry',textJobId:'synthetic:failed',textJobAttempt:'1'}});
+    const first = f.updates();
+    for (let i=0; i<3; i++) await page.load();
+    assert.equal(f.updates(),first+3,'unchanged terminal state must not acknowledge a failed result refresh');
+    assert.match(page.renderProgress(), failure === null ? /正在更新导入结果/ : /重新读取导入状态/);
+    f.refreshResult(true); await page.load();
+    const done = f.updates(); await page.load();
+    assert.equal(f.updates(),done);
+    assert.doesNotMatch(page.renderProgress(),/正在更新导入结果|重新读取导入状态/);
+  }
+});
+
+test('an immediate start completion also reconciles results on the next unchanged poll',async () => {
+  const f=fixture(example('success')),page=createTextImportJobs(f.host);
+  await page.start({request_id:'synthetic:success'});
+  await page.load(); assert.equal(f.updates(),1);
+});
+
+test('account reset during result refresh cannot show the old attempt failure',async () => {
+  const f=fixture(example('failed')),page=createTextImportJobs(f.host);
+  await page.load(); f.response(example('success'));
+  let reject;
+  f.host.onChanged=() => new Promise((_,fail) => { reject=fail; });
+  const clicking=page.click({dataset:{textJobAction:'retry',textJobId:'synthetic:failed',textJobAttempt:'1'}});
+  await tick(); f.account(); page.reset(); reject(new Error('网络连接中断')); await clicking;
+  assert.deepEqual(page.list(),[]); assert.equal(page.renderProgress(),'');
 });
 
 test('account switches and late reads cannot restore private jobs', async () => {

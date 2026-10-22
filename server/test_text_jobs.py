@@ -137,6 +137,35 @@ class TextJobsTests(unittest.TestCase):
         self.assertEqual(self.call('/recognition/batches')[1][0]['result']['status'],'no_tasks')
         self.assertEqual(self.call('/recognition/retry',self.request)[0],409)
 
+    def test_retry_configuration_failure_updates_job_but_preserves_old_batch(self):
+        with patch.object(recognition,'recognize',lambda req,err,**kw:self.outcome(req,failed=True)):
+            self.call(body=self.request); text_jobs.wait_for_jobs(app.DB)
+        def unavailable(request,ApiError,**kwargs):
+            error=ApiError(503,'文本识别配置不可用，请检查当前环境的模型配置文件')
+            error.code='model_configuration'
+            raise error
+        with patch.object(recognition,'recognize',unavailable):
+            self.action('retry'); text_jobs.wait_for_jobs(app.DB)
+        job=self.job()
+        self.assertEqual(job['attempt'],2)
+        self.assertEqual(job['error']['code'],'model_configuration')
+        old=self.call('/recognition/batches')[1][0]
+        self.assertEqual(old['result']['errors'][0]['code'],'invalid_agent_output')
+
+    def test_legacy_job_rows_gain_a_stable_internal_worker_identity(self):
+        with app.connection() as db:
+            db.execute('DROP TABLE text_import_jobs')
+            db.execute('''CREATE TABLE text_import_jobs(user_id TEXT,request_id TEXT,fingerprint TEXT,
+                request TEXT,state TEXT,attempt INTEGER,error TEXT,created_at TEXT,updated_at TEXT,
+                PRIMARY KEY(user_id,request_id))''')
+            db.execute('INSERT INTO text_import_jobs VALUES(?,?,?,?,?,?,?,?,?)',
+                       ('A','old','fingerprint','{}','no_tasks',1,None,text_jobs.stamp(),text_jobs.stamp()))
+            text_jobs.initialize(db,recover=False)
+            identity=db.execute('SELECT instance_id FROM text_import_jobs').fetchone()[0]
+            self.assertEqual(len(identity),32)
+            text_jobs.initialize(db,recover=False)
+            self.assertEqual(db.execute('SELECT instance_id FROM text_import_jobs').fetchone()[0],identity)
+
     def test_account_isolation_and_restart_marks_interrupted_without_reissuing(self):
         with patch.object(recognition,'recognize',self.recognize):
             self.call(body=self.request); self.assertTrue(self.started.wait(3))

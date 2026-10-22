@@ -46,6 +46,13 @@ export function createTextImportJobs(host) {
     jobs = next; loaded = true;
     return changed;
   }
+  async function refreshResults(stamp) {
+    if (!pendingResults) return;
+    const refreshed = await host.onChanged();
+    if (!valid(stamp)) return;
+    if (refreshed === true) pendingResults = false;
+    else if (refreshed === false) throw new Error('导入结果暂时无法读取，请重试读取结果。');
+  }
   async function load() {
     if (!allowed() || loading || writing) return;
     const stamp = current(); loading = true;
@@ -53,10 +60,10 @@ export function createTextImportJobs(host) {
     try {
       const next = await host.api(BASE, undefined, 'GET', { signal: requestController.signal });
       if (!valid(stamp)) return;
-      const changed = accept(next), hadError = Boolean(error); error = null;
+      const changed = accept(next), hadError = Boolean(error), wasPending = pendingResults; error = null;
       if (changed) pendingResults = true;
-      if (pendingResults && await host.onChanged() === true && valid(stamp)) pendingResults = false;
-      if (valid(stamp) && (changed || hadError)) host.render();
+      await refreshResults(stamp);
+      if (valid(stamp) && (changed || hadError || wasPending !== pendingResults)) host.render();
     } catch (reason) {
       if (valid(stamp)) { error = describeUserError(reason, 'text_import'); host.render(); }
     } finally {
@@ -74,7 +81,11 @@ export function createTextImportJobs(host) {
     try {
       const next = await host.api(path, body, 'POST', { signal: requestController.signal });
       if (!valid(stamp)) return false;
-      accept(next); return true;
+      accept(next);
+      // A write can return an already-finished job. Its results still need an
+      // acknowledged refresh even when every following GET has the same state.
+      pendingResults = true;
+      return true;
     } catch (reason) {
       if (valid(stamp)) error = describeUserError(reason, 'text_import');
       throw reason;
@@ -94,16 +105,22 @@ export function createTextImportJobs(host) {
   }
   function renderProgress() {
     const job = jobs.find(job => ACTIVE.has(job.state));
-    return `${job ? `<div class="import-progress" role="status"><span class="status-note">${TEXT_JOB_LABELS[job.state]}通知… 刷新或离开页面后仍会继续。</span>${controls(job)}</div>` : ''}${error ? `${userErrorMarkup(error, 'text_import')}<button type="button" class="btn quiet" data-text-job-action="refresh">重新读取导入状态</button>` : ''}`;
+    return `${job ? `<div class="import-progress" role="status"><span class="status-note">${TEXT_JOB_LABELS[job.state]}通知… 刷新或离开页面后仍会继续。</span>${controls(job)}</div>` : pendingResults && !error ? '<p class="status-note" role="status">正在更新导入结果…</p>' : ''}${error ? `${userErrorMarkup(error, 'text_import')}<button type="button" class="btn quiet" data-text-job-action="refresh">重新读取导入状态</button>` : ''}`;
   }
   async function click(button) {
     const { textJobAction: action, textJobId: id, textJobAttempt: attempt } = button.dataset;
     if (action === 'refresh') return load();
     if (!['stop', 'retry'].includes(action) || !jobs.some(job => job.request_id === id)) return;
+    let stamp;
     try {
-      await mutate(`${BASE}/${encodeURIComponent(id)}/${action}`, { attempt: Number(attempt) });
-      await host.onChanged();
-    } catch { /* Error remains visible with a recovery action. */ }
+      if (!await mutate(`${BASE}/${encodeURIComponent(id)}/${action}`, { attempt: Number(attempt) })) return;
+      stamp = current();
+      await refreshResults(stamp);
+    } catch (reason) {
+      if (stamp && valid(stamp)) error = describeUserError(reason, 'text_import');
+    } finally {
+      if (stamp && valid(stamp)) { host.render(); poll(); }
+    }
   }
   return { load, reset, setVisible, renderProgress, controls, click,
     list: () => jobs, get: id => jobs.find(job => job.request_id === id),

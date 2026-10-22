@@ -23,6 +23,10 @@ def recognize(request,ApiError,*,on_admitted=None):
     pending.setdefault(request['request_id'],[]).append(item)
     if on_admitted:on_admitted()
     if not item['event'].wait(30):raise ApiError(502,'合成识别等待超时')
+    if item['mode']=='configuration':
+        error=ApiError(503,'文本识别配置不可用，请检查当前环境的模型配置文件')
+        error.code='model_configuration'
+        raise error
     record=request['records'][0]; tasks=[]
     if item['mode']=='success':
         task=copy.deepcopy(fixture['expected']['tasks'][0])
@@ -138,4 +142,52 @@ test('failure retry keeps one history record and yields one reviewable candidate
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('识别完成');
   await page.screenshot({path:info.outputPath('text-import-completed.png'),fullPage:true});
+});
+
+test('fast terminal retry recovers a failed result refresh without another job change',async ({page,context,request}) => {
+  await open(page,context);
+  const headers={Cookie:cookie+'=synthetic-browser-session'};
+  const saved=await (await request.get(api+'/api/recognition/batches',{headers})).json();
+  const before=saved.flatMap(batch=>batch.items).filter(item=>item.state==='pending').length,job=await start(page);
+  await finish(request,job,'failure');
+  await expect(page.locator('.import-progress')).toHaveCount(0);
+  await page.locator('[data-source-sync-history]').evaluate(element => { element.open=true; });
+  const row=page.locator(`[data-import-history-batch-entry="${job.request_id}"]`);
+  await expect(row).toContainText('识别失败');
+  let failRead=false;
+  await page.route('**/api/recognition/batches',async route => {
+    if (failRead) { failRead=false; return route.abort('failed'); }
+    return route.continue({url:api+'/api/recognition/batches'});
+  });
+  await page.route('**/api/recognition/text-jobs/*/retry',async route => {
+    await route.fetch({url:api+new URL(route.request().url()).pathname});
+    const read=async () => (await request.get(api+'/api/recognition/text-jobs',{headers})).json();
+    await expect.poll(async () => (await read()).jobs.find(value=>value.request_id===job.request_id)?.state).toBe('recognizing');
+    await finish(request,job,'success');
+    await expect.poll(async () => (await read()).jobs.find(value=>value.request_id===job.request_id)?.state).toBe('success');
+    failRead=true;
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(await read())});
+  });
+  await row.getByRole('button',{name:'重试识别'}).click();
+  await expect(page.getByRole('button',{name:'重新读取导入状态'})).toBeVisible();
+  await expect(page.locator('.candidate-row')).toHaveCount(before+1,{timeout:10000});
+  await expect(page.getByRole('button',{name:'重新读取导入状态'})).toHaveCount(0);
+});
+
+test('latest configuration error replaces an older invalid-result batch error',async ({page,context,request},info) => {
+  await open(page,context); const job=await start(page);
+  await finish(request,job,'failure');
+  await expect(page.locator('.import-progress')).toHaveCount(0);
+  await page.locator('[data-source-sync-history]').evaluate(element => { element.open=true; });
+  const row=page.locator(`[data-import-history-batch-entry="${job.request_id}"]`);
+  await expect(row).toContainText('识别失败');
+  await row.getByRole('button',{name:'重试识别'}).click();
+  await expect(page.locator('.import-progress')).toContainText('正在识别');
+  await finish(request,job,'configuration');
+  await expect(page.locator('.import-progress')).toHaveCount(0);
+  await row.locator('[data-import-history-category="error"]').click();
+  await row.locator('[data-import-history-item="0"]').click();
+  await expect(row).toContainText('任务识别暂时不可用');
+  await expect(row).not.toContainText('任务识别结果异常');
+  await page.screenshot({path:info.outputPath('text-import-latest-error.png'),fullPage:true});
 });

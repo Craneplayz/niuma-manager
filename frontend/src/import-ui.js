@@ -443,9 +443,14 @@ export function createImportUI(host) {
         const sources = failureSources(batch);
         return (sources.length ? sources : [{ label: "本次识别", input_id: "batch" }]).map(item => ({ ...item, batch }));
       });
-      if (group.job?.state === 'failed' && !problems.length && group.job.error) problems.push({
-        label: '文本导入', input_id: 'job', batch: { request: { request_id: group.id }, result: { errors: [group.job.error] } },
-      });
+      if (['failed', 'partial_success'].includes(group.job?.state) && group.job.error) {
+        // A retry can fail before writing a batch. The job owns the latest
+        // attempt's error; the saved batch may still describe an older attempt.
+        problems.splice(0, problems.length, {
+          label: '文本导入', input_id: group.job.error.input_id || 'job',
+          batch: { request: { request_id: group.id }, result: { errors: [group.job.error] } },
+        });
+      }
       return { ...group, added, review, updated, problems };
     }).filter(group => source === 'text' || group.added.length || group.review.length || group.updated.length || group.problems.length);
   }
