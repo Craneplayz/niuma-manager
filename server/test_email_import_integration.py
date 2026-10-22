@@ -5,10 +5,7 @@ never connect to the user's mailbox or to the blocked manual-test browser origin
 """
 import email_test_support as support
 import json
-import threading
-import time
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import quote
 
@@ -174,48 +171,6 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         self.assertEqual(status, 409, 'idempotency keys must not hide a changed selection')
         self.assertEqual(self.model.call_count, 1)
 
-    def test_task_classification_survives_ignoring_candidate_without_recognition(self):
-        from copy import deepcopy
-        fixture = json.loads((Path(__file__).resolve().parent.parent /
-            'contracts/text-to-app/text-contract-v0.2.json').read_text())
-        self.imap.body = '请在2026年9月30日前提交需求报告。'.encode()
-        def model(request, _error):
-            record = request['records'][0]
-            candidate = deepcopy(fixture['expected']['tasks'][0])
-            candidate.update(input_id=record['input_id'], candidate_id='synthetic-task')
-            candidate['sources'] = [dict(input_id=record['input_id'], platform='email', url=None,
-                label=record['source_label'], source_item_id=record['source_item_id'])]
-            for evidence in candidate['evidence']:
-                evidence['input_id'] = record['input_id']
-            return dict(contract_version='0.2', request_id=request['request_id'], status='success',
-                record_results=[dict(input_id=record['input_id'], status='success',
-                    task_ids=['synthetic-task'], warnings=[])], tasks=[candidate], errors=[])
-        self.model.side_effect = model
-        input_id = email_source._identity(ADDRESS, '77', 61)
-        job = self.settled(self.start([input_id], 'with-task')['job_id'])
-        self.assertEqual(job['state'], 'succeeded', job)
-        self.assertEqual(job['items'][0]['state'], 'has_tasks', job)
-        batches = self.call('/recognition/batches')[1]
-        self.assertEqual(len(batches), 1)
-        self.assertEqual(len(batches[0]['items']), 1)
-        candidate = batches[0]['items'][0]
-        self.assertEqual(candidate['state'], 'pending')
-        self.assertEqual(self.call('/recognition/candidates/' + candidate['id'] + '/resolve',
-            dict(action='create', auto_apply=True, version=candidate['version']))[0], 400)
-        self.assertFalse(self.call('/workspace')[1].get('tasks', {}).get('value', []))
-        status, _ = self.call('/recognition/candidates/' + candidate['id'] + '/resolve',
-                              dict(action='ignore', version=candidate['version']))
-        self.assertEqual(status, 200)
-        before = self.imap_calls
-        repeat = self.settled(self.start([input_id], 'ignored-task-reimport')['job_id'])
-        self.assertEqual(repeat['items'][0]['state'], 'has_tasks')
-        self.assertEqual(repeat['items'][0]['task_count'], 1)
-        self.assertEqual(self.imap_calls, before)
-        self.assertEqual(self.model.call_count, 1)
-        batches = self.call('/recognition/batches')[1]
-        self.assertEqual(len(batches[0]['items']), 1)
-        self.assertEqual(batches[0]['items'][0]['state'], 'ignored')
-
     def test_mixed_email_content_types_are_reviewed_saved_and_cached(self):
         from ddl_text.extraction import ExtractionAdapter
         from ddl_text.pipeline import process_request
@@ -229,6 +184,18 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         self.assertEqual([i['candidate']['content_type'] for i in items],['notice','task'])
         self.assertTrue(all(i['state']=='pending' for i in items))
         self.assertFalse(self.call('/workspace')[1].get('tasks',{}).get('value',[]))
+        task = next(item for item in items if item['candidate']['content_type']=='task')
+        path = '/recognition/candidates/'+task['id']+'/resolve'
+        self.assertEqual(self.call(path,dict(action='create',auto_apply=True,version=task['version']))[0],400)
+        self.assertEqual(self.call(path,dict(action='ignore',version=task['version']))[0],200)
+        calls = (self.imap_calls,self.model.call_count)
+        ignored = self.settled(self.start([input_id],'ignored-cached')['job_id'])
+        self.assertEqual((ignored['items'][0]['state'],ignored['items'][0]['task_count']),('has_tasks',2))
+        self.assertEqual((self.imap_calls,self.model.call_count),calls)
+        task = next(item for item in self.call('/recognition/batches')[1][0]['items'] if item['id']==task['id'])
+        self.assertEqual(task['state'],'ignored')
+        self.assertEqual(self.call(path,dict(action='reopen',version=task['version']))[0],200)
+        items = self.call('/recognition/batches')[1][0]['items']
         for item in items:
             workspace = self.call('/workspace')[1]
             version = workspace.get('tasks',{}).get('version',0)
@@ -244,35 +211,6 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         repeat=self.settled(self.start([input_id],'mixed-cached')['job_id'])
         self.assertEqual(repeat['counts']['cached'],1)
         self.assertEqual(self.model.call_count,before)
-
-    def test_stop_during_model_rejects_late_result_and_records_job_latency(self):
-        entered, release = threading.Event(), threading.Event()
-        def model(request, error):
-            entered.set()
-            release.wait(5)
-            return no_tasks(request, error)
-        self.model.side_effect = model
-        input_id = email_source._identity(ADDRESS, '77', 61)
-        job = self.start([input_id], 'stop-late-result')
-        try:
-            self.assertTrue(entered.wait(5))
-            status, _ = self.call('/sources/email/jobs/' + job['job_id'] + '/stop', {})
-            self.assertEqual(status, 200)
-        finally:
-            release.set()
-        terminal = self.settled(job['job_id'])
-        self.assertEqual(terminal['state'], 'stopped', terminal)
-        self.assertFalse(self.call('/recognition/batches')[1], 'stopped work must reject late model writes')
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            with app.connection() as db:
-                metric = db.execute('SELECT duration_ms,success FROM usage_events WHERE event="email_job"').fetchone()
-            if metric:
-                break
-            time.sleep(.01)
-        self.assertIsNotNone(metric, 'terminal jobs must emit telemetry')
-        self.assertGreater(metric['duration_ms'], 0, 'job latency must be measured')
-        self.assertEqual(metric['success'], 0, 'stopped jobs are not successful imports')
 
     def test_restart_marks_only_unfinished_work_and_reuses_completed_results(self):
         completed = email_source._identity(ADDRESS, '77', 61)
@@ -325,29 +263,6 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         self.call('/sources/email/credentials', dict(address='different@stu.pku.edu.cn',
             username='different', password='Different-synthetic-password'))
         self.assertFalse(self.call('/sources/email/preferences')[1]['consent_granted'])
-
-    def test_revocation_during_model_discards_uncommitted_results(self):
-        entered, release = threading.Event(), threading.Event()
-        def model(request, error):
-            entered.set()
-            release.wait(5)
-            return no_tasks(request, error)
-        self.model.side_effect = model
-        input_id = email_source._identity(ADDRESS, '77', 61)
-        job = self.start([input_id], 'revoke')
-        try:
-            self.assertTrue(entered.wait(5), 'synthetic model should start')
-            status, _ = self.call('/sources/email/preferences', dict(consent=False, process_all=False))
-            self.assertEqual(status, 200)
-        finally:
-            release.set()
-        terminal = self.settled(job['job_id'])
-        self.assertNotEqual(terminal['state'], 'succeeded', terminal)
-        status, batches = self.call('/recognition/batches')
-        self.assertEqual(status, 200)
-        self.assertFalse(batches, 'revoked in-flight result must not create candidates/cache')
-        self.assertIn(self.call('/sources/email/jobs', dict(operation_id='after-revoke', input_ids=[input_id]))[0], (400, 403))
-
 
 if __name__ == '__main__':
     unittest.main()

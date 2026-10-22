@@ -54,15 +54,6 @@ class HeaderCacheTests(unittest.TestCase):
         return cache.preview(self.path, 'user-1', ADDRESS, limit=3, page_size=1,
                              password_loader=self.loader, **kwargs)
 
-    def test_cached_revisit_survives_new_instance_without_imap(self):
-        first = self.preview(offset=0, refresh=True)
-        self.assertEqual(first['messages'][0]['subject'], 'Subject 5')
-        cache_module = __import__('importlib').reload(cache)
-        before = FakeIMAP.sessions
-        second = cache_module.preview(self.path, 'user-1', ADDRESS, limit=3, page_size=1, offset=0)
-        self.assertEqual(second['messages'], first['messages'])
-        self.assertEqual(FakeIMAP.sessions, before)
-
     def test_delta_sync_and_missing_page_fetch_only_that_page(self):
         self.preview(offset=0, refresh=True)
         FakeIMAP.uids = [6, 5, 4, 3]
@@ -96,11 +87,14 @@ class HeaderCacheTests(unittest.TestCase):
         reread = cache.preview(self.path, 'user-1', ADDRESS, limit=3, page_size=1)
         self.assertEqual(reread['cache']['snapshot_id'], first['cache']['snapshot_id'])
 
-    def test_cached_metadata_and_lazy_page_do_not_search(self):
+    def test_cached_revisit_survives_reload_and_lazy_page_does_not_search(self):
         first = self.preview(offset=0, refresh=True)
+        __import__('importlib').reload(cache)
         before = FakeIMAP.sessions
         cached = cache.preview(self.path, 'user-1', ADDRESS, limit=3, page_size=1, offset=0)
         self.assertEqual(cached['cache']['synced_at'], first['cache']['synced_at'])
+        self.assertEqual(cached['messages'],first['messages'])
+        self.assertEqual(FakeIMAP.sessions,before)
         self.assertFalse(cached['cache']['cache_only'])
         restored = cache.preview(self.path, 'user-1', ADDRESS, limit=3, page_size=1, offset=0, cache_only=True)
         self.assertTrue(restored['cache']['cache_only'])

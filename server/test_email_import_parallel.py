@@ -116,6 +116,12 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
         self.assertEqual(final['state'], 'stopped')
         self.assertEqual(len(starts), 2)
         self.assertFalse(self.call('/recognition/batches')[1])
+        email_import.wait_for_jobs(app.DB)
+        with app.connection() as db:
+            metric = db.execute('SELECT duration_ms,success FROM usage_events WHERE event="email_job"').fetchone()
+        self.assertIsNotNone(metric)
+        self.assertGreater(metric['duration_ms'],0)
+        self.assertEqual(metric['success'],0)
 
     def test_exclusion_during_first_wave_blocks_replenishment_and_late_save(self):
         entered = [threading.Event(), threading.Event()]; release = threading.Event()
@@ -166,6 +172,9 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
                 self.assertNotEqual(final['state'], 'succeeded', final)
                 self.assertEqual(len(starts), 2)
                 self.assertFalse(self.call('/recognition/batches')[1])
+                if mutation == 'revoke':
+                    status,_ = self.call('/sources/email/jobs',dict(operation_id='after-revoke',input_ids=self.ids(1)))
+                    self.assertIn(status,(400,403))
                 # Restore consent and the original credential for the next case.
                 if mutation == 'revoke':
                     self.call('/sources/email/preferences', dict(consent=True, process_all=False))

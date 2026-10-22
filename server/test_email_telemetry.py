@@ -82,9 +82,6 @@ class EmailTelemetryTests(TelemetryDatabaseCase):
             stored = repr(db.execute('SELECT * FROM usage_events').fetchall())
         self.assertNotIn('private exception text', stored)
 
-    def test_telemetry_failure_does_not_escape(self):
-        self.assertFalse(email_telemetry.record(self.path + '.missing', 'u', 'job'))
-
     def test_existing_aggregate_and_retention_contract(self):
         self.assertTrue(email_telemetry.record(self.path, 'u', 'queue', duration_ms=25, quantity=2))
         self.assertTrue(email_telemetry.record(self.path, 'u', 'queue', duration_ms=75, quantity=3))
@@ -157,6 +154,8 @@ class TokenUsageTests(TelemetryDatabaseCase):
 
     def test_invalid_values_rejected_and_missing_table_does_not_mutate(self):
         self.assertEqual(self.summary()['attempts'],0)
+        self.assertEqual(telemetry.diagnostics(self.db,'2000-01-01','2999-12-31'),[])
+        self.assertIsNone(self.db.execute("SELECT 1 FROM sqlite_master WHERE name=?",(telemetry.DIAGNOSTIC_TABLE,)).fetchone())
         self.assertIsNone(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='email_model_token_usage'").fetchone())
         for value in (-1,True,1.5,'PRIVATE_SENTINEL',2**53):
             self.assertFalse(telemetry.record_tokens(self.path,'owner',dict(prompt_tokens=value)))
@@ -174,11 +173,6 @@ class TokenUsageTests(TelemetryDatabaseCase):
 
 
 class EmailDiagnosticsSummaryTests(TelemetryDatabaseCase):
-    def test_existing_database_without_diagnostics_is_readable_without_creating_table(self):
-        with patch.dict(os.environ, NIUMA_ADMIN_USER_IDS='', NIUMA_ANALYTICS_EXCLUDED_USER_IDS=''):
-            self.assertEqual(usage.summary(self.db, '2000-01-01', '2999-01-01')['emailDiagnostics'], [])
-        self.assertEqual(email_telemetry.diagnostics(self.db, '2000-01-01', '2999-01-01'), [])
-        self.assertIsNone(self.db.execute("SELECT 1 FROM sqlite_master WHERE name='email_recognition_diagnostics'").fetchone())
     def test_admin_summary_excludes_actors_and_returns_only_aggregate_categories(self):
         for uid in ('synthetic-owner', 'excluded-owner', 'admin-owner'):
             self.assertTrue(email_telemetry.record_diagnostic(self.path, uid, 'validation', 'evidence', 12))

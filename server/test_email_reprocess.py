@@ -62,24 +62,6 @@ class EmailReprocessTests(support.EmailHTTPTestCase):
         self.assertEqual(self.settled(ordinary['job_id'])['counts']['cached'],1)
         self.assertEqual(self.model.call_count,2)
 
-    def test_failed_rerun_keeps_previous_success_pointer(self):
-        input_id=email_source._identity(ADDRESS,'77',1)
-        _,job=self.call('/sources/email/jobs',dict(operation_id='initial',input_ids=[input_id]))
-        original=self.settled(job['job_id'])['items'][0]['request_id']
-        def failed(request,error):
-            result=no_tasks(request,error); result['status']='failed'; result['tasks']=[]
-            result['errors']=[dict(input_id=input_id,code='invalid_agent_output',message='synthetic',retryable=True)]
-            result['record_results'][0]['status']='failed'; return result
-        self.model.side_effect=failed
-        _,started=self.call('/sources/email/reprocess',dict(operation_id='failed-rerun',input_ids=[input_id],consent=True))
-        final=self.settled(started['job_id'])
-        self.assertIn(final['state'],('failed','partial_success'))
-        with app.connection() as db:
-            uid=db.execute('SELECT user_id FROM email_source_credentials WHERE address=?',(ADDRESS,)).fetchone()['user_id']
-            state,_,_,request_id,_=email_import._item_state(db,uid,input_id)
-            self.assertIn(state,('has_tasks','no_tasks')); self.assertEqual(request_id,original)
-        self.assertEqual(self.call('/sources/email/jobs',dict(operation_id='ordinary-again',input_ids=[input_id]))[1]['counts']['cached'],1)
-
     def test_legacy_success_rerun_uses_source_version_snapshot_without_imap(self):
         input_id=email_source._identity(ADDRESS,'77',1)
         _,job=self.call('/sources/email/jobs',dict(operation_id='initial',input_ids=[input_id]))
@@ -223,6 +205,11 @@ class EmailReprocessTests(support.EmailHTTPTestCase):
             after=[tuple(row) for row in db.execute('SELECT * FROM recognition_candidates WHERE user_id=?',(uid,))]
             self.assertEqual(after,before)
             self.assertEqual(email_import._item_state(db,uid,input_id)[3],initial['items'][0]['request_id'])
+            self.assertEqual(email_import._item_state(db,uid,input_id)[0],'has_tasks')
+        calls = (self.imap_calls,self.model.call_count)
+        repeat = self.settled(self.start([input_id],'ordinary-after-failure')['job_id'])
+        self.assertEqual(repeat['counts']['cached'],1)
+        self.assertEqual((self.imap_calls,self.model.call_count),calls)
 
     def test_saved_workspace_task_is_unchanged_by_successful_reprocessing(self):
         self.imap.body='请在2026年9月30日前提交需求报告。'.encode()

@@ -28,6 +28,13 @@ class EmailCacheRouteTests(acceptance.EmailHTTPTestCase):
         self.assertEqual(status, 200, restored)
         self.assertEqual(restored['messages'], first['messages'])
         self.assertEqual(self.imap_calls, 1)
+        with patch.object(source_sync,'cipher',side_effect=AssertionError('must remain cache-only')):
+            status,partial=self.call('/sources/email/preview',dict(limit=61,load_all=True,cache_only=True))
+        self.assertEqual(status,200,partial)
+        self.assertEqual((len(partial['messages']),partial['summary']['total']),(50,61))
+        self.assertFalse(partial['cache']['complete'])
+        self.assertIsNone(partial['next_offset'])
+        self.assertEqual(self.imap_calls,1)
         status, second = self.call('/sources/email/preview', dict(limit=61, offset=50, snapshot_id=token))
         self.assertEqual(status, 200, second)
         self.assertEqual(len(second['messages']), 11)
@@ -96,16 +103,6 @@ class EmailCacheRouteTests(acceptance.EmailHTTPTestCase):
             status,restored=self.call('/sources/email/preview',dict(limit=61,load_all=True,cache_only=True,snapshot_id=full['cache']['snapshot_id']))
         self.assertEqual(status,200,restored); self.assertEqual(restored['messages'],full['messages'])
         self.assertEqual(self.imap_calls,1); self.assertEqual(self.model.call_count,0)
-
-    def test_full_range_cache_only_returns_partial_headers_without_hydrating(self):
-        status,first=self.call('/sources/email/preview',dict(limit=61,page_size=25,refresh=True))
-        self.assertEqual(status,200,first)
-        with patch.object(source_sync,'cipher',side_effect=AssertionError('must remain cache-only')):
-            status,partial=self.call('/sources/email/preview',dict(limit=61,load_all=True,cache_only=True))
-        self.assertEqual(status,200,partial); self.assertEqual(len(partial['messages']),25)
-        self.assertEqual(partial['summary']['total'],61); self.assertFalse(partial['cache']['complete'])
-        self.assertIsNone(partial['next_offset']); self.assertEqual(self.imap_calls,1)
-
 
 if __name__ == '__main__':
     unittest.main()

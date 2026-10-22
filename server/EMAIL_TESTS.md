@@ -1,6 +1,8 @@
 # Email test index
 
-141 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. Account email-verification tests belong to authentication and are excluded. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
+131 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. Account email-verification tests belong to authentication and are excluded. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
+
+Related variants share subtests or one lifecycle fixture. Queue/lease races remain separate; retired popup actions are excluded.
 
 ## Run
 
@@ -42,31 +44,29 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 2. [Decrypt only the requesting account’s saved credentials.](test_email_source_routes.py#L65)
 3. [Reject retired sync calls without reading or persisting bodies.](test_email_source_routes.py#L77)
 
-### [test_email_header_cache.py](test_email_header_cache.py) — Header snapshot storage (14)
+### [test_email_header_cache.py](test_email_header_cache.py) — Header snapshot storage (13)
 
-1. [Restore cached headers after module reload without IMAP.](test_email_header_cache.py#L57)
-2. [Fetch only new or missing headers during refresh/paging.](test_email_header_cache.py#L66)
-3. [Handle empty ranges without crossing account boundaries.](test_email_header_cache.py#L75)
-4. [Reject old snapshots after UIDVALIDITY changes.](test_email_header_cache.py#L82)
-5. [Keep the previous snapshot when refresh fails.](test_email_header_cache.py#L91)
-6. [Avoid mailbox searches for cached reads and lazy pages.](test_email_header_cache.py#L99)
-7. [Reject a changed UID epoch without searches or writes.](test_email_header_cache.py#L117)
-8. [Invalidate other ranges when the mailbox UID epoch changes.](test_email_header_cache.py#L131)
-9. [Report missing headers as an incomplete cache.](test_email_header_cache.py#L141)
-10. [Prevent a slower refresh overwriting a newer snapshot.](test_email_header_cache.py#L148)
-11. [Prevent old cross-range refreshes erasing a new UID epoch.](test_email_header_cache.py#L189)
-12. [Reject publication when connection guards become stale.](test_email_header_cache.py#L232)
-13. [Coalesce matching simultaneous refreshes into one mailbox sync.](test_email_header_cache.py#L240)
-14. [Allow retry after a coalesced refresh fails.](test_email_header_cache.py#L266)
+1. [Fetch only new or missing headers during refresh/paging.](test_email_header_cache.py#L57)
+2. [Handle empty ranges without crossing account boundaries.](test_email_header_cache.py#L66)
+3. [Reject old snapshots after UIDVALIDITY changes.](test_email_header_cache.py#L73)
+4. [Keep the previous snapshot when refresh fails.](test_email_header_cache.py#L82)
+5. [Restore cached headers after reload; fetch missing page headers without another search.](test_email_header_cache.py#L90)
+6. [Reject a changed UID epoch without searches or writes.](test_email_header_cache.py#L111)
+7. [Invalidate other ranges when the mailbox UID epoch changes.](test_email_header_cache.py#L125)
+8. [Report missing headers as an incomplete cache.](test_email_header_cache.py#L135)
+9. [Prevent a slower refresh overwriting a newer snapshot.](test_email_header_cache.py#L142)
+10. [Prevent old cross-range refreshes erasing a new UID epoch.](test_email_header_cache.py#L183)
+11. [Reject publication when connection guards become stale.](test_email_header_cache.py#L226)
+12. [Coalesce matching simultaneous refreshes into one mailbox sync.](test_email_header_cache.py#L234)
+13. [Allow retry after a coalesced refresh fails.](test_email_header_cache.py#L260)
 
-### [test_email_cache_routes.py](test_email_cache_routes.py) — Cached header API (6)
+### [test_email_cache_routes.py](test_email_cache_routes.py) — Cached header API (5)
 
-1. [Restore and revisit cached pages without decryption or refetching.](test_email_cache_routes.py#L13)
-2. [Refresh exclusions and recognition flags on cached headers.](test_email_cache_routes.py#L42)
-3. [Clear cached headers and reject old tokens after disconnect/change.](test_email_cache_routes.py#L63)
-4. [Reject invalid cache controls before mailbox access.](test_email_cache_routes.py#L76)
-5. [Load full-range headers in bounded batches; restore offline.](test_email_cache_routes.py#L85)
-6. [Return partial cached ranges without fetching missing headers.](test_email_cache_routes.py#L100)
+1. [Restore full/partial cached headers and revisit pages without decryption or unnecessary IMAP.](test_email_cache_routes.py#L13)
+2. [Refresh exclusions and recognition flags on cached headers.](test_email_cache_routes.py#L49)
+3. [Clear cached headers and reject old tokens after disconnect/change.](test_email_cache_routes.py#L70)
+4. [Reject invalid cache controls before mailbox access.](test_email_cache_routes.py#L83)
+5. [Load full-range headers in bounded batches; restore offline.](test_email_cache_routes.py#L92)
 
 ### [test_email_list_filters.py](test_email_list_filters.py) — List filtering and sorting (5)
 
@@ -76,19 +76,16 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 4. [Reject invalid filters before mailbox access.](test_email_list_filters.py#L98)
 5. [Chunk state queries below SQLite’s parameter limit.](test_email_list_filters.py#L108)
 
-### [test_email_import_integration.py](test_email_import_integration.py) — HTTP import lifecycle (11)
+### [test_email_import_integration.py](test_email_import_integration.py) — HTTP import lifecycle (8)
 
-1. [Handle encoded job IDs and isolate read/stop/retry operations.](test_email_import_integration.py#L36)
-2. [Preview, exclude, recognize and reuse a persistent no-task cache.](test_email_import_integration.py#L62)
-3. [Reuse legacy successful results without IMAP or model calls.](test_email_import_integration.py#L103)
-4. [Process over 50 messages; retry only failed items.](test_email_import_integration.py#L135)
-5. [Prevent operation-ID replay with a different selection.](test_email_import_integration.py#L166)
-6. [Keep task classification after a candidate is ignored.](test_email_import_integration.py#L177)
-7. [Review, save and cache both tasks and notices.](test_email_import_integration.py#L219)
-8. [Reject late results after stop; record job latency.](test_email_import_integration.py#L248)
-9. [Interrupt unfinished work on restart; reuse completed results.](test_email_import_integration.py#L277)
-10. [Bind queued ranges to credentials; disconnect revokes consent.](test_email_import_integration.py#L310)
-11. [Discard results when consent is revoked during generation.](test_email_import_integration.py#L329)
+1. [Handle encoded job IDs and isolate read/stop/retry operations.](test_email_import_integration.py#L33)
+2. [Preview, exclude, recognize and reuse a persistent no-task cache.](test_email_import_integration.py#L59)
+3. [Reuse legacy successful results without IMAP or model calls.](test_email_import_integration.py#L100)
+4. [Process over 50 messages; retry only failed items.](test_email_import_integration.py#L132)
+5. [Prevent operation-ID replay with a different selection.](test_email_import_integration.py#L163)
+6. [Review task/notice results, ignore/reopen a task, save both types and reuse their cache.](test_email_import_integration.py#L174)
+7. [Interrupt unfinished work on restart; reuse completed results.](test_email_import_integration.py#L215)
+8. [Bind queued ranges to credentials; disconnect revokes consent.](test_email_import_integration.py#L248)
 
 ### [test_email_import_store.py](test_email_import_store.py) — Durable storage (3)
 
@@ -96,28 +93,26 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 2. [Roll back jobs, items and revisions atomically.](test_email_import_store.py#L34)
 3. [Keep incremental counters consistent with full snapshot counts.](test_email_import_store.py#L48)
 
-### [test_email_import_safety.py](test_email_import_safety.py) — Shared-model admission guards (5)
+### [test_email_import_safety.py](test_email_import_safety.py) — Shared-model admission guards (3)
 
-1. [Consent revocation cancels waiting email model.](test_email_import_safety.py#L206)
-2. [Email exclusion cancels waiting email model.](test_email_import_safety.py#L209)
-3. [Consent revocation cancels waiting email model.](test_email_import_safety.py#L212)
-4. [Resume after capacity becomes available without rereading bodies.](test_email_import_safety.py#L215)
-5. [Enforce consent and ownership through generic recognition endpoints.](test_email_import_safety.py#L236)
+1. [Cancel queued model admission on consent revocation, exclusion or credential rotation.](test_email_import_safety.py#L206)
+2. [Resume after capacity becomes available without rereading bodies.](test_email_import_safety.py#L218)
+3. [Enforce consent and ownership through generic recognition endpoints.](test_email_import_safety.py#L239)
 
 ### [test_email_import_parallel.py](test_email_import_parallel.py) — Concurrent import behavior (12)
 
 1. [Handle out-of-order completion with correct progress counts.](test_email_import_parallel.py#L30)
 2. [Enforce eight concurrent email workers across accounts.](test_email_import_parallel.py#L59)
-3. [Stop replenishment while draining already-started calls.](test_email_import_parallel.py#L102)
-4. [Prevent replenishment and late saves for newly excluded messages.](test_email_import_parallel.py#L120)
-5. [Drain without replenishment after revocation or credential rotation.](test_email_import_parallel.py#L143)
-6. [Allow explicit retry of failed items in a new job.](test_email_import_parallel.py#L176)
-7. [Persist in-flight successes when another dispatch submission fails.](test_email_import_parallel.py#L191)
-8. [Release capacity during provider backoff; reuse captured bodies.](test_email_import_parallel.py#L230)
-9. [Bound repeated HTTP 429 retries without rereading IMAP.](test_email_import_parallel.py#L267)
-10. [Never automatically replay an ambiguous timeout.](test_email_import_parallel.py#L276)
-11. [Keep sibling messages when one is excluded during preparation.](test_email_import_parallel.py#L282)
-12. [Prevent another model call after stopping during backoff.](test_email_import_parallel.py#L301)
+3. [Stop during a wave; reject late writes and emit terminal latency.](test_email_import_parallel.py#L102)
+4. [Prevent replenishment and late saves for newly excluded messages.](test_email_import_parallel.py#L126)
+5. [Revoke consent or rotate credentials mid-wave; reject late results and further work.](test_email_import_parallel.py#L149)
+6. [Allow explicit retry of failed items in a new job.](test_email_import_parallel.py#L185)
+7. [Persist in-flight successes when another dispatch submission fails.](test_email_import_parallel.py#L200)
+8. [Release capacity during provider backoff; reuse captured bodies.](test_email_import_parallel.py#L239)
+9. [Bound repeated HTTP 429 retries without rereading IMAP.](test_email_import_parallel.py#L276)
+10. [Never automatically replay an ambiguous timeout.](test_email_import_parallel.py#L285)
+11. [Keep sibling messages when one is excluded during preparation.](test_email_import_parallel.py#L291)
+12. [Prevent another model call after stopping during backoff.](test_email_import_parallel.py#L310)
 
 ### [test_email_scheduler.py](test_email_scheduler.py) — Fair scheduling and ownership (11)
 
@@ -166,39 +161,36 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 9. [Corrective text call settles both provider receipts.](test_email_recognition.py#L150)
 10. [Record both attempts’ token usage after truncation fallback.](test_email_recognition.py#L160)
 
-### [test_email_reprocess.py](test_email_reprocess.py) — Explicit cache updates and reviewed decisions (16)
+### [test_email_reprocess.py](test_email_reprocess.py) — Explicit cache updates and reviewed decisions (15)
 
 1. [Reuse stored bodies and publish a new successful result version.](test_email_reprocess.py#L39)
-2. [Keep the previous successful cache after a failed rerun.](test_email_reprocess.py#L65)
-3. [Reuse legacy body snapshots without IMAP.](test_email_reprocess.py#L83)
-4. [Project all cache-policy states without recognition.](test_email_reprocess.py#L107)
-5. [Preserve ignored, accepted and edited candidates.](test_email_reprocess.py#L134)
-6. [Recheck review decisions made while generation is running.](test_email_reprocess.py#L146)
-7. [Mark new candidates uncertain when protected cards exist.](test_email_reprocess.py#L165)
-8. [Reject late rerun results after stop, revocation or exclusion.](test_email_reprocess.py#L182)
-9. [Preserve pending cards and successful results after failure.](test_email_reprocess.py#L204)
-10. [Preserve saved workspace tasks after successful reprocessing.](test_email_reprocess.py#L227)
-11. [Update outdated results across the full range; skip excluded/current/unknown items.](test_email_reprocess.py#L276)
-12. [Include unknown policy versions only by explicit choice.](test_email_reprocess.py#L296)
-13. [Reject stale confirmation after rules or selection change.](test_email_reprocess.py#L305)
-14. [Enforce snapshot ownership and explicit processing consent.](test_email_reprocess.py#L315)
-15. [Keep successful results available after a failed bulk update.](test_email_reprocess.py#L326)
-16. [Support ranges above 1,000 items without hydrating headers.](test_email_reprocess.py#L342)
+2. [Reuse legacy body snapshots without IMAP.](test_email_reprocess.py#L65)
+3. [Project all cache-policy states without recognition.](test_email_reprocess.py#L89)
+4. [Preserve ignored, accepted and edited candidates.](test_email_reprocess.py#L116)
+5. [Recheck review decisions made while generation is running.](test_email_reprocess.py#L128)
+6. [Mark new candidates uncertain when protected cards exist.](test_email_reprocess.py#L147)
+7. [Reject late rerun results after stop, revocation or exclusion.](test_email_reprocess.py#L164)
+8. [Keep pending cards and the successful cache after failed updates; reuse that cache.](test_email_reprocess.py#L186)
+9. [Preserve saved workspace tasks after successful reprocessing.](test_email_reprocess.py#L214)
+10. [Update outdated results across the full range; skip excluded/current/unknown items.](test_email_reprocess.py#L263)
+11. [Include unknown policy versions only by explicit choice.](test_email_reprocess.py#L283)
+12. [Reject stale confirmation after rules or selection change.](test_email_reprocess.py#L292)
+13. [Enforce snapshot ownership and explicit processing consent.](test_email_reprocess.py#L302)
+14. [Keep successful results available after a failed bulk update.](test_email_reprocess.py#L313)
+15. [Support ranges above 1,000 items without hydrating headers.](test_email_reprocess.py#L329)
 
-### [test_email_telemetry.py](test_email_telemetry.py) — Content-free monitoring (12)
+### [test_email_telemetry.py](test_email_telemetry.py) — Content-free monitoring (10)
 
 1. [Every writer closes connections after success and failure.](test_email_telemetry.py#L29)
 2. [Every writer closes connections after success and failure.](test_email_telemetry.py#L55)
 3. [Measure records success and failure elapsed and reraises.](test_email_telemetry.py#L68)
-4. [Every writer closes connections after success and failure.](test_email_telemetry.py#L85)
-5. [Measure records success and failure elapsed and reraises.](test_email_telemetry.py#L88)
-6. [Measure success/failure duration and rethrow the original exception.](test_email_telemetry.py#L105)
-7. [Preserve aggregate statistics and 90-day retention.](test_email_telemetry.py#L136)
-8. [Admin exclusions and no private fields.](test_email_telemetry.py#L146)
-9. [Allowlist diagnostic reasons; hash actors and enforce retention.](test_email_telemetry.py#L158)
-10. [Admin exclusions and no private fields.](test_email_telemetry.py#L166)
-11. [Existing database without diagnostics is readable without creating table.](test_email_telemetry.py#L177)
-12. [Expose only aggregate diagnostic categories with account exclusions.](test_email_telemetry.py#L182)
+4. [Measure records success and failure elapsed and reraises.](test_email_telemetry.py#L85)
+5. [Measure success/failure duration and rethrow the original exception.](test_email_telemetry.py#L102)
+6. [Preserve aggregate statistics and 90-day retention.](test_email_telemetry.py#L133)
+7. [Admin exclusions and no private fields.](test_email_telemetry.py#L143)
+8. [Reject invalid tokens; read missing token/diagnostic tables without creating them.](test_email_telemetry.py#L155)
+9. [Admin exclusions and no private fields.](test_email_telemetry.py#L165)
+10. [Expose only aggregate diagnostic categories with account exclusions.](test_email_telemetry.py#L176)
 
 ## Extraction and response diagnostics
 
@@ -244,6 +236,6 @@ The 8K → 16K setting enlarges the **output-token allowance**, not the context 
 ## Fixtures, load checks and maintenance
 
 - [email_test_support.py](email_test_support.py): shared fake IMAP, no-task model result and fresh authenticated HTTP fixture; not a test suite. Workers drain before fixture cleanup.
-- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 141 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
+- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 131 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
 - Add/rename/remove a test: update its one-line entry, count and source link here. Keep race scenarios separate when they guard different pipeline stages. Add a second-layer test only when it checks transport, persistence or another distinct contract.
 - Historical execution results stay in the capacity guide. This index describes coverage, not the latest run status.

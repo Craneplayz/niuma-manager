@@ -203,14 +203,17 @@ class EmailImportSafetyTests(unittest.TestCase):
                              'revocation, rotation and exclusion must purge staged bodies')
         return terminal
 
-    def test_consent_revocation_cancels_waiting_email_model(self):
-        self.mutate_while_queued('consent')
-
-    def test_email_exclusion_cancels_waiting_email_model(self):
-        self.mutate_while_queued('exclusion')
-
-    def test_credential_rotation_cancels_waiting_email_model(self):
-        self.mutate_while_queued('credential')
+    def test_revocation_exclusion_and_rotation_cancel_waiting_email_model(self):
+        input_id = email_source._identity(ADDRESS,'77',61)
+        for mutation in ('consent','exclusion','credential'):
+            with self.subTest(mutation=mutation):
+                self._email_call('/api/sources/email/preferences',dict(consent=True,process_all=False))
+                self._email_call('/api/sources/email/exclusions',dict(input_ids=[input_id],excluded=False))
+                try:
+                    self.mutate_while_queued(mutation)
+                finally:
+                    self.release_queue()
+                    email_import.wait_for_jobs(app.DB)
 
     def test_shared_model_capacity_resumes_without_rereading_body(self):
         job_id,input_id = self.saturated_start('resume-shared-model')
