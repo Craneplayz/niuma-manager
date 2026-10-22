@@ -4,7 +4,7 @@ import multiprocessing
 import os
 import time
 
-from .adapters import AgentError
+from .adapters import AgentError, safe_schema_detail
 
 
 def _worker(sender, function, args):
@@ -13,9 +13,10 @@ def _worker(sender, function, args):
             try:
                 sender.send((True, function(*args)))
             except AgentError as error:
-                sender.send((False, (error.code, error.retryable is True)))
+                sender.send((False, (error.code, error.retryable is True,
+                    AgentError(diagnostic=error.diagnostic).diagnostic, safe_schema_detail(error.detail))))
             except Exception:
-                sender.send((False, ('agent_unavailable', False)))
+                sender.send((False, ('agent_unavailable', False, None, None)))
         finally:
             sender.close()
 
@@ -35,7 +36,9 @@ def bounded(function, args, seconds, timeout_code='agent_timeout'):
             raise AgentError(timeout_code, True)
         ok, value = receiver.recv()
         if not ok:
-            raise AgentError(*value)
+            error = AgentError(*value[:3])
+            error.detail = safe_schema_detail(value[3])
+            raise error
         return value
     except AgentError:
         raise

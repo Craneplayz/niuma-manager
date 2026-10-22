@@ -32,7 +32,7 @@ if 'date-time' not in FORMATS.checkers:
 require = previous.require
 PUBLIC_QUERY_KEYS = {'id', 'page', 'view', 'mode', 'method', 'context', 'courseid', 'handle',
                      'contentid', 'announcementid', 'p', 'lang'}
-RETRY_CODES = {'agent_timeout', 'agent_unavailable', 'file_read_failed'}
+RETRY_CODES = {'agent_timeout', 'agent_unavailable', 'file_read_failed', 'invalid_agent_output'}
 TERMINAL = {'succeeded', 'partial_failed', 'failed'}
 SUPPORTED_MIMES = {'image/jpeg', 'image/png', 'application/pdf',
                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}

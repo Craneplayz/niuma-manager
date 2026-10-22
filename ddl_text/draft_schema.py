@@ -30,4 +30,19 @@ def draft_schema(record):
             "reason": text, "evidence": {"type": "array", "items": reference},
         }),
     })
-    return _object({"tasks": {"type": "array", "items": task}})
+    schema = _object({"tasks": {"type": "array", "items": task}})
+    spans = record.get('evidence_catalog')
+    if spans is not None:
+        # This catalog is built by the adapter, not accepted as user authority.
+        def indexed(node):
+            if isinstance(node, list):
+                for item in node: indexed(item)
+            elif isinstance(node, dict):
+                props = node.get('properties', {})
+                if 'input_id' in props and 'quote' in props:
+                    props.pop('input_id'); props.pop('quote')
+                    props['span_id'] = dict(type='string', enum=list(spans)) if spans else {'not': {}}
+                    node['required'] = list(props)
+                for value in node.values(): indexed(value)
+        indexed(schema)
+    return schema

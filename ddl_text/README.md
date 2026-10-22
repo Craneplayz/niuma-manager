@@ -1,5 +1,7 @@
 # 文本识别模块
 
+文本、教学网和文件入口使用统一错误目录与一次有界草稿纠错，见 [错误约定](../contracts/docs/recognition-errors.md)；文本按原文句段生成证据编号，模型只选择引用，服务端还原原文并校验日期。图片证据仍标记为模型读取，不能视为已核实的文字证据。
+
 教学网 v0.4 识别结果区分 `content_type=task/notice`；任务和通知均可携带有依据的日期，类型不由日期决定，规则见 `skills/teaching-task-extraction/SKILL.md`。旧文本/微信入口暂保持原契约与默认 task。
 
 通知按“漏看会直接影响用户”收录；普通课件发布忽略，考核规则、课程群要求及教学内容中的作业保留；既有任务的变更保留新日期，等待关联后处理。
@@ -28,6 +30,8 @@ ddl_text/
 ├── dates.py              # 合并时间提案、催促语和冲突处理
 ├── docx_reader.py        # DOCX 受限解包、段落/表格/附属文字和内嵌图片读取
 ├── draft_schema.py       # 模型草稿的 JSON Schema
+├── draft_recovery.py     # 原有预算内仅一次格式、引用和语义纠错
+├── evidence_spans.py     # 文本原文句段编号及精确引文恢复
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
 ├── image_reader.py       # JPG/PNG 字节核对、解码与元数据清理
@@ -105,6 +109,7 @@ ddl_text/
 │   ├── test_frontend_contract.py # v0.2 契约及本机 HTTP 测试
 │   ├── test_output_validation.py # 非法模型输出测试
 │   ├── test_pipeline.py        # 批量处理、超时和重试测试
+│   ├── test_recognition_errors.py # 分类、隐私、纠错预算及真实子进程协议回归
 │   └── test_render.py          # 文字输出测试
 └── docs/                 # 当前配置说明与历史归档
     ├── api-setup.md      # 供应商配置及故障定位

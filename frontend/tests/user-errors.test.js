@@ -6,6 +6,21 @@ import { renderErrorReports } from "../src/error-reports-view.js";
 
 const schema = JSON.parse(await readFile(new URL("../../contracts/schemas/error-report-v0.1.schema.json", import.meta.url)));
 const examples = JSON.parse(await readFile(new URL("../../contracts/examples/error-reports-v01.json", import.meta.url))).reports;
+const recognitionErrors = JSON.parse(await readFile(new URL("../../contracts/recognition-errors.json", import.meta.url)));
+
+test('every recognition reason has safe consistent messaging and a reportable code', () => {
+  for (const [reason, spec] of Object.entries(recognitionErrors)) {
+    const report = describeUserError({code:'invalid_agent_output', message:'PRIVATE-SENTINEL', failure:{reason}});
+    assert.equal(report.kind, reason);
+    assert.equal(report.message, spec.message);
+    assert.equal(report.details, spec.action);
+    assert.ok(schema.properties.code.enum.includes(report.kind));
+    assert.ok(!JSON.stringify(report).includes('PRIVATE-SENTINEL'));
+  }
+  const diagnostic = {schema_path:'properties/tasks/items/required', rule:'required'};
+  assert.match(describeUserError({failure:{reason:'draft_schema'}, diagnostic}).details, /校验位置/);
+  assert.ok(!describeUserError({failure:{reason:'draft_schema'}, diagnostic:{...diagnostic,schema_path:'<script>PRIVATE'}}).details.includes('PRIVATE'));
+});
 const receipt = { contract_version: "error-report/0.1", saved: true, report_id: "abc123".repeat(4) };
 
 test('test diagnostics survive friendly error mapping and are escaped without entering feedback payloads', () => {

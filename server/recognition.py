@@ -1,4 +1,5 @@
 """Authenticated recognition transport and transactional candidate resolution."""
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -26,6 +27,7 @@ if str(ROOT) not in sys.path:
 
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import operations
+from server import recognition_diagnostics as diagnostics
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter
@@ -66,9 +68,12 @@ def recognize(request, ApiError):
                 raise ValueError('missing credential')
             adapter = ExtractionAdapter(operations.observe_chat(make_client(options)))
             settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
-                                timeout_seconds=90, max_retries=0)
+                                timeout_seconds=90, max_retries=0,
+                                thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
         except (OSError, ValueError, TypeError, KeyError):
-            raise ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥') from None
+            error = ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥')
+            error.code = 'model_configuration'
+            raise error from None
         try:
             policy = text_policy_manifest(settings,provider='qiniu' if options['provider']=='qiniu' else 'codex')
             if policy['components'] != _POLICY_COMPONENTS:
@@ -77,7 +82,7 @@ def recognize(request, ApiError):
             raise ApiError(503,'识别规则与当前进程不一致，请重启后端后重试') from None
         _EXECUTION.policy = policy
         try:
-            return process_request(request, adapter, settings, budget_seconds=90)
+            return process_request(request, adapter, settings, budget_seconds=90, diagnostic_event=diagnostics.event)
         except Exception:
             raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
     finally:
@@ -147,6 +152,8 @@ def batches(db,uid):
                         card[field]=item['candidate'][field]
                 item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],card)
             request = teaching.request_view(request)
+        elif request.get('contract_version') == '0.2':
+            output['errors'] = [diagnostics.bind(db,uid,row['request_id'],e,attempt_id=row['attempt_id']) for e in output['errors']]
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None,sourceSyncManaged=row['request_id'] in sync_requests))
     return result
 
@@ -188,7 +195,6 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
     if path=='/api/recognition/diagnostics' and handler.command=='POST':
-        from server import recognition_diagnostics as diagnostics
         if diagnostics.environment()!='test': raise ApiError(404,'接口不存在')
         if set(body)!={'request_id'} or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
             raise ApiError(400,'请提供本次导入的 request_id')
@@ -260,43 +266,49 @@ def route(handler,db,uid,path,body,ApiError):
         if previous:
             completed={r['input_id'] for r in previous['record_results'] if r['status']!='failed'}
             extraction_request=dict(request,records=[r for r in request['records'] if r['input_id'] not in completed])
-        if not demo:
-            if not request['records']:
-                result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
-            else:
-                _EXECUTION.policy = None
-                result=recognize(extraction_request,ApiError)
-        policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
-        try:
-            result=validate_result(extraction_request,result)
-            new_tasks=list(result['tasks'])
-            if previous:
-                # Keep successful candidates and their confirmation state; only replace failures.
-                retried={r['input_id'] for r in extraction_request['records']}
-                if not result['record_results']:
-                    raise ValueError('retry envelope failed')
-                outcomes={r['input_id']:r for r in previous['record_results'] if r['input_id'] not in retried}
-                outcomes.update({r['input_id']:r for r in result['record_results']})
-                result['record_results']=[outcomes[r['input_id']] for r in request['records']]
-                result['tasks']=previous['tasks']+new_tasks
-                failures=sum(r['status']=='failed' for r in result['record_results'])
-                result['status']=('failed' if failures==len(request['records']) else 'partial_success') if failures else ('success' if result['tasks'] else 'no_tasks')
-                result=validate_result(request,result)
-        except (ValueError,TypeError,KeyError): raise ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')
+        capture = diagnostics.capture(db,uid,request['request_id']) if not demo and extraction_request['records'] else nullcontext(None)
+        with capture as attempt:
+            if not demo:
+                if not request['records']:
+                    result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
+                else:
+                    _EXECUTION.policy = None
+                    result=recognize(extraction_request,ApiError)
+            policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
+            try:
+                result=validate_result(extraction_request,result)
+                new_tasks=list(result['tasks'])
+                if previous:
+                    # Keep successful candidates and their confirmation state; only replace failures.
+                    retried={r['input_id'] for r in extraction_request['records']}
+                    if not result['record_results']:
+                        raise ValueError('retry envelope failed')
+                    outcomes={r['input_id']:r for r in previous['record_results'] if r['input_id'] not in retried}
+                    outcomes.update({r['input_id']:r for r in result['record_results']})
+                    result['record_results']=[outcomes[r['input_id']] for r in request['records']]
+                    result['tasks']=previous['tasks']+new_tasks
+                    failures=sum(r['status']=='failed' for r in result['record_results'])
+                    result['status']=('failed' if failures==len(request['records']) else 'partial_success') if failures else ('success' if result['tasks'] else 'no_tasks')
+                    result=validate_result(request,result)
+            except (ValueError,TypeError,KeyError):
+                error = ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')
+                error.code = 'invalid_agent_output'
+                raise error from None
+        attempt_id = attempt['attempt_id'] if attempt else None
         db.execute('BEGIN IMMEDIATE')
         row=db.execute('SELECT fingerprint,result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
         if row:
             if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')
             # Another request may have finished during the model call. Never overwrite it.
             if previous is not None and json.loads(row['result'])==previous:
-                db.execute('UPDATE recognition_batches SET result=? WHERE user_id=? AND request_id=?',(json.dumps(result),uid,request['request_id']))
+                db.execute('UPDATE recognition_batches SET result=?,attempt_id=? WHERE user_id=? AND request_id=?',(json.dumps(result),attempt_id,uid,request['request_id']))
                 for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
                 for record in extraction_request['records']:
                     db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
                         (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
         else:
             db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,NULL)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo),attempt_id))
             for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
             for record in request['records']:
                 db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',

@@ -12,6 +12,7 @@ from .adapters import AgentError, OUTPUT_DIAGNOSTICS, safe_schema_detail
 from .chat_client import ChatClient
 from .teaching_draft import CLASSIFICATION_MODE, process_teaching_draft
 from .teaching_policy import teaching_policy_manifest
+from contracts.recognition_errors import describe
 
 MESSAGES={
     'agent_timeout':'识别超时，保留其他记录的结果。',
@@ -33,6 +34,7 @@ def _failure(entry,code,retryable=False,attempted=False,diagnostic=None,detail=N
         error=dict(code=code,message=(OUTPUT_DIAGNOSTICS.get(diagnostic, MESSAGES[code])
                    if code=='invalid_agent_output' else MESSAGES[code]),retryable=retryable))
     safe_detail = safe_schema_detail(detail)
+    row['error'] = describe(row['error'], reason=diagnostic)
     if safe_detail and diagnostic == 'draft_schema': row['error']['diagnostic'] = safe_detail
     return row
 

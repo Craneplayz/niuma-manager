@@ -144,7 +144,12 @@ def validate_result(request,result):
     require(all(isinstance(result[k],list) for k in ['record_results','tasks','errors']))
     records={r['input_id']:r for r in request['records']}
     for error in result['errors']:
-        fields(error,'input_id code message retryable')
+        from contracts.recognition_errors import validate_failure, safe_schema_detail
+        if isinstance(error, dict) and 'failure' in error:
+            validate_failure(error['failure'])
+        if isinstance(error, dict) and 'diagnostic' in error:
+            require(safe_schema_detail(error['diagnostic']) is not None)
+        fields({k: v for k, v in error.items() if k not in ('failure', 'diagnostic')} if isinstance(error, dict) else error,'input_id code message retryable')
         require(error['input_id'] is None or error['input_id'] in records)
         string(error['code'],nonempty=True);string(error['message']);require(type(error['retryable']) is bool)
     if any(e['input_id'] is None for e in result['errors']):

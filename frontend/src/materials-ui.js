@@ -1,3 +1,4 @@
+import { describeUserError } from "./user-errors.js";
 import { api, session, accountVersion, flushStore } from "./team-store.js";
 import { newId } from "./id.js";
 
@@ -119,7 +120,10 @@ export function createMaterialsUI(host) {
     finally { if (valid(value)) { busy = false; controller = null; host.render(); poll(); } }
     return true;
   }
-  const errorLabel = item => ({
+  const errorLabel = item => item.failure ? (() => {
+    const report = describeUserError(item);
+    return report.message + report.details;
+  })() : ({
     agent_unavailable: "文件识别暂不可用，请稍后重试。",
     agent_timeout: "文件识别超时，请稍后重试。",
     invalid_agent_output: "暂时无法读取识别结果，请重试。",

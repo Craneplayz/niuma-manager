@@ -28,6 +28,35 @@ DRAFTS = json.loads((ROOT / 'ddl_text/tests/fixtures/text-frontend-v02-drafts.js
 
 
 class RecognitionRuntimeTests(unittest.TestCase):
+    def test_text_failure_is_actionable_persisted_and_test_diagnostics_are_account_scoped(self):
+        from contracts.recognition_errors import describe
+        from server import recognition_diagnostics as diagnostics
+        def recognize(request, ApiError):
+            result = self.empty_result(request)
+            result['status'] = 'failed'
+            for row in result['record_results']: row['status'] = 'failed'
+            result['errors'] = [describe(dict(input_id=row['input_id'], code='invalid_agent_output',
+                message='PRIVATE-SENTINEL', retryable=True), reason='draft_schema',
+                detail=dict(schema_path='properties/tasks/items/required', rule='required')) for row in result['record_results']]
+            diagnostics.event('text_recognition_failed', code='invalid_agent_output', diagnostic='draft_schema',
+                              schema=result['errors'][0]['diagnostic'], body='PRIVATE-SENTINEL')
+            return result
+        with patch.object(diagnostics, 'environment', return_value='test'), patch.object(recognition, 'recognize', side_effect=recognize):
+            status, batches = self.submit()
+            self.assertEqual(status, 200)
+            error = batches[0]['result']['errors'][0]
+            self.assertEqual(error['failure']['reason'], 'draft_schema')
+            self.assertIn('text_recognition_failed', error['diagnostics'])
+            self.assertNotIn('PRIVATE-SENTINEL', json.dumps(batches))
+            stranger = self.new_client(self.id()+':other')
+            self.assertEqual(self.call(stranger,'/recognition/diagnostics',{'request_id':self.request['request_id']})[1]['attempts'], [])
+        with patch.object(diagnostics, 'environment', return_value='production'):
+            status, batches = self.submit()
+            self.assertEqual(status, 200)
+            error = batches[0]['result']['errors'][0]
+            self.assertEqual(error['failure']['reason'], 'draft_schema')
+            self.assertNotIn('diagnostics', error)
+
     @classmethod
     def setUpClass(cls):
         cls.folder = tempfile.TemporaryDirectory()
@@ -221,7 +250,7 @@ class RecognitionRuntimeTests(unittest.TestCase):
             settings = pipeline.call_args.args[2]
             self.assertEqual((settings.mode, settings.model, settings.timeout_seconds, settings.max_retries),
                              ('real', 'synthetic-file-model', 90, 0))
-            self.assertEqual(pipeline.call_args.kwargs, {'budget_seconds': 90})
+            self.assertEqual(pipeline.call_args.kwargs, {'budget_seconds': 90, 'diagnostic_event': recognition.diagnostics.event})
             recognition.os.environ['QINIU_API_KEY'] = 'synthetic-env-key'
             self.request['request_id'] += ':environment'
             self.assertEqual(self.submit()[0], 200)

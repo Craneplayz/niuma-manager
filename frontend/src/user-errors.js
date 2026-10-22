@@ -1,4 +1,5 @@
 import { newId } from "./id.js";
+import recognitionErrors from "../../contracts/recognition-errors.json" with { type: "json" };
 
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const incidents = new Map();
@@ -16,6 +17,16 @@ export function describeUserError(error, action = "general") {
     normalized.add(value);
     return value;
   };
+  const reason = error?.failure?.reason;
+  if (typeof reason === "string" && Object.hasOwn(recognitionErrors, reason)) {
+    const description = recognitionErrors[reason];
+    const diagnostic = error.diagnostic;
+    const location = diagnostic && typeof diagnostic.schema_path === "string" && diagnostic.schema_path.length <= 512 &&
+      /^[A-Za-z0-9_$/]*$/.test(diagnostic.schema_path) &&
+      /^(type|enum|const|required|additionalProperties|maxLength|minLength|maxItems|minItems|format|pattern|anyOf|allOf|oneOf)$/.test(diagnostic.rule)
+      ? ` 校验位置：${diagnostic.schema_path || "结果"}；规则：${diagnostic.rule}。` : "";
+    return report(reason, description.message, description.action + location);
+  }
   const emailMessages = {
     email_not_configured: "邮件服务暂未启用，请稍后再试。",
     email_send_failed: "验证码邮件发送失败，请稍后重试。",

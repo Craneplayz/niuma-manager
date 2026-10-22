@@ -627,7 +627,8 @@ def _process_record(path, uid, run_id, request_id, ApiError):
             else:
                 failure = next((r.get('error') for r in result['record_results'] if r.get('error')), {})
                 item.update(state='failed', error=diagnostics.reference(db,uid,request_id,
-                    error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)),
+                    dict(error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)),
+                         **{key:failure[key] for key in ('failure','diagnostic') if key in failure}),
                     attempt_id=diagnostic_attempt.get('id')))
             item['seconds'] = round(time.monotonic()-started, 2)
             save(db, run)

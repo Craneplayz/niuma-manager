@@ -555,7 +555,11 @@ class Handler(BaseHTTPRequestHandler):
             with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e:
             self.ops_code=operations.classify(e)
-            self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
+            from contracts.recognition_errors import describe
+            error = dict(code=e.code,message=e.message,retryable=e.retryable)
+            if e.code in ('agent_unavailable','agent_timeout','invalid_agent_output','file_read_failed'):
+                error = describe(error)
+            self.reply(e.status,dict(error=error))
         except email_verification.VerificationError as e:
             self.ops_code=operations.classify(e)
             self.retry_after=e.retry_after
@@ -570,6 +574,10 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 code={401:'unauthorized',403:'forbidden',404:'not_found',413:'limit_exceeded',503:'queue_busy'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
+            elif getattr(e, 'code', None) in ('model_configuration','invalid_agent_output','agent_timeout','agent_unavailable'):
+                from contracts.recognition_errors import describe
+                value = describe(dict(code=e.code, message=e.message))
+                self.reply(e.status,dict(error=value.pop('message'), **value))
             else: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError):
             self.ops_code='http_400'

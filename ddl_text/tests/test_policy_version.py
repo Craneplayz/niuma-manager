@@ -31,7 +31,8 @@ class PolicyVersionTests(unittest.TestCase):
     def test_rule_code_changes_but_checkout_path_newlines_docs_do_not(self):
         initial = self.manifest()
         with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
+            root = Path(folder) / 'ddl_text'
+            root.mkdir()
             for name in policy.COMPONENTS:
                 path = root / name; path.parent.mkdir(parents=True, exist_ok=True)
                 original = (policy.ROOT / name).read_text(encoding='utf-8')

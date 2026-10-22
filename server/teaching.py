@@ -118,7 +118,8 @@ def result_view(request, result):
             task_ids=[c['candidate_id'] for c in cards], warnings=warnings))
         if failed:
             failure = row['error'] or dict(code='incomplete_source',message=SOURCE_INCOMPLETE,retryable=False)
-            errors.append(dict(input_id=row['input_id'], **{k:failure[k] for k in ('code','message','retryable')}))
+            errors.append(dict(input_id=row['input_id'], **{k:failure[k] for k in
+                ('code','message','retryable','failure','diagnostic') if k in failure}))
     return dict(contract_version=VIEW, request_id=request['request_id'], status=result['status'],
         record_results=rows, tasks=tasks, errors=errors)
 

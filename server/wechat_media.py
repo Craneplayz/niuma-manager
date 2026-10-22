@@ -1,4 +1,6 @@
 """Account-scoped v0.3.1 WeChat asset and asynchronous import transport."""
+from contracts.recognition_errors import describe
+from server import recognition_diagnostics as diagnostics
 import hashlib
 import copy
 import io
@@ -391,6 +393,8 @@ def _content_key(request):
     except (OSError,ValueError,KeyError,TypeError):
         return None
     files = ['ddl_text/media_pipeline.py','ddl_text/image_reader.py','ddl_text/media_schema.py',
+             'ddl_text/draft_recovery.py','ddl_text/adapters.py',
+             'contracts/recognition_errors.py','contracts/recognition-errors.json',
              'ddl_text/media_worker.py','ddl_text/skills/image-task-extraction/SKILL.md',
              'ddl_text/time_validation.py','ddl_text/chat_client.py','ddl_text/config.py','server/wechat_media.py',
              'contracts/check_v031_examples.py','contracts/check_v03_examples.py',
@@ -510,7 +514,7 @@ def account_asset_loader(db_path, uid):
     return load
 
 
-def _interrupted_record(request, record, message=None, code='agent_unavailable'):
+def _interrupted_record(request, record, message=None, code='agent_unavailable', diagnostic=None):
     from contracts.check_v03_examples import coverage
     summaries, errors = [], []
     for asset in record['attachments']:
@@ -532,7 +536,7 @@ def _interrupted_record(request, record, message=None, code='agent_unavailable')
     outcome = dict(input_id=record['input_id'],status='failed',task_ids=[],warnings=[message or '处理进程中断，请重试此记录。'],coverage=cov,attachments=summaries)
     error = dict(input_id=record['input_id'],asset_id=None,block_id=None,stage='recognize',code=code,
         message=message or '处理进程中断，未自动重复模型请求；可定向重试。',retryable=code=='agent_unavailable')
-    result = dict(contract_version='0.3.1',request_id=request['request_id'],status='failed',record_results=[outcome],tasks=[],errors=errors+[error])
+    result = dict(contract_version='0.3.1',request_id=request['request_id'],status='failed',record_results=[outcome],tasks=[],errors=[describe(item) for item in errors]+[describe(error,reason=diagnostic)])
     check_pair(dict(request,records=[record]),result)
     return result
 
@@ -571,14 +575,15 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
                 for record in request['records']:
                     part = (completed or {}).get(record['input_id'])
                     if part is None:
-                        part = _interrupted_record(request,record,'模型配置不可用；已保存的记录保留，请配置后重试此记录。')
+                        part = _interrupted_record(request,record,'模型配置不可用；已保存的记录保留，请配置后重试此记录。', diagnostic='model_configuration')
                         checkpoint(record,part)
                     parts.append(part)
                 return _combine_records(request,parts)
             raise MediaError(503,'agent_unavailable','图片识别配置不可用，请检查模型配置') from None
-        settings = Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=45,max_retries=0)
+        settings = Settings(mode='real',model=options['model'],endpoint=options['endpoint'],timeout_seconds=45,max_retries=0,
+                            thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
         if checkpoint is None:
-            return process_media_request(request,assets,operations.observe_chat(ChatClient(options['key'])),settings)
+            return process_media_request(request,assets,operations.observe_chat(ChatClient(options['key'])),settings,diagnostic_event=diagnostics.event)
         check_request(request)
         potential_errors = 3 * len(request['records']) + sum(
             len(asset['errors']) + (2 if asset.get('content_mode')=='file' and asset['status']=='available' else 0)
@@ -600,7 +605,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
                 remaining = max(0.000001,expires-time.monotonic())
                 try:
                     part = process_media_request(single,assets,client,settings,
-                        MediaLimits(record_seconds=min(70,remaining),batch_seconds=remaining))
+                        MediaLimits(record_seconds=min(70,remaining),batch_seconds=remaining), diagnostic_event=diagnostics.event)
                     check_pair(single,part)
                 except (ValueError, ValidationError, KeyError, TypeError):
                     part = _interrupted_record(request,record,'此记录的识别结果未通过校验；其他记录保留。','invalid_agent_output')
@@ -624,7 +629,7 @@ def recognize_v03(request, assets, *, checkpoint=None, completed=None):
 
 
 def _failed_result(request, code='agent_unavailable', message='附件识别暂不可用；没有将其当作无任务'):
-    return dict(contract_version='0.3.1', request_id=request['request_id'], status='failed', record_results=[], tasks=[], errors=[dict(input_id=None, asset_id=None, block_id=None, stage='request', code=code, message=message, retryable=code=='agent_unavailable')])
+    return dict(contract_version='0.3.1', request_id=request['request_id'], status='failed', record_results=[], tasks=[], errors=[describe(dict(input_id=None, asset_id=None, block_id=None, stage='request', code=code, message=message, retryable=code=='agent_unavailable'))])
 
 
 def _apply_clear_tasks(db, row, result):
@@ -730,7 +735,8 @@ def _process(db_path, job_id):
                     # Recovered results may belong to a previous deployment/configuration.
                     if completed:
                         content_key = None
-                    result = recognize_v03(extraction, assets,checkpoint=checkpoint,completed=completed)
+                    with diagnostics.capture(db,row['user_id'],request['request_id']):
+                        result = recognize_v03(extraction, assets,checkpoint=checkpoint,completed=completed)
                 check_pair(extraction, result)
                 attempt_errors = result['errors']
                 if previous and not result['record_results']:
