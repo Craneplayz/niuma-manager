@@ -5,6 +5,7 @@ WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+COPY contracts/recognition-errors.json /build/contracts/recognition-errors.json
 ENV VITE_ENABLE_WECHAT=0
 ARG NIUMA_BUILD_REVISION=unknown
 ENV VITE_BUILD_REVISION=$NIUMA_BUILD_REVISION
