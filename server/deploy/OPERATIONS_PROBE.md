@@ -122,6 +122,8 @@ WantedBy=timers.target
 
 先在独立 test 环境用通知替身验证，再由部署人按授权启用真实收件人。启用模板命令示例为 `systemctl enable --now niuma-probe@test.timer`；production 必须有独立配置并核对现有卷、Compose 项目和健康端口后再启用。不要为了制造告警停止生产服务、填满磁盘或读取真实微信数据。
 
+发布、备份或回滚前先暂停对应环境的 timer 并等待在途 oneshot 结束，再停止 API 备份完整数据卷（含 sidecar）；恢复 API/网页并验证健康后再恢复 timer，避免备份期间写入或把计划维护当成故障。
+
 ## 验证
 
 仓库根目录运行：
