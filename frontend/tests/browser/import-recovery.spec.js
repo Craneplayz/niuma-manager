@@ -22,6 +22,7 @@ async function openHistory(page, runs, linked = null, { batches = [], tasks = []
     else if (path === "/api/workspace") value = { tasks: { version, value: tasks } };
     else if (path === "/api/version") value = { environment: "test", revision: "pr171", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
+    else if (path === "/api/usage/guest-visit") value = { saved: true };
     else if (path === "/api/recognition/batches") value = batches;
     else if (path.endsWith("/resolve")) {
       const id = path.split("/").at(-2), item = batches.flatMap(batch => batch.items).find(item => item.id === id);

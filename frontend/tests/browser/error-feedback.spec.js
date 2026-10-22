@@ -22,6 +22,7 @@ async function openApp(page, { anonymous = false, workspaceFailure = false, fail
       value = receipt;
     } else if (path === "/api/version") value = { environment: "test", revision: "a7fe0a8", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
+    else if (path === "/api/usage/guest-visit") value = { saved: true };
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/sources/sync-runs") {
       value = { contract_version: "source-sync/0.1", runs: [] };
