@@ -2,9 +2,11 @@ import { test, expect } from '@playwright/test';
 
 test.use({ timezoneId: 'Asia/Shanghai' });
 
-async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = false, failSaveOnce = false } = {}) {
+async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = false, failSaveOnce = false, holdResolve = false } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-20T04:00:00Z'));
   let version = 1, ignoredOnce = false, readOnce = false, savedOnce = false;
+  let releaseResolve;
+  const resolveGate = new Promise(resolve => { releaseResolve = resolve; });
   const writes = [], resolutions = [];
   let tasks = [{ id: 'target', title: '数据结构实验报告', course: '数据结构', status: 'not_started', source: '教学网', due: { date: '2026-10-20', time: '18:00', precision: 'datetime' }, plans: [], subtasks: [] }];
   const make = (id, title, fields = {}) => ({ id, state: 'pending', version: 1, candidate: {
@@ -25,12 +27,14 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
     if (path === '/api/auth/me') value = { user: { id: 'review-user', name: '合成账号' } };
     else if (path === '/api/workspace') value = { tasks: { version, value: tasks } };
     else if (path === '/api/data/tasks') { const body = request.postDataJSON(); writes.push(body); tasks = body.value; value = { version: ++version }; }
+    else if (path === '/api/recognition/text-jobs') value = { jobs: [] };
     else if (path === '/api/recognition/batches') {
       if (failReadOnce && !readOnce) { readOnce = true; status = 503; value = { error: 'Synthetic unavailable' }; }
       else value = batches;
     } else if (path.includes('/candidates/') && path.endsWith('/resolve')) {
       const id = decodeURIComponent(path.split('/')[4]), body = request.postDataJSON();
       resolutions.push({ id, ...body });
+      if (holdResolve) await resolveGate;
       if (failIgnoreOnce && body.action === 'ignore' && !ignoredOnce) { ignoredOnce = true; status = 503; value = { error: 'Synthetic unavailable' }; }
       else if (failSaveOnce && body.action === 'create' && !savedOnce) { savedOnce = true; status = 503; value = { error: 'Synthetic unavailable' }; }
       else {
@@ -44,7 +48,8 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
         } else if (body.action === 'postpone') { tasks.find(task => task.id === body.target_id).due = body.draft.due; version++; }
         value = { batches };
       }
-    } else if (path === '/api/usage/visit') value = { offerRating: false };
+    } else if (path === '/api/usage/guest-visit') value = {};
+    else if (path === '/api/usage/visit') value = { offerRating: false };
     else if (path === '/api/version') value = { environment: 'test', revision: 'synthetic' };
     else if (path === '/api/recognition/task-evidence') value = { evidence: [] };
     else if (path === '/api/sources/credentials') value = { configured: false };
@@ -53,7 +58,7 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
   });
   await page.goto('/');
-  return { writes, resolutions };
+  return { writes, resolutions, releaseResolve };
 }
 
 async function navigate(page, name) {
@@ -216,4 +221,24 @@ test('pending drafts share search and course filters while notices stay in their
   await navigate(page, '通知');
   await expect(page.locator('[data-review-id="notice"]')).toBeVisible();
   await expect(page.locator('[data-review-id="new"]')).toHaveCount(0);
+});
+
+
+test('pending candidate confirmation keeps its atomic write isolated while ordinary task details remain available', async ({ page }) => {
+  const f = await openWorkspace(page, { holdResolve: true });
+  try {
+    await page.locator('[data-review-id="new"] [data-task-complete]').click();
+    await expect.poll(() => f.resolutions.length).toBe(1);
+    await expect(page.locator('[data-task-id="target"] [data-task-complete]')).toBeDisabled();
+    await page.locator('[data-task-open="target"]').click();
+    await expect(page.locator('#task-drawer')).toBeVisible();
+    await page.locator('[data-action="drawer-close"]').click();
+    expect(f.writes).toHaveLength(0);
+    f.releaseResolve();
+    await expect(page.locator('[data-task-id="target"] [data-task-complete]')).toBeEnabled();
+    await page.locator('[data-task-id="target"] [data-task-complete]').click();
+    await expect.poll(() => f.writes.length).toBe(1);
+    expect(f.writes[0].value.find(task => task.id === 'confirmed-new').status).toBe('completed');
+    expect(f.writes[0].value.find(task => task.id === 'target').status).toBe('completed');
+  } finally { f.releaseResolve(); }
 });

@@ -49,7 +49,7 @@ class Element extends Surface {
 }
 
 let instance = 0;
-async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false, url = "http://synthetic.test/" } = {}) {
+async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false, recycled = false, url = "http://synthetic.test/" } = {}) {
   const instanceId = ++instance;
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-10-15T23:59:59") });
   const app = new Element("app"), dialog = new Element("dialog"), drawer = new Element("task-drawer");
@@ -102,6 +102,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
   ];
   if (undated) tasks.push({ id: "undated", title: "合成无日期任务", status: "not_started", due: null, plans: [], subtasks: [] });
   if (undatedNotice) tasks.push({ id: "undated-notice", title: "合成无日期通知", content_type: "notice", planningExcluded: true, status: "not_started", due: null, plans: [], subtasks: [] });
+  if (recycled) Object.assign(tasks.find(task => task.id === "undated"), { status: "cancelled", recycleBin: { status: "not_started", deletedAt: "2026-10-15T00:00:00Z" } });
   const writes = [];
   globalThis.fetch = async (path, options = {}) => {
     let value = {};
@@ -416,4 +417,15 @@ test("read notices share completed task protection against calendar drag", async
   await f.drag("2026-10-20", "notice");
   assert.equal(f.writes.length, 0);
   assert.doesNotMatch(f.toast.innerHTML, /关键日期已/);
+});
+
+
+test("a restored server trash item can immediately be rescheduled without a workspace refresh", async t => {
+  const f = await fixture(t, { undated: true, recycled: true, url: "http://synthetic.test/?view=calendar" });
+  await f.click({ restoreTask: "undated" });
+  await f.drag("2026-10-20", "undated");
+  assert.equal(f.writes.length, 2);
+  const restored = f.writes.at(-1).value.find(task => task.id === "undated");
+  assert.equal(restored.recycleBin, undefined);
+  assert.equal(restored.due.date, "2026-10-20");
 });

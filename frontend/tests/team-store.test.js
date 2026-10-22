@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { taskEditSnapshot } from "../src/task-model.js";
 
 globalThis.window = new EventTarget();
 globalThis.CustomEvent ||= class extends Event {
@@ -12,6 +13,8 @@ const {
   readStore,
   readCancelledTasks,
   saveStore,
+  saveStoredTask,
+  setStoredTaskStatus,
   trashStoredTasks,
   restoreStoredTasks,
   setStoredTaskDeadline,
@@ -729,4 +732,138 @@ test("notice key date assignment, rescheduling and undo preserve notice and sour
   assert.equal(f.tasks[0].due, null);
   assert.equal(f.tasks[0].content_type, "notice");
   assert.equal(f.tasks[0].planningExcluded, true);
+});
+
+function holdFirstWrite({ fail = false } = {}) {
+  const original = globalThis.fetch;
+  let release, start, held = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const entered = new Promise(resolve => { start = resolve; });
+  globalThis.fetch = async (path, options) => {
+    if (path === '/api/data/tasks' && !held) {
+      held = true; start(); await gate;
+      if (fail) return { ok: false, status: 503, json: async () => ({ error: '合成暂时失败' }) };
+    }
+    return original(path, options);
+  };
+  return { entered, release };
+}
+
+test('queued completion, edit, deletion and restoration preserve every earlier intent and server metadata', async () => {
+  const f = fixture('queued-intents', [task('a'), task('b', { sourceUrl: 'https://example.test/source', plans: [{ id: 'plan' }] }), task('c')]);
+  const state = await initSession(), gate = holdFirstWrite();
+  const complete = setStoredTaskStatus('a', { status: 'done', completedAt: '2026-10-22' }, { status: 'todo', completedAt: '' });
+  await gate.entered;
+  const edit = saveStoredTask({ ...state.tasks[1], title: '编辑后的任务' }, taskEditSnapshot(state.tasks[1]));
+  const remove = trashStoredTasks(['c']);
+  const restore = restoreStoredTasks(['c']);
+  assert.equal(f.writes.length, 0);
+  gate.release();
+  await Promise.all([complete, edit, remove, restore]);
+  assert.deepEqual(f.writes.map(write => write.version), [1, 2, 3, 4]);
+  assert.equal(f.tasks[0].status, 'completed');
+  assert.equal(f.tasks[1].title, '编辑后的任务');
+  assert.equal(f.tasks[1].sourceUrl, 'https://example.test/source');
+  assert.deepEqual(f.tasks[1].plans, [{ id: 'plan' }]);
+  assert.equal(f.tasks[2].recycleBin, undefined);
+});
+
+test('retry replays all queued intents in order after the first request fails', async () => {
+  const f = fixture('queue-failure', [task('a'), task('b'), task('c')]);
+  const state = await initSession(), gate = holdFirstWrite({ fail: true });
+  const first = setStoredTaskStatus('a', { status: 'done', completedAt: '2026-10-22' }, { status: 'todo', completedAt: '' });
+  await gate.entered;
+  const second = saveStoredTask({ ...state.tasks[1], title: '保留排队编辑' }, taskEditSnapshot(state.tasks[1]));
+  const third = trashStoredTasks(['c']);
+  const results = Promise.allSettled([first, second, third]);
+  gate.release();
+  assert.ok((await results).every(result => result.status === 'rejected'));
+  assert.equal(session.sync, 'error');
+  assert.equal(f.writes.length, 0);
+  await retrySave();
+  assert.equal(f.tasks[0].status, 'completed');
+  assert.equal(f.tasks[1].title, '保留排队编辑');
+  assert.ok(f.tasks[2].recycleBin);
+  assert.deepEqual(f.writes.map(write => write.version), [1, 2, 3]);
+  assert.equal(session.sync, 'saved');
+});
+
+test('explicit reload discards every failed queued intent and account switching cannot replay them', async () => {
+  const f = fixture('queue-discard', [task('a'), task('b')]);
+  await initSession();
+  const gate = holdFirstWrite({ fail: true });
+  const first = trashStoredTasks(['a']);
+  await gate.entered;
+  const second = setStoredTaskStatus('b', { status: 'done', completedAt: '2026-10-22' }, { status: 'todo', completedAt: '' });
+  const results = Promise.allSettled([first, second]);
+  gate.release(); await results;
+  const reread = await reloadStore();
+  assert.equal(reread.tasks.length, 2);
+  await retrySave();
+  assert.equal(f.writes.length, 0);
+  fixture('queue-new-account', [task('different')]);
+  await initSession(); await retrySave();
+  assert.equal(session.user.id, 'queue-new-account');
+  assert.equal(f.writes.length, 0);
+});
+
+test('a queued edit preserves independently completed status and rejects a deleted target without resurrecting it', async () => {
+  const f = fixture('edit-scope', [task('a'), task('b')]);
+  const state = await initSession();
+  await setStoredTaskStatus('a', { status: 'done', completedAt: '2026-10-22' }, { status: 'todo', completedAt: '' });
+  await saveStoredTask({ ...state.tasks[0], title: '保留完成状态' }, taskEditSnapshot(state.tasks[0]));
+  assert.equal(f.tasks[0].status, 'completed');
+  await trashStoredTasks(['b']);
+  await assert.rejects(saveStoredTask({ ...state.tasks[1], title: '过期编辑' }, taskEditSnapshot(state.tasks[1])), /任务内容已变化/);
+  assert.ok(f.tasks[1].recycleBin);
+  assert.equal(session.conflict, true);
+  await reloadStore();
+});
+
+test('unload warns during a queued mutation and stops warning after its acknowledgement', async () => {
+  fixture('queue-unload', [task('a')]); await initSession();
+  const gate = holdFirstWrite();
+  const saving = trashStoredTasks(['a']); await gate.entered;
+  const pending = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(pending);
+  assert.equal(pending.defaultPrevented, true);
+  gate.release(); await saving;
+  const saved = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(saved);
+  assert.equal(saved.defaultPrevented, false);
+});
+
+test('repeated retry clicks share one replay and new edits stay behind the complete failed queue', async () => {
+  const f = fixture('retry-order', [task('a'), task('b'), task('c')]);
+  const state = await initSession(), firstGate = holdFirstWrite({ fail: true });
+  const first = trashStoredTasks(['a']); await firstGate.entered;
+  const second = saveStoredTask({ ...state.tasks[1], title: '第一次排队编辑' }, taskEditSnapshot(state.tasks[1]));
+  const failed = Promise.allSettled([first, second]); firstGate.release(); await failed;
+  const replayGate = holdFirstWrite();
+  const retry = retrySave(); await replayGate.entered;
+  const duplicate = retrySave(); assert.equal(retry, duplicate);
+  const later = saveStoredTask({ ...state.tasks[1], title: '重试期间的后续编辑' }, taskEditSnapshot({ ...state.tasks[1], title: '第一次排队编辑' }));
+  replayGate.release(); await Promise.all([retry, duplicate, later]);
+  assert.deepEqual(f.writes.map(write => write.version), [1, 2, 3]);
+  assert.ok(f.tasks[0].recycleBin);
+  assert.equal(f.tasks[1].title, '重试期间的后续编辑');
+});
+
+test('logout waits for all queued mutations and none reaches the next account', async () => {
+  const f = fixture('queue-logout', [task('a'), task('b')]);
+  await initSession();
+  const previous = globalThis.fetch;
+  globalThis.fetch = (path, options) => path === '/api/auth/logout' ? Promise.resolve(reply({})) : previous(path, options);
+  const gate = holdFirstWrite();
+  const first = setStoredTaskStatus('a', { status: 'done', completedAt: '2026-10-22' }, { status: 'todo', completedAt: '' });
+  await gate.entered;
+  const second = trashStoredTasks(['b']);
+  let loggedOut = false;
+  const leaving = logout().then(() => { loggedOut = true; });
+  await new Promise(setImmediate); assert.equal(loggedOut, false);
+  gate.release(); await Promise.all([first, second, leaving]);
+  assert.equal(f.tasks[0].status, 'completed'); assert.ok(f.tasks[1].recycleBin);
+  const next = fixture('after-queue-logout', [task('new')]);
+  await initSession(); await retrySave();
+  assert.equal(next.writes.length, 0);
 });

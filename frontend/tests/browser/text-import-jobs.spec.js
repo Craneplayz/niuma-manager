@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 
 // Real API, SQLite and frontend; only the billed model boundary is synthetic.
 const harness = String.raw`
@@ -58,8 +59,9 @@ test.beforeAll(async () => {
   await writeFile(script, harness);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(NIUMA_|DDL_|VITE_|WECHAT_|TEXT_HARNESS)/.test(key)));
   env.PYTHONPATH = root + ':' + join(root, 'server');
-  env.NIUMA_ALLOWED_ORIGINS = 'http://127.0.0.1:18763';
-  const python = process.env.NIUMA_TEST_PYTHON || join(root, '.venv/bin/python');
+  env.NIUMA_ALLOWED_ORIGINS = 'http://127.0.0.1:' + (process.env.NIUMA_BROWSER_TEST_PORT || 18763);
+  const localPython = join(root, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
+  const python = process.env.NIUMA_TEST_PYTHON || (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3');
   backend = spawn(python, ['-u', script, folder], { cwd: root, env, stdio: ['ignore','pipe','pipe'] });
   await new Promise((done, reject) => {
     let output = '', errors = '';
