@@ -4,6 +4,7 @@ SQLite keeps bytes in the same environment/backup as their source snapshot;
 there are no permanent paths or arbitrary URLs accepted from the browser.
 """
 import hashlib
+from server import operations
 import json
 import re
 import time
@@ -212,6 +213,7 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
             if cached.get('pdf_checkpoint') == 1: checkpoint = cached
             else: result = dict(read_state=cached['read_state'],text=cached['text'])
         if result is None:
+            operations.emit('outcome',code='cache_miss',operation='attachment')
             diagnostics.event('attachment',file_sha256=a['sha256'],mime_type=a['mime_type'],bytes=len(a['data']),
                               cache='checkpoint' if checkpoint else 'miss',completed_pages=len(checkpoint['pages']) if checkpoint else 0)
             metadata = dict(mime_type=a['mime_type'],sha256=a['sha256'],size_bytes=len(a['data']))
@@ -228,8 +230,9 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
                     resume = dict(checkpoint=checkpoint, save_checkpoint=save_checkpoint,
                                   single_pdf_batch=True, pdf_batch_pages=batch_pages) if a['mime_type']=='application/pdf' else {}
                     try:
-                        result = read_attachment(a['data'],metadata,client,settings,
-                                                 expires=time.monotonic()+75,guard=guard,diagnostic_event=diagnostics.event,**resume)
+                        with operations.span('attachment_read'):
+                            result = read_attachment(a['data'],metadata,client,settings,
+                                                     expires=time.monotonic()+75,guard=guard,diagnostic_event=diagnostics.event,**resume)
                     except AgentError as error:
                         # At most two smaller attempts, retaining validated pages.
                         # A one-page timeout or provider outage still exits.

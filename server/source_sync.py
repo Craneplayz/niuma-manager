@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 import secrets
+from server import operations
 from pathlib import Path
 
 from text_contract import validate_request
@@ -136,6 +137,13 @@ def route(handler, db, uid, path, body, ApiError, key_path):
 
 
 def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
+    with operations.span('collection'):
+        result=_collect(db,uid,ApiError,key_path,guard=guard,input_ids=input_ids)
+    if result['summary'].get('skipped'):operations.emit('outcome',code='cache_hit',quantity=result['summary']['skipped'])
+    return result
+
+
+def _collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
     """Collect outside a write transaction, then validate ownership before saving."""
     if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
@@ -158,12 +166,17 @@ def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
             with os.fdopen(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
                 file.write(row['username'] + '\n' + password)
             result = subprocess.run(
-                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching-capture'],
+                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching-capture', '--observe-downloads'],
                 cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret), 'PKU_ATTACHMENT_DIR': str(attachment_dir)},
                 capture_output=True, text=True, encoding='utf-8', timeout=300, check=False,
             )
+            operations.producer_stderr(getattr(result,'stderr',''))
             if result.returncode:
-                failure = parse_failure(getattr(result, 'stderr', None))
+                stderr=getattr(result,'stderr','')
+                # Download observations can exceed the old whole-stderr bound.
+                # Parse only closed failure receipts from the bounded final lines.
+                failure=next((value for line in reversed(stderr.splitlines()[-16:])
+                              if (value:=parse_failure(line))),None) if isinstance(stderr,str) else None
                 if failure:
                     raise collection_exception(ApiError, 502, failure['stage'], failure['code'])
                 raise ApiError(502, '教学网采集失败；请检查账号、密码、浏览器及校园网连接')

@@ -8,6 +8,7 @@ import secrets
 import re
 import sqlite3
 import threading
+from server import operations
 from urllib.parse import parse_qs, urlsplit
 from jsonschema.exceptions import ValidationError
 
@@ -27,7 +28,7 @@ def stamp():
 
 @contextmanager
 def connection(path):
-    db = sqlite3.connect(path, timeout=10)
+    db = sqlite3.connect(path, timeout=10, factory=operations.TimedConnection)
     db.row_factory = sqlite3.Row
     try:
         with db:
@@ -358,7 +359,14 @@ def process(path, uid, run_id, ApiError):
 
 
 def launch(path, uid, run_id, ApiError):
-    worker=threading.Thread(target=process,args=(path,uid,run_id,ApiError),daemon=True)
+    observation=operations.captured()
+    def work():
+        with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=run_id,operation='reprocessing'):
+            process(path,uid,run_id,ApiError)
+            with connection(path) as db:
+                row=db.execute("SELECT json_extract(snapshot,'$.state') FROM reprocessing_runs WHERE user_id=? AND run_id=?",(uid,run_id)).fetchone()
+            if row and row[0] in operations.CODES:operations.emit('run',code=row[0],result='ok' if row[0]=='succeeded' else 'failed')
+    worker=threading.Thread(target=work,daemon=True)
     with _lock:
         _workers.add((str(path),worker))
         try:

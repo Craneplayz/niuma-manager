@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
+from server import operations
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter
@@ -49,7 +50,7 @@ def recognize(request, ApiError):
             if os.environ.get('TEXT_HARNESS_TOKEN'):
                 headers['Authorization'] = 'Bearer ' + os.environ['TEXT_HARNESS_TOKEN']
             try:
-                with urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=95) as response:
+                with operations.span('model_call','recognition.harness'),urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=95) as response:
                     return json.loads(response.read(2000000))
             except HTTPError as error:
                 busy = error.code == 503
@@ -63,7 +64,7 @@ def recognize(request, ApiError):
             options = live_options(model_env_path(ROOT))
             if not options['key'].strip():
                 raise ValueError('missing credential')
-            adapter = ExtractionAdapter(make_client(options))
+            adapter = ExtractionAdapter(operations.observe_chat(make_client(options)))
             settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
                                 timeout_seconds=90, max_retries=0)
         except (OSError, ValueError, TypeError, KeyError):

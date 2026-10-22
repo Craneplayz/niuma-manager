@@ -14,6 +14,7 @@ from jsonschema import ValidationError
 
 from contracts import public_import as contract
 from source_sync import CRAWLER
+from server import operations
 
 ORIGINS={'cs':'cs.pku.edu.cn','bio':'web.bio.pku.edu.cn','gse':'www.gse.pku.edu.cn'}
 _lock=threading.Lock();_workers=set()
@@ -64,7 +65,16 @@ def launch(path,uid,row):
     with _lock:
         if key in _workers:return
         _workers.add(key)
-    threading.Thread(target=process,args=(path,uid,row['id'],row['source']),daemon=True).start()
+    observation=operations.captured()
+    def work():
+        with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=row['id'],operation='public'),operations.span('collection') as outcome:
+            process(path,uid,row['id'],row['source'])
+            with closing(sqlite3.connect(path)) as db:
+                state=db.execute('SELECT state FROM public_source_runs WHERE id=? AND user_id=?',(row['id'],uid)).fetchone()
+            if state and state[0] in operations.CODES:
+                operations.emit('run',code=state[0],result='ok' if state[0]=='succeeded' else 'failed')
+                if state[0]=='failed':outcome.update(result='failed',code='collection_failed')
+    threading.Thread(target=work,daemon=True).start()
 
 
 def route(handler,db,uid,path,body,ApiError,database):

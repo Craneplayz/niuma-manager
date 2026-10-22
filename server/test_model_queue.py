@@ -1,4 +1,5 @@
 import socket
+import sqlite3
 import os
 from pathlib import Path
 import subprocess
@@ -15,6 +16,65 @@ from server import model_queue
 
 
 class ModelQueueTests(unittest.TestCase):
+    def test_reserved_continuation_is_removed_on_stop_or_timeout(self):
+        for stop,wait,code in ((True,5,'stopped'),(False,0,'queue_timeout')):
+            with self.subTest(code=code):
+                queue=model_queue.ModelQueue(limit=1,pending=0,wait=wait)
+                self.assertTrue(queue.acquire())
+                queue.release(requeue=True)
+                with model_queue.cancel_if(lambda:stop):self.assertFalse(queue.acquire())
+                self.assertEqual(queue.failure,code)
+                self.assertEqual(queue.snapshot()['queued'],0)
+                self.assertEqual(queue.active,0)
+
+    def test_accepted_continuation_keeps_fifo_eligibility_with_twenty_waiters(self):
+        queue=model_queue.ModelQueue(limit=4,pending=20,wait=5)
+        for _ in range(4):self.assertTrue(queue.acquire())
+        unblock=threading.Event();counts=threading.local();order=[]
+        def probe():
+            counts.value=getattr(counts,'value',0)+1
+            if counts.value>1 and not unblock.wait(5):raise TimeoutError('synthetic gate')
+            return False
+        def work(index):
+            with model_queue.cancel_if(probe):accepted=queue.acquire()
+            self.assertTrue(accepted)
+            try:order.append(index)
+            finally:queue.release()
+        def resume():
+            queue.release(requeue=True)
+            self.assertTrue(queue.acquire())
+            try:order.append('continued')
+            finally:queue.release()
+        with ThreadPoolExecutor(max_workers=21) as pool:
+            waiting=[pool.submit(work,i) for i in range(20)]
+            try:
+                self.queued(queue,20)
+                continuation=pool.submit(resume)
+                self.queued(queue,21)
+                self.assertFalse(queue.acquire(blocking=False))
+            finally:unblock.set()
+            for future in waiting:future.result(timeout=5)
+            continuation.result(timeout=5)
+        self.assertEqual(order[-1],'continued')
+        self.assertEqual(len(order),21)
+        for _ in range(3):queue.release()
+        self.assertEqual(queue.snapshot()['queued'],0)
+
+    def test_wait_observations_distinguish_full_timeout_stop_and_probe_failure(self):
+        for queue,code,stop in ((model_queue.ModelQueue(limit=0,pending=0),'queue_full',False),
+                                (model_queue.ModelQueue(limit=0,wait=0),'queue_timeout',False),
+                                (model_queue.ModelQueue(),'stopped',True)):
+            with self.subTest(code=code),patch.object(model_queue.operations,'emit') as emit:
+                with model_queue.cancel_if(lambda:stop):self.assertFalse(queue.acquire())
+                self.assertEqual(emit.call_args.kwargs['code'],code)
+                self.assertEqual(emit.call_args.kwargs['result'],'cancelled' if stop else 'failed')
+        queue=model_queue.ModelQueue()
+        with patch.object(model_queue,'disconnected',side_effect=sqlite3.OperationalError('locked PRIVATE')), \
+             patch.object(model_queue.operations,'emit') as emit:
+            with self.assertRaises(sqlite3.OperationalError):queue.acquire()
+            self.assertEqual(emit.call_args.kwargs['code'],'database_busy')
+            self.assertNotIn('PRIVATE',str(emit.call_args))
+
     def test_root_package_imports_share_the_same_model_queue(self):
         root = Path(__file__).resolve().parent.parent
         env = dict(os.environ)
@@ -136,6 +196,47 @@ assert recognition._ACTIVE is planning._ACTIVE is task_decomposition._ACTIVE is 
         with model_queue.cancel_if(lambda:True):self.assertFalse(queue.acquire())
         self.assertEqual(queue.active,0)
         self.assertTrue(queue.acquire());queue.release()
+
+    def test_slow_cancellation_probe_does_not_block_release_or_snapshot(self):
+        queue=model_queue.ModelQueue(limit=1)
+        self.assertTrue(queue.acquire())
+        probing,finish=threading.Event(),threading.Event()
+        calls=0
+        def probe():
+            nonlocal calls
+            calls+=1
+            if calls==2:
+                probing.set()
+                self.assertTrue(finish.wait(3))
+            return False
+        def wait():
+            with model_queue.cancel_if(probe):return queue.acquire()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            future=pool.submit(wait)
+            try:
+                self.assertTrue(probing.wait(2))
+                released=pool.submit(queue.release)
+                released.result(timeout=.5)
+                self.assertEqual(queue.snapshot()['running'],0)
+            finally:finish.set()
+            self.assertTrue(future.result(timeout=2))
+        queue.release()
+
+    def test_failure_reason_is_thread_local_and_long_occupancy_times_out_cleanly(self):
+        queue=model_queue.ModelQueue(limit=1,pending=1,wait=.05)
+        self.assertTrue(queue.acquire())
+        def wait():return queue.acquire(),queue.failure
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(wait)
+            self.queued(queue,1)
+            self.assertFalse(queue.acquire())
+            self.assertEqual(queue.failure,'queue_full')
+            self.assertEqual(future.result(timeout=2),(False,'queue_timeout'))
+        self.assertEqual(queue.failure,'queue_full')
+        queue.release()
+        self.assertTrue(queue.acquire())
+        self.assertIsNone(queue.failure)
+        queue.release()
 
 
 if __name__=='__main__':unittest.main()
