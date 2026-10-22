@@ -217,3 +217,5 @@ npm run build
 历史贡献与来源见 [CONTRIBUTIONS.md](CONTRIBUTIONS.md)。
 
 文本提交使用后台作业，显示等待识别、正在识别和最终状态；刷新或重新打开文本栏目会恢复记录，未识别出任务也保留在历史导入中。失败、停止或服务中断可在原记录重试；未提交的文本草稿仍不保存。接口见 [文本后台作业](../contracts/docs/text-import-jobs-v0.1.md)。
+
+文本导入的合成验证截图：[桌面识别中](docs/archive/2026-10-22-text-import-running-desktop.png)、[手机识别中](docs/archive/2026-10-22-text-import-running-mobile.png)、[识别完成与候选](docs/archive/2026-10-22-text-import-completed-desktop.png)；截图使用合成账号和模型结果，不代表真实模型准确率或服务器验收。
