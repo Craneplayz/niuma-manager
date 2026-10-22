@@ -26,6 +26,24 @@ CASES = [
 ]
 
 
+def text_case_passed(name, result):
+    """Check task meaning and time role, not only a successful HTTP/model call."""
+    tasks = result.get('tasks', [])
+    if name in ('reference', 'completed', 'declined'):
+        return result['status'] == 'no_tasks' and not tasks and not result.get('errors')
+    if result['status'] != 'success' or result.get('errors'):
+        return False
+    if name in ('relative', 'personal'):
+        return len(tasks) == 1 and tasks[0]['deadline']['value'] == '2026-10-23' and (
+            tasks[0]['deadline']['kind'] == 'reference' and tasks[0]['needs_review'])
+    if name == 'no-deadline':
+        return len(tasks) == 1 and tasks[0]['deadline']['value'] is None
+    if name == 'independent':
+        return len(tasks) == 2 and all(task['deadline']['kind'] == 'deadline' for task in tasks) and (
+            sorted(task['deadline']['value'] for task in tasks) == ['2026-10-25', '2026-10-27'])
+    raise ValueError('Unknown synthetic acceptance case')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--live', action='store_true')
@@ -55,10 +73,7 @@ def main():
         events=[]; started=time.monotonic()
         result=process_request(request,ExtractionAdapter(make_client(options)),settings,budget_seconds=65,
             diagnostic_event=lambda stage,**fields:events.append(dict(stage=stage,**fields)))
-        tasks=result.get('tasks',[])
-        passed=(result['status']=='no_tasks' if name in ('reference','completed','declined') else
-                result['status']=='success' and len(tasks)>=(2 if name=='independent' else 1))
-        if name=='no-deadline': passed=passed and all(task['deadline']['value'] is None for task in tasks)
+        passed=text_case_passed(name, result)
         save(dict(case=name,input=text,passed=passed,seconds=round(time.monotonic()-started,2),result=result,events=events))
     if options['provider']=='qiniu':
         from PIL import Image, ImageDraw, ImageFont

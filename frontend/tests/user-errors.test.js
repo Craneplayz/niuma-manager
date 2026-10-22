@@ -7,6 +7,14 @@ import { renderErrorReports } from "../src/error-reports-view.js";
 const schema = JSON.parse(await readFile(new URL("../../contracts/schemas/error-report-v0.1.schema.json", import.meta.url)));
 const examples = JSON.parse(await readFile(new URL("../../contracts/examples/error-reports-v01.json", import.meta.url))).reports;
 const recognitionErrors = JSON.parse(await readFile(new URL("../../contracts/recognition-errors.json", import.meta.url)));
+const diagnosticSchema = JSON.parse(await readFile(new URL("../../contracts/schemas/common-v0.3.1.schema.json", import.meta.url))).$defs.recognition_diagnostic;
+
+test('all protocol validation rules remain visible in error details', () => {
+  for (const rule of diagnosticSchema.properties.rule.enum) {
+    const report = describeUserError({failure:{reason:'draft_schema'},diagnostic:{schema_path:'tasks',rule}});
+    assert.ok(report.details.includes(`规则：${rule}。`), rule);
+  }
+});
 
 test('every recognition reason has safe consistent messaging and a reportable code', () => {
   for (const [reason, spec] of Object.entries(recognitionErrors)) {

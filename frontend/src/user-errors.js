@@ -25,7 +25,7 @@ export function describeUserError(error, action = "general") {
     const diagnostic = error.diagnostic;
     const location = diagnostic && typeof diagnostic.schema_path === "string" && diagnostic.schema_path.length <= 512 &&
       /^[A-Za-z0-9_$/]*$/.test(diagnostic.schema_path) &&
-      /^(type|enum|const|required|additionalProperties|maxLength|minLength|maxItems|minItems|format|pattern|anyOf|allOf|oneOf)$/.test(diagnostic.rule)
+      /^(type|enum|const|required|additionalProperties|maxLength|minLength|maxItems|minItems|format|pattern|anyOf|allOf|oneOf|maximum|minimum)$/.test(diagnostic.rule)
       ? ` 校验位置：${diagnostic.schema_path || "结果"}；规则：${diagnostic.rule}。` : "";
     const missing = Array.isArray(diagnostic?.missing_fields) ? diagnostic.missing_fields.filter(v => typeof v === 'string' && /^[A-Za-z_]{1,100}$/.test(v)).slice(0,20) : [];
     const types = new Set(['object','array','string','number','integer','boolean','null','unknown']);
