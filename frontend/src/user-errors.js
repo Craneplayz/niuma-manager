@@ -120,7 +120,8 @@ function incidentFor(error, action, context) {
     if (!errorIdentities.has(error)) errorIdentities.set(error, newId());
     identity = errorIdentities.get(error);
   }
-  const key = JSON.stringify([action, report.kind, status, identity || String(error)]);
+  // A history row survives retries; its diagnosis identifies the actual attempt.
+  const key = JSON.stringify([action, report.kind, status, identity || String(error), report.diagnostic_id || null]);
   if (!incidents.has(key)) {
     incidents.set(key, { id: newId(), code: report.kind, action, status, diagnostic_id: report.diagnostic_id, occurred_at: new Date().toISOString(), state: "idle", result: "" });
   }

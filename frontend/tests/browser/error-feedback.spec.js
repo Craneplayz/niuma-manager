@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 const receipt = { contract_version: "error-report/0.1", saved: true, report_id: "abc123".repeat(4) };
 
-async function openApp(page, { anonymous = false, workspaceFailure = false, failReportOnce = false, teachingFailure = false, withTrash = false } = {}) {
+async function openApp(page, { anonymous = false, workspaceFailure = false, failReportOnce = false, teachingFailure = false, withTrash = false, history = null } = {}) {
   const reports = [];
   await page.route("**/api/**", async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
@@ -23,7 +23,8 @@ async function openApp(page, { anonymous = false, workspaceFailure = false, fail
     } else if (path === "/api/version") value = { environment: "test", revision: "a7fe0a8", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/usage/guest-visit") value = { saved: true };
-    else if (path === "/api/recognition/batches") value = [];
+    else if (path === "/api/recognition/batches") value = history ? history.batches : [];
+    else if (path === "/api/recognition/retry" && history) value = history.retry(request.postDataJSON());
     else if (path === "/api/sources/sync-runs") {
       value = { contract_version: "source-sync/0.1", runs: [] };
       if (teachingFailure && request.method() === "POST") { status = 503; value = { error: typeof teachingFailure === 'object' ? teachingFailure : "教学网识别配置不可用 API_KEY=PRIVATE" }; }
@@ -148,6 +149,44 @@ test("recognition diagnosis reaches the browser and feedback keeps only its iden
   await expect(alert.getByText('已提交，感谢反馈。')).toBeVisible();
   expect(reports[0].diagnostic_id).toBe(diagnostic_id);
   expect(JSON.stringify(reports)).not.toMatch(/PRIVATE-DETAIL|diagnostics|missing_fields/);
+});
+
+test("retrying the same import history row reports the new diagnosis and retains same-attempt feedback", async ({ page }) => {
+  const firstId = 'a1'.repeat(12), nextId = 'b2'.repeat(12);
+  const request = { contract_version: '0.2', request_id: 'synthetic:retry-feedback', records: [{
+    input_id: 'synthetic:input', platform: 'manual', text: '明天提交合成作业', source_label: '合成文本导入',
+    collected_at: '2026-10-22T09:00:00+08:00', published_at: null, course_or_project: null, url: null,
+  }] };
+  const failedBatch = diagnostic_id => ({ request, importedAt: '2026-10-22T09:00:00+08:00', items: [],
+    result: { status: 'failed', tasks: [], errors: [{ input_id: 'synthetic:input', code: 'invalid_agent_output',
+      message: '合成校验失败', retryable: true, failure: { reason: 'draft_schema' }, diagnostic_id }] } });
+  let retries = 0;
+  const history = { batches: [failedBatch(firstId)], retry(body) {
+    expect(body).toEqual(request); retries++;
+    this.batches = [failedBatch(nextId)]; return this.batches;
+  } };
+  const reports = await openApp(page, { history });
+  if (await page.locator('#sidebar-show').isVisible()) await page.locator('#sidebar-show').click();
+  await page.getByRole('button', { name: '导入内容', exact: true }).click();
+  await page.locator('[data-source-sync-history] > summary').click();
+  const row = page.locator('[data-import-history-batch-entry="synthetic:retry-feedback"]');
+  await row.getByRole('button', { name: '错误 1 条', exact: true }).click();
+  await row.locator('[data-import-history-item="0"]').click();
+  const alert = row.getByRole('alert');
+  await expect(alert).toContainText(firstId);
+  await alert.getByRole('button', { name: '反馈此问题' }).click();
+  await expect(alert.getByRole('button', { name: '已反馈' })).toBeDisabled();
+  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await expect(alert.getByRole('button', { name: '已反馈' })).toBeDisabled();
+  await row.getByRole('button', { name: '处理未完成', exact: true }).click();
+  await expect(alert).toContainText(nextId);
+  await expect(alert).not.toContainText(firstId);
+  await expect(alert.getByRole('button', { name: '反馈此问题' })).toBeEnabled();
+  await alert.getByRole('button', { name: '反馈此问题' }).click();
+  await expect(alert.getByRole('button', { name: '已反馈' })).toBeDisabled();
+  expect(retries).toBe(1);
+  expect(reports.map(report => report.diagnostic_id)).toEqual([firstId, nextId]);
+  expect(reports[0].incident_id).not.toBe(reports[1].incident_id);
 });
 
 test("administrator dashboard displays received reports in its own section", async ({ page }) => {

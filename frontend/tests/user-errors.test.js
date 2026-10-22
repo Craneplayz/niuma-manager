@@ -65,6 +65,56 @@ function fixture(error = { status: 503, message: "文本识别配置不可用，
   return { error, action, html, button, label, redraw: () => userErrorMarkup(error, action) };
 }
 
+for (const previousState of ["sent", "pending", "failed"]) {
+  test(`a new diagnostic attempt does not inherit ${previousState} feedback for the same history record`, async () => {
+    resetErrorFeedback();
+    const context = JSON.stringify(["recognition", "same-request", "same-input"]);
+    const error = diagnostic_id => ({ code: "invalid_agent_output", failure: { reason: "draft_schema" }, diagnostic_id });
+    const mount = diagnostic_id => {
+      const html = userErrorMarkup(error(diagnostic_id), "text_import", context);
+      const id = html.match(/data-error-feedback="([^"]+)"/)[1];
+      const button = { dataset: { errorFeedback: id }, disabled: false, textContent: "反馈此问题" };
+      const label = { dataset: { errorFeedbackStatus: id }, textContent: "" };
+      globalThis.document = { querySelectorAll: selector => selector === "[data-error-feedback]" ? [button] : [label] };
+      return { html, button, label };
+    };
+    const firstId = "a1".repeat(12), nextId = "b2".repeat(12), calls = [];
+    const first = mount(firstId);
+    let resolveFirst;
+    const sending = submitErrorFeedback(first.button, { send: async payload => {
+      calls.push(structuredClone(payload));
+      if (previousState === "pending") return new Promise(resolve => { resolveFirst = resolve; });
+      if (previousState === "failed") throw new Error("offline");
+      return receipt;
+    } });
+    if (previousState !== "pending") await sending;
+    const redraw = userErrorMarkup(error(firstId), "text_import", context);
+    assert.ok(redraw.includes(first.button.dataset.errorFeedback));
+    assert.match(redraw, previousState === "pending" ? /正在提交/ : previousState === "sent" ? /已反馈/ : /重试反馈/);
+    const next = mount(nextId);
+    assert.notEqual(next.button.dataset.errorFeedback, first.button.dataset.errorFeedback);
+    assert.doesNotMatch(next.html, /disabled|已反馈|正在提交|重试反馈/);
+    if (previousState === "pending") {
+      resolveFirst(receipt); await sending;
+      assert.equal(next.button.disabled, false);
+      assert.equal(next.label.textContent, "");
+    }
+    await submitErrorFeedback(next.button, { send: async payload => { calls.push(structuredClone(payload)); return receipt; } });
+    assert.deepEqual(calls.map(call => call.diagnostic_id), [firstId, nextId]);
+    assert.notEqual(calls[0].incident_id, calls[1].incident_id);
+    assert.match(userErrorMarkup(error(nextId), "text_import", context), /已反馈/);
+  });
+}
+
+test("missing or invalid diagnostic IDs preserve legacy occurrence identity", () => {
+  resetErrorFeedback();
+  const error = { code: "invalid_agent_output" };
+  const first = userErrorMarkup(error, "text_import", "legacy-history");
+  assert.equal(userErrorMarkup({ ...error, diagnostic_id: "untrusted-value" }, "text_import", "legacy-history"), first);
+  const diagnosed = userErrorMarkup({ ...error, diagnostic_id: "c3".repeat(12) }, "text_import", "legacy-history");
+  assert.notEqual(diagnosed.match(/data-error-feedback="([^"]+)"/)[1], first.match(/data-error-feedback="([^"]+)"/)[1]);
+});
+
 test("system failures explain user actions and unknown errors never echo internals", () => {
   const cases = [
     ["文本识别配置不可用，密钥 PRIVATE", /维护人员处理.*手动添加任务/],
