@@ -405,6 +405,19 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(probe.docker_restarts('test', execute=Mock(return_value=SimpleNamespace(stdout=''))),
                          ({'api': None, 'web': None}, False))
 
+    def test_inherited_image_labels_and_oneoff_containers_are_not_services(self):
+        calls = []
+        def execute(argv, **kwargs):
+            calls.append(argv)
+            if argv[1] == 'ps':
+                scoped = ('label=com.docker.compose.config-hash' in argv and
+                          'label=com.docker.compose.oneoff=False' in argv)
+                return SimpleNamespace(stdout='a' * 12 + '\n' + ('' if scoped else 'b' * 12 + '\n'))
+            return SimpleNamespace(stdout=''.join('3 true\n' if value == 'a' * 12 else '9 false\n'
+                                                  for value in argv[4:]))
+        self.assertEqual(probe.docker_restarts('test-project', execute=execute), ({'api': 3, 'web': 3}, True))
+        self.assertTrue(all('b' * 12 not in argv for argv in calls if argv[1] == 'inspect'))
+
     def test_http_failure_still_detected_without_docker(self):
         with patch.object(probe, 'host_resources', return_value=dict(self.resource)), \
                 patch.object(probe, 'docker_restarts', return_value=(None, None)), \
