@@ -151,6 +151,8 @@ test('same-field multi-window conflict retains the journal until explicit discar
   await page.unroute('**/api/data/tasks'); await page.reload();
   await expect(page.getByRole('button',{name:'重新读取',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  expect((await page.locator('.connection-alert .user-error-message').boundingBox()).width).toBeGreaterThan(160);
+  expect((await page.locator('.connection-alert').boundingBox()).height).toBeLessThan(340);
   if (process.env.NIUMA_JOURNAL_SCREENSHOT) await page.screenshot({path:process.env.NIUMA_JOURNAL_SCREENSHOT+'-'+info.project.name+'.png',fullPage:true});
   expect(await pending(page)).toHaveLength(1);
   await page.getByRole('button',{name:'重新读取',exact:true}).click();

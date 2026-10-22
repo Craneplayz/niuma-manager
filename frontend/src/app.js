@@ -462,7 +462,7 @@ function syncAlert() {
   return loadError
     ? `<div class="connection-alert">${userErrorMarkup(loadError, "tasks_load")}<button type="button" class="btn quiet" data-action="reconnect">重新连接</button></div>`
     : session.sync === "error" && !demo
-      ? `<div class="connection-alert">${userErrorMarkup(session.failure || session.error, "tasks_save")}<p>待保存操作保留在当前浏览器。${session.conflict ? '重新读取将放弃本页待保存的修改。' : '重试前会先核对服务器是否已经保存。'}</p><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
+      ? `<div class="connection-alert task-save-alert"><div class="sync-error-message">${userErrorMarkup(session.failure || session.error, "tasks_save")}<p>待保存操作保留在当前浏览器。${session.conflict ? '重新读取将放弃本页待保存的修改。' : '重试前会先核对服务器是否已经保存。'}</p></div><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
       : "";
 }
 function focusToken(el) {

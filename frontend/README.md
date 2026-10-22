@@ -110,6 +110,8 @@ frontend/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
     ├── screenshots/
+    │   ├── task-journal-conflict-mobile.png 390px 下本地操作保留及冲突重读提示
+    │   ├── task-journal-conflict-compact.png 320px 下本地操作保留及冲突重读提示
     │   ├── task-save-queue-desktop.png 保存期间编辑其他任务的桌面示例
     │   ├── task-save-queue-mobile.png 390px 下保存期间保留编辑草稿
     │   ├── task-save-queue-compact.png 320px 下保存期间保留编辑草稿
