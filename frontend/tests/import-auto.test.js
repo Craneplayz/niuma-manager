@@ -32,7 +32,7 @@ function teaching(name = 'date-only', suffix = '') {
 function fixture({entries = [teaching(), teaching('no-deadline')], manualRequests = [], failedRequests = [], startState = 'succeeded', demo = false} = {}) {
   let account = 'A', state = {tasks: [], trash: []}, workspaceFailures = 0, startFailures = 0;
   const calls = [], pauses = [], messages = [], manual = new Set(manualRequests), failed = new Set(failedRequests);
-  const accounts = Object.fromEntries(['A','B'].map(who => [who, {batches: [], tasks: [], runs: [], version: 0, operations: new Map()}]));
+  const accounts = Object.fromEntries(['A','B'].map(who => [who, {batches: [], tasks: [], runs: [], textJobs: [], version: 0, operations: new Map()}]));
   const response = value => ({ok: true, json: async () => clone(value)});
   const rejection = (status, error) => ({ok: false, status, json: async () => ({error})});
   const abortError = () => Object.assign(new Error('aborted'), {name: 'AbortError'});
@@ -155,12 +155,15 @@ function fixture({entries = [teaching(), teaching('no-deadline')], manualRequest
       return response(makeRun(who, body.operation_id, selected, run.run_id, 'succeeded'));
     }
     if (path === '/api/recognition/batches' && method === 'GET') return response(db.batches);
-    if (path === '/api/recognition/batches' && method === 'POST') {
+    if (path === '/api/recognition/text-jobs' && method === 'GET') return response({contract_version:'text-import-jobs/0.1',jobs:db.textJobs});
+    if (path === '/api/recognition/text-jobs' && method === 'POST') {
       assert.equal(body.contract_version, '0.2');assert.equal(body.records[0].platform, 'manual');
       const entry = teaching();entry.run.request_id = body.request_id;entry.request = clone(body);entry.result.request_id = body.request_id;
       entry.result.record_results[0].input_id = body.records[0].input_id;entry.result.tasks[0].input_id = body.records[0].input_id;
       entry.result.tasks[0].title = `${who} 文本任务`;entry.result.tasks[0].sources.forEach(source => source.platform = 'manual');
-      seed(entry, who);return response(db.batches);
+      seed(entry, who);
+      db.textJobs.push({request_id:body.request_id,state:'success',attempt:1,created_at:'2026-10-22T02:00:00Z',updated_at:'2026-10-22T02:00:01Z',error:null});
+      return response({contract_version:'text-import-jobs/0.1',jobs:db.textJobs});
     }
     throw new Error(`unexpected request ${method} ${path}`);
   };
@@ -252,7 +255,7 @@ check('plain-text recognition and normal history loading do not create unrelated
   const f = fixture(), saved = f.seed(teaching());await f.login();const ui = makeUI(f, t);await ui.load();
   await ui.submit(textForm('这是一条合成文本通知'));
   assert.equal(f.starts().length, 0);assert.equal(saved.items[0].state, 'pending');assert.equal(f.accounts.A.tasks.length, 0);
-  assert.equal(f.calls.filter(call => call.path === '/api/recognition/batches' && call.method === 'POST').length, 1);
+  assert.equal(f.calls.filter(call => call.path === '/api/recognition/text-jobs' && call.method === 'POST').length, 1);
   noClientRecognition(f);
 });
 
@@ -265,7 +268,7 @@ check('demo imports and source-run recovery make no server requests', async t =>
 check('restoring an active run blocks duplicate teaching starts but permits independent text recognition', async t => {
   const f = fixture(), run = f.restoreActive(), ui = await ready(f, t);
   await sync(ui);await ui.submit(textForm('运行中的通知'));assert.equal(f.starts().length, 0);
-  assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/batches').length, 1);
+  assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/text-jobs').length, 1);
   f.finish();await ui.loadSourceSync();assert.equal(f.state.tasks.length, 2);assert.equal(f.accounts.A.runs.length, 1);assert.equal(f.accounts.A.runs[0].run_id, run.run_id);
   noClientRecognition(f);
 });
@@ -332,9 +335,9 @@ check('terminal task refresh blocks duplicate sync but does not block independen
   const f = fixture({startState: 'recognizing'}), ui = await ready(f, t);await sync(ui);f.finish();
   const gate = f.pauseNext('workspace');t.after(gate.release);const refreshing = ui.loadSourceSync();await gate.entered;
   const before = f.calls.length;await sync(ui);await ui.submit(textForm('终态刷新期间的通知'));
-  assert.equal(f.starts().length, 1);assert.equal(f.calls.length, before + 1);
+  assert.equal(f.starts().length, 1);assert.equal(f.calls.slice(before).filter(call => call.method === 'POST' && call.path === '/api/recognition/text-jobs').length, 1);
   gate.release();await refreshing;assert.equal(f.state.tasks.length, 2);
-  await ui.submit(textForm('终态刷新完成后的通知'));assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/batches').length, 2);noClientRecognition(f);
+  await ui.submit(textForm('终态刷新完成后的通知'));assert.equal(f.calls.filter(call => call.method === 'POST' && call.path === '/api/recognition/text-jobs').length, 2);noClientRecognition(f);
 });
 
 check('a workspace read failure retains the server-created result and retrying progress never restarts recognition', async t => {

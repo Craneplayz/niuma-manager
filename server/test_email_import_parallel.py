@@ -13,6 +13,7 @@ import app
 import email_import
 import email_scheduler
 import email_source
+import recognition
 from email_test_support import ADDRESS, no_tasks
 from email_test_support import FakeIMAP
 
@@ -70,9 +71,8 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
         self.model.side_effect = model
         clients = [self.client]
         for n in (1, 2):
-            client = build_opener(HTTPCookieProcessor(CookieJar()))
+            client = self.account(f'p{n}')
             self.client = client
-            self.call('/auth/register', dict(name=f'p{n}', email=f'p{n}@test.invalid', password='Synthetic-only-2026!'))
             self.call('/sources/email/credentials', dict(address=ADDRESS, username='synthetic',
                 password='Synthetic-only-mailbox-password', consent=True, process_all=False))
             clients.append(client)
@@ -230,16 +230,22 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
     def test_provider_backoff_releases_capacity_and_reuses_captured_body(self):
         from server import model_queue
         import email_mailbox_pool
+        queue = model_queue.ModelQueue(limit=1)
         calls = 0
         def limited_once(request, error):
             nonlocal calls
             calls += 1
             if calls == 1:
+                # A sibling ticket from the same job must not block foreground work during cooldown.
+                self.assertTrue(queue.acquire())
+                identity = model_queue.background_identity()
+                self.assertFalse(queue.acquire_background(identity[:-1]+('synthetic-sibling',)))
+                queue.release()
                 raise model_queue.EmailDeferred(.3, 'provider_backoff')
             return no_tasks(request, error)
         self.model.side_effect = limited_once
         original_fetch = email_source.fetch_selected
-        with patch.object(email_source, 'fetch_selected', wraps=original_fetch) as fetch:
+        with patch.object(email_source, 'fetch_selected', wraps=original_fetch) as fetch, patch.object(recognition,'_ACTIVE',queue):
             job = self.start(self.ids(1), 'backoff-body-reuse')
             deadline = time.monotonic()+3
             released = False
@@ -251,6 +257,8 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
                         break
                 time.sleep(.005)
             self.assertTrue(released, 'backoff held a dispatcher slot or body buffer')
+            self.assertTrue(queue.acquire(blocking=False),'sleeping job retained a FIFO ticket')
+            queue.release()
             final = self.settled(job['job_id'])
             self.assertEqual(final['state'], 'succeeded', final)
             self.assertEqual(fetch.call_count, 1, 'backoff must not reread IMAP')

@@ -110,7 +110,7 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
             request = response['requests'][0]
             import hashlib
             fingerprint = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0)',
                 (uid, request['request_id'], fingerprint, json.dumps(request), json.dumps(no_tasks(request, None))))
         before = self.imap_calls
         job = self.settled(self.start([input_id], 'legacy-cache')['job_id'])

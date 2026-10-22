@@ -586,7 +586,7 @@ def _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, pr
         if cached:
             result = json.loads(previous['result'])
         else:
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0) '
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0) '
                        'ON CONFLICT(user_id,request_id) DO UPDATE SET '
                        'fingerprint=excluded.fingerprint,request=excluded.request,result=excluded.result',
                        (uid, request['request_id'], fingerprint, json.dumps(request), json.dumps(result)))
@@ -699,9 +699,10 @@ def _run(path, uid, job_id, ApiError, key_path):
                 serial += 1
                 heapq.heappush(delayed,(ready_at,serial,input_id))
                 if reason in ('provider_backoff','provider_budget','model_capacity'):
-                    # Sleeping mail items are not ready to own global model
-                    # queue positions; release any tickets held by this job.
-                    recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
+                    if reason != 'model_capacity':
+                        # Provider backoff releases the whole job's FIFO tickets;
+                        # a model-capacity wait retains its place in that FIFO.
+                        recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
                     # Provider quota/cooldown and the shared model pool are
                     # global constraints, not a per-message semantic failure.
                     # Stop prefetching more bodies while that admission is closed.

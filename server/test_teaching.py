@@ -12,6 +12,7 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import teaching
 from jsonschema import Draft202012Validator
 from contracts.teaching_io import snapshot_digest
@@ -22,6 +23,174 @@ from ddl_text.tests.teaching_cases import empty_reply
 
 
 class TeachingIntegrationTests(unittest.TestCase):
+    def test_competing_stored_result_does_not_inherit_losing_attempt_diagnostics(self):
+        import os
+        from ddl_text.teaching_pipeline import _failure
+        request,synced=self.capture(('explicit-complete',))
+        rid=synced['requests'][0]['request_id'];body=dict(contract_version=teaching.RUN,request_id=rid)
+        entered=False;attempt={}
+        def model(current,ApiError,**kwargs):
+            nonlocal entered
+            if not entered:
+                entered=True
+                with app.connection() as other: teaching.run(other,self.uid,body,True,ApiError)
+                return self.model(current,ApiError)
+            result,policy=self.model(current,ApiError)
+            result.update(status='failed',record_results=[_failure(current['records'][0],'agent_timeout',retryable=True,attempted=True)])
+            return result,policy
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}),patch.object(teaching,'recognize',side_effect=model),app.connection() as db:
+            teaching.run(db,self.uid,body,True,app.ApiError,diagnostic_attempt=attempt)
+            self.assertEqual(attempt,{})
+            saved=json.loads(db.execute('SELECT result FROM recognition_batches WHERE request_id=?',(rid,)).fetchone()[0])
+            self.assertEqual(saved['record_results'][0]['error']['code'],'agent_timeout')
+
+    def test_batch_errors_bind_the_producing_attempt_not_the_latest(self):
+        import os
+        from ddl_text.teaching_pipeline import _failure
+        entered=False
+        def model(current,ApiError,**kwargs):
+            nonlocal entered
+            if not entered:
+                entered=True
+                result,policy=self.model(current,ApiError)
+                result.update(status='failed',record_results=[_failure(current['records'][0],'invalid_agent_output',retryable=True,attempted=True)])
+                return result,policy
+            raise ValueError('later attempt outage')
+        # The test environment issues its own session cookie; register under it.
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.assertEqual(self.call('/auth/register',dict(name='Synthetic',email='binding@example.test',password='Synthetic-password!'))[0],200)
+            self.assertEqual(self.call('/sources/credentials',dict(username='synthetic-course-user',password='synthetic-password'))[0],200)
+            with app.connection() as db: uid=db.execute("SELECT id FROM users WHERE email='binding@example.test'").fetchone()['id']
+            _,synced=self.capture(('explicit-complete',))
+            rid=synced['requests'][0]['request_id'];body=dict(contract_version=teaching.RUN,request_id=rid)
+            with patch.object(teaching,'recognize',side_effect=model):
+                status,out=self.call('/recognition/retry',body)
+                self.assertEqual(status,200,out)
+                batch=next(b for b in out if b['request']['request_id']==rid)
+                self.assertTrue(batch['result']['errors'])
+                # The second run fails and persists its own attempt; the stored result keeps the first.
+                # A server-side failure is not malformed user input (HTTP 400).
+                self.assertEqual(self.call('/recognition/retry',body)[0],500)
+            with app.connection() as db:
+                history=teaching.diagnostics.attempts(db,uid,rid)
+                later=next(a for a in history if any(e.get('exception_type')=='ValueError' for e in a['events']))
+                db.execute("UPDATE recognition_attempt_diagnostics SET created_at='9999' WHERE id=?",(later['attempt_id'],))
+            status,out=self.call('/recognition/batches')
+            self.assertEqual(status,200)
+            batch=next(b for b in out if b['request']['request_id']==rid)
+            error=batch['result']['errors'][0]
+            self.assertIn('diagnostics',error)
+            self.assertIn('invalid_agent_output',error['diagnostics'])
+            self.assertNotIn('ValueError',error['diagnostics'])
+
+    def test_upgrade_old_changed_candidate_allows_update_even_when_sync_skips(self):
+        request, drafts = example(); self.drafts.update(drafts)
+        with app.connection() as db:
+            first_sync = teaching.register(db, self.uid, 'synthetic-course-user', [request])
+        first = self.run_request(first_sync['requests'][0])['items'][0]
+        self.assertEqual(self.call('/recognition/candidates/'+first['id']+'/resolve',
+                                  dict(action='create', auto_apply=True, version=1))[0], 200)
+        request['records'][0]['record']['text'] += ' Additional requirement.'
+        with app.connection() as db:
+            changed = teaching.register(db, self.uid, 'synthetic-course-user', [request])
+        item = self.run_request(changed['requests'][0])['items'][0]
+        # The deployed predecessor saved the guard, but retained create.
+        legacy = dict(item['candidate'], notice_type='create')
+        with app.connection() as db:
+            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?', (json.dumps(legacy), item['id']))
+        app.initialize(recover=False)
+        app.initialize(recover=False)  # Idempotent, including candidate version.
+        with app.connection() as db:
+            repeated = teaching.register(db, self.uid, 'synthetic-course-user', [request])
+        self.assertEqual(repeated['requests'], [])
+        batches = self.call('/recognition/batches')[1]
+        current = next(c for b in batches for c in b['items'] if c['id'] == item['id'])
+        self.assertEqual(current['candidate']['notice_type'], 'uncertain')
+        self.assertEqual(current['version'], item['version'])
+        self.assertEqual(current['state'], 'pending')
+        saved = self.call('/workspace')[1]['tasks']
+        endpoint = '/recognition/candidates/'+item['id']+'/resolve'
+        self.assertEqual(self.call(endpoint, dict(action='create', auto_apply=True, version=1))[0], 400)
+        status, out = self.call(endpoint, dict(action='update', reviewed=True, version=1,
+            tasks_version=saved['version'], target_id=saved['value'][0]['id'],
+            draft=dict(title='Reviewed update', description='Reviewed', due=None)))
+        self.assertEqual(status, 200, out)
+        tasks = self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['id'], saved['value'][0]['id'])
+        self.assertEqual(tasks[0]['title'], 'Reviewed update')
+
+    def test_changed_source_allows_explicit_update_or_create_without_overwriting_decisions(self):
+        request,drafts=example();self.drafts.update(drafts)
+        with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+        first=self.run_request(sync['requests'][0])['items'][0]
+        status,out=self.call('/recognition/candidates/'+first['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+        self.assertEqual(status,200,out)
+        tasks=self.call('/workspace')[1]['tasks']['value']
+        tasks[0].update(title='用户已修改的任务',status='completed',completedAt='2026-10-10')
+        original=deepcopy(tasks[0])
+        with app.connection() as db:
+            db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',(json.dumps(tasks),self.uid))
+            decision=dict(db.execute('SELECT state,version,resolution FROM recognition_candidates WHERE id=?',(first['id'],)).fetchone())
+        for action in ('update','create'):
+            request['records'][0]['record']['text']+=' 补充要求。'
+            with app.connection() as db:sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+            item=self.run_request(sync['requests'][0])['items'][0]
+            self.assertEqual(item['candidate']['notice_type'],'uncertain')
+            self.assertTrue(item['candidate']['needs_review'])
+            saved=self.call('/workspace')[1]['tasks']
+            self.assertEqual(saved['value'],[original])
+            endpoint='/recognition/candidates/'+item['id']+'/resolve'
+            self.assertEqual(self.call(endpoint,dict(action='create',auto_apply=True,version=1))[0],400)
+            status,out=self.call(endpoint,dict(action=action,reviewed=True,version=1,tasks_version=saved['version'],
+                target_id=original['id'] if action=='update' else None,
+                draft=dict(title='核对后'+action,description='已核对变更要求',due=None)))
+            self.assertEqual(status,200,out)
+            tasks=self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(len(tasks),1 if action=='update' else 2)
+            self.assertEqual(tasks[0]['id'],original['id'])
+            self.assertEqual(tasks[0]['status'],'completed')
+            self.assertEqual(tasks[0]['completedAt'],'2026-10-10')
+            if action=='update':
+                self.assertEqual(tasks[0]['description'],'已核对变更要求')
+                self.assertEqual(len(tasks[0]['recognitionHistory']),2)
+                original=deepcopy(tasks[0])
+            else:
+                self.assertEqual(tasks[0],original)
+                self.assertNotEqual(tasks[1]['id'],original['id'])
+            with app.connection() as db:
+                self.assertEqual(dict(db.execute('SELECT state,version,resolution FROM recognition_candidates WHERE id=?',(first['id'],)).fetchone()),decision)
+
+    def test_changed_source_never_auto_duplicates_prior_task_or_deleted_task(self):
+        request,drafts=example();self.drafts.update(drafts)
+        for version in range(3):
+            request['records'][0]['record']['references'] = ([] if version!=1 else [dict(
+                ref_id='file:extra',kind='content_image',label='Changed reference',read_state='unsupported',text=None)])
+            with app.connection() as db: sync=teaching.register(db,self.uid,'synthetic-course-user',[request])
+            item=self.run_request(sync['requests'][0])['items'][0]
+            status,_=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))
+            self.assertEqual(status,200 if version==0 else 400)
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1 if version<2 else 0)
+            if version==1:
+                with app.connection() as db:db.execute('UPDATE workspace SET value=? WHERE user_id=? AND name="tasks"',('[]',self.uid))
+
+    def test_test_environment_keeps_failure_diagnostics_after_retry_and_scopes_endpoint(self):
+        from server import recognition_diagnostics as diagnostics
+        import os
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            self.assertEqual(self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))[0],200)
+            with app.connection() as db:
+                with diagnostics.capture(db,self.uid,'synthetic:failed'):
+                    diagnostics.event('result',code='invalid_agent_output',schema={'schema_path':'properties/tasks/items/required','rule':'required'})
+                with diagnostics.capture(db,self.uid,'synthetic:failed'):diagnostics.event('result',status='success')
+            status,out=self.call('/recognition/diagnostics',dict(request_id='synthetic:failed'))
+            self.assertEqual(status,200);self.assertEqual(len(out['attempts']),2)
+            self.assertEqual(out['attempts'][1]['events'][0]['code'],'invalid_agent_output')
+            with app.connection() as db:self.assertEqual(diagnostics.attempts(db,'other-user','synthetic:failed'),[])
+        with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'production'}):
+            self.assertEqual(self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))[0],200)
+            self.assertEqual(self.call('/recognition/diagnostics',dict(request_id='synthetic:failed'))[0],404)
+
     def test_shared_notices_and_tasks_auto_apply_through_same_workspace(self):
         cases=json.loads((Path(__file__).parents[1]/'contracts/examples/teaching-content-types-v04.json').read_text(encoding='utf-8'))['cases']
         expected=[]
@@ -142,6 +311,8 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.server.shutdown(); self.server.server_close();self.thread.join();app.DB=self.old_db;self.tmp.cleanup()
 
     def call(self,path,body=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request:self.call('/auth/email-code',request))
         req=Request(self.base+path, None if body is None else json.dumps(body).encode(), {'Content-Type':'application/json'})
         try:
             with self.client.open(req,timeout=120) as response:return response.status,json.load(response)
@@ -155,7 +326,9 @@ class TeachingIntegrationTests(unittest.TestCase):
         return request,result
 
     def model(self,request,ApiError):
-        output=process_teaching_request(request,client=RecordClient(self.drafts),settings=Settings(timeout_seconds=5),
+        # Includes spawn/import startup under parallel load on a 2-vCPU test host.
+        # Production deadlines and dedicated timeout regressions stay unchanged.
+        output=process_teaching_request(request,client=RecordClient(self.drafts),settings=Settings(timeout_seconds=30),
             verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
         output['policy_version']='teaching-policy-v1:'+'0'*64
         return output,dict(version=output['policy_version'])

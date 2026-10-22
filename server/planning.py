@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
 
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import model_queue
+from server import operations
 from ddl_text.codex_client import live_options
 from task_planning import planning_harness
 from task_planning.scheduling import rank_tasks
@@ -48,7 +49,7 @@ def plan(request, ApiError):
             if os.environ.get('HARNESS_TOKEN'):
                 headers['Authorization'] = 'Bearer ' + os.environ['HARNESS_TOKEN']
             try:
-                with urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=25) as response:
+                with operations.span('model_call','planning.harness'),urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=25) as response:
                     raw = response.read(MAX_BYTES + 1)
                     if len(raw) > MAX_BYTES:
                         raise ValueError('oversized response')
@@ -76,8 +77,9 @@ def plan(request, ApiError):
         if delay:
             raise ApiError(503, '模型配额暂时不足，请稍后重试')
         try:
-            return planning_harness.generate(request, options,
-                response_observer=model_queue.provider_observer(options, receipt))
+            with operations.span('model_call','planning.harness'):
+                return planning_harness.generate(request, options,
+                    response_observer=model_queue.provider_observer(options, receipt))
         except Exception:
             raise ApiError(502, '规划模型不可用、超时或返回无效结果，请稍后重试；任务未修改') from None
     finally:

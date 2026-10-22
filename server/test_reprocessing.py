@@ -112,7 +112,7 @@ class ReprocessingTests(unittest.TestCase):
     def test_failure_preserves_previous_success(self):
         with app.connection() as db:
             result=self.result(self.request)
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(self.uid,self.request['request_id'],'original',json.dumps(self.request),json.dumps(result)))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',(self.uid,self.request['request_id'],'original',json.dumps(self.request),json.dumps(result)))
         with patch.object(recognition,'recognize',side_effect=ValueError('synthetic failure')):
             run=self.launch();reprocessing.wait_for_jobs(app.DB)
         self.assertEqual(self.saved(run)['state'],'failed');self.assertTrue(self.saved(run)['records'][0]['old_result_retained'])

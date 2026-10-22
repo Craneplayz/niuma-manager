@@ -1,0 +1,10 @@
+[
+  {"contract_version":"collection-failure/0.1","stage":"credentials","code":"operation_failed"},
+  {"contract_version":"collection-failure/0.1","stage":"browser","code":"operation_failed"},
+  {"contract_version":"collection-failure/0.1","stage":"login","code":"operation_failed"},
+  {"contract_version":"collection-failure/0.1","stage":"navigation","code":"timeout"},
+  {"contract_version":"collection-failure/0.1","stage":"navigation","code":"http_error"},
+  {"contract_version":"collection-failure/0.1","stage":"navigation","code":"session_expired"},
+  {"contract_version":"collection-failure/0.1","stage":"export","code":"operation_failed"},
+  {"contract_version":"collection-failure/0.1","stage":"collection","code":"timeout"}
+]

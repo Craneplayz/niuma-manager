@@ -43,7 +43,7 @@ class SubmissionProtectionTests(unittest.TestCase):
                   ('unbound','other','other-rid','{}','ignored',2,legacy)]
             db.executemany('INSERT INTO recognition_candidates VALUES(?,?,?,?,?,?,?)',rows)
             db.execute('INSERT INTO teaching_submission_requests VALUES(?,?,?,?)',('owner','campus','old-rid','source:1'))
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',('owner','old-rid','digest','{}','{"raw":"unchanged"}',0))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,NULL)',('owner','old-rid','digest','{}','{"raw":"unchanged"}',0))
             submission.initialize(db)
             current={row['id']:row for row in db.execute('SELECT * FROM recognition_candidates')}
             self.assertEqual((current['auto']['state'],current['auto']['version'],current['auto']['resolution']),('pending',3,None))

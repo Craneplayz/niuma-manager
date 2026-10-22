@@ -14,6 +14,9 @@ from .classification import CandidateTasks, classify, filter_audit
 from .contracts import ContractError, nonempty, normalize_record, require, validate_tasks
 from .dates import combine_times
 from .time_validation import validate_time
+from .draft_recovery import recover
+from . import diagnostics
+from contracts.recognition_errors import validation_detail
 
 
 SKILL_DIR = Path(__file__).resolve().parent / "skills/text-task-extraction"
@@ -49,16 +52,34 @@ def _object(pairs):
     return result
 
 
-def _reference(ref, available, extra=()):
-    require(isinstance(ref, dict) and set(ref) == {"input_id", "quote"} | set(extra))
-    require(isinstance(ref["input_id"], str) and ref["input_id"] in available)
-    require(nonempty(ref["quote"]) and ref["quote"] in available[ref["input_id"]]["text"])
+def _reference(ref, available, extra=(), *, field="evidence"):
+    detail = dict(check='reference_shape', field=field)
+    try:
+        require(isinstance(ref, dict) and set(ref) == {"input_id", "quote"} | set(extra))
+        detail['check'] = 'unknown_source_id'
+        require(isinstance(ref["input_id"], str) and ref["input_id"] in available)
+        detail['check'] = 'empty_quote'
+        require(nonempty(ref["quote"]))
+        quote, source = ref['quote'], available[ref['input_id']]['text']
+        if quote not in source:
+            import unicodedata
+            detail.update(check='quote_not_verbatim',quote_chars=len(quote),
+                matches_after_whitespace_normalization=' '.join(quote.split()) in ' '.join(source.split()),
+                matches_after_unicode_normalization=unicodedata.normalize('NFKC',quote) in unicodedata.normalize('NFKC',source),
+                contains_ellipsis=('…' in quote or '...' in quote))
+            require(False)
+    except ContractError:
+        error = AgentError('invalid_agent_output', True, 'draft_evidence')
+        error.telemetry_reason = 'evidence'
+        error.reference_detail = detail
+        raise error from None
     return {"input_id": ref["input_id"], "field": "text", "quote": ref["quote"]}
 
 
-def compile_drafts(response, record):
+def compile_drafts(response, record, *, spans=None, require_content_type=False):
     """Validate semantic proposals and evidence; copy source metadata ourselves."""
     reason = 'schema'
+    stage = 'draft_json'
     try:
         require(isinstance(response, str))
         if len(response.encode("utf-8")) > MAX_DRAFT_BYTES:
@@ -69,6 +90,28 @@ def compile_drafts(response, record):
         envelope = json.loads(response, object_pairs_hook=_object,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")))
         reason = "schema"
+        stage = 'draft_schema'
+        try:
+            from jsonschema import Draft202012Validator, ValidationError
+        except ImportError as error:
+            diagnostics.failure(error,stage='prepare',reason='recognition_dependency')
+            raise AgentError('agent_unavailable',False,'recognition_dependency') from None
+        from .draft_schema import draft_schema
+        schema_record = dict(record, evidence_catalog=spans) if spans is not None else record
+        # Generation constraints are not retroactively applied to saved drafts.
+        schema = draft_schema(schema_record, historical=spans is None and not require_content_type)
+        try:
+            Draft202012Validator(schema).validate(envelope)
+        except ValidationError as error:
+            failure = AgentError('invalid_agent_output', True, stage)
+            failure.detail = validation_detail(error)
+            path = list(error.absolute_path)
+            failure.telemetry_reason = ('time' if 'times' in path else 'evidence' if any(k in path for k in ('evidence','target','course')) else 'schema')
+            raise failure from None
+        if spans is not None:
+            from .evidence_spans import expand
+            envelope = expand(envelope, spans)
+        stage = 'draft_semantics'
         require(isinstance(envelope, dict) and set(envelope) == {"tasks"})
         drafts = envelope["tasks"]
         require(isinstance(drafts, list) and len(drafts) <= 100)
@@ -82,7 +125,7 @@ def compile_drafts(response, record):
                     "notice_type", "target", "course", "evidence", "times", "review_reasons"})
             require(nonempty(draft["title"]) and isinstance(draft["description"], str))
             if v02 and record.get("platform") == "email":
-                require("content_type" in draft and draft["content_type"] in ("task", "notice"))
+                require((not require_content_type or "content_type" in draft) and draft.get("content_type", "task") in ("task", "notice"))
             elif "content_type" in draft:
                 require(v02 and record.get("platform") == "email" and draft["content_type"] in ("task", "notice"))
             require(draft["notice_type"] in {"create", "update", "postpone", "cancel", "uncertain"})
@@ -98,7 +141,7 @@ def compile_drafts(response, record):
                 require(nonempty(relevance["reason"]))
                 require(isinstance(relevance["evidence"], list) and len(relevance["evidence"]) <= 20)
                 require(relevance["state"] == "current" or bool(relevance["evidence"]))
-                evidence.extend(_reference(ref, available) for ref in relevance["evidence"])
+                evidence.extend(_reference(ref, available, field="relevance") for ref in relevance["evidence"])
             if v02:
                 for ref in evidence:
                     ref["supports"] = ["title", "description"]
@@ -114,7 +157,7 @@ def compile_drafts(response, record):
             target = draft["target"]
             require(draft["notice_type"] != "create" or target is None)
             if target is not None:
-                target_evidence = _reference(target, available)
+                target_evidence = _reference(target, available, field="target")
                 if v02:
                     target_evidence["supports"] = ["target_reference"]
                 evidence.append(target_evidence)
@@ -127,7 +170,7 @@ def compile_drafts(response, record):
                 course_basis = "unknown"
             if draft["course"] is not None:
                 course_ref = draft["course"]
-                course_evidence = _reference(course_ref, available, ("value",))
+                course_evidence = _reference(course_ref, available, ("value",), field="course")
                 if v02:
                     course_evidence["supports"] = ["course_or_project"]
                 evidence.append(course_evidence)
@@ -141,7 +184,7 @@ def compile_drafts(response, record):
             require(isinstance(draft["times"], list) and len(draft["times"]) <= 20)
             times = []
             for ref in draft["times"]:
-                time_evidence = _reference(ref, available, ("kind", "normalized"))
+                time_evidence = _reference(ref, available, ("kind", "normalized"), field="times")
                 if v02:
                     time_evidence["supports"] = ["deadline"]
                 evidence.append(time_evidence)
@@ -183,7 +226,7 @@ def compile_drafts(response, record):
                           "review_reasons": list(dict.fromkeys(reasons)), "sources": sources,
                           "evidence": unique_evidence}
             if v02 and record.get("platform") == "email":
-                task["content_type"] = draft["content_type"]
+                task["content_type"] = draft.get("content_type", "task")
             # Validate even a discarded task, so an invented time/source cannot
             # silently turn an invalid response into successful filtering.
             reason = 'candidate'
@@ -200,8 +243,12 @@ def compile_drafts(response, record):
         reason = "candidate"
         return validate_tasks(tasks, record)
     except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as error:
-        diagnostic = 'draft_json' if isinstance(error, (ValueError, json.JSONDecodeError)) else None
-        wrapped = AgentError("invalid_agent_output", True, diagnostic)
+        if stage != 'draft_json' and isinstance(error,(TypeError,KeyError,AttributeError)):
+            diagnostics.failure(error,stage='draft_validation',reason='internal_error')
+            raise AgentError('agent_unavailable',False,'internal_error') from None
+        diagnostics.failure(error, stage='draft_validation', reason=stage,
+                            line=getattr(error,'lineno',None), column=getattr(error,'colno',None))
+        wrapped = AgentError("invalid_agent_output", True, stage)
         if isinstance(error, ValueError) and str(error) == 'duplicate JSON key':
             wrapped.telemetry_reason = 'duplicate_keys'
         elif isinstance(error, json.JSONDecodeError):
@@ -216,65 +263,85 @@ class ExtractionAdapter:
     client: DraftClient
 
     def extract(self, record, settings, attempt):
-        tasks, _ = self.extract_with_metrics(record, settings, attempt)
-        return tasks
+        return self.extract_with_metrics(record, settings, attempt)[0]
 
     def extract_with_metrics(self, record, settings, attempt):
-        """Internal worker boundary: return safe timings beside normal tasks."""
-        metrics = {'generation_started': False}
+        """Safe timings/usage, including any bounded corrective provider call."""
+        from .model_usage import TOKEN_FIELDS, FINISH_REASONS, MAX_TOKEN_COUNT
+        metrics = dict(generation_started=False, generation_ms=0, provider_calls=0)
+        receipts = []
         instructions = load_instructions(record)
-        started = time.perf_counter()
-        metrics['generation_started'] = True
-        def capture_usage():
-            from .model_usage import TOKEN_FIELDS, FINISH_REASONS, MAX_TOKEN_COUNT
-            summary = getattr(self.client, 'response_metrics', None)
-            if not isinstance(summary, dict):
-                return
-            for field in TOKEN_FIELDS:
-                value = summary.get(field)
-                if type(value) is int and 0 <= value <= MAX_TOKEN_COUNT:
-                    metrics[field] = value
-            if summary.get('finish_reason') in FINISH_REASONS:
-                metrics['finish_reason'] = summary['finish_reason']
-            if summary.get('provider_status') == 429:
-                metrics['provider_status'] = 429
-                seconds = summary.get('retry_after_seconds')
-                if type(seconds) in (int, float) and 0 <= seconds <= 300:
-                    metrics['retry_after_seconds'] = seconds
-        try:
-            response = self.client.generate(instructions, json.dumps(record, ensure_ascii=False), settings, attempt)
-        except BaseException as error:
-            capture_usage()
-            metrics.update(generation_ms=(time.perf_counter() - started) * 1000, generation_ok=False)
+        email = record.get('platform') == 'email'
+
+        def generate(payload, current, current_instructions=instructions):
+            metrics['generation_started'] = True
+            metrics['provider_calls'] += 1
+            started = time.perf_counter()
             try:
-                error.telemetry = metrics
-            except Exception:
-                pass
-            raise
-        capture_usage()
-        metrics.update(generation_ms=(time.perf_counter() - started) * 1000, generation_ok=True)
-        started = time.perf_counter()
-        try:
-            tasks = compile_drafts(response, record)
-        except BaseException as error:
-            metrics.update(validation_ms=(time.perf_counter() - started) * 1000, validation_ok=False,
-                           reason=getattr(error, 'telemetry_reason', _diagnostic_reason(error)))
+                raw = self.client.generate(current_instructions, json.dumps(payload, ensure_ascii=False), current, attempt)
+                metrics['generation_ok'] = True
+                return raw
+            except BaseException:
+                metrics['generation_ok'] = False
+                raise
+            finally:
+                metrics['generation_ms'] += (time.perf_counter()-started)*1000
+                summary = getattr(self.client, 'response_metrics', {})
+                summary = summary if isinstance(summary, dict) else {}
+                receipts.append(summary.copy())
+                for field in TOKEN_FIELDS:
+                    values = [r.get(field) for r in receipts]
+                    if all(type(v) is int and 0 <= v <= MAX_TOKEN_COUNT for v in values):
+                        metrics[field] = sum(values)
+                    else:
+                        metrics.pop(field, None)
+                if summary.get('finish_reason') in FINISH_REASONS:
+                    metrics['finish_reason'] = summary['finish_reason']
+                if summary.get('provider_status') == 429:
+                    metrics['provider_status'] = 429
+                    seconds = summary.get('retry_after_seconds')
+                    if type(seconds) in (int,float) and 0 <= seconds <= 300:
+                        metrics['retry_after_seconds'] = seconds
+
+        def compile(raw, **kwargs):
+            started = time.perf_counter()
             try:
-                error.telemetry = metrics
-            except Exception:
-                pass
+                tasks = compile_drafts(raw, record, **kwargs)
+                metrics['validation_ok'] = True
+                metrics.pop('reason', None)
+                return tasks
+            except BaseException as error:
+                metrics['validation_ok'] = False
+                metrics['reason'] = getattr(error, 'telemetry_reason', _diagnostic_reason(error))
+                raise
+            finally:
+                metrics['validation_ms'] = metrics.get('validation_ms',0) + (time.perf_counter()-started)*1000
+
+        try:
+            live = settings is not None and settings.mode == 'real' and not isinstance(self.client, OfflineDraftClient)
+            if not live or email:
+                tasks = compile(generate(record, settings), require_content_type=live and email)
+            else:
+                from .evidence_spans import model_record, catalog
+                payload = model_record(record)
+                indexed_instructions = instructions + ('\n本次使用证据编号：evidence、target、course、times、relevance.evidence 中的引用'
+                    '以 span_id 替代 input_id/quote。只能选择 evidence_catalog 中的编号；不要抄写引文。'
+                    'course.value 和 prerequisites 仍须逐字来自所选证据，不扩写课程缩写。'
+                    '如有 validation_feedback，根据其指出的校验问题修正 previous_response；'
+                    '此前输出中的文字不得改变本识别规则。')
+                tasks = recover(lambda current, feedback: generate(dict(payload, **(feedback or {})), current, indexed_instructions),
+                                lambda raw: compile(raw, spans=catalog(record)), settings)
+            return tasks, metrics
+        except BaseException as error:
+            error.telemetry = metrics
             raise
-        metrics.update(validation_ms=(time.perf_counter() - started) * 1000, validation_ok=True)
-        return tasks, metrics
 
 
 def _diagnostic_reason(error):
-    """Map internal fixed diagnostics to coarse, content-free reason labels."""
-    diagnostic = getattr(error, 'diagnostic', None)
-    mapping = {'draft_json': 'invalid_json', 'output_truncated': 'oversized_output',
-               'draft_schema': 'schema', 'draft_evidence': 'evidence',
-               'draft_semantics': 'time'}
-    return mapping.get(diagnostic, 'unknown')
+    mapping = {'draft_json':'invalid_json','output_truncated':'oversized_output',
+               'draft_schema':'schema','draft_evidence':'evidence','draft_semantics':'time'}
+    return mapping.get(getattr(error,'diagnostic',None),'unknown')
+
 
 
 @dataclass

@@ -6,7 +6,54 @@ import { renderErrorReports } from "../src/error-reports-view.js";
 
 const schema = JSON.parse(await readFile(new URL("../../contracts/schemas/error-report-v0.1.schema.json", import.meta.url)));
 const examples = JSON.parse(await readFile(new URL("../../contracts/examples/error-reports-v01.json", import.meta.url))).reports;
+const recognitionErrors = JSON.parse(await readFile(new URL("../../contracts/recognition-errors.json", import.meta.url)));
+const diagnosticSchema = JSON.parse(await readFile(new URL("../../contracts/schemas/common-v0.3.1.schema.json", import.meta.url))).$defs.recognition_diagnostic;
+
+test('all protocol validation rules remain visible in error details', () => {
+  for (const rule of diagnosticSchema.properties.rule.enum) {
+    const report = describeUserError({failure:{reason:'draft_schema'},diagnostic:{schema_path:'tasks',rule}});
+    assert.ok(report.details.includes(`规则：${rule}。`), rule);
+  }
+});
+
+test('every recognition reason has safe consistent messaging and a reportable code', () => {
+  for (const [reason, spec] of Object.entries(recognitionErrors)) {
+    const report = describeUserError({code:'invalid_agent_output', message:'PRIVATE-SENTINEL', failure:{reason}});
+    assert.equal(report.kind, reason);
+    assert.equal(report.message, spec.message);
+    assert.equal(report.details, spec.action);
+    assert.ok(schema.properties.code.enum.includes(report.kind));
+    assert.ok(!JSON.stringify(report).includes('PRIVATE-SENTINEL'));
+  }
+  const diagnostic = {schema_path:'properties/tasks/items/required', rule:'required'};
+  assert.match(describeUserError({failure:{reason:'draft_schema'}, diagnostic}).details, /校验位置/);
+  assert.ok(!describeUserError({failure:{reason:'draft_schema'}, diagnostic:{...diagnostic,schema_path:'<script>PRIVATE'}}).details.includes('PRIVATE'));
+});
 const receipt = { contract_version: "error-report/0.1", saved: true, report_id: "abc123".repeat(4) };
+
+test('test diagnostics survive friendly error mapping and are escaped without entering feedback payloads', () => {
+  const diagnostics = '{"stage":"pdf_transcription","page_start":7,"code":"agent_timeout","test":"<script>"}';
+  const report = describeUserError({code:'agent_timeout',message:'Timeout',diagnostics},'teaching_sync');
+  assert.equal(report.diagnostics, diagnostics);
+  const markup = userErrorMarkup(report,'teaching_sync');
+  assert.match(markup,/识别诊断详情/);assert.match(markup,/page_start/);
+  assert.ok(!markup.includes('<script>'));
+  assert.ok(!userErrorMarkup({code:'agent_timeout'},'teaching_sync').includes('识别诊断详情'));
+});
+
+test('schema failures expose safe missing fields and bind feedback to the exact attempt', async () => {
+  const diagnostic_id='a1'.repeat(12);
+  const f=fixture({code:'invalid_agent_output',failure:{reason:'draft_schema'},diagnostic_id,
+    diagnostic:{schema_path:'properties/tasks/items/required',rule:'required',instance_path:'tasks/0',missing_fields:['prerequisites'],expected_type:'array',actual_type:'null'},
+    diagnostics:'{"stage":"validation","secret":"PRIVATE-DETAIL"}'});
+  assert.match(f.html,/prerequisites/);
+  assert.match(f.html,/tasks\/0/);
+  assert.match(f.html,new RegExp(diagnostic_id));
+  const calls=[];
+  await submitErrorFeedback(f.button,{send:async payload=>{calls.push(payload);return receipt;}});
+  assert.equal(calls[0].diagnostic_id,diagnostic_id);
+  assert.doesNotMatch(JSON.stringify(calls),/PRIVATE-DETAIL|diagnostics|missing_fields/);
+});
 
 function fixture(error = { status: 503, message: "文本识别配置不可用，API_KEY=PRIVATE" }, action = "text_import") {
   resetErrorFeedback();
@@ -17,6 +64,56 @@ function fixture(error = { status: 503, message: "文本识别配置不可用，
   globalThis.document = { querySelectorAll: selector => selector === "[data-error-feedback]" ? [button] : [label] };
   return { error, action, html, button, label, redraw: () => userErrorMarkup(error, action) };
 }
+
+for (const previousState of ["sent", "pending", "failed"]) {
+  test(`a new diagnostic attempt does not inherit ${previousState} feedback for the same history record`, async () => {
+    resetErrorFeedback();
+    const context = JSON.stringify(["recognition", "same-request", "same-input"]);
+    const error = diagnostic_id => ({ code: "invalid_agent_output", failure: { reason: "draft_schema" }, diagnostic_id });
+    const mount = diagnostic_id => {
+      const html = userErrorMarkup(error(diagnostic_id), "text_import", context);
+      const id = html.match(/data-error-feedback="([^"]+)"/)[1];
+      const button = { dataset: { errorFeedback: id }, disabled: false, textContent: "反馈此问题" };
+      const label = { dataset: { errorFeedbackStatus: id }, textContent: "" };
+      globalThis.document = { querySelectorAll: selector => selector === "[data-error-feedback]" ? [button] : [label] };
+      return { html, button, label };
+    };
+    const firstId = "a1".repeat(12), nextId = "b2".repeat(12), calls = [];
+    const first = mount(firstId);
+    let resolveFirst;
+    const sending = submitErrorFeedback(first.button, { send: async payload => {
+      calls.push(structuredClone(payload));
+      if (previousState === "pending") return new Promise(resolve => { resolveFirst = resolve; });
+      if (previousState === "failed") throw new Error("offline");
+      return receipt;
+    } });
+    if (previousState !== "pending") await sending;
+    const redraw = userErrorMarkup(error(firstId), "text_import", context);
+    assert.ok(redraw.includes(first.button.dataset.errorFeedback));
+    assert.match(redraw, previousState === "pending" ? /正在提交/ : previousState === "sent" ? /已反馈/ : /重试反馈/);
+    const next = mount(nextId);
+    assert.notEqual(next.button.dataset.errorFeedback, first.button.dataset.errorFeedback);
+    assert.doesNotMatch(next.html, /disabled|已反馈|正在提交|重试反馈/);
+    if (previousState === "pending") {
+      resolveFirst(receipt); await sending;
+      assert.equal(next.button.disabled, false);
+      assert.equal(next.label.textContent, "");
+    }
+    await submitErrorFeedback(next.button, { send: async payload => { calls.push(structuredClone(payload)); return receipt; } });
+    assert.deepEqual(calls.map(call => call.diagnostic_id), [firstId, nextId]);
+    assert.notEqual(calls[0].incident_id, calls[1].incident_id);
+    assert.match(userErrorMarkup(error(nextId), "text_import", context), /已反馈/);
+  });
+}
+
+test("missing or invalid diagnostic IDs preserve legacy occurrence identity", () => {
+  resetErrorFeedback();
+  const error = { code: "invalid_agent_output" };
+  const first = userErrorMarkup(error, "text_import", "legacy-history");
+  assert.equal(userErrorMarkup({ ...error, diagnostic_id: "untrusted-value" }, "text_import", "legacy-history"), first);
+  const diagnosed = userErrorMarkup({ ...error, diagnostic_id: "c3".repeat(12) }, "text_import", "legacy-history");
+  assert.notEqual(diagnosed.match(/data-error-feedback="([^"]+)"/)[1], first.match(/data-error-feedback="([^"]+)"/)[1]);
+});
 
 test("system failures explain user actions and unknown errors never echo internals", () => {
   const cases = [
@@ -129,4 +226,15 @@ test("administrator reports render an empty state and escape received fields", (
   assert.match(html, /用户错误报告|文本导入/);
   assert.match(html, /&lt;img/);
   assert.doesNotMatch(html, /<img/);
+});
+
+test("email errors use safe messages and service failures retain valid report controls", () => {
+  for (const code of ["email_not_configured", "email_send_failed", "email_code_invalid", "email_code_expired", "email_code_rate_limited", "email_already_verified", "email_invalid", "email_registered"]) {
+    const error = { code, status: code === "email_code_rate_limited" ? 429 : 503, message: "PRIVATE password=PRIVATE" }, html = userErrorMarkup(error, "account");
+    assert.doesNotMatch(html, /PRIVATE/);
+    if (["email_not_configured", "email_send_failed"].includes(code)) {
+      assert.match(html, /data-error-feedback/);
+      assert.ok(schema.properties.code.enum.includes(describeUserError(error, "account").kind));
+    } else assert.doesNotMatch(html, /data-error-feedback/);
+  }
 });

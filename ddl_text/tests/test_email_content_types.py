@@ -46,6 +46,8 @@ class EmailContentTypeTests(unittest.TestCase):
         with self.assertRaises(AgentError):compile_drafts(json.dumps({'tasks':[draft(r,content_type='event')]}),r)
         tasks=compile_drafts(json.dumps({'tasks':[draft(r)]}),r)
         self.assertEqual(tasks[0]['content_type'],'task')
+        with self.assertRaises(AgentError):
+            compile_drafts(json.dumps({'tasks':[draft(r)]}),r,require_content_type=True)
 
     def test_notice_evidence_still_must_be_in_source(self):
         r=self.record();d=draft(r,content_type='notice')

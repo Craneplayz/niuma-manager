@@ -113,6 +113,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     }
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
+    else if (path === "/api/recognition/text-jobs") value = { contract_version: "text-import-jobs/0.1", jobs: [] };
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs: [] };
     else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, interval_minutes: 180, revision: 0 };
     else if (path === "/api/materials/jobs") value = [];
@@ -122,7 +123,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
   };
   await import(`../src/app.js?date-test=${instanceId}`);
   await new Promise(setImmediate);
-  const click = dataset => doc.emit("click", { closest: () => ({ dataset }) });
+  const click = dataset => doc.emit("click", { closest: selector => selector === "[data-email-stop-toggle]" ? null : ({ dataset }) });
   const drag = async (date = "2026-10-20", id = "undated") => {
     const source = new Element();
     source.dataset.calendarDragTask = id;
@@ -135,7 +136,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     await doc.emit("pointerdown", source, pointer);
     await doc.emit("pointermove", source, { ...pointer, clientX: 100 });
     await doc.emit("pointerup", source, { ...pointer, clientX: 100 });
-    await doc.emit("click", { closest: () => ({ dataset: { taskOpen: id } }) }, { detail: 1 });
+    await doc.emit("click", { closest: selector => selector === "[data-email-stop-toggle]" ? null : ({ dataset: { taskOpen: id } }) }, { detail: 1 });
     await new Promise(setImmediate);
   };
   return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, entries, toast: elements.get("#toast") };

@@ -9,6 +9,7 @@ import time
 
 from .adapters import AgentError, safe_schema_detail
 from .classification import CandidateTasks
+from . import diagnostics
 
 
 MESSAGES = {
@@ -26,7 +27,8 @@ MAX_RESPONSE_BYTES = 1024 * 1024
 def _worker(connection, adapter, record, settings, attempt):
     from .extraction import ExtractionAdapter
     # Prevent adapter debug prints and exceptions from leaking private input.
-    with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+    event = diagnostics.forwarding_sink(lambda value: connection.send_bytes(json.dumps(dict(event=value)).encode('utf-8')))
+    with diagnostics.scope(event), open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
         try:
             metrics = None
             try:
@@ -44,6 +46,7 @@ def _worker(connection, adapter, record, settings, attempt):
                     raise AgentError("invalid_agent_output", False)
             except AgentError as error:
                 metrics = getattr(error, 'telemetry', None)
+                diagnostics.failure(error, boundary='text_worker')
                 code = error.code if isinstance(error.code, str) and error.code in AGENT_CODES else "agent_unavailable"
                 encoded = json.dumps({"ok": False, "code": code,
                                       "retryable": error.retryable is True,
@@ -51,9 +54,10 @@ def _worker(connection, adapter, record, settings, attempt):
                                       "detail": safe_schema_detail(error.detail),
                                       "metrics": metrics}).encode("utf-8")
             except Exception as error:
+                diagnostics.failure(error, boundary='text_worker')
                 # Never serialize exception messages, stacks or arbitrary adapter attributes.
                 metrics = getattr(error, 'telemetry', None) if type(adapter) is ExtractionAdapter else None
-                encoded = json.dumps({"ok": False, "code": "agent_unavailable", "retryable": False,
+                encoded = json.dumps({"ok": False, "code": "agent_unavailable", "retryable": False, "diagnostic": "internal_error",
                                       "metrics": metrics}).encode("utf-8")
             connection.send_bytes(encoded)
         finally:
@@ -87,6 +91,8 @@ def _notify(observer, metrics):
         seconds = metrics.get('retry_after_seconds')
         if type(seconds) in (int, float) and math.isfinite(seconds) and 0 <= seconds <= 300:
             safe['retry_after_seconds'] = seconds
+    if type(metrics.get('provider_calls')) is int and 0 <= metrics['provider_calls'] <= 2:
+        safe['provider_calls'] = metrics['provider_calls']
     reason = metrics.get('reason')
     if isinstance(reason, str) and reason in reasons:
         safe['reason'] = reason
@@ -109,20 +115,27 @@ def run_attempt(adapter, record, settings, attempt, observer=None):
         except AgentError as error:
             _notify(observer, getattr(error, 'telemetry', None))
             raise
-        except Exception:
-            raise AgentError("agent_unavailable", False) from None
+        except Exception as error:
+            diagnostics.failure(error, boundary='direct_adapter')
+            raise AgentError("agent_unavailable", False, 'internal_error') from None
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_worker, args=(sender, adapter, record, settings, attempt), daemon=True)
     started = False
     deadline = time.monotonic() + settings.timeout_seconds
+    diagnostics.emit('worker', status='started', timeout_seconds=settings.timeout_seconds, boundary='text_worker')
     try:
         process.start()
         started = True
         sender.close()
-        if not receiver.poll(max(0, deadline - time.monotonic())):
-            raise AgentError("agent_timeout", True)
-        response = json.loads(receiver.recv_bytes(MAX_RESPONSE_BYTES).decode("utf-8"))
+        while True:
+            if not receiver.poll(max(0, deadline - time.monotonic())):
+                diagnostics.emit('worker', status='timeout', boundary='text_worker', timeout_seconds=settings.timeout_seconds)
+                raise AgentError("agent_timeout", True, 'worker_timeout')
+            response = json.loads(receiver.recv_bytes(MAX_RESPONSE_BYTES).decode("utf-8"))
+            if 'event' not in response: break
+            event = response['event']
+            diagnostics.emit(event.pop('stage'), **event)
         _notify(observer, response.get('metrics'))
         if not response["ok"]:
             error = AgentError(response["code"], response["retryable"], response.get('diagnostic'))
@@ -135,8 +148,13 @@ def run_attempt(adapter, record, settings, attempt, observer=None):
         return CandidateTasks(response["tasks"], response.get("warnings", []))
     except AgentError:
         raise
-    except Exception:
-        raise AgentError("agent_unavailable", False) from None
+    except (EOFError, BrokenPipeError) as error:
+        process.join(timeout=.05)
+        diagnostics.failure(error, boundary='text_worker', exit_code=process.exitcode)
+        raise AgentError('agent_unavailable', False, 'worker_terminated') from None
+    except Exception as error:
+        diagnostics.failure(error, boundary='text_worker_transport')
+        raise AgentError("agent_unavailable", False, 'internal_error') from None
     finally:
         receiver.close()
         sender.close()
@@ -148,4 +166,5 @@ def run_attempt(adapter, record, settings, attempt, observer=None):
             if process.is_alive():
                 process.kill()
                 process.join(timeout=1)
+            diagnostics.emit('worker_exit', boundary='text_worker', exit_code=process.exitcode)
             process.close()

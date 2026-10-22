@@ -40,6 +40,8 @@ class PipelineTests(unittest.TestCase):
                 result = process_request(case["input"], NetworkForbiddenReplay(CASES))
                 expected = deepcopy(case["expected"])
                 for error in result["errors"]:
+                    from contracts.recognition_errors import validate_failure
+                    validate_failure(error.pop('failure'))
                     error.pop("message")
                 for error in expected["errors"]:
                     error.pop("message")

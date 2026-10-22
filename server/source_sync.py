@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import secrets
 from datetime import datetime
+from server import operations
 from pathlib import Path
 
 from text_contract import validate_request
@@ -15,8 +16,30 @@ import teaching_assets
 import email_source
 import email_header_cache
 from contracts.teaching_capture import check_capture
+from contracts.collection_failure import parse_failure, VERSION as FAILURE_VERSION
 
 CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
+
+
+def collection_exception(ApiError, status, stage, code='operation_failed'):
+    """Closed receipt and action guidance; never expose subprocess stderr."""
+    messages = {
+        'credentials': '教学网凭据无法读取；请重新保存连接，仍失败时联系维护人员。',
+        'browser': '教学网采集运行环境不可用；请联系维护人员检查 Node、浏览器及依赖。',
+        'login': '教学网登录未完成；请先确认学校网站可登录，再检查连接或重新保存凭据。',
+        'navigation': '教学网页面获取失败；请稍后重新获取来源，仍失败时检查学校网站连接。',
+        'export': '教学网采集结果未通过格式校验；请联系维护人员，不需要重试模型。',
+        'collection': '教学网采集未完成；请稍后重新获取来源，已保存结果不受影响。',
+    }
+    receipt = parse_failure(json.dumps(dict(contract_version=FAILURE_VERSION, stage=stage, code=code)))
+    if receipt is None:
+        stage, code = 'collection', 'operation_failed'
+        receipt = dict(contract_version=FAILURE_VERSION, stage=stage, code=code)
+    exc = ApiError(status, messages[stage])
+    exc.code = 'collection_failed'
+    exc.collection_failure = receipt
+    exc.retryable = stage in ('navigation', 'collection') or code == 'timeout'
+    return exc
 
 
 def initialize(db):
@@ -190,6 +213,13 @@ def route(handler, db, uid, path, body, ApiError, key_path):
 
 
 def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
+    with operations.span('collection'):
+        result=_collect(db,uid,ApiError,key_path,guard=guard,input_ids=input_ids)
+    if result['summary'].get('skipped'):operations.emit('outcome',code='cache_hit',quantity=result['summary']['skipped'])
+    return result
+
+
+def _collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
     """Collect outside a write transaction, then validate ownership before saving."""
     if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
@@ -201,7 +231,9 @@ def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
     except (InvalidToken, UnicodeDecodeError):
         raise ApiError(503, '无法解密教学网凭据；请重新保存账号和密码')
     if not (CRAWLER / 'node_modules' / 'tsx').exists() and not (CRAWLER / 'node_modules' / '.bin' / 'tsx').exists():
-        raise ApiError(503, '教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install')
+        exc = collection_exception(ApiError, 503, 'browser')
+        exc.message = '教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install'
+        raise exc
     try:
         with tempfile.TemporaryDirectory(prefix='niuma-course-sync-') as folder:
             attachment_dir = Path(folder) / 'attachments'
@@ -210,11 +242,19 @@ def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
             with os.fdopen(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
                 file.write(row['username'] + '\n' + password)
             result = subprocess.run(
-                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching-capture'],
+                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching-capture', '--observe-downloads'],
                 cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret), 'PKU_ATTACHMENT_DIR': str(attachment_dir)},
                 capture_output=True, text=True, encoding='utf-8', timeout=300, check=False,
             )
+            operations.producer_stderr(getattr(result,'stderr',''))
             if result.returncode:
+                stderr=getattr(result,'stderr','')
+                # Download observations can exceed the old whole-stderr bound.
+                # Parse only closed failure receipts from the bounded final lines.
+                failure=next((value for line in reversed(stderr.splitlines()[-16:])
+                              if (value:=parse_failure(line))),None) if isinstance(stderr,str) else None
+                if failure:
+                    raise collection_exception(ApiError, 502, failure['stage'], failure['code'])
                 raise ApiError(502, '教学网采集失败；请检查账号、密码、浏览器及校园网连接')
             try:
                 requests = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
@@ -231,9 +271,11 @@ def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
                     requests = selected
                 assets = teaching_assets.read_capture(attachment_dir,requests,**({'input_ids':input_ids} if input_ids is not None else {}))
             except Exception:
-                raise ApiError(502, '教学网采集结果或附件未通过格式及完整性校验') from None
-    except (OSError, subprocess.TimeoutExpired):
-        raise ApiError(503, '教学网采集无法启动或超时；请检查 Node、浏览器及校园网连接')
+                raise collection_exception(ApiError, 502, 'export') from None
+    except subprocess.TimeoutExpired:
+        raise collection_exception(ApiError, 503, 'collection', 'timeout') from None
+    except OSError:
+        raise collection_exception(ApiError, 503, 'browser') from None
     if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
     if guard: guard(db)
     current = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?',(uid,)).fetchone()

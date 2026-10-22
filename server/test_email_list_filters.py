@@ -31,7 +31,7 @@ class EmailListFilterTests(unittest.TestCase):
         request_id = email_import._request_id(input_id)
         result = {'status': status, 'tasks': [{'title': 'task'}] if status == 'success' else []}
         request = {'records': [{'input_id': input_id}]}
-        self.db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',
+        self.db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,?)',
                         ('owner', request_id, 'fingerprint', json.dumps(request), json.dumps(result), 0))
         return input_id, request_id
 

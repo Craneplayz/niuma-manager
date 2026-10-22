@@ -4,15 +4,17 @@ import hmac
 import json
 import os
 import math
+import re
 import secrets
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from pathlib import Path
 import recognition
+import text_jobs
 import planning
 import source_sync
 import email_import
@@ -27,7 +29,12 @@ import reprocessing
 import runtime_environment
 import usage
 import error_reports
+import account_avatar
+import email_verification
+import ipaddress
 from server import model_queue
+from server import operations
+from server import recognition_diagnostics
 
 
 class ThreadingHTTPServer(_ThreadingHTTPServer):
@@ -36,12 +43,23 @@ class ThreadingHTTPServer(_ThreadingHTTPServer):
 DB = runtime_environment.database_path()
 TZ = timezone(timedelta(hours=8))
 
+def environment_tools():
+    # Optional source-only tools: shared release images intentionally omit them.
+    if not runtime_environment.managed() or runtime_environment.environment() not in ('development', 'test'):
+        return None
+    try:
+        import environment_tools as tools
+    except ModuleNotFoundError as error:
+        if error.name != 'environment_tools': raise
+        return None
+    return tools
+
 def wechat_enabled():
     return os.environ.get('NIUMA_ENABLE_WECHAT', '1') == '1'
 
 @contextmanager
 def connection():
-    db = sqlite3.connect(DB, timeout=10)
+    db = sqlite3.connect(DB, timeout=10, factory=operations.TimedConnection)
     db.row_factory = sqlite3.Row
     try:
         with db:
@@ -52,18 +70,26 @@ def connection():
 def password_hash(password, salt):
     return hashlib.pbkdf2_hmac('sha256',password.encode(),bytes.fromhex(salt),600000).hex()
 
+def initialize_accounts(db):
+    """Account schema only; safe for tools that must not recover or prune jobs."""
+    account_avatar.initialize(db)
+    db.executescript('''
+    CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires REAL NOT NULL);
+    CREATE TABLE IF NOT EXISTS workspace(user_id TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(user_id,name));
+    CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
+    ''')
+    email_verification.initialize(db)
+
 def initialize(recover=True):
     runtime_environment.validate_storage(DB)
     DB.parent.mkdir(parents=True, exist_ok=True)
+    try:operations.initialize(DB)
+    except (OSError,sqlite3.Error):print('{"event":"operations_unavailable"}',flush=True)
     with connection() as db:
-        db.execute('PRAGMA journal_mode=WAL')
-        db.executescript('''
-        CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, name TEXT NOT NULL, salt TEXT NOT NULL, hash TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS workspace(user_id TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(user_id,name));
-        CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
-        ''')
+        initialize_accounts(db)
         recognition.initialize(db)
+        text_jobs.initialize(db, recover=recover)
         usage.initialize(db)
         error_reports.initialize(db)
         source_sync.initialize(db)
@@ -116,8 +142,18 @@ def session_cookie(token, max_age, admin=False):
     name=runtime_environment.cookie_name()+('_admin' if admin else '')
     return name+'='+token+'; HttpOnly; SameSite=Strict; Path='+('/api/admin' if admin else '/api')+'; Max-Age='+str(max_age)+secure
 
+def public_user(db, row):
+    return dict(id=row['id'], name=row['name'], email=row['email'], avatar=account_avatar.read(db, row['id']),
+                emailVerified=email_verification.verified(db, row['id']))
+
 class Handler(BaseHTTPRequestHandler):
+    def log_message(self,format,*args):
+        pass  # Structured request logs never include raw URLs or query data.
+
     def reply(self, status, value, cookie=None):
+        self.ops_status=status
+        if status<400 and not usage.successful(status,value,getattr(self,'usage_request_id',None)):
+            self.ops_code='upstream_error'
         data=b'' if status==204 else json.dumps(value,ensure_ascii=False).encode()
         if getattr(self,'usage_uid',None) and not getattr(self,'usage_recorded',False):
             event=usage.operation(self.path.split('?')[0]) if self.command=='POST' else None
@@ -139,6 +175,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Cache-Control','no-store')
+        context=operations.captured()
+        if context:self.send_header('X-Request-ID',context['request_id'])
         self.send_header('Content-Length',str(len(data)))
         if getattr(self, 'retry_after', None) is not None:
             self.send_header('Retry-After', str(self.retry_after))
@@ -147,6 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             email_import.email_telemetry.observe_status(
                 (time.monotonic() - getattr(self, 'usage_started', time.monotonic())) * 1000, len(data))
         if cookie: self.send_header('Set-Cookie',cookie)
+        if getattr(self, 'retry_after', None): self.send_header('Retry-After', str(self.retry_after))
         self.end_headers()
         self.wfile.write(data)
 
@@ -174,7 +213,18 @@ class Handler(BaseHTTPRequestHandler):
         token=hashlib.sha256(raw.value.encode()).hexdigest() if raw else ''
         row=db.execute('SELECT users.id,email,name FROM sessions JOIN users ON user_id=users.id WHERE token=? AND expires>?',(token,time.time())).fetchone()
         if not row: raise ApiError(401,'登录已失效，请重新登录')
-        return dict(row),token
+        return public_user(db, row),token
+
+    def email_client_ip(self):
+        # Compose exposes only Caddy, which overwrites this private header.
+        value = self.client_address[0]
+        if os.environ.get('NIUMA_TRUST_PROXY_CLIENT_IP') == '1':
+            forwarded = self.headers.get('X-Niuma-Client-IP', '')
+            try:
+                value = str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                pass
+        return value
 
     def route(self):
         origin=self.headers.get('Origin')
@@ -206,8 +256,26 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/health' and self.command=='GET':
                 db.execute('SELECT 1')
                 return self.reply(200,dict(status='ok'))
+            tools = environment_tools()
+            if tools and tools.route(self, db, path, body, ApiError, DB, session_cookie): return
             if path=='/api/version' and self.command=='GET':
-                return self.reply(200,runtime_environment.public_version())
+                version = runtime_environment.public_version()
+                if tools: version['accountTools'] = tools.MODULE_URL
+                return self.reply(200,version)
+            if path=='/api/usage/guest-visit' and self.command=='POST':
+                if body: raise ApiError(400,'访问统计不接受额外字段')
+                try:
+                    self.user(db)
+                    return self.reply(200,dict(saved=True))
+                except ApiError as error:
+                    if error.status!=401: raise
+                name=runtime_environment.cookie_name()+'_visitor'
+                cookie=SimpleCookie(self.headers.get('Cookie',''))
+                token=cookie[name].value if name in cookie else ''
+                if not re.fullmatch('[0-9a-f]{32}',token): token=secrets.token_hex(16)
+                usage.guest_visit(db,token)
+                secure='; Secure' if os.environ.get('NIUMA_COOKIE_SECURE')=='1' else ''
+                return self.reply(200,dict(saved=True),name+'='+token+'; HttpOnly; SameSite=Strict; Path=/api/usage; Max-Age=7776000'+secure)
             if path=='/api/error-reports' and self.command=='POST':
                 try:
                     report_user,_=self.user(db)
@@ -215,27 +283,93 @@ class Handler(BaseHTTPRequestHandler):
                     if error.status!=401: raise
                     report_user=None
                 return self.reply(200,error_reports.save(db,body,report_user['id'] if report_user else None,self.client_address[0],ApiError))
+            if path=='/api/auth/email-code' and self.command=='POST':
+                purpose = body.get('purpose')
+                if purpose == 'register':
+                    email = email_verification.normalize_email(body.get('email'))
+                    if email_verification.account_for_email(db, email):
+                        raise email_verification.VerificationError(409, 'email_registered', '该邮箱已注册，请登录后验证邮箱')
+                    uid = ''
+                elif purpose == 'verify_email':
+                    user, _ = self.user(db)
+                    uid, email = user['id'], user['email']
+                    if user['emailVerified']:
+                        raise email_verification.VerificationError(409, 'email_already_verified', '当前邮箱已经验证')
+                elif purpose == 'reset_password':
+                    email = body.get('email')
+                    uid = ''
+                else:
+                    raise email_verification.VerificationError(400, 'email_code_invalid', '验证码用途不正确')
+                result = email_verification.request_code(db, email, purpose, uid, self.email_client_ip(), DB.parent / 'email-verification.key')
+                return self.reply(200, result)
+            if path=='/api/auth/reset-password' and self.command=='POST':
+                email = body.get('email')
+                email_verification.normalize_email(email)
+                new = body.get('newPassword')
+                if not isinstance(new, str) or not 8 <= len(new) <= 128:
+                    raise ApiError(400, '新密码需要 8–128 个字符')
+                db.execute('BEGIN IMMEDIATE')
+                row = email_verification.account_for_email(db, email)
+                eligible = bool(row and email_verification.verified(db, row['id']))
+                email_verification.consume_code(db, email, 'reset_password', row['id'] if eligible else '',
+                                                body.get('challengeId'), body.get('code'), self.email_client_ip(),
+                                                DB.parent / 'email-verification.key', credentials=row if eligible else None)
+                salt = secrets.token_hex(16)
+                db.execute('UPDATE users SET salt=?,hash=? WHERE id=?', (salt, password_hash(new, salt), row['id']))
+                db.execute('DELETE FROM sessions WHERE user_id=?', (row['id'],))
+                email_verification.invalidate_account_codes(db, row['id'])
+                return self.reply(200, dict(reset=True))
             if path in ['/api/auth/register','/api/auth/login','/api/admin/auth/login'] and self.command=='POST':
                 email=str(body.get('email','')).strip().lower()
                 password=str(body.get('password',''))
                 if not 8<=len(password)<=128 or '@' not in email or len(email)>254: raise ApiError(400,'请输入有效邮箱和至少 8 位密码')
-                row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
+                row=None
+                if not path.endswith('register'):
+                    try:
+                        row=email_verification.account_for_email(db,str(body.get('email','')))
+                    except email_verification.VerificationError:
+                        # Legacy addresses outside current validation can still log in.
+                        row=db.execute('SELECT * FROM users WHERE email=?',(email,)).fetchone()
+                        if row:
+                            try:
+                                email_verification.normalize_email(row['email'])
+                            except email_verification.VerificationError:
+                                pass
+                            else:
+                                row=None
                 if path.endswith('register'):
+                    email = email_verification.normalize_email(body.get('email'))
                     name=str(body.get('name','')).strip()
                     if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
+                    db.execute('BEGIN IMMEDIATE')
+                    # Legacy Unicode-domain addresses keep their stored value,
+                    # but share one identity with their canonical IDNA address.
+                    row=email_verification.account_for_email(db, email)
                     if row: raise ApiError(409,'该邮箱已注册')
+                    email_verification.consume_code(db, email, 'register', '', body.get('challengeId'), body.get('code'),
+                                                    self.email_client_ip(), DB.parent / 'email-verification.key')
                     uid,salt=secrets.token_hex(16),secrets.token_hex(16)
                     db.execute('INSERT INTO users VALUES(?,?,?,?,?)',(uid,email,name,salt,password_hash(password,salt)))
+                    email_verification.mark_verified(db, uid)
                     row=db.execute('SELECT * FROM users WHERE id=?',(uid,)).fetchone()
                 elif not row or not hmac.compare_digest(row['hash'],password_hash(password,row['salt'])):
                     raise ApiError(401,'邮箱或密码不正确')
+                else:
+                    # Password hashing happens outside the write lock. Recheck the
+                    # snapshot inside it so a concurrent reset cannot create a
+                    # new session authenticated by the previous password.
+                    db.execute('BEGIN IMMEDIATE')
+                    current = db.execute('SELECT * FROM users WHERE id=?', (row['id'],)).fetchone()
+                    if not current or current['salt'] != row['salt'] or not hmac.compare_digest(current['hash'], row['hash']):
+                        raise ApiError(401, '邮箱或密码不正确')
+                    row = current
                 administrator=path.startswith('/api/admin/')
                 if administrator and not usage.admin(row['id'],db): raise ApiError(403,'此账号没有后台访问权限')
                 token=secrets.token_urlsafe(32)
                 db.execute('DELETE FROM sessions WHERE expires<?',(time.time(),))
                 db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),row['id'],time.time()+86400))
                 usage.record(db,row['id'],'register' if path.endswith('register') else 'login')
-                return self.reply(200,dict(user={k:row[k] for k in ['id','name','email']}),session_cookie(token,86400,administrator))
+                return self.reply(200,dict(user=public_user(db, row)),session_cookie(token,86400,administrator))
             bearer=wechat_media.bearer_user(db,self.headers) if path.startswith('/api/sources/wechat/') and self.headers.get('Authorization') else None
             if bearer:
                 uid,token,user=bearer,None,None
@@ -243,6 +377,13 @@ class Handler(BaseHTTPRequestHandler):
                 user,token=self.user(db)
                 uid=user['id']
             self.usage_uid=uid
+            if path=='/api/auth/verify-email' and self.command=='POST':
+                if user['emailVerified']:
+                    raise email_verification.VerificationError(409, 'email_already_verified', '当前邮箱已经验证')
+                email_verification.consume_code(db, user['email'], 'verify_email', uid, body.get('challengeId'), body.get('code'),
+                                                self.email_client_ip(), DB.parent / 'email-verification.key')
+                email_verification.mark_verified(db, uid)
+                return self.reply(200, dict(user=public_user(db, user)))
             if path=='/api/admin/auth/logout' and self.command=='POST':
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
                 return self.reply(200,{},session_cookie('',0,True))
@@ -257,6 +398,7 @@ class Handler(BaseHTTPRequestHandler):
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if submission_runtime.route(self,db,uid,path,body,ApiError): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
+            if text_jobs.route(self,db,uid,path,body,ApiError,DB): return
             if recognition.route(self,db,uid,path,body,ApiError,email_import.recognition_guard): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
@@ -268,15 +410,23 @@ class Handler(BaseHTTPRequestHandler):
                 if not name or len(name)>40: raise ApiError(400,'昵称需要 1–40 个字符')
                 db.execute('UPDATE users SET name=? WHERE id=?',(name,uid))
                 return self.reply(200,dict(user=dict(user,name=name)))
+            if path=='/api/auth/avatar' and self.command=='POST':
+                avatar=account_avatar.save(db,uid,body,ApiError)
+                return self.reply(200,dict(user=dict(user,avatar=avatar)))
             if path=='/api/auth/password' and self.command=='POST':
                 current=str(body.get('currentPassword',''))
                 new=str(body.get('newPassword',''))
                 if not 8<=len(new)<=128: raise ApiError(400,'新密码需要 8–128 个字符')
+                db.execute('BEGIN IMMEDIATE')
+                # A request may have passed the initial session check before a
+                # recovery revoked it; never let it restore the old credentials.
+                self.user(db)
                 row=db.execute('SELECT salt,hash FROM users WHERE id=?',(uid,)).fetchone()
                 if not hmac.compare_digest(row['hash'],password_hash(current,row['salt'])): raise ApiError(400,'当前密码不正确')
                 salt=secrets.token_hex(16)
                 db.execute('UPDATE users SET salt=?,hash=? WHERE id=?',(salt,password_hash(new,salt),uid))
                 db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
+                email_verification.invalidate_account_codes(db, uid)
                 return self.reply(200,{})
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
@@ -420,37 +570,90 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self): self.handle_request()
     def do_DELETE(self): self.handle_request()
     def handle_request(self):
+        with operations.scope(DB):self._handle_request()
+
+    def recognition_failure(self, error):
+        # route() has already closed/rolled back its request connection.
+        try:
+            with connection() as db:
+                return recognition_diagnostics.finalize_error(db,self.usage_uid,error)
+        except (sqlite3.Error,OSError):
+            return recognition_diagnostics.finalize_error(None,self.usage_uid,error)
+
+    def _handle_request(self):
         self.usage_started=time.monotonic()
         self.usage_uid=None
         self.usage_recorded=False
         self.usage_tasks=None
+        self.ops_status=500
+        self.ops_code='ok'
+        self.retry_after=None
         try:
-            with model_queue.request(self.connection): self.route()
-        except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
+            tools = environment_tools()
+            with tools.account_request(self, connection, ApiError) if tools else nullcontext():
+                with model_queue.request(self.connection): self.route()
+        except wechat_media.MediaError as e:
+            self.ops_code=operations.classify(e)
+            if getattr(e,'_recognition_failure',None):
+                value=self.recognition_failure(e)
+                self.reply(e.status,dict(error=value));return
+            from contracts.recognition_errors import describe
+            error = dict(code=e.code,message=e.message,retryable=e.retryable)
+            if e.code in ('agent_unavailable','agent_timeout','invalid_agent_output','file_read_failed'):
+                error = describe(error)
+            self.reply(e.status,dict(error=error))
+        except email_verification.VerificationError as e:
+            self.ops_code=operations.classify(e)
+            self.retry_after=e.retry_after
+            value=dict(error=e.message, code=e.code)
+            if e.retry_after is not None: value['retryAfter']=e.retry_after
+            self.reply(e.status, value)
         except ApiError as e:
             retry_after = getattr(e, 'retry_after', None)
             if type(retry_after) in (int, float) and 0 < retry_after <= 300:
                 self.retry_after = max(1, int(retry_after))
-            if self.path.startswith('/api/sources/submissions'):
+            self.ops_code=operations.classify(e)
+            if getattr(e,'_recognition_failure',None):
+                value = dict(self.recognition_failure(e))
+                self.reply(e.status,dict(error=value.pop('message'), **value))
+            elif self.path.startswith('/api/sources/submissions'):
                 code={401:'unauthorized',403:'unauthorized',404:'not_found',409:'conflict',503:'unavailable'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(contract_version='submission-operations/0.1',code=code,message=e.message))
             elif self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 code={401:'unauthorized',403:'forbidden',404:'not_found',413:'limit_exceeded',503:'queue_busy'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
+            elif getattr(e, 'code', None) in ('model_configuration','invalid_agent_output','agent_timeout','agent_unavailable'):
+                from contracts.recognition_errors import describe
+                value = describe(dict(code=e.code, message=e.message))
+                self.reply(e.status,dict(error=value.pop('message'), **value))
             else: self.reply(e.status,dict(error=e.message))
-        except (ValueError,KeyError,TypeError):
+        except (ValueError,KeyError,TypeError) as e:
+            if getattr(e,'_recognition_failure',None):
+                self.ops_code=operations.classify(e)
+                value=self.recognition_failure(e)
+                self.reply(500,dict(error=value));return
+            self.ops_code='http_400'
             if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 self.reply(400,dict(error=dict(code='invalid_request',message='数据格式不正确',retryable=False)))
             else: self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
-            if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
-                print(type(e).__name__,flush=True)
+            self.ops_code=operations.classify(e)
+            if getattr(e,'_recognition_failure',None):
+                value=self.recognition_failure(e)
+                self.reply(500,dict(error=value))
+            elif self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 self.reply(503,dict(error=dict(code='queue_busy',message='附件服务暂不可用，请稍后重试',retryable=True)))
             else:
-                print(type(e).__name__,str(e),flush=True)
                 self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
         finally:
             if getattr(self,'db',None) is not None: self.db.close()
+            operation=operations.operation(self.path,self.command)
+            if operation:
+                elapsed=(time.monotonic()-self.usage_started)*1000
+                operations.emit('http',elapsed,operation=operation,result='ok' if self.ops_status<400 and self.ops_code=='ok' else 'failed',code=self.ops_code)
+                context=operations.captured()
+                print(json.dumps(dict(event='http',request_id=context['request_id'],operation=operation,
+                    status=self.ops_status,code=self.ops_code,duration_ms=round(elapsed,2),environment=runtime_environment.environment(),revision=runtime_environment.revision())),flush=True)
 
 def validate_proposal(request,result):
     if not isinstance(result,dict) or not isinstance(result.get('blocks'),list) or not isinstance(result.get('warnings'),list) or not all(isinstance(w,str) for w in result['warnings']): raise ApiError(502,'模型返回格式不正确')

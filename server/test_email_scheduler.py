@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 import email_scheduler
+import email_import_store
 
 
 class FairDispatcherTests(unittest.TestCase):
@@ -123,6 +124,37 @@ class FairDispatcherTests(unittest.TestCase):
 
 
 class ProcessOwnerTests(unittest.TestCase):
+    def test_recovery_retries_after_real_sqlite_write_lock(self):
+        """The watcher survives a claim timeout and acquires after lock release."""
+        with tempfile.TemporaryDirectory() as temp:
+            path = os.path.join(temp, 'owner.sqlite3')
+            db = self.owner_db(path, 'previous-host', 123456, time.time()-60)
+            db.execute('BEGIN IMMEDIATE')
+            connect = sqlite3.connect
+            def short_timeout(*args, **kwargs):
+                kwargs['timeout'] = .01
+                return connect(*args, **kwargs)
+            waits = []
+            def next_poll(_seconds):
+                waits.append(True)
+                if len(waits) == 1:
+                    self.assertFalse(email_scheduler.owns_process(path))
+                    db.rollback()
+                else:
+                    raise StopIteration
+            # Exercise actual SQLite locking; shorten only timing and stop after takeover.
+            with mock.patch.object(sqlite3, 'connect', side_effect=short_timeout), \
+                 mock.patch.object(email_scheduler, '_start_heartbeat', side_effect=lambda path,*_: email_scheduler._owned_paths.add(path)), \
+                 mock.patch.object(email_import_store, '_recover_active_jobs') as recover, \
+                 mock.patch.object(email_import_store.time, 'sleep', side_effect=next_poll):
+                with self.assertRaises(StopIteration):
+                    email_import_store._watch_process_owner(path)
+                self.assertTrue(email_scheduler.owns_process(path))
+                recover.assert_called_once()
+            with email_scheduler._owner_lock:
+                email_scheduler._owned_paths.discard(path)
+            db.close()
+
     def test_real_live_owner_survives_probe_and_second_instance(self):
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
                                  creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -157,16 +189,32 @@ class ProcessOwnerTests(unittest.TestCase):
     def test_fresh_foreign_lease_fences_local_claim_and_stale_lease_can_be_taken_over(self):
         with tempfile.TemporaryDirectory() as temp:
             path = os.path.join(temp, 'owner.sqlite3')
-            db = self.owner_db(path, 'another-host', os.getpid() + 100)
-            db.close()
+            db = self.owner_db(path, 'another-host', os.getpid()+100)
+            db.row_factory = sqlite3.Row
+            email_import_store.initialize(db,recover=False)
+            email_import_store.insert_job(db,'synthetic-owner','old-job','old-op','running',
+                dict(state='running',items=[dict(input_id='old-mail',state='processing')]))
+            db.commit()
             self.assertFalse(email_scheduler.claim_process_owner(path))
-            db = sqlite3.connect(path)
-            db.execute('UPDATE email_import_scheduler_owner SET heartbeat=? WHERE singleton=1',
-                       (time.time() - 60,))
-            db.commit(); db.close()
-            self.assertTrue(email_scheduler.claim_process_owner(path))
-            db = sqlite3.connect(path)
+            polls = []
+            def next_poll(_seconds):
+                polls.append(True)
+                if len(polls) == 1:
+                    self.assertFalse(email_scheduler.owns_process(path))
+                    db.execute('UPDATE email_import_scheduler_owner SET heartbeat=?',(time.time()-60,))
+                    db.commit()
+                else: raise StopIteration
+            with mock.patch.object(email_scheduler,'_start_heartbeat',
+                     side_effect=lambda path,*_: email_scheduler._owned_paths.add(path)), \
+                 mock.patch.object(email_import_store.time,'sleep',side_effect=next_poll):
+                with self.assertRaises(StopIteration):email_import_store._watch_process_owner(path)
+            self.assertTrue(email_scheduler.owns_process(path))
             self.assertTrue(email_scheduler.is_current_owner(db))
+            raw = db.execute('SELECT snapshot FROM email_import_jobs').fetchone()[0]
+            job = email_import_store.load_job(db,'synthetic-owner','old-job',raw)
+            self.assertEqual((job['state'],job['items'][0]['state']),('interrupted','interrupted'))
+            with email_scheduler._owner_lock:email_scheduler._owned_paths.discard(path)
+            email_import_store._recovered_paths.discard(path)
             db.close()
 
     def test_fresh_dead_local_pid_is_reclaimed_but_fresh_live_pid_is_not(self):

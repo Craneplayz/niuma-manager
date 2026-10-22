@@ -54,3 +54,18 @@ queued → crawling → recognizing → succeeded / partial_success / failed；�
 兼容新增运行级 `recovered_by: {run_id}`，仅用于没有逐条 records 的 `collection_failed` 历史错误，关联实际解决采集问题的后续完整采集批次。确认依据为同一应用用户及同 sources 范围的完整采集已提交，无变化检查也可恢复；重新保存或修正教学网密码、切换教学网账号后成功获取来源，同样表示整轮连接问题已恢复。仅模型 retry、局部 recover 或其他应用用户的成功不作为依据。逐条来源错误及运行中的凭据校验继续要求原凭据范围，不因整轮连接恢复而跨账号关联内容。采集已完成而后续模型识别失败时，旧连接错误仍可恢复，新的逐条识别错误继续独立展示。关联持久保存，在无变化目标回执过期后仍保持已恢复，不重新提供旧处理入口。旧数据按完整采集的可靠证据在初始化时补全，再清理过期无变化回执。原始 GET /{id} 保留失败 state 和 error；列表可投影为 succeeded，保留 error 供历史名称及恢复状态展示，客户端须根据运行级 recovered_by 隐藏过时指引和重试入口。点击整轮恢复链接定位后续批次标题，目标已归档时只提示。
 
 单运行 GET /{id} 同样可只读补全旧逐条错误的 `recovered` / `recovered_by`，依据为同一应用用户及原凭据下后续成功记录的精确请求编号、稳定来源身份或已保存的替换链。此查询包含被历史去重隐藏、无变化或超出最近 20 条的回执，保留原始 state、error、完整 records 及 counts，不改写存储回执，也不改变重试和运行校验使用的原始数据。
+
+
+### 识别诊断
+
+所有环境保留受限诊断及 `error.diagnostic_id`；`error.diagnostics` 为兼容可选字符串（最长 65536 字符），仅开发/测试返回，前端转义显示在“识别诊断详情”。包括模型尝试、校验原因、纠正重试、附件进度及工作进程退出；不记录课程正文、凭据、令牌和模型原始响应。问题反馈只附带诊断编号，不自动上传详情；字段和验证方法见 [统一识别错误](recognition-errors.md)。
+
+开发/测试登录后 `POST /api/recognition/diagnostics`，通过 `request_id` 查询最近 20 次尝试或通过 `diagnostic_id` 精确定位一次；整轮采集使用 `collect:<run_id>`。仅当前用户可查，生产接口返回 404。每用户最多保留 200 次、每次最多 200 个事件及约 60 KB；截断以 omitted_events 标记。历史错误绑定原尝试，重试成功不覆盖，达到保留上限后仍有错误分类及编号，但详情不可查。旧错误不追溯补造诊断。
+
+## 可选采集失败原因
+
+运行或记录的 `error.code` 继续使用 `collection_failed`；可选 `error.collection_failure` 遵循 `contracts/collection_failure.py` 的独立 Schema，包含固定的 `contract_version=collection-failure/0.1`、`stage` 和 `code`，不含正文、URL、账号、路径或异常文本；共享样例见 `examples/collection-failures-v01.json`。
+
+`stage` 区分 `credentials`、`browser`、`login`、`navigation`、`export`、`collection`；`code` 为 `operation_failed`、`timeout`、`http_error`、`session_expired`。消费者用现有 `message` 获取处理建议，按已有 run_id 关联；登录失败不等于密码错误，`operation_failed` 不推断网络根因。超时及页面/整轮采集可稍后重试，凭据/浏览器/登录/导出配置问题先处理对应条件，再由用户重新发起采集，不新增自动重试。
+
+旧爬虫或无法校验的 stderr 不附加此字段，保持原错误；不能由缺失字段断言“模型失败”。字段独立于测试环境的详细诊断，可在生产回执中安全保留。后续成功及失败历史仍是不同运行，不覆盖原失败原因。

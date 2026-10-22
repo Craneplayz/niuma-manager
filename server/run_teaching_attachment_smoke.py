@@ -3,6 +3,7 @@ import argparse
 import base64
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import teaching
 from ddl_text.tests.docx_cases import package, paragraph
 from ddl_text.tests.pdf_cases import pdf_bytes
@@ -25,6 +27,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--env-file',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--only',nargs='+',choices=['text.pdf','scan.pdf','image.png','document.docx'],
+                        help='Run selected synthetic formats without repeating completed cases.')
     args=parser.parse_args()
     if args.output.exists():parser.error('use a new output file')
     config=teaching.live_options(args.env_file)
@@ -37,23 +41,31 @@ def main():
     scan=io.BytesIO();picture.save(scan,format='PDF')
     files=[('text.pdf','application/pdf',pdf_bytes((TEXT,))),('scan.pdf','application/pdf',scan.getvalue()),
         ('image.png','image/png',png.getvalue()),('document.docx',DOCX_MIME,package(paragraph(TEXT)))]
+    if args.only: files=[file for file in files if file[0] in args.only]
     payload=[dict(name=n,mime=m,data=base64.b64encode(d).decode()) for n,m,d in files]
     subprocess_run=subprocess.run
     report=dict(synthetic=True,scope='Synthetic HTML and files; actual campus authentication/download not exercised.',cases=[])
     with tempfile.TemporaryDirectory(prefix='niuma-teaching-files-smoke-') as folder,patch.object(teaching,'live_options',return_value=config):
         old_db=app.DB;app.DB=Path(folder)/'smoke.sqlite3';app.initialize()
         server=app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
+        # Let in-flight handlers release SQLite before restoring/removing this DB.
+        server.daemon_threads=False
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        print(json.dumps(dict(event='smoke_server_started',pid=os.getpid(),port=server.server_port)),flush=True)
         client=build_opener(HTTPCookieProcessor(CookieJar()))
         def call(path,body=None):
             req=Request(f'http://127.0.0.1:{server.server_port}/api'+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'})
-            with client.open(req,timeout=150) as response:return json.load(response)
+            # Attachment reading and task extraction have separate bounded budgets.
+            # This harness must outlive both; product timeouts remain unchanged.
+            with client.open(req,timeout=330) as response:return json.load(response)
         def capture(_command,**kwargs):
             return subprocess_run(['node','--import','tsx','tests/export-teaching-attachment-smoke.ts'],
                 cwd=teaching.ROOT/'crawler',input=json.dumps(dict(folder=kwargs['env']['PKU_ATTACHMENT_DIR'],files=payload)),
                 capture_output=True,text=True,encoding='utf-8',timeout=90)
         try:
-            call('/auth/register',dict(name='Synthetic attachments',email='attachment-smoke@example.test',password='Synthetic-Smoke-2026!'))
+            account=registration_payload(dict(name='Synthetic attachments',email='attachment-smoke@example.test',password='Synthetic-Smoke-2026!'),
+                                         lambda body:(200,call('/auth/email-code',body)))
+            call('/auth/register',account)
             call('/sources/credentials',dict(username='synthetic-user',password='synthetic-only'))
             with patch.object(app.source_sync.subprocess,'run',side_effect=capture):
                 pending=call('/sources/sync',dict(sources=['teaching_web']))
@@ -71,7 +83,7 @@ def main():
                 args.output.parent.mkdir(parents=True,exist_ok=True)
                 args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
                 print(json.dumps(dict(file=name,passed=passed,status=batch['result']['status'],seconds=report['cases'][-1]['seconds'])),flush=True)
-            report['workspace']=call('/workspace');report['passed']=all(c['passed'] for c in report['cases']) and len(report['workspace'].get('tasks',{}).get('value',[]))==4
+            report['workspace']=call('/workspace');report['passed']=all(c['passed'] for c in report['cases']) and len(report['workspace'].get('tasks',{}).get('value',[]))==len(files)
             args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
             return 0 if report['passed'] else 1
         finally:

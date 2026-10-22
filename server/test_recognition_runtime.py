@@ -1,5 +1,6 @@
 """Backend recognition: direct spawn workers, HTTP compatibility and busy gate."""
 import copy
+import hashlib
 import io
 import json
 import tempfile
@@ -13,6 +14,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import recognition
 from server.model_queue import ModelQueue
 from server import model_queue
@@ -30,6 +32,88 @@ for entry in DRAFTS:
 
 
 class RecognitionRuntimeTests(unittest.TestCase):
+    def test_real_http_and_worker_failure_round_trip_reaches_saved_diagnostics(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        class Provider(BaseHTTPRequestHandler):
+            calls=0
+            def log_message(self,*args): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']))
+                type(self).calls+=1
+                # The HTTP boundary is real; semantic output is intentionally invalid.
+                body=json.dumps(dict(choices=[dict(finish_reason='stop',message=dict(
+                    content='{"tasks":[{"title":"PRIVATE-SENTINEL"}]}'))])).encode()
+                self.send_response(200);self.end_headers();self.wfile.write(body)
+        provider=ThreadingHTTPServer(('127.0.0.1',0),Provider)
+        thread=threading.Thread(target=provider.serve_forever,daemon=True);thread.start()
+        try:
+            # Only configuration resolution is substituted to permit loopback HTTP.
+            # Production HTTPS validation, transport, workers and compilation are not loosened.
+            with patch.object(recognition.diagnostics,'environment',return_value='development'), patch.object(recognition,'live_options',return_value={
+                    'key':'synthetic-only','provider':'qiniu',
+                    'endpoint':f'http://127.0.0.1:{provider.server_port}/v1', 'model':'fixture-model'}):
+                status,batches=self.submit()
+                self.assertEqual(status,200)
+                error=batches[0]['result']['errors'][0]
+                self.assertEqual(error['failure']['reason'],'draft_schema')
+                self.assertTrue(error['diagnostic']['missing_fields'])
+                identity=error['diagnostic_id']
+                status,details=self.call(self.client,'/recognition/diagnostics',{'diagnostic_id':identity})
+                self.assertEqual(status,200)
+                trace=details['attempts'][0]
+                self.assertEqual(trace['attempt_id'],identity)
+                self.assertTrue(any(e['stage']=='correction' for e in trace['events']))
+                self.assertTrue(any(e['stage']=='model_transport' for e in trace['events']))
+                self.assertEqual(Provider.calls,2*len(self.request['records']))
+                self.assertNotIn('PRIVATE-SENTINEL',json.dumps(details))
+                self.assertNotIn('synthetic-only',json.dumps(details))
+                other=self.new_client(self.id()+':other')
+                self.assertEqual(self.call(other,'/recognition/diagnostics',{'diagnostic_id':identity})[1]['attempts'],[])
+        finally:
+            provider.shutdown();provider.server_close();thread.join(timeout=2)
+
+    def test_unexpected_server_exception_is_internal_and_survives_request_rollback(self):
+        with patch.object(recognition.diagnostics,'environment',return_value='development'), \
+                patch.object(recognition,'recognize',side_effect=RuntimeError('PRIVATE-SENTINEL')):
+            status,body=self.submit()
+            self.assertEqual(status,500)
+            error=body['error']
+            self.assertEqual(error['failure']['reason'],'internal_error')
+            self.assertNotIn('PRIVATE-SENTINEL',json.dumps(error))
+            detail=self.call(self.client,'/recognition/diagnostics',{'diagnostic_id':error['diagnostic_id']})[1]['attempts'][0]
+            self.assertEqual(detail['events'][-1]['exception_type'],'RuntimeError')
+            self.assertTrue(detail['events'][-1]['locations'])
+            self.assertEqual(self.policy_rows(),{})
+
+    def test_text_failure_is_actionable_persisted_and_test_diagnostics_are_account_scoped(self):
+        from contracts.recognition_errors import describe
+        from server import recognition_diagnostics as diagnostics
+        def recognize(request, ApiError):
+            result = self.empty_result(request)
+            result['status'] = 'failed'
+            for row in result['record_results']: row['status'] = 'failed'
+            result['errors'] = [describe(dict(input_id=row['input_id'], code='invalid_agent_output',
+                message='PRIVATE-SENTINEL', retryable=True), reason='draft_schema',
+                detail=dict(schema_path='properties/tasks/items/required', rule='required')) for row in result['record_results']]
+            diagnostics.event('text_recognition_failed', code='invalid_agent_output', diagnostic='draft_schema',
+                              schema=result['errors'][0]['diagnostic'], body='PRIVATE-SENTINEL')
+            return result
+        with patch.object(diagnostics, 'environment', return_value='test'), patch.object(recognition, 'recognize', side_effect=recognize):
+            status, batches = self.submit()
+            self.assertEqual(status, 200)
+            error = batches[0]['result']['errors'][0]
+            self.assertEqual(error['failure']['reason'], 'draft_schema')
+            self.assertIn('text_recognition_failed', error['diagnostics'])
+            self.assertNotIn('PRIVATE-SENTINEL', json.dumps(batches))
+            stranger = self.new_client(self.id()+':other')
+            self.assertEqual(self.call(stranger,'/recognition/diagnostics',{'request_id':self.request['request_id']})[1]['attempts'], [])
+        with patch.object(diagnostics, 'environment', return_value='production'):
+            status, batches = self.submit()
+            self.assertEqual(status, 200)
+            error = batches[0]['result']['errors'][0]
+            self.assertEqual(error['failure']['reason'], 'draft_schema')
+            self.assertNotIn('diagnostics', error)
+
     @classmethod
     def setUpClass(cls):
         cls.folder = tempfile.TemporaryDirectory()
@@ -81,8 +165,10 @@ class RecognitionRuntimeTests(unittest.TestCase):
 
     def new_client(self, name):
         client = build_opener(HTTPCookieProcessor(CookieJar()))
-        status, _ = self.call(client, '/auth/register', dict(
-            name='Synthetic', email=name + '@runtime.test', password='Synthetic-only-2026!'))
+        account = registration_payload(dict(
+            name='Synthetic', email=hashlib.sha256(name.encode()).hexdigest()[:32]+'@runtime.test', password='Synthetic-only-2026!'),
+            lambda body: self.call(client, '/auth/email-code', body))
+        status, _ = self.call(client, '/auth/register', account)
         self.assertEqual(status, 200)
         return client
 
@@ -229,6 +315,7 @@ class RecognitionRuntimeTests(unittest.TestCase):
                              ('real', 'synthetic-file-model', 90, 0))
             self.assertEqual(pipeline.call_args.kwargs['budget_seconds'], 90)
             self.assertTrue(callable(pipeline.call_args.kwargs['attempt_observer']))
+            self.assertEqual(pipeline.call_args.kwargs['diagnostic_event'], recognition.diagnostics.event)
             recognition.os.environ['QINIU_API_KEY'] = 'synthetic-env-key'
             self.request['request_id'] += ':environment'
             self.assertEqual(self.submit()[0], 200)

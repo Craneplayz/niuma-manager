@@ -10,6 +10,12 @@ test('feedback box is voluntary, login-only, and has no dashboard link',()=>{
  session.user=null;assert.equal(feedbackBox(),'');
  session.user={id:'synthetic'};const html=feedbackBox();assert.match(html,/usage-feedback-form/);assert.doesNotMatch(html,/admin|使用数据|评分/);
 });
+test('anonymous visits send no personal fields and do not show rating UI',async()=>{
+ const calls=[];session.user=null;window.dispatchEvent(new Event('niuma:account-reset'));
+ globalThis.fetch=async(url,options)=>{calls.push([url,JSON.parse(options.body)]);return {ok:true,json:async()=>({saved:true})};};
+ await usageVisit();await usageVisit();
+ assert.deepEqual(calls,[['/api/usage/guest-visit',{}]]);
+});
 test('visit is claimed once per account and uses no task/account contents',async()=>{
  const calls=[];globalThis.fetch=async(url,options)=>{calls.push([url,JSON.parse(options.body)]);return {ok:true,json:async()=>({offerRating:false})};};
  session.user={id:'visit-synthetic'};await usageVisit();await usageVisit();

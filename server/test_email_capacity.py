@@ -231,7 +231,7 @@ class CapacityControlsTests(unittest.TestCase):
                      patch.object(model_queue,'provider_reservation',return_value=('synthetic',receipt,0)), \
                      patch.object(recognition,'live_options',return_value=options), \
                      patch.object(recognition,'make_client'), \
-                     patch.object(recognition,'text_policy_manifest',return_value=dict(components=recognition._POLICY_COMPONENTS)), \
+                     patch.object(recognition,'text_policy_manifest',return_value=dict(components=recognition._POLICY_COMPONENTS,version="synthetic")), \
                      patch.object(recognition,'process_request',side_effect=process):
                     recognition.recognize(request, RuntimeError)
                 self.assertEqual(receipt[1][1:], [2,100] if fallback_timeout else [1,10])
@@ -314,7 +314,7 @@ class CapacityControlsTests(unittest.TestCase):
         def limited(request, adapter, settings, **kwargs):
             kwargs['attempt_observer'](dict(generation_started=True,generation_ok=False,generation_ms=1,provider_status=429,retry_after_seconds=2))
             return dict(status='failed')
-        with model_queue.background(('synthetic-job','mail')), patch.dict(os.environ, TEXT_HARNESS_URL='', NIUMA_MODEL_REQUESTS_PER_MINUTE='0', NIUMA_MODEL_TOKENS_PER_MINUTE='0'), patch.object(recognition,'_ACTIVE',queue), patch.object(model_queue,'PROVIDER',model_queue.ProviderBudget()), patch.object(recognition,'live_options',return_value=options), patch.object(recognition,'make_client'), patch.object(recognition,'text_policy_manifest',return_value=dict(components=recognition._POLICY_COMPONENTS)), patch.object(recognition,'process_request',side_effect=limited):
+        with model_queue.background(('synthetic-job','mail')), patch.dict(os.environ, TEXT_HARNESS_URL='', NIUMA_MODEL_REQUESTS_PER_MINUTE='0', NIUMA_MODEL_TOKENS_PER_MINUTE='0'), patch.object(recognition,'_ACTIVE',queue), patch.object(model_queue,'PROVIDER',model_queue.ProviderBudget()), patch.object(recognition,'live_options',return_value=options), patch.object(recognition,'make_client'), patch.object(recognition,'text_policy_manifest',return_value=dict(components=recognition._POLICY_COMPONENTS,version="synthetic")), patch.object(recognition,'process_request',side_effect=limited):
             with self.assertRaises(model_queue.EmailDeferred) as caught:
                 recognition.recognize(request, RuntimeError)
             self.assertEqual(caught.exception.reason, 'provider_backoff')

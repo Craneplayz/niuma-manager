@@ -3,6 +3,7 @@ import argparse
 from copy import deepcopy
 import json
 from pathlib import Path
+from contracts.recognition_errors import schema as failure_schema, diagnostic_schema
 
 ROOT = Path(__file__).resolve().parent
 POLICY = json.loads((ROOT/'schemas/teaching-review-pair-v0.4-draft.schema.json').read_text(encoding='utf-8'))
@@ -44,7 +45,10 @@ def schemas():
     decision['properties']['submission_relation'] = dict(enum=['assignment_submission','other','unknown'])
     error = obj(dict(code=dict(enum=['agent_timeout','agent_unavailable','invalid_agent_output','limit_exceeded']),
                      message=string(256,1), retryable=dict(type='boolean')))
-    error['properties']['diagnostic'] = obj(dict(schema_path=string(512), rule=string(40)))
+    error['properties'].update(diagnostic={'$ref':'#/$defs/recognition_diagnostic'},
+        failure={'$ref':'#/$defs/recognition_failure'},
+        diagnostic_id=dict(type='string',pattern='^[0-9a-f]{24}$'),
+        diagnostics=dict(type='string',maxLength=65536))
     row = obj(dict(input_id=ident, snapshot_id=ident, source=source, attempted=dict(type='boolean'),
         status=dict(enum=['success','no_tasks','incomplete','failed']),
         decisions=array(decision,50), warnings=array(string(512,1),20), error=nullable(error)))
@@ -56,8 +60,10 @@ def schemas():
         status=dict(enum=['success','partial_success','no_tasks','failed']),record_results=array(row,20)))
     result['properties']['classification_mode'] = dict(const='model-v1')
     request = obj(dict(contract_version=dict(const='0.4'),request_id=ident,records=array(entry,20)))
-    return {name:dict(value, **{'$schema':POLICY['$schema'], '$defs':deepcopy(defs)})
-            for name,value in [('request',request),('result',result)]}
+    outputs = {name:dict(value, **{'$schema':POLICY['$schema'], '$defs':deepcopy(defs)})
+               for name,value in [('request',request),('result',result)]}
+    outputs['result']['$defs'].update(recognition_failure=failure_schema(),recognition_diagnostic=diagnostic_schema())
+    return outputs
 
 
 def main():

@@ -12,6 +12,7 @@ from urllib.request import build_opener, HTTPCookieProcessor, Request
 from urllib.error import HTTPError
 from unittest.mock import patch
 import app
+from auth_test_support import registration_payload
 
 class ApiTests(unittest.TestCase):
     def test_notice_type_round_trip_preserves_date_without_conversion(self):
@@ -70,8 +71,11 @@ class ApiTests(unittest.TestCase):
         except HTTPError as e: response=e
         return response.status,json.loads(response.read())
     def register(self,client,email):
-        status,_=self.call(client,'/auth/register','POST',dict(name='Test',email=email,password='Test-password-2026'))
+        account=registration_payload(dict(name='Test',email=email,password='Test-password-2026'),
+                                     lambda body:self.call(client,'/auth/email-code','POST',body))
+        status,result=self.call(client,'/auth/register','POST',account)
         self.assertEqual(status,200)
+        self.assertTrue(result['user']['emailVerified'])
 
     def test_accounts_persistence_isolation_versions_logout(self):
         a,b=self.client(),self.client()

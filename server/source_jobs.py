@@ -11,7 +11,9 @@ import time
 from copy import deepcopy
 
 from contracts import source_sync as contract
-from server.model_queue import cancel_if
+from server.model_queue import cancel_if, ModelQueue
+from server import operations
+from server import recognition_diagnostics as diagnostics
 import recognition
 import source_sync
 import teaching
@@ -19,8 +21,10 @@ import usage
 
 CONCURRENCY = 4
 RUN_LIMIT = 4
+QUEUE_LIMIT = 20
+QUEUE_SECONDS = 180
 QUIET_RECEIPT_SECONDS = 24 * 60 * 60
-_slots = threading.BoundedSemaphore(RUN_LIMIT)
+_slots = ModelQueue(limit=RUN_LIMIT, pending=QUEUE_LIMIT, wait=QUEUE_SECONDS, name='sync_queue')
 _lock = threading.Lock()
 _workers = {}
 
@@ -31,7 +35,7 @@ def stamp():
 
 @contextmanager
 def connection(path):
-    db = sqlite3.connect(path, timeout=20)
+    db = sqlite3.connect(path, timeout=20, factory=operations.TimedConnection)
     db.row_factory = sqlite3.Row
     try:
         with db: yield db
@@ -55,6 +59,8 @@ def initialize(db, recover=True):
         user_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL)''')
     for row in db.execute('SELECT user_id,operation_id,run_id,snapshot FROM source_sync_runs ORDER BY rowid').fetchall():
         run = json.loads(row['snapshot'])
+        if compact_diagnostics(run):
+            db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(run),run['run_id']))
         db.execute('INSERT OR IGNORE INTO source_sync_operations VALUES(?,?,?,?)',
                    (row['user_id'],row['operation_id'],row['run_id'],
                     operation_signature(run['parent_run_id'],run.get('retry_selection'),run.get('recover_sources',False))))
@@ -88,6 +94,24 @@ def credential(db, uid):
 
 def error(code, message, retryable=False):
     return dict(code=code, message=message, retryable=retryable)
+
+
+def collection_error(exc, ApiError):
+    if isinstance(exc, ApiError) and getattr(exc, 'code', None) in ('queue_timeout','queue_full','stopped','source_changed'):
+        return error(exc.code, exc.message, exc.code in ('queue_timeout','queue_full'))
+    # Preserve the public category used by retry/recovery and add an optional
+    # bounded cause so production failures remain diagnosable without raw logs.
+    from contracts.collection_failure import parse_failure
+    try:
+        failure = parse_failure(json.dumps(getattr(exc, 'collection_failure', None)))
+    except (ValueError, TypeError, RecursionError):
+        failure = None
+    result = error('collection_failed', exc.message if isinstance(exc, ApiError) else
+                   '同步暂时失败，请重新获取来源。', True)
+    if failure:
+        result['collection_failure'] = failure
+        result['retryable'] = failure['stage'] in ('navigation', 'collection') or failure['code'] == 'timeout'
+    return result
 
 
 def counts(run):
@@ -240,6 +264,7 @@ def save(db, run, state=None):
     run['updated_at'] = stamp()
     if run['state'] in contract.FINAL: compact(db, run)
     run['counts'] = counts(run)
+    compact_diagnostics(run)
     db.execute('UPDATE source_sync_runs SET state=?,snapshot=? WHERE user_id=? AND run_id=?',
                (run['state'], json.dumps(run), run['user_id'], run['run_id']))
     old_records = {r['request_id']:r for r in previous.get('records',[])}
@@ -253,8 +278,22 @@ def save(db, run, state=None):
         remember_check(db, run)
 
 
-def view(run):
-    return {k: v for k, v in run.items() if k not in ('user_id', 'retry_selection', 'recover_sources', 'recovery_targets', 'recovery_replacements', 'collection_completed')}
+def compact_diagnostics(run):
+    changed = False
+    for item in [run,*run['records']]:
+        previous = item.get('error')
+        current = diagnostics.compact(previous)
+        if current != previous:
+            item['error'] = current
+            changed = True
+    return changed
+
+
+def view(run, db=None):
+    result = deepcopy({k: v for k, v in run.items() if k not in ('user_id', 'retry_selection', 'recover_sources', 'recovery_targets', 'recovery_replacements', 'collection_completed')})
+    for item in [result,*result['records']]:
+        if item.get('error'): item['error'] = diagnostics.hydrate(db,run.get('user_id'),item['error'])
+    return result
 
 
 def can_retry(item):
@@ -349,7 +388,7 @@ def history(db, uid):
             remember_recovery_targets(run,row['credential'],identity,completed_requests,completed_sources)
         if row['quiet']: continue
         if run['state'] in contract.ACTIVE:
-            result.append(view(run))
+            result.append(view(run,db))
         else:
             original = run['records']
             visible = []
@@ -386,7 +425,7 @@ def history(db, uid):
             if run.get('recovered_by') or ((original or run.get('updated_tasks')) and not run['error'] and not any(item['state'] != 'succeeded' and not item.get('recovered') for item in visible) and run['state'] in ('failed','partial_success')):
                 run['state'] = 'succeeded'
             run['counts'] = counts(run)
-            result.append(view(run))
+            result.append(view(run,db))
         if len(result) == 20: break
     return result
 
@@ -460,7 +499,10 @@ def get(db, uid, run_id, ApiError):
 def guard(db, uid, run_id, ApiError):
     row = db.execute('SELECT credential,state FROM source_sync_runs WHERE user_id=? AND run_id=?', (uid, run_id)).fetchone()
     if not row or row['state'] not in contract.ACTIVE: raise ApiError(409, '本轮同步已停止或失效')
-    if credential(db, uid) != row['credential']: raise ApiError(409, '教学网凭据已变化，请重新同步')
+    if credential(db, uid) != row['credential']:
+        exc=ApiError(409, '教学网凭据已变化，请重新同步')
+        exc.code='source_changed'
+        raise exc
 
 
 def operation_signature(parent, selection, recover=False):
@@ -498,8 +540,8 @@ def start(db, uid, body, ApiError, *, trigger='manual', records=None, parent=Non
         bind_operation(db,uid,body,parent,run['run_id'])
         return run
     with _lock:
-        if len(_workers)>=RUN_LIMIT: raise ApiError(503, '同步资源仍在使用或释放中，请稍后重试')
-    if db.execute("SELECT count(*) FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchone()[0] >= RUN_LIMIT:
+        if len(_workers)>=RUN_LIMIT+QUEUE_LIMIT: raise ApiError(503, '同步资源仍在使用或释放中，请稍后重试')
+    if db.execute("SELECT count(*) FROM source_sync_runs WHERE state IN ('queued','crawling','recognizing')").fetchone()[0] >= RUN_LIMIT+QUEUE_LIMIT:
         raise ApiError(503, '同步队列已满，请稍后重试')
     run = dict(contract_version=contract.VERSION, run_id=secrets.token_hex(16), user_id=uid,
                operation_id=body['operation_id'], sources=['teaching_web'], trigger=trigger, parent_run_id=parent,
@@ -534,6 +576,9 @@ def auto_apply(db, uid, request_id, ApiError):
     applied = set()
     for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1', (uid, request_id)).fetchall():
         candidate = json.loads(item['candidate'])
+        if request.get('contract_version')=='0.4':
+            teaching.teaching_identity.protect_source_changes(db,uid,request_id,[candidate])
+            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(candidate),item['id']))
         if not recognition.can_auto_apply(candidate, request, batch['demo']): continue
         # Same submission/ownership/user-decision checks as the interactive endpoint.
         if teaching.submission.review_reason(teaching.submission.for_request(db, uid, request_id)): continue
@@ -542,8 +587,21 @@ def auto_apply(db, uid, request_id, ApiError):
     return added_items(db, uid, request_id, applied)
 
 
-def process_record(path, uid, run_id, request_id, ApiError):
+def process_record(path, uid, run_id, request_id, ApiError, observation=None):
+    with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=run_id,operation='sync.record'):
+        _process_record(path,uid,run_id,request_id,ApiError)
+        with connection(path) as db:
+            run=get(db,uid,run_id,ApiError)
+            item=next((r for r in run['records'] if r['request_id']==request_id),None)
+            if item and item['state'] not in ('queued','running'):
+                code=(item.get('error') or {}).get('code') or item['state']
+                if code not in operations.CODES:code='upstream_error'
+                operations.emit('run',code=code,result='ok' if item['state']=='succeeded' else 'failed')
+
+
+def _process_record(path, uid, run_id, request_id, ApiError):
     started = time.monotonic()
+    diagnostic_attempt = {}
     try:
         with connection(path) as db:
             db.execute('BEGIN IMMEDIATE'); guard(db, uid, run_id, ApiError)
@@ -552,7 +610,7 @@ def process_record(path, uid, run_id, request_id, ApiError):
             save(db, run)
         with cancel_if(lambda: cancelled(path, uid, run_id, ApiError)), connection(path) as db:
             teaching.run(db, uid, dict(contract_version=teaching.RUN, request_id=request_id), True, ApiError,
-                         guard=lambda current: guard(current, uid, run_id, ApiError))
+                         guard=lambda current: guard(current, uid, run_id, ApiError), diagnostic_attempt=diagnostic_attempt)
             if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
             guard(db, uid, run_id, ApiError)
             batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
@@ -568,12 +626,25 @@ def process_record(path, uid, run_id, request_id, ApiError):
                             review=len(review), review_items=review, error=None)
             else:
                 failure = next((r.get('error') for r in result['record_results'] if r.get('error')), {})
-                item.update(state='failed', error=error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)))
+                item.update(state='failed', error=diagnostics.reference(db,uid,request_id,
+                    dict(error(failure.get('code', 'recognition_failed'), failure.get('message', '识别失败，请重试。'), failure.get('retryable', True)),
+                         **{key:failure[key] for key in ('failure','diagnostic','diagnostic_id') if key in failure}),
+                    attempt_id=diagnostic_attempt.get('id')))
             item['seconds'] = round(time.monotonic()-started, 2)
             save(db, run)
     except Exception as exc:
         with connection(path) as db:
+            if not getattr(exc,'_recognition_attempt',None):
+                # Cover post-recognition auto-apply/storage failures as well as
+                # model failures; never rerun recognition to obtain diagnostics.
+                try:
+                    with diagnostics.capture(db,uid,request_id):
+                        raise exc
+                except Exception:
+                    pass
+            diagnostics.persist(db,uid,getattr(exc,'_recognition_attempt',None))
             db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone(): return
             run = get(db, uid, run_id, ApiError)
             if run['state'] not in contract.ACTIVE: return
             item = next(r for r in run['records'] if r['request_id']==request_id)
@@ -582,21 +653,32 @@ def process_record(path, uid, run_id, request_id, ApiError):
             item.update(state='failed', seconds=round(time.monotonic()-started, 2),
                         error=error('source_changed' if conflict else 'model_configuration' if configuration else 'recognition_failed',
                                     exc.message if isinstance(exc, ApiError) else '识别暂时失败，已保存的其他结果不受影响。', not (conflict or configuration)))
+            item['error'] = diagnostics.reference(db,uid,request_id,item['error'],attempt_id=diagnostic_attempt.get('id'))
+            if getattr(exc, '_recognition_failure', None):
+                # Uncoded ApiErrors retain the source-sync legacy code; classification
+                # and retryability must survive without changing receipt identities.
+                item['error'].update({k:v for k,v in exc._recognition_failure.items()
+                                     if k not in ('diagnostics','code') or k=='code' and getattr(exc,'code',None)})
             save(db, run)
 
 
 def collect_recovery(db, uid, run, ApiError, path):
     targets = run['recovery_targets']
+    attempt = None
     try:
-        response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
-            guard=lambda current: guard(current, uid, run['run_id'], ApiError),
-            input_ids={item['input_id'] for item in targets.values()})
+        with diagnostics.capture(db,uid,'collect:'+run['run_id']) as attempt:
+            diagnostics.event('collection_recovery',timeout_seconds=300)
+            response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
+                guard=lambda current: guard(current, uid, run['run_id'], ApiError),
+                input_ids={item['input_id'] for item in targets.values()})
     except Exception as exc:
         if db.in_transaction: db.rollback()
+        diagnostics.persist(db,uid,attempt)
         if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
         guard(db, uid, run['run_id'], ApiError)
         run = get(db, uid, run['run_id'], ApiError)
-        run['error'] = error('collection_failed', exc.message if isinstance(exc,ApiError) else '异常来源暂时无法重新获取，请稍后处理。', True)
+        run['error'] = collection_error(exc, ApiError)
+        run['error'] = diagnostics.reference(db,uid,'collect:'+run['run_id'],run['error'],attempt_id=attempt['attempt_id'] if attempt else None)
         # A collection outage must not prevent recognition retries that can use
         # their already captured source. Incomplete sources remain unresolved.
         for item in run['records']:
@@ -633,14 +715,51 @@ def collect_recovery(db, uid, run, ApiError, path):
     return run
 
 
-def process(path, uid, run_id, ApiError):
+@contextmanager
+def run_slot(path, uid, run_id, ApiError):
+    with cancel_if(lambda: cancelled(path,uid,run_id,ApiError)):
+        if not _slots.acquire():
+            code = _slots.failure or 'queue_timeout'
+            if code == 'stopped':
+                with connection(path) as db:guard(db,uid,run_id,ApiError)
+            message = {'queue_full':'同步排队已满，请稍后重试；尚未开始采集。',
+                       'queue_timeout':'同步排队等待超时，请重试；尚未开始采集。',
+                       'stopped':'本轮同步已停止。'}[code]
+            exc = ApiError(409 if code == 'stopped' else 503, message)
+            exc.code = code
+            raise exc
+    turn = dict(requeue=False)
     try:
-        with _slots:
+        yield turn
+    finally:
+        _slots.release(requeue=turn['requeue'])
+
+
+def process(path, uid, run_id, ApiError):
+    with operations.scope(path,run_id=run_id,operation='sync'):
+        _process(path,uid,run_id,ApiError)
+        with connection(path) as db:
+            row=db.execute('SELECT snapshot FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone()
+            if not row: return
+            run=json.loads(row['snapshot'])
+            if run['state'] in contract.FINAL:
+                operations.emit('run',code=run['state'],result='ok' if run['state']=='succeeded' else 'cancelled' if run['state']=='stopped' else 'failed')
+
+
+def _process(path, uid, run_id, ApiError):
+    first=True
+    while _process_turn(path,uid,run_id,ApiError,first):first=False
+
+
+def _process_turn(path, uid, run_id, ApiError, first):
+    collection_attempt = None
+    try:
+        with run_slot(path,uid,run_id,ApiError) as turn:
             with connection(path) as db:
                 db.execute('BEGIN IMMEDIATE'); guard(db, uid, run_id, ApiError)
                 run = get(db, uid, run_id, ApiError)
-                save(db, run, 'recognizing' if run['parent_run_id'] and not run.get('recover_sources') else 'crawling')
-            if run.get('recover_sources'):
+                save(db, run, 'recognizing' if not first or run['parent_run_id'] and not run.get('recover_sources') else 'crawling')
+            if first and run.get('recover_sources'):
                 with connection(path) as db:
                     run = collect_recovery(db, uid, run, ApiError, path)
                     for item in run['records']:
@@ -648,10 +767,12 @@ def process(path, uid, run_id, ApiError):
                             db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,0) ON CONFLICT(user_id,request_id) DO UPDATE SET import_id=excluded.import_id,created_at=excluded.created_at,source=excluded.source,archived=0',
                                 (uid,item['request_id'],run_id,run['created_at'],'教学网'))
                     save(db,run,'recognizing')
-            elif not run['parent_run_id']:
+            elif first and not run['parent_run_id']:
                 with connection(path) as db:
-                    response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
-                                                   guard=lambda current: guard(current, uid, run_id, ApiError))
+                    with diagnostics.capture(db,uid,'collect:'+run_id) as collection_attempt:
+                        diagnostics.event('collection',timeout_seconds=300)
+                        response = source_sync.collect(db, uid, ApiError, path.parent/'credential.key',
+                                                       guard=lambda current: guard(current, uid, run_id, ApiError))
                     if len(response['requests']) > 1000: raise ApiError(413,'单轮待识别通知超过 1000 条，请缩小采集范围')
                     run = get(db, uid, run_id, ApiError)
                     run['records'] = [record(r) for r in response['requests']]
@@ -666,12 +787,16 @@ def process(path, uid, run_id, ApiError):
             with ThreadPoolExecutor(max_workers=CONCURRENCY, thread_name_prefix='source-record') as pool:
                 futures = set()
                 exhausted = False
+                dispatched = 0
                 while not exhausted or futures:
                     if cancelled(path, uid, run_id, ApiError): break
+                    if dispatched>=CONCURRENCY and _slots.snapshot()['queued']:
+                        exhausted=True  # Yield after this in-flight slice; do not monopolize a run slot.
                     while not exhausted and len(futures) < CONCURRENCY:
                         item = next(pending, None)
                         if item is None: exhausted=True;break
-                        futures.add(pool.submit(process_record, path, uid, run_id, item['request_id'], ApiError))
+                        futures.add(pool.submit(process_record, path, uid, run_id, item['request_id'], ApiError, operations.captured()))
+                        dispatched+=1
                     if futures:
                         done, futures = wait(futures, timeout=.25, return_when=FIRST_COMPLETED)
                         for future in done: future.result()
@@ -685,15 +810,26 @@ def process(path, uid, run_id, ApiError):
                     for item in run['records']:
                         if item['state'] in ('queued','running'):
                             item.update(state='failed',error=run['error'])
-                bad = bool(run.get('error')) or any(r['state'] != 'succeeded' for r in run['records'])
-                good = any(r['state'] == 'succeeded' for r in run['records'])
-                save(db, run, ('partial_success' if good else 'failed') if bad else 'succeeded')
+                if any(item['state']=='queued' for item in run['records']):
+                    save(db,run,'queued')
+                    continuing = True
+                else:
+                    continuing = False
+                    bad = bool(run.get('error')) or any(r['state'] != 'succeeded' for r in run['records'])
+                    good = any(r['state'] == 'succeeded' for r in run['records'])
+                    save(db, run, ('partial_success' if good else 'failed') if bad else 'succeeded')
+            if continuing:
+                turn['requeue'] = True  # Atomically move this accepted slot to the FIFO tail.
+                return True
     except Exception as exc:
         with connection(path) as db:
+            diagnostics.persist(db,uid,collection_attempt)
             db.execute('BEGIN IMMEDIATE')
+            if not db.execute('SELECT 1 FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone(): return
             run = get(db, uid, run_id, ApiError)
             if run['state'] not in contract.ACTIVE: return
-            run['error'] = error('collection_failed', exc.message if isinstance(exc, ApiError) else '同步暂时失败，请重新获取来源。', True)
+            run['error'] = collection_error(exc, ApiError)
+            run['error'] = diagnostics.reference(db,uid,'collect:'+run_id,run['error'],attempt_id=collection_attempt['attempt_id'] if collection_attempt else None)
             for item in run['records']:
                 if item['state'] in ('queued','running'): item['state']='interrupted'
             save(db, run, 'failed')
@@ -701,8 +837,11 @@ def process(path, uid, run_id, ApiError):
 
 def launch(path, uid, run_id, ApiError):
     key = (str(path), run_id)
+    observation=operations.captured()
     def work():
-        try: process(path, uid, run_id, ApiError)
+        try:
+            with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=run_id,operation='sync'):
+                process(path, uid, run_id, ApiError)
         finally:
             with _lock: _workers.pop(key, None)
     with _lock:
@@ -730,20 +869,20 @@ def route(handler, db, uid, path, body, ApiError, database):
         run = start(db, uid, body, ApiError)
         db.commit()
         if run['state'] in contract.ACTIVE: launch(database, uid, run['run_id'], ApiError)
-        handler.reply(202, view(run)); return True
+        handler.reply(202, view(run,db)); return True
     if path==root and handler.command=='GET':
         last = db.execute('SELECT snapshot FROM source_sync_checks WHERE user_id=?', (uid,)).fetchone()
         handler.reply(200, dict(contract_version=contract.VERSION, runs=history(db,uid),
                                 last_check=json.loads(last['snapshot']) if last else None)); return True
     run_id, *suffix = path[len(root)+1:].split('/')
     if handler.command=='GET' and not suffix:
-        handler.reply(200, view(get_details(db, uid, run_id, ApiError))); return True
+        handler.reply(200, view(get_details(db, uid, run_id, ApiError),db)); return True
     if handler.command=='POST' and suffix==['stop']:
         contract.check('stop',body); db.execute('BEGIN IMMEDIATE')
         prune_quiet(db, uid)
         run = get(db, uid, run_id, ApiError)
         stop(db,run)
-        handler.reply(200,view(run)); return True
+        handler.reply(200,view(run,db)); return True
     if handler.command=='POST' and suffix in (['retry'],['recover']):
         recover = suffix == ['recover']
         contract.check('recover' if recover else 'retry',body); db.execute('BEGIN IMMEDIATE')
@@ -755,7 +894,7 @@ def route(handler, db, uid, path, body, ApiError, database):
             run = start(db,uid,body,ApiError,trigger='retry',parent=run_id,recovery_targets={} if recover else None)
             db.commit()
             if run['state'] in contract.ACTIVE: launch(database,uid,run['run_id'],ApiError)
-            handler.reply(202,view(run));return True
+            handler.reply(202,view(run,db));return True
         if old['state'] in contract.ACTIVE: raise ApiError(409,'本轮同步仍在执行，请等待或停止后继续')
         key = db.execute('SELECT credential FROM source_sync_runs WHERE user_id=? AND run_id=?',(uid,run_id)).fetchone()[0]
         if credential(db,uid)!=key: raise ApiError(409,'教学网凭据已改变，请重新获取来源')
@@ -764,5 +903,5 @@ def route(handler, db, uid, path, body, ApiError, database):
         run=start(db,uid,body,ApiError,trigger='retry',records=records,parent=run_id,recovery_targets=targets)
         db.commit()
         if run['state'] in contract.ACTIVE: launch(database,uid,run['run_id'],ApiError)
-        handler.reply(202,view(run));return True
+        handler.reply(202,view(run,db));return True
     raise ApiError(404,'同步操作不存在')

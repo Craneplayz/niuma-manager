@@ -21,6 +21,7 @@ class TelemetryDatabaseCase(unittest.TestCase):
         self.db.row_factory = sqlite3.Row
         self.addCleanup(self.db.close)
         usage.initialize(self.db)
+        self.db.execute("CREATE TABLE users(id TEXT PRIMARY KEY)")
         self.db.commit()
 
 class EmailTelemetryTests(TelemetryDatabaseCase):

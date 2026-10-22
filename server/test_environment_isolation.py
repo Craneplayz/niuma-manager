@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 import manage_environment as manager
 import runtime_environment as runtime
+from auth_test_support import seed_legacy_account
 from ddl_text.codex_client import live_options
 
 
@@ -180,7 +181,8 @@ class EnvironmentBoundaryTests(unittest.TestCase):
         self.assertIn('QINIU_API_KEY=${NIUMA_MODEL_QINIU_API_KEY}',
                       (folder / '.env.model.compose').read_text())
         self.assertEqual(environment['NIUMA_MODEL_QINIU_API_KEY'], 'synthetic$literal')
-        self.assertEqual(command[-1], str(manager.DEPLOY / 'compose.ip.yaml'))
+        self.assertIn(str(manager.DEPLOY / 'compose.ip.yaml'),command)
+        self.assertEqual(command[-1],str(manager.DEPLOY / 'compose.testing-tools.yaml'))
 
     def test_published_ports_and_origin_must_agree(self):
         folder = manager.initialize('test', self.root)
@@ -419,12 +421,21 @@ class LiveEnvironmentIsolationTests(unittest.TestCase):
         return wechat_media.account_asset_loader(self.data_paths[name], user_id)(
             file_ref, max_bytes=10000, timeout_seconds=5)
 
+    def seed_account(self, name, account):
+        # All paths belong to this test's TemporaryDirectory. This verifies that
+        # existing accounts retain login and isolation without a mail provider.
+        self.assertTrue(self.data_paths[name].is_relative_to(Path(self.temp.name)))
+        seed_legacy_account(self.data_paths[name], account)
+
     def test_accounts_sessions_writes_and_version_are_isolated(self):
         cookies={}
         self.expected, self.receipts, self.user_ids = {}, {}, {}
         for name in self.urls:
-            status,headers,account=self.request(name,'/api/auth/register',{'email':'same@synthetic.test','password':'Synthetic-2026!','name':name})
+            credentials={'email':'same@synthetic.test','password':'Synthetic-2026!','name':name}
+            self.seed_account(name,credentials)
+            status,headers,account=self.request(name,'/api/auth/login',credentials)
             self.assertEqual(status,200)
+            self.assertFalse(account['user']['emailVerified'])
             self.user_ids[name] = account['user']['id']
             cookies[name]=headers['Set-Cookie'].split(';')[0]
             self.assertTrue(cookies[name].startswith('niuma_session_'+name+'='))
@@ -432,7 +443,11 @@ class LiveEnvironmentIsolationTests(unittest.TestCase):
             self.assertEqual(status,200)
             self.assertEqual(version['environment'],name)
             self.assertFalse(version['background_recovery'])
-            self.assertEqual(set(version),{'environment','managed','revision','source_dirty','background_recovery','scheduled_sync_available'})
+            expected={'environment','managed','revision','source_dirty','background_recovery','scheduled_sync_available'}
+            if name!='production':
+                expected.add('accountTools')
+                self.assertEqual(version['accountTools'],'/api/environment-tools.js')
+            self.assertEqual(set(version),expected)
         for source in self.urls:
             for target in self.urls:
                 if source == target: continue

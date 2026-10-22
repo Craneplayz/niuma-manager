@@ -92,7 +92,7 @@ class EmailReprocessTests(support.EmailHTTPTestCase):
             request['records'].append(other)
             account=__import__('hashlib').sha256(ADDRESS.encode()).hexdigest()
             db.execute('DELETE FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,original))
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,legacy,row['fingerprint'],json.dumps(request),row['result'],row['demo']))
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,?)',(uid,legacy,row['fingerprint'],json.dumps(request),row['result'],row['demo']))
             db.execute('INSERT INTO source_versions VALUES(?,?,?,?,?)',(uid,account,input_id,'synthetic-digest',json.dumps(request)))
         fetches=self.imap_calls
         _,started=self.call('/sources/email/reprocess',dict(operation_id='legacy-rerun',input_ids=[input_id],consent=True))
@@ -254,7 +254,7 @@ class BulkUpdateTests(support.EmailHTTPTestCase):
                 record=copy.deepcopy(records[0]); record['input_id']=self.ids[number]; record['source_item_id']='77:'+str(number)
                 rid=email_import._request_id(record['input_id'])
                 request=dict(contract_version='0.2',request_id=rid,records=[record])
-                db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',
+                db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0)',
                     (uid,rid,'synthetic',json.dumps(request),json.dumps(support.no_tasks(request,None))))
                 db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
                     (uid,rid,record['input_id'],json.dumps(dict(version=version)) if version else None))
@@ -351,7 +351,7 @@ class BulkUpdateTests(support.EmailHTTPTestCase):
                 request=copy.deepcopy(template); record=request['records'][0]
                 record['input_id']=email_source._identity(support.ADDRESS,'77',number); record['source_item_id']='77:'+str(number)
                 request['request_id']=email_import._request_id(record['input_id'])
-                db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],'synthetic',json.dumps(request),json.dumps(support.no_tasks(request,None))))
+                db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0)',(uid,request['request_id'],'synthetic',json.dumps(request),json.dumps(support.no_tasks(request,None))))
                 db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',(uid,request['request_id'],record['input_id'],json.dumps(dict(version='old'))))
         calls=self.imap_calls
         status,preview=self.call('/sources/email/preview',dict(limit=2000,cache_only=True))

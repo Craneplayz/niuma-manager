@@ -15,7 +15,7 @@ class ImportHistoryTests(unittest.TestCase):
         self.db.execute('CREATE TABLE workspace(user_id TEXT,name TEXT,value TEXT,version INTEGER)')
         self.db.execute('INSERT INTO workspace VALUES(?,?,?,?)', ('owner', 'tasks', '[{"id":"existing-task"}]', 1))
         for uid, rid in [('owner', 'first'), ('owner', 'second'), ('other', 'foreign')]:
-            self.db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',
+            self.db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,NULL)',
                             (uid, rid, 'fingerprint', json.dumps({'request_id': rid, 'records': []}), '{}', 0))
             self.db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                             (rid, uid, rid, '{}'))

@@ -1,11 +1,6 @@
 name: environment-smoke
 
 on:
-  pull_request:
-    paths:
-      - 'server/**'
-      - 'frontend/**'
-      - '.github/workflows/environment-smoke.yml'
   workflow_dispatch:
 
 permissions:

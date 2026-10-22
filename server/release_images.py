@@ -28,7 +28,9 @@ def _running_pair(docker, env, transport):
     pair = {}
     for service in ('api', 'web'):
         ids = _query(docker, env, 'ps', '--filter', 'label=com.docker.compose.project=niuma-test',
-                     '--filter', 'label=com.docker.compose.service=' + service, '--quiet').splitlines()
+                     '--filter', 'label=com.docker.compose.service=' + service,
+                     '--filter', 'label=com.docker.compose.config-hash',
+                     '--filter', 'label=com.docker.compose.oneoff=False', '--quiet').splitlines()
         if len(ids) != 1 or not re.fullmatch(r'[0-9a-f]{12,64}', ids[0]):
             raise ValueError('Acceptance requires exactly one running test API and web container')
         identity = json.loads(_query(docker, env, 'inspect', '--format',

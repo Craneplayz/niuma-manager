@@ -56,8 +56,8 @@ def validation_detail(error):
     arbitrary exception text, quotes, identifiers, or provider output.
     """
     from ddl_text import extraction
-    detail = {}
-    context = error.__context__
+    detail = dict(getattr(error,'reference_detail',{}))
+    context = error
     while context is not None:
         tb = context.__traceback__
         while tb:
@@ -70,7 +70,7 @@ def validation_detail(error):
                         if marker in line:
                             detail['field'] = field
                             break
-                if frame.f_code.co_name == '_reference':
+                if frame.f_code.co_name == '_reference' and not detail.get('check'):
                     ref = frame.f_locals.get('ref'); available = frame.f_locals.get('available',{})
                     extra = frame.f_locals.get('extra',())
                     if not isinstance(ref,dict) or set(ref) != {'input_id','quote'} | set(extra):

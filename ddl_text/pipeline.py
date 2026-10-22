@@ -8,21 +8,25 @@ from .adapters import AgentError, UnavailableAdapter
 from .config import Settings
 from .contracts import ContractError, check_request, nonempty, normalize_record, validate_tasks
 from .runner import MESSAGES, run_attempt
+from contracts.recognition_errors import describe
+from . import diagnostics
 
 
 LOGGER = logging.getLogger("ddl_text")
 
 
-def error_result(input_id, code, retryable=False):
-    return {"input_id": input_id, "code": code, "message": MESSAGES[code], "retryable": retryable}
+def error_result(input_id, code, retryable=False, diagnostic=None, detail=None):
+    return describe({"input_id": input_id, "code": code, "message": MESSAGES[code], "retryable": retryable}, reason=diagnostic, detail=detail)
 
 
-def process_request(request, adapter=None, settings=None, budget_seconds=None, attempt_observer=None, attempt_guard=None):
+@diagnostics.traced
+def process_request(request, adapter=None, settings=None, budget_seconds=None, attempt_observer=None, attempt_guard=None, diagnostic_event=None):
     settings = settings or Settings()
     adapter = adapter if adapter is not None else UnavailableAdapter()
     request_id = request.get("request_id") if isinstance(request, dict) else None
     version = "0.2" if isinstance(request, dict) and request.get("contract_version") == "0.2" else "0.1"
     expires = time.monotonic() + budget_seconds if budget_seconds is not None else None
+    emit = diagnostics.emit
     result = {"contract_version": version, "request_id": request_id if nonempty(request_id) else None,
               "status": "failed", "record_results": [], "tasks": [], "errors": []}
     try:
@@ -31,7 +35,8 @@ def process_request(request, adapter=None, settings=None, budget_seconds=None, a
         result["errors"].append(error_result(None, error.code))
         return result
     used_ids = set()
-    for raw in records:
+    for record_index, raw in enumerate(records):
+        emit('record', record_index=record_index, status='started')
         started = time.monotonic()
         outcome = {"input_id": raw["input_id"], "status": "failed", "task_ids": [], "warnings": []}
         attempts = 0
@@ -87,11 +92,17 @@ def process_request(request, adapter=None, settings=None, budget_seconds=None, a
             outcome["task_ids"] = [task["candidate_id"] for task in tasks]
             outcome["status"] = "success" if tasks else "no_tasks"
         except ContractError as error:
+            diagnostics.failure(error, stage='result_validation', reason='invalid_input' if error.code=='invalid_input' else 'result_contract')
             result["errors"].append(error_result(raw["input_id"], error.code,
                                                 error.code == "invalid_agent_output"))
         except AgentError as error:
-            result["errors"].append(error_result(raw["input_id"], error.code, error.retryable))
+            emit('text_recognition_failed', code=error.code, diagnostic=error.diagnostic, schema=error.detail)
+            result["errors"].append(error_result(raw["input_id"], error.code, error.retryable, error.diagnostic, error.detail))
+        except Exception as error:
+            diagnostics.failure(error, stage='text_recognition_failed')
+            result['errors'].append(error_result(raw['input_id'], 'agent_unavailable', False, 'internal_error'))
         result["record_results"].append(outcome)
+        emit('text_result', status=outcome['status'], seconds=time.monotonic()-started)
         LOGGER.info("mode=%s version=%s status=%s attempts=%d elapsed_ms=%d",
                     settings.mode, version, outcome["status"], attempts, (time.monotonic() - started) * 1000)
     failures = sum(item["status"] == "failed" for item in result["record_results"])

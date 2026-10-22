@@ -14,6 +14,7 @@ from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 import app
+from auth_test_support import registration_payload
 import email_import
 import email_source
 import recognition
@@ -156,9 +157,10 @@ class EmailHTTPTestCase(unittest.TestCase):
 
     def account(self, name):
         client = build_opener(HTTPCookieProcessor(CookieJar()))
-        status, _ = self.call('/auth/register', dict(name=name, email=name+'@acceptance.test',
-            password='Synthetic-only-2026!'), client=client)
-        self.assertEqual(status, 200)
+        payload = registration_payload(dict(name=name,email=name+'@acceptance.test',
+            password='Synthetic-only-2026!'), lambda body: self.call('/auth/email-code',body,client=client))
+        status, result = self.call('/auth/register', payload, client=client)
+        self.assertEqual(status, 200, result)
         return client
 
     def settled(self, job_id, timeout=10):

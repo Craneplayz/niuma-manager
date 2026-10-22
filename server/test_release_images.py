@@ -84,6 +84,26 @@ class ReleaseImageTests(unittest.TestCase):
         with patch.object(release, '_query', side_effect=query), patch.object(release, '_image', side_effect=[self.pair['api'], dict(self.pair['web'], revision='d'*40)]):
             with self.assertRaisesRegex(ValueError, 'different source'): release._running_pair('docker', {}, 'http')
 
+    def test_running_pair_ignores_helpers_but_rejects_duplicate_compose_services(self):
+        duplicate = False
+        calls = []
+        def query(docker, env, *args):
+            calls.append(args)
+            if args[0] == 'ps':
+                real = '0123456789ab' if 'label=com.docker.compose.service=api' in args else 'fedcba987654'
+                scoped = ('label=com.docker.compose.config-hash' in args and
+                          'label=com.docker.compose.oneoff=False' in args)
+                return real + ('\n' + 'd' * 12 if duplicate or not scoped else '')
+            service = 'api' if args[-1] == '0123456789ab' else 'web'
+            return json.dumps(dict(image=self.pair[service]['id'],
+                                   state=dict(Running=True, Health=dict(Status='healthy')), transport='http'))
+        with patch.object(release, '_query', side_effect=query), patch.object(release, '_image', side_effect=self.image):
+            self.assertEqual(release._running_pair('docker', {}, 'http'), self.pair)
+            self.assertTrue(all('d' * 12 not in args for args in calls if args[0] == 'inspect'))
+            duplicate = True
+            with self.assertRaisesRegex(ValueError, 'exactly one'):
+                release._running_pair('docker', {}, 'http')
+
     def test_production_entry_cannot_bypass_acceptance_and_pins_compose(self):
         with patch.object(manager, 'read_config', return_value=(self.path.parent, self.production, {})), \
                 patch.object(manager.shutil, 'which', return_value='docker'), \

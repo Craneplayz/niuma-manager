@@ -18,6 +18,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import wechat_media
 from contracts.check_v031_examples import check_pair, json_bytes
 
@@ -186,7 +187,9 @@ except OSError:sys.exit(26)
 
     def client(self, email):
         client = build_opener(HTTPCookieProcessor(CookieJar()))
-        self.call(client, '/auth/register', 'POST', dict(name='Test', email=email, password='Test-password-2026'))
+        account = registration_payload(dict(name='Test', email=email, password='Test-password-2026'),
+                                       lambda body: self.call(client, '/auth/email-code', 'POST', body))
+        self.assertEqual(self.call(client, '/auth/register', 'POST', account)[0], 200)
         return client
 
     def call(self, client, path, method='GET', body=None, token=None, multipart=False, fields=None):
@@ -956,7 +959,7 @@ wechat_media._upload(handler,CrashConnection(),sys.argv[2],Path(sys.argv[1]).par
         request.update(request_id='record-progress',records=[dict(record,input_id='progress-1'),dict(record,input_id='progress-2')])
         started,release=threading.Event(),threading.Event()
         calls=[]
-        def adapter(body,loader,model,settings,limits):
+        def adapter(body,loader,model,settings,limits,**kwargs):
             rid=body['records'][0]['input_id'];calls.append(rid)
             self.assertLessEqual(limits.batch_seconds,180)
             self.assertLessEqual(limits.record_seconds,70)
@@ -1005,7 +1008,7 @@ from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path.cwd()/'server'))
 import wechat_media
-def adapter(body,*args):
+def adapter(body,*args,**kwargs):
     rid=body['records'][0]['input_id']
     if rid=='inflight-2': os._exit(23)
     return dict(contract_version='0.3.1',request_id=body['request_id'],status='no_tasks',tasks=[],errors=[],
@@ -1024,7 +1027,7 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
             self.assertIsNone(markers['inflight-2'])
             wechat_media.initialize(db)
         options=dict(provider='qiniu',key='synthetic-key',model='test-image-model',endpoint='https://example.invalid/v1/chat/completions')
-        with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.media_pipeline.process_media_request',side_effect=lambda body,*args:result(body)) as adapter:
+        with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl_text.media_pipeline.process_media_request',side_effect=lambda body,*args,**kwargs:result(body)) as adapter:
             wechat_media._process(app.DB,ack['job_id'])
             self.assertEqual([call.args[0]['records'][0]['input_id'] for call in adapter.call_args_list],['unstarted-3'])
             wechat_media._process(app.DB,ack['job_id'])

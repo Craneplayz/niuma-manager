@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import model_queue
 from task_planning.decomposition import load_instructions as decomposition_instructions
+from server import operations
 from ddl_text.adapters import AgentError
 from ddl_text.codex_client import live_options
 from task_planning.decomposition import generate_decomposition, validate_model_draft
@@ -103,8 +104,9 @@ def generate(task, conversation, ApiError):
         if delay:
             raise ApiError(503, '模型配额暂时不足，请稍后重试')
         try:
-            return generate_decomposition(request, options,
-                response_observer=model_queue.provider_observer(options, receipt))
+            with operations.span('model_call','decomposition.harness'):
+                return generate_decomposition(request, options,
+                    response_observer=model_queue.provider_observer(options, receipt))
         except AgentError as error:
             message = 'AI 拆解请求超时，请稍后重试' if error.code == 'agent_timeout' else 'AI 拆解模型暂时不可用，请稍后重试'
             raise ApiError(502, message) from None

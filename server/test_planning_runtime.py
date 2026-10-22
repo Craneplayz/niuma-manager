@@ -1,5 +1,6 @@
 """Planning through the real account API, with synthetic model transports."""
 import copy
+import hashlib
 import io
 import json
 import tempfile
@@ -13,6 +14,7 @@ from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 import app
+from auth_test_support import registration_payload
 import planning
 from server.model_queue import ModelQueue
 from ddl_text.codex_client import ENV_KEYS
@@ -67,8 +69,10 @@ class PlanningRuntimeTests(unittest.TestCase):
 
     def new_client(self, name):
         client = build_opener(HTTPCookieProcessor(CookieJar()))
-        self.assertEqual(self.call(client, '/auth/register', dict(
-            name='Synthetic planning', email=name+'@planning.test', password='Synthetic-only-2026!'))[0], 200)
+        account = registration_payload(dict(
+            name='Synthetic planning', email=hashlib.sha256(name.encode()).hexdigest()[:32]+'@planning.test', password='Synthetic-only-2026!'),
+            lambda body: self.call(client, '/auth/email-code', body))
+        self.assertEqual(self.call(client, '/auth/register', account)[0], 200)
         self.assertEqual(self.call(client, '/data/tasks', dict(value=[self.task], version=0), 'PUT')[0], 200)
         self.assertEqual(self.call(client, '/data/availability', dict(value=dict(
             startTime='19:00', endTime='22:00', weekdays=list(range(7))), version=0), 'PUT')[0], 200)

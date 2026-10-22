@@ -8,6 +8,7 @@ import secrets
 import re
 import sqlite3
 import threading
+from server import operations
 from urllib.parse import parse_qs, urlsplit
 from jsonschema.exceptions import ValidationError
 
@@ -27,7 +28,7 @@ def stamp():
 
 @contextmanager
 def connection(path):
-    db = sqlite3.connect(path, timeout=10)
+    db = sqlite3.connect(path, timeout=10, factory=operations.TimedConnection)
     db.row_factory = sqlite3.Row
     try:
         with db:
@@ -287,7 +288,7 @@ def process(path, uid, run_id, ApiError):
                     summary['preserved']=len(protected)
                     summary['unresolved']=len(cards) if hold else 0
                     fingerprint=hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-                    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result)))
+                    db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result)))
                     for rid in (item['request']['request_id'],request['request_id']):
                         db.execute('INSERT OR IGNORE INTO reprocessing_request_sources VALUES(?,?,?,?,?)',
                             (uid,item.get('kind','text'),item['account'],record['input_id'],rid))
@@ -315,6 +316,8 @@ def process(path, uid, run_id, ApiError):
                                 item['request']['request_id'],request['request_id'])
                             db.execute('UPDATE teaching_sources SET request=?,request_id=? WHERE user_id=? AND account=? AND input_id=?',
                                 (json.dumps(captured),request['request_id'],uid,item['account'],record['input_id']))
+                            teaching.teaching_assets.remember_inputs(db,uid,item['account'],
+                                request['request_id'],attachments.get('files',[]))
                             # Superseded failures must not keep offering retry in the active inbox.
                             # Keep their request/result in storage; never hide handled decisions.
                             for rid in {item['request']['request_id'],*(c['request_id'] for c in replaceable)}:
@@ -362,7 +365,14 @@ def process(path, uid, run_id, ApiError):
 
 
 def launch(path, uid, run_id, ApiError):
-    worker=threading.Thread(target=process,args=(path,uid,run_id,ApiError),daemon=True)
+    observation=operations.captured()
+    def work():
+        with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=run_id,operation='reprocessing'):
+            process(path,uid,run_id,ApiError)
+            with connection(path) as db:
+                row=db.execute("SELECT json_extract(snapshot,'$.state') FROM reprocessing_runs WHERE user_id=? AND run_id=?",(uid,run_id)).fetchone()
+            if row and row[0] in operations.CODES:operations.emit('run',code=row[0],result='ok' if row[0]=='succeeded' else 'failed')
+    worker=threading.Thread(target=work,daemon=True)
     with _lock:
         _workers.add((str(path),worker))
         try:

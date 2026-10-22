@@ -23,7 +23,7 @@ class ResponseDiagnosticTests(unittest.TestCase):
         raw = json.dumps(response).encode()
         with patch('ddl_text.chat_client.build_opener') as opener:
             opener.return_value.open.return_value = io.BytesIO(raw)
-            return replay(message(), ChatClient('synthetic-key', observer), self.settings)
+            return replay(message(platform='email'), ChatClient('synthetic-key', observer), self.settings)
 
     def test_truncated_reasoning_only_answer_is_identified_before_validation(self):
         responses=[]

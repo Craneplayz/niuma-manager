@@ -240,7 +240,7 @@ class EmailImportSafetyTests(unittest.TestCase):
             tasks=[], errors=[])
         fingerprint = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         with self._connect() as db:
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0)',
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0)',
                 (self.uid, request['request_id'], fingerprint, json.dumps(request), json.dumps(failed)))
 
         self._email_call('/api/sources/email/preferences', dict(consent=False, process_all=False))

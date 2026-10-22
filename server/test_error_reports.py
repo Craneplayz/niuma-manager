@@ -10,12 +10,22 @@ from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 
 import app
+from auth_test_support import registration_payload
 import error_reports
 
 CASES = json.loads((Path(__file__).resolve().parent.parent / 'contracts/examples/error-reports-v01.json').read_text())['reports']
 
 
 class ErrorReportTests(unittest.TestCase):
+    def test_explicit_feedback_preserves_diagnostic_id_without_details(self):
+        payload=dict(CASES[0],diagnostic_id='a1'*12)
+        self.assertEqual(self.call('/error-reports',payload)[0],200)
+        with app.connection() as db:
+            saved=json.loads(db.execute('SELECT report FROM error_reports').fetchone()[0])
+        self.assertEqual(saved['diagnostic_id'],payload['diagnostic_id'])
+        self.assertNotIn('diagnostics',saved)
+        self.assertEqual(self.call('/error-reports',dict(payload,diagnostics='PRIVATE-DETAIL'))[0],400)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.old = app.DB
@@ -38,6 +48,8 @@ class ErrorReportTests(unittest.TestCase):
         self.temp.cleanup()
 
     def call(self, path, body=None, headers=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request: self.call('/auth/email-code', request, headers))
         request = Request(f'http://127.0.0.1:{self.server.server_port}/api' + path,
                           None if body is None else json.dumps(body).encode(),
                           {'Content-Type': 'application/json', **(headers or {})})

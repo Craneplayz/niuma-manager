@@ -32,8 +32,9 @@ if 'date-time' not in FORMATS.checkers:
 require = previous.require
 PUBLIC_QUERY_KEYS = {'id', 'page', 'view', 'mode', 'method', 'context', 'courseid', 'handle',
                      'contentid', 'announcementid', 'p', 'lang'}
-RETRY_CODES = {'agent_timeout', 'agent_unavailable', 'file_read_failed'}
+RETRY_CODES = {'agent_timeout', 'agent_unavailable', 'file_read_failed', 'invalid_agent_output'}
 TERMINAL = {'succeeded', 'partial_failed', 'failed'}
+MAX_RESULT_BYTES = 2_000_000
 SUPPORTED_MIMES = {'image/jpeg', 'image/png', 'application/pdf',
                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}
 
@@ -159,7 +160,7 @@ def check_request(request):
 
 def check_pair(request, result):
     check_request(request)
-    require(len(json_bytes(result)) <= 2_000_000, 'result_too_large')
+    require(len(json_bytes(result)) <= MAX_RESULT_BYTES, 'result_too_large')
     previous.check_pair(request, result, validate_schema=schema)
     for candidate in result['tasks']:
         require(not any(e['field'] == 'attachment_file' for e in candidate['evidence'])

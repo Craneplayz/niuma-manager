@@ -31,3 +31,7 @@ server/deploy/environments
 crawler/data
 crawler/secret
 crawler/logs
+
+# Test tools are source-only mounts, never part of release images.
+server/environment_tools
+server/test_account_reset.py

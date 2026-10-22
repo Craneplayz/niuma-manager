@@ -41,25 +41,29 @@ def _watch_process_owner(db_path):
     was_owner = email_scheduler.owns_process(db_path)
     try:
         while Path(db_path).exists():
-            if not email_scheduler.owns_process(db_path):
-                if was_owner:
-                    _recovered_paths.discard(db_path)
+            try:
+                if not email_scheduler.owns_process(db_path):
+                    if was_owner:
+                        _recovered_paths.discard(db_path)
+                    was_owner = False
+                    email_scheduler.claim_process_owner(db_path)
+                if email_scheduler.owns_process(db_path):
+                    if not was_owner or db_path not in _recovered_paths:
+                        db = None
+                        try:
+                            db = sqlite3.connect(db_path, timeout=10)
+                            db.row_factory = sqlite3.Row
+                            with db:
+                                _recover_active_jobs(db, db_path)
+                            was_owner = True
+                        except (sqlite3.Error, ValueError, TypeError, KeyError):
+                            was_owner = False
+                        finally:
+                            if db is not None:
+                                db.close()
+            except sqlite3.Error:
+                # A transient write lock must not permanently disable takeover.
                 was_owner = False
-                email_scheduler.claim_process_owner(db_path)
-            if email_scheduler.owns_process(db_path):
-                if not was_owner or db_path not in _recovered_paths:
-                    db = None
-                    try:
-                        db = sqlite3.connect(db_path, timeout=10)
-                        db.row_factory = sqlite3.Row
-                        with db:
-                            _recover_active_jobs(db, db_path)
-                        was_owner = True
-                    except (sqlite3.Error, ValueError, TypeError, KeyError):
-                        was_owner = False
-                    finally:
-                        if db is not None:
-                            db.close()
             time.sleep(5)
     finally:
         with _recovery_watchers_lock:

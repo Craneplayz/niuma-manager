@@ -1,4 +1,5 @@
 """Authenticated recognition transport and transactional candidate resolution."""
+from contextlib import nullcontext
 import hashlib
 import json
 import os
@@ -28,6 +29,8 @@ if str(ROOT) not in sys.path:
 
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import model_queue, email_telemetry
+from server import operations
+from server import recognition_diagnostics as diagnostics
 from ddl_text.codex_client import live_options
 from ddl_text.config import Settings, email_model_settings, EMAIL_RECOGNITION_TIMEOUT
 from ddl_text.extraction import ExtractionAdapter
@@ -76,7 +79,7 @@ def _attempt_metric(metrics):
                 reason = 'unknown'
             email_telemetry.record_diagnostic(path, uid, 'validation', reason, metrics['validation_ms'])
 
-def recognize(request, ApiError):
+def recognize(request, ApiError, *, on_admitted=None):
     """Queue model admission across accounts, features and transports."""
     _EXECUTION.policy = None
     email_request = bool(request.get('records')) and all(r.get('platform') == 'email' for r in request['records'])
@@ -97,42 +100,60 @@ def recognize(request, ApiError):
     attempt_metrics = []
     attempts_started = 0
     try:
+        if on_admitted is not None: on_admitted()
         endpoint = os.environ.get('TEXT_HARNESS_URL')
         if endpoint:
             headers = {'Content-Type': 'application/json'}
             if os.environ.get('TEXT_HARNESS_TOKEN'):
                 headers['Authorization'] = 'Bearer ' + os.environ['TEXT_HARNESS_TOKEN']
             try:
-                with urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=budget_seconds + 5) as response:
+                with operations.span('model_call','recognition.harness'), urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=budget_seconds + 5) as response:
                     return json.loads(response.read(2000000))
             except HTTPError as error:
                 busy = error.code == 503
+                diagnostics.event('harness',http_status=error.code,status='failed')
                 error.close()
-                if busy:
-                    raise ApiError(503, '文本识别正在处理其他请求，请稍后重试') from None
-                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
-            except Exception:
-                raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+                failure=ApiError(503 if busy else 502,'文本识别服务调用失败')
+                failure.code, failure.diagnostic='agent_unavailable','model_busy' if busy else 'model_unavailable'
+                raise failure from None
+            except Exception as cause:
+                from ddl_text import diagnostics as trace
+                from urllib.error import URLError
+                reason = ('model_timeout' if isinstance(cause,TimeoutError) or isinstance(cause,URLError) and isinstance(cause.reason,TimeoutError)
+                    else 'provider_response' if isinstance(cause,(ValueError,UnicodeError))
+                    else 'model_unavailable' if isinstance(cause,(OSError,URLError)) else 'internal_error')
+                trace.failure(cause,stage='harness',reason=reason)
+                failure=ApiError(502,'文本识别服务调用失败')
+                failure.code='invalid_agent_output' if reason=='provider_response' else 'agent_timeout' if reason=='model_timeout' else 'agent_unavailable'
+                failure.diagnostic=reason
+                raise failure from None
         try:
             options = live_options(model_env_path(ROOT))
             if not options['key'].strip():
                 raise ValueError('missing credential')
-            adapter = ExtractionAdapter(make_client(options))
+            adapter = ExtractionAdapter(operations.observe_chat(make_client(options)))
             settings = email_model_settings(options) if email_request else Settings(
-                mode='real', model=options['model'], endpoint=options['endpoint'], timeout_seconds=90, max_retries=0)
+                mode='real', model=options['model'], endpoint=options['endpoint'], timeout_seconds=90, max_retries=0,
+                thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
         except (OSError, ValueError, TypeError, KeyError):
-            raise ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥') from None
+            error = ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥')
+            error.code = 'model_configuration'
+            raise error from None
         try:
             policy = text_policy_manifest(settings,provider='qiniu' if options['provider']=='qiniu' else 'codex')
             if policy['components'] != _POLICY_COMPONENTS:
                 raise ValueError('policy_changed_after_startup')
         except (OSError,ValueError,KeyError,TypeError):
-            raise ApiError(503,'识别规则与当前进程不一致，请重启后端后重试') from None
+            error=ApiError(503,'识别规则与当前进程不一致，请重启后端后重试')
+            error.code, error.diagnostic='agent_unavailable','recognition_rules'
+            raise error from None
         _EXECUTION.policy = policy
+        diagnostics.event('configuration',model=settings.model,provider=options['provider'],
+                          timeout_seconds=settings.timeout_seconds,policy_version=policy['version'])
         try:
             provider_key, receipt, delay = model_queue.provider_reservation(
                 options, request, settings.max_output_tokens,
-                2 if settings.truncation_retry_tokens else 1,
+                2,
                 fallback_tokens=settings.truncation_retry_tokens)
         except ValueError:
             raise ApiError(503, '模型配额设置不足以处理单封邮件，请管理员检查配置') from None
@@ -152,7 +173,7 @@ def recognize(request, ApiError):
                 attempts_started += 1
                 return True
             guard = {'attempt_guard': before_attempt}
-            result = process_request(request, adapter, settings, budget_seconds=budget_seconds, **observer, **guard)
+            result = process_request(request, adapter, settings, budget_seconds=budget_seconds, diagnostic_event=diagnostics.event, **observer, **guard)
             throttled = next((m for m in attempt_metrics if m.get('provider_status') == 429), None)
             if throttled:
                 delay = model_queue.PROVIDER.throttled(provider_key, throttled.get('retry_after_seconds'))
@@ -162,8 +183,12 @@ def recognize(request, ApiError):
             return result
         except model_queue.EmailDeferred:
             raise
-        except Exception:
-            raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
+        except Exception as cause:
+            from ddl_text import diagnostics as trace
+            trace.failure(cause, stage='text_server')
+            error = ApiError(502, '识别程序发生内部异常，请反馈诊断编号')
+            error.code, error.diagnostic = 'agent_unavailable', 'internal_error'
+            raise error from None
     finally:
         if receipt and attempt_metrics:
             # Release only reservations for attempts that definitely started.
@@ -171,7 +196,7 @@ def recognize(request, ApiError):
             # unknown/missing usage keeps the conservative token reservation.
             if len(attempt_metrics) == attempts_started:
                 known = all(type(m.get('total_tokens')) is int for m in attempt_metrics)
-                model_queue.PROVIDER.settle(receipt, requests=len(attempt_metrics),
+                model_queue.PROVIDER.settle(receipt, requests=sum(m.get('provider_calls',1) for m in attempt_metrics),
                     tokens=sum(m['total_tokens'] for m in attempt_metrics) if known else None)
         elif receipt and attempts_started == 0:
             # The cancellation guard refused the first call, so nothing reached
@@ -183,11 +208,13 @@ def recognize(request, ApiError):
 def initialize(db):
     usage.initialize(db)
     db.executescript('''
-    CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, PRIMARY KEY(user_id,request_id));
+    CREATE TABLE IF NOT EXISTS recognition_batches(user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, request TEXT NOT NULL, result TEXT NOT NULL, demo INTEGER NOT NULL, attempt_id TEXT, PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_candidates(id TEXT PRIMARY KEY,user_id TEXT NOT NULL,request_id TEXT NOT NULL,candidate TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',version INTEGER NOT NULL DEFAULT 1,resolution TEXT);
     CREATE TABLE IF NOT EXISTS recognition_import_records(user_id TEXT NOT NULL,request_id TEXT NOT NULL,import_id TEXT NOT NULL,created_at TEXT NOT NULL,source TEXT NOT NULL,archived INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(user_id,request_id));
     CREATE TABLE IF NOT EXISTS recognition_record_policies(user_id TEXT NOT NULL,request_id TEXT NOT NULL,input_id TEXT NOT NULL,policy TEXT,PRIMARY KEY(user_id,request_id,input_id));
     ''')
+    if not db.execute("SELECT 1 FROM pragma_table_info('recognition_batches') WHERE name='attempt_id'").fetchone():
+        db.execute('ALTER TABLE recognition_batches ADD COLUMN attempt_id TEXT')
 
 def was_automatically_withdrawn(candidate):
     """Only the first system withdrawal is replaceable, never a user decision."""
@@ -226,6 +253,7 @@ def batches(db,uid):
         if request.get('contract_version')=='0.4':
             import teaching
             output = teaching.submission.project_result(db,uid,row['request_id'],teaching.result_view(request,output))
+            output['errors'] = [teaching.diagnostics.bind(db,uid,row['request_id'],e,attempt_id=row['attempt_id']) for e in output['errors']]
             cards = {c['candidate_id']: c for c in output['tasks']}
             # History-filtered pending proposals leave the active review view;
             # saved model runs and already applied/ignored user decisions remain.
@@ -240,6 +268,8 @@ def batches(db,uid):
                         card[field]=item['candidate'][field]
                 item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],card)
             request = teaching.request_view(request)
+        elif request.get('contract_version') == '0.2':
+            output['errors'] = [diagnostics.bind(db,uid,row['request_id'],e,attempt_id=row['attempt_id']) for e in output['errors']]
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None,sourceSyncManaged=row['request_id'] in sync_requests))
     return result
 
@@ -278,8 +308,106 @@ def has_unapplied_auto_tasks(db, uid, request, demo=False):
                for row in db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1',
                                      (uid,request['request_id'])))
 
+def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before_save=None, on_admitted=None, email_guard=None):
+    """Share validation, idempotency and candidate persistence with durable text jobs."""
+    previous=None
+    if demo:
+        fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
+        request=fixture['request'];request['request_id']='demo:text-contract:0.2'
+        result=fixture['expected'];result['request_id']=request['request_id']
+    try: validate_request(request)
+    except (ValueError,TypeError,KeyError): raise ApiError(400,'识别请求不符合 v0.2 契约')
+    def unmanaged_guard():
+        if before_save is None and db.execute("SELECT name FROM sqlite_master WHERE name='text_import_jobs'").fetchone():
+            if db.execute('SELECT 1 FROM text_import_jobs WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone():
+                raise ApiError(409,'此文本导入由后台处理，请通过导入记录查看或重试')
+    unmanaged_guard()
+    fingerprint=hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    row=db.execute('SELECT * FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
+    if row:
+        if row['fingerprint']!=fingerprint: raise ApiError(409,'同一 request_id 不能用于不同输入')
+        previous=json.loads(row['result'])
+        if not retry or row['demo'] or previous['status'] in ('success','no_tasks'):
+            return previous
+    email_request = not demo and any(r.get('platform') == 'email' for r in request['records'])
+    if email_request and not row:
+        raise ApiError(400,'请通过邮箱后台导入处理新邮件')
+    def check_email(phase):
+        if email_request and email_guard:
+            try: email_guard(db,uid,request,phase)
+            except ValueError: raise ApiError(403,'邮箱授权已撤销、邮件已排除或来源不属于当前邮箱') from None
+    check_email('model')
+    extraction_request=request
+    if previous:
+        completed={r['input_id'] for r in previous['record_results'] if r['status']!='failed'}
+        extraction_request=dict(request,records=[r for r in request['records'] if r['input_id'] not in completed])
+    capture = diagnostics.capture(db,uid,request['request_id']) if not demo and extraction_request['records'] else nullcontext(None)
+    with capture as attempt:
+        if not demo:
+            if not request['records']:
+                result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
+            else:
+                _EXECUTION.policy = None
+                def cancelled_email():
+                    try: check_email('model'); return False
+                    except ApiError: return True
+                with model_queue.cancel_if(cancelled_email) if email_request and email_guard else nullcontext():
+                    result=diagnostics.stamp(recognize(extraction_request,ApiError,on_admitted=on_admitted)
+                        if on_admitted is not None else recognize(extraction_request,ApiError))
+        policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
+        try:
+            result=validate_result(extraction_request,result)
+            new_tasks=list(result['tasks'])
+            if previous:
+                # Keep successful candidates and their confirmation state; only replace failures.
+                retried={r['input_id'] for r in extraction_request['records']}
+                if not result['record_results']:
+                    raise ValueError('retry envelope failed')
+                outcomes={r['input_id']:r for r in previous['record_results'] if r['input_id'] not in retried}
+                outcomes.update({r['input_id']:r for r in result['record_results']})
+                result['record_results']=[outcomes[r['input_id']] for r in request['records']]
+                result['tasks']=previous['tasks']+new_tasks
+                failures=sum(r['status']=='failed' for r in result['record_results'])
+                result['status']=('failed' if failures==len(request['records']) else 'partial_success') if failures else ('success' if result['tasks'] else 'no_tasks')
+                result=validate_result(request,result)
+        except (ValueError,TypeError,KeyError):
+            error = ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')
+            error.code = 'invalid_agent_output'
+            raise error from None
+        attempt_id = attempt['attempt_id'] if attempt else None
+        db.execute('BEGIN IMMEDIATE')
+        unmanaged_guard()
+        check_email('save')
+        if before_save is not None: before_save(db)
+        row=db.execute('SELECT fingerprint,result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
+        if row:
+            if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')
+            # Another request may have finished during the model call. Never overwrite it.
+            if previous is not None and json.loads(row['result'])==previous:
+                db.execute('UPDATE recognition_batches SET result=?,attempt_id=? WHERE user_id=? AND request_id=?',(json.dumps(result),attempt_id,uid,request['request_id']))
+                for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+                for record in extraction_request['records']:
+                    db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
+                        (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
+        else:
+            db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo),attempt_id))
+            for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
+            for record in request['records']:
+                db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
+                    (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
+    return result
+
+
 def route(handler,db,uid,path,body,ApiError,email_guard=None):
     if not path.startswith('/api/recognition/'): return False
+    if path=='/api/recognition/diagnostics' and handler.command=='POST':
+        if not diagnostics.detailed(): raise ApiError(404,'接口不存在')
+        if set(body)=={'diagnostic_id'} and isinstance(body['diagnostic_id'],str) and re.fullmatch(r'[0-9a-f]{24}',body['diagnostic_id']):
+            handler.reply(200,dict(attempts=diagnostics.lookup(db,uid,body['diagnostic_id'])));return True
+        if set(body)!={'request_id'} or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
+            raise ApiError(400,'请提供本次导入的 request_id')
+        handler.reply(200,dict(attempts=diagnostics.attempts(db,uid,body['request_id'])));return True
     if path=='/api/recognition/task-evidence' and handler.command=='POST':
         workspace=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
         task=next((t for t in json.loads(workspace['value'] if workspace else '[]') if t.get('id')==body.get('task_id')),None)
@@ -328,81 +456,7 @@ def route(handler,db,uid,path,body,ApiError,email_guard=None):
     if path in ['/api/recognition/batches','/api/recognition/retry','/api/recognition/demo'] and handler.command=='POST':
         demo=path.endswith('/demo')
         retry=path.endswith('/retry')
-        previous=None
-        if demo:
-            fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-contract-v0.2.json').read_text(encoding='utf-8'))
-            request=fixture['request'];request['request_id']='demo:text-contract:0.2'
-            result=fixture['expected'];result['request_id']=request['request_id']
-        else: request=body
-        try: validate_request(request)
-        except (ValueError,TypeError,KeyError): raise ApiError(400,'识别请求不符合 v0.2 契约')
-        fingerprint=hashlib.sha256(json.dumps(request,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
-        row=db.execute('SELECT * FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-        if row:
-            if row['fingerprint']!=fingerprint: raise ApiError(409,'同一 request_id 不能用于不同输入')
-            previous=json.loads(row['result'])
-            if not retry or row['demo'] or previous['status'] in ('success','no_tasks'):
-                handler.reply(200,batches(db,uid));return True
-        if not row and not demo and any(r.get('platform') == 'email' for r in request['records']):
-            raise ApiError(400,'请通过邮箱后台导入处理新邮件')
-        extraction_request=request
-        if previous:
-            completed={r['input_id'] for r in previous['record_results'] if r['status']!='failed'}
-            extraction_request=dict(request,records=[r for r in request['records'] if r['input_id'] not in completed])
-        email_request = not demo and any(r.get('platform') == 'email' for r in request['records'])
-        if email_request and email_guard:
-            try: email_guard(db, uid, request, 'model')
-            except ValueError: raise ApiError(403,'邮箱授权已撤销、邮件已排除或来源不属于当前邮箱') from None
-        if not demo:
-            if not request['records']:
-                result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
-            else:
-                _EXECUTION.policy = None
-                if email_request and email_guard:
-                    def cancelled_email():
-                        try: email_guard(db,uid,request,'model'); return False
-                        except ValueError: return True
-                    with model_queue.cancel_if(cancelled_email): result=recognize(extraction_request,ApiError)
-                else:
-                    result=recognize(extraction_request,ApiError)
-        policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
-        try:
-            result=validate_result(extraction_request,result)
-            new_tasks=list(result['tasks'])
-            if previous:
-                # Keep successful candidates and their confirmation state; only replace failures.
-                retried={r['input_id'] for r in extraction_request['records']}
-                if not result['record_results']:
-                    raise ValueError('retry envelope failed')
-                outcomes={r['input_id']:r for r in previous['record_results'] if r['input_id'] not in retried}
-                outcomes.update({r['input_id']:r for r in result['record_results']})
-                result['record_results']=[outcomes[r['input_id']] for r in request['records']]
-                result['tasks']=previous['tasks']+new_tasks
-                failures=sum(r['status']=='failed' for r in result['record_results'])
-                result['status']=('failed' if failures==len(request['records']) else 'partial_success') if failures else ('success' if result['tasks'] else 'no_tasks')
-                result=validate_result(request,result)
-        except (ValueError,TypeError,KeyError): raise ApiError(502,'文本识别结果不符合 v0.2 契约，未保存候选')
-        db.execute('BEGIN IMMEDIATE')
-        if email_request and email_guard:
-            try: email_guard(db, uid, request, 'save')
-            except ValueError: raise ApiError(403,'邮箱授权已撤销、邮件已排除或来源不属于当前邮箱') from None
-        row=db.execute('SELECT fingerprint,result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-        if row:
-            if row['fingerprint']!=fingerprint: raise ApiError(409,'请求内容冲突')
-            # Another request may have finished during the model call. Never overwrite it.
-            if previous is not None and json.loads(row['result'])==previous:
-                db.execute('UPDATE recognition_batches SET result=? WHERE user_id=? AND request_id=?',(json.dumps(result),uid,request['request_id']))
-                for c in new_tasks: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
-                for record in extraction_request['records']:
-                    db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
-                        (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
-        else:
-            db.execute('INSERT OR IGNORE INTO recognition_import_records VALUES(?,?,?,?,?,0)',(uid,request['request_id'],request['request_id'],datetime.now(timezone.utc).isoformat(),''))
-            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,?)',(uid,request['request_id'],fingerprint,json.dumps(request),json.dumps(result),int(demo)))
-            for c in result['tasks']: db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(secrets.token_hex(16),uid,request['request_id'],json.dumps(c)))
-            for record in request['records']:
-                db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
-                    (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
+        process_batch(db,uid,body,ApiError,retry=retry,demo=demo,email_guard=email_guard)
         handler.reply(200,batches(db,uid));return True
     if path.startswith('/api/recognition/candidates/') and path.endswith('/resolve') and handler.command=='POST':
         from urllib.parse import unquote
@@ -420,6 +474,8 @@ def resolve_candidate(db, uid, cid, body, ApiError):
     if not row: raise ApiError(404,'候选不存在')
     canonical=json.dumps(body,sort_keys=True)
     action=body.get('action')
+    if 'complete' in body and (type(body['complete']) is not bool or action!='create' or body.get('auto_apply') is True or body.get('reviewed') is not True):
+        raise ApiError(400,'完成操作需要用户主动确认新增任务')
     if action=='reopen':
         if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
         if row['state']!='ignored': raise ApiError(409,'只有不加入任务的候选可以撤回')
@@ -442,6 +498,7 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             import teaching
             teaching.submission.guard_auto_apply(db,uid,row['request_id'],ApiError)
             teaching.resolve_snapshot(db,uid,row['request_id'],ApiError)
+            teaching.teaching_identity.protect_source_changes(db,uid,row['request_id'],[c])
         if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
             raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
     if action!='ignore':
@@ -491,6 +548,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             if action=='create' or (action=='update' and c['prerequisites']):
                 target['sourceRequirements']=c['prerequisites']
         else: target['status']='cancelled'
+        if body.get('complete') is True:
+            target['status']='completed'
+            target['completedAt']=datetime.now(usage.TZ).date().isoformat()
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)

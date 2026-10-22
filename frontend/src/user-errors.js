@@ -1,4 +1,5 @@
 import { newId } from "./id.js";
+import recognitionErrors from "../../contracts/recognition-errors.json" with { type: "json" };
 
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const incidents = new Map();
@@ -11,10 +12,41 @@ export function describeUserError(error, action = "general") {
   const text = String(error?.message || error || "");
   const code = error?.code || error?.kind;
   const report = (kind, message, details = "") => {
-    const value = { kind, message, details, status: error?.status };
+    const id = /^[0-9a-f]{24}$/.test(error?.diagnostic_id || '') ? error.diagnostic_id : '';
+    const value = { kind, message, details: details + (id ? ` 诊断编号：${id}。` : ''), status: error?.status };
+    if (id) value.diagnostic_id = id;
+    if (typeof error?.diagnostics === 'string' && error.diagnostics.length <= 65536) value.diagnostics = error.diagnostics;
     normalized.add(value);
     return value;
   };
+  const reason = error?.failure?.reason;
+  if (typeof reason === "string" && Object.hasOwn(recognitionErrors, reason)) {
+    const description = recognitionErrors[reason];
+    const diagnostic = error.diagnostic;
+    const location = diagnostic && typeof diagnostic.schema_path === "string" && diagnostic.schema_path.length <= 512 &&
+      /^[A-Za-z0-9_$/]*$/.test(diagnostic.schema_path) &&
+      /^(type|enum|const|required|additionalProperties|maxLength|minLength|maxItems|minItems|format|pattern|anyOf|allOf|oneOf|maximum|minimum)$/.test(diagnostic.rule)
+      ? ` 校验位置：${diagnostic.schema_path || "结果"}；规则：${diagnostic.rule}。` : "";
+    const missing = Array.isArray(diagnostic?.missing_fields) ? diagnostic.missing_fields.filter(v => typeof v === 'string' && /^[A-Za-z_]{1,100}$/.test(v)).slice(0,20) : [];
+    const types = new Set(['object','array','string','number','integer','boolean','null','unknown']);
+    const shape = types.has(diagnostic?.expected_type) && types.has(diagnostic?.actual_type)
+      ? ` 预期类型：${diagnostic.expected_type}；实际类型：${diagnostic.actual_type}。` : '';
+    const instance = typeof diagnostic?.instance_path === 'string' && diagnostic.instance_path.length <= 512 && /^[A-Za-z0-9_$/]*$/.test(diagnostic.instance_path)
+      ? ` 字段位置：${diagnostic.instance_path || '结果'}。` : '';
+    return report(reason, description.message, description.action + location + instance + (missing.length ? ` 缺失字段：${missing.join('、')}。` : '') + shape);
+  }
+  const emailMessages = {
+    email_not_configured: "邮件服务暂未启用，请稍后再试。",
+    email_send_failed: "验证码邮件发送失败，请稍后重试。",
+    email_code_invalid: "验证码不正确或已失效，请核对或重新发送。",
+    email_code_expired: "验证码已过期，请重新发送。",
+    email_code_rate_limited: "验证码请求较多，请稍后再试。",
+    email_already_verified: "当前邮箱已验证，请重新打开账号查看。",
+    email_invalid: "请填写有效的邮箱地址。",
+    email_registered: "该邮箱已注册，请直接登录。",
+  };
+  if (Object.hasOwn(emailMessages, code))
+    return report(["email_not_configured", "email_send_failed"].includes(code) ? "service_connection" : "validation", emailMessages[code]);
   if (["incomplete_source", "source_incomplete", "source_changed", "source_missing"].includes(code) || /通知内容.*不完整|来源待补全|incomplete_source|重试识别不会补齐/.test(text))
     return report("incomplete_source", "通知内容不完整，请重新获取来源或粘贴完整通知内容。", "重新识别仅处理已获取的内容，不会补充缺失的网页或附件。");
   if (/^(邮箱或密码不正确|该邮箱已注册|两次输入.*不一致|新密码不能与当前密码相同)$/.test(text))
@@ -96,19 +128,25 @@ function incidentFor(error, action, context) {
     if (!errorIdentities.has(error)) errorIdentities.set(error, newId());
     identity = errorIdentities.get(error);
   }
-  const key = JSON.stringify([action, report.kind, status, identity || String(error)]);
+  // A history row survives retries; its diagnosis identifies the actual attempt.
+  const key = JSON.stringify([action, report.kind, status, identity || String(error), report.diagnostic_id || null]);
   if (!incidents.has(key)) {
-    incidents.set(key, { id: newId(), code: report.kind, action, status, occurred_at: new Date().toISOString(), state: "idle", result: "" });
+    incidents.set(key, { id: newId(), code: report.kind, action, status, diagnostic_id: report.diagnostic_id, occurred_at: new Date().toISOString(), state: "idle", result: "" });
   }
   return { report, incident: incidents.get(key) };
 }
 
 const buttonLabel = state => ({ pending: "正在提交…", sent: "已反馈", failed: "重试反馈" })[state] || "反馈此问题";
+export function diagnosticMarkup(error) {
+  return typeof error?.diagnostics === 'string' && error.diagnostics.length <= 65536
+    ? `<details class="test-error-diagnostics"><summary>识别诊断详情</summary><pre>${esc(error.diagnostics)}</pre></details>` : '';
+}
+
 export function userErrorMarkup(error, action = "general", context) {
   if (!error) return "";
   if (!actions.has(action)) action = "general";
   const { report, incident } = incidentFor(error, action, context);
-  return `<div class="user-error" role="alert"><p class="user-error-message">${esc(report.message)}</p>${report.details ? `<p class="user-error-help">${esc(report.details)}</p>` : ""}${report.kind === "validation" ? "" : `<div class="error-feedback"><button type="button" class="btn quiet" data-error-feedback="${esc(incident.id)}" ${["pending", "sent"].includes(incident.state) ? "disabled" : ""}>${buttonLabel(incident.state)}</button><span class="error-feedback-status" role="status" data-error-feedback-status="${esc(incident.id)}">${esc(incident.result)}</span></div>`}</div>`;
+  return `<div class="user-error" role="alert"><p class="user-error-message">${esc(report.message)}</p>${report.details ? `<p class="user-error-help">${esc(report.details)}</p>` : ""}${diagnosticMarkup(report)}${report.kind === "validation" ? "" : `<div class="error-feedback"><button type="button" class="btn quiet" data-error-feedback="${esc(incident.id)}" ${["pending", "sent"].includes(incident.state) ? "disabled" : ""}>${buttonLabel(incident.state)}</button><span class="error-feedback-status" role="status" data-error-feedback-status="${esc(incident.id)}">${esc(incident.result)}</span></div>`}</div>`;
 }
 
 function updateIncident(incident) {
@@ -129,8 +167,9 @@ export async function submitErrorFeedback(button, { send, frontendRevision, back
     contract_version: "error-report/0.1", incident_id: incident.id,
     code: incident.code, action: incident.action, occurred_at: incident.occurred_at,
     frontend_revision: revision(frontendRevision), backend_revision: revision(backendRevision), status: incident.status,
+    ...(incident.diagnostic_id ? { diagnostic_id: incident.diagnostic_id } : {}),
   };
-  incident.state = "pending"; incident.result = "只发送错误分类、操作和版本，不附带通知正文或账号密码。";
+  incident.state = "pending"; incident.result = "只发送错误分类、操作、版本和诊断编号，不附带通知正文或账号密码。";
   updateIncident(incident);
   try {
     const result = await send(incident.payload);

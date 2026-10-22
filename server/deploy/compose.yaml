@@ -13,6 +13,9 @@ services:
     init: true
     env_file:
       - ${NIUMA_MODEL_ENV_FILE:-.env.model}
+      # Compose >= 2.24: old deployments may not have mail settings yet.
+      - path: ${NIUMA_MAIL_ENV_FILE:-.env.mail}
+        required: false
     environment:
       NIUMA_ENVIRONMENT: ${NIUMA_ENVIRONMENT:-production}
       NIUMA_DB: /data/niuma.sqlite3
@@ -33,6 +36,8 @@ services:
       NIUMA_ENABLE_MANUAL_MATERIALS: '1'
       NIUMA_ALLOWED_ORIGINS: ${APP_ORIGIN:?Set the public HTTPS origin}
       NIUMA_COOKIE_SECURE: ${COOKIE_SECURE:-1}
+      # Only Caddy can reach this private API; it replaces the client IP header.
+      NIUMA_TRUST_PROXY_CLIENT_IP: '1'
     volumes:
       - app-data:/data
     shm_size: 256mb

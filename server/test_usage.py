@@ -10,6 +10,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPCookieProcessor
 from unittest.mock import patch
 import app
+from auth_test_support import registration_payload
 import usage
 
 class UsageTests(unittest.TestCase):
@@ -24,6 +25,8 @@ class UsageTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown();self.server.server_close();self.thread.join();app.DB=self.old;self.env.stop();self.temp.cleanup()
     def call(self,path,body=None,method=None):
+        if path == '/auth/register':
+            body = registration_payload(body, lambda request:self.call('/auth/email-code',request))
         try:r=self.client.open(Request(f'http://127.0.0.1:{self.server.server_port}/api'+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'},method=method))
         except HTTPError as e:r=e
         return r.status,json.load(r)
@@ -53,6 +56,72 @@ class UsageTests(unittest.TestCase):
             usage.visit(db,self.uid,day);db.commit()
             self.assertFalse(usage.visit(db,self.uid,day+timedelta(days=3))['offerRating']);db.commit()
             self.assertTrue(usage.visit(db,self.uid,day+timedelta(days=4))['offerRating'])
+    def test_guest_refreshes_share_private_cookie_and_cannot_read_dashboard(self):
+        jar=CookieJar();self.client=build_opener(HTTPCookieProcessor(jar))
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        app.initialize(recover=False)
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        self.assertEqual(len(list(jar)),1)
+        self.assertTrue(list(jar)[0].has_nonstandard_attr('HttpOnly'))
+        self.assertEqual(self.call('/admin/usage')[0],401)
+        self.assertEqual(self.call('/usage/guest-visit',{'email':'private@example.test'})[0],400)
+        with app.connection() as db:
+            rows=[dict(r) for r in db.execute('SELECT * FROM usage_guest_days')]
+            self.assertEqual(len(rows),1)
+            self.assertNotIn(list(jar)[0].value,json.dumps(rows))
+    def test_signed_in_visit_is_not_counted_as_guest(self):
+        self.assertEqual(self.call('/usage/guest-visit',{})[0],200)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM usage_guest_days').fetchone()[0],0)
+    def test_traffic_distinguishes_registrations_guests_and_cross_day_returns(self):
+        day=datetime(2026,10,14,12,tzinfo=usage.TZ)
+        with app.connection() as db:
+            usage.guest_visit(db,'a'*32,day);db.commit()
+            usage.guest_visit(db,'a'*32,day);db.commit()
+            usage.guest_visit(db,'a'*32,day+timedelta(days=2));db.commit()
+            usage.guest_visit(db,'b'*32,day+timedelta(days=2));db.commit()
+            usage.visit(db,self.uid,day);db.commit()
+            usage.visit(db,self.uid,day+timedelta(days=2));db.commit()
+            usage.record(db,self.uid,'register',now=day)
+            result=usage.summary(db,'2026-10-14','2026-10-16')['traffic']
+            self.assertEqual(result['guests'],2)
+            self.assertEqual(result['registrations'],1)
+            self.assertEqual(result['returningVisitors'],2)
+            self.assertEqual(result['returnVisits'],2)
+            self.assertEqual(result['registeredAccounts'],1)
+            self.assertEqual(result['daily'][-1],dict(day='2026-10-16',guests=2,registrations=0,returningVisitors=2))
+            with patch.dict(os.environ,NIUMA_ANALYTICS_EXCLUDED_USER_IDS=self.uid):
+                hidden=usage.summary(db,'2026-10-14','2026-10-16')['traffic']
+                self.assertEqual(hidden['registrations'],0);self.assertEqual(hidden['returningVisitors'],1)
+            db.commit();usage.guest_visit(db,'a'*32,day+timedelta(days=3))
+            self.assertEqual(usage.summary(db,'2026-10-14','2026-10-17')['traffic']['returnVisits'],3)
+    def test_guest_retention_never_stores_raw_identifier_or_account_data(self):
+        day=datetime(2026,10,14,12,tzinfo=usage.TZ)
+        with app.connection() as db:
+            usage.guest_visit(db,'a'*32,day-timedelta(days=100));db.commit()
+            usage.guest_visit(db,'b'*32,day)
+            rows=db.execute('SELECT * FROM usage_guest_days').fetchall()
+            self.assertEqual(len(rows),1);self.assertEqual(rows[0]['is_returning'],0)
+    def test_expired_guests_are_cleaned_without_anonymous_traffic(self):
+        now=datetime.now(usage.TZ)
+        cutoff=(now-timedelta(days=90)).date().isoformat()
+        for entry in ('record','visit','summary','initialize'):
+            with self.subTest(entry=entry),app.connection() as db:
+                db.execute('DELETE FROM usage_guest_days')
+                db.execute('INSERT INTO usage_guest_days VALUES(?,?,0)',('expired',(now-timedelta(days=100)).date().isoformat()))
+                db.execute('INSERT INTO usage_guest_days VALUES(?,?,0)',('boundary',cutoff))
+                db.commit()
+                if entry=='record':usage.record(db,self.uid,'login',now=now)
+                elif entry=='visit':
+                    usage.visit(db,self.uid,now);db.commit()
+                    # A same-day logged-in refresh must maintain retention too.
+                    db.execute('INSERT OR REPLACE INTO usage_guest_days VALUES(?,?,0)',('expired',(now-timedelta(days=100)).date().isoformat()))
+                    db.commit();usage.visit(db,self.uid,now)
+                elif entry=='summary':
+                    self.assertEqual(usage.summary(db,'2000-01-01','2099-01-01')['traffic']['guests'],1)
+                else:usage.initialize(db)
+                self.assertEqual([r['actor'] for r in db.execute('SELECT actor FROM usage_guest_days')],['boundary'])
     def test_feedback_rating_validation_and_duplicate(self):
         for score in (True,0,6,'5'):
             self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=score))[0],400)
@@ -60,6 +129,19 @@ class UsageTests(unittest.TestCase):
         for _ in range(2):self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=4))[0],200)
         self.assertEqual(self.call('/usage/feedback',dict(kind='feedback',message='希望更简洁'))[0],200)
         with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM usage_feedback').fetchone()[0],2)
+    def test_rating_changes_keep_only_the_final_score_per_account(self):
+        for score in (1,5,3):
+            self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=score)),(200,dict(saved=True)))
+        with app.connection() as db:
+            rows=db.execute('SELECT score FROM usage_feedback WHERE actor=? AND kind="rating"',(usage.actor(self.uid),)).fetchall()
+            self.assertEqual([row['score'] for row in rows],[3])
+            result=usage.summary(db,'2000-01-01','2099-01-01')
+            self.assertEqual(result['rating'],dict(samples=1,average=3))
+        self.call('/auth/register',dict(name='Other',email='other-usage@example.test',password='Usage-Test-2026!'))
+        self.assertEqual(self.call('/usage/feedback',dict(kind='rating',score=2))[0],200)
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT score FROM usage_feedback WHERE actor=? AND kind="rating"',(usage.actor(self.uid),)).fetchone()['score'],3)
+            self.assertEqual(usage.summary(db,'2000-01-01','2099-01-01')['rating'],dict(samples=2,average=2.5))
     def test_task_counts_only_committed_changes_and_no_content(self):
         task=dict(id='secret-task-id',title='PRIVATE-TITLE',description='PRIVATE-CONTENT',status='not_started',plans=[],subtasks=[],due=None)
         self.assertEqual(self.call('/data/tasks',dict(value=[task],version=0),'PUT')[0],200)
