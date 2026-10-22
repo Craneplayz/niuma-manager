@@ -5,12 +5,17 @@ checks use the email scheduler lease; the caller controls transaction commit.
 """
 import json
 import sqlite3
+import threading
+import time
+from pathlib import Path
 from contextlib import contextmanager, nullcontext
 
 import email_db_gate
 import email_scheduler
 
 _recovered_paths = set()
+_recovery_watchers = set()
+_recovery_watchers_lock = threading.Lock()
 
 def database_path(db):
     try:
@@ -20,8 +25,61 @@ def database_path(db):
         return None
 
 
+def _recover_active_jobs(db, db_path):
+    for row in db.execute("SELECT user_id,job_id,snapshot FROM email_import_jobs WHERE state IN ('queued','running')").fetchall():
+        job = load_job(db, row['user_id'], row['job_id'], row['snapshot'])
+        for item in job['items']:
+            if item['state'] in ('queued','processing'):
+                item['state'] = 'interrupted'
+        job['state'] = 'interrupted'
+        job['error'] = '服务已重启，未完成邮件可重试'
+        save(db, row['user_id'], row['job_id'], job)
+    _recovered_paths.add(db_path)
+
+
+def _watch_process_owner(db_path):
+    was_owner = email_scheduler.owns_process(db_path)
+    try:
+        while Path(db_path).exists():
+            if not email_scheduler.owns_process(db_path):
+                if was_owner:
+                    _recovered_paths.discard(db_path)
+                was_owner = False
+                email_scheduler.claim_process_owner(db_path)
+            if email_scheduler.owns_process(db_path):
+                if not was_owner or db_path not in _recovered_paths:
+                    db = None
+                    try:
+                        db = sqlite3.connect(db_path, timeout=10)
+                        db.row_factory = sqlite3.Row
+                        with db:
+                            _recover_active_jobs(db, db_path)
+                        was_owner = True
+                    except (sqlite3.Error, ValueError, TypeError, KeyError):
+                        was_owner = False
+                    finally:
+                        if db is not None:
+                            db.close()
+            time.sleep(5)
+    finally:
+        with _recovery_watchers_lock:
+            _recovery_watchers.discard(db_path)
+
+
+def _ensure_owner_watcher(db_path):
+    with _recovery_watchers_lock:
+        if db_path in _recovery_watchers:
+            return
+        _recovery_watchers.add(db_path)
+    thread = threading.Thread(target=_watch_process_owner, args=(db_path,), daemon=True,
+                              name='email-scheduler-recovery')
+    thread.start()
+
+
 def initialize(db, recover=True):
     db_path = database_path(db)
+    if db_path:
+        db_path = str(Path(db_path).resolve())
     owner = email_scheduler.register_process_owner(db, db_path) if db_path else True
     db.execute('''CREATE TABLE IF NOT EXISTS email_import_preferences(
         user_id TEXT PRIMARY KEY, mailbox TEXT, consent_version TEXT, consented_at TEXT,
@@ -59,15 +117,9 @@ def initialize(db, recover=True):
     db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS email_import_one_active
         ON email_import_jobs(user_id) WHERE state IN ('queued','running')''')
     if recover and owner and db_path not in _recovered_paths:
-        for row in db.execute("SELECT user_id,job_id,snapshot FROM email_import_jobs WHERE state IN ('queued','running')").fetchall():
-            job = load_job(db, row['user_id'], row['job_id'], row['snapshot'])
-            for item in job['items']:
-                if item['state'] in ('queued','processing'):
-                    item['state'] = 'interrupted'
-            job['state'] = 'interrupted'
-            job['error'] = '服务已重启，未完成邮件可重试'
-            save(db, row['user_id'], row['job_id'], job)
-        _recovered_paths.add(db_path)
+        _recover_active_jobs(db, db_path)
+    if recover and db_path:
+        _ensure_owner_watcher(db_path)
 
 
 def item_counts(item):

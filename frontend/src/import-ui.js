@@ -566,7 +566,7 @@ export function createImportUI(host) {
     if (name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1).trim();
     if (!name) return esc(full);
     const tooltipId = `email-sender-tooltip-${index}`;
-    return `<span class="email-sender-desktop" tabindex="0" aria-describedby="${tooltipId}">${esc(name)}<span id="${tooltipId}" class="email-sort-tooltip" role="tooltip">${esc(match[2])}</span></span><span class="email-sender-full">${esc(full)}</span>`;
+    return `<span class="email-sender-desktop" data-email-stop-toggle tabindex="0" aria-describedby="${tooltipId}">${esc(name)}<span id="${tooltipId}" class="email-sort-tooltip" role="tooltip">${esc(match[2])}</span></span><span class="email-sender-full">${esc(full)}</span>`;
   }
   function emailNeedsAttention(message) {
     return !message.excluded && (["unprocessed","failed","interrupted"].includes(message.state) || message.pending_review_count > 0 || (!message.state && message.needs_attention));
@@ -609,11 +609,11 @@ export function createImportUI(host) {
     const status = message => ({unprocessed:"未处理",excluded:"已排除",queued:"排队中",processing:"识别中",has_tasks:`${message.task_count || 0}项任务${message.pending_review_count ? ` · 待核对 ${message.pending_review_count}` : ""}`,no_tasks:"未识别到任务",failed:"识别失败",interrupted:"处理中断"}[message.state] || "待处理");
     const sortedMessages = visibleEmailMessages();
     const policyLabel = message => ({unknown:"识别规则版本未知",unavailable:"识别规则状态不可用"}[message.policy_status] || "");
-    const rows = sortedMessages.map((message, index) => { const successful = ["has_tasks", "no_tasks"].includes(message.state); return `<div class="email-message ${message.excluded ? "is-excluded" : ""}"><label class="email-message-selection"><input type="checkbox" data-email-message="${esc(message.input_id)}" ${!message.excluded && (wholeRange || emailSelected.has(message.input_id)) ? "checked" : ""} ${blocked() || message.excluded || wholeRange ? "disabled" : ""} aria-label="选择 ${esc(message.subject || '无主题邮件')}"><span><strong>${esc(message.subject || "(无主题)")}${successful && message.policy_status === "outdated" ? ` <span class="email-policy-warning" data-policy-status="outdated" role="img" tabindex="0" aria-label="使用旧版规则识别" aria-describedby="email-policy-tooltip-${index}">${host.icon("warningFilled")}<span id="email-policy-tooltip-${index}" class="email-sort-tooltip" role="tooltip">使用旧版规则识别</span></span>` : ""}</strong><small>${emailSenderMarkup(message.sender, index)}${message.received_at ? ` · ${esc(new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",dateStyle:"medium",timeStyle:"short"}).format(new Date(message.received_at)))}` : ""} · ${esc(status(message))}${successful && policyLabel(message) ? ` <span class="email-policy-status" data-policy-status="${esc(message.policy_status)}">${esc(policyLabel(message))}</span>` : ""}</small>${message.error ? `<small class="error">${esc(message.error)}</small>` : ""}</span></label><button class="btn quiet" type="button" data-email-exclude="${esc(message.input_id)}" data-excluded="${message.excluded ? "false" : "true"}" ${blocked() ? "disabled" : ""}>${message.excluded ? "恢复" : "排除"}</button></div>`; }).join("");
+    const rows = sortedMessages.map((message, index) => { const successful = ["has_tasks", "no_tasks"].includes(message.state); return `<div class="email-message ${message.excluded ? "is-excluded" : ""}"><label class="email-message-selection"><input type="checkbox" data-email-message="${esc(message.input_id)}" ${!message.excluded && (wholeRange || emailSelected.has(message.input_id)) ? "checked" : ""} ${blocked() || message.excluded || wholeRange ? "disabled" : ""} aria-label="选择 ${esc(message.subject || '无主题邮件')}"><span><strong>${esc(message.subject || "(无主题)")}${successful && message.policy_status === "outdated" ? ` <span class="email-policy-warning" data-policy-status="outdated" role="img" tabindex="0" data-email-stop-toggle aria-label="使用旧版规则识别" aria-describedby="email-policy-tooltip-${index}">${host.icon("warningFilled")}<span id="email-policy-tooltip-${index}" class="email-sort-tooltip" role="tooltip">使用旧版规则识别</span></span>` : ""}</strong><small>${emailSenderMarkup(message.sender, index)}${message.received_at ? ` · ${esc(new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",dateStyle:"medium",timeStyle:"short"}).format(new Date(message.received_at)))}` : ""} · ${esc(status(message))}${successful && policyLabel(message) ? ` <span class="email-policy-status" data-policy-status="${esc(message.policy_status)}">${esc(policyLabel(message))}</span>` : ""}</small>${message.error ? `<small class="error">${esc(message.error)}</small>` : ""}</span></label><button class="btn quiet" type="button" data-email-exclude="${esc(message.input_id)}" data-excluded="${message.excluded ? "false" : "true"}" ${blocked() ? "disabled" : ""}>${message.excluded ? "恢复" : "排除"}</button></div>`; }).join("");
     const jobTotal = Math.max(0, Number(emailJob?.counts?.selected) || 0);
     const jobDone = Math.min(jobTotal, Math.max(0, jobTotal - (Number(emailJob?.counts?.pending) || 0)));
     const jobPercent = jobTotal ? Math.round(jobDone / jobTotal * 100) : 0;
-    const waitingLabels = { global_capacity: "等待系统处理名额", account_capacity: "等待账户处理名额", provider_backoff: "等待邮件服务恢复", provider_budget: "等待邮件服务处理额度", model_capacity: "等待识别服务处理名额" };
+    const waitingLabels = { global_capacity: "等待系统处理名额", account_capacity: "等待账户处理名额", mailbox_capacity: "等待邮件读取资源", provider_backoff: "等待邮件服务恢复", provider_budget: "等待邮件服务处理额度", model_capacity: "等待识别服务处理名额" };
     const waitingNote = emailJob?.state === "queued" && waitingLabels[emailJob.waiting_reason] ? `<p class="status-note">${waitingLabels[emailJob.waiting_reason]}</p>` : "";
     const jobProgress = `<div class="email-job-progress" role="progressbar" aria-label="邮件识别进度" aria-valuemin="0" aria-valuemax="${jobTotal || 1}" aria-valuenow="${jobDone}" aria-valuetext="已完成 ${jobDone} / ${jobTotal} 封"><span class="email-job-progress-fill" style="width:${jobPercent}%"></span><span class="email-job-progress-animation" aria-hidden="true"></span></div>${waitingNote}`;
     const retryableJob = ["failed","partial_success","stopped","interrupted"].includes(emailJob?.state) && (
@@ -1199,7 +1199,18 @@ export function createImportUI(host) {
     }
     if (d.emailExclude) {
       const id = d.emailExclude, excluded = d.excluded === "true", stamp = current();
-      try { await api("/api/sources/email/exclusions", {input_ids:[id], excluded}, "POST"); if (valid(stamp)) { emailMessages = emailMessages.map(m => m.input_id === id ? {...m, excluded, state:excluded?"excluded":"unprocessed"} : m); if (emailMessageById.has(id)) emailMessageById.set(id, {...emailMessageById.get(id), excluded, state:excluded?"excluded":"unprocessed"}); emailSelected.delete(id); refresh(); } }
+      try {
+        const result = await api("/api/sources/email/exclusions", {input_ids:[id], excluded}, "POST");
+        if (valid(stamp)) {
+          const authoritative = result?.states?.[id];
+          const fallback = {state:excluded ? "excluded" : "unprocessed", excluded};
+          const updated = {...(authoritative || fallback), excluded};
+          emailMessages = emailMessages.map(m => m.input_id === id ? {...m, ...updated} : m);
+          if (emailMessageById.has(id)) emailMessageById.set(id, {...emailMessageById.get(id), ...updated});
+          emailSelected.delete(id);
+          refresh();
+        }
+      }
       catch (e) { if (valid(stamp)) { emailError = describeImportError(e).message; refresh(); } }
       return true;
     }

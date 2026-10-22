@@ -81,7 +81,9 @@ def compile_drafts(response, record):
             require(isinstance(draft, dict) and set(draft) - {"relevance", "content_type"} == {"title", "description", "prerequisites",
                     "notice_type", "target", "course", "evidence", "times", "review_reasons"})
             require(nonempty(draft["title"]) and isinstance(draft["description"], str))
-            if "content_type" in draft:
+            if v02 and record.get("platform") == "email":
+                require("content_type" in draft and draft["content_type"] in ("task", "notice"))
+            elif "content_type" in draft:
                 require(v02 and record.get("platform") == "email" and draft["content_type"] in ("task", "notice"))
             require(draft["notice_type"] in {"create", "update", "postpone", "cancel", "uncertain"})
             for key in ("prerequisites", "review_reasons"):
@@ -181,7 +183,7 @@ def compile_drafts(response, record):
                           "review_reasons": list(dict.fromkeys(reasons)), "sources": sources,
                           "evidence": unique_evidence}
             if v02 and record.get("platform") == "email":
-                task["content_type"] = draft.get("content_type", "task")
+                task["content_type"] = draft["content_type"]
             # Validate even a discarded task, so an invented time/source cannot
             # silently turn an invalid response into successful filtering.
             reason = 'candidate'

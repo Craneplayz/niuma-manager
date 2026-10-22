@@ -42,7 +42,7 @@ def route(handler,db,uid,path,body,ApiError,key_path,database):
                 db.execute('INSERT INTO email_import_exclusions VALUES(?,?,1) ON CONFLICT(user_id,input_id) DO UPDATE SET excluded=1',(uid,input_id))
                 db.execute('DELETE FROM email_import_body_snapshots WHERE user_id=? AND input_id=?',(uid,input_id))
             else: db.execute('DELETE FROM email_import_exclusions WHERE user_id=? AND input_id=?',(uid,input_id))
-        handler.reply(200,{'saved':len(ids)}); return True
+        handler.reply(200,{'saved':len(ids),'states':runtime._message_states(db,uid,ids)}); return True
     if path=='/api/sources/email/preview' and handler.command=='POST':
         if not body: body={}
         limit=body.get('limit',50); start=body.get('start_date'); offset=body.get('offset',0); page=body.get('page_size',50)

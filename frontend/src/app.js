@@ -890,6 +890,12 @@ window.addEventListener("scroll", hideSidebarTooltip, true);
 window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
   imports.cancelRecoveryNavigation();
+  if (e.target.closest("[data-email-stop-toggle]")) {
+    // Tooltip triggers live inside the selectable mail label; clicking them
+    // must not activate the label's checkbox.
+    e.preventDefault();
+    return;
+  }
   const button = e.target.closest("button");
   if (!button) return;
   if (button.dataset.errorFeedback) {

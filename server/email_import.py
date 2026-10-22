@@ -699,6 +699,9 @@ def _run(path, uid, job_id, ApiError, key_path):
                 serial += 1
                 heapq.heappush(delayed,(ready_at,serial,input_id))
                 if reason in ('provider_backoff','provider_budget','model_capacity'):
+                    # Sleeping mail items are not ready to own global model
+                    # queue positions; release any tickets held by this job.
+                    recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
                     # Provider quota/cooldown and the shared model pool are
                     # global constraints, not a per-message semantic failure.
                     # Stop prefetching more bodies while that admission is closed.
@@ -728,7 +731,7 @@ def _run(path, uid, job_id, ApiError, key_path):
                               email_mailbox_pool.BODY_BYTES//email_source.MAX_BODY_BYTES))
 
         def dispatch():
-            nonlocal exhausted
+            nonlocal exhausted, serial, blocked_until
             if time.monotonic() < blocked_until:
                 return
             while len(inflight) < concurrency:
@@ -741,7 +744,25 @@ def _run(path, uid, job_id, ApiError, key_path):
                     ids = [pending.popleft() for _ in range(min(batch_limit,len(pending)))]
                     if not ids:
                         return
-                    prepared.extend(_prepare_bodies(path,uid,job_id,ids,ApiError,key_path))
+                    capacity_wait_started = time.monotonic()
+                    try:
+                        prepared.extend(_prepare_bodies(path,uid,job_id,ids,ApiError,key_path))
+                    except TimeoutError as error:
+                        if str(error) not in ('body capacity wait expired', 'mailbox capacity wait expired'):
+                            raise
+                        # Local capacity contention is temporary, not a mail
+                        # recognition failure. Requeue the bounded batch and
+                        # retry after a short pause without re-reading captured
+                        # bodies that may already have been saved.
+                        ready_at = time.monotonic() + .5
+                        for retry_id in reversed(ids):
+                            serial += 1
+                            heapq.heappush(delayed,(ready_at,serial,retry_id))
+                        blocked_until = max(blocked_until,ready_at)
+                        _waiting_reason(path,uid,job_id,'mailbox_capacity')
+                        email_telemetry.record(path,uid,'dispatch_wait',
+                            duration_ms=(time.monotonic()-capacity_wait_started)*1000,success=False)
+                        return
                     if not prepared:
                         continue
                 input_id = prepared.popleft()

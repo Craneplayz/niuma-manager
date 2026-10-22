@@ -166,14 +166,17 @@ def recognize(request, ApiError):
             raise ApiError(502, '文本识别服务不可用或超时，请稍后重试') from None
     finally:
         if receipt and attempt_metrics:
-            known = all(type(m.get('total_tokens')) is int for m in attempt_metrics)
-            # A timed-out attempt with no worker report keeps its conservative charge.
-            completed = (len(attempt_metrics) == attempts_started and
-                         all(m.get('generation_ok') is True or m.get('provider_status') == 429
-                             for m in attempt_metrics))
-            if completed:
+            # Release only reservations for attempts that definitely started.
+            # A completed truncation still reports real usage and is billable;
+            # unknown/missing usage keeps the conservative token reservation.
+            if len(attempt_metrics) == attempts_started:
+                known = all(type(m.get('total_tokens')) is int for m in attempt_metrics)
                 model_queue.PROVIDER.settle(receipt, requests=len(attempt_metrics),
                     tokens=sum(m['total_tokens'] for m in attempt_metrics) if known else None)
+        elif receipt and attempts_started == 0:
+            # The cancellation guard refused the first call, so nothing reached
+            # the provider and the full reservation can be released.
+            model_queue.PROVIDER.settle(receipt, requests=0, tokens=0)
         _ACTIVE.release()
 
 
