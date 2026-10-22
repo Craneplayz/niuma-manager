@@ -23,6 +23,7 @@ async function openApp(page, { anonymous = false, workspaceFailure = false, fail
     } else if (path === "/api/version") value = { environment: "test", revision: "a7fe0a8", managed: true };
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/usage/guest-visit") value = { saved: true };
+    else if (path === "/api/recognition/text-jobs") value = { contract_version: "text-import-jobs/0.1", jobs: [] };
     else if (path === "/api/recognition/batches") value = history ? history.batches : [];
     else if (path === "/api/recognition/retry" && history) value = history.retry(request.postDataJSON());
     else if (path === "/api/sources/sync-runs") {
