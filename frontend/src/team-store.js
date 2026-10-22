@@ -18,7 +18,7 @@ let canonicalTasks = [],
   pendingChanges = [];
 const clone = (value) => structuredClone(value);
 let accountEpoch = 0, editRevision = 0, retrying = null;
-let staging = Promise.resolve(), journalLoaded = null, order = 0;
+let staging = Promise.resolve(), journalLoaded = null, order = 0, taskGeneration = 0;
 const requests = new Set();
 export const accountVersion = () => accountEpoch;
 function resetAccount() {
@@ -29,6 +29,7 @@ function resetAccount() {
   session.user = null;
   canonicalTasks = [];
   taskVersion = 0;
+  taskGeneration = 0;
   latest = null;
   failed = false;
   pendingChanges = [];
@@ -187,6 +188,7 @@ async function loadSession(discardPending = false) {
       if ((next.tasks?.version || 0) >= taskVersion) {
         canonicalTasks = clone(next.tasks?.value || []);
         taskVersion = next.tasks?.version || 0;
+        taskGeneration = next.taskWriteGeneration || 0;
       }
       if (discardPending) {
         await removeOperations(session.user.id, pendingChanges.map(change => change.operation.id));
@@ -382,6 +384,7 @@ async function reconcileChanges(epoch) {
   pendingChanges = pendingChanges.filter(change => !result.applied.includes(change.operation.id));
   canonicalTasks = clone(result.tasks.value);
   taskVersion = result.tasks.version;
+  taskGeneration = result.generation || 0;
 }
 function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = false } = {}) {
   if (!session.user || session.changing) {
@@ -391,7 +394,7 @@ function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = fals
   }
   editRevision++;
   const operation = { format: 1, id: [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2, '0')).join(''), owner: session.user.id,
-    order: order = Math.max(Date.now(), order + 1), intent: clone(intent) };
+    order: order = Math.max(Date.now(), order + 1), intent: { ...clone(intent), workspaceGeneration: taskGeneration } };
   const change = { operation, retryOnFailure, reloadOnStale, epoch: accountEpoch };
   pendingChanges.push(change);
   change.staged = staging.then(async () => {

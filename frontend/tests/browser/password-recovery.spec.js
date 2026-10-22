@@ -18,7 +18,7 @@ async function openApp(page, { loggedIn = false, onRequest } = {}) {
     else if (path === "/api/auth/reset-password") value = { reset: true };
     else if (path === "/api/auth/login") { user = { ...initialUser, email: body.email }; value = { user }; }
     else if (path === "/api/workspace") value = { tasks: { version: 1, value: [{ id: "task", title: "合成任务", status: "not_started", due: null, plans: [], subtasks: [] }] } };
-    else if (path === "/api/data/tasks") value = { version: 2 };
+    else if (path === "/api/data/tasks") value = { version: 2, operationId: body.operation?.id };
     else if (path === "/api/version") value = { environment: "test", revision: "4bb33a1", managed: true };
     else if (path === "/api/usage/guest-visit") value = {};
     else if (path === "/api/usage/visit") value = { offerRating: false };

@@ -9,7 +9,17 @@ def initialize(db):
     db.executescript('''CREATE TABLE IF NOT EXISTS task_write_receipts(
         user_id TEXT NOT NULL, operation_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         version INTEGER NOT NULL, created_at REAL NOT NULL,
-        PRIMARY KEY(user_id, operation_id));''')
+        PRIMARY KEY(user_id, operation_id));
+        CREATE TABLE IF NOT EXISTS task_write_epochs(user_id TEXT PRIMARY KEY, generation INTEGER NOT NULL);''')
+
+
+def generation(db, uid):
+    row = db.execute('SELECT generation FROM task_write_epochs WHERE user_id=?', (uid,)).fetchone()
+    return row['generation'] if row else 0
+
+
+def invalidate_pending(db, uid):
+    db.execute('INSERT INTO task_write_epochs VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET generation=generation+1', (uid,))
 
 
 def identity(operation, uid, ApiError):
@@ -33,6 +43,8 @@ def acknowledged(db, uid, operation, ApiError):
     row = db.execute('SELECT fingerprint FROM task_write_receipts WHERE user_id=? AND operation_id=?', (uid, oid)).fetchone()
     if row and row['fingerprint'] != fingerprint:
         raise ApiError(409, '操作编号已用于不同内容，请重新读取后核对')
+    if not row and operation['intent'].get('workspaceGeneration', 0) != generation(db, uid):
+        raise ApiError(409, '账号数据已清空，不能恢复清空前的操作；请重新读取')
     return bool(row)
 
 
@@ -55,4 +67,4 @@ def reconcile(handler, db, uid, body, ApiError):
     # One read transaction pairs the receipts with the exact matching task/version snapshot.
     db.execute('BEGIN')
     applied = [operation['id'] for operation in operations if acknowledged(db, uid, operation, ApiError)]
-    return handler.reply(200, dict(applied=applied, tasks=workspace(db, uid)))
+    return handler.reply(200, dict(applied=applied, tasks=workspace(db, uid), generation=generation(db, uid)))

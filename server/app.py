@@ -424,7 +424,9 @@ class Handler(BaseHTTPRequestHandler):
                 return task_operations.reconcile(self,db,uid,body,ApiError)
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
-                return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
+                snapshot={r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows}
+                snapshot['taskWriteGeneration']=task_operations.generation(db,uid)
+                return self.reply(200,snapshot)
             if path=='/api/data/tasks' and self.command=='DELETE':
                 ids=body.get('ids')
                 if not isinstance(ids,list) or not ids or len(ids)>500 or any(not isinstance(item,str) or not item or len(item)>100 for item in ids) or len(ids)!=len(set(ids)): raise ApiError(400,'删除任务范围不正确')
