@@ -12,6 +12,8 @@ import teaching_submission as submission
 import teaching_assets
 import teaching_identity
 from server.model_queue import WAIT_ERROR, disconnected
+from server import operations
+import time
 from server import recognition_diagnostics as diagnostics
 
 from contracts.teaching_io import canonical, check_request, snapshot_digest
@@ -223,15 +225,19 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
         error = ApiError(503,'教学网识别配置不可用，请检查当前环境的七牛云模型配置并重启后端')
         error.code = 'model_configuration'
         raise error from None
-    client = ChatClient(options['key'])
+    client = operations.observe_chat(ChatClient(options['key']))
     diagnostics.event('configuration',model=settings.model,timeout_seconds=settings.timeout_seconds)
     def check_active():
         if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
     teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
     check_active()
-    result = process_teaching_request(request, client=client, settings=settings,
-        verified_snapshot_digests={snapshot_digest(e) for e in request['records']},
-        budget_seconds=90,diagnostic_event=diagnostics.event)
+    with operations.span('recognition') as observation:
+        result = process_teaching_request(request, client=client, settings=settings,
+            verified_snapshot_digests={snapshot_digest(e) for e in request['records']},
+            budget_seconds=90,diagnostic_event=diagnostics.event)
+        if result['status'] in ('failed','partial_success'):
+            code=next((row['error']['code'] for row in result['record_results'] if row.get('error')),'upstream_error')
+            observation.update(result='failed',code=code if code in operations.CODES else 'upstream_error')
     return result, policy
 
 
@@ -244,7 +250,7 @@ def attachment_context(db, uid, request_id):
     path = db.execute('PRAGMA database_list').fetchone()[2]
     def save_cache(asset,version,result):
         if not path: return  # In-memory tests need no durable cache.
-        with closing(sqlite3.connect(path,timeout=30)) as cache_db, cache_db:
+        with closing(sqlite3.connect(path,timeout=30,factory=operations.TimedConnection)) as cache_db, cache_db:
             cache_db.execute('BEGIN IMMEDIATE')
             teaching_assets.save_read_cache(cache_db,uid,asset,version,result)
     return dict(files=files,save_cache=save_cache) if files else {}
@@ -269,7 +275,10 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     control_token = submission.controls.token(db,uid,request['request_id'])
     attachments = attachment_context(db,uid,request['request_id'])
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-    if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')): return
+    if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')):
+        operations.emit('outcome',code='cache_hit')
+        return
+    if previous:operations.emit('outcome',code='retry')
     if previous and needs_source_completion(json.loads(previous['result'])):
         raise ApiError(409,SOURCE_INCOMPLETE)
     if not recognition._ACTIVE.acquire(): raise ApiError(503,WAIT_ERROR)
@@ -282,7 +291,8 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             for outcome in result['record_results']:
                 failure = outcome.get('error') or {}
                 diagnostics.event('result',status=outcome['status'],code=failure.get('code'),schema=failure.get('diagnostic'))
-            validate_current_result(request,result,policy,ApiError)
+            with operations.span('validation'):validate_current_result(request,result,policy,ApiError)
+        saving=time.monotonic()
         db.execute('BEGIN IMMEDIATE')
         if guard: guard(db)
         if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
@@ -313,5 +323,11 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
         db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
             (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
         submission.controls.refresh_request(db,uid,request['request_id'])
+        operations.emit('save',(time.monotonic()-saving)*1000)
+        for row in result['record_results']:
+            code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])
+            if code in operations.CODES:operations.after_commit(db,'outcome',code=code,result='failed' if row['status']=='failed' else 'ok')
+            filtered=sum(decision.get('recommendation')=='filtered' for decision in row.get('decisions',[]))
+            if filtered:operations.after_commit(db,'outcome',code='filtered',quantity=filtered)
     finally:
         recognition._ACTIVE.release()

@@ -18,6 +18,10 @@ server/
 ├── test_dev_accounts.py      测试账号登录、空数据、重复保护与生产环境拒绝回归。
 ├── test_dev_account_environment.py 环境入口、容器选择、密码传递和生产拒绝回归。
 ├── usage.py                  无正文行为记录、用户反馈与管理员聚合接口。
+├── operations.py             独立运行事件库、请求追踪、阶段计时与管理员聚合。
+├── operations_probe.py       主机短时资源采样、故障告警及共享预算邮件通知。
+├── test_operations.py        真实HTTP鉴权、无正文追踪、锁等待、保留与隔离回归。
+├── test_operations_probe.py  探针资源、告警触发/恢复/去重及通知失败回归。
 ├── error_reports.py          用户主动错误报告、受限字段、去重、限流与保留。
 ├── test_error_reports.py     真实 HTTP 提交、匿名反馈、权限与私人字段拒绝回归。
 ├── test_usage.py             后台权限、反馈评分、去重、数据最小化与保留期测试。
@@ -46,11 +50,12 @@ server/
 ├── source_jobs.py            教学网后台同步、逐条持久进度、受控并发与自动入库。
 ├── source_schedule.py        账号定时配置、服务端调度、凭据变化暂停及环境开关。
 ├── test_source_schedule.py   定时恢复、互斥派发、关闭及迟到结果保护测试。
-├── test_source_jobs.py       HTTP 同步幂等、4 路并发、停止、账号变化与重启回归。
+├── test_source_jobs.py       HTTP 同步幂等、多账号有界排队、停止、账号变化与重启回归。
 ├── teaching.py               核验当前账号快照、调用 v0.4 并适配任务/通知卡片。
 ├── teaching_assets.py        暂存收据校验、账号隔离原件、读取缓存与证据补全。
 ├── test_teaching_assets.py   文件同步到自动入库、重试、缓存、变更与隔离回归。
 ├── benchmark_teaching_store.py 内存数据库的合成附件清理基准，不接触账号数据。
+├── benchmark_source_capacity.py 临时数据库的1/3/5账号同步、附件与资源容量基准。
 ├── run_teaching_attachment_smoke.py  合成 PDF/扫描 PDF/图片/DOCX 的真实 API 验收。
 ├── submission_runtime.py    提交状态永久行动关联、完成/重开、持久幂等与原子更新。
 ├── test_submission_runtime.py 提交生命周期、独立行动、手动重开及陈旧操作回归。
@@ -70,6 +75,8 @@ server/
 ├── test_deployment.py        公网来源、HTTPS Cookie、健康检查与本机兼容测试。
 ├── deploy/                   Docker 全栈、HTTPS 代理与持久数据部署配置。
 │   ├── ENVIRONMENTS.md        三环境启动、旧生产接管、验收与回滚步骤。
+│   ├── OPERATIONS.md          双入口登录、HTTPS跳转及多人同步排队排查。
+│   ├── OPERATIONS_PROBE.md    主机探针、私有通知配置和定时执行步骤。
 │   ├── TEAM_GUIDE.md          团队本机开发、SSH 测试和协作发布的简明指南。
 │   ├── EMAIL.md               阿里云发信准备、配置、验收与旧账号升级说明。
 │   ├── compose.mail-budget.yaml  显式挂载共享发信计数卷，不共享用户数据。
@@ -83,6 +90,18 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+## 后台同步容量
+
+教学网后台同步最多执行4轮、额外排队20轮，每账号最多一轮；复用有界FIFO等待器，排队最长180秒，停止或凭据失效会退出等待，超时可重试且不调用采集器；每轮记录仍最多4并发，模型总池仍为20并发。
+
+有其他账号等待时，当前轮在已派发的一组记录完成后回到队尾，后续继续剩余记录而不重新采集；没有等待者时保留原有持续派发，避免大批量任务长期占满运行槽。
+
+让出时在同一队列锁内将已接受的执行槽转为队尾票据，不占用新增请求名额；满队列不会拒绝续跑，停止或超时会移除预留票据。
+
+安装测试依赖后执行 `python server/benchmark_source_capacity.py`，记录1/3/5账号的接受/完成数、吞吐、提交与工作区P95、合成采集及模型校验耗时；仅使用临时数据库与500ms采集/250ms模型替身，无附件或真实模型调用，不代表真实教学网和供应商容量。
+
+加 `--attachments` 从回环 HTTP 来源实际下载同一合成 DOCX，经原件绑定、真实本地读取、校验和保存，输出附件字节摘要与阶段耗时；资源每约500ms采样，输出主机CPU/内存/磁盘峰值，macOS无/proc时CPU和内存为null；磁盘结果为用量不是吞吐，云端对比须使用相同实体磁盘目录而非tmpfs。
 
 ## 账号头像
 
@@ -127,6 +146,14 @@ python server/manage_environment.py test-account development
 `POST /api/error-reports` 接收用户点击提交的受限报告，沿用 [error-report/0.1](../contracts/docs/error-reports-v0.1.md)；允许未登录反馈登录故障，限制请求大小和频率、按问题编号去重，不收集原始异常或私人正文。现有管理员后台按收到日期展示最近 100 条报告，保留 90 天，普通用户无列表读取权限。
 
 ## 使用数据后台
+
+- `/admin.html` 的“运行监控”读取独立 `/api/admin/operations`，普通导航不显示，沿用独立管理员会话及角色校验。
+- 运行数据位于业务库旁的 `<数据库文件>.operations.sqlite3`，详细事件保留14天且最多50000条；业务事务和观测写入分库，观测失败不回滚用户操作，后台展示本进程丢弃数。
+- 请求ID由服务端签发并放入 `X-Request-ID`，后台同步和子进程模型调用使用同一请求/运行标识；日志只输出固定操作、结果码、版本及耗时，不输出原始URL、参数、异常文本、账号、会话或正文。
+- 后台提供接口量、成功/失败、P50/P95、同步与模型队列、阶段耗时、缓存/重试/无任务/过滤、最新主机采样、告警状态与只读追踪；阶段可能嵌套，不相加作总耗时。
+- `database_lock` 表示显式 `BEGIN IMMEDIATE` 的写锁获取耗时，`commit` 表示事务提交；识别模型调用不含排队，规划/拆解的 `*.harness` 调用包含该模块内部校验，不伪称纯网络耗时。
+- 采集总计时包含下载，另按 [producer-observation/0.1](../contracts/docs/producer-observation-v0.1.md) 校验并记录 stderr 中独立下载事件；模型客户端回调只收集有界事件，调用结束后在实际执行进程写入共享 sidecar，spawn 子进程不会丢到父进程普通列表。供应商用量分别保留已知合计、已知与未知调用数，不补算缺失值或费用；旧生产方和硬终止无事件时不可观测。
+- 资源由 [主机探针](deploy/OPERATIONS_PROBE.md) 每分钟写入，超过180秒标为过期；API无Docker socket，通知、凭据和共享邮件预算仅放服务器私有配置。
 
 - 后台位于 `/admin.html`，普通应用导航不显示入口，统计 API 仅允许服务器授予权限的已登录用户。
 - `POST /api/usage/guest-visit` 仅接收空对象，以 HttpOnly 随机 Cookie 记录未登录浏览器的每日访问；数据库仅保存标识摘要、日期及回访标志，已登录访问不重复计游客。

@@ -325,7 +325,9 @@ class TeachingIntegrationTests(unittest.TestCase):
         return request,result
 
     def model(self,request,ApiError):
-        output=process_teaching_request(request,client=RecordClient(self.drafts),settings=Settings(timeout_seconds=5),
+        # Includes spawn/import startup under parallel load on a 2-vCPU test host.
+        # Production deadlines and dedicated timeout regressions stay unchanged.
+        output=process_teaching_request(request,client=RecordClient(self.drafts),settings=Settings(timeout_seconds=30),
             verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
         output['policy_version']='teaching-policy-v1:'+'0'*64
         return output,dict(version=output['policy_version'])

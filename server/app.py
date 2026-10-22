@@ -31,6 +31,7 @@ import account_avatar
 import email_verification
 import ipaddress
 from server import model_queue
+from server import operations
 
 
 class ThreadingHTTPServer(_ThreadingHTTPServer):
@@ -44,7 +45,7 @@ def wechat_enabled():
 
 @contextmanager
 def connection():
-    db = sqlite3.connect(DB, timeout=10)
+    db = sqlite3.connect(DB, timeout=10, factory=operations.TimedConnection)
     db.row_factory = sqlite3.Row
     try:
         with db:
@@ -69,6 +70,8 @@ def initialize_accounts(db):
 def initialize(recover=True):
     runtime_environment.validate_storage(DB)
     DB.parent.mkdir(parents=True, exist_ok=True)
+    try:operations.initialize(DB)
+    except (OSError,sqlite3.Error):print('{"event":"operations_unavailable"}',flush=True)
     with connection() as db:
         initialize_accounts(db)
         recognition.initialize(db)
@@ -128,7 +131,13 @@ def public_user(db, row):
                 emailVerified=email_verification.verified(db, row['id']))
 
 class Handler(BaseHTTPRequestHandler):
+    def log_message(self,format,*args):
+        pass  # Structured request logs never include raw URLs or query data.
+
     def reply(self, status, value, cookie=None):
+        self.ops_status=status
+        if status<400 and not usage.successful(status,value,getattr(self,'usage_request_id',None)):
+            self.ops_code='upstream_error'
         data=b'' if status==204 else json.dumps(value,ensure_ascii=False).encode()
         if getattr(self,'usage_uid',None) and not getattr(self,'usage_recorded',False):
             event=usage.operation(self.path.split('?')[0]) if self.command=='POST' else None
@@ -150,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Cache-Control','no-store')
+        context=operations.captured()
+        if context:self.send_header('X-Request-ID',context['request_id'])
         self.send_header('Content-Length',str(len(data)))
         if cookie: self.send_header('Set-Cookie',cookie)
         if getattr(self, 'retry_after', None): self.send_header('Retry-After', str(self.retry_after))
@@ -530,20 +541,29 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self): self.handle_request()
     def do_DELETE(self): self.handle_request()
     def handle_request(self):
+        with operations.scope(DB):self._handle_request()
+
+    def _handle_request(self):
         self.usage_started=time.monotonic()
         self.usage_uid=None
         self.usage_recorded=False
         self.usage_tasks=None
+        self.ops_status=500
+        self.ops_code='ok'
         self.retry_after=None
         try:
             with model_queue.request(self.connection): self.route()
-        except wechat_media.MediaError as e: self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
+        except wechat_media.MediaError as e:
+            self.ops_code=operations.classify(e)
+            self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
         except email_verification.VerificationError as e:
+            self.ops_code=operations.classify(e)
             self.retry_after=e.retry_after
             value=dict(error=e.message, code=e.code)
             if e.retry_after is not None: value['retryAfter']=e.retry_after
             self.reply(e.status, value)
         except ApiError as e:
+            self.ops_code=operations.classify(e)
             if self.path.startswith('/api/sources/submissions'):
                 code={401:'unauthorized',403:'unauthorized',404:'not_found',409:'conflict',503:'unavailable'}.get(e.status,'invalid_request')
                 self.reply(e.status,dict(contract_version='submission-operations/0.1',code=code,message=e.message))
@@ -552,18 +572,25 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(e.status,dict(error=dict(code=code,message=e.message,retryable=e.status==503)))
             else: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError):
+            self.ops_code='http_400'
             if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
                 self.reply(400,dict(error=dict(code='invalid_request',message='数据格式不正确',retryable=False)))
             else: self.reply(400,dict(error='数据格式不正确'))
         except Exception as e:
+            self.ops_code=operations.classify(e)
             if self.path.startswith(('/api/sources/wechat/','/api/materials/')):
-                print(type(e).__name__,flush=True)
                 self.reply(503,dict(error=dict(code='queue_busy',message='附件服务暂不可用，请稍后重试',retryable=True)))
             else:
-                print(type(e).__name__,str(e),flush=True)
                 self.reply(502,dict(error='服务处理失败，请稍后重试；数据未变更'))
         finally:
             if getattr(self,'db',None) is not None: self.db.close()
+            operation=operations.operation(self.path,self.command)
+            if operation:
+                elapsed=(time.monotonic()-self.usage_started)*1000
+                operations.emit('http',elapsed,operation=operation,result='ok' if self.ops_status<400 and self.ops_code=='ok' else 'failed',code=self.ops_code)
+                context=operations.captured()
+                print(json.dumps(dict(event='http',request_id=context['request_id'],operation=operation,
+                    status=self.ops_status,code=self.ops_code,duration_ms=round(elapsed,2),environment=runtime_environment.environment(),revision=runtime_environment.revision())),flush=True)
 
 def validate_proposal(request,result):
     if not isinstance(result,dict) or not isinstance(result.get('blocks'),list) or not isinstance(result.get('warnings'),list) or not all(isinstance(w,str) for w in result['warnings']): raise ApiError(502,'模型返回格式不正确')
