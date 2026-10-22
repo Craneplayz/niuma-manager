@@ -315,6 +315,7 @@ test("an action after sleeping past midnight saves the actual completion and rea
   t.mock.timers.setTime(new Date("2026-10-17T01:00:00").getTime());
   await f.click({ taskComplete: "task" });
   await f.doc.emit("change", { dataset: { noticeRead: "notice" } });
+  await (await import('../src/team-store.js')).flushStore();
   await new Promise(setImmediate);
   assert.equal(f.writes.length, 2);
   for (const task of f.writes.at(-1).value) {

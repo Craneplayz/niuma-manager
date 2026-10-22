@@ -20,8 +20,9 @@ class Handler(app.Handler):
     def route(self):
         if self.path=='/__test/reset':
             with app.connection() as db:
-                db.execute('DELETE FROM workspace');db.execute('DELETE FROM task_write_receipts');db.execute('DELETE FROM task_write_epochs')
+                db.execute('DELETE FROM workspace');db.execute('DELETE FROM task_write_receipts');db.execute('DELETE FROM task_write_epochs');db.execute('DELETE FROM sessions')
                 for uid in ('alice','bob'):
+                    db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(uid.encode()).hexdigest(),uid,time.time()+3600))
                     tasks=[dict(id=id,title=uid+' '+id,status='not_started',due=None,plans=[],subtasks=[],sourceUrl='https://example.test/course',recognitionHistory=[dict(candidateId=id)]) for id in ('a','b','c')]
                     db.execute('INSERT INTO workspace VALUES(?,?,?,1)',(uid,'tasks',json.dumps(tasks)))
             return self.reply(200,{})
@@ -139,14 +140,12 @@ test('refresh while the first request is held restores ordered completion, edit 
 
 test('same-field multi-window conflict retains the journal until explicit discard', async ({page,context}) => {
   await open(page,context);
+  const other=await context.newPage(); await open(other,context);
   await page.route('**/api/data/tasks', route=>route.abort());
   await edit(page,'a','旧窗口草稿');
   await expect(page.getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
-  await page.evaluate(async () => {
-    const snapshot=(await (await fetch('/api/workspace')).json()).tasks;
-    snapshot.value[0].title='其他窗口的新标题';
-    await fetch('/api/data/tasks?external=1',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(snapshot)});
-  });
+  await edit(other,'a','其他窗口的新标题');
+  await expect.poll(async ()=>(await workspace(other)).tasks.version).toBe(2);
   await page.unroute('**/api/data/tasks'); await page.reload();
   await expect(page.getByRole('button',{name:'重新读取',exact:true})).toBeVisible();
   expect(await pending(page)).toHaveLength(1);
@@ -178,6 +177,23 @@ test('blocked local storage does not optimistically alter a task or send a PUT',
   await row(page,'a').locator('[data-task-complete]').click();
   await expect(page.locator('#toast')).toContainText('浏览器存储');
   await expect(row(page,'a')).toBeVisible(); expect(writes).toBe(0);
+});
+
+test('reconnecting after recovery transport failure keeps and resumes the original operation', async ({page,context}) => {
+  await open(page,context);
+  await page.route('**/api/data/tasks',route=>route.abort());
+  await edit(page,'a','重连后仍然保留');
+  await expect(page.getByRole('button',{name:'重试保存',exact:true})).toBeVisible();
+  await page.unroute('**/api/data/tasks');
+  await page.route('**/api/tasks/reconcile',route=>route.abort());
+  await page.reload();
+  await expect(page.getByRole('button',{name:'重新连接',exact:true})).toBeVisible();
+  expect(await pending(page)).toHaveLength(1);
+  await page.unroute('**/api/tasks/reconcile');
+  await page.getByRole('button',{name:'重新连接',exact:true}).click();
+  await expect(row(page,'a')).toContainText('重连后仍然保留');
+  await expect.poll(async ()=>(await pending(page)).length).toBe(0);
+  expect((await workspace(page)).tasks.version).toBe(2);
 });
 
 test('acknowledged changes and encryption key are cleared on explicit logout', async ({page,context}) => {
