@@ -10,6 +10,48 @@ from server import recognition_diagnostics as diagnostics
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_sqlite_full_cannot_report_success_after_business_transaction_is_lost(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
+            with closing(sqlite3.connect(Path(folder)/'full.sqlite3')) as db:
+                diagnostics.initialize(db)
+                db.execute('CREATE TABLE business(value TEXT)')
+                db.commit()
+                pages = db.execute('PRAGMA page_count').fetchone()[0]
+                db.execute('PRAGMA max_page_count='+str(pages))
+                with self.assertLogs('recognition_diagnostics',level='ERROR'):
+                    with self.assertRaises(sqlite3.OperationalError) as caught:
+                        with diagnostics.capture(db,'user','full'):
+                            db.execute('INSERT INTO business VALUES(?)',('fits existing page',))
+                            self.assertTrue(db.in_transaction)
+                            for _ in range(100):
+                                diagnostics.event('pdf_batch',visual_pages=6,timeout_seconds=60,model='synthetic')
+                self.assertFalse(db.in_transaction)
+                self.assertEqual(db.execute('SELECT count(*) FROM business').fetchone()[0],0)
+                self.assertEqual(caught.exception._recognition_failure['failure']['reason'],'save_failed')
+                self.assertEqual(caught.exception._recognition_attempt['persistence_error']['code'],'SQLITE_FULL')
+                # The HTTP failure handler can safely finalize it after rollback.
+                db.execute('PRAGMA max_page_count=1000')
+                failure = diagnostics.finalize_error(db,'user',caught.exception)
+                self.assertEqual(failure['failure']['reason'],'save_failed')
+                self.assertEqual(len(diagnostics.lookup(db,'user',failure['diagnostic_id'])),1)
+
+    def test_statement_failure_rolls_back_only_diagnostics_and_keeps_business_writes(self):
+        with closing(sqlite3.connect(':memory:')) as db:
+            diagnostics.initialize(db)
+            db.execute('CREATE TABLE business(value TEXT)')
+            # RAISE(FAIL) preserves the INSERT before the trigger fails. Our
+            # savepoint must undo it without undoing the caller's earlier row.
+            db.execute("""CREATE TRIGGER fail_diagnostic AFTER INSERT ON recognition_attempt_diagnostics
+                BEGIN SELECT RAISE(FAIL,'synthetic diagnostic failure'); END""")
+            db.commit()
+            with self.assertLogs('recognition_diagnostics',level='ERROR'):
+                with diagnostics.capture(db,'user','statement'):
+                    db.execute("INSERT INTO business VALUES('saved')")
+            self.assertTrue(db.in_transaction)
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_attempt_diagnostics').fetchone()[0],0)
+            db.commit()
+            self.assertEqual(db.execute('SELECT value FROM business').fetchone()[0],'saved')
+
     def test_connection_failure_during_error_response_keeps_original_diagnostic(self):
         from server import app
         with closing(sqlite3.connect(':memory:')) as db:

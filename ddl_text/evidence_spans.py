@@ -1,18 +1,48 @@
 """Exact, server-owned text spans. Models select IDs; they cannot rewrite quotes."""
 from copy import deepcopy
 import re
+from bisect import bisect_right, bisect_left
 from .adapters import AgentError
+
+
+# Evidence is copied into each task that cites it. Bound each quote before it
+# enters the model so a short response cannot expand into megabytes of output.
+MAX_SPAN_CHARS = 768
+SPAN_OVERLAP_CHARS = 96
+_UNITS = re.compile(r'[A-Za-z0-9_]+(?:[./:\-\'’][A-Za-z0-9_]+)*|\s+|.', re.DOTALL)
+
+
+def bounded_quotes(text):
+    if len(text) <= MAX_SPAN_CHARS:
+        yield text
+        return
+    # Prefer complete words, ISO dates, times and identifiers. Exceptional
+    # unbroken tokens still have a hard bound. Overlap preserves short phrases
+    # (including localized dates) across a window boundary.
+    boundaries = [0]
+    for match in _UNITS.finditer(text):
+        boundaries.extend(range(match.start() + MAX_SPAN_CHARS, match.end(), MAX_SPAN_CHARS))
+        boundaries.append(match.end())
+    start = 0
+    while start < len(text):
+        end_index = bisect_right(boundaries, start + MAX_SPAN_CHARS) - 1
+        end = boundaries[end_index]
+        yield text[start:end]
+        if end == len(text): break
+        overlap_index = bisect_left(boundaries, end - SPAN_OVERLAP_CHARS)
+        start = boundaries[overlap_index] if boundaries[overlap_index] > start else end
 
 
 def catalog(record):
     spans = {}
     for message in [record] + record['context']:
         text = message['text']
-        # Keep words/dates intact; fixed character cuts can split valid evidence.
+        # Preserve the existing short sentence IDs while bounding long English
+        # paragraphs and text without punctuation/newlines as well.
         for match in re.finditer(r'[^。！？\n]+[。！？\n]*|[。！？\n]+', text):
-            quote = match.group()
-            if quote.strip():
-                spans['q' + str(len(spans))] = dict(input_id=message['input_id'], quote=quote)
+            for quote in bounded_quotes(match.group()):
+                if quote.strip():
+                    spans['q' + str(len(spans))] = dict(input_id=message['input_id'], quote=quote)
     return spans
 
 

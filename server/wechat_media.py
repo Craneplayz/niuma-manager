@@ -435,7 +435,7 @@ def _job(row, db=None):
     total = len(json.loads(row['request'])['records'])
     result = json.loads(row['result']) if row['result'] else None
     if result and db:
-        result['errors'] = diagnostics.hydrate_errors(db,row['user_id'],result['errors'])
+        result = diagnostics.hydrate_result(db,row['user_id'],result)
     finished = total if row['status'] in ('succeeded', 'partial_failed', 'failed') else 0
     failed = total if row['status'] == 'failed' else sum(r['status'] in ('failed', 'partial_success') for r in result['record_results']) if result else 0
     if row['previous_result'] and row['status'] in ('queued','running'):

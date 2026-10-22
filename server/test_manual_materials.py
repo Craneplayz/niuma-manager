@@ -18,6 +18,52 @@ import wechat_media
 
 
 class ManualMaterialTests(unittest.TestCase):
+    def test_large_valid_job_omits_only_inline_diagnostics_and_keeps_exact_lookup(self):
+        from server import recognition_diagnostics as diagnostics
+        from contracts.check_v031_examples import check_pair, check_job, json_bytes, MAX_RESULT_BYTES
+        root = Path(__file__).parent.parent
+        _,receipt = self.upload(b'\x89PNG\r\n\x1a\nsynthetic','task.png')
+        body = json.loads((root/'contracts/source-to-text/text-attachments-v031-request.json').read_text(encoding='utf-8'))
+        body['records'][0]['attachments'][0].update({key:receipt[key] for key in ('file_name','mime_type','size_bytes','sha256','file_ref')})
+        with patch.object(wechat_media,'_start_job'):
+            status,accepted = self.call('/materials/imports',body)
+        self.assertEqual(status,202,accepted)
+        with patch.object(diagnostics,'environment',return_value='development'):
+            with app.connection() as db:
+                uid = db.execute('SELECT user_id FROM wechat_jobs WHERE id=?',(accepted['job_id'],)).fetchone()[0]
+                with diagnostics.capture(db,uid,body['request_id']) as attempt:
+                    for _ in range(100):diagnostics.event('pdf_batch',visual_pages=6,timeout_seconds=60)
+                identity = attempt['attempt_id']
+            for remaining in (100000,20,0):
+                result = json.loads((root/'contracts/text-to-app/text-attachments-v031-output.json').read_text(encoding='utf-8'))
+                result['status'] = result['record_results'][0]['status'] = 'partial_success'
+                result['record_results'][0]['coverage']['complete'] = False
+                result['record_results'][0]['warnings'] = ['synthetic recognition incomplete']
+                result['errors'] = [dict(input_id=body['records'][0]['input_id'],asset_id=None,block_id=None,
+                    stage='recognize',code='agent_timeout',message='synthetic timeout',retryable=True,diagnostic_id=identity)]
+                # Count escaped quotes/newlines/backslashes and UTF-8 bytes, not
+                # Python character length or the unescaped diagnostic string.
+                result['tasks'][0]['description'] = '数分"\\\n'*1000
+                result['tasks'][0]['description'] += 'x'*(MAX_RESULT_BYTES-remaining-len(json_bytes(result)))
+                check_pair(body,result)
+                with app.connection() as db:
+                    db.execute("UPDATE wechat_jobs SET status='partial_failed',result=? WHERE id=?",(json.dumps(result),accepted['job_id']))
+                status,job = self.call('/materials/imports/'+accepted['job_id'])
+                self.assertEqual(status,200,job)
+                check_job(body,job)
+                self.assertLessEqual(len(json_bytes(job['result'])),MAX_RESULT_BYTES)
+                self.assertEqual(job['result']['tasks'],result['tasks'])
+                error = job['result']['errors'][0]
+                self.assertEqual(error['diagnostic_id'],identity)
+                self.assertEqual('diagnostics' in error,remaining==100000)
+                status,trace = self.call('/recognition/diagnostics',{'diagnostic_id':identity})
+                self.assertEqual(status,200,trace)
+                self.assertEqual(trace['attempts'][0]['attempt_id'],identity)
+                with patch.object(diagnostics,'environment',return_value='production'):
+                    status,public = self.call('/materials/imports/'+accepted['job_id'])
+                    self.assertEqual(status,200,public)
+                    self.assertEqual(public['result'],result)
+
     def test_file_job_failure_keeps_safe_diagnostic_through_saved_job_and_http(self):
         from server import recognition_diagnostics as diagnostics
         _,receipt=self.upload(b'synthetic text','task.txt')

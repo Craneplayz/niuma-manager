@@ -15,6 +15,7 @@ from ddl_text.adapters import safe_schema_detail
 from server.runtime_environment import environment, revision
 from ddl_text import diagnostics as trace
 from contracts.recognition_errors import describe, DEFAULTS
+from contracts.check_v031_examples import json_bytes, MAX_RESULT_BYTES
 
 _active = ContextVar('recognition_diagnostic_attempt', default=None)
 
@@ -114,17 +115,51 @@ def persist(db, uid, attempt):
             (attempt['attempt_id'],uid,attempt['request_id'],attempt['started_at'],json.dumps(attempt)))
         connection.execute('''DELETE FROM recognition_attempt_diagnostics WHERE user_id=? AND id NOT IN (
             SELECT id FROM recognition_attempt_diagnostics WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT 200)''',(uid,uid))
+    had_transaction = False
     try:
         if db is None: raise sqlite3.OperationalError('diagnostic_connection_unavailable')
+        had_transaction = db.in_transaction
         path = db.execute('PRAGMA database_list').fetchone()[2]
-        if not path or db.in_transaction: save(db)
+        if had_transaction:
+            # Statement failures must not leave partial diagnostic writes behind.
+            # SQLITE_FULL/IOERR can discard even this savepoint and the outer
+            # transaction; detect that separately instead of reporting success.
+            point = 'diagnostic_' + secrets.token_hex(8)
+            db.execute('SAVEPOINT ' + point)
+            try:
+                save(db)
+            except (sqlite3.Error, OSError):
+                if db.in_transaction:
+                    db.execute('ROLLBACK TO ' + point)
+                    db.execute('RELEASE ' + point)
+                raise
+            db.execute('RELEASE ' + point)
+        elif not path: save(db)
         else:
             with closing(sqlite3.connect(path,timeout=5)) as connection, connection: save(connection)
         return True
-    except (sqlite3.Error,OSError):
+    except (sqlite3.Error,OSError) as storage_error:
+        try: transaction_lost = had_transaction and not db.in_transaction
+        except sqlite3.Error: transaction_lost = had_transaction
+        attempt['persistence_error'] = trace.sanitize('diagnostic_persistence', dict(
+            code=getattr(storage_error,'sqlite_errorname','storage_error'),
+            status='failed', diagnostic='save_failed' if transaction_lost else 'internal_error'))
         # Bounded, sanitized fallback, no exception text or request/user identity.
         logging.getLogger('recognition_diagnostics').error(json.dumps(dict(
-            diagnostic_id=attempt['attempt_id'], persistence='unavailable', events=attempt['events'])))
+            diagnostic_id=attempt['attempt_id'], persistence='unavailable',
+            persistence_error=attempt['persistence_error'], events=attempt['events'])))
+        if transaction_lost:
+            # The business writes no longer exist. This is a save failure, not
+            # an optional missing diagnostic. Let the normal failure handler
+            # roll back/finalize and return a failed receipt.
+            error = sqlite3.OperationalError('recognition_transaction_rolled_back')
+            error._recognition_attempt = attempt
+            error._recognition_failure = describe(dict(code='agent_unavailable', retryable=True,
+                diagnostic_id=attempt['attempt_id']), reason='save_failed')
+            if detailed():
+                error._recognition_failure['diagnostics'] = json.dumps(dict(attempt,
+                    persistence='unavailable', transaction='rolled_back'),ensure_ascii=False,indent=2)
+            raise error from None
         return False
 
 
@@ -162,11 +197,27 @@ def hydrate_errors(db, uid, errors):
         detail = current.get('diagnostics')
         if detail:
             identity = current.get('diagnostic_id') or detail
-            if identity in seen or size + len(detail.encode('utf-8')) > 120000:
+            extra = len(json_bytes(current)) - len(json_bytes({k:v for k,v in current.items() if k != 'diagnostics'}))
+            if identity in seen or size + extra > 120000:
                 current.pop('diagnostics')
             else:
-                seen.add(identity); size += len(detail.encode('utf-8'))
+                seen.add(identity); size += extra
         result.append(current)
+    return result
+
+
+def hydrate_result(db, uid, result):
+    """An optional preview must fit inside the *whole* transport result budget."""
+    result = dict(result, errors=hydrate_errors(db,uid,result['errors']))
+    size = len(json_bytes(result))
+    for error in reversed(result['errors']):
+        if size <= MAX_RESULT_BYTES: break
+        if 'diagnostics' in error:
+            before = len(json_bytes(error))
+            error.pop('diagnostics')
+            size -= before - len(json_bytes(error))
+    # Never trim candidates or hide a genuine invalid business result. The
+    # transport still validates it; omitted previews remain accessible by ID.
     return result
 
 
@@ -216,5 +267,7 @@ def hydrate(db, uid, error):
             or not isinstance(ref.get('request_id'),str) or not isinstance(ref.get('id'),str)): return error
     row = db.execute('''SELECT detail FROM recognition_attempt_diagnostics
         WHERE user_id=? AND request_id=? AND id=?''',(uid,ref.get('request_id'),ref.get('id'))).fetchone()
-    if row: error['diagnostics'] = json.dumps(json.loads(row[0]),ensure_ascii=False,indent=2)
+    if row:
+        error['diagnostic_id'] = ref['id']
+        error['diagnostics'] = json.dumps(json.loads(row[0]),ensure_ascii=False,indent=2)
     return error
