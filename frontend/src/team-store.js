@@ -179,6 +179,8 @@ async function loadSession(discardPending = false) {
       }
       const next = await api("/api/workspace");
       if (epoch !== accountEpoch) throw new Error("账号已切换");
+      if (next.taskWriteOwner && next.taskWriteOwner !== result.user.id)
+        throw new Error('账号已切换，请重新读取任务');
       if (revision !== editRevision || latest && !discardPending) {
         // A read started before a local edit must wait for that edit and read again.
         discardPending = false;

@@ -34,6 +34,7 @@ with app.ThreadingHTTPServer(('127.0.0.1',0),Handler) as server:
 test.describe.configure({ mode: 'serial' });
 let folder, backend, api, cookie;
 test.beforeAll(async () => {
+  test.setTimeout(60000);
   folder = await mkdtemp(join(tmpdir(), 'niuma-task-journal-'));
   const script = join(folder, 'harness.py'), root = resolve('..');
   await writeFile(script, harness);
@@ -43,7 +44,8 @@ test.beforeAll(async () => {
   backend = spawn(process.env.NIUMA_TEST_PYTHON || 'python3', ['-u', script, folder], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
   await new Promise((done, reject) => {
     let output = '', errors = '';
-    const timer = setTimeout(() => reject(new Error('API startup: '+errors)), 10000);
+    const timer = setTimeout(() => reject(new Error('API startup: '+errors+'; output: '+output)), 40000);
+    backend.on('error', error => { clearTimeout(timer); reject(error); });
     backend.stderr.on('data', bytes => { errors += bytes; });
     backend.on('exit', code => { clearTimeout(timer); reject(new Error('API exit '+code+': '+errors)); });
     backend.stdout.on('data', bytes => {

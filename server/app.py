@@ -426,6 +426,7 @@ class Handler(BaseHTTPRequestHandler):
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
                 snapshot={r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows}
                 snapshot['taskWriteGeneration']=task_operations.generation(db,uid)
+                snapshot['taskWriteOwner']=uid
                 return self.reply(200,snapshot)
             if path=='/api/data/tasks' and self.command=='DELETE':
                 ids=body.get('ids')
