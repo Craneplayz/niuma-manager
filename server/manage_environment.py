@@ -213,6 +213,8 @@ def compose_command(name, folder, config, docker='docker'):
     write_compose_env(env_file, values)
     compose = DEPLOY / ('compose.ip.yaml' if mode == 'ip' else 'compose.yaml')
     command = [docker, 'compose', '--project-name', f'niuma-{name}', '--env-file', str(env_file), '-f', str(compose)]
+    if name in ('development', 'test'):
+        command += ['-f', str(DEPLOY / 'compose.testing-tools.yaml')]
     if budget:
         command += ['-f', str(DEPLOY / 'compose.mail-budget.yaml')]
     return command

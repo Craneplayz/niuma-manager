@@ -8,7 +8,7 @@ import re
 import secrets
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
@@ -39,6 +39,17 @@ class ThreadingHTTPServer(_ThreadingHTTPServer):
 
 DB = runtime_environment.database_path()
 TZ = timezone(timedelta(hours=8))
+
+def environment_tools():
+    # Optional source-only tools: shared release images intentionally omit them.
+    if not runtime_environment.managed() or runtime_environment.environment() not in ('development', 'test'):
+        return None
+    try:
+        import environment_tools as tools
+    except ModuleNotFoundError as error:
+        if error.name != 'environment_tools': raise
+        return None
+    return tools
 
 def wechat_enabled():
     return os.environ.get('NIUMA_ENABLE_WECHAT', '1') == '1'
@@ -234,8 +245,12 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/health' and self.command=='GET':
                 db.execute('SELECT 1')
                 return self.reply(200,dict(status='ok'))
+            tools = environment_tools()
+            if tools and tools.route(self, db, path, body, ApiError, DB, session_cookie): return
             if path=='/api/version' and self.command=='GET':
-                return self.reply(200,runtime_environment.public_version())
+                version = runtime_environment.public_version()
+                if tools: version['accountTools'] = tools.MODULE_URL
+                return self.reply(200,version)
             if path=='/api/usage/guest-visit' and self.command=='POST':
                 if body: raise ApiError(400,'访问统计不接受额外字段')
                 try:
@@ -552,7 +567,9 @@ class Handler(BaseHTTPRequestHandler):
         self.ops_code='ok'
         self.retry_after=None
         try:
-            with model_queue.request(self.connection): self.route()
+            tools = environment_tools()
+            with tools.account_request(self, connection, ApiError) if tools else nullcontext():
+                with model_queue.request(self.connection): self.route()
         except wechat_media.MediaError as e:
             self.ops_code=operations.classify(e)
             self.reply(e.status,dict(error=dict(code=e.code,message=e.message,retryable=e.retryable)))
