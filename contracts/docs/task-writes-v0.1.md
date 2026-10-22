@@ -2,6 +2,8 @@
 
 普通任务操作先写入按当前账号分隔的 IndexedDB，再更新页面；恢复时使用当前账号会话核对回执及服务器最新任务，按原顺序应用尚未确认的单条操作，不重放旧的整个工作区。
 
+`GET /api/workspace` 同时返回 `taskWriteOwner`，客户端先确认它与刚查询的登录账号一致，避免另一个页面在两次请求之间切换账号时混用任务与本地队列。
+
 `PUT /api/data/tasks` 保留 `value` 与 `version`，新增可选 `operation: {id, owner, intent}`；`id` 是 16–100 位字母、数字、下划线或连字符，`owner` 必须等于会话用户，`intent.kind` 为 `save/status/deadline/trash/restore`。`intent.workspaceGeneration` 来自 `GET /api/workspace` 的 `taskWriteGeneration`，默认 0；测试账号清空后增加，清空前未执行的操作拒绝恢复。
 
 成功返回 `{version, operationId}`；同账号同编号同意图的重复请求先查回执，不再次写任务、增加版本或触发副作用，并返回 `{version, value, operationId, replayed:true}`，其中任务和版本是当前值。同编号不同意图、账号不符、旧版本和已清空的账号代次返回 409；任务写入和回执在同一个事务提交。

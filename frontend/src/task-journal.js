@@ -24,11 +24,11 @@ function open() {
 async function transaction(stores, mode, action) {
   const db = await open();
   return new Promise((resolve, reject) => {
-    let result;
+    let result, failure;
     const tx = db.transaction(stores, mode, mode === 'readwrite' ? { durability: 'strict' } : {});
     tx.oncomplete = () => resolve(result);
-    tx.onerror = tx.onabort = () => reject(tx.error || new Error('本地暂存事务失败'));
-    action(tx, value => { result = value; });
+    tx.onerror = tx.onabort = () => reject(failure || tx.error || new Error('本地暂存事务失败'));
+    action(tx, value => { result = value; }, error => { failure = error; tx.abort(); });
   });
 }
 async function key(owner) {
@@ -101,10 +101,10 @@ export async function removeOperations(owner, ids) {
 }
 export async function clearJournal(owner, discard = false) {
   if (!globalThis.indexedDB || !globalThis.crypto?.subtle) return;
-  await transaction(['operations', 'keys'], 'readwrite', tx => {
+  await transaction(['operations', 'keys'], 'readwrite', (tx, _done, fail) => {
     const store = tx.objectStore('operations');
     store.index('owner').getAllKeys(owner).onsuccess = e => {
-      if (e.target.result.length && !discard) { tx.abort(); return; }
+      if (e.target.result.length && !discard) { fail(new Error('其他页面仍有待保存操作，请先保存后再退出或切换账号。')); return; }
       for (const id of e.target.result) store.delete(id);
       tx.objectStore('keys').delete(owner);
     };

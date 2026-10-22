@@ -58,6 +58,8 @@ class TaskOperationTests(unittest.TestCase):
         self.assertEqual(recovery['tasks'], dict(value=[updated], version=2))
 
     def test_changed_intent_or_wrong_account_is_rejected(self):
+        self.assertEqual(self.call('/workspace')[1]['taskWriteOwner'], 'alice')
+        self.assertEqual(self.call('/workspace', user='bob')[1]['taskWriteOwner'], 'bob')
         self.assertEqual(self.write()[0], 200)
         changed = dict(self.operation, intent=dict(kind='trash', ids=['a']))
         self.assertEqual(self.write(operation=changed)[0], 409)

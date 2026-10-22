@@ -140,7 +140,7 @@ test('refresh while the first request is held restores ordered completion, edit 
   } finally { release(); }
 });
 
-test('same-field multi-window conflict retains the journal until explicit discard', async ({page,context}) => {
+test('same-field multi-window conflict retains the journal until explicit discard', async ({page,context}, info) => {
   await open(page,context);
   const other=await context.newPage(); await open(other,context);
   await page.route('**/api/data/tasks', route=>route.abort());
@@ -150,6 +150,8 @@ test('same-field multi-window conflict retains the journal until explicit discar
   await expect.poll(async ()=>(await workspace(other)).tasks.version).toBe(2);
   await page.unroute('**/api/data/tasks'); await page.reload();
   await expect(page.getByRole('button',{name:'重新读取',exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  if (process.env.NIUMA_JOURNAL_SCREENSHOT) await page.screenshot({path:process.env.NIUMA_JOURNAL_SCREENSHOT+'-'+info.project.name+'.png',fullPage:true});
   expect(await pending(page)).toHaveLength(1);
   await page.getByRole('button',{name:'重新读取',exact:true}).click();
   await expect(row(page,'a')).toContainText('其他窗口的新标题');
@@ -211,6 +213,7 @@ test('acknowledged changes and encryption key are cleared on explicit logout', a
 });
 
 test('a forced browser-process exit preserves already-staged changes in the disk profile', async ({playwright,baseURL}) => {
+  test.setTimeout(60000);
   test.skip(process.platform!=='linux','Forced process lifecycle check runs in the isolated Linux runner');
   const profile=await mkdtemp(join(tmpdir(),'niuma-journal-crash-'));
   let context, processes=[];

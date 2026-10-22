@@ -34,6 +34,14 @@ const task = (id, overrides = {}) => ({
   id, title: "任务 " + id, description: "", course: null,
   status: "not_started", due: null, plans: [], subtasks: [], ...overrides,
 });
+test('workspace account identity is checked before reading any task into the current account', async () => {
+  const f = fixture('identity-check', [task('private')]);
+  const normal = globalThis.fetch;
+  globalThis.fetch = async (path, options) => path === '/api/workspace'
+    ? reply({ taskWriteOwner: 'other-account', tasks: { value: f.tasks, version: 1 } }) : normal(path, options);
+  await assert.rejects(initSession(), /账号已切换/);
+  assert.equal(f.writes.length, 0);
+});
 function fixture(user, initialTasks, otherRows = {}) {
   let tasks = structuredClone(initialTasks), version = 1;
   const writes = [];
