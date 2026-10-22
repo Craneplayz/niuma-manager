@@ -2,6 +2,8 @@
 
 `operations_probe.py` 是主机每分钟启动一次的短进程；API 不导入探针、不挂 Docker socket，探针只通过带 Compose 项目及 api/web 服务标签的 Docker CLI 查询 RestartCount 和运行状态。
 
+容器还须具备 Compose 的 `config-hash` 且 `oneoff=False`，排除继承镜像标签的临时验证容器和一次性作业，避免它们退出后误报服务故障。
+
 ## 接口与隔离
 
 API 必须先调用 `operations.initialize(business_database_path)`；探针使用同一 `operations.database(path)`、`connection(path)`，不初始化或迁移数据库，不创建缺失的业务库或 sidecar。

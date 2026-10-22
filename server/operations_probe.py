@@ -100,7 +100,9 @@ def docker_restarts(project, *, execute=subprocess.run):
     try:
         for service in ('api', 'web'):
             response = execute(['docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=' + project,
-                                '--filter', 'label=com.docker.compose.service=' + service],
+                                '--filter', 'label=com.docker.compose.service=' + service,
+                                '--filter', 'label=com.docker.compose.config-hash',
+                                '--filter', 'label=com.docker.compose.oneoff=False'],
                                capture_output=True, text=True, timeout=5, check=True)
             ids = response.stdout.split()
             if not ids:
