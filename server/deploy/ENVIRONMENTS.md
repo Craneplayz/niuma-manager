@@ -112,6 +112,8 @@ python server/manage_environment.py accept test --evidence "验收链接或合�
 
 命令检查 test 容器运行状态、API 健康状态、协议和前后端完整提交号，保存实际镜像 ID 到 `test/accepted-images.json`；填写镜像配置但尚未部署时拒绝记录。该文件是部署者的验收记录，不替代业务测试，不放密钥或私人材料；环境配置目录已排除版本控制，发布前保留它的副本以便回滚。
 
+验收仅统计具备 Compose `config-hash` 且 `oneoff=False` 的 test API/web，忽略继承镜像标签的临时容器和一次性作业；真实重复服务、未健康服务或版本不匹配仍拒绝登记。
+
 ## 4. 接管现有生产环境
 
 由当前部署维护者执行；开始前记录原容器、Compose 项目、启动配置、实际挂载卷 / 目录、镜像摘要与可用回滚命令，不能仅凭默认卷名猜测。
