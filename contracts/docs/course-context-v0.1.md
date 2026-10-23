@@ -22,8 +22,6 @@
 
 本功能不增加跨课程自动关联，不改变自动合并模式，不按标题合并任务或传播提交状态。
 
-课程级资料组织和共享格式约定参考 [AutoPku 的课程同步工作流](https://github.com/Fomalhaut647/AutoPku/blob/459c8ea9c4f486fc5e1a9d525a496b28442c16aa/sub-skills/tasks/sync-notices.md)及[资料抽取脚本](https://github.com/Fomalhaut647/AutoPku/blob/459c8ea9c4f486fc5e1a9d525a496b28442c16aa/assets/speed-notes-kit/extract_sources.py)的设计；此处独立实现服务端鉴权、证据和写回，没有复制其源码。
-
 ## 标题与日期
 
 结果可带 `title_facts={kind,channel,sequence,subject,evidence}`。自由文本必须来自引用原文。程序固定格式渲染；有明确批次的 assignment/lab 使用“渠道类别 · 批次”，主题和题号留在说明中；明确的“第四章/第4章/Chapter 4”等批次仅在显示时统一，原文事实和证据保留，不能用作任务合并依据。无可靠结构化事实的历史/新草稿仍兼容原标题。书面、POJ、MOOC等独立渠道分别保留。
