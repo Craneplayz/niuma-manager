@@ -1,6 +1,7 @@
 """Opt-in real-model course reasoning acceptance using synthetic sources only.
 
-The selected material texts are assembled by the production retrieval code.
+This runner uses preassembled context fixtures to test real model reasoning.
+The server HTTP smoke separately exercises production retrieval and attachment reading.
 Expected dates/routes are independent assertions, not canned model responses.
 Run a case more than once to measure variability; a pass is not a guarantee.
 """
