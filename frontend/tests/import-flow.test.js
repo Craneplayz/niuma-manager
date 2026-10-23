@@ -295,6 +295,20 @@ test('an old account response cannot restore another account’s candidates or c
  await ui.click({dataset:{importSource:'teaching'}});assert.match(ui.render(),/B-campus/);
 });
 
+test('task-list readiness resets with the account and ignores an old pending read',async()=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);
+ assert.equal(ui.taskReviewsReady(),false);
+ const pending=f.defer(),reading=ui.loadTaskReviews();await pending.entered;
+ assert.equal(ui.taskReviewsReady(),false);
+ await f.login('B');pending.release();await reading;
+ assert.equal(ui.taskReviewsReady(),false);
+ assert.deepEqual(ui.getReviewItems(),[]);
+ await ui.loadTaskReviews();
+ assert.equal(ui.taskReviewsReady(),true);
+ assert.equal(ui.getReviewItems()[0].candidate.title,'B 私有任务');
+ ui.reset();assert.equal(ui.taskReviewsReady(),false);
+});
+
 test('demo text submit stays local',async()=>{
  const f=fixture();await f.login();const ui=createImportUI({...f.host,isDemo:()=>true});const before=f.calls.length;
  await ui.submit(fakeForm('text',{text:'示例通知',published:'2026-10-14T12:00:00'}));

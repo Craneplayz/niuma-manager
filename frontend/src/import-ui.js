@@ -204,7 +204,7 @@ export function createImportUI(host) {
     controller = null,
     revision = 0,
     batchesRevision = 0;
-  let taskReviewsLoading = false, taskReviewsError = '';
+  let taskReviewsLoading = false, taskReviewsSettled = false, taskReviewsError = '';
   const historyCategories = new Map(), historyProblems = new Map();
   const current = () => ({ epoch: accountVersion(), revision });
   const valid = (stamp) =>
@@ -213,6 +213,7 @@ export function createImportUI(host) {
     if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
     batches = next;
     batchesRevision++;
+    taskReviewsSettled = true;
     taskReviewsError = '';
   }
   const refresh = () => host.render();
@@ -301,6 +302,7 @@ export function createImportUI(host) {
     published = shanghaiNow();
     batches = [];
     taskReviewsLoading = false;
+    taskReviewsSettled = false;
     taskReviewsError = '';
     credentials = null;
     loaded = false;
@@ -328,11 +330,19 @@ export function createImportUI(host) {
     } catch (error) {
       if (valid(stamp)) taskReviewsError = error;
     } finally {
-      if (valid(stamp)) { taskReviewsLoading = false; refresh(); }
+      if (valid(stamp)) { taskReviewsLoading = false; taskReviewsSettled = true; refresh(); }
     }
   }
-  const taskReviewsStatus = () => taskReviewsError
-    ? `<div class="task-review-load-error">${userErrorMarkup(taskReviewsError, 'import_review')}<button type="button" class="btn quiet" data-import-action="refresh-task-reviews">重试读取待核对</button></div>` : '';
+  const taskReviewsStatus = () => taskReviewsLoading
+    ? '<div class="loading-state" role="status">正在读取待核对任务…</div>'
+    : taskReviewsError
+      ? `<div class="task-review-load-error"><p>待核对任务尚未读取，当前列表和数量可能不完整。</p>${userErrorMarkup(taskReviewsError, 'import_review')}<button type="button" class="btn quiet" data-import-action="refresh-task-reviews">重试读取待核对</button></div>` : '';
+  async function resolveCandidate(item, body, stamp, options) {
+    const result = await api('/api/recognition/candidates/' + encodeURIComponent(item.id) + '/resolve', body, 'POST', options);
+    if (!valid(stamp)) return false;
+    acceptBatches(result.batches);
+    return true;
+  }
   async function confirmTask(id, task, complete = false, expectedVersion = task.reviewVersion) {
     if (blocked() || !allowed()) throw new Error('正在处理，请稍后重试');
     const stamp = current(), item = itemById(id);
@@ -350,9 +360,7 @@ export function createImportUI(host) {
         host.getState().tasks, getTaskVersion());
       body.draft.content_type = task.content_type || 'task';
       if (complete) body.complete = true;
-      const result = await api('/api/recognition/candidates/' + encodeURIComponent(id) + '/resolve', body);
-      if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
-      acceptBatches(result.batches);
+      if (!await resolveCandidate(item, body, stamp)) throw new Error('账号已切换，请重新操作');
       try { await host.refresh(); }
       catch { throw new Error('任务已保存，但页面更新失败。请刷新结果。'); }
       if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
@@ -374,7 +382,11 @@ export function createImportUI(host) {
     if (!valid(stamp)) return;
     if (results[0].status === "fulfilled" && Array.isArray(results[0].value)) {
       if (previousBatchesRevision === batchesRevision) acceptBatches(results[0].value);
-    } else error = describeImportError(results[0].reason || "导入结果暂时无法读取");
+    } else {
+      taskReviewsError = results[0].reason || new Error("导入结果暂时无法读取");
+      error = describeImportError(taskReviewsError);
+    }
+    taskReviewsSettled = true;
     if (results[1].status === "fulfilled") credentials = results[1].value;
     else if (!error) error = describeImportError(results[1].reason);
     loading = false;
@@ -610,14 +622,8 @@ export function createImportUI(host) {
       refresh();
       try {
         // The server owns eligibility, source validation and the task contents.
-        const result = await api(
-          "/api/recognition/candidates/" + encodeURIComponent(item.id) + "/resolve",
-          { action: "create", auto_apply: true, version: item.version },
-          "POST", { signal },
-        );
-        if (!valid(stamp)) return { applied, failed };
-        if (!Array.isArray(result.batches)) throw new Error("导入结果暂时无法读取");
-        acceptBatches(result.batches);
+        if (!await resolveCandidate(item, { action: "create", auto_apply: true, version: item.version }, stamp, { signal }))
+          return { applied, failed };
         applied++;
       } catch (e) {
         if (!valid(stamp)) return { applied, failed };
@@ -688,14 +694,7 @@ export function createImportUI(host) {
     error = "";
     refresh();
     try {
-      const result = await api(
-        "/api/recognition/candidates/" +
-          encodeURIComponent(item.id) +
-          "/resolve",
-        { action, version: item.version },
-      );
-      if (valid(stamp)) {
-        acceptBatches(result.batches);
+      if (await resolveCandidate(item, { action, version: item.version }, stamp)) {
         host.toast(action === "ignore" ? "已忽略" : "已恢复待核对", action === 'ignore' ? async () => {
           const restored = await resolveSmall(itemById(item.id), 'reopen');
           if (!restored) throw new Error('无法恢复待核对，请稍后重试');
@@ -1019,14 +1018,7 @@ export function createImportUI(host) {
           host.getState().tasks,
           modal.tasksVersion,
         );
-        const result = await api(
-          "/api/recognition/candidates/" +
-            encodeURIComponent(item.id) +
-            "/resolve",
-          body,
-        );
-        if (!valid(stamp)) return true;
-        acceptBatches(result.batches);
+        if (!await resolveCandidate(item, body, stamp)) return true;
         modal = null;
         if (formIsOpen(form)) host.closeDialog();
         try {
@@ -1093,6 +1085,7 @@ export function createImportUI(host) {
     return true;
   }
   return { render, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
+    taskReviewsReady: () => taskReviewsSettled,
     reviewEvidence: id => evidence(itemById(id)),
     getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: blocked,
     setVisible, setSource, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };

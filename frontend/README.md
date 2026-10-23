@@ -4,6 +4,8 @@
 
 ## 功能与数据
 
+任务首屏与登录后等待已保存任务和待核对项一起就绪再显示清单与数量；待核对读取失败时保留已保存任务，提示数量可能不完整并提供重试。
+
 普通任务操作先在浏览器按账号加密暂存，事务完成后才更新界面；刷新或重开后核对服务器回执、任务版本与编辑前值，再恢复未完成操作。已确认记录立即清理；退出账号先完成保存再清除密钥，异常退出的记录保留到原账号恢复。须使用 HTTPS 或 localhost 并允许浏览器存储；私密窗口结束或清理站点数据不能恢复。详见 [保存与恢复边界](../contracts/docs/task-writes-v0.1.md)。
 
 独立 `/admin.html` 保留使用数据并提供“运行监控”切换，仅使用管理员会话读取 `/api/admin/operations`；首次不传日期（最近 24 小时），提交日期沿用使用数据筛选，监控失败单独提示，会话失效可重新验证。时间统一转为北京时间，阶段、操作与结果码显示中文；资源采样超过 180 秒标明“采样已过期”，过期或不可用的数值显示“—”。监控合成浏览器验收运行 `node tests/admin-operations-browser.mjs`，需要已安装 Playwright 浏览器；可用 `NIUMA_TEST_BROWSER_PATH` 指定既有 headless 可执行文件，设置 `NIUMA_TEST_SCREENSHOTS=1` 才更新截图，脚本结束自动关闭临时静态服务。
@@ -110,6 +112,8 @@ frontend/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
     ├── screenshots/
+    │   ├── task-review-list-loading.png 工作区就绪、待核对仍读取时的统一加载提示
+    │   ├── task-review-list-ready.png 已保存任务与待核对一起展示后的完整计数
     │   ├── task-journal-conflict-mobile.png 390px 下本地操作保留及冲突重读提示
     │   ├── task-journal-conflict-compact.png 320px 下本地操作保留及冲突重读提示
     │   ├── task-save-queue-desktop.png 保存期间编辑其他任务的桌面示例

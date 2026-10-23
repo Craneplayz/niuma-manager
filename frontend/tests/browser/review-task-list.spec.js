@@ -2,11 +2,14 @@ import { test, expect } from '@playwright/test';
 
 test.use({ timezoneId: 'Asia/Shanghai' });
 
-async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = false, failSaveOnce = false, holdResolve = false } = {}) {
+async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = false, failSaveOnce = false, holdResolve = false, holdRead = false } = {}) {
   await page.clock.setFixedTime(new Date('2026-10-20T04:00:00Z'));
   let version = 1, ignoredOnce = false, readOnce = false, savedOnce = false;
   let releaseResolve;
   const resolveGate = new Promise(resolve => { releaseResolve = resolve; });
+  let releaseRead, enterRead;
+  const readGate = new Promise(resolve => { releaseRead = resolve; });
+  const readStarted = new Promise(resolve => { enterRead = resolve; });
   const writes = [], resolutions = [];
   let tasks = [{ id: 'target', title: '数据结构实验报告', course: '数据结构', status: 'not_started', source: '教学网', due: { date: '2026-10-20', time: '18:00', precision: 'datetime' }, plans: [], subtasks: [] }];
   const make = (id, title, fields = {}) => ({ id, state: 'pending', version: 1, candidate: {
@@ -29,6 +32,8 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
     else if (path === '/api/data/tasks') { const body = request.postDataJSON(); writes.push(body); tasks = body.value; value = { version: ++version, operationId: body.operation?.id }; }
     else if (path === '/api/recognition/text-jobs') value = { jobs: [] };
     else if (path === '/api/recognition/batches') {
+      enterRead();
+      if (holdRead) await readGate;
       if (failReadOnce && !readOnce) { readOnce = true; status = 503; value = { error: 'Synthetic unavailable' }; }
       else value = batches;
     } else if (path.includes('/candidates/') && path.endsWith('/resolve')) {
@@ -58,13 +63,33 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
   });
   await page.goto('/');
-  return { writes, resolutions, releaseResolve };
+  return { writes, resolutions, releaseResolve, releaseRead, readStarted };
 }
 
 async function navigate(page, name) {
   if (await page.locator('#sidebar-show').isVisible()) await page.locator('#sidebar-show').click();
   await page.getByRole('button', { name, exact: true }).click();
 }
+
+test('first task list waits for pending rows and publishes the complete count together', async ({ page }, info) => {
+  const f = await openWorkspace(page, { holdRead: true });
+  try {
+    await f.readStarted;
+    await expect(page.locator('main [role="status"]')).toHaveText('正在读取任务…');
+    await expect(page.locator('[data-task-id="target"]')).toHaveCount(0);
+    await expect(page.locator('[data-scope="all"] .nav-count')).toHaveText('…');
+    await expect(page.locator('#result-count')).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath('complete-list-loading.png'), fullPage: true });
+    f.releaseRead();
+    await expect(page.locator('[data-task-id="target"]')).toBeVisible();
+    await expect(page.locator('[data-review-id="new"]')).toBeVisible();
+    await expect(page.locator('#result-count')).toHaveText('3');
+    await expect(page.locator('[data-scope="all"] .nav-count')).toHaveText('3');
+    await page.screenshot({ path: info.outputPath('complete-list-ready.png'), fullPage: true });
+    expect(f.writes).toEqual([]);
+    expect(f.resolutions).toEqual([]);
+  } finally { f.releaseRead(); }
+});
 
 test('task rows show pending drafts on first visit, with unconfirmed dates and inline changes', async ({ page }, info) => {
   const f = await openWorkspace(page);
@@ -138,6 +163,18 @@ test('completing a pending task removes its badge and moves it to completed with
   await expect(done).not.toContainText('待核对');
 });
 
+test('undo after pending completion uses the shared ordinary status action', async ({ page }) => {
+  const f = await openWorkspace(page);
+  await page.locator('[data-review-id="new"] [data-task-complete]').click();
+  await expect(page.locator('[data-review-id="new"]')).toHaveCount(0);
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(page.locator('[data-task-id="confirmed-new"]')).toBeVisible();
+  expect(f.resolutions).toHaveLength(1);
+  await expect.poll(() => f.writes.length).toBe(1);
+  expect(f.writes[0].value.find(task => task.id === 'confirmed-new').status).toBe('not_started');
+  expect(f.writes[0].value.some(task => task.id.startsWith('review:'))).toBe(false);
+});
+
 test('viewing, cancelling and saving unchanged fields preserve pending status', async ({ page }) => {
   const f = await openWorkspace(page);
   const pending = page.locator('[data-review-id="new"]');
@@ -204,6 +241,7 @@ test('ignore failures keep the row and offer a retry without claiming success', 
 test('failed candidate reads stay visible and can retry without affecting saved tasks', async ({ page }) => {
   await openWorkspace(page, { failReadOnce: true });
   await expect(page.locator('[data-task-id="target"]')).toBeVisible();
+  await expect(page.getByText('待核对任务尚未读取，当前列表和数量可能不完整。')).toBeVisible();
   await page.getByRole('button', { name: '重试读取待核对' }).click();
   await expect(page.locator('[data-review-id="new"]')).toBeVisible();
   await expect(page.getByRole('button', { name: '重试读取待核对' })).toHaveCount(0);

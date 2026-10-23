@@ -317,6 +317,7 @@ const courses = () =>
   );
 const sources = () =>
   [...new Set(listItems().map((t) => t.source || "手动添加"))].sort();
+const taskListLoading = () => loading || !demo && Boolean(session.user) && !imports.taskReviewsReady();
 function sidebar() {
   const mobile = matchMedia("(max-width: 700px)").matches;
   const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
@@ -335,7 +336,7 @@ function sidebar() {
   ]
     .map(
       ([scope, label, name]) =>
-        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${counts[scope]}</span></button>`,
+        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${taskListLoading() ? '…' : counts[scope]}</span></button>`,
     )
     .join(
       "",
@@ -527,7 +528,7 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
+  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading || ui.page === "tasks" && taskListLoading() ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
@@ -677,29 +678,8 @@ async function dropTaskOnDate(id, date) {
 }
 async function toggleTask(id) {
   if (!canChangeTask(id) || !requireAccount()) return;
-  const epoch = accountVersion(), task = editableTask(id);
+  const task = editableTask(id);
   if (!task) return;
-  if (task.reviewCandidateId) {
-    reviewTaskBusy = true;
-    busyTasks.add(id);
-    drawerError = null;
-    render();
-    if (drawer.open && drawerId === id) updateDrawer();
-    try {
-      const saved = await imports.confirmTask(task.reviewCandidateId, task, true);
-      if (epoch !== accountVersion()) return;
-      if (drawerId === id && saved) drawerId = saved.id;
-      toast(isNotice(task) ? '通知已标记为已阅读' : '任务已完成', saved ? () => toggleTask(saved.id) : undefined);
-    } catch (error) {
-      if (epoch !== accountVersion()) return;
-      toastError(error, 'tasks_save');
-    } finally {
-      if (epoch === accountVersion()) reviewTaskBusy = false;
-      finishTask(id, epoch, true);
-      if (epoch === accountVersion() && drawer.open && drawerId !== id && !drawerEditing) updateDrawer();
-    }
-    return;
-  }
   drawerError = null;
   const previous = { status: task.status, completedAt: task.completedAt || "" };
   const next = { status: task.status === "done" ? "todo" : "done", completedAt: task.status === "done" ? "" : todayKey() };
@@ -707,31 +687,49 @@ async function toggleTask(id) {
 }
 async function saveStatus(id, next, expected) {
   if (!canChangeTask(id)) throw new Error("请等待当前任务保存，或先处理保存错误");
-  const epoch = accountVersion(), task = state.tasks.find(task => task.id === id);
+  const epoch = accountVersion(), task = editableTask(id);
   if (!task || task.status !== expected.status || (task.completedAt || "") !== expected.completedAt)
     throw new Error("任务状态已变化，无法撤销这次操作");
   const notice = isNotice(task);
+  const pending = Boolean(task.reviewCandidateId);
+  let savedId = id, acknowledged = next;
   busyTasks.add(id);
-  const saving = demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
-  if (!await stageTaskSave(saving, id, epoch)) return;
-  Object.assign(task, next);
-  render();
-  if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
+  if (pending) {
+    reviewTaskBusy = true;
+    render();
+    if (drawer.open && drawerId === id) updateDrawer();
+  }
+  const saving = pending ? imports.confirmTask(task.reviewCandidateId, task, true)
+    : demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
   try {
-    await saving;
+    if (pending) {
+      const saved = await saving;
+      if (epoch !== accountVersion()) return;
+      savedId = saved?.id;
+      if (saved) acknowledged = { status: saved.status, completedAt: saved.completedAt || '' };
+      if (drawerId === id && savedId) drawerId = savedId;
+    } else {
+      if (!await stageTaskSave(saving, id, epoch)) return;
+      Object.assign(task, next);
+      render();
+      if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
+      await saving;
+    }
     if (epoch !== accountVersion()) return;
     toast(notice
       ? next.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
       : next.status === "done" ? "任务已完成" : "任务已重新打开",
-    () => saveStatus(id, expected, next));
+    savedId ? () => saveStatus(savedId, expected, acknowledged) : undefined);
   } catch (error) {
-    if (epoch === accountVersion() && session.sync !== "error") {
-      Object.assign(task, expected);
+    if (epoch === accountVersion() && (pending || session.sync !== "error")) {
+      if (!pending) Object.assign(task, expected);
       render();
       toastError(error, "tasks_save");
     }
   } finally {
-    finishTask(id, epoch);
+    if (pending && epoch === accountVersion()) reviewTaskBusy = false;
+    finishTask(id, epoch, pending);
+    if (pending && epoch === accountVersion() && drawer.open && drawerId !== id && !drawerEditing) updateDrawer();
   }
 }
 async function trashTask() {
@@ -1072,9 +1070,13 @@ document.addEventListener("submit", async (e) => {
       }
     }
     const epoch = accountVersion();
+    const draftId = form.dataset.id || newId();
+    const task = {
+      ...(existing || { id: draftId, status: "todo", source: "手动添加" }),
+      ...values, title: values.title.trim(), course: values.course.trim(),
+    };
     if (existing?.reviewCandidateId) {
-      const edited = { ...existing, ...values, title: values.title.trim(), course: values.course.trim() };
-      if (taskEditSnapshot(edited) === taskEditSnapshot(existing)) {
+      if (taskEditSnapshot(task) === taskEditSnapshot(existing)) {
         drawerEditing = false;
         updateDrawer();
         toast('没有修改，仍保留待核对状态');
@@ -1085,10 +1087,10 @@ document.addEventListener("submit", async (e) => {
       form.querySelectorAll('button,input,textarea,select').forEach(field => { field.disabled = true; });
       render();
       try {
-        const saved = await imports.confirmTask(existing.reviewCandidateId, edited, false, Number(form.dataset.reviewVersion));
+        const saved = await imports.confirmTask(existing.reviewCandidateId, task, false, Number(form.dataset.reviewVersion));
         if (epoch !== accountVersion()) return;
         if (form.isConnected && drawer.open) closeDrawer();
-        toast(isNotice(edited) ? '通知已保存' : '任务已保存');
+        toast(isNotice(task) ? '通知已保存' : '任务已保存');
         if (saved) restoreFocus({ key: 'taskOpen', value: saved.id });
       } catch (cause) {
         if (epoch === accountVersion()) {
@@ -1107,11 +1109,6 @@ document.addEventListener("submit", async (e) => {
       }
       return;
     }
-    const draftId = form.dataset.id || newId();
-    const task = {
-      ...(existing || { id: draftId, status: "todo", source: "手动添加" }),
-      ...values, title: values.title.trim(), course: values.course.trim(),
-    };
     const expected = existing ? form.dataset.taskEditSnapshot : undefined;
     form.dataset.id = draftId;
     busyTasks.add(draftId);
