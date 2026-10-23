@@ -227,6 +227,7 @@ def process(path, uid, run_id, ApiError):
                 record.update(state='running', attempted=True)
                 save(db, run, 'running')
                 attachments = teaching.attachment_context(db,uid,item['request']['request_id']) if item.get('kind')=='teaching' else {}
+                selected_context=getattr(attachments.get('prepare_context'),'selected',[])
             request = json.loads(json.dumps(item['request']))
             request['request_id']='reprocessing:'+run_id+':'+str(index)
             result = None
@@ -258,7 +259,10 @@ def process(path, uid, run_id, ApiError):
                 latest = db.execute('SELECT run_id FROM reprocessing_latest WHERE user_id=? AND source_id=? AND input_id=?', (uid,run['source_account_id'],record['input_id'])).fetchone()
                 if run['state']=='stopping':
                     record.update(state='interrupted', error=dict(code='interrupted',message='已停止，未接纳迟到结果'))
-                elif not latest or latest['run_id']!=run_id or not still_current(db,uid,item,ApiError):
+                elif (not latest or latest['run_id']!=run_id or not still_current(db,uid,item,ApiError)
+                      or native and (not teaching.course_context.evidence_current(db,uid,item['account'],request)
+                        or teaching.course_context.fingerprint(teaching.course_context.select(db,uid,item['account'],item['request']['records'][0]))
+                            != teaching.course_context.fingerprint(selected_context))):
                     record['state']='superseded'
                 elif result is None:
                     record.update(state='failed',error=dict(code='agent_unavailable',message='识别未成功，已有数据未变更'))
@@ -312,6 +316,9 @@ def process(path, uid, run_id, ApiError):
                                 (json.dumps(captured),request['request_id'],uid,item['account'],record['input_id']))
                             teaching.teaching_assets.remember_inputs(db,uid,item['account'],
                                 request['request_id'],attachments.get('files',[]))
+                            selected=getattr(attachments.get('prepare_context'),'selected',None)
+                            if selected is not None:
+                                teaching.course_context.remember(db,uid,item['account'],captured['records'][0],selected)
                             # Superseded failures must not keep offering retry in the active inbox.
                             # Keep their request/result in storage; never hide handled decisions.
                             for rid in {item['request']['request_id'],*(c['request_id'] for c in replaceable)}:

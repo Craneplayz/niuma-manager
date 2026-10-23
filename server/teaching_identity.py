@@ -71,3 +71,21 @@ def protect_source_changes(db, uid, request_id, cards):
                 card['needs_review'] = True
                 card['review_reasons'] = list(dict.fromkeys(card['review_reasons'] + [CHANGED_SOURCE_REVIEW]))
     return cards
+
+
+def supersede_unhandled(db, uid, request_id, snapshot_id):
+    """A context-only revision replaces untouched proposals of the same capture."""
+    import submission_runtime as controls
+    rows=db.execute('''SELECT c.*,b.request AS old_request FROM teaching_submission_requests current
+        JOIN teaching_submission_requests old ON old.user_id=current.user_id
+            AND old.account=current.account AND old.input_id=current.input_id
+        JOIN recognition_candidates c ON c.user_id=old.user_id AND c.request_id=old.request_id
+        JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
+        WHERE current.user_id=? AND current.request_id=? AND old.request_id<>current.request_id
+            AND c.state='pending' AND c.version=1 AND c.resolution IS NULL''',(uid,request_id)).fetchall()
+    protected=controls.manually_controlled_candidates(db,uid,rows)
+    for row in rows:
+        original=json.loads(row['old_request'])
+        same=any(e.get('record',{}).get('snapshot_id')==snapshot_id for e in original.get('records',[]))
+        if same and row['id'] not in protected:
+            db.execute("DELETE FROM recognition_candidates WHERE id=? AND user_id=? AND state='pending' AND version=1 AND resolution IS NULL",(row['id'],uid))

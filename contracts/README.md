@@ -6,6 +6,10 @@
 
 ```text
 contracts/
+├── course_context.py                # 课程上下文版本、证据预算与出处校验
+├── course_facts.py                  # 标题事实与课程周次规则的共享 Schema
+├── examples/course-context-v01.json # 跨文件、无日期、三交付、冲突及教学周的合成输入与独立预期
+├── docs/course-context-v0.1.md      # 跨文件取证、增量、日期边界及查询接口
 ├── docs/text-import-jobs-v0.1.md      # 文本后台作业、幂等、停止与刷新恢复约定
 ├── schemas/text-import-jobs-v0.1.schema.json # 文本后台作业状态信封 Schema
 ├── examples/text-import-jobs-v01.json # 前后端共用的排队、识别及全部终态样例

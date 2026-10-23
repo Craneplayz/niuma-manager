@@ -1,5 +1,7 @@
 # 文本识别模块
 
+教学网[课程上下文与事实](../contracts/docs/course-context-v0.1.md)由服务器按当前账号、课程和学期选取原文；模型只引用已取得资料，程序统一批次标题并计算有基准的教学周日期，保留规则适用性核对。真实模型和完整DOCX到HTTP验收命令见该接口说明。
+
 文本、教学网和文件入口使用统一错误目录与一次有界草稿纠错，见 [错误约定](../contracts/docs/recognition-errors.md)；文本按原文句段生成证据编号，长句按词和日期边界切成最多 768 字的重叠片段，模型只选择引用，服务端还原原文并校验日期。图片证据仍标记为模型读取，不能视为已核实的文字证据。
 
 教学网 v0.4 识别结果区分 `content_type=task/notice`；任务和通知均可携带有依据的日期，类型不由日期决定，规则见 `skills/teaching-task-extraction/SKILL.md`。旧文本/微信入口暂保持原契约与默认 task。
@@ -16,6 +18,9 @@
 
 ```text
 ddl_text/
+├── course_facts.py        # 引文支持的标题渲染与教学周日期计算
+├── tests/run_course_context_smoke.py # 跨文件、远期安排和标题系列的真实模型合成验收
+├── tests/test_course_context_boundaries.py # 当前来源证据、过滤与空结果的生产消费一致性回归
 ├── README.md             # 模块用途、运行和检查入口
 ├── __init__.py           # Python 包入口
 ├── __main__.py           # CLI 参数、输入文件和输出

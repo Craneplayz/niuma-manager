@@ -190,12 +190,14 @@ def due(value):
     return dict(date=value['date'],precision='date')
 
 def can_auto_apply(candidate, request, demo=False):
+    teaching_source=request.get('contract_version')=='0.4'
     if request.get('contract_version')=='0.4':
         import teaching
         request=teaching.request_view(request)
     source=next((r for r in request['records'] if r['input_id']==candidate['input_id']),None)
     d=candidate['deadline']
-    valid_due=(d['kind']=='deadline' and d['status']=='explicit' and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
+    valid_due=(d['kind']=='deadline' and (d['status']=='explicit' or teaching_source and d['status']=='inferred')
+               and d['precision'] in ('date','datetime') and bool(d['value'])) or (d['status']=='not_provided' and d['value'] is None)
     if valid_due and d['precision']=='datetime':
         stamp=datetime.fromisoformat(d['value'].replace('Z','+00:00'))
         valid_due=stamp.second==0 and stamp.microsecond==0
@@ -293,6 +295,22 @@ def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before
 
 def route(handler,db,uid,path,body,ApiError):
     if not path.startswith('/api/recognition/'): return False
+    if path=='/api/recognition/course-context' and handler.command=='POST':
+        if set(body)!={'request_id'} or not isinstance(body['request_id'],str) or not 1<=len(body['request_id'])<=256:
+            raise ApiError(400,'请提供教学网识别的 request_id')
+        row=db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?',
+                       (uid,body['request_id'])).fetchone()
+        if not row: raise ApiError(404,'识别记录不存在')
+        request=json.loads(row['request'])
+        if request.get('contract_version')!='0.4': raise ApiError(400,'该导入不是教学网识别')
+        records=[]
+        for entry in request['records']:
+            r=entry['record']; context=r.get('course_context')
+            refs={ref['ref_id']:ref for ref in r['references']}
+            records.append(dict(input_id=r['input_id'],context=context,
+                passages=[dict(doc,text=refs[doc['ref_id']]['text'],read_state=refs[doc['ref_id']]['read_state'])
+                          for doc in (context or {}).get('documents',[])]))
+        handler.reply(200,dict(contract_version='course-context/0.1',request_id=body['request_id'],records=records));return True
     if path=='/api/recognition/diagnostics' and handler.command=='POST':
         if not diagnostics.detailed(): raise ApiError(404,'接口不存在')
         if set(body)=={'diagnostic_id'} and isinstance(body['diagnostic_id'],str) and re.fullmatch(r'[0-9a-f]{24}',body['diagnostic_id']):
@@ -406,7 +424,9 @@ def resolve_candidate(db, uid, cid, body, ApiError):
         draft=body.get('draft',{})
         if auto:
             automatic_due=None
-            if d['status']=='explicit':
+            # can_auto_apply above has already checked source type, routing,
+            # review guards and date precision, including course-derived dates.
+            if d['status'] in ('explicit','inferred'):
                 value=d['value']
                 if d['precision']=='datetime':
                     local=datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(timezone(timedelta(hours=8)))

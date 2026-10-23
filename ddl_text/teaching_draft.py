@@ -14,6 +14,7 @@ from .adapters import AgentError, OUTPUT_DIAGNOSTICS
 from .extraction import MAX_DRAFT_BYTES, _object
 from .runner import run_attempt
 from .teaching_semantics import normalize_time, TIME_ROLES, SUBMISSION_RELATIONS
+from . import course_facts
 
 
 SKILL = Path(__file__).resolve().parent / 'skills/teaching-task-extraction/SKILL.md'
@@ -82,6 +83,7 @@ def teaching_draft_schema(record=None, *, indexed=False):
     task['properties']['time_role'] = dict(enum=TIME_ROLES, description='先区分时间用途；布置/发布/参考日期不填入 deadline。')
     task['properties']['submission_relation'] = dict(enum=SUBMISSION_RELATIONS,
         description='此行动是否就是本来源布置的作业提交义务（包含完成作业题）；独立阅读/入群/展示等为 other；不能确定为 unknown。不判断用户是否已提交。')
+    task['properties'].update(course_facts.schemas(quote))
     schema = _object_schema(dict(tasks=dict(type='array', items=task, maxItems=50)))
     schema['properties']['empty_decision'] = dict(anyOf=[dict(type='null'), _object_schema(dict(
         status=dict(enum=['no_tasks', 'incomplete']), reason=dict(type='string', minLength=1, maxLength=512),
@@ -168,9 +170,16 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             content_type = draft.get('content_type', 'task')
             _quotes(record, assessment['action']['evidence'])
             _quotes(record, assessment['deadline']['evidence'], allow_metadata=True)
+            for name in ('title_facts','calendar_rule'):
+                if draft.get(name): _quotes(record,draft[name]['evidence'])
+            course_facts.check_primary_action(draft,record)
+            rendered_title=course_facts.title(draft)
             for relation in assessment['unread_relations']:
                 _quotes(record, relation['evidence'])
             time_needs_review = normalize_time(draft, record)
+            calendar_review=course_facts.calendar(draft,record) if draft.get('time_role') in ('deadline','event') else None
+            if assessment['deadline']['derivation']=='course_rule' and not draft.get('calendar_rule'):
+                raise ValueError('course_rule requires calendar_rule facts')
             pair = _pair(record, assessment, index)
             validate_pair(pair, model_routing=True)
             route, reason = draft['recommendation'], draft['reason'].strip()
@@ -181,6 +190,7 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 route, reason = 'candidate', reason or '变更通知需关联现有条目后处理。'
             if time_needs_review and route == 'task':
                 route, reason = 'candidate', '日期与作业标题日期相同，但用途尚未明确；请核对是否为截止要求。'
+            if calendar_review and route != 'filtered': route,reason='candidate',calendar_review
             if route != 'task' and not reason:
                 raise ValueError('candidate/filtered classification needs a reason')
             if route == 'task':
@@ -199,12 +209,14 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 route, filtered = 'candidate', None
                 codes.append('source_unverified')
                 reasons.append(REASONS['source_unverified'])
-            decisions.append(dict(title=draft['title'], description=draft['description'],
+            decisions.append(dict(title=rendered_title, description=draft['description'],
                 content_type=content_type,
                 notice_type=draft['notice_type'], target=deepcopy(draft['target']),
                 relevance=deepcopy(relevance), pair=pair, recommendation=route,
                 review_codes=codes, review_reasons=reasons,
                 filter_reason=filtered))
+            for name in ('title_facts','calendar_rule','time_role'):
+                if name in draft: decisions[-1][name]=deepcopy(draft[name])
             relation = draft.get('submission_relation', 'unknown')
             if relation == 'assignment_submission' and (content_type != 'task' or draft['notice_type'] != 'create'):
                 raise ValueError('only a newly described assignment action can have a submission relationship')
@@ -217,6 +229,7 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             _quotes(record, empty['evidence'])
             if empty['status'] == 'no_tasks' and not empty['evidence']:
                 raise ValueError('no_tasks needs captured evidence')
+            course_facts.check_primary_empty(empty,record)
             if not source_verified:
                 empty = dict(empty, status='incomplete', reason=REASONS['source_unverified'])
         return dict(decisions=decisions, empty_decision=empty)

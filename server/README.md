@@ -1,5 +1,9 @@
 ```text
 server/
+├── course_context.py          同账号课程资料索引、受限检索、按需附件读取及依赖更新。
+├── test_course_context.py     课程/学期隔离、取段、预算、标题、周次与增量回归。
+├── test_course_context_http.py HTTP证据、自动入库、人工决定和迟到结果回归。
+├── run_course_context_smoke.py 真实合成DOCX、真实模型、HTTP入库及重复同步验收。
 ├── README.md                 本目录的文件说明与启动命令。
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
