@@ -68,6 +68,11 @@ function fakeForm(kind,values,extra={}){
  const fields=[submit,{disabled:false,dataset:{}}];
  return {dataset:{importForm:kind,...extra},values,error,retry,submit,querySelector(selector){if(selector.includes('refresh-review'))return retry;if(selector==='[data-import-error-details]')return null;if(selector.includes('error'))return error;if(selector==='[type="submit"]')return submit;return null;},querySelectorAll(){return fields;}};
 }
+function heldRequest() {
+ let enter,release;
+ const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
+ return {entered,release,async wait(){enter();await waiting;}};
+}
 function fixture(scenario={}){
  let account='A',state,dialog='',calls=[],messages=[],batches={A:[],B:[]},taskVersion=7,deferred=null,workspaces={A:[],B:[]},teachingFailed=false,runs={A:[],B:[]},textJobs={A:[],B:[]};
  const respond=value=>({ok:true,json:async()=>structuredClone(value)});
@@ -520,6 +525,98 @@ test('closing account management during a credential read does not reopen its di
  assert.equal(button.disabled,true);
  dialog.open=false;f.host.closeDialog();release();await reading;
  assert.equal(f.dialog,'');assert.equal(button.disabled,false);
+});
+
+test('text and file entry do not request teaching credentials',async t=>{
+ const f=fixture({intercept(path){
+  if(path==='/api/materials/limits')return {limits:{asset_bytes:20971520,account_bytes:209715200}};
+  if(path==='/api/materials/imports')return {jobs:[]};
+ }});await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/credentials'),false);
+ await ui.click({dataset:{importSource:'files'}});await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/credentials'),false);
+ assert.doesNotMatch(ui.render(),/id="material-files"[^>]*disabled/);
+});
+
+test('a slow teaching credential read cannot lock text drafting or file selection',async t=>{
+ const gate=heldRequest();t.after(gate.release);
+ const f=fixture({async intercept(path){
+  if(path==='/api/sources/credentials'){await gate.wait();return {configured:true,username:'A-campus'};}
+  if(path==='/api/materials/limits')return {limits:{asset_bytes:20971520,account_bytes:209715200}};
+  if(path==='/api/materials/imports')return {jobs:[]};
+ }});await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const reading=ui.click({dataset:{importSource:'teaching'}});await gate.entered;
+ await ui.click({dataset:{importSource:'text'}});
+ ui.input({target:{id:'import-text',value:'下一段草稿'}});
+ assert.match(ui.render(),/>下一段草稿<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/id="import-(?:text|published)"[^>]*disabled/);
+ await ui.click({dataset:{importSource:'files'}});
+ assert.doesNotMatch(ui.render(),/id="material-files"[^>]*disabled/);
+ gate.release();await reading;
+});
+
+test('teaching read errors remain scoped and may retry without clearing a text draft',async t=>{
+ let failed=false;
+ const f=fixture({intercept(path){if(path==='/api/sources/credentials'&&!failed){failed=true;throw new Error('合成连接读取失败');}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ ui.input({target:{id:'import-text',value:'保留的文本草稿'}});
+ await ui.click({dataset:{importSource:'teaching'}});
+ assert.match(ui.render(),/data-import-action="refresh-credentials"/);
+ await ui.click({dataset:{importSource:'text'}});
+ assert.match(ui.render(),/>保留的文本草稿<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/合成连接读取失败|data-import-action="refresh-credentials"/);
+ await ui.click({dataset:{importSource:'teaching'}});
+ assert.match(ui.render(),/A-campus/);
+});
+
+test('a late credential response cannot replace the next account connection state',async t=>{
+ const gate=heldRequest();t.after(gate.release);let readingA=true;
+ const f=fixture({async intercept(path){if(path==='/api/sources/credentials'&&readingA){readingA=false;await gate.wait();return {configured:true,username:'A-old-campus'};}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const reading=ui.click({dataset:{importSource:'teaching'}});await gate.entered;
+ await f.login('B');await ui.load();await ui.click({dataset:{importSource:'teaching'}});
+ assert.match(ui.render(),/B-campus/);
+ gate.release();await reading;
+ assert.match(ui.render(),/B-campus/);assert.doesNotMatch(ui.render(),/A-old-campus/);
+});
+
+test('failed candidate reads leave text drafting and independent teaching reads available',async t=>{
+ const f=fixture({intercept(path){if(path==='/api/recognition/batches')throw new Error('合成候选读取失败');}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ assert.equal(ui.taskReviewsReady(),true);assert.match(ui.taskReviewsStatus(),/重试读取待核对/);
+ ui.input({target:{id:'import-text',value:'候选失败后仍可编辑'}});
+ assert.match(ui.render(),/>候选失败后仍可编辑<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/id="import-(?:text|published)"[^>]*disabled/);
+ await ui.click({dataset:{importSource:'teaching'}});assert.match(ui.render(),/A-campus/);
+});
+
+test('pending text submission captures its payload and preserves a newer editable draft',async t=>{
+ const gate=heldRequest();t.after(gate.release);
+ const f=fixture({async intercept(path,body,method){if(path==='/api/recognition/text-jobs'&&method==='POST'){
+  await gate.wait();return {contract_version:'text-import-jobs/0.1',jobs:[{request_id:body.request_id,state:'recognizing',attempt:1,created_at:'2026-10-23T01:00:00Z',updated_at:'2026-10-23T01:00:00Z',error:null}]};
+ }}});await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const submitting=ui.submit(fakeForm('text',{text:'第一段已提交通知',published:'2026-10-23T09:00:00'}));await gate.entered;
+ ui.input({target:{id:'import-text',value:'第二段未提交草稿'}});
+ ui.input({target:{id:'import-published',value:'2026-10-24T10:30:00'}});
+ assert.doesNotMatch(ui.render(),/id="import-(?:text|published)"[^>]*disabled/);
+ assert.match(ui.render(),/<button class="btn primary" type="submit" disabled/);
+ gate.release();await submitting;
+ assert.match(ui.render(),/>第二段未提交草稿<\/textarea>/);
+ assert.match(ui.render(),/value="2026-10-24T10:30:00"/);
+ assert.match(ui.render(),/<button class="btn primary" type="submit" disabled/);
+ const post=f.calls.find(call=>call.path==='/api/recognition/text-jobs'&&call.method==='POST');
+ assert.equal(post.body.records[0].text,'第一段已提交通知');
+ assert.equal(post.body.records[0].published_at.value,'2026-10-23T09:00:00+08:00');
+});
+
+test('a rejected text submission leaves the newer draft untouched',async t=>{
+ const gate=heldRequest();t.after(gate.release);
+ const f=fixture({async intercept(path,body,method){if(path==='/api/recognition/text-jobs'&&method==='POST'){await gate.wait();throw new Error('合成提交失败');}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const submitting=ui.submit(fakeForm('text',{text:'失败的旧提交',published:'2026-10-23T09:00:00'}));await gate.entered;
+ ui.input({target:{id:'import-text',value:'新的待提交通知'}});gate.release();await submitting;
+ assert.match(ui.render(),/>新的待提交通知<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/id="import-text"[^>]*disabled/);
 });
 
 test('credential storage errors remain visible in the connection dialog',async()=>{

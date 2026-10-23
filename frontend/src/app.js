@@ -35,6 +35,7 @@ import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
 import { loadTaskEvidence } from "./task-evidence.js";
+import { updateDOM, isComposing } from "./dom-update.js";
 import { demoWorkspace } from "./demo.js";
 import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
@@ -196,6 +197,7 @@ const host = {
 const imports = createImportUI(host),
   account = createAccountUI(host);
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
+let renderedAccount = null, renderedDrawer = null;
 function draggableTask(id) {
   if (reviewTaskBusy || taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
@@ -528,13 +530,15 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading || ui.page === "tasks" && taskListLoading() ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
+  const epoch = accountVersion();
+  updateDOM(app, `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading || ui.page === "tasks" && taskView() === "list" && taskListLoading() ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`, { reset: renderedAccount !== epoch });
+  renderedAccount = epoch;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
     if (next) {
-      next.focus({ preventScroll: true });
-      if (typeof start === "number" && next.setSelectionRange)
+      if (next !== document.activeElement) next.focus({ preventScroll: true });
+      if (!isComposing(next) && typeof start === "number" && next.setSelectionRange)
         try {
           next.setSelectionRange(start, end);
         } catch {}
@@ -551,7 +555,7 @@ function renderResults() {
   const dayFocus = document.activeElement?.dataset.calendarDay;
   const results = document.querySelector("#task-results");
   if (!results) return;
-  results.innerHTML = taskResults();
+  updateDOM(results, taskResults());
   syncTaskControls();
   document.querySelector("#result-count").textContent = headingCount();
   if (dayFocus)
@@ -592,16 +596,20 @@ function updateDrawer() {
     course: "",
     notes: "",
   };
-  drawer.innerHTML = renderTaskDrawer({
+  const identity = JSON.stringify([accountVersion(), drawerId, drawerEditing,
+    task.reviewCandidateId || '', task.recognitionHistory || []]);
+  const reuse = renderedDrawer === identity;
+  updateDOM(drawer, renderTaskDrawer({
     task,
     editing: drawerEditing,
     escapeHtml: esc,
     icon,
     deadlineLabel,
-  });
+  }).replace('id="task-evidence"', `id="task-evidence"${reuse ? ' data-preserve-content' : ''}`), { reset: !reuse });
+  renderedDrawer = identity;
   const actionError = drawer.querySelector("#task-action-error");
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
-  if (!drawerEditing && task.id) {
+  if (!reuse && !drawerEditing && task.id) {
     const evidence = drawer.querySelector("#task-evidence");
     if (task.reviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId);
     else if (demo)
@@ -615,6 +623,7 @@ function updateDrawer() {
 }
 function closeDrawer() {
   drawer.close();
+  renderedDrawer = null;
   drawerId = null;
   drawerEditing = false;
   drawerError = null;
