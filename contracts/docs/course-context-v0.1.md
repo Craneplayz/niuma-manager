@@ -8,7 +8,7 @@
 
 执行快照可增加 `record.course_context`，版本为 `course-context/0.1`，包含 revision、documents、omitted_documents。references 对应项 kind=course_context。每段证据记录原始 input_id、snapshot_id、course_id、term_id、part_id、source_url、source_label、published_at、offset、length。位置按 Unicode 码点计，不能直接按 JavaScript UTF-16 下标解释非BMP字符。摘要绑定片段和出处，结果仍须与请求快照完全一致。
 
-最多12段、合计24000字符，每段最多4000字符，并遵守原有100000字符、50个引用总预算。按相关词与课程规则选取连续原文；不是整门课全量检索保证。截取段标记 partial，未取得附件/超出预算的部分计入 omitted_documents。上下文附件读取共用45秒预算，复用PDF可见性检查和断点；慢/无效文件不使主来源失败。缺口确实影响截止要求时说明具体缺失，不能声称全部资料已读。
+最多12段、合计24000字符，每份正文/附件最多4000字符，并遵守原有100000字符、50个引用总预算。检索同时使用通知正文、文件名和已读附件缓存正文；普通文件名的未读附件可作为候补。长文选最多两段不重叠原文，允许规则和例外位于不同页；不是整门课全量检索保证。截取段标记 partial，未取得附件/超出预算的部分计入 omitted_documents。上下文附件读取共用45秒预算，复用PDF可见性检查和断点；慢/无效文件不使主来源失败。缺口确实影响截止要求时说明具体缺失，不能声称全部资料已读。
 
 新增、过滤和“没有任务”都必须有当前来源证据，上下文只能补充规则、时间和范围，不能在每个作业中重复导入大纲的考试，或借其他作业的提交状态过滤当前作业。资料自身明确的远期考试、lab安排由其自身识别，不按未来30天/90天截断。更正需明确适用关系；仅“发布时间更晚”不足以覆盖冲突规则。
 
@@ -22,9 +22,11 @@
 
 本功能不增加跨课程自动关联，不改变自动合并模式，不按标题合并任务或传播提交状态。
 
+课程级资料组织和共享格式约定参考 [AutoPku 的课程同步工作流](https://github.com/Fomalhaut647/AutoPku/blob/459c8ea9c4f486fc5e1a9d525a496b28442c16aa/sub-skills/tasks/sync-notices.md)及[资料抽取脚本](https://github.com/Fomalhaut647/AutoPku/blob/459c8ea9c4f486fc5e1a9d525a496b28442c16aa/assets/speed-notes-kit/extract_sources.py)的设计；此处独立实现服务端鉴权、证据和写回，没有复制其源码。
+
 ## 标题与日期
 
-结果可带 `title_facts={kind,channel,sequence,subject,evidence}`。自由文本必须来自引用原文。程序固定格式渲染；有明确批次的 assignment/lab 使用“渠道类别 · 批次”，主题和题号留在说明中。无可靠结构化事实的历史/新草稿仍兼容原标题。书面、POJ、MOOC等独立渠道分别保留。
+结果可带 `title_facts={kind,channel,sequence,subject,evidence}`。自由文本必须来自引用原文。程序固定格式渲染；有明确批次的 assignment/lab 使用“渠道类别 · 批次”，主题和题号留在说明中；明确的“第四章/第4章/Chapter 4”等批次仅在显示时统一，原文事实和证据保留，不能用作任务合并依据。无可靠结构化事实的历史/新草稿仍兼容原标题。书面、POJ、MOOC等独立渠道分别保留。
 
 结果可带 time_role 和 calendar_rule。后者包含 week_one_monday、week、weekday（周一=1）、offset_days、evidence。程序检查原文完整基准日期、星期及学期，计算日期，输出 derivation=course_rule、anchor=course_term、date精度，并要求核对规则适用性。学期 starts_on 不作为开学第一周；没有时刻不添加23:59。复杂双周循环、假期调整等不能确定时保持未知。明确远期日期走正常识别，不必进入周次核对。
 

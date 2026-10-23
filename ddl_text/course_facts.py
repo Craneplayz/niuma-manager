@@ -14,6 +14,36 @@ def compact(text):
     return re.sub(r'\s+','',unicodedata.normalize('NFKC',text)).casefold()
 
 
+def _sequence_number(value):
+    """Read only unambiguous ordinary numerals below 1000, not dates/indices."""
+    if re.fullmatch(r'[0-9]{1,3}',value): return int(value)
+    digits=dict(zip('零〇一二两三四五六七八九',(0,0,1,2,2,3,4,5,6,7,8,9)))
+    if value in digits: return digits[value]
+    tens=re.fullmatch(r'([一二三四五六七八九])?十([一二三四五六七八九])?',value)
+    if tens: return digits.get(tens[1],1)*10+digits.get(tens[2],0)
+    hundreds=re.fullmatch(r'([一二两三四五六七八九])百(?:(零[一二三四五六七八九])|([一二三四五六七八九]十[一二三四五六七八九]?))?',value)
+    if hundreds:
+        remainder=digits[hundreds[2][-1]] if hundreds[2] else _sequence_number(hundreds[3]) if hundreds[3] else 0
+        return digits[hundreds[1]]*100+remainder
+    # Colloquial 一百二, ranges, decimal indices and digit-by-digit years are
+    # intentionally left alone instead of guessing a batch number.
+    return None
+
+
+def sequence_display(value):
+    """Canonical display only. Never use this value for identity or merging."""
+    normalized=unicodedata.normalize('NFKC',value).strip()
+    chinese=re.fullmatch(r'第\s*([0-9零〇一二两三四五六七八九十百]+)\s*([章讲周次])',normalized)
+    if chinese:
+        number=_sequence_number(chinese[1])
+        if number is not None:return f'第{number}{chinese[2]}'
+    english=re.fullmatch(r'(chapter|lecture|week|assignment|lab)\s*#?\s*([0-9]{1,3})',normalized,re.IGNORECASE)
+    if english:
+        unit=dict(chapter='章',lecture='讲',week='周',assignment='次',lab='次')[english[1].lower()]
+        return f'第{int(english[2])}{unit}'
+    return value
+
+
 def title(draft):
     facts=draft.get('title_facts')
     if facts is None: return draft['title']  # Saved historical drafts remain compatible.
@@ -26,7 +56,10 @@ def title(draft):
     # Numbered deliverables keep the same visible template across chapters.
     # Topic/detail remains in description and in the persisted fact object.
     fields=('sequence',) if facts['kind'] in ('assignment','lab') and facts['sequence'].strip() else ('sequence','subject')
-    details=list(dict.fromkeys(facts[name].strip() for name in fields if facts[name].strip()))
+    # Validate the original literal facts first, then normalize only their
+    # sequence display. Evidence and the persisted title_facts stay unchanged.
+    details=list(dict.fromkeys(sequence_display(facts[name].strip()) if name=='sequence' else facts[name].strip()
+                               for name in fields if facts[name].strip()))
     if fields==('sequence',) and facts['subject'].strip() and compact(facts['subject']) not in compact(draft['description']):
         suffix='；'+facts['subject'].strip()
         if len(draft['description'])+len(suffix)<=4096:draft['description']+=suffix

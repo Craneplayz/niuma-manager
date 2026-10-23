@@ -21,6 +21,7 @@ ddl_text/
 ├── course_facts.py        # 引文支持的标题渲染与教学周日期计算
 ├── tests/run_course_context_smoke.py # 跨文件、远期安排和标题系列的真实模型合成验收
 ├── tests/test_course_context_boundaries.py # 当前来源证据、过滤与空结果的生产消费一致性回归
+├── tests/test_course_title_style.py # 中英文明确批次的统一显示及题号、年份不误伤回归
 ├── README.md             # 模块用途、运行和检查入口
 ├── __init__.py           # Python 包入口
 ├── __main__.py           # CLI 参数、输入文件和输出

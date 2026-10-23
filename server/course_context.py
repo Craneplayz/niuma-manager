@@ -18,7 +18,7 @@ MAX_SOURCES = 6
 PART_BUDGET = 4000
 READ_BUDGET_SECONDS = 45
 _READ_LOCK = threading.Lock()
-POLICY = re.compile(r'教学大纲|课程大纲|课程安排|教学计划|教学日历|考核|提交规则|课程说明|syllabus|schedule|calendar|assessment|submission\s+policy', re.I)
+POLICY = re.compile(r'教学大纲|课程大纲|课程安排|教学计划|教学日历|考核|提交规则|课程说明|课程介绍|课程要求|评分标准|截止规则|所有.{0,8}作业|统一.{0,12}提交|syllabus|schedule|calendar|assessment|submission\s+policy', re.I)
 
 
 def initialize(db):
@@ -76,7 +76,21 @@ def catalog(db, uid, account, scoped=None):
         scope=contract.scope(other['record'])
         if scope is None: continue
         text=searchable(other)
-        groups.setdefault(scope,[]).append(dict(request=request,digest=digest,tokens=terms(text),policy=bool(POLICY.search(text[:2000]))))
+        groups.setdefault(scope,[]).append(dict(request=request,digest=digest,tokens=terms(text),policy=bool(POLICY.search(text)),
+            has_files=any(r['kind'] in ('attachment','content_image') for r in other['record']['references'])))
+    by_request={m['request']['request_id']:m for group in groups.values() for m in group}
+    # Ordinary filenames often hide the actual syllabus/rules. Search completed
+    # private read caches too; they are hints only until prepare rechecks the
+    # reader version and binds actual excerpts. Original blobs are never loaded.
+    for rid,result in db.execute('''SELECT r.request_id,f.result FROM teaching_asset_refs r
+        JOIN teaching_asset_files f USING(user_id,account,sha256,mime_type)
+        WHERE r.user_id=? AND r.account=? AND f.result IS NOT NULL''',(uid,account)):
+        material=by_request.get(rid)
+        if material is None: continue
+        cached=json.loads(result)
+        if cached.get('read_state')!='complete' or not cached.get('text'): continue
+        material['tokens'].update(terms(cached['text']))
+        material['policy']=material['policy'] or bool(POLICY.search(cached['text']))
     return groups
 
 
@@ -92,8 +106,8 @@ def select(db, uid, account, entry, *, materials=None, receipts=None):
         if record['input_id']==entry['record']['input_id']: continue
         if (term['starts_on'],term['ends_on']) != (current['starts_on'],current['ends_on']): continue
         overlap=len(query & material['tokens']); policy=material['policy']
-        if not policy and overlap < 2: continue
-        selected.append(dict(request=request,digest=material['digest'],score=20*policy+min(overlap,15)))
+        if not policy and overlap < 2 and not material['has_files']: continue
+        selected.append(dict(request=request,digest=material['digest'],score=20*policy+min(overlap,15)+int(material['has_files'])))
     # Capture order must not change selection or cause periodic re-recognition.
     selected.sort(key=lambda x:(-x['score'],x['request']['records'][0]['record']['input_id']))
     selected=selected[:MAX_SOURCES]
@@ -136,6 +150,22 @@ def window(text, query, budget):
     return start,text[start:start+budget]
 
 
+def passages(text, query, budget):
+    """Retain up to two disjoint original spans, e.g. a rule and its exception."""
+    if len(text)<=budget: return [(0,text)]
+    if budget<1200: return [window(text,query,budget)]
+    width=budget//2
+    def score(i):return len(query & terms(text[i:i+width]))+4*bool(POLICY.search(text[i:i+width]))
+    ranked=sorted(range(0,len(text),max(1,width//2)),key=lambda i:(-score(i),i))
+    chosen=[]
+    for start in ranked:
+        if any(start<end and start+width>begin for begin,end in chosen): continue
+        if chosen and not score(start): break
+        chosen.append((start,min(start+width,len(text))))
+        if len(chosen)==2:break
+    return [(start,text[start:end]) for start,end in sorted(chosen)]
+
+
 def attach(request, materials, *, omitted=0):
     record = request['records'][0]['record']
     # Replays may contain a previous context snapshot; rebuild rather than nest.
@@ -155,17 +185,19 @@ def attach(request, materials, *, omitted=0):
             if not text or not text.strip(): continue
             if budget < 240 or len(documents)>=contract.MAX_DOCUMENTS or len(record['references'])>=50:
                 omitted+=1; continue
-            offset,excerpt = window(text,query,min(PART_BUDGET,budget))
-            if not excerpt.strip(): continue
-            identity = ':'.join([r['input_id'],r['snapshot_id'],part,str(offset)])
-            rid = 'context:'+hashlib.sha256(identity.encode()).hexdigest()[:32]
-            if any(ref['ref_id']==rid for ref in record['references']): raise ValueError('context reference collision')
-            document=dict(ref_id=rid,input_id=r['input_id'],snapshot_id=r['snapshot_id'],course_id=r['course_id'],
-                term_id=r['course_term']['term_id'],part_id=part,source_url=source['url'],source_label=source['label'],
-                published_at=r['published_at']['value'] if r['published_at'] else None,offset=offset,length=len(excerpt))
-            record['references'].append(dict(ref_id=rid,kind='course_context',label=source['label'] or '课程参考资料',
-                read_state='complete' if complete and len(excerpt)==len(text) else 'partial',text=excerpt))
-            documents.append(document); budget-=len(excerpt)
+            for offset,excerpt in passages(text,query,min(PART_BUDGET,budget)):
+                if not excerpt.strip(): continue
+                if len(documents)>=contract.MAX_DOCUMENTS or len(record['references'])>=50:
+                    omitted+=1;continue
+                identity = ':'.join([r['input_id'],r['snapshot_id'],part,str(offset)])
+                rid = 'context:'+hashlib.sha256(identity.encode()).hexdigest()[:32]
+                if any(ref['ref_id']==rid for ref in record['references']): raise ValueError('context reference collision')
+                document=dict(ref_id=rid,input_id=r['input_id'],snapshot_id=r['snapshot_id'],course_id=r['course_id'],
+                    term_id=r['course_term']['term_id'],part_id=part,source_url=source['url'],source_label=source['label'],
+                    published_at=r['published_at']['value'] if r['published_at'] else None,offset=offset,length=len(excerpt))
+                record['references'].append(dict(ref_id=rid,kind='course_context',label=source['label'] or '课程参考资料',
+                    read_state='complete' if complete and len(excerpt)==len(text) else 'partial',text=excerpt))
+                documents.append(document); budget-=len(excerpt)
     texts={ref['ref_id']:ref['text'] for ref in record['references']}
     record['course_context']=dict(contract_version=contract.VERSION,documents=documents,omitted_documents=omitted,
         revision=contract.revision([dict(d,text=texts[d['ref_id']]) for d in documents]))

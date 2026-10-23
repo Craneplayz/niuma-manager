@@ -165,6 +165,33 @@ class CourseContextTests(unittest.TestCase):
         queries=[s for s in statements if s.lstrip().upper().startswith('SELECT')]
         self.assertLessEqual(len(queries),len(sources)+3)
 
+    def test_attachment_text_is_searchable_even_with_an_ordinary_filename(self):
+        target=request('assignment','请完成第四章书面作业，提交时间按课程规定。')
+        material=request('ordinary','资料见附件。')
+        material['records'][0]['record']['references']=[dict(ref_id='file:1',kind='attachment',label='01.pdf',read_state='unread',text=None)]
+        self.save(material)
+        for i in range(7):self.save(request('policy-'+str(i),'教学大纲：请认真学习。'))
+        self.assertNotIn('request:ordinary',[s['request']['request_id'] for s in context.select(self.db,'u','a',target['records'][0])])
+        data=b'synthetic';sha=hashlib.sha256(data).hexdigest()
+        teaching_assets.store(self.db,'u','a',material['request_id'],[dict(ref_id='file:1',sha256=sha,mime_type='application/pdf',data=data)])
+        result=dict(read_state='complete',text='课程规定：所有第四章书面作业统一于2026年12月20日提交。')
+        self.db.execute('UPDATE teaching_asset_files SET cache_version=?,result=?',('synthetic-cache',json.dumps(result)))
+        chosen=context.select(self.db,'u','a',target['records'][0])
+        self.assertEqual(chosen[0]['request']['request_id'],'request:ordinary')
+
+    def test_long_material_keeps_separated_rule_and_exception_spans(self):
+        target=request('assignment','第11讲书面作业按课程大纲及更正安排提交。')
+        first='课程大纲：所有书面作业统一在2026年11月6日提交。'
+        last='课程安排更正：第11讲书面作业改为2026年11月13日提交。'
+        text=first+'无关背景。'*2500+last
+        material=request('syllabus',text)
+        context.attach(target,[material]);check_request(target)
+        record=target['records'][0]['record'];refs=record['references']
+        self.assertTrue(any(first in r['text'] for r in refs))
+        self.assertTrue(any(last in r['text'] for r in refs))
+        for doc,ref in zip(record['course_context']['documents'],refs):
+            self.assertEqual(ref['text'],text[doc['offset']:doc['offset']+doc['length']])
+
     def test_context_cannot_generate_duplicate_unrelated_items(self):
         target=request('assignment','请完成第四章作业。');context.attach(target,[request('syllabus','期末考试2027年1月12日进行。')])
         r=target['records'][0]['record'];task=draft(r)
@@ -187,7 +214,7 @@ class CourseContextTests(unittest.TestCase):
                 task['title_facts']=dict(kind='assignment',channel=channel,sequence=chapter,subject='',evidence=task['assessment']['action']['evidence'])
                 result=compile_teaching_response(json.dumps(dict(tasks=[task])),r,source_verified=True)
                 titles.append(result['decisions'][0]['title'])
-        self.assertEqual(titles,['书面作业 · 第四章','书面作业 · 第五章','POJ作业 · 第四章','POJ作业 · 第五章','MOOC作业 · 第四章','MOOC作业 · 第五章'])
+        self.assertEqual(titles,['书面作业 · 第4章','书面作业 · 第5章','POJ作业 · 第4章','POJ作业 · 第5章','MOOC作业 · 第4章','MOOC作业 · 第5章'])
         task['title_facts']['sequence']='第九十九章'
         with self.assertRaises(Exception):compile_teaching_response(json.dumps(dict(tasks=[task])),r,source_verified=True)
 
