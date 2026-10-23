@@ -110,8 +110,8 @@ class CourseContextTests(unittest.TestCase):
             self.assertIsNone(current['records'][0]['record']['references'][0]['text'])
             current['records'][0]['record']['references'][0].update(read_state='complete',text='书面作业于2026年12月20日提交。')
         with patch.object(teaching_assets,'enrich',side_effect=enrich):
-            context.prepare(target,selected,lambda _:['synthetic-original'],None,Settings(),lambda *a:None,lambda:None)
-        self.assertEqual(seen[0][0],['synthetic-original'])
+            context.prepare(target,selected,lambda _:[dict(ref_id='file:1')],None,Settings(),lambda *a:None,lambda:None)
+        self.assertEqual(seen[0][0],[dict(ref_id='file:1')])
         self.assertTrue(any('12月20日' in r['text'] for r in target['records'][0]['record']['references']))
         check_request(target)
         # Expired context budget never accepts a raw PDF transcript.
@@ -164,6 +164,21 @@ class CourseContextTests(unittest.TestCase):
         self.db.set_trace_callback(None)
         queries=[s for s in statements if s.lstrip().upper().startswith('SELECT')]
         self.assertLessEqual(len(queries),len(sources)+3)
+
+    def test_mixed_unread_file_does_not_duplicate_or_discard_a_complete_cache(self):
+        target=request('assignment','第四章作业按课程大纲提交。')
+        material=request('syllabus','课程资料。')
+        material['records'][0]['record']['references']=[dict(ref_id='file:'+str(i),kind='attachment',label='file'+str(i)+'.docx',read_state='unread',text=None) for i in (1,2)]
+        settings=Settings(model='synthetic',endpoint='https://example.test')
+        version=teaching_assets.cache_version(settings)
+        text='课程大纲：第四章作业于2026年12月20日提交。'+'无关背景。'*12000
+        data=b'synthetic';sha=hashlib.sha256(data).hexdigest()
+        assets=[dict(ref_id='file:1',data=data,sha256=sha,mime_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',cache_version=version,result=json.dumps(dict(read_state='complete',text=text))),
+                dict(ref_id='file:2',data=data,sha256=sha,mime_type='unsupported',cache_version=None,result=None)]
+        context.prepare(target,[dict(request=material,digest='x')],lambda _:assets,None,settings,lambda *a:None,lambda:None,
+            load_cached=lambda *_:{'file:1':dict(read_state='complete',text=text)})
+        self.assertTrue(any('2026年12月20日' in r['text'] for r in target['records'][0]['record']['references']))
+        check_request(target)
 
     def test_attachment_text_is_searchable_even_with_an_ordinary_filename(self):
         target=request('assignment','请完成第四章书面作业，提交时间按课程规定。')

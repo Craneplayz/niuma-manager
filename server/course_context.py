@@ -237,11 +237,13 @@ def prepare(request, selected, load_files, client, settings, save_cache, guard, 
                     except (ValueError,KeyError,TypeError,ValidationError): continue
                     next(r for r in refs if r['ref_id']==ref_id).update(value)
             expected=len(refs)
-            unread=any(r['kind'] in ('attachment','content_image') and r['read_state']!='complete' for r in refs)
+            unread_refs={r['ref_id'] for r in refs if r['kind'] in ('attachment','content_image') and r['read_state']!='complete'}
+            unread=bool(unread_refs)
             while unread and not locked and time.monotonic()<deadline:
                 guard()
                 locked=_READ_LOCK.acquire(timeout=min(.1,max(0,deadline-time.monotonic())))
-            files=load_files(item) if unread and locked and time.monotonic()<deadline else []
+            files=([a for a in load_files(item) if a['ref_id'] in unread_refs]
+                   if unread and locked and time.monotonic()<deadline else [])
             teaching_assets.enrich(current,files,client,settings,save_cache,guard=guard,read_deadline=deadline)
             if read_token: item['readiness']=read_token(item)
             omitted+=max(0,expected-len(r['references']))
