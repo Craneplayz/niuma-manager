@@ -2,6 +2,7 @@ import {
   api,
   session,
   readStore,
+  readProjectedStore,
   readCancelledTasks,
   initSession,
   reconnectStore,
@@ -66,7 +67,6 @@ let demo = params.get("demo") === "1",
   state = demo ? demoWorkspace(today) : readStore(),
   loading = !demo,
   loadError = "",
-  reviewTaskBusy = false,
 
   drawerId = null,
   drawerEditing = false,
@@ -81,10 +81,6 @@ const busyTasks = new Set();
 const taskBusy = id => busyTasks.has(id);
 function canChangeTask(id) {
   if (taskBusy(id) || loading || session.changing) return false;
-  if (reviewTaskBusy) {
-    toast("正在确认待核对任务，请稍候");
-    return false;
-  }
   if (!demo && session.sync === "error") {
     toast("请先重试保存或重新读取任务");
     return false;
@@ -93,12 +89,12 @@ function canChangeTask(id) {
 }
 function syncTaskControls() {
   document.querySelectorAll("[data-task-complete]").forEach(button => {
-    button.disabled = reviewTaskBusy || taskBusy(button.dataset.taskComplete) ||
-      button.dataset.taskComplete.startsWith("review:") && imports.isReviewBusy() ||
+    button.disabled = taskBusy(button.dataset.taskComplete) ||
+      button.dataset.taskComplete.startsWith("review:") && imports.isReviewBusy(button.dataset.taskComplete.slice(7)) ||
       !demo && session.sync === "error";
   });
   document.querySelectorAll("[data-restore-task]").forEach(button => {
-    button.disabled = reviewTaskBusy || taskBusy(button.dataset.restoreTask) || !demo && session.sync === "error";
+    button.disabled = taskBusy(button.dataset.restoreTask) || !demo && session.sync === "error";
   });
 }
 function finishTask(id, epoch, repaint = false) {
@@ -172,6 +168,19 @@ const host = {
     else toast("这条任务或通知已不在当前列表中");
   },
   getState: () => state,
+  onReviewStore() {
+    if (demo) return;
+    state = readProjectedStore();
+    render();
+    if (drawer.open && !drawerEditing) {
+      if (!editableTask(drawerId) && drawerId?.startsWith('review:')) {
+        const saved = state.tasks.find(task => task.pendingReviewCandidateId === drawerId.slice(7));
+        if (saved) drawerId = saved.id;
+        else { closeDrawer(); return; }
+      }
+      if (editableTask(drawerId)) updateDrawer();
+    }
+  },
   getCancelledTasks: () => demo ? [] : readCancelledTasks(),
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
@@ -197,9 +206,9 @@ const host = {
 const imports = createImportUI(host),
   account = createAccountUI(host);
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
-let renderedAccount = null, renderedDrawer = null;
+let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 function draggableTask(id) {
-  if (reviewTaskBusy || taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
+  if (taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
       dialog.open || drawer.open || !demo && !session.user) return null;
   return state.tasks.find((task) => task.id === id &&
@@ -214,7 +223,6 @@ function clearUndo() {
 function resetAccountUI() {
   clearUndo();
   busyTasks.clear();
-  reviewTaskBusy = false;
   imports.reset();
   ui.query = "";
   ui.course = "";
@@ -581,6 +589,7 @@ function requireAccount() {
 function openTask(id, editing = false) {
   hideSidebarTooltip();
   if (!requireAccount()) return;
+  drawerVisit++;
   lastFocus = document.activeElement;
   drawerId = id;
   drawerEditing = editing;
@@ -597,7 +606,7 @@ function updateDrawer() {
     notes: "",
   };
   const identity = JSON.stringify([accountVersion(), drawerId, drawerEditing,
-    task.reviewCandidateId || '', task.recognitionHistory || []]);
+    task.reviewCandidateId || task.pendingReviewCandidateId || '', task.recognitionHistory || []]);
   const reuse = renderedDrawer === identity;
   updateDOM(drawer, renderTaskDrawer({
     task,
@@ -611,7 +620,7 @@ function updateDrawer() {
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
   if (!reuse && !drawerEditing && task.id) {
     const evidence = drawer.querySelector("#task-evidence");
-    if (task.reviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId);
+    if (task.reviewCandidateId || task.pendingReviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId || task.pendingReviewCandidateId);
     else if (demo)
       evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
     else void loadTaskEvidence(task.id, evidence, api);
@@ -622,6 +631,7 @@ function updateDrawer() {
     });
 }
 function closeDrawer() {
+  drawerVisit++;
   drawer.close();
   renderedDrawer = null;
   drawerId = null;
@@ -704,7 +714,6 @@ async function saveStatus(id, next, expected) {
   let savedId = id, acknowledged = next;
   busyTasks.add(id);
   if (pending) {
-    reviewTaskBusy = true;
     render();
     if (drawer.open && drawerId === id) updateDrawer();
   }
@@ -712,14 +721,19 @@ async function saveStatus(id, next, expected) {
     : demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
   try {
     if (pending) {
-      const saved = await saving;
+      const saved = await saving.staged;
       if (epoch !== accountVersion()) return;
-      savedId = saved?.id;
+      savedId = saved?.id || saving.taskId;
       if (saved) acknowledged = { status: saved.status, completedAt: saved.completedAt || '' };
+      busyTasks.delete(id);
       if (drawerId === id && savedId) drawerId = savedId;
+      render();
+      if (drawer.open && !drawerEditing) updateDrawer();
+      await saving;
     } else {
       if (!await stageTaskSave(saving, id, epoch)) return;
-      Object.assign(task, next);
+      if (demo) Object.assign(task, next);
+      else state = readProjectedStore();
       render();
       if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
       await saving;
@@ -736,7 +750,6 @@ async function saveStatus(id, next, expected) {
       toastError(error, "tasks_save");
     }
   } finally {
-    if (pending && epoch === accountVersion()) reviewTaskBusy = false;
     finishTask(id, epoch, pending);
     if (pending && epoch === accountVersion() && drawer.open && drawerId !== id && !drawerEditing) updateDrawer();
   }
@@ -746,13 +759,15 @@ async function trashTask() {
   if (!id || !canChangeTask(id)) return;
   const task = state.tasks.find(task => task.id === id);
   if (!task) return;
-  const epoch = accountVersion();
+  const epoch = accountVersion(), visit = drawerVisit;
   busyTasks.add(id);
   const saving = demo ? Promise.resolve() : trashStoredTasks([id]);
   if (!await stageTaskSave(saving, id, epoch)) return;
-  state.tasks = state.tasks.filter(task => task.id !== id);
-  state.trash.push(task);
-  closeDrawer();
+  if (demo) {
+    state.tasks = state.tasks.filter(task => task.id !== id);
+    state.trash.push(task);
+  } else state = readProjectedStore();
+  if (drawer.open && drawerVisit === visit) closeDrawer();
   render();
   try {
     await saving;
@@ -777,9 +792,11 @@ async function restoreTask(id) {
   busyTasks.add(id);
   const saving = demo ? Promise.resolve() : restoreStoredTasks([id]);
   if (!await stageTaskSave(saving, id, epoch)) return;
-  state.trash = state.trash.filter(task => task.id !== id);
-  const { recycleBin, ...restored } = task;
-  state.tasks.push(restored);
+  if (demo) {
+    state.trash = state.trash.filter(task => task.id !== id);
+    const { recycleBin, ...restored } = task;
+    state.tasks.push(restored);
+  } else state = readProjectedStore();
   render();
   // Refresh only the original trash dialog, never reopen one the user closed.
   const trashDialog = dialog.querySelector(".trash-list");
@@ -1091,16 +1108,19 @@ document.addEventListener("submit", async (e) => {
         toast('没有修改，仍保留待核对状态');
         return;
       }
-      reviewTaskBusy = true;
       busyTasks.add(existing.id);
       form.querySelectorAll('button,input,textarea,select').forEach(field => { field.disabled = true; });
       render();
       try {
-        const saved = await imports.confirmTask(existing.reviewCandidateId, task, false, Number(form.dataset.reviewVersion));
+        const saving = imports.confirmTask(existing.reviewCandidateId, task, false, Number(form.dataset.reviewVersion));
+        const saved = await saving.staged;
         if (epoch !== accountVersion()) return;
+        busyTasks.delete(existing.id);
         if (form.isConnected && drawer.open) closeDrawer();
-        toast(isNotice(task) ? '通知已保存' : '任务已保存');
+        render();
         if (saved) restoreFocus({ key: 'taskOpen', value: saved.id });
+        await saving;
+        if (epoch === accountVersion()) toast(isNotice(task) ? '通知已保存' : '任务已保存');
       } catch (cause) {
         if (epoch === accountVersion()) {
           if (form.isConnected) error.innerHTML = userErrorMarkup(cause, 'tasks_save');
@@ -1108,7 +1128,6 @@ document.addEventListener("submit", async (e) => {
         }
       } finally {
         if (epoch === accountVersion()) {
-          reviewTaskBusy = false;
           busyTasks.delete(existing.id);
         }
         if (form.isConnected) form.querySelectorAll('button,input,textarea,select').forEach(field => {
@@ -1123,11 +1142,14 @@ document.addEventListener("submit", async (e) => {
     busyTasks.add(draftId);
     const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
     if (!await stageTaskSave(saving, draftId, epoch)) return;
-    if (existing) Object.assign(existing, task);
-    else state.tasks.push(task);
-    closeDrawer();
+    if (demo) {
+      if (existing) Object.assign(existing, task);
+      else state.tasks.push(task);
+    } else state = readProjectedStore();
+    const ownsDrawer = form.isConnected && drawer.open;
+    if (ownsDrawer) closeDrawer();
     render();
-    restoreFocus({ key: "taskOpen", value: draftId });
+    if (ownsDrawer) restoreFocus({ key: "taskOpen", value: draftId });
     try {
       await saving;
       if (epoch === accountVersion()) toast(isNotice(task) ? "通知已保存" : "任务已保存");
@@ -1225,7 +1247,6 @@ window.addEventListener("niuma:account-reset", () => {
   clearUndo();
   state = readStore();
   busyTasks.clear();
-  reviewTaskBusy = false;
   imports.reset();
   drawer.close();
   drawerId = null;

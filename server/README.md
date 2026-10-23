@@ -1,6 +1,7 @@
 ```text
 server/
 ├── task_operations.py        当前账号任务写入回执、幂等恢复与测试清空代次。
+├── test_review_operations.py  候选稳定任务身份、混合队列、回执及目标冲突的真实 HTTP/SQLite 回归。
 ├── test_task_operations.py   真实 HTTP/SQLite 的回执丢失、原子性、账号及契约回归。
 ├── README.md                 本目录的文件说明与启动命令。
 ├── .gitignore               排除本地凭据加密密钥。
@@ -369,4 +370,4 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 文本、教学网和手动文件导入的错误分类、诊断编号及验证边界见 [统一错误约定](../contracts/docs/recognition-errors.md)。文本和文件沿用原有总预算，仅允许一次草稿纠错；DeepSeek 文本/文件识别与教学网一致关闭思考模式，无须改配置。开发和测试环境均可查看详情；生产保留安全诊断供维护人员排查，只向用户返回分类和编号。所有环境都不记录原文、模型回答、异常消息和凭据。
 
-任务写入支持浏览器持久队列的幂等回执和当前账号恢复核对，SQLite 首次启动自动增加回执及清空代次表，无需修改部署配置；后端需先于或与前端同版本部署，协议与保留规则见 [任务保存与恢复](../contracts/docs/task-writes-v0.1.md)。
+普通任务与人工待核对写入共用浏览器持久队列的幂等回执和当前账号恢复核对，SQLite 首次启动自动增加回执及清空代次表，无需修改部署配置；后端需先于或与前端同版本部署，协议与保留规则见 [任务保存与恢复](../contracts/docs/task-writes-v0.1.md)。

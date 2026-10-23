@@ -69,7 +69,7 @@ frontend/
 │   ├── task-drawer.js        任务详情及新增、编辑表单
 │   ├── task-evidence.js      原文、证据摘录和安全来源链接
 │   ├── dom-update.js         更新变化节点，保留输入、组合输入和展开内容
-│   ├── team-store.js         任务与回收站状态、账号请求和保存队列
+│   ├── team-store.js         任务、候选及回收站投影、账号请求和共用保存队列
 │   ├── demo.js               仅在内存中的合成任务
 │   ├── environment-badge.js  服务环境和版本描述，不生成额外页面浮层
 │   ├── icons.js              共用 SVG 图标
@@ -104,6 +104,8 @@ frontend/
 │   ├── source-sync.test.js   后台同步、运行恢复、停止和重试
 │   ├── sync-fixtures.js     后台同步契约的合成运行样例
 │   ├── browser/task-save-queue.spec.js 连续操作、保存队列、失败重试、冲突与草稿保护
+│   ├── review-store.test.js  待核对与普通操作混合队列、回执与刷新恢复
+│   ├── browser/review-queue.spec.js  真实 HTTP/SQLite 的候选连续操作、刷新与回执丢失
 │   ├── team-store.test.js    任务保存、账号隔离、冲突与删除恢复
 │   ├── usage-feedback.test.js 访问去重、主动反馈及后台隔离
 │   ├── traffic-view.test.js  流量卡片、兼容旧接口及安全展示
@@ -115,6 +117,8 @@ frontend/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
     ├── screenshots/
+    │   ├── task-review-queue-mobile.png 390px 共用任务与待核对清单的合成截图
+    │   ├── task-review-queue-compact.png 320px 共用任务与待核对清单的合成截图
     │   ├── task-review-list-loading.png 工作区就绪、待核对仍读取时的统一加载提示
     │   ├── task-review-list-ready.png 已保存任务与待核对一起展示后的完整计数
     │   ├── task-journal-conflict-mobile.png 390px 下本地操作保留及冲突重读提示

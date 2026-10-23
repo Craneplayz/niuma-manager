@@ -495,6 +495,9 @@ class Handler(BaseHTTPRequestHandler):
                     except (ValueError,KeyError,TypeError): raise ApiError(400,'可用时间格式不正确')
                 db.execute('BEGIN IMMEDIATE')
                 operation=body.get('operation') if name=='tasks' else None
+                if operation is not None:
+                    task_operations.identity(operation,uid,ApiError)
+                    if operation['intent']['kind']=='review': raise ApiError(400,'候选操作必须通过核对接口提交')
                 if operation is not None and task_operations.acknowledged(db,uid,operation,ApiError):
                     return self.reply(200,dict(task_operations.workspace(db,uid),replayed=True,operationId=operation['id']))
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()

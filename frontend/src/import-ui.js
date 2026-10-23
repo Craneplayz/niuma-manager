@@ -7,6 +7,9 @@ import {
   accountVersion,
   flushStore,
   getTaskVersion,
+  acceptStoredCandidates,
+  readStoredCandidates,
+  resolveStoredCandidate,
 } from "./team-store.js";
 import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -206,12 +209,13 @@ export function createImportUI(host) {
     batchesRevision = 0;
   let taskReviewsLoading = false, taskReviewsSettled = false, taskReviewsError = '', batchesRead = null;
   let credentialsLoading = false, credentialsLoaded = false, credentialsError = null, credentialsRead = null, credentialsRevision = 0;
-  const historyCategories = new Map(), historyProblems = new Map();
+  const historyCategories = new Map(), historyProblems = new Map(), stagingReviews = new Set();
   const current = () => ({ epoch: accountVersion(), revision });
   const valid = (stamp) =>
     stamp.epoch === accountVersion() && stamp.revision === revision;
   function acceptBatches(next) {
     if (!Array.isArray(next)) throw new Error("导入结果暂时无法读取");
+    acceptStoredCandidates(next.flatMap(batch => batch.items || []));
     batches = next;
     batchesRevision++;
     taskReviewsSettled = true;
@@ -274,6 +278,7 @@ export function createImportUI(host) {
   });
   // Background teaching runs own their start/stop controls, not the whole import page.
   const blocked = () => loading || busy;
+  const reviewBlocked = id => blocked() || session.sync === 'error' || Boolean(id && stagingReviews.has(id));
   const credentialsBlocked = () => blocked() || credentialsLoading || stopping || sourceSync.isBusy() || schedule.isBusy();
   const allowed = () => {
     if (demo()) {
@@ -287,9 +292,9 @@ export function createImportUI(host) {
     return true;
   };
   const allItems = () =>
-    batches.flatMap((batch) =>
+    readStoredCandidates(batches.flatMap((batch) =>
       (batch.items || []).map((item) => ({ ...item, batch })),
-    );
+    ));
   const itemById = (id) => allItems().find((item) => item.id === id);
   function errorMarkup(value, action = source === "teaching" ? "teaching_sync" : "text_import", context) {
     return userErrorMarkup(value, action, context);
@@ -321,9 +326,14 @@ export function createImportUI(host) {
     modal = null;
     sourceSync.reset(); schedule.reset();
     materials.reset(); textJobs.reset();
-    historyCategories.clear(); historyProblems.clear();
+    historyCategories.clear(); historyProblems.clear(); stagingReviews.clear();
   }
   globalThis.window?.addEventListener("niuma:account-reset", reset);
+  globalThis.window?.addEventListener("niuma:review-store", () => {
+    if (!session.user || session.changing) return;
+    if (host.onReviewStore) host.onReviewStore();
+    else refresh();
+  });
   function loadTaskReviews() {
     if (batchesRead) return batchesRead;
     if (busy || !session.user || session.changing || demo()) return Promise.resolve();
@@ -385,30 +395,50 @@ export function createImportUI(host) {
     acceptBatches(result.batches);
     return true;
   }
-  async function confirmTask(id, task, complete = false, expectedVersion = task.reviewVersion) {
-    if (blocked() || !allowed()) throw new Error('正在处理，请稍后重试');
-    const stamp = current(), item = itemById(id);
-    if (!item || item.state !== 'pending' || item.version !== expectedVersion) {
-      const error = new Error('候选已变化，请刷新后重新操作'); error.status = 409; throw error;
-    }
-    if (!['create', 'uncertain'].includes(item.candidate.notice_type)) throw new Error('请选择明确的变更操作并核对目标任务');
-    busy = true;
+  function stageCandidate(item, body, stamp) {
+    stagingReviews.add(item.id);
     refresh();
-    try {
-      await flushStore();
+    const saving = resolveStoredCandidate(item, body);
+    const staged = saving.staged.then(store => {
       if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
+      stagingReviews.delete(item.id);
+      refresh();
+      return store;
+    });
+    const result = saving.then(store => {
+      if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
+      return store;
+    });
+    result.staged = staged;
+    result.taskId = saving.taskId;
+    result.finally(() => {
+      if (valid(stamp)) { stagingReviews.delete(item.id); refresh(); }
+    }).catch(() => {});
+    result.catch(() => {});
+    staged.catch(() => {});
+    return result;
+  }
+  function confirmTask(id, task, complete = false, expectedVersion = task.reviewVersion) {
+    try {
+      if (reviewBlocked(id) || !allowed()) throw new Error('正在处理，请稍后重试');
+      const stamp = current(), item = itemById(id);
+      if (!item || item.state !== 'pending' || item.version !== expectedVersion) {
+        const error = new Error('候选已变化，请刷新后重新操作'); error.status = 409; throw error;
+      }
+      if (!['create', 'uncertain'].includes(item.candidate.notice_type)) throw new Error('请选择明确的变更操作并核对目标任务');
       const body = buildCandidateResolution(item, { action: 'create', title: task.title,
         description: task.notes || '', course: task.course || '', date: task.due || '', time: task.dueTime || '' },
         host.getState().tasks, getTaskVersion());
       body.draft.content_type = task.content_type || 'task';
       if (complete) body.complete = true;
-      if (!await resolveCandidate(item, body, stamp)) throw new Error('账号已切换，请重新操作');
-      try { await host.refresh(); }
-      catch { throw new Error('任务已保存，但页面更新失败。请刷新结果。'); }
-      if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
-      return host.getState().tasks.find(saved => saved.recognitionHistory?.some(event => event.storageId === id));
-    } finally {
-      if (valid(stamp)) { busy = false; refresh(); }
+      const saving = stageCandidate(item, body, stamp), savedTask = store => store.tasks.find(saved => saved.id === saving.taskId);
+      const result = saving.then(savedTask);
+      result.staged = saving.staged.then(savedTask);
+      result.taskId = saving.taskId;
+      result.catch(() => {}); result.staged.catch(() => {});
+      return result;
+    } catch (error) {
+      const result = Promise.reject(error); result.staged = result; result.catch(() => {}); return result;
     }
   }
   async function load() {
@@ -443,7 +473,7 @@ export function createImportUI(host) {
         (record) => record.input_id === c.input_id,
       ),
       label = record?.source_label === "用户主动上传的文件" ? "图片与文件" : platforms[record?.platform] || c.sources?.[0]?.label || "通知";
-    return `<article class="candidate-row" data-candidate-id="${esc(item.id)}"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${blocked() ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${blocked() ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${blocked() ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
+    return `<article class="candidate-row" data-candidate-id="${esc(item.id)}"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
   }
   function teachingPanel() {
     const connected = credentials?.configured;
@@ -546,7 +576,7 @@ export function createImportUI(host) {
     );
   }
   function openReview(item) {
-    if (!item || item.state !== "pending") return;
+    if (!item || item.state !== "pending" || reviewBlocked(item.id)) return;
     const due = candidateDue(item.candidate.deadline);
     modal = {
       kind: "review",
@@ -713,35 +743,31 @@ export function createImportUI(host) {
   }
   async function resolveSmall(item, action) {
     if (
-      blocked() ||
-      !allowed() ||
-      !item ||
+      !item || reviewBlocked(item.id) || !allowed() ||
       item.state !== (action === "reopen" ? "ignored" : "pending")
-    )
-      return;
+    ) return false;
     const stamp = current();
-    busy = true;
     error = "";
-    refresh();
+    let staged = false;
     try {
-      if (await resolveCandidate(item, { action, version: item.version }, stamp)) {
-        host.toast(action === "ignore" ? "已忽略" : "已恢复待核对", action === 'ignore' ? async () => {
-          const restored = await resolveSmall(itemById(item.id), 'reopen');
-          if (!restored) throw new Error('无法恢复待核对，请稍后重试');
-        } : undefined);
-        return true;
-      }
+      const saving = stageCandidate(item, { action, version: item.version }, stamp);
+      await saving.staged;
+      if (!valid(stamp)) return false;
+      staged = true;
+      host.toast(action === "ignore" ? "已忽略" : "已恢复待核对", action === 'ignore' ? async () => {
+        if (!valid(stamp)) return;
+        const restored = await resolveSmall(itemById(item.id), 'reopen');
+        if (!restored) throw new Error('无法恢复待核对，请稍后重试');
+      } : undefined);
+      await saving;
+      return true;
     } catch (e) {
       if (valid(stamp)) {
         error = describeImportError(e);
         if (host.isImportVisible?.() === false) host.reportReviewError?.(e);
-      }
-      return false;
-    } finally {
-      if (valid(stamp)) {
-        busy = false;
         refresh();
       }
+      return staged;
     }
   }
   async function retryBatch(batch) {
@@ -1026,66 +1052,46 @@ export function createImportUI(host) {
       return true;
     }
     if (kind === "review") {
-      const item = itemById(form.dataset.candidate);
+      const item = itemById(form.dataset.candidate), reviewing = modal;
+      if (reviewBlocked(item?.id)) return true;
       if (
-        !item ||
-        item.state !== "pending" ||
-        modal?.kind !== "review" ||
-        item.version !== modal.version
+        !item || item.state !== "pending" || reviewing?.kind !== "review" ||
+        item.version !== reviewing.version
       ) {
         formError(form, "这项通知已被处理，请刷新后重新核对", true);
         return true;
       }
-      busy = true;
       formError(form, "");
       lockForm(form, true);
-      refresh();
+      let staged = false;
       try {
-        await flushStore();
-        if (!valid(stamp)) return true;
-        const target = host
-          .getState()
-          .tasks.find((task) => task.id === values.target_id);
-        if (
-          getTaskVersion() !== modal.tasksVersion ||
-          taskFingerprint(target) !== modal.targetFingerprint
-        ) {
+        const target = host.getState().tasks.find(task => task.id === values.target_id);
+        if (taskFingerprint(target) !== reviewing.targetFingerprint) {
           const conflict = new Error("内容刚刚发生变化，请刷新后重新核对");
           conflict.status = 409;
           throw conflict;
         }
-        const body = buildCandidateResolution(
-          item,
-          values,
-          host.getState().tasks,
-          modal.tasksVersion,
-        );
-        if (!await resolveCandidate(item, body, stamp)) return true;
-        modal = null;
-        if (formIsOpen(form)) host.closeDialog();
-        try {
-          await host.refresh();
-          if (valid(stamp)) {
-            host.toast(
-              body.action === "create"
-                ? "已加入任务"
-                : body.action === "cancel"
-                  ? "任务已取消"
-                  : "任务已更新",
-            );
-          }
-        } catch (e) {
-          if (valid(stamp))
-            error = "任务已保存，刷新页面时出现问题，请刷新后查看";
+        const body = buildCandidateResolution(item, values, host.getState().tasks, getTaskVersion());
+        const saving = stageCandidate(item, body, stamp);
+        await saving.staged;
+        if (!valid(stamp)) return true;
+        staged = true;
+        if (modal === reviewing) {
+          modal = null;
+          if (formIsOpen(form)) host.closeDialog();
         }
+        host.toast(body.action === "create" ? "已加入任务" : body.action === "cancel" ? "任务已取消" : "任务已更新");
+        await saving;
       } catch (e) {
-        if (valid(stamp)) formError(form, describeImportError(e), e.status === 409);
-      } finally {
         if (valid(stamp)) {
-          busy = false;
-          lockForm(form, false);
-          refresh();
+          if (!staged && modal === reviewing && formIsOpen(form)) formError(form, describeImportError(e), e.status === 409);
+          else {
+            error = describeImportError(e);
+            if (host.isImportVisible?.() === false) host.reportReviewError?.(e);
+          }
         }
+      } finally {
+        if (valid(stamp)) { lockForm(form, false); refresh(); }
       }
       return true;
     }
@@ -1129,6 +1135,6 @@ export function createImportUI(host) {
   return { render, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
     taskReviewsReady: () => taskReviewsSettled,
     reviewEvidence: id => evidence(itemById(id)),
-    getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: blocked,
+    getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: reviewBlocked,
     setVisible, setSource, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
 }
