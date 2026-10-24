@@ -113,33 +113,71 @@ def select(db, uid, account, entry, *, materials=None, receipts=None):
     selected=selected[:MAX_SOURCES]
     for item in selected:
         rid=item['request']['request_id']
-        if rid not in receipts: receipts[rid]=readiness(db,uid,account,rid)
-        item['readiness']=receipts[rid]
+        if rid not in receipts: receipts[rid]=completed_receipts(db,uid,account,rid)
+        item['observed_receipts']=receipts[rid]
+        item['readiness']=contract.revision(receipts[rid])
     return selected
 
 
 def fingerprint(selected):
-    return contract.revision([(s['request']['records'][0]['record']['input_id'],s['digest']) for s in selected])
+    # Retrieval rank is not a source revision. Reading a file may improve its
+    # score during this very attempt without changing any of the evidence.
+    return contract.revision(sorted((s['request']['records'][0]['record']['input_id'],s['digest']) for s in selected))
 
 
-def readiness(db,uid,account,request_id):
-    """Cache receipts only, never blobs. Completed later reads unlock a retry."""
-    values=[]
-    for ref,version,result in db.execute('''SELECT r.ref_id,f.cache_version,f.result
+def cache_receipt(ref,version,result):
+    if result and json.loads(result).get('read_state')=='complete':
+        return (ref,version,hashlib.sha256(result.encode()).hexdigest())
+    return None
+
+
+def cache_rows(db,uid,account,request_id):
+    return db.execute('''SELECT r.ref_id,f.cache_version,f.result
         FROM teaching_asset_refs r JOIN teaching_asset_files f USING(user_id,account,sha256,mime_type)
-        WHERE r.user_id=? AND r.account=? AND r.request_id=? ORDER BY r.ref_id''',(uid,account,request_id)):
-        if result and json.loads(result).get('read_state')=='complete':
-            values.append((ref,version,hashlib.sha256(result.encode()).hexdigest()))
+        WHERE r.user_id=? AND r.account=? AND r.request_id=? ORDER BY r.ref_id''',(uid,account,request_id))
+
+
+def completed_receipts(db,uid,account,request_id):
+    return [receipt for row in cache_rows(db,uid,account,request_id) if (receipt:=cache_receipt(*row)) is not None]
+
+
+def readiness(db,uid,account,request_id,*,references=None,observed=()):
+    """Completed receipts, optionally restricted to evidence actually consumed.
+
+    A concurrent reader can finish a file after this attempt skipped it. Do not
+    acknowledge that completion on behalf of an attempt that never saw it.
+    Caches already present before the attempt are acknowledged even if omitted
+    by the input budget; otherwise an unrepresentable file would retry forever.
+    """
+    consumed = None if references is None else {r['ref_id']:r for r in references}
+    values=[]
+    for ref,version,result in cache_rows(db,uid,account,request_id):
+        receipt=cache_receipt(ref,version,result)
+        if receipt is None: continue
+        cached=json.loads(result)
+        if consumed is not None and receipt not in observed:
+            used=consumed.get(ref,{})
+            text=cached.get('text') or ''
+            actual=used.get('text') or ''
+            if (used.get('read_state')!='complete' or not text
+                    or not (actual==text or actual.endswith('\n\n【原件补充读取】\n'+text))): continue
+        values.append(receipt)
     return contract.revision(values)
 
 
-def dependency_fingerprint(selected):
-    return contract.revision([(s['request']['records'][0]['record']['input_id'],s['digest'],s.get('readiness')) for s in selected])
+def dependency_fingerprint(selected, own_readiness):
+    return contract.revision(dict(own=own_readiness, sources=sorted(
+        (s['request']['records'][0]['record']['input_id'],s['digest'],s.get('readiness')) for s in selected)))
 
 
-def remember(db, uid, account, entry, selected):
+def remember(db, uid, account, entry, selected, *, own_readiness=None, references=None, files=()):
+    if own_readiness is None:
+        row=db.execute('SELECT request_id FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
+                       (uid,account,entry['record']['input_id'])).fetchone()
+        observed=[receipt for a in files if (receipt:=cache_receipt(a['ref_id'],a['cache_version'],a['result'])) is not None]
+        own_readiness=readiness(db,uid,account,row[0],references=references,observed=observed) if row else contract.revision([])
     db.execute('INSERT OR REPLACE INTO teaching_context_dependencies VALUES(?,?,?,?)',
-               (uid,account,entry['record']['input_id'],dependency_fingerprint(selected)))
+               (uid,account,entry['record']['input_id'],dependency_fingerprint(selected,own_readiness)))
 
 
 def window(text, query, budget):
@@ -245,7 +283,7 @@ def prepare(request, selected, load_files, client, settings, save_cache, guard, 
             files=([a for a in load_files(item) if a['ref_id'] in unread_refs]
                    if unread and locked and time.monotonic()<deadline else [])
             teaching_assets.enrich(current,files,client,settings,save_cache,guard=guard,read_deadline=deadline)
-            if read_token: item['readiness']=read_token(item)
+            if read_token: item['readiness']=read_token(item,r['references'])
             omitted+=max(0,expected-len(r['references']))
             materials.append(current)
             del files
@@ -292,13 +330,16 @@ def refresh_dependents(db, uid, account):
     for raw,previous in rows:
         request=json.loads(raw); entry=request['records'][0]
         chosen=select(db,uid,account,entry,materials=materials,receipts=receipts)
-        if dependency_fingerprint(chosen)==previous: continue
+        rid=request['request_id']
+        if rid not in receipts: receipts[rid]=completed_receipts(db,uid,account,rid)
+        own_readiness=contract.revision(receipts[rid])
+        if dependency_fingerprint(chosen,own_readiness)==previous: continue
         old=request['request_id']; request['request_id']='teaching:'+secrets.token_hex(16)
         db.execute('UPDATE teaching_sources SET request_id=?,request=? WHERE user_id=? AND account=? AND input_id=?',
                    (request['request_id'],json.dumps(request),uid,account,entry['record']['input_id']))
         teaching_assets.rebind(db,uid,account,old,request['request_id'])
         db.execute('INSERT OR IGNORE INTO teaching_submission_requests VALUES(?,?,?,?)',
                    (uid,account,request['request_id'],entry['record']['input_id']))
-        remember(db,uid,account,entry,chosen)
+        remember(db,uid,account,entry,chosen,own_readiness=own_readiness)
         changed.append((old,request))
     return changed

@@ -137,6 +137,51 @@ class CourseContextTests(unittest.TestCase):
         self.assertFalse(context.current(self.db,'u','a',chosen))
         self.assertEqual(len(context.refresh_dependents(self.db,'u','a')),1)
 
+    def test_dependency_identity_ignores_rank_but_detects_content_and_membership(self):
+        selected=[dict(request=request(name,'课程大纲。'),digest=name,readiness='ready') for name in ('a','z')]
+        own='own-receipt'
+        self.assertEqual(context.fingerprint(selected),context.fingerprint(selected[::-1]))
+        self.assertEqual(context.dependency_fingerprint(selected,own),context.dependency_fingerprint(selected[::-1],own))
+        for changed in (selected[:1],selected+[dict(request=request('new','课程大纲。'),digest='new',readiness='ready')],
+                        [dict(selected[0],digest='changed'),selected[1]]):
+            self.assertNotEqual(context.fingerprint(selected),context.fingerprint(changed))
+        self.assertNotEqual(context.dependency_fingerprint(selected,own),context.dependency_fingerprint(selected,'new-receipt'))
+
+    def test_own_cache_completion_invalidates_once_with_no_related_sources(self):
+        primary=request('only','附件中的练习。');self.save(primary)
+        data=b'private-file';sha=hashlib.sha256(data).hexdigest()
+        teaching_assets.store(self.db,'u','a',primary['request_id'],[dict(ref_id='file:1',sha256=sha,mime_type='application/pdf',data=data)])
+        context.remember(self.db,'u','a',primary['records'][0],[])
+        self.assertEqual(context.refresh_dependents(self.db,'u','a'),[])
+        self.db.execute('UPDATE teaching_asset_files SET cache_version=?,result=?',('v1',json.dumps(dict(read_state='partial',text='未读完'))))
+        self.assertEqual(context.refresh_dependents(self.db,'u','a'),[])
+        self.db.execute('UPDATE teaching_asset_files SET result=?',(json.dumps(dict(read_state='complete',text='完成练习。')),))
+        self.assertEqual(context.refresh_dependents(self.db,'other','a'),[])
+        self.assertEqual(context.refresh_dependents(self.db,'u','other'),[])
+        changed=context.refresh_dependents(self.db,'u','a')
+        self.assertEqual([old for old,_ in changed],[primary['request_id']])
+        self.assertEqual(context.refresh_dependents(self.db,'u','a'),[])
+
+    def test_receipt_only_acknowledges_complete_cache_text_seen_by_this_attempt(self):
+        primary=request('only','附件中的练习。');self.save(primary)
+        data=b'private-file';sha=hashlib.sha256(data).hexdigest()
+        teaching_assets.store(self.db,'u','a',primary['request_id'],[dict(ref_id='file:1',sha256=sha,mime_type='application/pdf',data=data)])
+        text='完成练习。'
+        self.db.execute('UPDATE teaching_asset_files SET cache_version=?,result=?',('v1',json.dumps(dict(read_state='complete',text=text))))
+        full=context.readiness(self.db,'u','a',primary['request_id'])
+        empty=context.readiness(self.db,'u','a',primary['request_id'],references=[])
+        observed=context.completed_receipts(self.db,'u','a',primary['request_id'])
+        self.assertEqual(context.readiness(self.db,'u','a',primary['request_id'],references=[],observed=observed),full)
+        for state,value in (('failed',None),('partial',text),('complete','旧版本内容')):
+            refs=[dict(ref_id='file:1',read_state=state,text=value)]
+            self.assertEqual(context.readiness(self.db,'u','a',primary['request_id'],references=refs),empty)
+        for value in (text,'独立采集内容\n\n【原件补充读取】\n'+text):
+            self.assertEqual(context.readiness(self.db,'u','a',primary['request_id'],references=[dict(ref_id='file:1',read_state='complete',text=value)]),full)
+        # An older in-flight attempt must not consume another reader's success.
+        context.remember(self.db,'u','a',primary['records'][0],[],own_readiness=empty)
+        self.assertEqual(len(context.refresh_dependents(self.db,'u','a')),1)
+        self.assertEqual(context.refresh_dependents(self.db,'u','a'),[])
+
     def test_completed_attachment_cache_survives_exhausted_context_budget(self):
         target=request('assignment','第四章作业，截止时间见教学大纲。')
         material=request('syllabus','教学大纲见附件。')

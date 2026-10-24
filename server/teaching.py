@@ -289,10 +289,11 @@ def attachment_context(db, uid, request_id):
                                    (uid,acct,item['request']['records'][0]['record']['input_id'])).fetchone()
             return teaching_assets.load(current_db,uid,acct,row['request_id']) if row and row['digest']==item['digest'] else []
     def prepare_context(request,client,settings,guard):
-        def read_token(item):
-            if not path: return course_context.readiness(db,uid,acct,item['request']['request_id'])
+        def read_token(item,references):
+            options=dict(references=references,observed=item.get('observed_receipts',()))
+            if not path: return course_context.readiness(db,uid,acct,item['request']['request_id'],**options)
             with closing(sqlite3.connect(path,timeout=30)) as current_db:
-                return course_context.readiness(current_db,uid,acct,item['request']['request_id'])
+                return course_context.readiness(current_db,uid,acct,item['request']['request_id'],**options)
         def load_cached(item,version):
             if not path: return teaching_assets.load_cached(db,uid,acct,item['request']['request_id'],version)
             with closing(sqlite3.connect(path,timeout=30)) as current_db:
@@ -378,7 +379,8 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
                 db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
             cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
             teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
-            course_context.remember(db,uid,acct,captured['records'][0],context_selection)
+            course_context.remember(db,uid,acct,captured['records'][0],context_selection,
+                references=request['records'][0]['record']['references'],files=attachments.get('files',[]))
             if result['status'] in ('success','no_tasks'):
                 teaching_identity.supersede_unhandled(db,uid,request['request_id'],captured['records'][0]['record']['snapshot_id'])
             for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):

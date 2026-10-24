@@ -316,9 +316,8 @@ def process(path, uid, run_id, ApiError):
                                 (json.dumps(captured),request['request_id'],uid,item['account'],record['input_id']))
                             teaching.teaching_assets.remember_inputs(db,uid,item['account'],
                                 request['request_id'],attachments.get('files',[]))
-                            selected=getattr(attachments.get('prepare_context'),'selected',None)
-                            if selected is not None:
-                                teaching.course_context.remember(db,uid,item['account'],captured['records'][0],selected)
+                            teaching.course_context.remember(db,uid,item['account'],captured['records'][0],selected_context,
+                                references=request['records'][0]['record']['references'],files=attachments.get('files',[]))
                             # Superseded failures must not keep offering retry in the active inbox.
                             # Keep their request/result in storage; never hide handled decisions.
                             for rid in {item['request']['request_id'],*(c['request_id'] for c in replaceable)}:
