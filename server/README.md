@@ -1,5 +1,7 @@
 ```text
 server/
+├── task_bulk.py              普通任务与待核对新增候选的原子批量保存、持久撤销及回执。
+├── test_task_bulk.py         真实 HTTP/SQLite 的混合批量、回滚、重放、撤销与账号回归。
 ├── task_operations.py        当前账号任务写入回执、幂等恢复与测试清空代次。
 ├── test_review_operations.py  候选稳定任务身份、混合队列、回执及目标冲突的真实 HTTP/SQLite 回归。
 ├── test_task_operations.py   真实 HTTP/SQLite 的回执丢失、原子性、账号及契约回归。
@@ -249,6 +251,8 @@ PDF 证据只采用通过可见性校验的本地文字或视觉转录；超过�
 Windows 不支持 POSIX 0600 权限；请将 `credential.key` 所在目录设为仅本人可访问。
 
 ## 待核对任务操作
+
+任务清单的批量完成、重新打开、改日期、回收和恢复使用 `POST /api/tasks/bulk`，可混合普通任务、通知和待核对新增候选，整批一个事务且任务版本只增加一次；候选完成或改日期转普通任务，删除按忽略处理，更新/延期/取消建议仍逐项核对。整批撤销保留后续无关编辑，重试复用稳定回执，规则及验证入口见 [任务批量操作](../contracts/docs/task-bulk-v0.1.md)。启动自动创建仅保存必要逆向字段的 `task_bulk_undo`，账号清空同步移除，部署前备份数据库并先更新后端。
 
 待核对任务支持从普通任务清单直接编辑或完成，复用候选确认接口；`complete: true` 将新增、完成和候选确认放在同一事务中，失败整体回滚，约定见 [待核对任务用户操作](../contracts/docs/review-task-actions.md)。
 

@@ -25,6 +25,7 @@ import wechat_media
 import manual_materials
 import task_decomposition
 import task_operations
+import task_bulk
 import reprocessing
 import runtime_environment
 import usage
@@ -81,6 +82,7 @@ def initialize_accounts(db):
     ''')
     email_verification.initialize(db)
     task_operations.initialize(db)
+    task_bulk.initialize(db)
 
 def initialize(recover=True):
     runtime_environment.validate_storage(DB)
@@ -422,6 +424,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200,{})
             if path=='/api/tasks/reconcile' and self.command=='POST':
                 return task_operations.reconcile(self,db,uid,body,ApiError)
+            if path=='/api/tasks/bulk' and self.command=='POST':
+                result=task_bulk.apply(db,uid,body,ApiError)
+                return self.reply(200,result)
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
                 snapshot={r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows}
@@ -498,6 +503,7 @@ class Handler(BaseHTTPRequestHandler):
                 if operation is not None:
                     task_operations.identity(operation,uid,ApiError)
                     if operation['intent']['kind']=='review': raise ApiError(400,'候选操作必须通过核对接口提交')
+                    if operation['intent']['kind']=='bulk': raise ApiError(400,'批量任务操作须使用专用入口')
                 if operation is not None and task_operations.acknowledged(db,uid,operation,ApiError):
                     return self.reply(200,dict(task_operations.workspace(db,uid),replayed=True,operationId=operation['id']))
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()

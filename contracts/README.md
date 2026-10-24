@@ -6,6 +6,11 @@
 
 ```text
 contracts/
+├── task_bulk.py                   # 普通任务与待核对新增候选的批量请求、回复及语义校验
+├── docs/task-bulk-v0.1.md          # 批量完成、改期、回收、恢复与整批撤销约定
+├── schemas/task-bulk-v0.1.schema.json # 可独立校验的批量操作 Schema
+├── examples/task-bulk-v01.json     # 混合任务、无日期、清空日期与撤销共享样例
+├── tests/test_task_bulk.py         # 批量契约、恢复 Schema 对齐和非法选择回归
 ├── docs/task-writes-v0.1.md         # 浏览器恢复、回执、账号隔离及缓存清理约定
 ├── schemas/task-writes-v0.1.schema.json # 单条操作身份与恢复请求 Schema
 ├── examples/task-writes-v01.json    # 生产方与消费方共用的保存和回执样例

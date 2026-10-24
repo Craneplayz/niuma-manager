@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "intent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/action"
+        },
+        {
+          "$ref": "#/$defs/undo"
+        }
+      ]
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "intent": {
+          "$ref": "#/$defs/intent"
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "intent"
+      ],
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "operation": {
+          "$ref": "#/$defs/operation"
+        }
+      },
+      "required": [
+        "version",
+        "operation"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "value": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "operationId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        },
+        "undo": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/undo"
+            }
+          ]
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "batches": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "version",
+        "value",
+        "operationId",
+        "undo",
+        "batches"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 100000
+        },
+        "course": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "content_type": {
+          "enum": [
+            "task",
+            "notice"
+          ]
+        },
+        "due": {
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "type": "string",
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          ]
+        },
+        "dueTime": {
+          "type": "string",
+          "pattern": "^(?:|(?:[01]\\d|2[0-3]):[0-5]\\d)$"
+        },
+        "status": {
+          "enum": [
+            "todo",
+            "doing",
+            "done"
+          ]
+        },
+        "completedAt": {
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "type": "string",
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "title",
+        "notes",
+        "course",
+        "content_type",
+        "due",
+        "dueTime",
+        "status",
+        "completedAt"
+      ],
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "expected": {
+          "$ref": "#/$defs/snapshot"
+        }
+      },
+      "required": [
+        "id",
+        "expected"
+      ],
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        },
+        "expected": {
+          "$ref": "#/$defs/snapshot"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "taskId",
+        "expected"
+      ],
+      "additionalProperties": false
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "bulk"
+        },
+        "workspaceGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "enum": [
+            "complete",
+            "reopen",
+            "deadline",
+            "trash",
+            "restore"
+          ]
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/task"
+          },
+          "maxItems": 500
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          },
+          "maxItems": 500
+        },
+        "date": {
+          "anyOf": [
+            {
+              "const": ""
+            },
+            {
+              "type": "string",
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          ]
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "deletedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "kind",
+        "action",
+        "workspaceGeneration",
+        "tasks",
+        "candidates"
+      ],
+      "additionalProperties": false
+    },
+    "undo": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "bulk"
+        },
+        "workspaceGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "const": "undo"
+        },
+        "undoOf": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        }
+      },
+      "required": [
+        "kind",
+        "workspaceGeneration",
+        "action",
+        "undoOf"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/intent"
+    },
+    {
+      "$ref": "#/$defs/operation"
+    },
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    }
+  ]
+}

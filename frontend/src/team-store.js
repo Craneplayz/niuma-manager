@@ -1,6 +1,7 @@
 // Maps the task UI to the account workspace API.
 import { todayKey as dayKey, shiftDay, assertCurrentTaskEdit } from "./task-model.js";
 import { appendOperation, readOperations, removeOperations, clearJournal } from './task-journal.js';
+import { newId } from './id.js';
 export const session = {
   user: null,
   sync: "saved",
@@ -171,7 +172,9 @@ export function acceptStoredCandidates(items, { authoritative = false } = {}) {
     const previous = canonicalCandidates.get(item.id);
     if (!authoritative && (previous?.state === 'missing' || pendingChanges.some(change =>
       change.epoch === accountEpoch && !change.acknowledged && change.operation.intent.kind === 'review' &&
-      change.operation.intent.candidateId === item.id))) continue;
+      change.operation.intent.candidateId === item.id) || pendingChanges.some(change =>
+      change.epoch === accountEpoch && !change.acknowledged && change.operation.intent.kind === 'bulk' &&
+      change.operation.intent.candidates?.some(candidate => candidate.id === item.id)))) continue;
     if (!previous || item.state === 'missing' || item.version >= previous.version)
       canonicalCandidates.set(item.id, { id: item.id, state: item.state, version: item.version,
         ...(item.taskId ? { taskId: item.taskId } : {}) });
@@ -432,7 +435,7 @@ export function saveStore(data) {
     report("error", "请先登录账号，或等待账号切换完成");
     return false;
   }
-  if (pendingChanges.some(change => change.epoch === accountEpoch && change.operation.intent.kind === 'review') ||
+  if (pendingChanges.some(change => change.epoch === accountEpoch && ['review', 'bulk'].includes(change.operation.intent.kind)) ||
       [...(data.tasks || []), ...(data.trash || [])].some(isReviewProjection)) {
     report('error', new Error('待核对内容正在单独保存，不能整表覆盖，请使用单条任务操作'));
     return false;
@@ -481,10 +484,11 @@ function enqueueChange(change) {
     }
     report("saving");
     try {
-      const review = operation.intent.kind === 'review';
+      const review = operation.intent.kind === 'review', bulk = operation.intent.kind === 'bulk';
       const result = review
         ? await api('/api/recognition/candidates/' + encodeURIComponent(operation.intent.candidateId) + '/resolve',
           reviewBody(operation), 'POST')
+        : bulk ? await api('/api/tasks/bulk', { version: taskVersion, operation: operationIdentity(operation) })
         : await api('/api/data/tasks', { value, version: taskVersion, operation: operationIdentity(operation) }, 'PUT');
       if (epoch !== accountEpoch) throw new Error("账号已切换");
       if (result.operationId !== operation.id) throw new Error('服务器未确认操作编号，请更新服务后重试；本地操作仍保留');
@@ -493,6 +497,11 @@ function enqueueChange(change) {
           throw new Error('服务器未确认待核对操作结果；本地操作仍保留');
         canonicalTasks = clone(result.tasks.value); taskVersion = result.tasks.version;
         taskGeneration = result.generation || 0;
+        acceptStoredCandidates(result.candidates, { authoritative: true });
+      } else if (bulk) {
+        if (!Array.isArray(result.value) || !Number.isInteger(result.version) || !Array.isArray(result.candidates))
+          throw new Error('服务器未确认批量保存结果；本地操作仍保留');
+        taskVersion = result.version; canonicalTasks = clone(result.value);
         acceptStoredCandidates(result.candidates, { authoritative: true });
       } else {
         taskVersion = result.version;
@@ -507,6 +516,12 @@ function enqueueChange(change) {
       session.conflict = false;
       report(latest || pendingChanges.length ? "saving" : "saved");
       if (review) { reviewChanged(); return { ...view(), taskId: operation.intent.newTaskId || operation.intent.targetId }; }
+      if (bulk) {
+        const detail = { state: view(), operationId: operation.id, undo: result.undo, batches: result.batches,
+          affectedIds: bulkAffectedIds(operation) };
+        window.dispatchEvent(new CustomEvent('niuma:bulk-saved', { detail }));
+        return { ...detail.state, undo: result.undo };
+      }
     } catch (error) {
       if (epoch === accountEpoch) {
         session.conflict = error.status === 409;
@@ -545,8 +560,11 @@ async function reconcileChanges(epoch) {
   if (epoch !== accountEpoch) throw new Error('账号已切换');
   if (!Array.isArray(result.applied) || !Array.isArray(result.tasks?.value) || !Number.isInteger(result.tasks.version))
     throw new Error('服务器未提供有效的保存回执，请更新服务后重试；本地操作仍保留');
-  if (pendingChanges.some(change => change.operation.intent.kind === 'review') && !Array.isArray(result.candidates))
+  if (pendingChanges.some(change => ['review', 'bulk'].includes(change.operation.intent.kind)) && !Array.isArray(result.candidates))
     throw new Error('服务器未提供待核对保存回执，请更新服务后重试；本地操作仍保留');
+  const appliedBulk = pendingChanges.filter(change => change.operation.intent.kind === 'bulk' && result.applied.includes(change.operation.id));
+  if (appliedBulk.some(change => !result.bulkResults?.some(item => item.operationId === change.operation.id && Object.hasOwn(item, 'undo'))))
+    throw new Error('服务器未提供批量保存恢复信息；本地操作仍保留');
   if (result.candidates) acceptStoredCandidates(result.candidates, { authoritative: true });
   await removeOperations(session.user.id, result.applied);
   if (epoch !== accountEpoch) throw new Error('账号已切换');
@@ -555,8 +573,19 @@ async function reconcileChanges(epoch) {
   taskVersion = result.tasks.version;
   taskGeneration = result.generation || 0;
   reviewChanged();
+  for (const { operation } of appliedBulk) {
+    const recovered = result.bulkResults.find(item => item.operationId === operation.id);
+    window.dispatchEvent(new CustomEvent('niuma:bulk-saved', { detail: {
+      state: view(), operationId: operation.id, undo: recovered.undo, affectedIds: bulkAffectedIds(operation), recovered: true,
+    } }));
+  }
 }
-function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = false } = {}) {
+function bulkAffectedIds(operation) {
+  return [...new Set([...(operation.affectedIds || []), ...(operation.intent.tasks || []).map(task => task.id),
+    ...(operation.intent.candidates || []).flatMap(candidate => operation.intent.action === 'trash'
+      ? ['review:' + candidate.id] : ['review:' + candidate.id, candidate.taskId])])];
+}
+function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = false, affectedIds = [] } = {}) {
   if (!session.user || session.changing) {
     const rejected = Promise.reject(new Error("请先登录账号，或等待账号切换完成"));
     rejected.staged = rejected; rejected.catch(() => {});
@@ -564,7 +593,8 @@ function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = fals
   }
   editRevision++;
   const operation = { format: 1, id: [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2, '0')).join(''), owner: session.user.id,
-    order: order = Math.max(Date.now(), order + 1), intent: { ...clone(intent), workspaceGeneration: taskGeneration } };
+    order: order = Math.max(Date.now(), order + 1), intent: { ...clone(intent), workspaceGeneration: taskGeneration },
+    ...(intent.kind === 'bulk' ? { affectedIds: [...affectedIds] } : {}) };
   const change = { operation, retryOnFailure, reloadOnStale, epoch: accountEpoch };
   pendingChanges.push(change);
   change.staged = staging.then(async () => {
@@ -585,6 +615,8 @@ export function resolveStoredCandidate(item, body) {
   try {
     if (!item || typeof item.id !== 'string' || !Number.isInteger(item.version))
       throw new Error('待核对内容不存在，请重新读取');
+    if (pendingBulkTaskIds().has('review:' + item.id) || body.target_id && pendingBulkTaskIds().has(body.target_id))
+      throw new Error('此候选或目标任务正在批量保存，请稍后操作；当前内容保留');
     const { action } = body;
     if (!['create', 'update', 'postpone', 'cancel', 'ignore', 'reopen'].includes(action))
       throw new Error('请选择明确的核对操作');
@@ -628,6 +660,9 @@ export function setStoredTaskStatus(id, next, expected) {
 }
 function transformIntent(intent) {
   const { kind, id, next, expected, draft, createdAt } = intent;
+  // Mixed candidate writes are applied by the server transaction. Keep the old
+  // rows until acknowledgment; replay still goes through the durable queue.
+  if (kind === 'bulk') return tasks => tasks;
   if (kind === 'save') return tasks => {
     const index = tasks.findIndex(item => item.id === draft.id);
     const current = tasks[index];
@@ -715,6 +750,42 @@ export function trashStoredTasks(ids) {
 }
 export function restoreStoredTasks(ids) {
   return changeStoredTasks({ kind: 'restore', ids: [...ids] });
+}
+export function pendingBulkTaskIds() {
+  return new Set(pendingChanges.filter(change => change.operation.intent.kind === 'bulk').flatMap(({ operation }) => [
+    ...(operation.affectedIds || []),
+    ...(operation.intent.tasks || []).map(task => task.id),
+    ...(operation.intent.candidates || []).map(candidate => 'review:' + candidate.id),
+  ]));
+}
+export async function bulkStoredTasks(action, selectedTasks = [], options = {}) {
+  if (failed) throw new Error('还有未保存的操作，请先重试保存或重新读取；原批量操作仍保留');
+  let intent;
+  if (action === 'undo') {
+    if (options.undo?.kind !== 'bulk' || options.undo.action !== 'undo') throw new Error('撤销信息已失效');
+    intent = clone(options.undo);
+  } else {
+    if (!['complete', 'reopen', 'deadline', 'trash', 'restore'].includes(action) || !selectedTasks.length)
+      throw new Error('请先选择要处理的任务');
+    if (selectedTasks.length > 500) throw new Error('一次最多处理500项，请缩小选择范围');
+    const ids = new Set();
+    const tasks = [], candidates = [];
+    for (const task of selectedTasks) {
+      if (!task.id || ids.has(task.id) || task.reviewChange) throw new Error('所选内容已变化，请重新选择');
+      ids.add(task.id);
+      const expected = Object.fromEntries(['title', 'notes', 'course', 'content_type', 'due', 'dueTime', 'status', 'completedAt']
+        .map(key => [key, task[key] ?? (key === 'content_type' ? 'task' : '')]));
+      if (task.reviewCandidateId) {
+        if (!['complete', 'deadline', 'trash'].includes(action)) throw new Error('待核对内容不支持此操作');
+        candidates.push({ id: task.reviewCandidateId, version: task.reviewVersion, taskId: newId(), expected });
+      } else tasks.push({ id: task.id, expected });
+    }
+    const date = options.date || '';
+    if (action === 'deadline' && date && !shiftDay(date, 0)) throw new Error('日期格式不正确');
+    intent = { kind: 'bulk', action, tasks, candidates, date, completedAt: dayKey(), deletedAt: new Date().toISOString() };
+  }
+  if (new TextEncoder().encode(JSON.stringify(intent)).length > 99000) throw new Error('所选内容过多，请缩小选择范围后重试');
+  return changeStoredTasks(intent, { reloadOnStale: true, affectedIds: selectedTasks.map(task => task.id) });
 }
 async function drainWrites() {
   let pending;

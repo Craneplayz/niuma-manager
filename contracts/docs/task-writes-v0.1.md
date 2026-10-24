@@ -8,7 +8,9 @@
 
 成功返回 `{version, operationId}`；同账号同编号同意图的重复请求先查回执，不再次写任务、增加版本或触发副作用，并返回 `{version, value, operationId, replayed:true}`，其中任务和版本是当前值。同编号不同意图、账号不符、旧版本和已清空的账号代次返回 409；任务写入和回执在同一个事务提交。
 
-`POST /api/tasks/reconcile` 接收 `{owner, operations:[{id,owner,intent}]}`，最多 500 条；返回 `{applied:[id], tasks:{value,version}, candidates:[{id,state,version,taskId?}], generation}`。回执、任务及涉及候选的轻量状态读取来自同一个 SQLite 快照；仅当前会话账号可查询，响应禁止缓存。客户端只移除已确认的本地编号，再检查各操作原本编辑的字段是否仍然匹配；不匹配时保留本地操作并提示重新读取。
+`POST /api/tasks/reconcile` 接收 `{owner, operations:[{id,owner,intent}]}`，最多 500 条；返回 `{applied:[id], tasks:{value,version}, candidates:[{id,state,version,taskId?}], generation, bulkResults?:[{operationId,undo}]}`。回执、任务及涉及候选的轻量状态读取来自同一个 SQLite 快照；仅当前会话账号可查询，响应禁止缓存。客户端只移除已确认的本地编号，再检查各操作原本编辑的字段是否仍然匹配；不匹配时保留本地操作并提示重新读取。bulkResults 只列本次已确认的 bulk，撤销引用来自当前账号持久逆向记录及当前代次；撤销操作本身、缺少逆向记录或账号已清空时 undo 为 null，不合成旧撤销引用。
+
+批量任务与待核对新增候选使用 `kind:"bulk"`，通过专用 `POST /api/tasks/bulk` 一次提交，普通任务 PUT 拒绝 bulk；选择、原子保存、候选状态恢复和整批撤销见 [任务批量操作](task-bulk-v0.1.md)。其回执仍只保存摘要，独立逆向表仅保存必要状态、日期和身份，不保存任务正文。
 
 本地仅保存必要操作字段（修改的标题、说明、日期、状态或任务编号及比较前值），不保存密码、Cookie、附件或整个任务列表；操作使用 AES-GCM 加密，账号各有一个不可导出的 WebCrypto 密钥，密钥与密文由同源 IndexedDB 保存。需要 HTTPS 或 localhost；存储禁用、损坏、容量不足或不支持加密时拒绝暂存，不提前更改任务。加密不能防止已经能运行同源脚本或控制浏览器的攻击者；共享设备应使用独立浏览器资料并退出账号。
 
