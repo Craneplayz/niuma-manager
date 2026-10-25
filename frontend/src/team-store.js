@@ -22,6 +22,13 @@ let accountEpoch = 0, editRevision = 0, retrying = null;
 let staging = Promise.resolve(), journalLoaded = null, order = 0, taskGeneration = 0;
 const requests = new Set();
 export const accountVersion = () => accountEpoch;
+// Public HTTP origins cannot use WebCrypto; keep their writes in memory until receipt.
+// Secure origins must still fail closed when encrypted storage is unavailable.
+export const taskWritesAreOnlineOnly = () => globalThis.isSecureContext === false;
+async function forgetPersistedChanges(changes) {
+  const durable = changes.filter(change => change.durable);
+  if (durable.length) await removeOperations(durable[0].operation.owner, durable.map(change => change.operation.id));
+}
 function resetAccount() {
   accountEpoch++;
   editRevision++;
@@ -303,7 +310,7 @@ async function loadSession(discardPending = false) {
         taskGeneration = next.taskWriteGeneration || 0;
       }
       if (discardPending) {
-        await removeOperations(session.user.id, pendingChanges.map(change => change.operation.id));
+        await forgetPersistedChanges(pendingChanges);
         if (epoch !== accountEpoch) throw new Error('账号已切换');
         latest = null;
         failed = false;
@@ -311,9 +318,11 @@ async function loadSession(discardPending = false) {
         session.conflict = false;
       }
       if (journalLoaded !== session.user.id) {
-        const operations = await readOperations(session.user.id);
+        const operations = taskWritesAreOnlineOnly() ? null : await readOperations(session.user.id);
         if (epoch !== accountEpoch) throw new Error('账号已切换');
-        pendingChanges = operations.map(operation => ({ operation, epoch, retryOnFailure: true, reloadOnStale: true, durable: true }));
+        if (operations) pendingChanges = operations.map(operation => ({ operation, epoch, retryOnFailure: true, reloadOnStale: true, durable: true }));
+        // Online-only operations have no journal to reload during reconnect.
+        else pendingChanges = pendingChanges.filter(change => change.epoch === epoch && change.operation.owner === session.user.id);
         journalLoaded = session.user.id;
         if (pendingChanges.length) {
           try { await reconcileChanges(epoch); }
@@ -453,7 +462,7 @@ function removeChange(change) {
 function enqueueChange(change) {
   const { epoch, retryOnFailure, reloadOnStale, operation } = change;
   const update = queue.then(async () => {
-    await change.staged;
+    await (change.ready || change.staged);
     if (epoch !== accountEpoch) throw new Error("账号已切换");
     if (!pendingChanges.includes(change)) return;
     if (failed) {
@@ -473,7 +482,7 @@ function enqueueChange(change) {
         session.conflict = true;
         report("error", error);
       } else {
-        await removeOperations(operation.owner, [operation.id]);
+        await forgetPersistedChanges([change]);
         removeChange(change);
         report(latest || pendingChanges.length ? "saving" : "saved");
       }
@@ -500,19 +509,20 @@ function enqueueChange(change) {
       }
       // Receipted changes are already in canonicalTasks while journal removal commits.
       change.acknowledged = true;
-      await removeOperations(operation.owner, [operation.id]);
+      await forgetPersistedChanges([change]);
       if (epoch !== accountEpoch) throw new Error('账号已切换');
       removeChange(change);
       if (result.replayed && pendingChanges.length) await reconcileChanges(epoch);
       session.conflict = false;
       report(latest || pendingChanges.length ? "saving" : "saved");
-      if (review) { reviewChanged(); return { ...view(), taskId: operation.intent.newTaskId || operation.intent.targetId }; }
+      if (review || taskWritesAreOnlineOnly()) reviewChanged();
+      if (review) return { ...view(), taskId: operation.intent.newTaskId || operation.intent.targetId };
     } catch (error) {
       if (epoch === accountEpoch) {
         session.conflict = error.status === 409;
         const rejected = error.status >= 400 && error.status < 500;
         if (!retryOnFailure && rejected) {
-          await removeOperations(operation.owner, [operation.id]);
+          await forgetPersistedChanges([change]);
           removeChange(change);
         }
         // Preserve the failed intent and every following edit for explicit retry.
@@ -548,7 +558,7 @@ async function reconcileChanges(epoch) {
   if (pendingChanges.some(change => change.operation.intent.kind === 'review') && !Array.isArray(result.candidates))
     throw new Error('服务器未提供待核对保存回执，请更新服务后重试；本地操作仍保留');
   if (result.candidates) acceptStoredCandidates(result.candidates, { authoritative: true });
-  await removeOperations(session.user.id, result.applied);
+  await forgetPersistedChanges(pendingChanges.filter(change => result.applied.includes(change.operation.id)));
   if (epoch !== accountEpoch) throw new Error('账号已切换');
   pendingChanges = pendingChanges.filter(change => !result.applied.includes(change.operation.id));
   canonicalTasks = clone(result.tasks.value);
@@ -567,7 +577,15 @@ function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = fals
     order: order = Math.max(Date.now(), order + 1), intent: { ...clone(intent), workspaceGeneration: taskGeneration } };
   const change = { operation, retryOnFailure, reloadOnStale, epoch: accountEpoch };
   pendingChanges.push(change);
-  change.staged = staging.then(async () => {
+  if (taskWritesAreOnlineOnly()) {
+    change.ready = Promise.resolve();
+    const update = enqueueChange(change);
+    // No optimistic projection or plaintext persistence on an insecure origin.
+    update.staged = update.then(() => readProjectedStore());
+    update.catch(() => {}); update.staged.catch(() => {});
+    return update;
+  }
+  change.staged = change.ready = staging.then(async () => {
     if (change.epoch !== accountEpoch) throw new Error('账号已切换');
     await appendOperation(operation);
     if (change.epoch !== accountEpoch) throw new Error('账号已切换');
@@ -585,6 +603,9 @@ export function resolveStoredCandidate(item, body) {
   try {
     if (!item || typeof item.id !== 'string' || !Number.isInteger(item.version))
       throw new Error('待核对内容不存在，请重新读取');
+    if (taskWritesAreOnlineOnly() && pendingChanges.some(change => change.epoch === accountEpoch &&
+        !change.acknowledged && change.operation.intent.kind === 'review' && change.operation.intent.candidateId === item.id))
+      throw new Error('正在保存这项待核对，请等待保存结果或重试原操作');
     const { action } = body;
     if (!['create', 'update', 'postpone', 'cancel', 'ignore', 'reopen'].includes(action))
       throw new Error('请选择明确的核对操作');
@@ -744,13 +765,15 @@ async function retryPendingChanges() {
   await Promise.all([...pendingChanges].map(change => enqueueChange(change)));
   if (latest) await enqueue(latest);
   await flushStore();
+  if (epoch !== accountEpoch) throw new Error('账号已切换');
+  report(latest || pendingChanges.length ? 'saving' : 'saved');
 }
 export async function authenticate(mode, credentials) {
   if (session.changing) throw new Error("正在切换账号");
   session.changing = true;
   try {
     await flushStore();
-    if (session.user) await clearJournal(session.user.id);
+    if (session.user && !taskWritesAreOnlineOnly()) await clearJournal(session.user.id);
     resetAccount();
     await api(
       "/api/auth/" + mode,
@@ -775,7 +798,7 @@ export async function logout() {
   try {
     await flushStore();
     const owner = session.user?.id;
-    if (owner) await clearJournal(owner);
+    if (owner && !taskWritesAreOnlineOnly()) await clearJournal(owner);
     resetAccount();
     await api("/api/auth/logout", {});
     report("saved");
