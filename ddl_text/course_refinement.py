@@ -37,17 +37,7 @@ def source_first(adapter, record, settings, attempt):
         return [primary]
     drafts = [draft_from_decision(d) for d in primary['decisions']]
     slots = {'current:' + str(i): i for i, d in enumerate(drafts) if d['recommendation'] != 'filtered'}
-    def compile_drafts(values):
-        return [compile_teaching_response(json.dumps(dict(tasks=values), ensure_ascii=False), record,
-                                          source_verified=adapter.source_verified)]
-    if not slots:
-        return compile_drafts(drafts)
-    schema = refinement_schema(teaching_draft_schema(record, indexed=True), list(slots))
     catalog = evidence_catalog(record)
-    metadata = deepcopy(record)
-    metadata.pop('text'); metadata.pop('source_metadata_text')
-    for ref in metadata['references']: ref.pop('text')
-    frozen = [dict(slot=slot, **drafts[i]) for slot, i in slots.items()]
     # Use the full catalog's IDs in both supplied actions and returned updates.
     # Repeating literal excerpts encourages copying the wrong evidence shape.
     span_ids = {(q['part_id'], q['quote']): key for key, q in catalog.items()}
@@ -58,6 +48,18 @@ def source_first(adapter, record, settings, attempt):
             return {k: index(v) for k, v in value.items()}
         if isinstance(value, list): return [index(v) for v in value]
         return value
+    def compile_drafts(values):
+        # The model budget applies to indexed drafts, not repeated expanded
+        # excerpts. Keep the same representation when joining the two stages.
+        return [compile_teaching_response(json.dumps(dict(tasks=index(values)), ensure_ascii=False), record,
+                                          source_verified=adapter.source_verified, indexed=True)]
+    if not slots:
+        return compile_drafts(drafts)
+    schema = refinement_schema(teaching_draft_schema(record, indexed=True), list(slots))
+    metadata = deepcopy(record)
+    metadata.pop('text'); metadata.pop('source_metadata_text')
+    for ref in metadata['references']: ref.pop('text')
+    frozen = [dict(slot=slot, **drafts[i]) for slot, i in slots.items()]
     payload = dict(record_metadata=metadata, evidence_catalog=catalog, current_actions=index(frozen))
     instructions = teaching_instructions(record, indexed=True).split('只输出符合此内部草稿 Schema')[0] + '''
 本调用仅补充已确认的 current_actions。行动、标题、说明、类型、原文依据由前一步独立确定，不得新增、删除、合并、拆分或重分类行动。

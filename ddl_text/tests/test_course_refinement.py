@@ -165,5 +165,15 @@ class CourseRefinementTests(unittest.TestCase):
         result, _ = self.run_adapter(record, [dict(tasks=[task]), promote])
         self.assertEqual(result['decisions'][0]['recommendation'], 'candidate')
 
+    def test_many_indexed_actions_do_not_overflow_when_quotes_are_expanded(self):
+        record, task = fixture()
+        record['text'] = '请完成本章所有实验准备步骤。' + '每个步骤需要按说明进行。'*16
+        task['assessment']['action']['evidence'] = [dict(part_id='body', quote=record['text'])]*10
+        tasks = [dict(deepcopy(task), title='准备步骤 '+str(i)) for i in range(30)]
+        self.assertGreater(len(json.dumps(dict(tasks=tasks),ensure_ascii=False).encode()),64000)
+        result, _ = self.run_adapter(record, [dict(tasks=tasks), keep])
+        self.assertEqual(len(result['decisions']), 30)
+        self.assertTrue(all(d['recommendation']=='task' for d in result['decisions']))
+
 
 if __name__ == '__main__': unittest.main()
