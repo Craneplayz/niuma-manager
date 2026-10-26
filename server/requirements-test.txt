@@ -1,0 +1,3 @@
+# Full business API tests, including the actual attachment reader boundary.
+-r requirements.txt
+-r ../ddl_text/media_test_requirements.txt

@@ -1,132 +1,1332 @@
-import {addExamples,weekReview} from './examples.js';
-import {dayKey,offsetDay,priorityLabels,statusLabels,isBlocked} from './data.js';
-import {api,readStore,saveStore,session,initSession,authenticate,logout,retrySave,refreshStore,flushStore,workspaceValue} from './store.js';
-import {assistantPage,configureAssistant,handleAssistantClick,handleAssistantInput,handleAssistantSubmit,resetAssistant,leaveAssistant,submitRecognitionText} from './team-recognition-ui.js';
-import {icon} from './icons.js';
-import {selectTasks} from './productivity.js';
-import {configureExperience,experienceClick,experienceInput,experienceKey,focusPill,switchFocusAccount} from './experience.js';
-import {plannerPage,configurePlanner,plannerClick,plannerChange,plannerSubmit,plannerApplyHours} from './team-planner-ui.js';
-import {initTheme,themeButton,handleThemeClick,themeSetting,handleThemeChange} from './theme.js';
-import {configurePersonalization,personalizationSection,personalizationClick,personalizationSubmit} from './team-personalization-ui.js';
-import {calendarPage,calendarClick,calendarStep,calendarToday} from './team-calendar-ui.js';
-let state=readStore(), page=location.hash.slice(1)||'home', filter='all', query='', sort='due', week=0;
-initTheme();
-const expandedTasks=new Set();
-let undoAction=null;
-const app=document.querySelector('#app'),dialog=document.querySelector('#dialog');
-for(const type of ['click','submit','input','change','keydown'])document.addEventListener(type,event=>{
- if(session.changing){event.preventDefault();event.stopImmediatePropagation();}
-},true);
-const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const nav=[['home','今日概览'],['agent','识别审核'],['plan','智能规划'],['tasks','我的任务'],['calendar','学习日程'],['book','我的课程'],['import','快速收集']];
-const button=(label,action,cls='',ico='')=>`<button class="btn ${cls}" data-action="${action}">${ico?icon(ico):''}${label}</button>`;
-const today=()=>dayKey();
-const pending=()=>state.tasks.filter(t=>t.status!=='done');
-function persist(){return saveStore(state);}
-window.addEventListener('niuma:account-reset',()=>{
- state=readStore();undoAction=null;expandedTasks.clear();filter='all';query='';sort='due';week=calendarToday();
- switchFocusAccount(null);clearTimeout(window.toastTimer);
- document.querySelector('#toast').replaceChildren();document.querySelector('#toast').classList.remove('visible');
- if(!dialog.querySelector('#auth-form')){clearTimeout(dialog.closeTimer);dialog.close();dialog.replaceChildren();}
- render();
+import {
+  api,
+  session,
+  readStore,
+  readProjectedStore,
+  taskWritesAreOnlineOnly,
+  readCancelledTasks,
+  initSession,
+  reconnectStore,
+  reloadStore,
+  refreshStore,
+  saveStoredTask,
+  setStoredTaskStatus,
+  flushStore,
+  retrySave,
+  trashStoredTasks,
+  restoreStoredTasks,
+  accountVersion,
+  setStoredTaskDeadline,
+} from "./team-store.js";
+import { icon } from "./icons.js";
+import { avatarContent } from "./account-avatar.js";
+import { newId } from "./id.js";
+import {
+  todayKey,
+  shiftDay,
+  filterTasks,
+  isNotice,
+  taskEditSnapshot,
+  assertCurrentTaskEdit,
+  deadlineLabel,
+} from "./task-model.js";
+import { renderTaskList, renderDayPanel } from "./task-views.js";
+import { projectReviewTasks } from "./review-tasks.js";
+import { renderCalendar } from "./calendar.js";
+import { createCalendarDrag } from "./calendar-drag.js";
+import { renderTaskDrawer } from "./task-drawer.js";
+import { renderPageHeading } from "./page-layout.js";
+import { loadTaskEvidence } from "./task-evidence.js";
+import { updateDOM, isComposing } from "./dom-update.js";
+import { demoWorkspace } from "./demo.js";
+import { createImportUI } from "./import-ui.js";
+import { createAccountUI } from "./account-ui.js";
+import { readNavigation, navigationURL } from "./navigation.js";
+import { feedbackBox } from "./usage-feedback.js";
+import { describeEnvironment } from "./environment-badge.js";
+import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
+
+const esc = (value) =>
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+const app = document.querySelector("#app"),
+  dialog = document.querySelector("#dialog"),
+  drawer = document.querySelector("#task-drawer"),
+  sidebarTooltip = document.querySelector("#sidebar-tooltip");
+const params = new URLSearchParams(location.search);
+let today = todayKey(), dayTimer;
+const dateFormat = new Intl.DateTimeFormat("zh-CN", {
+  month: "long", day: "numeric", weekday: "long",
 });
-function toast(message,undo=null){const t=document.querySelector('#toast');undoAction=undo;t.replaceChildren();const text=document.createElement('span');text.textContent=message;t.append(text);if(undo){const btn=document.createElement('button');btn.textContent='撤销';btn.dataset.action='undo';t.append(btn);}t.classList.add('visible');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>{t.classList.remove('visible');undoAction=null;},undo?9000:4000);}
-function celebrate(rect,message,big=false,undo=null){toast(message,undo);if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;const layer=document.createElement('div');layer.className=`celebration ${big?'big':''}`;layer.setAttribute('aria-hidden','true');const x=rect?.left+rect?.width/2||innerWidth/2,y=rect?.top+rect?.height/2||innerHeight/2;layer.style.setProperty('--x',x+'px');layer.style.setProperty('--y',y+'px');for(let i=0;i<(big?22:12);i++){const dot=document.createElement('i');dot.style.setProperty('--angle',`${i/(big?22:12)*360}deg`);dot.style.setProperty('--distance',`${big?70+Math.random()*70:35+Math.random()*45}px`);dot.style.setProperty('--delay',`${Math.random()*90}ms`);layer.append(dot);}document.body.append(layer);setTimeout(()=>layer.remove(),1100);}
+const dateLabel = () => dateFormat.format(new Date(today + "T12:00:00"));
+let demo = params.get("demo") === "1",
+  state = demo ? demoWorkspace(today) : readStore(),
+  loading = !demo,
+  loadError = "",
 
-function dueText(date){if(!date)return '无 DDL';const diff=Math.round((new Date(date+'T12:00:00')-new Date(today()+'T12:00:00'))/86400000);return diff===0?'今天截止':diff===1?'明天截止':diff<0?`已逾期 ${-diff} 天`:`${date.slice(5).replace('-','月')}日截止`;}
-function taskRow(t){const done=t.subtasks.filter(s=>s.done).length;return `<article class="task-card"><div class="task-row"><button class="checkbox ${t.status==='done'?'checked':''}" data-complete="${t.id}" aria-label="${t.status==='done'?'重新打开':'完成'} ${esc(t.title)}">${t.status==='done'?icon('check'):''}</button><button class="task-main" data-edit="${t.id}"><strong class="${t.status==='done'?'strike':''}">${esc(t.title)}</strong><span>${esc(t.course)} <i>·</i> ${icon('clock')}${t.hours ? `${t.hours} 小时` : '待模型评估'} <i>·</i> <span class="status-dot ${t.status}"></span>${statusLabels[t.status]} ${isBlocked(t,state.tasks)?'<i>·</i> 等待前置任务':''}</span></button><span class="badge ${t.priority}">${priorityLabels[t.priority]}</span><span class="due ${t.due&&t.due<=today()&&t.status!=='done'?'urgent':''}">${t.status==='done'?'已完成':dueText(t.due)+(t.dueTime?' '+esc(t.dueTime):t.due?' · 时刻待补':'')}</span><button class="icon-btn" data-edit="${t.id}" aria-label="编辑 ${esc(t.title)}">${icon('chevron')}</button></div>${t.subtasks.length?`<details class="task-subtasks" data-task-detail="${t.id}" ${expandedTasks.has(t.id)?'open':''}><summary><span class="mini-progress"><i style="width:${done/t.subtasks.length*100}%"></i></span>${done}/${t.subtasks.length} 个步骤已完成 ${icon('chevron')}</summary><div>${t.subtasks.map((sub,i)=>`<label><input type="checkbox" data-subtask-task="${t.id}" data-subtask-index="${i}" ${sub.done?'checked':''}><span class="${sub.done?'strike':''}">${esc(sub.title)}</span></label>`).join('')}</div></details>`:''}</article>`;}
-
-function empty(message){return `<div class="empty">${icon('leaf')}<h3>${message}</h3><p>留一点空白，也给自己一点时间。</p></div>`;}
-function header(title,sub,action=button('新建任务','new','primary','plus')){return `<div class="page-heading"><div><div class="eyebrow">YOUR STUDY SPACE</div><h1>${title}</h1><p>${sub}</p></div>${action}</div>`;}
-function exampleSection(){const loaded=state.tasks.some(t=>t.id.startsWith('example-')),hasTasks=state.tasks.length>0;return `<details class="example-section" ${hasTasks?'':'open'}><summary>示例体验 · ${loaded?'已添加，可展开查看玩法':'从一周学习开始'}</summary><div class="example-intro"><div><span class="eyebrow">TRY IT YOURSELF</span><h2>先看看，一周学习可以怎样安排。</h2><p>示例含 5 项任务、3 段日程和 3 份课程笔记。日期随今天生成，添加后可直接编辑。</p></div>${button('添加示例到我的空间','load-examples','primary','plus')}</div><div class="example-grid"><a href="#agent"><b>01 · 一句话记下 DDL</b><span>试着说「下周五晚上八点交线代作业」。</span><small>打开助手，点选示例 →</small></a><a href="#tasks"><b>02 · 把目标拆成小步骤</b><span>需求分析 → 用户故事 → 用例图 → 小组确认。</span><small>查看任务与前置依赖 →</small></a><a href="#book"><b>03 · 让笔记和课程放在一起</b><span>组会纪要、复习卡片、论文阅读模板。</span><small>查看课程资料 →</small></a></div><p class="example-footnote">示例任务与笔记带有【示例】标记；添加不会替换已有内容，重复点击不会重复添加。</p></details>`;}
-function reviewSection(){const r=weekReview(state);return `<section class="panel week-review"><div><span class="eyebrow">THIS WEEK</span><h2>本周，心里有数。</h2><p>按本周截止任务与已排日程统计，不代表实际学习时长。</p></div><div class="review-values"><span><b>${r.done}/${r.total}</b>本周截止任务已完成</span><span><b>${state.tasks.some(t=>t.status!=='done'&&t.hours)?r.remaining+' h':'待评估'}</b>已评估剩余投入</span><span><b>${r.scheduled} h</b>已安排学习时段</span></div><a class="btn" href="#calendar">查看本周日程 →</a></section>`;}
-function home(){const open=pending(),done=state.tasks.filter(t=>t.status==='done').length,rate=Math.round(done/Math.max(1,state.tasks.length)*100),urgent=open.filter(t=>t.due&&t.due<=offsetDay(1)),next=selectTasks(open,{today:today()})[0];return `${header('把今天，安排得刚刚好。',new Date().toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'})+' · '+(session.user?esc(session.user.display_name)+'，欢迎回来':'你的个人学习空间'))}<section class="hero premium-hero"><div class="hero-copy"><span class="hero-tag">${icon('spark')} NIUMA ASSISTANT</span><h2>想做的事很多。<br><span>从容，一件件来。</span></h2><p>说出你的 DDL，小牛帮你整理。<br>把精力留给学习，让每一步都清晰。</p><div class="hero-actions"><a class="btn hero-button" href="#agent">和小牛聊聊 ${icon('arrow')}</a><button class="hero-focus" data-experience="focus">开始专注 ${icon('chevron')}</button></div></div><div class="hero-visual"><div class="ambient-glow"></div><div class="glass-stack back-stack"></div><div class="glass-stack main-stack"><div class="stack-top"><span class="stack-brand">${icon('spark')} 小牛已就绪</span><span class="stack-dots">•••</span></div><span class="stack-label">YOUR NEXT STEP</span><h3>${next?esc(next.title):'让第一个目标，有一个开始。'}</h3><p>${next?esc(next.course):'随时记下想完成的事'}</p><div class="stack-deadline">${icon('calendar')}<span>${next?dueText(next.due):'今天，是个好开始'}</span><span class="stack-check">${icon('check')}</span></div><div class="stack-progress"><i style="width:${rate}%"></i></div><div class="stack-footer"><span>学习进度</span><b>${rate}%</b></div></div><div class="voice-capsule"><div class="wave-bars"><i></i><i></i><i></i><i></i><i></i></div><span>“下周五交线代作业。”</span>${icon('mic')}</div></div></section><section class="stats"><div>${icon('tasks')}<span>待完成<strong>${open.length}<small>项任务</small></strong></span><em>一步一步来</em></div><div>${icon('bell')}<span>即将到期<strong>${urgent.length}<small>项任务</small></strong></span><em class="orange-text">今天及明天</em></div><div>${icon('clock')}<span>已评估投入<strong>${open.some(t=>t.hours)?open.reduce((n,t)=>n+(t.hours||0),0):'待评估'}<small>${open.some(t=>t.hours)?'小时':''}</small></strong></span><em>未完成任务</em></div><div>${icon('check')}<span>已完成<strong>${rate}<small>%</small></strong></span><em>${done} 项完成</em></div></section><div class="dashboard-grid"><section class="panel"><div class="section-title"><h2>下一步，从这里开始。<span>${open.length}</span></h2><a href="#tasks">查看全部 ${icon('arrow')}</a></div><p class="section-caption">按截止时间排列，先处理最重要的事。</p>${selectTasks(open,{today:today()}).slice(0,4).map(taskRow).join('')||empty('今天的清单，已经清空。')}</section><aside class="panel today-plan"><div class="section-title"><h2>今日安排</h2><a href="#calendar" aria-label="查看日历">${icon('arrow')}</a></div>${scheduleList(today())}<button class="focus-invitation" data-experience="focus">${icon('clock')}<span><b>给自己 25 分钟</b><small>专注当下这一件事</small></span>${icon('arrow')}</button></aside></div>${reviewSection()}<section class="course-strip"><div class="section-title"><h2>保持好奇，继续学习。</h2><a href="#book">全部课程 ${icon('arrow')}</a></div><div class="course-grid">${state.courses.slice(0,3).map(courseCard).join('')}</div></section>`;}
-
-function scheduleList(date){const entries=state.schedule.filter(s=>s.date===date).sort((a,b)=>a.start-b.start);return entries.length?entries.map(s=>{const t=state.tasks.find(t=>t.id===s.taskId);return t?`<div class="schedule-item"><time>${formatHour(s.start)}</time><div><b>${esc(s.label||t.title)}</b><span>${s.hours} 小时 · ${esc(t.location||'自选地点')}</span></div></div>`:'';}).join(''):`<div class="schedule-empty">${icon('calendar')}<p>给学习留一个时间段</p>${button('生成学习计划','plan','text-btn','plus')}</div>`;}
-function formatHour(n){return String(Math.floor(n)).padStart(2,'0')+':'+String(Math.round((n%1)*60)).padStart(2,'0');}
-function matchingTasks(){return selectTasks(state.tasks,{filter,query,sort,today:today()});}
-function taskResults(){return matchingTasks().map(taskRow).join('')||empty(query?'没有找到匹配的任务。':'这里暂时没有任务。');}
-function tasks(){return `${header('每一件事，都有条理。','拆小目标，理清轻重。把计划变成一步步的完成。')}<section class="panel task-panel"><div class="task-toolbar"><div class="tabs" aria-label="任务状态">${[['all','全部'],...Object.entries(statusLabels)].map(([k,v])=>`<button data-filter="${k}" aria-pressed="${filter===k}" class="${filter===k?'active':''}">${v}<span>${state.tasks.filter(t=>k==='all'||t.status===k).length}</span></button>`).join('')}</div><label class="search">${icon('search')}<input id="search" placeholder="搜索任务、课程或备注" aria-label="搜索任务或课程" value="${esc(query)}"></label></div><div class="task-options"><div class="filter-chips">${[['today','今天截止'],['overdue','已逾期'],['blocked','等待前置']].map(([k,v])=>`<button data-filter="${filter===k?'all':k}" class="${filter===k?'active':''}" aria-pressed="${filter===k}">${v}</button>`).join('')}</div><label class="sort-label">排序<select id="task-sort" aria-label="任务排序"><option value="due" ${sort==='due'?'selected':''}>截止时间</option><option value="priority" ${sort==='priority'?'selected':''}>优先级</option><option value="duration" ${sort==='duration'?'selected':''}>用时最短</option></select></label></div><div id="task-results">${taskResults()}</div></section>`;}
-
-function calendar(){return calendarPage(state,week);}
-function courseCard(c){const all=state.tasks.filter(t=>t.course===c.name),done=all.filter(t=>t.status==='done').length;return `<article class="course-card"><div class="course-icon ${c.color}">${icon('book')}</div><div><h3>${esc(c.name)}</h3><p>${esc(c.teacher)} · ${all.length} 项任务</p></div><div class="course-progress"><div><span style="width:${all.length?done/all.length*100:0}%"></span></div><small>${done}/${all.length} 已完成</small><button class="icon-btn" data-edit-course="${esc(c.id)}" aria-label="编辑 ${esc(c.name)}">${icon('settings')}</button><button class="course-open" data-course="${esc(c.name)}" aria-label="查看 ${esc(c.name)} 的任务">${icon('arrow')}</button></div></article>`;}
-function courses(){return `${header('我的课程','课程资料、学习任务，都放在这里。',button('添加课程','add-course','primary','plus'))}<div class="course-grid full">${state.courses.map(courseCard).join('')}</div><section class="panel materials"><div class="section-title"><h2>课程资料与回放笔记</h2>${button('添加资料','material','','plus')}</div>${state.materials.length?state.materials.map(m=>`<article class="material-row">${icon('book')}<div><h3>${esc(m.title)}</h3><p>${esc(m.course)} · ${esc(m.notes)}</p>${m.url?`<a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">打开资料 ↗</a>`:''}</div><button class="btn text-btn" data-edit-material="${m.id}" aria-label="编辑 ${esc(m.title)}">编辑笔记</button><button class="icon-btn" data-remove-material="${m.id}" aria-label="删除资料">${icon('close')}</button></article>`).join(''):empty('还没有保存课程资料')}<p class="panel-note">支持保存回放链接与手写笔记；自动转录和内容摘要待后端接入。</p></section>`;}
-function imports(){return `${header('快速收集','通知直接贴进来，剩下的交给小牛。','')}<div class="import-grid"><section class="panel capture-panel"><div class="section-title"><h2>${icon('spark')} 自然语言识别</h2><span class="badge medium">团队识别</span></div><p class="muted">课程群通知、老师原话或自己的随手记录都可以粘贴。相对日期需要可信发布时间，识别后仍需核对。</p><textarea id="import-text" rows="9" placeholder="例如：老师说下周五晚上八点前交线代第三章作业，大概需要两小时。\n另外，周日把小组汇报的 PPT 初稿发到群里。"></textarea><div class="capture-hints"><button data-import-example="老师说下周五晚上八点前交线代第三章作业，预计两小时">课程通知</button><button data-import-example="明晚十点前准备好后天组会的资料；周日完成汇报 PPT 初稿">多个 DDL</button><button data-import-example="这周五交课程论文，比较重要，预计需要四小时">带优先级</button></div><div class="button-row">${button('清空','clear-import')}${button('送去识别','parse','primary','spark')}</div></section><aside class="panel import-guide"><div class="section-title"><h2>可以这样使用</h2></div><ol><li><b>复制整段通知</b><span>不用删掉老师的说明或调整日期格式。</span></li><li><b>核对识别结果</b><span>任务名称、日期、时间和课程都能修改。</span></li><li><b>确认后加入任务和日历</b><span>确认候选后，真实 DDL 会出现在日历对应时刻。</span></li></ol><div class="privacy-note">${icon('pin')}<p><b>当前不会读取聊天软件。</b><br>只有你主动粘贴，或在识别审核页选择并确认发送的来源文本才会被处理。</p></div><p class="panel-note">截图 OCR、邮件和群聊自动同步仍需后端与相应授权，后续再接入。</p></aside></div>`;}
-function settings(){return `${header('账号与数据',session.user?'任务和日历保存在你的账号中。':'登录后查看并保存任务数据。','')}<section class="panel settings-panel"><div class="account-summary"><span class="avatar">${esc(session.user?.display_name?.slice(0,1)||'我')}</span><div><h2>${esc(session.user?.display_name||'还没有登录')}</h2><p>${session.user?'邮箱：'+esc(session.user.email):'注册或登录后开始使用。'}</p></div>${session.user?button('退出登录','logout'):button('登录 / 注册','login','primary')}</div><hr><h2>保存状态</h2><p>任务、课程与反馈保存在当前服务器的账号数据库；同时编辑会检查版本。</p>${button('导出 JSON 备份','export','','download')}<hr><h2>识别与规划</h2><p>文本识别使用团队的 v0.2 Harness；规划使用独立模型 Harness。未配置时会明确提示。</p><p>教学网账号可在 <a href="#agent">识别审核 → 同步信息</a> 保存、更换或删除；保存后不必每次输入密码。</p><p>语音识别依赖浏览器支持；识别结果需人工审核，规划需预览确认。</p><hr><h2>开发版本</h2><p>第三方登录、找回密码、OCR 和外部日历授权尚未接入。</p></section>${session.user?personalizationSection(state.tasks):''}`;}
-
-function render(){if(![...nav.map(n=>n[0]),'settings'].includes(page))page='home';app.innerHTML=`<aside class="sidebar"><a href="#home" class="brand"><span>${icon('cow')}</span><div>牛马管理器<small>学习空间</small></div></a><button class="workspace-label workspace-search" data-experience="search">${icon('search')}快速查找 <kbd>⌘ K</kbd></button><div class="nav-label">工作台</div><nav>${nav.map(([key,label])=>`<a href="#${key}" class="${page===key?'selected':''}">${icon(key)}${label}${key==='tasks'?`<span class="nav-count">${pending().length}</span>`:''}${key==='agent'?'<span class="new-tag">NEW</span>':''}</a>`).join('')}</nav><div class="sidebar-bottom"><div class="sidebar-note">${icon('leaf')}<strong>专注一点，轻松一点。</strong><p>为重要的事，留出空间。</p></div><a href="#settings" class="settings-link">${icon('settings')}账号与数据</a><div class="profile"><div class="avatar">${esc(session.user?.display_name?.slice(0,1)||'我')}</div><div>${esc(session.user?.display_name||'未登录')}<small>${session.user?'账号已登录':'未登录'}</small></div><span class="online-dot"></span></div></div></aside><main><header class="topbar"><span>工作台 <i>/</i> <b>${nav.find(n=>n[0]===page)?.[1]||'账号与数据'}</b></span><div><button class="icon-btn mobile-search" data-experience="search" aria-label="全局搜索">${icon('search')}</button><span class="local-status" id="save-status">${saveLabel()}</span><button class="icon-btn notification" data-action="notifications" aria-label="查看到期提醒">${icon('bell')}<i></i></button>${session.user?`<a href="#settings" class="avatar small" aria-label="账号与数据">${esc(session.user.display_name.slice(0,1))}</a>`:button('登录 / 注册','login','top-login')}</div></header><div class="content"><div id="save-alert">${saveAlert()}</div>${['home','book','tasks','calendar'].includes(page)?exampleSection():''}${({home,agent:assistantPage,plan:plannerPage,tasks,calendar,book:courses,import:imports,settings}[page])()}<footer>牛马管理器 <span>每一步，都算数。</span><span>DDL 压鼠人 · 第六组</span></footer></div>${focusPill()}</main>`;}
-
-function enhanceThemeUI(){
-  const topbarActions=document.querySelector('.topbar>div');
-  if(topbarActions&&!topbarActions.querySelector('[data-theme-toggle]'))topbarActions.insertAdjacentHTML('afterbegin',themeButton());
-  const settingsPanel=document.querySelector('.settings-panel');
-  if(page==='settings'&&settingsPanel&&!settingsPanel.querySelector('.theme-setting'))settingsPanel.insertAdjacentHTML('afterbegin',themeSetting());
-}
-new MutationObserver(enhanceThemeUI).observe(app,{childList:true,subtree:true});
-document.addEventListener('click',event=>{const button=event.target.closest('[data-theme-toggle]');if(button){handleThemeClick(button);event.stopImmediatePropagation();}},true);
-document.addEventListener('change',event=>{if(handleThemeChange(event)){render();event.stopImmediatePropagation();}},true);
-function openDialog(html){clearTimeout(dialog.closeTimer);dialog.classList.remove('closing');dialog.innerHTML=html;if(!dialog.open)dialog.showModal();}
-function closeDialog(){if(!dialog.open)return;if(matchMedia('(prefers-reduced-motion: reduce)').matches){dialog.close();return;}dialog.classList.add('closing');dialog.closeTimer=setTimeout(()=>{dialog.close();dialog.classList.remove('closing');},140);}
-const dialogHeader=title=>`<div class="dialog-title"><h2>${title}</h2><button type="button" class="icon-btn" data-action="close" aria-label="关闭">${icon('close')}</button></div>`;
-function taskDialog(id){const t=state.tasks.find(t=>t.id===id)||{title:'',course:state.courses[0]?.name||'',due:'',dueTime:'',hours:null,priority:'medium',status:'todo',notes:'',location:'',owner:'',subtasks:[],dependsOn:''};openDialog(`<form id="task-form" data-id="${id||''}">${dialogHeader(id?'任务详情':'新建任务')}<label>任务名称<input name="title" required maxlength="100" value="${esc(t.title)}" placeholder="下一件要完成的事"></label><div class="form-grid"><label>所属课程<select name="course"><option value="">无课程</option>${t.course&&!state.courses.some(c=>c.name===t.course)?`<option selected>${esc(t.course)}</option>`:''}${state.courses.map(c=>`<option ${c.name===t.course?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label>截止日期<input type="date" name="due" value="${t.due}"></label><label>截止时刻（设置 DDL 时必填）<input type="time" name="dueTime" value="${esc(t.dueTime||'')}"></label><label>优先级<select name="priority">${Object.entries(priorityLabels).map(([k,v])=>`<option value="${k}" ${k===t.priority?'selected':''}>${v}</option>`).join('')}</select></label><label>状态<select name="status">${Object.entries(statusLabels).map(([k,v])=>`<option value="${k}" ${k===t.status?'selected':''}>${v}</option>`).join('')}</select></label><label>学习地点<input name="location" maxlength="60" value="${esc(t.location)}" placeholder="例如：图书馆"></label><label>负责人 / 协作者<input name="owner" maxlength="60" value="${esc(t.owner||'')}" placeholder="例如：我、张三、小组共同"></label></div><label>前置任务<select name="dependsOn"><option value="">无前置任务</option>${state.tasks.filter(x=>x.id!==id).map(x=>`<option value="${x.id}" ${x.id===t.dependsOn?'selected':''}>${esc(x.title)}</option>`).join('')}</select></label><label>任务备注<textarea name="notes" rows="2" maxlength="2000">${esc(t.notes)}</textarea></label>${t.sourceRequirements?.length?`<details class="task-source"><summary>识别原文要求（${t.sourceRequirements.length}）</summary><ul>${t.sourceRequirements.map(item=>`<li>${esc(item)}</li>`).join('')}</ul></details>`:''}<div class="subtask-editor"><div class="subtask-editor-title"><span>把任务拆成小步骤</span><button type="button" class="inline-button" data-add-step>＋ 添加步骤</button></div><div id="step-rows">${t.subtasks.map(stepRow).join('')}</div></div><div class="dialog-actions">${id?`<button type="button" class="btn danger" data-delete="${id}">删除任务</button>`:''}<button type="submit" class="btn primary">保存任务</button></div></form>`);}
-function planDialog(){location.hash='plan';}
-function courseDialog(id){const c=state.courses.find(x=>x.id===id)||{name:'',teacher:'',description:'',url:''};openDialog(`<form id="course-form" data-id="${id||''}">${dialogHeader(id?'编辑课程':'添加课程')}<label>课程名称<input name="name" maxlength="80" required value="${esc(c.name)}"></label><label>教师 / 联系人<input name="teacher" maxlength="100" value="${esc(c.teacher||'')}"></label><label>课程说明<textarea name="description" rows="3">${esc(c.description||'')}</textarea></label><label>资料链接<input name="url" type="url" value="${esc(c.url||'')}"></label><p class="panel-note">更改课程名称不会自动修改现有任务的课程关联。</p><div class="dialog-actions"><button class="btn primary">保存课程</button></div></form>`);}
-function materialDialog(id){const m=state.materials.find(m=>m.id===id)||{title:'',course:'',url:'',notes:''};openDialog(`<form id="material-form" data-id="${id||''}">${dialogHeader(id?'编辑课程资料':'添加课程资料')}<label>资料标题<input name="title" maxlength="100" required value="${esc(m.title)}"></label><label>所属课程<select name="course">${state.courses.map(c=>`<option ${m.course===c.name?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label>资料或回放链接<input name="url" type="url" value="${esc(m.url)}" placeholder="https://…"></label><label>笔记<textarea name="notes" rows="4" maxlength="4000">${esc(m.notes)}</textarea></label><div class="dialog-actions"><button class="btn primary">保存资料</button></div></form>`);}
-async function parseImport(){const value=document.querySelector('#import-text')?.value?.trim();if(!value)return toast('先粘贴一段通知');if(!session.user)return authDialog('login');location.hash='agent';await submitRecognitionText(value);}
-async function exportWorkspace(){
- if(!session.user)return authDialog('login');
- try{
-  await flushStore();
-  const [workspace,batches]=await Promise.all([api('/api/workspace'),api('/api/recognition/batches')]);
-  const content={exportedAt:new Date().toISOString(),user:{email:session.user.email,name:session.user.name},workspace,batches};
-  const url=URL.createObjectURL(new Blob([JSON.stringify(content,null,2)],{type:'application/json'}));
-  const link=document.createElement('a');link.href=url;link.download='niuma-backup-'+today()+'.json';link.click();
-  setTimeout(()=>URL.revokeObjectURL(url),1000);toast('账号数据已导出');
- }catch(e){toast(e.message);}
-}
-const actions={'load-examples':()=>{if(!session.user)return authDialog('login');const result=addExamples(state);state=result.state;if(result.added){persist();render();toast('示例已添加，去任务、日历和课程里体验吧。');}else toast('示例已在你的空间中，不会重复添加。');},undo:()=>{const callback=undoAction;undoAction=null;if(callback){callback();persist();render();toast('已撤销');}},login:()=>authDialog('login'),logout:signOut,'retry-save':async()=>{try{await retrySave();toast('已保存到账号');}catch(e){toast(e.message);}},'calendar-export':exportCalendar,new:()=>session.user?taskDialog():authDialog('login'),plan:planDialog,close:closeDialog,'add-course':()=>session.user?courseDialog():authDialog('login'),material:()=>session.user?materialDialog():authDialog('login'),prev:()=>{week=calendarStep(-1,week);render();},next:()=>{week=calendarStep(1,week);render();},thisweek:()=>{week=calendarToday();render();},'clear-import':()=>{const area=document.querySelector('#import-text'),preview=document.querySelector('#import-preview');if(area)area.value='';if(preview)preview.innerHTML='';},parse:parseImport,export:exportWorkspace,notifications:()=>{const list=pending().filter(t=>t.due&&t.due<=offsetDay(1));openDialog(`${dialogHeader('到期提醒')}<p class="muted">今天、明天及已逾期的未完成任务</p>${list.map(t=>`<div class="reminder"><b>${esc(t.title)}</b><span class="urgent">${dueText(t.due)}</span></div>`).join('')||empty('暂时没有即将到期的任务')}`);}};
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(experienceClick(b)||(b.dataset.planAction&&plannerClick(b))||plannerApplyHours(b)||personalizationClick(b)||calendarClick(b,render))return;if(b.dataset.importExample){document.querySelector('#import-text').value=b.dataset.importExample;document.querySelector('#import-preview').innerHTML='';return;}if(b.dataset.editMaterial){materialDialog(b.dataset.editMaterial);return;}if(b.dataset.editCourse){courseDialog(b.dataset.editCourse);return;}if(b.hasAttribute('data-add-step')){document.querySelector('#step-rows').insertAdjacentHTML('beforeend',stepRow({title:'',done:false}));document.querySelector('#step-rows [data-step-row]:last-child [data-step-title]').focus();return;}if(b.hasAttribute('data-remove-step')){b.closest('[data-step-row]').remove();return;}if(b.dataset.course){query=b.dataset.course;filter='all';if(page==='tasks')render();else location.hash='tasks';return;}handleAssistantClick(b);if(b.dataset.authMode){authDialog(b.dataset.authMode);return;}if(b.dataset.action)actions[b.dataset.action]?.();if(b.dataset.edit)taskDialog(b.dataset.edit);if(b.dataset.complete){const t=state.tasks.find(t=>t.id===b.dataset.complete);if(t.status!=='done'&&isBlocked(t,state.tasks))return toast('请先完成前置任务');const rect=b.getBoundingClientRect(),previous=t.status,previousCompleted=t.completedAt||'',undo=()=>{const current=state.tasks.find(item=>item.id===t.id);if(current){current.status=previous;current.completedAt=previousCompleted;}};t.status=t.status==='done'?'todo':'done';t.completedAt=t.status==='done'?today():'';persist();render();if(t.status==='done')celebrate(rect,'任务完成！今天又向前走了一步。',true,undo);else toast('任务已重新打开',undo);}if(b.dataset.filter){filter=b.dataset.filter;render();}if(b.dataset.delete){const id=b.dataset.delete;openDialog(`${dialogHeader('删除这项任务？')}<p>同时移除相关日程，并解除其他任务对它的依赖。删除后可通过底部提示撤销。</p><div class="dialog-actions"><button class="btn" data-action="close">取消</button><button class="btn danger" data-confirm-delete="${id}">确认删除</button></div>`);}if(b.dataset.confirmDelete){const id=b.dataset.confirmDelete,deleted=state.tasks.find(t=>t.id===id),dependencies=state.tasks.filter(t=>t.dependsOn===id).map(t=>t.id),events=state.schedule.filter(s=>s.taskId===id);state.tasks=state.tasks.filter(t=>t.id!==id);state.tasks.forEach(t=>{if(t.dependsOn===id)t.dependsOn='';});state.schedule=state.schedule.filter(s=>s.taskId!==id);persist();dialog.close();render();toast('任务已删除',()=>{if(deleted&&!state.tasks.some(t=>t.id===id)){state.tasks.push(deleted);state.schedule.push(...events);state.tasks.forEach(t=>{if(dependencies.includes(t.id)&&!t.dependsOn)t.dependsOn=id;});}});}if(b.dataset.removeMaterial){const material=state.materials.find(m=>m.id===b.dataset.removeMaterial);state.materials=state.materials.filter(m=>m.id!==b.dataset.removeMaterial);persist();render();toast('资料已移除',()=>{if(material&&!state.materials.some(m=>m.id===material.id))state.materials.push(material);});}});
-document.addEventListener('input',e=>{handleAssistantInput(e);experienceInput(e);if(e.target.id==='search'){query=e.target.value;document.querySelector('#task-results').innerHTML=taskResults();}});
-document.addEventListener('submit',async e=>{e.preventDefault();const form=e.target;if(handleAssistantSubmit(form)||plannerSubmit(form))return;if(form.id==='auth-form'){await submitAuth(form);return;}if(form.id==='feedback-form'){await personalizationSubmit(form);return;}const v=Object.fromEntries(new FormData(form));if(!session.user&&['task-form','course-form','material-form'].includes(form.id))return authDialog('login');if(form.id==='task-form'){if(!v.title.trim())return toast('请输入任务名称');if(v.due&&!v.dueTime)return toast('请填写具体截止时刻');if(!v.due&&v.dueTime)return toast('请先填写截止日期');const id=form.dataset.id||crypto.randomUUID();let dep=v.dependsOn;const seen=new Set([id]);while(dep){if(seen.has(dep))return toast('前置任务形成循环，请重新选择');seen.add(dep);dep=state.tasks.find(t=>t.id===dep)?.dependsOn;}const t={...(state.tasks.find(x=>x.id===id)||{}),...v,id,title:v.title.trim(),subtasks:[...form.querySelectorAll('[data-step-row]')].map(row=>({id:row.dataset.stepId||crypto.randomUUID(),title:row.querySelector('[data-step-title]').value.trim(),done:row.querySelector('[data-step-done]').checked})).filter(step=>step.title)};t.completedAt=t.status==='done'?(t.completedAt||(state.tasks.find(x=>x.id===id)?.status==='done'?'':today())):'';if(t.status==='done'&&isBlocked(t,state.tasks))return toast('请先完成前置任务');const index=state.tasks.findIndex(t=>t.id===id);if(index<0)state.tasks.push(t);else state.tasks[index]=t;}else if(form.id==='course-form'){if(!v.name.trim())return toast('请输入课程名称');if(state.courses.some(c=>c.name===v.name.trim()&&c.id!==form.dataset.id))return toast('课程已存在');{const index=state.courses.findIndex(c=>c.id===form.dataset.id),course={...(state.courses[index]||{}),...v,name:v.name.trim(),id:form.dataset.id||crypto.randomUUID(),color:state.courses[index]?.color||['green','orange','blue'][state.courses.length%3]};if(index<0)state.courses.push(course);else state.courses[index]=course;}}else if(form.id==='material-form'){if(!v.title.trim())return toast('请输入资料标题');if(v.url&&!/^https?:\/\//i.test(v.url))return toast('链接须以 http:// 或 https:// 开头');const index=state.materials.findIndex(m=>m.id===form.dataset.id);const material={...v,id:form.dataset.id||crypto.randomUUID()};if(index<0)state.materials.push(material);else state.materials[index]=material;}else return;persist();dialog.close();render();toast('已更新，正在保存到账号');});
-window.addEventListener('hashchange',()=>{if(page==='agent')leaveAssistant();page=location.hash.slice(1)||'home';render();window.scrollTo(0,0);if(!matchMedia('(prefers-reduced-motion: reduce)').matches)document.querySelector('.content')?.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'translateY(0)'}],{duration:320,easing:'cubic-bezier(.2,.8,.2,1)'});});
-
-function saveLabel(){if(!session.user)return '未登录';return ({local:'未登录',saved:'已保存到账号',saving:'正在保存…',error:'保存失败'})[session.sync]||'连接中…';}
-function saveAlert(){return session.sync==='error'?`<div class="save-error" role="alert">${esc(session.error)} ${button('重试保存','retry-save')}${button('导出备份','export')}</div>`:'';}
-window.addEventListener('niuma:sync',()=>{const label=document.querySelector('#save-status'),alert=document.querySelector('#save-alert');if(label)label.textContent=saveLabel();if(alert)alert.innerHTML=saveAlert();});
-function authDialog(mode='login'){
- if(!session.backend){toast('请在 frontend 目录运行 npm run dev:api');return;}
- const signup=mode==='register';openDialog(`<form id="auth-form" data-mode="${mode}">${dialogHeader(signup?'创建你的学习账号':'欢迎回来')}<p class="muted">${signup?'任务和日历按账号独立保存。':'登录后，继续你的学习计划。'}</p>${signup?'<label>昵称<input name="displayName" autocomplete="nickname" maxlength="40" placeholder="希望小牛怎么称呼你"></label>':''}<label>邮箱<input name="email" type="email" required maxlength="254" autocomplete="username" placeholder="you@example.com"></label><label>密码<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="${signup?'new-password':'current-password'}" placeholder="至少 8 位"></label>${signup?'<label>确认密码<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="再输入一次密码"></label>':''}<p id="auth-error" role="alert" class="error"></p><div class="dialog-actions"><button class="btn primary" type="submit">${signup?'注册并登录':'登录'}</button></div><p class="auth-switch">${signup?'已经有账号？':'还没有账号？'}<button type="button" class="inline-button" data-auth-mode="${signup?'login':'register'}">${signup?'去登录':'创建账号'}</button></p><p class="panel-note">账号数据保存在服务端数据库，协作者各自运行本地数据库。</p></form>`);
-}
-async function submitAuth(form){const v=Object.fromEntries(new FormData(form)),error=form.querySelector('#auth-error'),submit=form.querySelector('[type=submit]');error.textContent='';if(form.dataset.mode==='register'&&v.password!==v.confirmPassword){error.textContent='两次输入的密码不一致';return;}submit.disabled=true;submit.textContent='正在连接…';try{state=await authenticate(form.dataset.mode,v);undoAction=null;switchFocusAccount(session.user?.id);filter='all';query='';resetAssistant();dialog.close();render();toast('欢迎，'+session.user.display_name);}catch(e){error.textContent=e.message;}finally{submit.disabled=false;submit.textContent=form.dataset.mode==='register'?'注册并登录':'登录';}}
-async function signOut(){try{state=await logout();undoAction=null;switchFocusAccount(null);resetAssistant();filter='all';query='';render();toast('已退出账号');}catch(e){toast(e.message);}}
-function exportCalendar(){
- const escapeICS=value=>String(value).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;');
- const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Niuma Manager//DDL//ZH','CALSCALE:GREGORIAN'];
- const utc=value=>new Date(value).toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
- for(const task of workspaceValue('tasks',[]).filter(t=>t.status!=='cancelled')){
-  if(task.due){
-   lines.push('BEGIN:VEVENT','UID:ddl-'+task.id+'@niuma-manager','DTSTAMP:'+utc(new Date().toISOString()),'SUMMARY:'+escapeICS(task.title));
-   lines.push(task.due.time?'DTSTART:'+utc(task.due.date+'T'+task.due.time+':00+08:00'):'DTSTART;VALUE=DATE:'+task.due.date.replaceAll('-',''));
-   lines.push('END:VEVENT');
+  drawerId = null,
+  drawerEditing = false,
+  drawerError = null,
+  lastFocus = null,
+  toastTimer,
+  sidebarTooltipTimer,
+  sidebarTooltipTarget,
+  environment = null,
+  backendRevision = "unknown";
+const busyTasks = new Set();
+const taskBusy = id => busyTasks.has(id);
+function canChangeTask(id) {
+  if (taskBusy(id) || loading || session.changing) return false;
+  if (!demo && session.sync === "error") {
+    toast("请先重试保存或重新读取任务");
+    return false;
   }
-  for(const plan of task.plans||[]){
-   lines.push('BEGIN:VEVENT','UID:plan-'+plan.id+'@niuma-manager','DTSTAMP:'+utc(new Date().toISOString()),'SUMMARY:'+escapeICS(plan.title));
-   lines.push('DTSTART:'+utc(plan.startAt));
-   if(plan.endAt)lines.push('DTEND:'+utc(plan.endAt));
-   lines.push('END:VEVENT');
-  }
- }
- lines.push('END:VCALENDAR');const url=URL.createObjectURL(new Blob([lines.map(line=>{let out='',count=0;for(const char of line){const size=new TextEncoder().encode(char).length;if(count+size>75){out+='\r\n ';count=1;}out+=char;count+=size;}return out;}).join('\r\n')+'\r\n'],{type:'text/calendar;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='niuma-deadlines.ics';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已导出日历文件，可手动导入其他日历');
+  return true;
 }
-configureAssistant({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,refresh:async()=>{state=await refreshStore();render();}});
-configureExperience({getState:()=>state,toast,openDialog,closeDialog,dialogHeader,editTask:taskDialog});
-configurePlanner({getState:()=>state,render,persist,toast,openDialog,closeDialog,dialogHeader,refresh:async()=>{state=await refreshStore();render();}});
-configurePersonalization({getState:()=>state,render});
-document.addEventListener('keydown',experienceKey);
-document.addEventListener('change',event=>{if(event.target.id==='agent-source-file')handleAssistantInput(event);experienceInput(event);if(plannerChange(event))return;if(event.target.id==='task-sort'){sort=event.target.value;document.querySelector('#task-results').innerHTML=taskResults();}if(event.target.dataset.subtaskTask){const rect=event.target.getBoundingClientRect(),task=state.tasks.find(t=>t.id===event.target.dataset.subtaskTask),sub=task?.subtasks[Number(event.target.dataset.subtaskIndex)];if(sub){sub.done=event.target.checked;expandedTasks.add(task.id);persist();const completed=task.subtasks.filter(item=>item.done).length,total=task.subtasks.length;render();if(sub.done)celebrate(rect,completed===total?'所有小步骤完成！可以完成整项任务了。':`完成一步 · ${completed}/${total}`,completed===total);else toast(`已重新打开 · ${completed}/${total}`);}}});
-document.addEventListener('toggle',event=>{if(event.target.isConnected&&event.target.dataset.taskDetail){if(event.target.open)expandedTasks.add(event.target.dataset.taskDetail);else expandedTasks.delete(event.target.dataset.taskDetail);}},true);
-dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});
-dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeDialog();}});
-function stepRow(step){return `<div data-step-row data-step-id="${esc(step.id||'')}"><input type="checkbox" data-step-done aria-label="步骤完成状态" ${step.done?'checked':''}><input data-step-title value="${esc(step.title)}" maxlength="300" placeholder="写下一个小步骤" aria-label="子任务名称"><button type="button" class="icon-btn" data-remove-step aria-label="移除步骤">${icon('close')}</button></div>`;}
-app.innerHTML='<div class="boot-screen">正在打开你的学习空间…</div>';
-(async()=>{try{state=await initSession();switchFocusAccount(session.user?.id);render();}catch(e){app.innerHTML=`<div class="boot-screen"><h2>暂时无法读取账号数据</h2><p>${esc(e.message)}</p><p>请确认服务已启动，再刷新页面。</p></div>`;}})();
+function syncTaskControls() {
+  document.querySelectorAll("[data-task-complete]").forEach(button => {
+    button.disabled = taskBusy(button.dataset.taskComplete) ||
+      button.dataset.taskComplete.startsWith("review:") && imports.isReviewBusy(button.dataset.taskComplete.slice(7)) ||
+      !demo && session.sync === "error";
+  });
+  document.querySelectorAll("[data-restore-task]").forEach(button => {
+    button.disabled = taskBusy(button.dataset.restoreTask) || !demo && session.sync === "error";
+  });
+}
+function finishTask(id, epoch, repaint = false) {
+  if (epoch !== accountVersion()) return;
+  busyTasks.delete(id);
+  if (repaint) render();
+  else syncTaskControls();
+  // Another operation must not replace an open editor's unsent draft.
+  if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
+}
+async function stageTaskSave(saving, id, epoch, form) {
+  const fields = !demo && taskWritesAreOnlineOnly() && form
+    ? [...form.querySelectorAll('input,textarea,select,button')]
+      .filter(field => field.dataset.action !== 'drawer-cancel')
+      .map(field => ({ field, disabled: field.disabled })) : [];
+  for (const { field } of fields) field.disabled = true;
+  try {
+    await saving.staged;
+    return epoch === accountVersion();
+  } catch (error) {
+    if (epoch === accountVersion()) {
+      toast(error.message);
+      finishTask(id, epoch);
+    }
+    return false;
+  } finally {
+    if (epoch === accountVersion() && form?.isConnected)
+      for (const { field, disabled } of fields) field.disabled = disabled;
+  }
+}
+let preferences = {};
+try {
+  preferences = JSON.parse(localStorage.getItem("niuma.task-ui.v2") || "{}");
+} catch {}
+const ui = {
+  ...readNavigation(params, { today, preferences }),
+  query: "",
+  course: "",
+  source: "",
+  dateFrom: "",
+  dateTo: "",
+  filterOpen: false,
+  sidebarCollapsed: preferences.sidebarCollapsed === true,
+  mobileMenu: false,
+};
+const host = {
+  escapeHtml: esc,
+  icon,
+  toast,
+  reportReviewError: error => toastError(error, 'import_review'),
+  render,
+  renderPageHeading: workspaceHeading,
+  revealImportResult(id) {
+    const target = document.getElementById(id);
+    if (!target) return;
+    const root = document.documentElement;
+    root.style.removeProperty("--recovery-scroll-space");
+    // Allow even a result near the end of the page to align with the viewport top.
+    const top = window.scrollY + target.getBoundingClientRect().top - 24;
+    const pageBottom = window.scrollY + document.querySelector(".import-page").getBoundingClientRect().bottom;
+    const space = Math.max(0, Math.ceil(top + window.innerHeight - pageBottom));
+    root.style.setProperty("--recovery-scroll-space", `${space}px`);
+    target?.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "start", inline: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  },
+  clearImportResultHighlight() {
+    document.querySelectorAll("[data-source-sync-highlight]").forEach(target => {
+      target.removeAttribute("data-source-sync-highlight");
+      target.removeAttribute("aria-description");
+    });
+    document.documentElement.style.removeProperty("--recovery-scroll-space");
+  },
+  openDialog,
+  closeDialog,
+  isDialogOpen: selector => dialog.open && Boolean(dialog.querySelector(selector)),
+  refresh,
+  openTask(id) {
+    if (state.tasks.some(task => task.id === id && !task.recycleBin)) openTask(id);
+    else toast("这条任务或通知已不在当前列表中");
+  },
+  getState: () => state,
+  onReviewStore() {
+    if (demo) return;
+    state = readProjectedStore();
+    render();
+    if (drawer.open && !drawerEditing) {
+      if (!editableTask(drawerId) && drawerId?.startsWith('review:')) {
+        const candidateId = drawerId.slice(7);
+        const saved = state.tasks.find(task => task.pendingReviewCandidateId === candidateId ||
+          task.recognitionHistory?.some(event => event.storageId === candidateId));
+        if (saved) drawerId = saved.id;
+        else { closeDrawer(); return; }
+      }
+      if (editableTask(drawerId)) updateDrawer();
+    }
+  },
+  getCancelledTasks: () => demo ? [] : readCancelledTasks(),
+  isDemo: () => demo,
+  isImportVisible: () => ui.page === "import",
+  getImportSource: () => ui.importSource,
+  onImportSourceChange(source) {
+    ui.importSource = source;
+    syncNavigation();
+  },
+  feedbackBox: () => demo ? "" : feedbackBox(),
+  setState(next) {
+    state = next;
+    demo = false;
+    const url = new URL(location.href);
+    url.searchParams.delete("demo");
+    history.replaceState(null, "", url);
+    loadError = "";
+    resetAccountUI();
+    render();
+    if (ui.page === "import") void imports.load();
+    else void imports.loadTaskReviews();
+  },
+};
+const imports = createImportUI(host),
+  account = createAccountUI(host);
+const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
+let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
+function draggableTask(id) {
+  if (taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
+      taskView() !== "calendar" ||
+      dialog.open || drawer.open || !demo && !session.user) return null;
+  return state.tasks.find((task) => task.id === id &&
+    task.status !== "done" && !task.recycleBin);
+}
+function clearUndo() {
+  clearTimeout(toastTimer);
+  const el = document.querySelector("#toast");
+  el.innerHTML = "";
+  el.classList.remove("visible");
+}
+function resetAccountUI() {
+  clearUndo();
+  busyTasks.clear();
+  imports.reset();
+  ui.query = "";
+  ui.course = "";
+  ui.source = "";
+  ui.dateFrom = "";
+  ui.dateTo = "";
+  drawer.close();
+  drawerId = null;
+}
+function syncNavigation(method = "push") {
+  const url = navigationURL(location.href, ui);
+  if (!demo) url.searchParams.delete("demo");
+  if (url.href !== location.href) history[method === "replace" ? "replaceState" : "pushState"](null, "", url);
+}
+function remember() {
+  try {
+    localStorage.setItem(
+      "niuma.task-ui.v2",
+      JSON.stringify({
+        view: ui.view,
+        mode: ui.mode,
+        sidebarCollapsed: ui.sidebarCollapsed,
+      }),
+    );
+  } catch {}
+}
+function toast(message, undo) {
+  const epoch = accountVersion();
+  clearTimeout(toastTimer);
+  const el = document.querySelector("#toast");
+  el.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" id="toast-undo">撤销</button>' : ""}`;
+  el.classList.add("visible");
+  if (undo)
+    el.querySelector("button").onclick = async () => {
+      if (epoch !== accountVersion()) return;
+      try {
+        await undo();
+        el.classList.remove("visible");
+      } catch (e) {
+        toastError(e);
+      }
+    };
+  toastTimer = setTimeout(
+    () => el.classList.remove("visible"),
+    undo ? 7000 : 4000,
+  );
+}
+function toastError(error, action = "general") {
+  if (dialog.open) {
+    let target = dialog.querySelector("[data-dialog-operation-error]");
+    if (!target) {
+      target = document.createElement("div");
+      target.dataset.dialogOperationError = "";
+      dialog.append(target);
+    }
+    target.innerHTML = userErrorMarkup(error, action);
+    return;
+  }
+  if (drawer.open && !drawerEditing) {
+    drawerError = { error, action };
+    updateDrawer();
+    return;
+  }
+  clearTimeout(toastTimer);
+  const el = document.querySelector("#toast");
+  el.innerHTML = `${userErrorMarkup(error, action)}<button type="button" class="btn quiet" data-action="error-dismiss">关闭提示</button>`;
+  el.classList.add("visible");
+}
+function openDialog(html) {
+  hideSidebarTooltip();
+  dialog.innerHTML = html;
+  if (!dialog.querySelector("#dialog-heading")) {
+    const heading = dialog.querySelector("h1,h2,h3");
+    if (heading) heading.id = "dialog-heading";
+    else dialog.setAttribute("aria-label", "操作面板");
+  }
+  if (!dialog.open) dialog.showModal();
+}
+function closeDialog() {
+  dialog.close();
+}
+dialog.addEventListener("close", () => {
+  if (!dialog.open) account.closed?.();
+});
+async function refresh() {
+  if (demo) return;
+  state = await refreshStore();
+  render();
+}
+const listItems = () => projectReviewTasks(state.tasks, imports.getReviewItems(), today);
+const editableTask = id => state.tasks.find(task => task.id === id)
+  || listItems().find(task => task.id === id && task.reviewCandidateId && !task.reviewChange);
+const filtered = () => filterTasks(listItems(), { ...ui, today });
+const taskView = () => (ui.scope === "all" ? ui.view : "list");
+const calendarItems = () => filterTasks(state.tasks, { scope: "calendar", today });
+const headingCount = () => taskView() === "calendar"
+  ? filterTasks(state.tasks, { scope: "all", today }).length
+  : filtered().length;
+const courses = () =>
+  [...new Set(listItems().map((t) => t.course).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "zh"),
+  );
+const sources = () =>
+  [...new Set(listItems().map((t) => t.source || "手动添加"))].sort();
+const taskListLoading = () => loading || !demo && Boolean(session.user) && !imports.taskReviewsReady();
+function sidebar() {
+  const mobile = matchMedia("(max-width: 700px)").matches;
+  const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
+  const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
+  const counts = {
+    all: filterTasks(listItems(), { scope: "all", today }).length,
+    near: filterTasks(listItems(), { scope: "near", today }).length,
+    done: filterTasks(state.tasks, { scope: "done", today }).length,
+    notices: filterTasks(listItems(), { scope: "notices", today }).length,
+  };
+  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器">${icon("cow")}<span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
+    ["all", "全部任务", "tasks"],
+    ["notices", "通知", "info"],
+    ["near", "临近截止", "clock"],
+    ["done", "已完成", "check"],
+  ]
+    .map(
+      ([scope, label, name]) =>
+        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${taskListLoading() ? '…' : counts[scope]}</span></button>`,
+    )
+    .join(
+      "",
+    )}</nav><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${avatarContent(session.user, esc)}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small>${!demo && session.user && !session.user.emailVerified ? '<small class="account-verification-hint">邮箱待验证</small>' : ""}</span>${icon("chevron")}</button></div></aside>`;
+}
+function hideSidebarTooltip() {
+  clearTimeout(sidebarTooltipTimer);
+  sidebarTooltipTarget?.removeAttribute("aria-describedby");
+  sidebarTooltipTarget = null;
+  sidebarTooltip.hidden = true;
+}
+function hasSidebarTooltip(button) {
+  return button?.isConnected && !matchMedia("(max-width: 700px)").matches &&
+    (ui.sidebarCollapsed || button.id === "sidebar-toggle") &&
+    !dialog.open && !drawer.open;
+}
+function showSidebarTooltip(button) {
+  if (!hasSidebarTooltip(button)) return;
+  sidebarTooltipTarget = button;
+  sidebarTooltip.textContent = button.dataset.sidebarLabel;
+  sidebarTooltip.hidden = false;
+  const anchor = button.getBoundingClientRect();
+  const tip = sidebarTooltip.getBoundingClientRect();
+  sidebarTooltip.style.left = `${Math.max(8, Math.min(anchor.right + 10, innerWidth - tip.width - 8))}px`;
+  sidebarTooltip.style.top = `${Math.max(8, Math.min(anchor.top + (anchor.height - tip.height) / 2, innerHeight - tip.height - 8))}px`;
+  button.setAttribute("aria-describedby", "sidebar-tooltip");
+}
+function updateSidebarState() {
+  hideSidebarTooltip();
+  const mobile = matchMedia("(max-width: 700px)").matches;
+  const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
+  const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
+  const workspace = document.querySelector(".workspace");
+  workspace.classList.toggle("sidebar-collapsed", ui.sidebarCollapsed);
+  workspace.classList.toggle("menu-open", ui.mobileMenu);
+  document.querySelector("#sidebar").inert = mobile && !ui.mobileMenu;
+  document.querySelector("#main").inert = mobile && ui.mobileMenu;
+  const toggle = document.querySelector("#sidebar-toggle");
+  toggle.setAttribute("aria-expanded", String(expanded));
+  toggle.setAttribute("aria-label", toggleLabel);
+  toggle.dataset.sidebarLabel = toggleLabel;
+  document.querySelector("#sidebar-show").setAttribute("aria-expanded", String(ui.mobileMenu));
+  if (environment) {
+    const accountEntry = document.querySelector(".account-entry");
+    if (!mobile && ui.sidebarCollapsed) accountEntry.removeAttribute("title");
+    else accountEntry.title = environment.detail;
+  }
+}
+function saveLabel() {
+  if (loading) return "连接中…";
+  if (!session.user) return loadError ? "连接失败" : "管理账号";
+  return (
+    { saving: "正在保存…", error: "保存失败", saved: "已保存" }[session.sync] ||
+    "已保存"
+  );
+}
+function toolbar() {
+  const mixed = ui.scope === "near" || ui.scope === "done";
+  const searchLabel = ui.scope === "notices" ? "搜索通知" : mixed ? "搜索任务与通知" : "搜索任务";
+  const dateLabel = ui.scope === "notices" ? "关键日期" : mixed ? "日期范围" : "截止日期";
+  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
+    .map(
+      (c) =>
+        `<option ${ui.course === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`,
+    )
+    .join(
+      "",
+    )}</select></label><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${ui.query || ui.course || ui.source || ui.dateFrom || ui.dateTo ? '<button type="button" class="btn quiet reset-filters" data-action="filter-reset">清除</button>' : ""}</div>${
+    ui.filterOpen
+      ? `<div id="advanced-filters" class="advanced-filters"><label class="field">来源<select id="source-filter"><option value="">全部来源</option>${sources()
+          .map(
+            (s) =>
+              `<option ${ui.source === s ? "selected" : ""} value="${esc(s)}">${esc(s)}</option>`,
+          )
+          .join(
+            "",
+          )}</select></label><label class="field">${dateLabel}，从<input id="date-from" type="date" value="${esc(ui.dateFrom)}"></label><label class="field">到<input id="date-to" type="date" value="${esc(ui.dateTo)}"></label></div>`
+      : ""
+  }`;
+}
+function monthLabel() {
+  const d = new Date(ui.anchor + "T12:00:00");
+  return `${d.getFullYear()}年 ${d.getMonth() + 1}月`;
+}
+function calendarTools() {
+  return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
+}
+function taskResults() {
+  if (taskView() === "list")
+    return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
+  const items = calendarItems();
+  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
+}
+function workspaceHeading(options) {
+  return renderPageHeading({
+    ...options,
+    navigation: `<button type="button" id="sidebar-show" class="icon-button" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${ui.mobileMenu}" aria-label="展开侧栏">${icon("sidebar")}</button>`,
+    metadata: `<time class="main-date" datetime="${today}">${esc(dateLabel())}</time>`,
+    escapeHtml: esc,
+  });
+}
+function tasksPage() {
+  const view = taskView();
+  const viewSwitch = ui.scope === "all"
+    ? `<div class="segmented task-view-switch" role="group" aria-label="任务视图"><button type="button" data-view="list" aria-pressed="${view === "list"}">${icon("tasks")}<span>清单</span></button><button type="button" data-view="calendar" aria-pressed="${view === "calendar"}">${icon("calendar")}<span>日历</span></button></div>`
+    : "";
+  const label =
+    { all: "全部任务", near: "临近截止", done: "已完成", notices: "通知" }[
+      ui.scope
+    ] || "全部任务";
+  const heading = workspaceHeading({
+    title: label,
+    count: headingCount(),
+    countId: "result-count",
+    controls: viewSwitch,
+    actions: ui.scope === "notices" ? "" : `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
+    escapeHtml: esc,
+  });
+  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${view === "list" ? toolbar() : ""}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+    .map((c) => `<option value="${esc(c)}">`)
+    .join("")}</datalist></section>`;
+}
+function syncAlert() {
+  return loadError
+    ? `<div class="connection-alert">${userErrorMarkup(loadError, "tasks_load")}<button type="button" class="btn quiet" data-action="reconnect">重新连接</button></div>`
+    : session.sync === "error" && !demo
+      ? `<div class="connection-alert task-save-alert"><div class="sync-error-message">${userErrorMarkup(session.failure || session.error, "tasks_save")}<p>${taskWritesAreOnlineOnly() ? '待保存操作仅保留在当前页面，刷新或关闭后无法自动恢复。' : '待保存操作保留在当前浏览器。'}${session.conflict ? '重新读取将放弃本页待保存的修改。' : '重试前会先核对服务器是否已经保存。'}</p></div><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
+      : !demo && session.user && taskWritesAreOnlineOnly()
+        ? '<p class="status-note">当前入口使用在线保存，请等到“已保存”后再刷新或关闭页面。</p>' : "";
+}
+function focusToken(el) {
+  if (el?.id) return { id: el.id };
+  const key = Object.keys(el?.dataset || {}).find((key) =>
+    [
+      "action",
+      "taskOpen",
+      "taskComplete",
+      "noticeRead",
+      "scope",
+      "page",
+      "view",
+      "calendarDay",
+      "calendarMode",
+      "calendarPane",
+      "accountAction",
+    ].includes(key),
+  );
+  return key ? { key, value: el.dataset[key] } : null;
+}
+function restoreFocus(token) {
+  if (!token) return;
+  const el = token.id
+    ? document.getElementById(token.id)
+    : [...document.querySelectorAll("button,input")].find(
+        (el) => el.dataset[token.key] === token.value,
+      );
+  if (el && !el.disabled) el.focus({ preventScroll: true });
+}
+function refreshToday() {
+  const next = todayKey();
+  if (next === today) return false;
+  today = next;
+  if (drawer.open && !drawerEditing) updateDrawer();
+  return true;
+}
+function syncToday() {
+  if (document.visibilityState !== "hidden" && refreshToday()) {
+    if (ui.page === "tasks") render();
+    else {
+      // Keep the import form and any unsaved review draft intact.
+      const label = document.querySelector(".main-date");
+      if (label) {
+        label.dateTime = today;
+        label.textContent = dateLabel();
+      }
+    }
+  }
+  clearTimeout(dayTimer);
+  const now = new Date();
+  dayTimer = setTimeout(syncToday,
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now);
+}
+function render() {
+  calendarDrag.cancel();
+  refreshToday();
+  hideSidebarTooltip();
+  imports.setVisible(ui.page === "import" && !demo && !loading);
+  const focus = document.activeElement,
+    token = focusToken(focus),
+    focusId = focus?.id,
+    start = focus?.selectionStart,
+    end = focus?.selectionEnd;
+  const epoch = accountVersion();
+  updateDOM(app, `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading || ui.page === "tasks" && taskView() === "list" && taskListLoading() ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`, { reset: renderedAccount !== epoch });
+  renderedAccount = epoch;
+  if (!focusId) restoreFocus(token);
+  if (focusId) {
+    const next = document.getElementById(focusId);
+    if (next) {
+      if (next !== document.activeElement) next.focus({ preventScroll: true });
+      if (!isComposing(next) && typeof start === "number" && next.setSelectionRange)
+        try {
+          next.setSelectionRange(start, end);
+        } catch {}
+    }
+  }
+  syncTaskControls();
+  if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
+    document.querySelector(".account-entry").title = environment.detail;
+  pruneErrorFeedback();
+}
+function renderResults() {
+  calendarDrag.cancel();
+  if (refreshToday()) return render();
+  const dayFocus = document.activeElement?.dataset.calendarDay;
+  const results = document.querySelector("#task-results");
+  if (!results) return;
+  updateDOM(results, taskResults());
+  syncTaskControls();
+  document.querySelector("#result-count").textContent = headingCount();
+  if (dayFocus)
+    document
+      .querySelector(`[data-calendar-day="${dayFocus}"]`)
+      ?.focus({ preventScroll: true });
+}
+function navigatePage(page, scope = ui.scope) {
+  const fromMobileMenu = ui.mobileMenu;
+  ui.page = page;
+  ui.scope = scope;
+  ui.mobileMenu = false;
+  syncNavigation();
+  render();
+  window.scrollTo(0, 0);
+  if (fromMobileMenu) document.getElementById("page-title")?.focus({ preventScroll: true });
+}
+function requireAccount() {
+  if (demo || session.user) return true;
+  account.click({ dataset: { accountAction: "open" } });
+  return false;
+}
+function openTask(id, editing = false) {
+  hideSidebarTooltip();
+  if (!requireAccount()) return;
+  drawerVisit++;
+  lastFocus = document.activeElement;
+  drawerId = id;
+  drawerEditing = editing;
+  drawerError = null;
+  updateDrawer();
+  if (!drawer.open) drawer.showModal();
+}
+function updateDrawer() {
+  const task = editableTask(drawerId) || {
+    title: "",
+    due: "",
+    dueTime: "",
+    course: "",
+    notes: "",
+  };
+  const identity = JSON.stringify([accountVersion(), drawerId, drawerEditing,
+    task.reviewCandidateId || task.pendingReviewCandidateId || '', task.recognitionHistory || []]);
+  const reuse = renderedDrawer === identity;
+  updateDOM(drawer, renderTaskDrawer({
+    task,
+    editing: drawerEditing,
+    escapeHtml: esc,
+    icon,
+    deadlineLabel,
+  }).replace('id="task-evidence"', `id="task-evidence"${reuse ? ' data-preserve-content' : ''}`), { reset: !reuse });
+  renderedDrawer = identity;
+  const actionError = drawer.querySelector("#task-action-error");
+  if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
+  if (!reuse && !drawerEditing && task.id) {
+    const evidence = drawer.querySelector("#task-evidence");
+    if (task.reviewCandidateId || task.pendingReviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId || task.pendingReviewCandidateId);
+    else if (demo)
+      evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
+    else void loadTaskEvidence(task.id, evidence, api);
+  }
+  if (taskBusy(drawerId))
+    drawer.querySelectorAll("button,input,textarea,select").forEach(el => {
+      if (!["drawer-close", "drawer-cancel"].includes(el.dataset.action)) el.disabled = true;
+    });
+}
+function closeDrawer() {
+  drawerVisit++;
+  drawer.close();
+  renderedDrawer = null;
+  drawerId = null;
+  drawerEditing = false;
+  drawerError = null;
+  const fallback = document.querySelector('[data-action="task-new"]');
+  if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
+  else fallback?.focus({ preventScroll: true });
+}
+const taskDate = (task) => ({ due: task.due || "", dueTime: task.dueTime || "" });
+async function saveTaskDeadline(id, next, expected) {
+  const epoch = accountVersion();
+  if (demo) {
+    const task = state.tasks.find((item) => item.id === id);
+    if (!task || task.due !== expected.due || (task.dueTime || "") !== expected.dueTime)
+      throw new Error("任务日期已变化，请重新核对");
+    Object.assign(task, next);
+  } else {
+    const saved = await setStoredTaskDeadline(id, next, expected);
+    if (epoch !== accountVersion()) throw new Error("账号已切换");
+    const current = state.tasks.find(task => task.id === id);
+    const updated = saved.tasks.find(task => task.id === id);
+    if (current && updated) Object.assign(current, taskDate(updated));
+  }
+}
+async function dropTaskOnDate(id, date) {
+  const task = draggableTask(id);
+  if (!task || !canChangeTask(id) || !shiftDay(date, 0) || task.due === date) return;
+  const epoch = accountVersion(), previous = taskDate(task), applied = { due: date, dueTime: previous.dueTime };
+  const verb = shiftDay(previous.due, 0) ? "更改" : "设置";
+  const dateLabel = isNotice(task) ? "关键日期" : "截止日期";
+  const origin = { anchor: ui.anchor, selectedDate: ui.selectedDate, mode: ui.mode, pane: ui.pane };
+  busyTasks.add(id);
+  render();
+  toast(`正在${verb}${dateLabel}…`);
+  try {
+    await saveTaskDeadline(id, applied, previous);
+    if (epoch !== accountVersion()) return;
+    if (ui.page === "tasks" && taskView() === "calendar" && ui.mode === origin.mode && ui.pane === origin.pane &&
+        ui.anchor === origin.anchor && ui.selectedDate === origin.selectedDate) {
+      ui.selectedDate = date;
+      syncNavigation("replace");
+    }
+    toast(`${dateLabel}已${verb === "更改" ? "改为" : "设为"} ${date}${applied.dueTime ? ` ${applied.dueTime}` : ""}`, async () => {
+      if (!canChangeTask(id)) throw new Error("正在保存或需要处理保存错误，请稍候再撤销");
+      if (drawerEditing && drawer.open) throw new Error("请先关闭任务编辑再撤销");
+      const current = state.tasks.find((item) => item.id === id);
+      if (!current || current.due !== applied.due || (current.dueTime || "") !== applied.dueTime)
+        throw new Error("任务日期已变化，无法撤销这次操作");
+      busyTasks.add(id);
+      render();
+      try {
+        await saveTaskDeadline(id, previous, applied);
+      } finally {
+        finishTask(id, epoch, true);
+      }
+    });
+  } catch (error) {
+    if (epoch === accountVersion()) toast(`未${verb}${dateLabel}：${error.message}，${session.conflict ? "请先重新读取任务" : "可重新拖动重试"}`);
+  } finally {
+    finishTask(id, epoch, true);
+  }
+}
+async function toggleTask(id) {
+  if (!canChangeTask(id) || !requireAccount()) return;
+  const task = editableTask(id);
+  if (!task) return;
+  drawerError = null;
+  const previous = { status: task.status, completedAt: task.completedAt || "" };
+  const next = { status: task.status === "done" ? "todo" : "done", completedAt: task.status === "done" ? "" : todayKey() };
+  await saveStatus(id, next, previous);
+}
+async function saveStatus(id, next, expected) {
+  if (!canChangeTask(id)) throw new Error("请等待当前任务保存，或先处理保存错误");
+  const epoch = accountVersion(), task = editableTask(id);
+  if (!task || task.status !== expected.status || (task.completedAt || "") !== expected.completedAt)
+    throw new Error("任务状态已变化，无法撤销这次操作");
+  const notice = isNotice(task);
+  const pending = Boolean(task.reviewCandidateId);
+  let savedId = id, acknowledged = next;
+  busyTasks.add(id);
+  if (pending) {
+    render();
+    if (drawer.open && drawerId === id) updateDrawer();
+  }
+  const saving = pending ? imports.confirmTask(task.reviewCandidateId, task, true)
+    : demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
+  try {
+    if (pending) {
+      const saved = await saving.staged;
+      if (epoch !== accountVersion()) return;
+      savedId = saved?.id || saving.taskId;
+      if (saved) acknowledged = { status: saved.status, completedAt: saved.completedAt || '' };
+      busyTasks.delete(id);
+      if (drawerId === id && savedId) drawerId = savedId;
+      render();
+      if (drawer.open && !drawerEditing) updateDrawer();
+      await saving;
+    } else {
+      if (!await stageTaskSave(saving, id, epoch)) return;
+      if (demo) Object.assign(task, next);
+      else state = readProjectedStore();
+      render();
+      if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
+      await saving;
+    }
+    if (epoch !== accountVersion()) return;
+    toast(notice
+      ? next.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
+      : next.status === "done" ? "任务已完成" : "任务已重新打开",
+    savedId ? () => saveStatus(savedId, expected, acknowledged) : undefined);
+  } catch (error) {
+    if (epoch === accountVersion() && (pending || session.sync !== "error")) {
+      if (!pending) Object.assign(task, expected);
+      render();
+      toastError(error, "tasks_save");
+    }
+  } finally {
+    finishTask(id, epoch, pending);
+    if (pending && epoch === accountVersion() && drawer.open && drawerId !== id && !drawerEditing) updateDrawer();
+  }
+}
+async function trashTask() {
+  const id = drawerId;
+  if (!id || !canChangeTask(id)) return;
+  const task = state.tasks.find(task => task.id === id);
+  if (!task) return;
+  const epoch = accountVersion(), visit = drawerVisit;
+  busyTasks.add(id);
+  const saving = demo ? Promise.resolve() : trashStoredTasks([id]);
+  if (!await stageTaskSave(saving, id, epoch)) return;
+  if (demo) {
+    state.tasks = state.tasks.filter(task => task.id !== id);
+    state.trash.push(task);
+  } else state = readProjectedStore();
+  if (drawer.open && drawerVisit === visit) closeDrawer();
+  render();
+  try {
+    await saving;
+    if (epoch !== accountVersion()) return;
+    toast("已移入回收站", () => restoreTask(id));
+  } catch (error) {
+    if (epoch === accountVersion() && session.sync !== "error") {
+      state.trash = state.trash.filter(item => item.id !== id);
+      state.tasks.push(task);
+      render();
+      toastError(error, "tasks_delete");
+    }
+  } finally {
+    finishTask(id, epoch);
+  }
+}
+async function restoreTask(id) {
+  if (!canChangeTask(id)) throw new Error("请等待当前任务保存，或先处理保存错误");
+  const task = state.trash.find(task => task.id === id);
+  if (!task) return;
+  const epoch = accountVersion();
+  busyTasks.add(id);
+  const saving = demo ? Promise.resolve() : restoreStoredTasks([id]);
+  if (!await stageTaskSave(saving, id, epoch)) return;
+  if (demo) {
+    state.trash = state.trash.filter(task => task.id !== id);
+    const { recycleBin, ...restored } = task;
+    state.tasks.push(restored);
+  } else state = readProjectedStore();
+  render();
+  // Refresh only the original trash dialog, never reopen one the user closed.
+  const trashDialog = dialog.querySelector(".trash-list");
+  if (dialog.open && trashDialog) actions["open-trash"]();
+  const restoreDialog = dialog.open ? dialog.querySelector(".trash-list") : null;
+  try {
+    await saving;
+    if (epoch === accountVersion()) toast("任务已恢复");
+  } catch (error) {
+    if (epoch === accountVersion()) {
+      if (session.sync !== "error") {
+        state.tasks = state.tasks.filter(item => item.id !== id);
+        state.trash.push(task);
+        render();
+      }
+      if (session.sync !== "error" || restoreDialog && dialog.open && dialog.querySelector(".trash-list") === restoreDialog)
+        toastError(error, "tasks_restore");
+    }
+  } finally {
+    finishTask(id, epoch);
+  }
+}
+function showMobileDay() {
+  if (matchMedia("(max-width: 700px)").matches)
+    document.querySelector(".day-panel")?.scrollIntoView({
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "start",
+    });
+}
+function calendarStep(direction) {
+  const d = new Date(ui.anchor + "T12:00:00");
+  if (ui.mode === "week") {
+    ui.anchor = shiftDay(ui.anchor, direction * 7);
+    ui.selectedDate = shiftDay(ui.selectedDate, direction * 7);
+  } else {
+    d.setDate(1);
+    d.setMonth(d.getMonth() + direction);
+    ui.anchor = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+    ui.selectedDate = ui.anchor;
+  }
+  ui.pane = "day";
+  syncNavigation();
+  renderResults();
+}
+const actions = {
+  "error-dismiss": clearUndo,
+  "sidebar-toggle": () => {
+    const mobile = matchMedia("(max-width: 700px)").matches;
+    if (mobile)
+      ui.mobileMenu = !ui.mobileMenu;
+    else {
+      ui.sidebarCollapsed = !ui.sidebarCollapsed;
+      remember();
+    }
+    updateSidebarState();
+    document.querySelector(mobile && !ui.mobileMenu ? "#sidebar-show" : "#sidebar-toggle").focus({ preventScroll: true });
+  },
+  "task-new": () => openTask(null, true),
+  "drawer-close": closeDrawer,
+  "drawer-edit": () => {
+    if (!canChangeTask(drawerId)) return;
+    drawerEditing = true;
+    updateDrawer();
+    drawer.querySelector('[name="title"]').focus();
+  },
+  "drawer-cancel": () => {
+    if (drawerId) {
+      drawerEditing = false;
+      updateDrawer();
+    } else closeDrawer();
+  },
+  "drawer-trash": trashTask,
+  "filter-toggle": () => {
+    ui.filterOpen = !ui.filterOpen;
+    render();
+  },
+  "filter-reset": () => {
+    ui.query = "";
+    ui.course = "";
+    ui.source = "";
+    ui.dateFrom = "";
+    ui.dateTo = "";
+    render();
+  },
+  "calendar-prev": () => calendarStep(-1),
+  "calendar-next": () => calendarStep(1),
+  "calendar-today": () => {
+    ui.anchor = todayKey();
+    ui.selectedDate = ui.anchor;
+    ui.pane = "day";
+    syncNavigation();
+    renderResults();
+  },
+  "dialog-close": closeDialog,
+  "retry-save": async () => {
+    try {
+      await retrySave();
+      await refresh();
+      toast("已保存");
+    } catch (e) {
+      toastError(e);
+    }
+  },
+  reconnect: () => actions.reload(false),
+  reload: async (discard = true) => {
+    loading = true;
+    loadError = "";
+    render();
+    try {
+      state = await (discard ? reloadStore() : reconnectStore());
+    } catch (e) {
+      loadError = e;
+    } finally {
+      loading = false;
+      render();
+    }
+  },
+  "open-trash": () => {
+    openDialog(
+      `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon("close")}</button></header><div class="trash-list">${state.trash.length ? state.trash.map((t) => `<div><span>${esc(t.title)}</span><button type="button" class="btn quiet" data-restore-task="${esc(t.id)}" ${taskBusy(t.id) ? "disabled" : ""}>恢复</button></div>`).join("") : '<p class="empty-state">回收站为空</p>'}</div>`,
+    );
+  },
+};
+document.addEventListener("pointerover", (event) => {
+  const button = event.target.closest?.("#sidebar [data-sidebar-label]");
+  if (!button || button.contains(event.relatedTarget)) return;
+  hideSidebarTooltip();
+  if (!hasSidebarTooltip(button)) return;
+  if (button.matches(":focus-visible")) showSidebarTooltip(button);
+  else sidebarTooltipTimer = setTimeout(() => showSidebarTooltip(button), 500);
+});
+document.addEventListener("pointerout", (event) => {
+  const button = event.target.closest?.("#sidebar [data-sidebar-label]");
+  if (button && !button.contains(event.relatedTarget)) hideSidebarTooltip();
+});
+document.addEventListener("focusin", (event) => {
+  const button = event.target.closest?.("#sidebar [data-sidebar-label]");
+  if (button?.matches(":focus-visible") && hasSidebarTooltip(button)) {
+    hideSidebarTooltip();
+    showSidebarTooltip(button);
+  }
+});
+document.addEventListener("focusout", hideSidebarTooltip);
+document.addEventListener("pointerdown", () => {
+  hideSidebarTooltip();
+  imports.cancelRecoveryNavigation();
+});
+window.addEventListener("wheel", () => imports.cancelRecoveryNavigation(), { passive: true });
+window.addEventListener("scroll", hideSidebarTooltip, true);
+window.addEventListener("resize", hideSidebarTooltip);
+document.addEventListener("click", async (e) => {
+  imports.cancelRecoveryNavigation();
+  const button = e.target.closest("button");
+  if (!button) return;
+  if (button.dataset.errorFeedback) {
+    await submitErrorFeedback(button, {
+      send: body => api("/api/error-reports", body, "POST", { timeoutMs: 10000 }),
+      frontendRevision: import.meta.env?.VITE_BUILD_REVISION,
+      backendRevision,
+    });
+    return;
+  }
+  hideSidebarTooltip();
+  try {
+    if (button.dataset.action && actions[button.dataset.action]) {
+      await actions[button.dataset.action]();
+      return;
+    }
+    if (button.dataset.taskEvidence) {
+      updateDrawer();
+      return;
+    }
+    if (button.dataset.taskOpen) {
+      openTask(button.dataset.taskOpen);
+      return;
+    }
+    if (button.dataset.taskComplete) {
+      await toggleTask(button.dataset.taskComplete);
+      return;
+    }
+    if (button.dataset.restoreTask) {
+      await restoreTask(button.dataset.restoreTask);
+      return;
+    }
+    if (button.dataset.scope) {
+      navigatePage("tasks", button.dataset.scope);
+      return;
+    }
+    if (button.dataset.page) {
+      navigatePage(button.dataset.page);
+      if (ui.page === "import") void imports.load?.();
+      return;
+    }
+    if (button.dataset.view) {
+      if (ui.scope !== "all") return;
+      ui.view = button.dataset.view;
+      remember();
+      syncNavigation();
+      render();
+      return;
+    }
+    if (button.dataset.calendarMode) {
+      ui.mode = button.dataset.calendarMode;
+      if (ui.mode === "week") ui.anchor = ui.selectedDate;
+      remember();
+      syncNavigation();
+      renderResults();
+      return;
+    }
+    if (button.dataset.calendarDay) {
+      ui.selectedDate = button.dataset.calendarDay;
+      ui.pane = "day";
+      syncNavigation();
+      renderResults();
+      showMobileDay();
+      return;
+    }
+    if (button.dataset.calendarPane) {
+      ui.pane = button.dataset.calendarPane;
+      syncNavigation();
+      renderResults();
+      showMobileDay();
+      return;
+    }
+    if (button.dataset.accountAction) {
+      await account.click(button);
+      return;
+    }
+    await imports.click(button);
+    if (button.dataset.importIgnore && drawer.open && drawerId === `review:${button.dataset.importIgnore}` &&
+        !imports.getReviewItems().some(item => item.id === button.dataset.importIgnore)) closeDrawer();
+  } catch (error) {
+    toastError(error, button.dataset.restoreTask ? "tasks_restore" : "general");
+  }
+});
+document.addEventListener("input", (e) => {
+  imports.cancelRecoveryNavigation();
+  if (e.target.id === "task-search") {
+    ui.query = e.target.value;
+    renderResults();
+    return;
+  }
+  if (account.input?.(e)) return;
+  imports.input?.(e);
+});
+document.addEventListener("change", (e) => {
+  imports.cancelRecoveryNavigation();
+  if (account.change?.(e)) return;
+  if (e.target.dataset.noticeRead) {
+    void toggleTask(e.target.dataset.noticeRead);
+    return;
+  }
+  if (imports.input?.(e)) return;
+  const id = e.target.id,
+    value = e.target.value;
+  if (id === "course-filter") ui.course = value;
+  else if (id === "source-filter") ui.source = value;
+  else if (id === "date-from") ui.dateFrom = value;
+  else if (id === "date-to") ui.dateTo = value;
+  else if (id === "calendar-jump") {
+    if (value) {
+      ui.anchor = value;
+      ui.selectedDate = value;
+      ui.pane = "day";
+      syncNavigation();
+    }
+  } else return;
+  render();
+});
+document.addEventListener("toggle", (event) => {
+  void imports.toggle(event);
+}, true);
+document.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  if (form.id === "task-edit-form") {
+    if (!canChangeTask(form.dataset.id)) return;
+    const values = Object.fromEntries(new FormData(form)),
+      error = form.querySelector("#task-edit-error");
+    if (!values.title.trim()) {
+      error.textContent = "请输入任务名称";
+      return;
+    }
+    if (values.dueTime && !values.due) {
+      error.textContent = "请先填写截止日期";
+      return;
+    }
+    const existing = editableTask(form.dataset.id);
+    if (form.dataset.id) {
+      try {
+        assertCurrentTaskEdit(existing, form.dataset.taskEditSnapshot);
+      } catch (cause) {
+        error.textContent = cause.message;
+        return;
+      }
+    }
+    const epoch = accountVersion();
+    const draftId = form.dataset.id || newId();
+    const task = {
+      ...(existing || { id: draftId, status: "todo", source: "手动添加" }),
+      ...values, title: values.title.trim(), course: values.course.trim(),
+    };
+    if (existing?.reviewCandidateId) {
+      if (taskEditSnapshot(task) === taskEditSnapshot(existing)) {
+        drawerEditing = false;
+        updateDrawer();
+        toast('没有修改，仍保留待核对状态');
+        return;
+      }
+      busyTasks.add(existing.id);
+      form.querySelectorAll('button,input,textarea,select').forEach(field => { field.disabled = true; });
+      render();
+      try {
+        const saving = imports.confirmTask(existing.reviewCandidateId, task, false, Number(form.dataset.reviewVersion));
+        const saved = await saving.staged;
+        if (epoch !== accountVersion()) return;
+        busyTasks.delete(existing.id);
+        if (form.isConnected && drawer.open) closeDrawer();
+        render();
+        if (saved) restoreFocus({ key: 'taskOpen', value: saved.id });
+        await saving;
+        if (epoch === accountVersion()) toast(isNotice(task) ? '通知已保存' : '任务已保存');
+      } catch (cause) {
+        if (epoch === accountVersion()) {
+          if (form.isConnected) error.innerHTML = userErrorMarkup(cause, 'tasks_save');
+          else toastError(cause, 'tasks_save');
+        }
+      } finally {
+        if (epoch === accountVersion()) {
+          busyTasks.delete(existing.id);
+        }
+        if (form.isConnected) form.querySelectorAll('button,input,textarea,select').forEach(field => {
+          if (!field.dataset.errorFeedback) field.disabled = false;
+        });
+        render();
+      }
+      return;
+    }
+    const expected = existing ? form.dataset.taskEditSnapshot : undefined;
+    form.dataset.id = draftId;
+    busyTasks.add(draftId);
+    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
+    if (!await stageTaskSave(saving, draftId, epoch, form)) return;
+    if (demo) {
+      if (existing) Object.assign(existing, task);
+      else state.tasks.push(task);
+    } else state = readProjectedStore();
+    const ownsDrawer = form.isConnected && drawer.open;
+    if (ownsDrawer) closeDrawer();
+    render();
+    if (ownsDrawer) restoreFocus({ key: "taskOpen", value: draftId });
+    try {
+      await saving;
+      if (epoch === accountVersion()) toast(isNotice(task) ? "通知已保存" : "任务已保存");
+    } catch (error) {
+      if (epoch === accountVersion() && session.sync !== "error") toastError(error, "tasks_save");
+    } finally {
+      finishTask(draftId, epoch);
+    }
+    return;
+  }
+  try {
+    if (await account.submit(form)) return;
+    await imports.submit(form);
+  } catch (error) {
+    toastError(error);
+  }
+});
+document.addEventListener("keydown", (e) => {
+  imports.cancelRecoveryNavigation();
+  if (e.key === "Escape") hideSidebarTooltip();
+  const modalOpen = dialog.open || drawer.open;
+  if (e.key === "Tab" && ui.mobileMenu && !modalOpen) {
+    const focusable = [
+      ...document.querySelectorAll(".sidebar a,.sidebar button"),
+    ].filter((el) => !el.disabled && el.getClientRects().length);
+    const first = focusable[0],
+      last = focusable.at(-1);
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }
+  if (e.key === "Escape" && ui.mobileMenu && !modalOpen) {
+    e.preventDefault();
+    ui.mobileMenu = false;
+    updateSidebarState();
+    document.querySelector("#sidebar-show").focus({ preventScroll: true });
+  }
+  if (
+    (e.metaKey || e.ctrlKey) &&
+    e.key === "b" &&
+    !modalOpen &&
+    !["INPUT", "TEXTAREA"].includes(e.target.tagName)
+  ) {
+    e.preventDefault();
+    actions["sidebar-toggle"]();
+  }
+});
+for (const modal of [dialog, drawer]) {
+  let pointerStartedOnBackdrop = false;
+  const isBackdrop = (e) => {
+    if (e.target !== modal) return false;
+    const rect = modal.getBoundingClientRect();
+    return (
+      e.clientX < rect.left ||
+      e.clientX > rect.right ||
+      e.clientY < rect.top ||
+      e.clientY > rect.bottom
+    );
+  };
+  const resetBackdropPointer = () => {
+    pointerStartedOnBackdrop = false;
+  };
+  // Dragging from inside to outside can also target the modal with a click.
+  modal.addEventListener("pointerdown", (e) => {
+    pointerStartedOnBackdrop = e.isPrimary && e.button === 0 && isBackdrop(e);
+  });
+  modal.addEventListener("pointercancel", resetBackdropPointer);
+  modal.addEventListener("close", resetBackdropPointer);
+  modal.addEventListener("click", (e) => {
+    const dismiss = pointerStartedOnBackdrop && isBackdrop(e);
+    resetBackdropPointer();
+    if (dismiss) modal === drawer ? closeDrawer() : closeDialog();
+  });
+}
+drawer.addEventListener("cancel", (e) => {
+  e.preventDefault();
+  closeDrawer();
+});
+window.addEventListener("niuma:account-reset", () => {
+  resetErrorFeedback();
+  const authForm = dialog.querySelector("[data-account-form]");
+  if (
+    !(
+      session.changing &&
+      ["login", "register"].includes(authForm?.dataset.accountForm)
+    )
+  ) {
+    dialog.close();
+    dialog.replaceChildren();
+  }
+  clearUndo();
+  state = readStore();
+  busyTasks.clear();
+  imports.reset();
+  drawer.close();
+  drawerId = null;
+  ui.query = "";
+  ui.course = "";
+  ui.source = "";
+  ui.dateFrom = "";
+  ui.dateTo = "";
+  render();
+});
+window.addEventListener("popstate", () => {
+  Object.assign(ui, readNavigation(new URLSearchParams(location.search), { today: todayKey(), preferences }));
+  ui.mobileMenu = false;
+  imports.setSource(ui.importSource);
+  imports.cancelRecoveryNavigation();
+  imports.dismissRecoveryHighlight();
+  closeDialog();
+  closeDrawer();
+  syncNavigation("replace");
+  render();
+  if (ui.page === "import") void imports.load();
+});
+window.addEventListener("niuma:sync", () => {
+  const label = document.querySelector("#save-status");
+  if (label) label.textContent = saveLabel();
+  const alert = document.querySelector("#sync-alert");
+  if (alert) alert.innerHTML = syncAlert();
+  syncTaskControls();
+});
+matchMedia("(max-width: 700px)").addEventListener("change", () => {
+  ui.mobileMenu = false;
+  render();
+});
+document.addEventListener("visibilitychange", syncToday);
+window.addEventListener("focus", syncToday);
+window.addEventListener("pageshow", syncToday);
+syncNavigation("replace");
+render();
+syncToday();
+async function initialize() {
+  if (!demo) {
+    try {
+      state = await initSession();
+    } catch (e) {
+      loadError = e;
+    } finally {
+      loading = false;
+      render();
+      if (ui.page === "import") void imports.load();
+      else void imports.loadTaskReviews();
+    }
+  }
+}
+void initialize();
+api("/api/version")
+  .then(async (version) => {
+    backendRevision = version.revision;
+    environment = describeEnvironment(
+      version,
+      import.meta.env?.VITE_BUILD_REVISION,
+      import.meta.env?.VITE_SOURCE_DIRTY,
+    );
+    const el = document.querySelector(".account-entry");
+    if (el) el.title = environment.detail;
+    if (!demo && ["development", "test"].includes(version.environment) && version.accountTools === "/api/environment-tools.js") {
+      const module = await import(/* @vite-ignore */ version.accountTools);
+      host.accountTools = module.createAccountTools({ ...host, api, session, accountVersion, flushStore,
+        reload: () => location.reload() });
+    }
+  })
+  .catch(() => {});

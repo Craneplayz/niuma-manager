@@ -13,6 +13,7 @@ crawler/
 ├── data/                             保存原始页面、候选记录、规范记录和审阅网页
 ├── logs/                             保存结构化运行日志
 ├── src/                              爬虫及课程采集实现
+│   ├── public-import-cli.ts         现有三个公开适配器的受限网页预览导出入口
 │   ├── cli.ts                        公共事件爬取、重处理与审阅入口
 │   ├── crawler.ts                    调度抓取、解析、过滤和存储
 │   ├── index.ts                      导出爬虫公共接口
@@ -20,8 +21,13 @@ crawler/
 │   ├── normalizer.ts                 将候选事件规范化
 │   ├── review-report.ts              生成事件审阅网页
 │   ├── pku-homework-cli.ts           北大课程采集命令行入口
+│   ├── producer-observation.ts       可选实际附件下载计时及无正文回调
+│   ├── collection-failure.ts         采集阶段与固定原因码，阻止原始异常进入 CLI 输出
 │   ├── pku-homework.ts               登录并采集课程内容
+│   ├── pku-attachments.ts            同源附件下载、PDF/TXT 文本提取、图片/DOCX/扫描页暂存
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
+│   ├── pku-teaching-evidence.ts      严格导出独立正文与附件证据，报告无法表达的记录
+│   ├── pku-teaching.ts               为受控同步包装 v0.4 证据、学期上下文与原生提交状态
 │   ├── pku-recognition.ts            转换课程记录为识别请求
 │   ├── pku-source.ts                 解析课程页面和来源记录
 │   ├── adapters/                     各公开来源的发现与解析规则
@@ -43,16 +49,27 @@ crawler/
 │       ├── jsonl-store.ts            读写 JSONL 文件
 │       └── raw-snapshot-store.ts      保存原始网页及来源信息
 ├── tests/                            自动化测试
+│   ├── benchmarks/teaching-attachments.mjs  合成重复 PDF 的串行解析基准，可输出完整结果比对
+│   ├── export-teaching-attachment-smoke.ts  合成附件经实际解析器导出受控快照和文件收据
 │   ├── adapters.test.ts              测试公开来源适配器
 │   ├── crawler.test.ts               测试抓取与重处理流程
 │   ├── fetcher.test.ts               测试 HTTP 获取器
 │   ├── normalizer.test.ts             测试事件规范化
 │   ├── pku-homework-cli.test.ts       测试课程采集命令行
+│   ├── producer-observation.test.ts   验证下载计时、缓存不重复计时及观测故障隔离
+│   ├── collection-failure.test.ts     采集失败共享契约、隐私和旧逻辑兼容测试
+│   ├── pku-browser-lifecycle.test.ts  创建上下文、页面及登录失败后的浏览器清理
 │   ├── pku-homework-html.test.ts      测试课程页面解析
 │   ├── pku-homework.test.ts           测试课程采集规则
+│   ├── pku-attachment-download.test.ts 测试流式大小限制、重定向及鉴权边界
+│   ├── pku-attachments.test.ts        测试附件读取、大小限制和失败状态
+│   ├── pku-pdf-process.test.ts        测试 PDF 子进程退出、崩溃与超时恢复
 │   ├── pku-assignment.test.ts         测试作业详情页的安全只读解析
 │   ├── pku-navigation.test.ts         测试课程页面导航
 │   ├── pku-recognition.test.ts        测试识别请求转换
+│   ├── pku-provenance.test.ts         测试课程入口证据和快照版本
+│   ├── pku-teaching-evidence.test.ts 测试独立正文、引用与 v0.4 契约交接
+│   ├── pku-teaching.test.ts           测试受控同步、学期与原生提交状态交接
 │   ├── pku-source.test.ts             测试课程来源记录
 │   ├── review-report.test.ts          测试审阅网页生成
 │   ├── time-filter.test.ts            测试未来事件筛选
@@ -76,15 +93,34 @@ crawler/
 
 ## 安装与检查
 
+维护端可通过 `--observe-downloads` 或 `downloadObserver` 接收实际下载耗时，CLI 仅向 stderr 输出独立观测 JSONL，默认不启用；接口与接入边界见 [观测契约](../contracts/docs/producer-observation-v0.1.md)。
+
+课程采集失败时 stderr 输出 `collection-failure/0.1` 的受限阶段/原因码，不输出 Playwright 原始异常、URL 或凭据；stdout 仍使用原业务契约，详见 [同步错误交接](../contracts/docs/source-sync-v0.1.md)。
+
 需要 Node.js 20.19+、22.13+ 或 24+，以及 pnpm 10.17.1；所有命令均从 `crawler/` 运行。
 
 ```bash
 cd crawler
-pnpm install
+pnpm install --frozen-lockfile --prod=false
+pnpm exec playwright install chromium
 pnpm lint
 pnpm typecheck
 pnpm test
 ```
+
+后端通过 `node --import tsx src/pku-homework-cli.ts` 启动教学网采集；`tsx` 虽在 `devDependencies`，运行时仍必需，所以不能用 `--prod` 安装或裁剪它。仅在 `frontend/` 安装 npm 依赖不会安装爬虫依赖；新克隆 / 新工作树也需要在自己的 `crawler/` 下安装。
+
+浏览器须安装到实际运行后端的系统用户和环境中；Windows 已安装 Chrome / Edge 不等于已安装 Playwright Chromium。Linux 缺少浏览器系统库时，由维护者执行 `pnpm exec playwright install --with-deps chromium`。Docker 使用仓库的 [API 镜像](../server/deploy/Dockerfile)，宿主机安装不能替代容器内依赖。
+
+在后端所用检出的 `crawler/` 目录和相同运行环境中，可先执行不启动浏览器、不访问教学网的检查：
+
+```bash
+node --version
+pnpm --version
+node --import tsx --input-type=module -e "import { chromium } from 'playwright'; import { existsSync } from 'node:fs'; console.log('tsx/playwright: OK'); console.log('Chromium installed:', existsSync(chromium.executablePath()));"
+```
+
+预期模块加载成功且 `Chromium installed: true`；这仅检查模块和 Playwright 浏览器文件，不验证 Linux 系统库、校园网连接或账号登录。安装 / 更新 Node 后应重启后端使其读取新 PATH；网页导入失败的定位与恢复见[教学网导入排障](../server/README.md#教学网导入排障)。
 
 ## 公开活动爬取
 
@@ -107,9 +143,45 @@ pnpm crawler review <run-id>
 pnpm pku:homework
 pnpm pku:homework -- --term=26-27学年第1学期
 pnpm pku:homework -- --all-terms
+pnpm pku:homework -- --all-sections
 pnpm pku:homework -- --format=recognition
 ```
 
-默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
+默认只采集名称含“作业”、`Assignment` 或 `Homework` 的栏目，不读取课程首页公告；找不到作业栏目的课程会在 `coverage_warnings` 中记录课程名。`--all-sections` 恢复课程公告和全部内容栏目的采集。默认输出完整来源记录和兼容作业视图的 JSON，`--format=recognition` 输出 v0.2 JSONL 请求；结果写到标准输出，不会自动发送给识别服务。
 
-课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。若页面已变为“复查提交历史记录”，仅记录已提交状态，不读取提交文件、作答、成绩或尝试时间；采集过程不会点击、填写或提交页面控件。附件内容仍不读取。
+课程列表中的原生作业链接会以只读方式打开：只读取“作业信息”中的名称、教师说明和“到期日期 / Due Date”。按“已提交视为完成”规则，原生页面的“复查提交历史记录 / Review Submission History”标题记录 submitted；提交历史详情仍标 partial / submission_history_only，不读取提交文件、作答、成绩或尝试时间，不推断是否需要重交；采集过程不会点击、填写或提交作业控件。列表 input_id / source_item_id 保持不变，课程 / 作业 ID 分别取自来源与原生详情链接，供 #110 后端在受控采集入口按账号匹配，不按标题匹配。
+
+正文和作业详情中的同源教师 PDF / UTF-8 txt 附件会下载提取，引用逐项记录读取状态、原因和提取文字；仅页面装饰图标与菜单不影响完整性，真实图片和未读链接仍保留 partial。下载上限 5 MiB、15 秒、3 次同源重定向，PDF 在独立 Node 子进程解析，等待清理与退出后返回；解析超过 15 秒强制结束子进程、旧生代堆上限 128 MiB，子进程崩溃只将当前附件标 parse_failed。PDF 上限 50 页、提取文字上限 50,000 字符；图片、stencil mask、矢量图、注释、未知绘制操作、空白页或解析退化警告保留 partial，ZIP / Office / OCR / 外链与嵌套目录暂不支持。列表与详情合并超限时保留完整列表正文及详情 too_large 核对原因，其他记录继续导出；空占位容器不阻断后续教师正文，附件缓存按 URL 与格式区分。交接字段及下游边界见 [采集快照约定](../contracts/docs/teaching-source-snapshot-v0.2.md)。
+
+同轮采集内，不同 URL 返回相同文件时按 SHA-256、格式及响应 MIME 复用解析文字；仍逐个校验下载地址并保留各自来源、标签、partial 状态与正文容量检查。文字缓存最多 64 项、共 1,000,000 字符，不保存文件字节，不跨采集或账号共享，不缓存解析失败；无需新增配置。
+
+在 `crawler/` 运行 `node --import tsx tests/benchmarks/teaching-attachments.mjs` 可串行测量 10 个不同地址返回相同合成 PDF 的解析耗时（3 轮取中位数）；可追加本地输出路径比对完整来源结果。只使用合成下载与真实 PDF 解析器，不测校园网或模型延迟。
+
+教师容器自身或祖先属于私人表单、提交、尝试、成绩或导航区域时排除整块文字及引用；原生作业页允许已知 uploadAssignmentForm 外层表单，先移除私人区域和控件，再读取教师说明、标题与教师信息行中的日期。未找到教师说明时保留列表并标记详情未读，单条追加超限不会影响共享附件缓存；响应式图片的 srcset / picture 候选同样保留未读，PDF 文档级内嵌附件保留 partial_pdf，不递归提取。
+后台同步启用原件暂存时，所有教师 PDF 直接保存原件并标为待读取，由后端统一检查可见性和缓存，不在爬虫中重复解析文字层；未启用暂存的独立导出沿用原有 PDF 文本提取。
+
+日期支持教师信息区内的相邻值节点，遇下一字段标签（包括原生 label / th 和 ARIA 行列头）、行或说明边界即停止，父容器查找只穿过纯标签包装；表格只读取同一行紧邻的一个 td 值单元格。空值保持未读，明确“未设置 / Not set”表示无日期，读取失败或值冲突时提示人工核对。过滤后的“作业信息 / Assignment Information”标题仍可识别页面，嵌套说明只读取最外层匹配容器，独立说明按页面顺序保留。
+
+### Course provenance handoff (#107 / #109 / #124)
+
+Live collection retains `course-provenance-v1` facts in each source's `provenance`, and exports them in v0.2's open `upstream_hints.provenance`. The course ID comes from the actual listing URL. The observed course-list anchor text and sanitized launcher URL are accepted as metadata only when their origin and course ID match the listing. A single observed academic-term label is preserved as `term_label`; missing/conflicting labels remain unknown. The `term` CLI filter and collection date never supply this evidence.
+
+A course label does not establish semester boundaries or prove that a particular notice/material is newly assigned. `applies_to` remains `unknown`; no dates or `current_assignment` authority are inferred. The actual platform must provide further applicability evidence before #109 can use a trusted semester to fill a missing year.
+
+`upstream_hints.snapshot_id` versions the final source record, including body, references, read failures, publication, collection time and course metadata. The hash is a content identifier, not proof of account ownership and not #124's `verified_snapshot_digests`. Server must retain/retrieve the full controlled snapshot under the current application/teaching account, then build and validate the v0.4 entry and calculate its separate digest. No credentials or account identifiers are exported by this addition. Older synthetic/imported records without provenance retain their existing request shape.
+
+New sources additionally export `teaching-body-v1` body evidence. Native teacher details successfully merged into that body are identified by `included_reference_urls`; they are represented once in v0.4. Attachment text stays in its own reference, and unread/failed native details keep the body incomplete. The legacy v0.2 `text` remains compatible and can still include attachment text.
+
+### Teaching v0.4 export
+
+Run `pnpm pku:homework -- --format=teaching-v04 --all-sections` to collect and export #124's v0.4 JSONL requests without calling a model or saving results. Each request contains at most 20 records and 2,000,000 UTF-8 bytes; each record's combined body/metadata/reference evidence stays within 100,000 characters. Records lacking stable course/item IDs, separate body evidence, or valid read facts are reported as `teaching_export_skipped` on stderr; other records continue and exit code 2 signals an incomplete export. Raw collection remains available with `--format=raw`.
+
+The producer uses `contracts/schemas/teaching-request-v0.4.schema.json`, copied unchanged from #124 head `6312dca`; shared source cases replay both v0.2 and v0.4 output and Python semantic validation. It emits `course_term=null` until platform evidence provides actual semester dates and assignment applicability, and never emits a trust flag. The consumer must verify its account-bound full entry and compute the v0.4 entry digest separately. Old snapshots without separated body evidence are not upgraded by stripping attachment text or relabeling completeness.
+
+`--format=teaching-v04` keeps the strict #127 evidence export and partial-export exit 2 behavior. `--format=teaching` selects teaching sections and emits one v0.4 request per source; `--format=teaching-capture` wraps the same verified evidence with bound native assignment state for the server. Both integration formats fail explicitly on invalid evidence or duplicate identities; course labels never replace body/attachment evidence.
+
+教师附件支持同源 Blackboard `dt-content` 和通知栏 `dt-announcement` 路径，含无扩展名的 xid 文件地址（格式由附件标签识别）；仍拒绝私人提交文件与外站地址。
+
+单条采集诊断：`pnpm pku:homework -- --format=raw --source-page=<已保存通知所在页URL> --source-item=<原始条目ID> --course-label=<课程名> --section-label=<栏目名>`。四个参数必须同时提供，不能与 `--all-sections` / 学期扫描组合；仅读取指定页面中的该条通知及其引用，不调用模型、不写账号数据，原始输出只保存到本地忽略目录。
+
+公开活动已接入网页“导入 → 公开活动”，后台调用 `public-import-cli.ts <cs|bio|gse> <临时输出目录>`；当前仅返回未来活动，最多 6 页，页面和跳转均限制在所选网站来源内，原始页面仅保存在临时目录并在结束时移除。

@@ -1,0 +1,20 @@
+:1331 {
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy same-origin
+        X-Frame-Options DENY
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:1332 {
+            header_up X-Niuma-Client-IP {remote_host}
+            transport http {
+                response_header_timeout 330s
+            }
+        }
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+    }
+}

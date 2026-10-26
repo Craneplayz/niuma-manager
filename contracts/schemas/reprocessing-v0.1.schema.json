@@ -1,0 +1,816 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "start": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "reprocessing/0.1"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "source_account_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "input_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "contract_version",
+        "operation_id",
+        "source_account_id",
+        "input_ids"
+      ],
+      "additionalProperties": false
+    },
+    "stop": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "reprocessing/0.1"
+        }
+      },
+      "required": [
+        "contract_version"
+      ],
+      "additionalProperties": false
+    },
+    "run": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "reprocessing/0.1"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "source_account_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "running",
+            "stopping",
+            "failed",
+            "interrupted",
+            "partial_success",
+            "stopped",
+            "succeeded"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "input_id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "state": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted",
+                  "superseded"
+                ]
+              },
+              "attempted": {
+                "type": "boolean"
+              },
+              "policy_version": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(text|teaching)-policy-v1:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "previous_available": {
+                "type": "boolean"
+              },
+              "old_result_retained": {
+                "type": "boolean"
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "tasks",
+                      "no_tasks"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "decision_summary": {
+                "type": "object",
+                "properties": {
+                  "preserved": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "replaced": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "new_pending": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  },
+                  "unresolved": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000
+                  }
+                },
+                "required": [
+                  "preserved",
+                  "replaced",
+                  "new_pending",
+                  "unresolved"
+                ],
+                "additionalProperties": false
+              },
+              "error": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "enum": [
+                          "agent_timeout",
+                          "agent_unavailable",
+                          "invalid_result",
+                          "interrupted"
+                        ]
+                      },
+                      "message": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "input_id",
+              "state",
+              "attempted",
+              "policy_version",
+              "previous_available",
+              "old_result_retained",
+              "outcome",
+              "decision_summary",
+              "error"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": false
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "queued": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "running": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "succeeded": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "cancelled": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "interrupted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "superseded": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "total",
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted",
+            "superseded"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "contract_version",
+        "run_id",
+        "operation_id",
+        "source_account_id",
+        "revision",
+        "state",
+        "created_at",
+        "updated_at",
+        "records",
+        "counts"
+      ],
+      "additionalProperties": false
+    },
+    "sources": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "reprocessing/0.1"
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_account_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "records": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "input_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    },
+                    "course_or_project": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "result_status": {
+                      "enum": [
+                        "success",
+                        "no_tasks",
+                        "failed",
+                        "unknown"
+                      ]
+                    },
+                    "policy_version": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(text|teaching)-policy-v1:[0-9a-f]{64}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "input_id",
+                    "label",
+                    "course_or_project",
+                    "result_status",
+                    "policy_version"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 0,
+                "maxItems": 100,
+                "uniqueItems": false
+              }
+            },
+            "required": [
+              "source_account_id",
+              "label",
+              "records"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 50,
+          "uniqueItems": false
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "contract_version",
+        "accounts",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "runs": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "reprocessing/0.1"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "contract_version": {
+                "const": "reprocessing/0.1"
+              },
+              "run_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "operation_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "source_account_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "state": {
+                "enum": [
+                  "queued",
+                  "running",
+                  "stopping",
+                  "failed",
+                  "interrupted",
+                  "partial_success",
+                  "stopped",
+                  "succeeded"
+                ]
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 40
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time",
+                "maxLength": 40
+              },
+              "records": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "input_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "state": {
+                      "enum": [
+                        "queued",
+                        "running",
+                        "succeeded",
+                        "failed",
+                        "cancelled",
+                        "interrupted",
+                        "superseded"
+                      ]
+                    },
+                    "attempted": {
+                      "type": "boolean"
+                    },
+                    "policy_version": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^(text|teaching)-policy-v1:[0-9a-f]{64}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "previous_available": {
+                      "type": "boolean"
+                    },
+                    "old_result_retained": {
+                      "type": "boolean"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "tasks",
+                            "no_tasks"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "decision_summary": {
+                      "type": "object",
+                      "properties": {
+                        "preserved": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        },
+                        "replaced": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        },
+                        "new_pending": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        },
+                        "unresolved": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        }
+                      },
+                      "required": [
+                        "preserved",
+                        "replaced",
+                        "new_pending",
+                        "unresolved"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "agent_timeout",
+                                "agent_unavailable",
+                                "invalid_result",
+                                "interrupted"
+                              ]
+                            },
+                            "message": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 512,
+                              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "input_id",
+                    "state",
+                    "attempted",
+                    "policy_version",
+                    "previous_available",
+                    "old_result_retained",
+                    "outcome",
+                    "decision_summary",
+                    "error"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 100,
+                "uniqueItems": false
+              },
+              "counts": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "queued": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "running": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "succeeded": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "failed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "cancelled": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "interrupted": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "superseded": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  }
+                },
+                "required": [
+                  "total",
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted",
+                  "superseded"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "contract_version",
+              "run_id",
+              "operation_id",
+              "source_account_id",
+              "revision",
+              "state",
+              "created_at",
+              "updated_at",
+              "records",
+              "counts"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 20,
+          "uniqueItems": false
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "contract_version",
+        "runs",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "reprocessing/0.1"
+        },
+        "code": {
+          "enum": [
+            "invalid_request",
+            "not_found",
+            "conflict",
+            "unavailable"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      },
+      "required": [
+        "contract_version",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "association": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "reprocessing/0.1"
+        },
+        "previous": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "decision": {
+                "enum": [
+                  "pending",
+                  "completed",
+                  "confirmed",
+                  "deleted",
+                  "edited",
+                  "ignored"
+                ]
+              }
+            },
+            "required": [
+              "action_id",
+              "decision"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 100,
+          "uniqueItems": false
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+          },
+          "minItems": 0,
+          "maxItems": 100,
+          "uniqueItems": true
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "candidate_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              },
+              "action_id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+              }
+            },
+            "required": [
+              "candidate_id",
+              "action_id"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 100,
+          "uniqueItems": false
+        },
+        "confirmed_new": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.:-]{1,160}$"
+          },
+          "minItems": 0,
+          "maxItems": 100,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "contract_version",
+        "previous",
+        "candidates",
+        "links",
+        "confirmed_new"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

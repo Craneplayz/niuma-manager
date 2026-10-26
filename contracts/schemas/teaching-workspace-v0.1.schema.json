@@ -1,0 +1,583 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Teaching workspace run request and read-only display views",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/run"
+    },
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/result"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "request_id"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "teaching-run/0.1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "request_id",
+        "records"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "teaching-workspace/0.1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": [
+              "input_id",
+              "platform",
+              "text",
+              "text_quality",
+              "published_at",
+              "collected_at",
+              "timezone",
+              "timezone_basis",
+              "source_url",
+              "source_label",
+              "source_item_id",
+              "course_or_project",
+              "context",
+              "upstream_hints"
+            ],
+            "properties": {
+              "input_id": {
+                "$ref": "#/$defs/id"
+              },
+              "platform": {
+                "const": "teaching_web"
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 100000
+              },
+              "text_quality": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "summary",
+                  "missing"
+                ]
+              },
+              "upstream_hints": {
+                "type": "object",
+                "required": [
+                  "references",
+                  "course_term"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "request_id",
+        "status",
+        "record_results",
+        "tasks",
+        "errors"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "teaching-workspace/0.1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "enum": [
+            "success",
+            "partial_success",
+            "failed",
+            "no_tasks"
+          ]
+        },
+        "record_results": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input_id",
+              "status",
+              "task_ids",
+              "warnings"
+            ],
+            "properties": {
+              "input_id": {
+                "$ref": "#/$defs/id"
+              },
+              "status": {
+                "enum": [
+                  "success",
+                  "no_tasks",
+                  "failed"
+                ]
+              },
+              "task_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/card"
+          }
+        },
+        "errors": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input_id",
+              "code",
+              "message",
+              "retryable"
+            ],
+            "properties": {
+              "input_id": {
+                "$ref": "#/$defs/id"
+              },
+              "code": {
+                "type": "string"
+              },
+              "diagnostics": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "failure": {
+                "$ref": "#/$defs/recognition_failure"
+              },
+              "diagnostic": {
+                "$ref": "#/$defs/recognition_diagnostic"
+              },
+              "diagnostic_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{24}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "input_id",
+        "title",
+        "description",
+        "course_or_project",
+        "course_basis",
+        "notice_type",
+        "target_reference",
+        "prerequisites",
+        "deadline",
+        "needs_review",
+        "review_reasons",
+        "evidence",
+        "sources"
+      ],
+      "properties": {
+        "candidate_id": {
+          "$ref": "#/$defs/id"
+        },
+        "input_id": {
+          "$ref": "#/$defs/id"
+        },
+        "content_type": {
+          "enum": [
+            "task",
+            "notice"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "course_or_project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "course_basis": {
+          "enum": [
+            "provided",
+            "unknown"
+          ]
+        },
+        "notice_type": {
+          "enum": [
+            "create",
+            "update",
+            "postpone",
+            "cancel",
+            "uncertain"
+          ]
+        },
+        "target_reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prerequisites": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "deadline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "status",
+            "value",
+            "precision",
+            "timezone",
+            "raw",
+            "basis",
+            "alternatives"
+          ],
+          "properties": {
+            "kind": {
+              "const": "deadline"
+            },
+            "status": {
+              "enum": [
+                "explicit",
+                "inferred",
+                "not_provided",
+                "unknown"
+              ]
+            },
+            "value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "precision": {
+              "enum": [
+                "date",
+                "datetime",
+                "unknown"
+              ]
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "raw": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "basis": {
+              "type": "string"
+            },
+            "alternatives": {
+              "type": "array",
+              "maxItems": 0
+            }
+          }
+        },
+        "needs_review": {
+          "type": "boolean"
+        },
+        "review_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "input_id",
+              "field",
+              "quote",
+              "supports"
+            ],
+            "properties": {
+              "quote": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string"
+              },
+              "input_id": {
+                "$ref": "#/$defs/id"
+              },
+              "supports": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "title",
+                    "description",
+                    "deadline"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "input_id",
+              "platform",
+              "url",
+              "label",
+              "source_item_id"
+            ],
+            "properties": {
+              "platform": {
+                "const": "teaching_web"
+              },
+              "input_id": {
+                "$ref": "#/$defs/id"
+              },
+              "source_item_id": {
+                "$ref": "#/$defs/id"
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "recognition_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "category",
+        "stage"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "recognition_dependency",
+            "invalid_input",
+            "unsupported_version",
+            "input_limit",
+            "source_incomplete",
+            "source_changed",
+            "collection_dependency",
+            "collection_failed",
+            "attachment_unavailable",
+            "attachment_unsupported",
+            "attachment_unreadable",
+            "attachment_schema",
+            "content_uncertain",
+            "content_incomplete",
+            "model_configuration",
+            "model_rate_limited",
+            "model_timeout",
+            "model_unavailable",
+            "provider_response",
+            "output_truncated",
+            "draft_json",
+            "draft_schema",
+            "draft_evidence",
+            "draft_semantics",
+            "result_contract",
+            "save_failed",
+            "internal_error",
+            "recognition_rules",
+            "model_busy",
+            "worker_terminated",
+            "worker_timeout"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "attachment",
+            "configuration",
+            "content",
+            "evidence",
+            "input",
+            "internal",
+            "output",
+            "service",
+            "source",
+            "storage",
+            "timeout"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "collect",
+            "model",
+            "parse",
+            "prepare",
+            "read",
+            "runtime",
+            "save",
+            "validate"
+          ]
+        }
+      }
+    },
+    "recognition_diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_path",
+        "rule"
+      ],
+      "properties": {
+        "schema_path": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9_$/]*$"
+        },
+        "rule": {
+          "type": "string",
+          "enum": [
+            "type",
+            "enum",
+            "const",
+            "required",
+            "additionalProperties",
+            "maxLength",
+            "minLength",
+            "maxItems",
+            "minItems",
+            "format",
+            "pattern",
+            "anyOf",
+            "allOf",
+            "oneOf",
+            "maximum",
+            "minimum"
+          ]
+        },
+        "instance_path": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9_$/]*$"
+        },
+        "missing_fields": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_]+$"
+          }
+        },
+        "expected_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
+          ]
+        },
+        "actual_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
+          ]
+        }
+      }
+    }
+  }
+}

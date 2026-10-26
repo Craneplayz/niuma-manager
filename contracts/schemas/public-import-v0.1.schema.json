@@ -1,0 +1,560 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "capture": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "public-import/0.1"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 512,
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "start_time": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "end_time": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                ]
+              },
+              "location": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 512
+              },
+              "url": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 2048
+              },
+              "source_id": {
+                "enum": [
+                  "cs",
+                  "bio",
+                  "gse"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "description",
+              "start_time",
+              "end_time",
+              "location",
+              "url",
+              "source_id"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100
+        },
+        "pages_failed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "contract_version",
+        "events",
+        "pages_failed"
+      ],
+      "additionalProperties": false
+    },
+    "start": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "public-import/0.1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "source_id": {
+          "enum": [
+            "cs",
+            "bio",
+            "gse"
+          ]
+        }
+      },
+      "required": [
+        "contract_version",
+        "operation_id",
+        "source_id"
+      ],
+      "additionalProperties": false
+    },
+    "import": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "public-import/0.1"
+        },
+        "event_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 100
+        },
+        "tasks_version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "contract_version",
+        "event_ids",
+        "tasks_version"
+      ],
+      "additionalProperties": false
+    },
+    "run": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "public-import/0.1"
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "source_id": {
+          "enum": [
+            "cs",
+            "bio",
+            "gse"
+          ]
+        },
+        "state": {
+          "enum": [
+            "running",
+            "succeeded",
+            "failed"
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "contract_version": {
+                  "const": "public-import/0.1"
+                },
+                "events": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160,
+                        "pattern": "^[A-Za-z0-9_.:-]+$"
+                      },
+                      "title": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "minLength": 1
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "start_time": {
+                        "anyOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        ]
+                      },
+                      "end_time": {
+                        "anyOf": [
+                          {
+                            "type": "null"
+                          },
+                          {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        ]
+                      },
+                      "location": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "maxLength": 512
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                      },
+                      "source_id": {
+                        "enum": [
+                          "cs",
+                          "bio",
+                          "gse"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "description",
+                      "start_time",
+                      "end_time",
+                      "location",
+                      "url",
+                      "source_id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                },
+                "pages_failed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "contract_version",
+                "events",
+                "pages_failed"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "contract_version",
+        "run_id",
+        "source_id",
+        "state",
+        "result",
+        "error",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "public-import/0.1"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "enum": [
+                  "cs",
+                  "bio",
+                  "gse"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 512
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "contract_version",
+        "sources"
+      ],
+      "additionalProperties": false
+    },
+    "runs": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "public-import/0.1"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "contract_version": {
+                "const": "public-import/0.1"
+              },
+              "run_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              },
+              "source_id": {
+                "enum": [
+                  "cs",
+                  "bio",
+                  "gse"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "running",
+                  "succeeded",
+                  "failed"
+                ]
+              },
+              "result": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "contract_version": {
+                        "const": "public-import/0.1"
+                      },
+                      "events": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 160,
+                              "pattern": "^[A-Za-z0-9_.:-]+$"
+                            },
+                            "title": {
+                              "type": "string",
+                              "maxLength": 512,
+                              "minLength": 1
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 20000
+                            },
+                            "start_time": {
+                              "anyOf": [
+                                {
+                                  "type": "null"
+                                },
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              ]
+                            },
+                            "end_time": {
+                              "anyOf": [
+                                {
+                                  "type": "null"
+                                },
+                                {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              ]
+                            },
+                            "location": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "maxLength": 512
+                            },
+                            "url": {
+                              "type": "string",
+                              "format": "uri",
+                              "maxLength": 2048
+                            },
+                            "source_id": {
+                              "enum": [
+                                "cs",
+                                "bio",
+                                "gse"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "description",
+                            "start_time",
+                            "end_time",
+                            "location",
+                            "url",
+                            "source_id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 100
+                      },
+                      "pages_failed": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "contract_version",
+                      "events",
+                      "pages_failed"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 512
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "contract_version",
+              "run_id",
+              "source_id",
+              "state",
+              "result",
+              "error",
+              "created_at"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 10
+        }
+      },
+      "required": [
+        "contract_version",
+        "runs"
+      ],
+      "additionalProperties": false
+    },
+    "imported": {
+      "type": "object",
+      "properties": {
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "uniqueItems": true,
+          "maxItems": 100
+        },
+        "already_imported": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "added",
+        "already_imported"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/capture"
+    },
+    {
+      "$ref": "#/$defs/start"
+    },
+    {
+      "$ref": "#/$defs/import"
+    },
+    {
+      "$ref": "#/$defs/run"
+    },
+    {
+      "$ref": "#/$defs/catalog"
+    },
+    {
+      "$ref": "#/$defs/runs"
+    },
+    {
+      "$ref": "#/$defs/imported"
+    }
+  ]
+}

@@ -1,0 +1,830 @@
+{
+  "tested_at": "2026-10-06T12:55:55.529522+00:00",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "scope": "Generated DOCX smoke tests only; not private files, recall measurement or WeChat integration.",
+  "results": [
+    {
+      "case": "docx-paragraph",
+      "synthetic_content": {
+        "title": "课程回顾通知",
+        "paragraphs": [
+          "请于10月17日20:30前提交课程回顾，请大家尽快完成。"
+        ],
+        "deadlines": [
+          "2026-10-17T20:30:00+08:00"
+        ]
+      },
+      "docx_sha256": "79909e07fef7d444d7f66a61eb05ca40d95c7e7bc2e0759371e632bdd39fb7db",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-paragraph",
+        "records": [
+          {
+            "input_id": "synthetic:docx-paragraph",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "docx-paragraph.docx",
+                "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "size_bytes": 36784,
+                "sha256": "79909e07fef7d444d7f66a61eb05ca40d95c7e7bc2e0759371e632bdd39fb7db",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [{\"title\": \"提交课程回顾\", \"description\": \"课程群发布《课程回顾通知》，要求在10月17日20:30前提交课程回顾，并催促尽快完成。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-17T20:30:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月17日20:30前\", \"basis\": \"DOCX 正文明确写“请于10月17日20:30前提交课程回顾”；原文省略年份，按附件原始发布日期 2026-10-01 补全为 2026 年。\", \"alternatives\": []}, \"review_reasons\": [], \"evidence\": [{\"input_id\": \"synthetic:docx-paragraph\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"请于10月17日20:30前提交课程回顾，请大家尽快完成。\", \"locator\": {\"page\": null, \"paragraph\": 2, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\", \"deadline\"]}, {\"input_id\": \"synthetic:docx-paragraph\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"课程回顾通知\", \"locator\": {\"page\": null, \"paragraph\": 1, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-paragraph",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:docx-paragraph",
+            "status": "success",
+            "task_ids": [
+              "media:eb2329a4cef9e7137018a00c:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-docx-structure/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "提交课程回顾",
+            "description": "课程群发布《课程回顾通知》，要求在10月17日20:30前提交课程回顾，并催促尽快完成。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-17T20:30:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月17日20:30前",
+              "basis": "DOCX 正文明确写“请于10月17日20:30前提交课程回顾”；原文省略年份，按附件原始发布日期 2026-10-01 补全为 2026 年。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "附件引文及定位需核对原件，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:docx-paragraph",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请于10月17日20:30前提交课程回顾，请大家尽快完成。",
+                "locator": {
+                  "page": null,
+                  "paragraph": 2,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-paragraph",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "课程回顾通知",
+                "locator": {
+                  "page": null,
+                  "paragraph": 1,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ],
+            "candidate_id": "media:eb2329a4cef9e7137018a00c:1",
+            "input_id": "synthetic:docx-paragraph",
+            "sources": [
+              {
+                "input_id": "synthetic:docx-paragraph",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "passed": true,
+      "elapsed_seconds": 5.53
+    },
+    {
+      "case": "docx-table",
+      "synthetic_content": {
+        "title": "本周课程任务",
+        "paragraphs": [
+          "请完成下列任务，分别按表格中的时间提交。"
+        ],
+        "table": [
+          [
+            "任务",
+            "截止日期"
+          ],
+          [
+            "提交阅读报告",
+            "10月20日18点前"
+          ],
+          [
+            "填写反馈问卷",
+            "10月22日前"
+          ]
+        ],
+        "deadlines": [
+          "2026-10-20T18:00:00+08:00",
+          "2026-10-22"
+        ]
+      },
+      "docx_sha256": "7a4c196dce2276ce32161eaa90917395b48290bc7be97e2cbe215da8afab273e",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-table",
+        "records": [
+          {
+            "input_id": "synthetic:docx-table",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "docx-table.docx",
+                "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "size_bytes": 37097,
+                "sha256": "7a4c196dce2276ce32161eaa90917395b48290bc7be97e2cbe215da8afab273e",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [{\"title\": \"提交阅读报告\", \"description\": \"按文档表格要求完成并提交阅读报告。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-20T18:00:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月20日18点前\", \"basis\": \"文档表格行2列2写明“10月20日18点前”，年份按该文档原始发布时间2026年补全。\", \"alternatives\": []}, \"review_reasons\": [], \"evidence\": [{\"input_id\": \"synthetic:docx-table\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"提交阅读报告\", \"locator\": {\"page\": null, \"paragraph\": 5, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:docx-table\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"10月20日18点前\", \"locator\": {\"page\": null, \"paragraph\": 6, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"deadline\"]}, {\"input_id\": \"synthetic:docx-table\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"请完成下列任务，分别按表格中的时间提交。\", \"locator\": {\"page\": null, \"paragraph\": 2, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"description\", \"course_or_project\"]}]}, {\"title\": \"填写反馈问卷\", \"description\": \"按文档表格要求填写并提交反馈问卷。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-22\", \"precision\": \"date\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月22日前\", \"basis\": \"文档表格行3列2写明“10月22日前”，仅给出日期，故保留日期精度；年份按该文档原始发布时间2026年补全。\", \"alternatives\": []}, \"review_reasons\": [], \"evidence\": [{\"input_id\": \"synthetic:docx-table\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"填写反馈问卷\", \"locator\": {\"page\": null, \"paragraph\": 7, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:docx-table\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"10月22日前\", \"locator\": {\"page\": null, \"paragraph\": 8, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"deadline\"]}, {\"input_id\": \"synthetic:docx-table\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"请完成下列任务，分别按表格中的时间提交。\", \"locator\": {\"page\": null, \"paragraph\": 2, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"description\", \"course_or_project\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-table",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:docx-table",
+            "status": "success",
+            "task_ids": [
+              "media:24f43c02377d3189ce0f297a:1",
+              "media:24f43c02377d3189ce0f297a:2"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-docx-structure/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "提交阅读报告",
+            "description": "按文档表格要求完成并提交阅读报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-20T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月20日18点前",
+              "basis": "文档表格行2列2写明“10月20日18点前”，年份按该文档原始发布时间2026年补全。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "附件引文及定位需核对原件，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:docx-table",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "提交阅读报告",
+                "locator": {
+                  "page": null,
+                  "paragraph": 5,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-table",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "10月20日18点前",
+                "locator": {
+                  "page": null,
+                  "paragraph": 6,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "deadline"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-table",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请完成下列任务，分别按表格中的时间提交。",
+                "locator": {
+                  "page": null,
+                  "paragraph": 2,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "description",
+                  "course_or_project"
+                ]
+              }
+            ],
+            "candidate_id": "media:24f43c02377d3189ce0f297a:1",
+            "input_id": "synthetic:docx-table",
+            "sources": [
+              {
+                "input_id": "synthetic:docx-table",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          },
+          {
+            "title": "填写反馈问卷",
+            "description": "按文档表格要求填写并提交反馈问卷。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-22",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月22日前",
+              "basis": "文档表格行3列2写明“10月22日前”，仅给出日期，故保留日期精度；年份按该文档原始发布时间2026年补全。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "附件引文及定位需核对原件，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:docx-table",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "填写反馈问卷",
+                "locator": {
+                  "page": null,
+                  "paragraph": 7,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-table",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "10月22日前",
+                "locator": {
+                  "page": null,
+                  "paragraph": 8,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "deadline"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-table",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请完成下列任务，分别按表格中的时间提交。",
+                "locator": {
+                  "page": null,
+                  "paragraph": 2,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "description",
+                  "course_or_project"
+                ]
+              }
+            ],
+            "candidate_id": "media:24f43c02377d3189ce0f297a:2",
+            "input_id": "synthetic:docx-table",
+            "sources": [
+              {
+                "input_id": "synthetic:docx-table",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "passed": true,
+      "elapsed_seconds": 11.88
+    },
+    {
+      "case": "docx-image",
+      "synthetic_content": {
+        "title": "实验总结作业",
+        "paragraphs": [
+          "请完成并提交实验总结，截止时间见下面的图片。"
+        ],
+        "image": [
+          "实验总结提交期限",
+          "请于10月19日18:00前提交实验总结。",
+          "请大家尽快完成。"
+        ],
+        "deadlines": [
+          "2026-10-19T18:00:00+08:00"
+        ]
+      },
+      "docx_sha256": "1b89c474c50a643a9d93aee57a8c8506c7658197e22a43c3b5ca37586b24945b",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-image",
+        "records": [
+          {
+            "input_id": "synthetic:docx-image",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "docx-image.docx",
+                "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "size_bytes": 55099,
+                "sha256": "1b89c474c50a643a9d93aee57a8c8506c7658197e22a43c3b5ca37586b24945b",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\":[{\"title\":\"完成并提交实验总结\",\"description\":\"课程要求完成并提交实验总结；DOCX 正文说明截止时间见内嵌图片，图片显示提交期限为10月19日18:00前。\",\"prerequisites\":[],\"course_or_project\":\"合成测试课程\",\"course_basis\":\"provided\",\"notice_type\":\"create\",\"target_reference\":null,\"deadline\":{\"value\":\"2026-10-19T18:00:00+08:00\",\"precision\":\"datetime\",\"timezone\":\"Asia/Shanghai\",\"kind\":\"deadline\",\"status\":\"explicit\",\"raw\":\"10月19日18:00\",\"basis\":\"DOCX 内嵌图片写“请于10月19日18:00前提交实验总结”，原文省略年份，按该 DOCX 原始发布时间 2026-10-01 补全为 2026-10-19 18:00（Asia/Shanghai）。\",\"alternatives\":[]},\"review_reasons\":[],\"evidence\":[{\"input_id\":\"synthetic:docx-image\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"实验总结作业\",\"locator\":{\"page\":null,\"paragraph\":1,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\"]},{\"input_id\":\"synthetic:docx-image\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"请完成并提交实验总结，截止时间见下面的图片。\",\"locator\":{\"page\":null,\"paragraph\":2,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\",\"notice_type\"]},{\"input_id\":\"synthetic:docx-image\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"请于10月19日18:00前提交实验总结。\",\"locator\":{\"page\":null,\"paragraph\":3,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"deadline\",\"description\"]}]}],\"image_quality\":[{\"asset_id\":\"asset-001\",\"quality\":\"normal\",\"quality_notes\":[]}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-image",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:docx-image",
+            "status": "success",
+            "task_ids": [
+              "media:e6ce28ddb784bf67af2d9920:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-docx-structure/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "完成并提交实验总结",
+            "description": "课程要求完成并提交实验总结；DOCX 正文说明截止时间见内嵌图片，图片显示提交期限为10月19日18:00前。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-19T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月19日18:00",
+              "basis": "DOCX 内嵌图片写“请于10月19日18:00前提交实验总结”，原文省略年份，按该 DOCX 原始发布时间 2026-10-01 补全为 2026-10-19 18:00（Asia/Shanghai）。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "附件引文及定位需核对原件，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:docx-image",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "实验总结作业",
+                "locator": {
+                  "page": null,
+                  "paragraph": 1,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-image",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请完成并提交实验总结，截止时间见下面的图片。",
+                "locator": {
+                  "page": null,
+                  "paragraph": 2,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-image",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请于10月19日18:00前提交实验总结。",
+                "locator": {
+                  "page": null,
+                  "paragraph": 3,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "deadline",
+                  "description"
+                ]
+              }
+            ],
+            "candidate_id": "media:e6ce28ddb784bf67af2d9920:1",
+            "input_id": "synthetic:docx-image",
+            "sources": [
+              {
+                "input_id": "synthetic:docx-image",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "passed": true,
+      "elapsed_seconds": 7.58
+    },
+    {
+      "case": "docx-partial",
+      "synthetic_content": {
+        "title": "作业通知",
+        "paragraphs": [
+          "请于2026年10月21日18点前提交读书报告。"
+        ],
+        "field": "本段为尚未解析的动态域缓存，不能作为可靠正文。",
+        "deadlines": [
+          "2026-10-21T18:00:00+08:00"
+        ],
+        "status": "partial_success"
+      },
+      "docx_sha256": "7e11a016e072c8ce228f8bdc3c33decef3bb2edec210bc2e63ba42158e11e49b",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-partial",
+        "records": [
+          {
+            "input_id": "synthetic:docx-partial",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "docx-partial.docx",
+                "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "size_bytes": 36867,
+                "sha256": "7e11a016e072c8ce228f8bdc3c33decef3bb2edec210bc2e63ba42158e11e49b",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [{\"title\": \"提交读书报告\", \"description\": \"按作业通知要求，提交读书报告；截止时间为 2026 年 10 月 21 日 18:00。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-21T18:00:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"请于2026年10月21日18点前提交读书报告。\", \"basis\": \"DOCX 正文第 2 段直接写明提交读书报告的时间要求。\", \"alternatives\": []}, \"review_reasons\": [{\"code\": \"other\", \"message\": \"DOCX 读取不完整：第 3 段含域、修订或隐藏内容未读取，可能包含额外要求或另一截止时间，需查看原件核实。\"}], \"evidence\": [{\"input_id\": \"synthetic:docx-partial\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"请于2026年10月21日18点前提交读书报告。\", \"locator\": {\"page\": null, \"paragraph\": 2, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\", \"deadline\"]}, {\"input_id\": \"synthetic:docx-partial\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"作业通知\", \"locator\": {\"page\": null, \"paragraph\": 1, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic:docx-partial",
+        "status": "partial_success",
+        "record_results": [
+          {
+            "input_id": "synthetic:docx-partial",
+            "status": "partial_success",
+            "task_ids": [
+              "media:fd85aa4ff5fb3bd3f1bb8008:1"
+            ],
+            "warnings": [
+              "部分读取或识别失败，请核对剩余内容。"
+            ],
+            "coverage": {
+              "complete": false,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "partial",
+                "reader_version": "niuma-docx-structure/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": false,
+                  "unread_locations": [
+                    "第 3 段含域、修订或隐藏内容，未据缓存内容判断。"
+                  ],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "提交读书报告",
+            "description": "按作业通知要求，提交读书报告；截止时间为 2026 年 10 月 21 日 18:00。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-21T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "请于2026年10月21日18点前提交读书报告。",
+              "basis": "DOCX 正文第 2 段直接写明提交读书报告的时间要求。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "DOCX 读取不完整：第 3 段含域、修订或隐藏内容未读取，可能包含额外要求或另一截止时间，需查看原件核实。",
+              "附件引文及定位需核对原件，请确认。",
+              "部分内容缺失或可读性不确定，请核对原件。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:docx-partial",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请于2026年10月21日18点前提交读书报告。",
+                "locator": {
+                  "page": null,
+                  "paragraph": 2,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              },
+              {
+                "input_id": "synthetic:docx-partial",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "作业通知",
+                "locator": {
+                  "page": null,
+                  "paragraph": 1,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title"
+                ]
+              }
+            ],
+            "candidate_id": "media:fd85aa4ff5fb3bd3f1bb8008:1",
+            "input_id": "synthetic:docx-partial",
+            "sources": [
+              {
+                "input_id": "synthetic:docx-partial",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": [
+          {
+            "input_id": "synthetic:docx-partial",
+            "asset_id": "asset-001",
+            "block_id": null,
+            "stage": "read",
+            "code": "reader_unsupported",
+            "message": "文件格式或部分组件暂不支持，请查看原件及读取缺口。",
+            "retryable": false
+          }
+        ]
+      },
+      "passed": true,
+      "elapsed_seconds": 9.95
+    }
+  ]
+}

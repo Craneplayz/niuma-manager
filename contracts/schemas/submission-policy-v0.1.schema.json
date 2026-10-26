@@ -1,0 +1,166 @@
+{
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "const": "submission-policy/0.1"
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "source_account_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "input_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "course_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "content_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "snapshot_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 40
+        },
+        "state": {
+          "enum": [
+            "submitted",
+            "active",
+            "unknown"
+          ]
+        },
+        "basis": {
+          "enum": [
+            "review_submission_history_title",
+            "active_assignment_page",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "source_account_id",
+        "input_id",
+        "course_id",
+        "content_id",
+        "snapshot_id",
+        "sequence",
+        "observed_at",
+        "state",
+        "basis"
+      ],
+      "additionalProperties": false
+    },
+    "control_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "review_pending": {
+      "type": "boolean"
+    },
+    "scope": {
+      "enum": [
+        "submission_only",
+        "mixed",
+        "unknown"
+      ]
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[A-Za-z0-9_.:-]+$"
+          },
+          "kind": {
+            "enum": [
+              "candidate",
+              "task"
+            ]
+          },
+          "relation": {
+            "enum": [
+              "assignment_submission",
+              "other",
+              "unknown"
+            ]
+          },
+          "link_basis": {
+            "enum": [
+              "server_exact",
+              "user_confirmed",
+              "unresolved"
+            ]
+          },
+          "decision": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "edited",
+              "completed",
+              "ignored",
+              "deleted"
+            ]
+          },
+          "completion_origin": {
+            "enum": [
+              null,
+              "manual",
+              "source_submission"
+            ]
+          },
+          "source_completion_paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action_id",
+          "kind",
+          "relation",
+          "link_basis",
+          "decision",
+          "completion_origin",
+          "source_completion_paused"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    }
+  },
+  "required": [
+    "contract_version",
+    "snapshot",
+    "control_revision",
+    "review_pending",
+    "scope",
+    "actions"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,183 @@
+{
+  "tested_at": "2026-10-06T10:56:42.580897+00:00",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "scope": "Generated PNG smoke tests; not private data, recall evaluation or UI integration.",
+  "results": [
+    {
+      "case": "yearless-date",
+      "synthetic_image_text": "Homework N8Q3\nComplete questions 1-5.\nDue October 9.",
+      "image_sha256": "3f4f9f992d19884e69b791d27df4f45ea366640e74898755398297e9094b8626",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-yearless-date",
+        "records": [
+          {
+            "input_id": "synthetic:media:yearless-date",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "Synthetic course group",
+            "source_item_id": "message-002",
+            "course_or_project": "Synthetic circuits",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "yearless-date.png",
+                "mime_type": "image/png",
+                "size_bytes": 12355,
+                "sha256": "3f4f9f992d19884e69b791d27df4f45ea366640e74898755398297e9094b8626",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01T20:00:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\":[{\"title\":\"完成 Homework N8Q3 第 1-5 题\",\"description\":\"Homework N8Q3：完成 questions 1-5，截止日期为 October 9（依据图片来源时间归一化为 2026-10-09）。\",\"prerequisites\":[],\"course_or_project\":\"Synthetic circuits\",\"course_basis\":\"provided\",\"notice_type\":\"create\",\"target_reference\":null,\"deadline\":{\"value\":\"2026-10-09\",\"precision\":\"date\",\"timezone\":\"Asia/Shanghai\",\"kind\":\"deadline\",\"status\":\"explicit\",\"raw\":\"October 9\",\"basis\":\"图片只写 October 9，未写年份；按该图片 original_published_at 2026-10-01 归一化到最近的合理年份 2026。\",\"alternatives\":[]},\"review_reasons\":[],\"evidence\":[{\"input_id\":\"synthetic:media:yearless-date\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Homework N8Q3\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\",\"notice_type\"]},{\"input_id\":\"synthetic:media:yearless-date\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Complete questions 1-5.\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\",\"prerequisites\"]},{\"input_id\":\"synthetic:media:yearless-date\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Due October 9.\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"deadline\"]}]}],\"image_quality\":[{\"asset_id\":\"asset-001\",\"quality\":\"normal\",\"quality_notes\":[]}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-yearless-date",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:media:yearless-date",
+            "status": "success",
+            "task_ids": [
+              "media:34c9b503d912839223b6ae54:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "完成 Homework N8Q3 第 1-5 题",
+            "description": "Homework N8Q3：完成 questions 1-5，截止日期为 October 9（依据图片来源时间归一化为 2026-10-09）。",
+            "prerequisites": [],
+            "course_or_project": "Synthetic circuits",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-09",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "October 9",
+              "basis": "图片只写 October 9，未写年份；按该图片 original_published_at 2026-10-01 归一化到最近的合理年份 2026。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Homework N8Q3",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Complete questions 1-5.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "prerequisites"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Due October 9.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:34c9b503d912839223b6ae54:1",
+            "input_id": "synthetic:media:yearless-date",
+            "sources": [
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "platform": "wechat",
+                "url": null,
+                "label": "Synthetic course group",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "elapsed_seconds": 7.92,
+      "passed": true
+    }
+  ]
+}

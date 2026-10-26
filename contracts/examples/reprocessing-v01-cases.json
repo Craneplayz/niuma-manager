@@ -1,0 +1,984 @@
+{
+  "start": {
+    "contract_version": "reprocessing/0.1",
+    "operation_id": "op:synthetic:1",
+    "source_account_id": "source:opaque:a",
+    "input_ids": [
+      "source:record:1",
+      "source:record:2"
+    ]
+  },
+  "sources": {
+    "contract_version": "reprocessing/0.1",
+    "accounts": [
+      {
+        "source_account_id": "source:opaque:a",
+        "label": "已保存的教学网来源",
+        "records": [
+          {
+            "input_id": "source:record:1",
+            "label": "合成课程作业",
+            "course_or_project": null,
+            "result_status": "unknown",
+            "policy_version": null
+          }
+        ]
+      }
+    ],
+    "next_cursor": null
+  },
+  "stop": {
+    "contract_version": "reprocessing/0.1"
+  },
+  "error": {
+    "contract_version": "reprocessing/0.1",
+    "code": "conflict",
+    "message": "该操作标识已用于不同选择。"
+  },
+  "runs": {
+    "contract_version": "reprocessing/0.1",
+    "runs": [
+      {
+        "contract_version": "reprocessing/0.1",
+        "run_id": "run:synthetic:1",
+        "operation_id": "op:synthetic:1",
+        "source_account_id": "source:opaque:a",
+        "revision": 3,
+        "state": "succeeded",
+        "created_at": "2026-10-09T09:00:00+08:00",
+        "updated_at": "2026-10-09T09:00:00+08:00",
+        "records": [
+          {
+            "input_id": "source:record:1",
+            "state": "succeeded",
+            "attempted": true,
+            "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "previous_available": true,
+            "old_result_retained": false,
+            "outcome": "tasks",
+            "decision_summary": {
+              "preserved": 0,
+              "replaced": 1,
+              "new_pending": 1,
+              "unresolved": 0
+            },
+            "error": null
+          },
+          {
+            "input_id": "source:record:2",
+            "state": "succeeded",
+            "attempted": true,
+            "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "previous_available": true,
+            "old_result_retained": true,
+            "outcome": "no_tasks",
+            "decision_summary": {
+              "preserved": 1,
+              "replaced": 0,
+              "new_pending": 0,
+              "unresolved": 0
+            },
+            "error": null
+          }
+        ],
+        "counts": {
+          "total": 2,
+          "queued": 0,
+          "running": 0,
+          "succeeded": 2,
+          "failed": 0,
+          "cancelled": 0,
+          "interrupted": 0,
+          "superseded": 0
+        }
+      }
+    ],
+    "next_cursor": null
+  },
+  "lifecycle": [
+    {
+      "name": "complete",
+      "snapshots": [
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 1,
+          "state": "queued",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 2,
+            "running": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 2,
+          "state": "running",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "running",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "running",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 0,
+            "running": 2,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 3,
+          "state": "succeeded",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "succeeded",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": false,
+              "outcome": "tasks",
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 1,
+                "new_pending": 1,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "succeeded",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": "no_tasks",
+              "decision_summary": {
+                "preserved": 1,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 0,
+            "running": 0,
+            "succeeded": 2,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "partial-failure",
+      "snapshots": [
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 1,
+          "state": "queued",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 2,
+            "running": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 2,
+          "state": "running",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "running",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "running",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 0,
+            "running": 2,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 3,
+          "state": "partial_success",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "succeeded",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": false,
+              "outcome": "tasks",
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 1,
+                "new_pending": 1,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "failed",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": {
+                "code": "agent_timeout",
+                "message": "识别超时，已保留旧结果。"
+              }
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 0,
+            "running": 0,
+            "succeeded": 1,
+            "failed": 1,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "stop",
+      "snapshots": [
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 1,
+          "state": "queued",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 2,
+            "running": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 2,
+          "state": "running",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "running",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 1,
+            "running": 1,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 3,
+          "state": "stopping",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "running",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "cancelled",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 0,
+            "running": 1,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 1,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 4,
+          "state": "stopped",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "interrupted",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": {
+                "code": "interrupted",
+                "message": "运行已停止，未保存迟到结果。"
+              }
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "cancelled",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 0,
+            "running": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 1,
+            "interrupted": 1,
+            "superseded": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "restart",
+      "snapshots": [
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 1,
+          "state": "queued",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 2,
+            "running": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 2,
+          "state": "running",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "running",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "queued",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": null
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 1,
+            "running": 1,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 0,
+            "superseded": 0
+          }
+        },
+        {
+          "contract_version": "reprocessing/0.1",
+          "run_id": "run:synthetic:1",
+          "operation_id": "op:synthetic:1",
+          "source_account_id": "source:opaque:a",
+          "revision": 3,
+          "state": "interrupted",
+          "created_at": "2026-10-09T09:00:00+08:00",
+          "updated_at": "2026-10-09T09:00:00+08:00",
+          "records": [
+            {
+              "input_id": "source:record:1",
+              "state": "interrupted",
+              "attempted": true,
+              "policy_version": "text-policy-v1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": {
+                "code": "interrupted",
+                "message": "运行已停止，未保存迟到结果。"
+              }
+            },
+            {
+              "input_id": "source:record:2",
+              "state": "interrupted",
+              "attempted": false,
+              "policy_version": null,
+              "previous_available": true,
+              "old_result_retained": true,
+              "outcome": null,
+              "decision_summary": {
+                "preserved": 0,
+                "replaced": 0,
+                "new_pending": 0,
+                "unresolved": 0
+              },
+              "error": {
+                "code": "interrupted",
+                "message": "服务重启，未开始记录保留为中断。"
+              }
+            }
+          ],
+          "counts": {
+            "total": 2,
+            "queued": 0,
+            "running": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+            "interrupted": 2,
+            "superseded": 0
+          }
+        }
+      ]
+    }
+  ],
+  "association_cases": [
+    {
+      "name": "confirmed-multiple-reordered",
+      "input": {
+        "contract_version": "reprocessing/0.1",
+        "previous": [
+          {
+            "action_id": "action:report",
+            "decision": "confirmed"
+          },
+          {
+            "action_id": "action:survey",
+            "decision": "pending"
+          }
+        ],
+        "candidates": [
+          "new:survey",
+          "new:report"
+        ],
+        "links": [
+          {
+            "candidate_id": "new:report",
+            "action_id": "action:report"
+          },
+          {
+            "candidate_id": "new:survey",
+            "action_id": "action:survey"
+          }
+        ],
+        "confirmed_new": []
+      },
+      "expected": {
+        "preserved_action_ids": [
+          "action:report"
+        ],
+        "replace_pending_ids": [
+          "action:survey"
+        ],
+        "retained_pending_ids": [],
+        "new_pending_ids": [
+          "new:survey"
+        ],
+        "suppressed_candidate_ids": [
+          "new:report"
+        ],
+        "unresolved_candidate_ids": [],
+        "hold_record": false
+      }
+    },
+    {
+      "name": "ignored-ambiguous-keeps-old",
+      "input": {
+        "contract_version": "reprocessing/0.1",
+        "previous": [
+          {
+            "action_id": "action:ignored",
+            "decision": "ignored"
+          },
+          {
+            "action_id": "action:pending",
+            "decision": "pending"
+          }
+        ],
+        "candidates": [
+          "new:unknown"
+        ],
+        "links": [],
+        "confirmed_new": []
+      },
+      "expected": {
+        "preserved_action_ids": [
+          "action:ignored"
+        ],
+        "replace_pending_ids": [],
+        "retained_pending_ids": [
+          "action:pending"
+        ],
+        "new_pending_ids": [],
+        "suppressed_candidate_ids": [],
+        "unresolved_candidate_ids": [
+          "new:unknown"
+        ],
+        "hold_record": true
+      }
+    },
+    {
+      "name": "no-tasks-to-new",
+      "input": {
+        "contract_version": "reprocessing/0.1",
+        "previous": [],
+        "candidates": [
+          "new:task"
+        ],
+        "links": [],
+        "confirmed_new": []
+      },
+      "expected": {
+        "preserved_action_ids": [],
+        "replace_pending_ids": [],
+        "retained_pending_ids": [],
+        "new_pending_ids": [
+          "new:task"
+        ],
+        "suppressed_candidate_ids": [],
+        "unresolved_candidate_ids": [],
+        "hold_record": false
+      }
+    },
+    {
+      "name": "explicit-human-new",
+      "input": {
+        "contract_version": "reprocessing/0.1",
+        "previous": [
+          {
+            "action_id": "action:edited",
+            "decision": "edited"
+          }
+        ],
+        "candidates": [
+          "new:task"
+        ],
+        "links": [],
+        "confirmed_new": [
+          "new:task"
+        ]
+      },
+      "expected": {
+        "preserved_action_ids": [
+          "action:edited"
+        ],
+        "replace_pending_ids": [],
+        "retained_pending_ids": [],
+        "new_pending_ids": [
+          "new:task"
+        ],
+        "suppressed_candidate_ids": [],
+        "unresolved_candidate_ids": [],
+        "hold_record": false
+      }
+    }
+  ],
+  "legacy_input_ids": [
+    "synthetic/course/作业 1",
+    " 作业 1 ",
+    "a",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课课"
+  ]
+}

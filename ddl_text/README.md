@@ -1,5 +1,19 @@
 # 文本识别模块
 
+文本、教学网和文件入口使用统一错误目录与一次有界草稿纠错，见 [错误约定](../contracts/docs/recognition-errors.md)；文本按原文句段生成证据编号，长句按词和日期边界切成最多 768 字的重叠片段，模型只选择引用，服务端还原原文并校验日期。图片证据仍标记为模型读取，不能视为已核实的文字证据。
+
+教学网 v0.4 识别结果区分 `content_type=task/notice`；任务和通知均可携带有依据的日期，类型不由日期决定，规则见 `skills/teaching-task-extraction/SKILL.md`。旧文本/微信入口暂保持原契约与默认 task。
+
+通知按“漏看会直接影响用户”收录；普通课件发布忽略，考核规则、课程群要求及教学内容中的作业保留；既有任务的变更保留新日期，等待关联后处理。
+
+教学网模型另标记时间用途与同源作业行动关系：发布/布置日期不填为截止时间；关系由后端结合可信原生提交状态处理。结构失败在同次预算内反馈具体规则进行一次修正，持久诊断仅保留白名单 Schema 路径和规则，不保存私人响应。
+
+旧草稿或未知时间用途与作业标题日期相同时，保留日期和证据待核对，不因缺少特定截止关键词而清空；PDF 后续页无法读取或触及页数/文字上限时，读取器内部保留已读文字及缺口，教学网后端从本次识别输入中略过该附件。
+
+教学网 PDF 原件统一校验可见性；无图形、无批注且文字可读的页面在本地读取，排除页面外、完全透明及隐藏文字，可选图层（OCG/OCMD）、裁剪或合成效果无法确认的页面仍视觉识别，普通纯文字页不增加模型调用。需要视觉读取时，每批最多 6 页，像素/编码容量已满则从下一页继续，真正不可读页面才标为缺口。`read_attachment(single_pdf_batch=True)` 返回已校验的内部断点或最终结果，后端逐批分配预算并自动续读，直到全部页面完成或达到 128 页/50000 字上限；内部断点不作为识别完成结果。模型输出截断或超时时后端最多两次按 6→3→1 缩小批次；附件转录页码、页数或字段错误在该批原有 60 秒预算内纠正一次，仍失败则不缓存、不跳页，并保留 `invalid_agent_output`。单页仍超时及服务故障保留断点供重试，读取与最终任务识别分别限时；独立调用方传入的 `expires` 仍是硬截止时间。
+
+像素预算仅在页面实际渲染时核算，大尺寸但可安全提取文字的页面不受位图限额误拦截；空白 DOCX、图片和 PDF 不把段落标签或“未见可读文字”当作有效内容。教学网后端将超限、无效、空白、部分读取或最终转录失败的附件直接略过，继续正文和其他完整可读附件，不产生附件错误或额外核对要求；原始快照与内部断点保留。主动文件导入不改变原有错误/覆盖契约。
+
 ```text
 ddl_text/
 ├── README.md             # 模块用途、运行和检查入口
@@ -7,21 +21,47 @@ ddl_text/
 ├── __main__.py           # CLI 参数、输入文件和输出
 ├── adapters.py           # 调用协议及离线回放适配器
 ├── chat_client.py        # 七牛兼容 API 请求和错误处理
-├── classification.py    # F3 历史有效性过滤、待核实判断和过滤说明
+├── call_observation.py   # 可选模型耗时、固定结果码及供应商实际 token 用量
+├── classification.py    # 旧 v0.2 的历史过滤与待核实判断（教学网 model-v1 不使用）
 ├── codex_client.py       # 环境配置读取及可选 Codex 适配器
 ├── config.py             # 超时、重试和运行参数校验
 ├── contract_v02.py       # 前后端 v0.2 契约转换和校验
 ├── contracts.py          # 输入及候选任务的基础校验
 ├── dates.py              # 合并时间提案、催促语和冲突处理
+├── docx_reader.py        # DOCX 受限解包、段落/表格/附属文字和内嵌图片读取
 ├── draft_schema.py       # 模型草稿的 JSON Schema
+├── draft_recovery.py     # 原有预算内仅一次格式、引用和语义纠错
+├── diagnostics.py        # 所有识别入口共用的安全事件与工作进程诊断通道
+├── evidence_spans.py     # 文本原文句段编号及精确引文恢复
 ├── extraction.py         # 加载规则、校验原文证据、生成候选
 ├── http_server.py        # 本机 /recognize 和 /health 服务
+├── image_reader.py       # JPG/PNG 字节核对、解码与元数据清理
+├── pdf_reader.py         # PDF 可见页面的限时渲染与页数/像素预算
+├── media_pipeline.py     # 供后端显式调用的 v0.3.1 图片、PDF、DOCX 与文字块入口
+├── media_schema.py       # 从共享契约派生模型草稿并校验
+├── media_worker.py       # 图片解码、文档读取与模型调用的限时子进程
+├── media_requirements.txt # 可选附件读取、识别及契约校验依赖
+├── media_test_requirements.txt # 合成 PDF/DOCX 构造及异常文件测试依赖
 ├── pipeline.py           # 批量输入处理和结果汇总
+├── policy_version.py     # 文本规则与实际模型配置的可追溯版本清单
 ├── provider.py           # 选择模型客户端
 ├── render.py             # 可选文字输出
 ├── runner.py             # 工作进程、超时和重试
+├── teaching_draft.py     # 教学网模型直接分类、证据校验与结果编译
+├── teaching_semantics.py # 区分日期用途及同源作业行动语义
+├── teaching_attachment_reader.py # 复用附件 reader，读取 DOCX 文字及图片/PDF 页面转录
+├── teaching_pipeline.py  # 显式 v0.4 批次调用、逐条失败和消费端复核
+├── teaching_policy.py    # 教学网实际运行规则和模型配置的独立版本
+├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
+├── text_requirements.txt # 文本入口的 JSON Schema 校验依赖及 Windows 时区数据
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
+│   ├── teaching-file-reading/
+│   │   └── SKILL.md      # 教学网附件逐页阅读、可见文字和质量缺口
+│   ├── teaching-task-extraction/
+│   │   └── SKILL.md      # 教学网行动/日期及任务、候选、过滤语义分类
+│   ├── image-task-extraction/
+│   │   └── SKILL.md      # 图片行动、日期、证据和质量判断规则
 │   └── text-task-extraction/
 │       ├── SKILL.md      # 任务、来源、日期及更新意图的识别规则
 │       └── references/
@@ -38,31 +78,73 @@ ddl_text/
 │   │   └── text-classification-drafts.json # 与共享 F3 分类样例配套的人工草稿
 │   ├── __init__.py       # 测试包入口
 │   ├── fake_adapters.py  # 可跨进程运行的模拟适配器
+│   ├── media_cases.py    # 共享附件样例、合成图片与模型替身
+│   ├── pdf_cases.py      # 合成文字/扫描 PDF 及共享契约请求
+│   ├── docx_cases.py     # 合成 OOXML 文件、关系与共享契约请求
+│   ├── test_docx_reader.py # DOCX 内容、定位、缺口、边界与真实草稿回放
+│   ├── run_docx_smoke.py # 生成 DOCX 样例并显式调用真实模型验证
+│   ├── test_pdf_reader.py # PDF 页码、截断、超时及不支持特性的回归
+│   ├── run_pdf_smoke.py  # 中文跨页和部分 PDF 的真实模型验证
+│   ├── test_media_pipeline.py # 文件/证据/质量/超时与兼容验证
+│   ├── test_media_transport.py # 本机模拟服务验证图片传输和重定向隔离
+│   ├── run_media_smoke.py # 显式启用的非私人图片真实模型验证
+│   ├── run_recognition_diagnostics_smoke.py # 显式 --live 的合成文本/图片实测及安全诊断
+│   ├── test_diagnostic_boundaries.py # HTTP 故障、子进程崩溃、超时和诊断跨进程回归
+│   ├── run_chinese_media_smoke.py # 本机字体生成中文长图、多任务及模糊图实测
+│   ├── reprocessing_cases.py # #112 旧/新结果及用户决定的合成交接案例
+│   ├── test_policy_version.py # 版本稳定性、变更与回归输入校验
+│   ├── teaching_cases.py  # 从共享政策样例派生的内部/真实合成测试输入
+│   ├── test_teaching_draft.py # 覆盖、学期、历史、信任及超时回归
+│   ├── test_teaching_pipeline.py # 共享批次样例、失败隔离、消费复核与版本回归
+│   ├── run_teaching_smoke.py # 新分类实测的兼容命令入口
+│   ├── run_teaching_routing_smoke.py # 八组合成教学网分类的真实服务验证
 │   ├── time_cases.py     # 时间语义的固定合成输入和人工期望值
 │   ├── classification_cases.py # F3 分类的固定合成输入及人工期望值
-│   ├── run_classification_smoke.py # 显式启用的真实模型分类验证入口
+│   ├── homework_cases.py # 作业语境、参考资料和可选行动的合成验证输入
+│   ├── run_classification_smoke.py # 显式启用的真实模型分类/作业语境验证入口
 │   ├── test_classification.py # 分类、历史过滤、证据及跨进程透传测试
 │   ├── run_time_smoke.py # 显式启用的真实模型时间验证入口
 │   ├── test_chat_client.py      # API 协议、凭据隔离及错误测试
+│   ├── test_call_observation.py # 供应商实际用量、缺失值、隐私和观测故障隔离
 │   ├── test_codex_client.py     # 配置和可选 Codex 适配测试
 │   ├── test_extraction.py      # 草稿编译、时间合并和原文证据测试
+│   ├── test_homework.py        # 真实合成作业草稿回放与前后端分类一致性检查
 │   ├── test_normalized_time.py # 标准时间草稿及基准的独立校验测试
 │   ├── test_frontend_contract.py # v0.2 契约及本机 HTTP 测试
 │   ├── test_output_validation.py # 非法模型输出测试
 │   ├── test_pipeline.py        # 批量处理、超时和重试测试
+│   ├── test_recognition_errors.py # 分类、隐私、纠错预算及真实子进程协议回归
 │   └── test_render.py          # 文字输出测试
 └── docs/                 # 当前配置说明与历史归档
     ├── api-setup.md      # 供应商配置及故障定位
+    ├── image-input.md    # v0.3.1 图片入口、受限读取回调和预算说明
+    ├── policy-version.md # #112 规则版本使用方式与后端重识别交接
+    ├── teaching-draft.md # 教学网 v0.4 调用、信任边界、策略版本和接入依赖
     └── archive/          # 带日期的阶段记录、旧设计及合成验证结果
+        ├── 2026-10-06-issue94-images.json # 最初五组生成图片的真实模型输入、草稿与输出
+        ├── 2026-10-06-issue94-chinese-images.json # 五组中文合成图片的真实输入、草稿与输出
+        ├── 2026-10-06-issue94-pdf.json # PDF 合成测试的真实输入、草稿与输出
+        ├── 2026-10-06-issue94-docx.json # 四组 DOCX 合成测试的真实输入、草稿与输出
+        ├── 2026-10-06-issue118-year-review.json # 修复多余补年理由后的同图真实模型验证
+        ├── 2026-10-07-teaching-policy-live.json # 教学网政策合成通知的真实模型输入与输出
+        └── 2026-10-07-teaching-policy-diagnostics.json # 教学网政策实测失败与修正诊断
 ```
 
 接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
+
+教学网 [model-v1 分类](docs/teaching-draft.md) 在同次模型调用中输出 task/candidate/filtered；程序只做格式、证据和来源等技术校验，正文 partial、未读补充资料和正常补年不再强制审核。下文 F3 旧规则只用于 v0.2，微信 v0.3.1 规则不变。
+
+新增可选 [v0.3.1 附件识别入口](docs/image-input.md)：支持静态 JPG/PNG、普通 PDF 可见页面、DOCX 正文/表格/内嵌图片和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，文件证据依正式契约保留待审核。
 
 ## 输入输出与规则
 
 - [共享接口协议](../docs/backend-harness-alignment.md)：v0.2 输入输出及确认流程。
 - [输入样例](../contracts/source-to-text/text-frontend-v02-request.json)、[离线草稿](tests/fixtures/text-frontend-v02-drafts.json)、[输出样例](../contracts/text-to-app/text-frontend-v02-output.json)；交接方向与文件说明见 [contracts](../contracts/README.md)。
 - [识别规则](skills/text-task-extraction/SKILL.md)：行动要求、来源和日期判断；未知、推断、冲突的时间保留不确定性，参考时间不直接当作明确截止时间。
+
+课程作业结合标题、正文和已有栏目语境识别，不强求“请完成/提交”等固定词；作业存在与附件内容/日期未知分别判断。参考答案、讲义等不因含“作业”就变成新任务；完整性、历史有效性和用户确认规则仍独立生效。
+
+作业语境的合成输入、模型草稿及输出见 [真实调用样例](docs/archive/2026-10-06-issue111-homework-live.json)；8 条固定样例不代表独立召回率评测，未读附件对应的未知日期仍待核实。
 
 模型按语义直接生成标准时间及原文证据，程序校验 ISO 值、日历、时区与基准，不再按原话格式白名单决定是否接受。内部草稿新增 `times[].normalized`，旧草稿需迁移；对外 v0.2 不变。结构校验不能证明语义一定正确；农历、校历和节假日等缺少依据时仍需核实。
 
@@ -88,11 +170,15 @@ ddl_text/
 
 规则只作用于新识别请求，不回溯删除已保存任务或缓存候选；旧批次需由后端重新识别或由用户处理，不能假定其已经过历史过滤。当前仅记录级采集时点参与判断，不代替日历中的实时逾期状态。
 
+[#112 规则版本交接](docs/policy-version.md) 提供 `text_policy_manifest` 与 9 组重识别合成案例，供后端保存实际执行版本；不改变 v0.2 输出或自动刷新旧候选，重识别队列、幂等及用户决定保留仍由消费者实现。
+
 示例效果见 [F3 共享输入/输出](../contracts/text-to-app/text-classification-v02.json) 和 [真实模型合成测试输出](docs/archive/2026-09-30-issue68-classification-final.json)；后者保留原始草稿、标准 JSON、人工期望与耗时，不代表独立召回率评测。补交通知缺少用户任务上下文时，新增补交行动或更新原任务均可保留待核实，但不能沿用已失效的旧截止作为新期限。
 
 ## 运行与测试
 
-以下命令均在**仓库根目录**执行。需要 Python 3.9+，模块使用标准库；Windows 缺少时区数据库时安装 `tzdata`。
+以下命令均在**仓库根目录**执行。文本入口需要 Python 3.9+，先运行 `python -m pip install -r ddl_text/text_requirements.txt` 安装草稿校验依赖（包含 Windows 所需的时区数据）；完整后端的 `server/requirements.txt` 已包含这些依赖。缺依赖会报告 `recognition_dependency`，不会归因于模型故障。
+
+附件入口另需 Python 3.10+，先运行 `python -m pip install -r ddl_text/media_requirements.txt`；全部模块测试安装 `ddl_text/media_test_requirements.txt`。图片、PDF、DOCX 读取依赖仍为可选，纯文本入口不加载它们。
 
 ```powershell
 # 人工草稿回放：不访问模型，不代表真实模型识别成功
@@ -116,9 +202,12 @@ python -m ddl_text.http_server --real
 python -m ddl_text.tests.run_time_smoke --live --output local-data/time-smoke-new.json
 # F3 分类回归：14 条固定合成通知，保留模型草稿及过滤说明
 python -m ddl_text.tests.run_classification_smoke --live --output local-data/classification-smoke-new.json
+# 作业语境：8 条合成通知，不读取真实附件；不代表独立召回率评测
+python -m ddl_text.tests.run_classification_smoke --live --suite homework --output local-data/homework-smoke-new.json
 ```
 
-识别服务默认 `127.0.0.1:1333`，健康检查为 `/health`。账户后端设置 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize`；网页与账户服务的启动方式由其模块说明维护。更改环境配置后重启识别服务。配置检查及健康检查不证明模型权限或额度可用。
+账户后端默认直接调用 `process_request`，读取根目录 `.env`，无需单独启动识别服务；网页与后端启动方式见 [frontend/README.md](../frontend/README.md)。Windows 后端直调的真实合成结果见 [验证 JSON](docs/archive/2026-10-01-issue69-backend-direct.json)。
+独立识别服务仍可选用：默认 `127.0.0.1:1333`，健康检查为 `/health`；在账户后端终端导出 `TEXT_HARNESS_URL=http://127.0.0.1:1333/recognize` 即可切换。更改环境变量后重启相应后端或服务；配置检查及健康检查不证明模型权限或额度可用。
 
 ## 维护与历史记录
 

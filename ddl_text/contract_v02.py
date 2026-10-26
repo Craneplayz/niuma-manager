@@ -10,7 +10,7 @@ import re
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
-PLATFORMS={'teaching_web','wechat','email','web','unknown'}
+PLATFORMS={'teaching_web','wechat','email','web','manual','unknown'}
 SUPPORTS={'title','description','prerequisites','course_or_project','notice_type','target_reference','deadline'}
 
 def require(condition):
@@ -27,7 +27,7 @@ def strings(value):
 
 def instant(value):
     string(value,nonempty=True)
-    require(bool(re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)',value)))
+    require(bool(re.fullmatch(r'\d{4}-\d\d-\d\dT(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)',value)))
     return datetime.fromisoformat(value.replace('Z','+00:00'))
 
 def timezone(value):
@@ -150,7 +150,12 @@ def validate_result(request,result):
     require(all(isinstance(result[k],list) for k in ['record_results','tasks','errors']))
     records={r['input_id']:r for r in request['records']}
     for error in result['errors']:
-        fields(error,'input_id code message retryable')
+        from contracts.recognition_errors import validate_failure, safe_schema_detail
+        if isinstance(error, dict) and 'failure' in error:
+            validate_failure(error['failure'])
+        if isinstance(error, dict) and 'diagnostic' in error:
+            require(safe_schema_detail(error['diagnostic']) is not None)
+        fields({k: v for k, v in error.items() if k not in ('failure', 'diagnostic')} if isinstance(error, dict) else error,'input_id code message retryable')
         require(error['input_id'] is None or error['input_id'] in records)
         string(error['code'],nonempty=True);string(error['message']);require(type(error['retryable']) is bool)
     if any(e['input_id'] is None for e in result['errors']):

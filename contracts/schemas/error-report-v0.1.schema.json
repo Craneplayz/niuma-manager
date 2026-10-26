@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User initiated error report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "incident_id",
+    "code",
+    "action",
+    "occurred_at",
+    "frontend_revision",
+    "backend_revision",
+    "status"
+  ],
+  "properties": {
+    "diagnostic_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{24}$"
+    },
+    "contract_version": {
+      "const": "error-report/0.1"
+    },
+    "incident_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+    },
+    "code": {
+      "enum": [
+        "incomplete_source",
+        "conflict",
+        "credential_dependency",
+        "credential_storage",
+        "crawler_dependency",
+        "teaching_model_configuration",
+        "model_configuration",
+        "recognition_rules",
+        "model_busy",
+        "session",
+        "teaching_credentials",
+        "teaching_connection",
+        "crawler_runtime",
+        "service_version",
+        "model_connection",
+        "service_connection",
+        "timeout",
+        "invalid_result",
+        "unknown",
+        "validation",
+        "invalid_input",
+        "unsupported_version",
+        "input_limit",
+        "source_incomplete",
+        "source_changed",
+        "collection_dependency",
+        "collection_failed",
+        "attachment_unavailable",
+        "attachment_unsupported",
+        "attachment_unreadable",
+        "attachment_schema",
+        "content_uncertain",
+        "content_incomplete",
+        "model_rate_limited",
+        "model_timeout",
+        "model_unavailable",
+        "provider_response",
+        "output_truncated",
+        "draft_json",
+        "draft_schema",
+        "draft_evidence",
+        "draft_semantics",
+        "result_contract",
+        "save_failed",
+        "internal_error",
+        "worker_terminated",
+        "worker_timeout",
+        "recognition_dependency"
+      ]
+    },
+    "action": {
+      "enum": [
+        "tasks_load",
+        "tasks_save",
+        "tasks_delete",
+        "tasks_restore",
+        "text_import",
+        "teaching_sync",
+        "import_review",
+        "notice_reprocessing",
+        "task_evidence",
+        "account",
+        "feedback",
+        "general"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 40
+    },
+    "frontend_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "backend_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "status": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 400,
+      "maximum": 599
+    }
+  },
+  "$defs": {
+    "revision": {
+      "type": "string",
+      "pattern": "^(unknown|[a-f0-9]{7,40})$"
+    }
+  }
+}
