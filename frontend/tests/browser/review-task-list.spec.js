@@ -25,6 +25,7 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
     if (path === '/api/auth/me') value = { user: { id: 'review-user', name: '合成账号' } };
     else if (path === '/api/workspace') value = { tasks: { version, value: tasks } };
     else if (path === '/api/data/tasks') { const body = request.postDataJSON(); writes.push(body); tasks = body.value; value = { version: ++version }; }
+    else if (path === '/api/recognition/text-jobs') value = { contract_version: 'text-import-jobs/0.1', jobs: [] };
     else if (path === '/api/recognition/batches') {
       if (failReadOnce && !readOnce) { readOnce = true; status = 503; value = { error: 'Synthetic unavailable' }; }
       else value = batches;
@@ -45,6 +46,7 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
         value = { batches };
       }
     } else if (path === '/api/usage/visit') value = { offerRating: false };
+    else if (path === '/api/usage/guest-visit') value = { saved: true };
     else if (path === '/api/version') value = { environment: 'test', revision: 'synthetic' };
     else if (path === '/api/recognition/task-evidence') value = { evidence: [] };
     else if (path === '/api/sources/credentials') value = { configured: false };

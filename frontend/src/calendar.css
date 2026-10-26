@@ -12,7 +12,7 @@
 }
 
 .calendar-view button:focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--focus);
   outline-offset: -2px;
 }
 
@@ -42,7 +42,7 @@
 }
 
 .calendar-view .calendar-day.is-selected {
-  background: #eef3f6;
+  background: var(--selected);
 }
 
 .calendar-view .calendar-day.is-drop-target {
@@ -82,7 +82,7 @@ body.is-calendar-dragging * {
   max-width: min(300px, calc(100vw - 16px));
   padding: 12px 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--paper, #fff);
   color: var(--ink);
   box-shadow: 0 6px 24px #20334220;
@@ -112,11 +112,11 @@ body.is-calendar-dragging * {
   min-height: 44px;
   padding: 0 2px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 8px;
   background: transparent;
 }
 
-.calendar-view .calendar-date-button:hover {
+.calendar-view .calendar-date-button:not(:disabled):hover {
   background: var(--selected);
 }
 
@@ -156,13 +156,13 @@ body.is-calendar-dragging * {
   min-height: 31px;
   gap: 5px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   padding: 5px 4px;
   text-align: left;
 }
 
-.calendar-view .calendar-task:hover {
+.calendar-view .calendar-task:not(:disabled):hover {
   background: var(--selected);
 }
 
@@ -171,7 +171,7 @@ body.is-calendar-dragging * {
   color: #505a63;
 }
 
-.calendar-view .calendar-task.is-notice:hover {
+.calendar-view .calendar-task.is-notice:not(:disabled):hover {
   background: #e5e8ea;
 }
 
@@ -181,7 +181,7 @@ body.is-calendar-dragging * {
   margin-right: 6px;
   padding: 1px 5px;
   border: 1px solid #d6dade;
-  border-radius: 4px;
+  border-radius: 6px;
   background: #f2f3f4;
   color: #58636d;
   font-size: 11px;
@@ -193,7 +193,7 @@ body.is-calendar-dragging * {
 
 .calendar-task .notice-label {
   margin-right: 0;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .calendar-view .calendar-task-title {
@@ -210,7 +210,7 @@ body.is-calendar-dragging * {
 .calendar-view .calendar-task-time {
   color: var(--muted);
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -219,14 +219,14 @@ body.is-calendar-dragging * {
   min-height: 29px;
   padding: 4px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
   font-size: 11px;
   text-align: left;
 }
 
-.calendar-view .calendar-more:hover {
+.calendar-view .calendar-more:not(:disabled):hover {
   background: var(--selected);
   color: var(--ink);
 }
@@ -325,6 +325,15 @@ body.is-calendar-dragging * {
   line-height: 1.6;
 }
 
+.task-group-heading::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  min-width: 12px;
+  margin-left: 4px;
+  background: var(--line);
+}
+
 .task-group-heading > span {
   font-size: 11px;
   font-weight: 400;
@@ -338,7 +347,7 @@ body.is-calendar-dragging * {
   gap: 8px;
   min-width: 0;
   padding: 5px 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .task-row:hover {
@@ -357,9 +366,9 @@ body.is-calendar-dragging * {
 }
 
 .task-row button:focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
-  border-radius: 5px;
+  border-radius: 8px;
 }
 
 .task-row .task-complete {
@@ -381,16 +390,22 @@ body.is-calendar-dragging * {
   background: white;
 }
 
-.task-row .task-complete:hover .task-complete-mark {
-  border-color: var(--ink);
-  background: var(--selected);
+.task-row .task-complete:not(:disabled):hover .task-complete-mark {
+  border-color: var(--action-text);
+  background: var(--action-soft);
 }
 
 .task-row.is-completed .task-complete-mark,
 .task-row.is-read .task-complete-mark {
-  background: var(--ink);
-  border-color: var(--ink);
+  background: var(--action-text);
+  border-color: var(--action-text);
   color: white;
+}
+
+.task-row.is-completed .task-complete:not(:disabled):hover .task-complete-mark,
+.task-row.is-read .task-complete:not(:disabled):hover .task-complete-mark {
+  background: var(--action-ink);
+  border-color: var(--action-ink);
 }
 
 .task-row .task-complete-mark .icon {
@@ -447,7 +462,7 @@ body.is-calendar-dragging * {
   margin-right: 8px;
   padding: 1px 6px;
   border: 1px solid #ebd79e;
-  border-radius: 5px;
+  border-radius: 6px;
   background: #fff8e6;
   color: #8b691e;
   font-size: 11px;
@@ -472,12 +487,12 @@ body.is-calendar-dragging * {
   min-height: 44px;
   padding: 0 6px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
 }
-.task-row .task-review-ignore:hover { color: var(--ink); background: #edf0f2; }
+.task-row .task-review-ignore:not(:disabled):hover { color: var(--action-ink); background: var(--action-soft); }
 .task-row .task-deadline.is-unconfirmed { color: #8b691e; }
 .task-review-changes {
   grid-column: 2 / -1;
@@ -531,7 +546,7 @@ body.is-calendar-dragging * {
   margin-bottom: 23px;
   padding: 3px;
   background: var(--rail);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .calendar-pane-switch > button {
@@ -540,8 +555,8 @@ body.is-calendar-dragging * {
   gap: 6px;
   min-height: 44px;
   padding: 8px 11px;
-  border: 0;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: 9px;
   background: transparent;
   color: var(--muted);
   font: inherit;
@@ -551,14 +566,20 @@ body.is-calendar-dragging * {
 }
 
 .calendar-pane-switch > button.is-selected {
-  background: white;
-  color: var(--ink);
+  background: var(--action-soft);
+  color: var(--action-text);
+  border-color: var(--action-border);
   font-weight: 550;
 }
 
+.calendar-pane-switch > button:not(.is-selected):not(:disabled):hover {
+  background: #fff;
+  color: var(--action-text);
+}
+
 .calendar-pane-switch > button > span {
-  color: var(--muted);
-  font-size: 10px;
+  color: inherit;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -649,7 +670,7 @@ body.is-calendar-dragging * {
   }
   .calendar-month .calendar-day-mobile-count {
     display: block;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.5;
     color: var(--muted);
   }
@@ -737,7 +758,7 @@ body.is-calendar-dragging * {
 
   .calendar-view .calendar-day-mobile-count {
     display: block;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.5;
     color: var(--muted);
   }

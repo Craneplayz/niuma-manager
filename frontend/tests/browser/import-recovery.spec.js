@@ -61,7 +61,7 @@ test("recovery summaries and individual errors keep distinct colors on desktop a
   await expect(allCategory).toHaveText("错误 8 条");
   await expect(allCategory).toHaveAttribute("title", "已恢复 8 / 8 条；仍需处理 0 条。");
   await expect(allRow.locator(".sync-item-status-muted")).toHaveCount(8);
-  await expect(allRow.locator(".sync-item-status-muted").first()).toHaveCSS("color", "rgb(119, 124, 130)");
+  await expect(allRow.locator(".sync-item-status-muted").first()).toHaveCSS("color", "rgb(109, 116, 124)");
   await expect(allRow.getByRole("button", { name: /处理未完成/ })).toHaveCount(0);
 
   const partialRow = page.locator(`[id="sync-run-${partial.run_id}"]`);
@@ -92,7 +92,7 @@ test("a resolved whole collection exposes recovery navigation without obsolete p
   await expect(row).not.toContainText("核对密码");
   await expect(row.getByRole("button", { name: /处理未完成|处理本条/ })).toHaveCount(0);
   const link = row.getByRole("button", { name: "本轮导入：已恢复，查看后续采集批次", exact: true });
-  await expect(link).toHaveCSS("color", "rgb(119, 124, 130)");
+  await expect(link).toHaveCSS("color", "rgb(109, 116, 124)");
   await link.click();
   const target = page.locator(`[id="sync-run-${later.run_id}"]`);
   await expect(target).toBeVisible();
@@ -234,7 +234,7 @@ test("history separates notice type from completion and distinguishes reviewed c
   await expect(names.locator(".sync-item-status")).toHaveText(["未完成", "✓ 已完成", "回收站", "已移除"]);
   await expect(names.locator(".notice-label")).toHaveCount(3);
   await expect(names.first().locator(".notice-label")).toHaveCSS("font-size", "10px");
-  await expect(names.first().locator(".notice-label")).toHaveCSS("border-radius", "4px");
+  await expect(names.first().locator(".notice-label")).toHaveCSS("border-radius", "6px");
   expect(await names.first().evaluate(element => element.firstElementChild.classList.contains("notice-label"))).toBe(true);
   await expect(row).not.toContainText("已核对");
   await expect(row).not.toContainText("待确认的考试地点");
