@@ -2,6 +2,28 @@
 KINDS={'assignment':'作业','lab':'实验','exam':'考试','reading':'阅读','notice':'通知','other':'事项'}
 
 
+def refinement_schema(draft_schema, slots):
+    """Supporting context may refine dates/review, never create/classify actions.
+
+    Slot IDs identify server-owned drafts within ONE attempt, not task identity.
+    Reuse the canonical deadline, evidence and calendar shapes.
+    """
+    from copy import deepcopy
+    definitions = deepcopy(draft_schema['$defs'])
+    task = draft_schema['properties']['tasks']['items']['properties']
+    relevance = deepcopy(task['relevance'])
+    relevance['properties']['state']['enum'] = ['current', 'ongoing', 'uncertain']
+    fields = dict(slot=dict(type='string', enum=slots),
+        deadline=deepcopy(task['assessment']['properties']['deadline']),
+        calendar_rule=deepcopy(task['calendar_rule']), time_role=deepcopy(task['time_role']),
+        relevance=relevance, recommendation=dict(enum=['task', 'candidate']), reason=dict(type='string', maxLength=1024),
+        evidence=dict(type='array', minItems=1, maxItems=10, items={'$ref': '#/$defs/quote'}))
+    update = dict(type='object', properties=fields, required=list(fields), additionalProperties=False)
+    return dict(type='object', properties=dict(updates=dict(type='array', items=update,
+        minItems=len(slots), maxItems=len(slots))), required=['updates'], additionalProperties=False,
+        **{'$defs': definitions})
+
+
 def fact_schemas(quote):
     def obj(properties):
         return dict(type='object',properties=properties,required=list(properties),additionalProperties=False)

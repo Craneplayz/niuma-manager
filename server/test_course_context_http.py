@@ -330,6 +330,40 @@ class CourseContextHTTPTests(unittest.TestCase):
         self.assertEqual(self.call('/auth/register',dict(name='Other',email='other-context@example.test',password='Synthetic-password!'))[0],200)
         self.assertEqual(self.call('/recognition/course-context',dict(request_id=rid))[0],404)
 
+    def test_context_cache_refresh_reuses_equal_result_and_preserves_handling(self):
+        for handling in ('pending', 'applied', 'ignored'):
+            with self.subTest(handling=handling):
+                iid='stable-'+handling
+                primary=request(iid,'请完成第四章书面作业。',course=iid)
+                material,asset=self.file_source('material-'+handling,course=iid)
+                sources=[primary,material];assets={material['records'][0]['record']['input_id']:[asset]}
+                rid=self.sync(sources,assets)['requests'][0]['request_id']
+                with self.reader(side_effect=AgentError('file_read_failed',False)):
+                    batch=self.run_record(rid)
+                item=batch['items'][0]
+                if handling!='pending':
+                    action=dict(action='create',auto_apply=True,version=1) if handling=='applied' else dict(action='ignore',version=1)
+                    self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',action)[0],200)
+                with app.connection() as db:
+                    before=[tuple(r) for r in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? ORDER BY id',(self.uid,))]
+                    material_rid=db.execute('SELECT request_id FROM teaching_sources WHERE user_id=? AND input_id=?',
+                        (self.uid,material['records'][0]['record']['input_id'])).fetchone()[0]
+                    stored=teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),material_rid)[0]
+                    teaching_assets.save_read_cache(db,self.uid,stored,teaching_assets.cache_version(Settings(model='synthetic',endpoint='https://example.test')),
+                        dict(read_state='complete',text='附加课堂阅读资料，仅供参考。'))
+                saved=self.call('/workspace')[1].get('tasks')
+                next_rid=next(v['request_id'] for v in self.sync(sources,assets)['requests'] if v['records'][0]['input_id']==iid)
+                self.assertNotEqual(next_rid,rid)
+                with self.reader(side_effect=AssertionError('completed cache must not be reread')):
+                    refreshed=self.run_record(next_rid)
+                self.assertFalse(refreshed['items'],refreshed)
+                self.assertEqual(refreshed['result']['status'],'success')
+                with app.connection() as db:
+                    self.assertEqual(before,[tuple(r) for r in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? ORDER BY id',(self.uid,))])
+                self.assertEqual(self.call('/workspace')[1].get('tasks'),saved)
+                for _ in range(2):
+                    self.assertNotIn(iid,[v['records'][0]['input_id'] for v in self.sync(sources,assets)['requests']])
+
     def test_context_change_during_model_call_cannot_save_a_stale_result(self):
         primary=request('homework','请完成第四章作业，规则见教学大纲。')
         material=request('syllabus','教学大纲：第四章作业于12月20日截止。')

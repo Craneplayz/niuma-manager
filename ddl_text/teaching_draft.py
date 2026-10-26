@@ -266,7 +266,8 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                             line=getattr(error,'lineno',None), column=getattr(error,'colno',None))
         if not isinstance(error, (ValueError, RecursionError)):
             raise AgentError('agent_unavailable', False, 'internal_error') from None
-        failure = AgentError('invalid_agent_output', True, stage)
+        failure = AgentError('invalid_agent_output', True,
+            'primary_source_evidence' if isinstance(error, course_facts.PrimaryEvidenceError) else stage)
         failure.model_feedback = str(error)[:512] if isinstance(error, ValueError) else stage
         raise failure from None
 
@@ -292,6 +293,12 @@ class TeachingDraftAdapter:
     source_verified: bool = False
 
     def extract(self, record, settings, attempt):
+        if settings.mode == 'real' and record.get('course_context', {}).get('documents'):
+            from .course_refinement import source_first
+            return source_first(self, record, settings, attempt)
+        return self.extract_primary(record, settings, attempt)
+
+    def extract_primary(self, record, settings, attempt):
         if settings.mode != 'real':
             payload = json.dumps(dict(record=record, source_verified_by_caller=self.source_verified), ensure_ascii=False)
             raw = self.client.complete_json(teaching_instructions(record), payload, settings)

@@ -382,9 +382,11 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
             course_context.remember(db,uid,acct,captured['records'][0],context_selection,
                 references=request['records'][0]['record']['references'],files=attachments.get('files',[]))
-            if result['status'] in ('success','no_tasks'):
+            unchanged = teaching_identity.reuse_unchanged_result(db,uid,request['request_id'],result)
+            if result['status'] in ('success','no_tasks') and not unchanged:
                 teaching_identity.supersede_unhandled(db,uid,request['request_id'],captured['records'][0]['record']['snapshot_id'])
-            for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):
+            cards = [] if unchanged else teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks'])
+            for card in cards:
                 db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                     (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
             submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))

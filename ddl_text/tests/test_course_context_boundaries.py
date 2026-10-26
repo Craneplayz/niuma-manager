@@ -81,6 +81,7 @@ class CourseContextEvidenceBoundaryTests(unittest.TestCase):
         task['relevance']['evidence']=[other]
         with self.assertRaises(AgentError) as failure:compile_result(request,dict(tasks=[task]))
         self.assertEqual(failure.exception.code,'invalid_agent_output')
+        self.assertEqual(failure.exception.diagnostic,'primary_source_evidence')
 
     def test_no_tasks_rejects_only_context_in_producer_and_consumer(self):
         request,_,primary,other=sample()
@@ -92,6 +93,7 @@ class CourseContextEvidenceBoundaryTests(unittest.TestCase):
         empty['evidence']=[other]
         with self.assertRaises(AgentError) as failure:compile_result(request,dict(tasks=[],empty_decision=empty))
         self.assertEqual(failure.exception.code,'invalid_agent_output')
+        self.assertEqual(failure.exception.diagnostic,'primary_source_evidence')
 
     def test_current_attachment_is_primary_evidence(self):
         request,task,_,_=sample()

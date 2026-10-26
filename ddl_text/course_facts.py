@@ -10,6 +10,10 @@ from datetime import date,timedelta
 from contracts.course_facts import KINDS, fact_schemas as schemas
 
 
+class PrimaryEvidenceError(ValueError):
+    """The proposed action belongs only to supporting documents."""
+
+
 def compact(text):
     return re.sub(r'\s+','',unicodedata.normalize('NFKC',text)).casefold()
 
@@ -94,11 +98,11 @@ def check_primary_action(draft,record):
     if draft['recommendation']=='filtered':
         evidence=evidence+draft['relevance']['evidence']
     if not any(q['part_id'] not in context for q in evidence):
-        raise ValueError('including or filtering an item needs primary-source evidence; course context is only supporting material')
+        raise PrimaryEvidenceError('including or filtering an item needs primary-source evidence; course context is only supporting material')
 
 
 def check_primary_empty(empty,record):
     context={d['ref_id'] for d in record.get('course_context',{}).get('documents',[])}
     if (context and empty['status']=='no_tasks'
             and not any(q['part_id'] not in context for q in empty['evidence'])):
-        raise ValueError('no_tasks needs primary-source evidence; another course document cannot establish an empty current source')
+        raise PrimaryEvidenceError('no_tasks needs primary-source evidence; another course document cannot establish an empty current source')

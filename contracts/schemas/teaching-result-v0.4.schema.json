@@ -1031,6 +1031,7 @@
             "draft_json",
             "draft_schema",
             "draft_evidence",
+            "primary_source_evidence",
             "draft_semantics",
             "result_contract",
             "save_failed",
