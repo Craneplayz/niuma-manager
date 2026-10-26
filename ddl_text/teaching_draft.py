@@ -298,7 +298,7 @@ class TeachingDraftAdapter:
             return source_first(self, record, settings, attempt)
         return self.extract_primary(record, settings, attempt)
 
-    def extract_primary(self, record, settings, attempt):
+    def extract_primary(self, record, settings, attempt, *, supporting_context_pending=False):
         if settings.mode != 'real':
             payload = json.dumps(dict(record=record, source_verified_by_caller=self.source_verified), ensure_ascii=False)
             raw = self.client.complete_json(teaching_instructions(record), payload, settings)
@@ -310,8 +310,15 @@ class TeachingDraftAdapter:
         metadata.pop('text'); metadata.pop('source_metadata_text')
         for ref in metadata['references']: ref.pop('text')
         payload = json.dumps(dict(record_metadata=metadata, evidence_catalog=evidence_catalog(record),
-                                  source_verified_by_caller=self.source_verified), ensure_ascii=False)
+                                  source_verified_by_caller=self.source_verified,
+                                  supporting_context_pending=supporting_context_pending), ensure_ascii=False)
         instructions = teaching_instructions(record, indexed=True)
+        if supporting_context_pending:
+            instructions += '''
+本调用是主来源行动发现阶段，不是最终全资料分类。课程旁证已由服务器准备，将在下一步补充；本步不接收它们的正文，不能据此认定旁证不存在。
+只要当前正文或自身附件已明确要求提交、完成、安装、准备、阅读等行动，就输出该行动。尚缺截止日期、适用范围或补充规则时保留任务草稿并 candidate，日期按 not_provided/unresolved 处理，不能因此返回 tasks=[] 或 empty_decision=incomplete。
+没有时间要求不等于没有行动。只有当前来源本身确实没有行动/重要告知才 no_tasks；只有行动内容本身不可取得、无法判断是否存在行动时才 incomplete。不要补造行动。日期和规则疑点会由下一步处理。
+'''
         from .draft_recovery import recover
         def call(current, feedback):
             data = dict(json.loads(payload), **(feedback or {}))

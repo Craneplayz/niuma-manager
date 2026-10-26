@@ -32,7 +32,7 @@ def source_first(adapter, record, settings, attempt):
                                   teaching_instructions, _quotes, _object, MAX_DRAFT_BYTES)
     started = time.monotonic()
     # Both the first call AND its correction see only the current source.
-    primary = adapter.extract_primary(primary_record(record), settings, attempt)[0]
+    primary = adapter.extract_primary(primary_record(record), settings, attempt, supporting_context_pending=True)[0]
     if not primary['decisions']:
         return [primary]
     drafts = [draft_from_decision(d) for d in primary['decisions']]

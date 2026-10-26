@@ -69,6 +69,7 @@ class CourseRefinementTests(unittest.TestCase):
             self.assertEqual(len(client.calls), 2)
             for data, _ in client.calls:
                 self.assertNotIn('course_context', data['record_metadata'])
+                self.assertTrue(data['supporting_context_pending'])
                 self.assertNotIn('context:other', [q['part_id'] for q in data['evidence_catalog'].values()])
             self.assertIn('previous_response', client.calls[1][0])
 
