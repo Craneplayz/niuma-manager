@@ -6,6 +6,7 @@ import {
   sortTasks,
   todayKey,
 } from "./task-model.js";
+import { renderCourseBadge } from "./course-identity.js";
 
 const escape = (value) =>
   String(value ?? "").replace(
@@ -33,7 +34,7 @@ export function renderTaskRow(
   const notice = isNotice(task);
   const done = task.status === "done";
   const overdue = !pending && !done && Boolean(shiftDay(task.due, 0)) && task.due < today;
-  const meta = [...new Set([task.course, task.source, pending && task.reviewActionLabel].filter(Boolean))];
+  const meta = [...new Set([task.source, pending && task.reviewActionLabel].filter(value => value && value !== task.course))];
   if (!notice && task.status === "doing") meta.push("进行中");
   const due = pending ? task.reviewDateLabel || deadlineLabel(task, today) : compact
     ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(task.dueTime || "")
@@ -58,7 +59,7 @@ export function renderTaskRow(
   const identity = pending ? `data-review-id="${reviewId}"` : `data-task-id="${escapeHtml(task.id)}"`;
   const open = pending && task.reviewChange ? `data-import-review="${reviewId}"` : `data-task-open="${escapeHtml(task.id)}"`;
   const label = pending ? `<span class="review-label">${task.reviewChange ? '待核对变更' : '待核对'}</span>` : '';
-  return `<article class="task-row${pending ? ' is-pending-review' : notice ? " is-notice" : ""}${!pending && compact ? " is-compact" : ""}${done ? notice ? " is-read" : " is-completed" : ""}${overdue ? " is-overdue" : ""}" ${identity}>${marker}<button type="button" class="task-open" ${open}${drag} ${disabled}><span class="task-title">${label}${notice ? '<span class="notice-label">通知</span>' : ""}${title}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${trailing}</article>`;
+  return `<article class="task-row${pending ? ' is-pending-review' : notice ? " is-notice" : ""}${!pending && compact ? " is-compact" : ""}${done ? notice ? " is-read" : " is-completed" : ""}${overdue ? " is-overdue" : ""}" ${identity}>${marker}<button type="button" class="task-open" ${open}${drag} ${disabled}><span class="task-title">${label}${notice ? '<span class="notice-label">通知</span>' : ""}${title}</span><span class="task-meta">${renderCourseBadge(task.course)}${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span></button>${trailing}</article>`;
 }
 
 export function renderTaskList(

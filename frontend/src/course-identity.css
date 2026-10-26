@@ -1,0 +1,70 @@
+.course-badge,
+.course-dot[data-course-tone],
+.course-name[data-course-tone] {
+  --course-ink: #5e6871;
+  --course-bg: #f0f2f4;
+  --course-dot: #8b949d;
+}
+.course-badge[data-course-tone="0"], .course-dot[data-course-tone="0"], .course-name[data-course-tone="0"] {
+  --course-ink: #315d87; --course-bg: #edf4fb; --course-dot: #5388b8;
+}
+.course-badge[data-course-tone="1"], .course-dot[data-course-tone="1"], .course-name[data-course-tone="1"] {
+  --course-ink: #6c4c91; --course-bg: #f4eefb; --course-dot: #916bc1;
+}
+.course-badge[data-course-tone="2"], .course-dot[data-course-tone="2"], .course-name[data-course-tone="2"] {
+  --course-ink: #276d69; --course-bg: #eaf6f2; --course-dot: #4f9288;
+}
+.course-badge[data-course-tone="3"], .course-dot[data-course-tone="3"], .course-name[data-course-tone="3"] {
+  --course-ink: #59662b; --course-bg: #f3f6e9; --course-dot: #7b8c49;
+}
+.course-badge[data-course-tone="4"], .course-dot[data-course-tone="4"], .course-name[data-course-tone="4"] {
+  --course-ink: #81562e; --course-bg: #faf2e8; --course-dot: #b3885a;
+}
+.course-badge[data-course-tone="5"], .course-dot[data-course-tone="5"], .course-name[data-course-tone="5"] {
+  --course-ink: #8b4b6c; --course-bg: #faeff5; --course-dot: #b57d9d;
+}
+.course-badge[data-course-tone="6"], .course-dot[data-course-tone="6"], .course-name[data-course-tone="6"] {
+  --course-ink: #515f96; --course-bg: #f0f2fc; --course-dot: #7e8cc5;
+}
+.course-badge[data-course-tone="7"], .course-dot[data-course-tone="7"], .course-name[data-course-tone="7"] {
+  --course-ink: #526977; --course-bg: #eef4f7; --course-dot: #7c96a6;
+}
+.course-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 5px;
+  min-width: 0;
+  max-width: min(100%, 16em);
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--course-bg);
+  color: var(--course-ink);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  vertical-align: middle;
+}
+.course-badge.is-compact {
+  flex: none;
+  max-width: 5em;
+  gap: 4px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.course-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--course-dot);
+}
+.course-name {
+  color: var(--course-ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
