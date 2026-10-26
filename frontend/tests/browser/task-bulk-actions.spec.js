@@ -1,9 +1,19 @@
-import { test, expect } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
+
+const plainOrigin = 'http://plain.niuma.test';
+const test = base.extend({
+  browser: [async ({ playwright, launchOptions, headless, channel }, use) => {
+    const browser = await playwright.chromium.launch({ headless, channel, ...launchOptions,
+      args: [...(launchOptions.args || []), '--host-resolver-rules=MAP plain.niuma.test 127.0.0.1'] });
+    try { await use(browser); }
+    finally { await browser.close(); }
+  }, { scope: 'worker' }],
+});
 
 // Exercise the real task/candidate transaction and browser journal. Routes below
 // forward HTTP; individual tests only delay or interrupt transport.
@@ -68,7 +78,7 @@ test.beforeAll(async () => {
   await writeFile(script, harness);
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(NIUMA_|DDL_|VITE_|WECHAT_|TEXT_HARNESS)/.test(key)));
   env.PYTHONPATH = root + ':' + join(root, 'server');
-  env.NIUMA_ALLOWED_ORIGINS = 'http://127.0.0.1:' + (process.env.NIUMA_BROWSER_TEST_PORT || 18763);
+  env.NIUMA_ALLOWED_ORIGINS = 'http://127.0.0.1:' + (process.env.NIUMA_BROWSER_TEST_PORT || 18763) + ' ' + plainOrigin;
   backend = spawn(process.env.NIUMA_TEST_PYTHON || 'python3', ['-u', script, folder], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
   await new Promise((done, reject) => {
     let output = '', errors = '';
@@ -417,4 +427,134 @@ test('account reset clears bulk selection and another account receives no previo
   expect(saved.taskWriteOwner).toBe(users[1]);
   expect(saved.tasks.version).toBe(1);
   expect(saved.items.every(item => item.state === 'pending')).toBe(true);
+});
+
+async function openPlain(page, context, baseURL) {
+  await page.clock.setFixedTime(new Date('2026-10-20T04:00:00Z'));
+  await context.addCookies([{ name: cookie, value: users[0], domain: 'plain.niuma.test', path: '/' }]);
+  await page.route(plainOrigin + '/**', async route => {
+    const url = new URL(route.request().url());
+    const target = url.pathname.startsWith('/api/') ? api + url.pathname + url.search
+      : new URL(url.pathname + url.search, baseURL).href;
+    // Forward the actual application and API; Chromium retains the unsafe origin.
+    await route.fulfill({ response: await route.fetch({ url: target,
+      headers: { ...route.request().headers(), host: new URL(target).host } }) });
+  });
+  await page.goto(plainOrigin + '/');
+  await expect(row(page, 'a')).toBeVisible();
+  await expect(candidateRow(page)).toBeVisible();
+  expect(await page.evaluate(() => ({ secure: isSecureContext, subtle: Boolean(crypto.subtle) })))
+    .toEqual({ secure: false, subtle: false });
+}
+async function noPlainJournal(page) {
+  expect(await page.evaluate(async () => (await indexedDB.databases()).map(db => db.name)))
+    .not.toContain('niuma-task-journal-v1');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage })))
+    .not.toMatch(/同组|其他任务|合成说明/);
+}
+
+test('plain HTTP mixed completion waits for receipt, queues an ordinary edit, and retains batch undo', async ({ page, context, baseURL }, info) => {
+  await openPlain(page, context, baseURL);
+  let release, committed = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/tasks/bulk', async route => {
+    const response = await route.fetch({ url: api + '/api/tasks/bulk' });
+    expect(response.ok()).toBeTruthy(); committed = true;
+    await gate; await route.fulfill({ response });
+  });
+  try {
+    await choose(page, 'a', 'review:' + users[0] + '-new');
+    await action(page, 'complete').click();
+    await expect.poll(() => committed).toBe(true);
+    await expect(row(page, 'a')).toBeVisible();
+    await expect(candidateRow(page)).toBeVisible();
+    await expect(page.locator('#toast')).not.toContainText('已完成 2');
+    await row(page, 'c').locator('.task-open').click();
+    const drawer = page.locator('#task-drawer');
+    await drawer.getByRole('button', { name: '编辑', exact: true }).click();
+    await drawer.getByLabel('任务名称', { exact: true }).fill('其他任务 C HTTP 排队编辑');
+    await drawer.getByRole('button', { name: '保存任务', exact: true }).click();
+    await expect(drawer).toBeVisible();
+    await noPlainJournal(page);
+    release();
+    await expect(drawer).not.toBeVisible();
+    await expect(candidateRow(page)).toHaveCount(0);
+    await expect(row(page, 'c')).toContainText('HTTP 排队编辑');
+    const saved = await snapshot(page);
+    expect(saved.tasks.version).toBe(3);
+    expect(confirmedTask(saved).status).toBe('completed');
+    await page.getByRole('button', { name: '撤销', exact: true }).click();
+    await expect(row(page, 'a')).toBeVisible();
+    await expect(row(page, confirmedTask(saved).id)).toBeVisible();
+    const undone = await snapshot(page);
+    expect(undone.tasks.version).toBe(4);
+    expect(undone.tasks.value.find(task => task.id === 'c').title).toBe('其他任务 C HTTP 排队编辑');
+    await noPlainJournal(page);
+    await page.screenshot({ path: info.outputPath('http-bulk-and-ordinary-undone.png'), fullPage: true });
+  } finally { release(); }
+});
+
+for (const failure of ['before commit', 'lost receipt']) {
+  test(`plain HTTP mixed batch retries after ${failure} once and recovers whole-batch undo`, async ({ page, context, baseURL }) => {
+    await openPlain(page, context, baseURL);
+    let attempts = 0, original;
+    await page.route('**/api/tasks/bulk', async route => {
+      attempts++;
+      const body = route.request().postDataJSON();
+      if (!original) original = body.operation;
+      else expect(body.operation).toEqual(original);
+      if (attempts === 1 && failure === 'before commit') return route.fulfill({ status: 503, json: { error: '合成暂时保存失败' } });
+      const response = await route.fetch({ url: api + '/api/tasks/bulk' });
+      expect(response.ok()).toBeTruthy();
+      if (attempts === 1) return route.abort('failed');
+      await route.fulfill({ response });
+    });
+    await choose(page, 'a', 'review:' + users[0] + '-new');
+    await action(page, 'complete').click();
+    await expect(page.getByRole('button', { name: '重试保存', exact: true })).toBeVisible();
+    await expect(row(page, 'a')).toBeVisible();
+    await expect(candidateRow(page)).toBeVisible();
+    await noPlainJournal(page);
+    await page.getByRole('button', { name: '重试保存', exact: true }).click();
+    await expect(candidateRow(page)).toHaveCount(0);
+    await expect(row(page, 'a')).toHaveCount(0);
+    const saved = await snapshot(page), created = confirmedTask(saved);
+    expect(saved.tasks.version).toBe(2);
+    expect(saved.tasks.value.filter(task => task.id === created.id)).toHaveLength(1);
+    expect(attempts).toBe(failure === 'before commit' ? 2 : 1);
+    await page.unroute('**/api/tasks/bulk');
+    await page.getByRole('button', { name: '撤销', exact: true }).click();
+    await expect(row(page, 'a')).toBeVisible();
+    await expect(row(page, created.id)).toBeVisible();
+    expect((await snapshot(page)).tasks.version).toBe(3);
+    await noPlainJournal(page);
+  });
+}
+
+test('plain HTTP mixed dates, deletion, undo, and trash restoration use their proper routes', async ({ page, context, baseURL }) => {
+  await openPlain(page, context, baseURL);
+  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await action(page, 'trash').click();
+  await expect(row(page, 'a')).toHaveCount(0);
+  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('ignored');
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(row(page, 'a')).toBeVisible();
+  await expect(candidateRow(page)).toBeVisible();
+  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('pending');
+  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await changeDate(page, '2026-10-28');
+  await expect(candidateRow(page)).toHaveCount(0);
+  const dated = await snapshot(page), created = confirmedTask(dated);
+  expect(dated.tasks.value.find(task => task.id === 'a').due).toEqual({ date: '2026-10-28', time: '18:00', precision: 'datetime' });
+  expect(created.due).toEqual({ date: '2026-10-28', precision: 'date' });
+  await choose(page, 'a', created.id);
+  await action(page, 'trash').click();
+  await expect(row(page, 'a')).toHaveCount(0);
+  await page.locator('[data-action="open-trash"]').click();
+  const dialog = page.locator('#dialog');
+  await dialog.locator('[data-bulk-action="enter"]').click();
+  await dialog.locator('[data-bulk-action="select-all"]').click();
+  await dialog.locator('[data-bulk-action="restore"]').click();
+  await expect.poll(async () => (await snapshot(page)).tasks.value.every(task => !task.recycleBin)).toBe(true);
+  await noPlainJournal(page);
 });

@@ -3,6 +3,7 @@ import {
   session,
   readStore,
   readProjectedStore,
+  taskWritesAreOnlineOnly,
   readCancelledTasks,
   initSession,
   reconnectStore,
@@ -116,7 +117,12 @@ function finishTask(id, epoch, repaint = false) {
   // Another operation must not replace an open editor's unsent draft.
   if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
 }
-async function stageTaskSave(saving, id, epoch) {
+async function stageTaskSave(saving, id, epoch, form) {
+  const fields = !demo && taskWritesAreOnlineOnly() && form
+    ? [...form.querySelectorAll('input,textarea,select,button')]
+      .filter(field => field.dataset.action !== 'drawer-cancel')
+      .map(field => ({ field, disabled: field.disabled })) : [];
+  for (const { field } of fields) field.disabled = true;
   try {
     await saving.staged;
     return epoch === accountVersion();
@@ -126,6 +132,9 @@ async function stageTaskSave(saving, id, epoch) {
       finishTask(id, epoch);
     }
     return false;
+  } finally {
+    if (epoch === accountVersion() && form?.isConnected)
+      for (const { field, disabled } of fields) field.disabled = disabled;
   }
 }
 let preferences = {};
@@ -185,7 +194,9 @@ const host = {
     render();
     if (drawer.open && !drawerEditing) {
       if (!editableTask(drawerId) && drawerId?.startsWith('review:')) {
-        const saved = state.tasks.find(task => task.pendingReviewCandidateId === drawerId.slice(7));
+        const candidateId = drawerId.slice(7);
+        const saved = state.tasks.find(task => task.pendingReviewCandidateId === candidateId ||
+          task.recognitionHistory?.some(event => event.storageId === candidateId));
         if (saved) drawerId = saved.id;
         else { closeDrawer(); return; }
       }
@@ -513,8 +524,9 @@ function syncAlert() {
   return loadError
     ? `<div class="connection-alert">${userErrorMarkup(loadError, "tasks_load")}<button type="button" class="btn quiet" data-action="reconnect">重新连接</button></div>`
     : session.sync === "error" && !demo
-      ? `<div class="connection-alert task-save-alert"><div class="sync-error-message">${userErrorMarkup(session.failure || session.error, "tasks_save")}<p>待保存操作保留在当前浏览器。${session.conflict ? '重新读取将放弃本页待保存的修改。' : '重试前会先核对服务器是否已经保存。'}</p></div><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
-      : "";
+      ? `<div class="connection-alert task-save-alert"><div class="sync-error-message">${userErrorMarkup(session.failure || session.error, "tasks_save")}<p>${taskWritesAreOnlineOnly() ? '待保存操作仅保留在当前页面，刷新或关闭后无法自动恢复。' : '待保存操作保留在当前浏览器。'}${session.conflict ? '重新读取将放弃本页待保存的修改。' : '重试前会先核对服务器是否已经保存。'}</p></div><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
+      : !demo && session.user && taskWritesAreOnlineOnly()
+        ? '<p class="status-note">当前入口使用在线保存，请等到“已保存”后再刷新或关闭页面。</p>' : "";
 }
 function focusToken(el) {
   if (el?.id) return { id: el.id };
@@ -1323,8 +1335,9 @@ document.addEventListener("submit", async (e) => {
     const expected = existing ? form.dataset.taskEditSnapshot : undefined;
     form.dataset.id = draftId;
     busyTasks.add(draftId);
+    const bulkReceipt = bulkSaveReceipt;
     const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
-    if (!await stageTaskSave(saving, draftId, epoch)) return;
+    if (!await stageTaskSave(saving, draftId, epoch, form)) return;
     if (demo) {
       if (existing) Object.assign(existing, task);
       else state.tasks.push(task);
@@ -1335,7 +1348,10 @@ document.addEventListener("submit", async (e) => {
     if (ownsDrawer) restoreFocus({ key: "taskOpen", value: draftId });
     try {
       await saving;
-      if (epoch === accountVersion()) toast(isNotice(task) ? "通知已保存" : "任务已保存");
+      // A preceding batch can finish while this edit waits in the same queue.
+      // Its whole-batch undo must survive this unrelated save confirmation.
+      if (epoch === accountVersion() && bulkReceipt === bulkSaveReceipt)
+        toast(isNotice(task) ? "通知已保存" : "任务已保存");
     } catch (error) {
       if (epoch === accountVersion() && session.sync !== "error") toastError(error, "tasks_save");
     } finally {

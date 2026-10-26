@@ -6,7 +6,7 @@
 
 清单首屏与登录后等待已保存任务和待核对项一起就绪再显示清单与数量；待核对读取失败时保留已保存任务，提示数量可能不完整并提供重试。日历按已保存任务先显示，侧栏数量等待候选补齐。文本和文件不等待教学网凭据读取；识别期间可编辑下一段草稿，仍只允许每个账号一次识别一段，草稿不自动提交。后台更新保留输入、中文组合输入、展开内容及阅读位置，任务状态变化不重新读取已打开的原文。
 
-普通任务操作先在浏览器按账号加密暂存，事务完成后才更新界面；刷新或重开后核对服务器回执、任务版本与编辑前值，再恢复未完成操作。已确认记录立即清理；退出账号先完成保存再清除密钥，异常退出的记录保留到原账号恢复。须使用 HTTPS 或 localhost 并允许浏览器存储；私密窗口结束或清理站点数据不能恢复。详见 [保存与恢复边界](../contracts/docs/task-writes-v0.1.md)。
+HTTPS 和 localhost 的普通任务操作先在浏览器按账号加密暂存，事务完成后才更新界面；刷新或重开后核对服务器回执、任务版本与编辑前值，再恢复未完成操作。已确认记录立即清理；退出账号先完成保存再清除密钥，异常退出的记录保留到原账号恢复。持久恢复须使用 HTTPS 或 localhost 并允许浏览器存储；私密窗口结束或清理站点数据不能恢复。普通 HTTP 入口使用同一在线队列，服务器确认后才更新界面，不写 IndexedDB 或其他本地操作明文，未完成操作仅在当前页面保留；页面会提示保存完成后再刷新或关闭。详见 [保存与恢复边界](../contracts/docs/task-writes-v0.1.md)。
 
 独立 `/admin.html` 保留使用数据并提供“运行监控”切换，仅使用管理员会话读取 `/api/admin/operations`；首次不传日期（最近 24 小时），提交日期沿用使用数据筛选，监控失败单独提示，会话失效可重新验证。时间统一转为北京时间，阶段、操作与结果码显示中文；资源采样超过 180 秒标明“采样已过期”，过期或不可用的数值显示“—”。监控合成浏览器验收运行 `node tests/admin-operations-browser.mjs`，需要已安装 Playwright 浏览器；可用 `NIUMA_TEST_BROWSER_PATH` 指定既有 headless 可执行文件，设置 `NIUMA_TEST_SCREENSHOTS=1` 才更新截图，脚本结束自动关闭临时静态服务。
 
@@ -78,6 +78,8 @@ frontend/
 │   ├── id.js                 浏览器兼容的随机任务 ID
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
+│   ├── online-store.test.js  普通 HTTP 在线队列、回执重试、账号及存储边界
+│   ├── browser/insecure-task-writes.spec.js 非 localhost HTTP 实际安全能力及任务/候选写入回归
 │   ├── task-journal.test.js  加密事务、共享契约、账号隔离及存储不可用回归
 │   ├── browser/task-journal.spec.js  真实 HTTP/SQLite 与浏览器刷新、进程强制退出、回执丢失回归
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
@@ -110,7 +112,7 @@ frontend/
 │   ├── browser/review-queue.spec.js  真实 HTTP/SQLite 的候选连续操作、刷新与回执丢失
 │   ├── task-bulk-ui.test.js  批量选择范围、动作语义与安全渲染
 │   ├── team-store-bulk.test.js 批量队列、刷新恢复与回执丢失保护
-│   ├── browser/task-bulk-actions.spec.js 真实 HTTP/SQLite 的混合批量、撤销及桌面手机验证
+│   ├── browser/task-bulk-actions.spec.js 真实 HTTP/SQLite 的混合批量、撤销及安全/普通 HTTP 桌面手机验证
 │   ├── team-store.test.js    任务保存、账号隔离、冲突与删除恢复
 │   ├── usage-feedback.test.js 访问去重、主动反馈及后台隔离
 │   ├── traffic-view.test.js  流量卡片、兼容旧接口及安全展示
@@ -128,6 +130,7 @@ frontend/
     │   ├── task-bulk-result-desktop.png 桌面候选批量完成与撤销结果
     │   ├── task-bulk-result-mobile.png 390px 候选确认后的普通任务
     │   ├── task-bulk-result-compact.png 320px 候选确认后的普通任务
+    │   ├── task-http-online-saving-mobile.png 390px 普通 HTTP 等待在线保存的合成截图
     │   ├── task-review-queue-mobile.png 390px 共用任务与待核对清单的合成截图
     │   ├── task-review-queue-compact.png 320px 共用任务与待核对清单的合成截图
     │   ├── task-review-list-loading.png 工作区就绪、待核对仍读取时的统一加载提示

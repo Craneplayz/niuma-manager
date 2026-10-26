@@ -43,9 +43,11 @@
 
 `dom-update.js` 按稳定身份更新变化节点，保留表单节点、中文组合输入和原生 details 展开状态；切换账号强制替换，不能复用旧账号 DOM。任务抽屉按账号、任务、编辑模式和识别来源身份复用原文区域，状态变化只更新控件；关闭或切换任务后重新读取。
 
-普通和待核对记录共用 `renderTaskRow`、编辑草稿与完成/撤销状态处理；候选确认、忽略与撤销在 `import-ui.js` 调用 `team-store.resolveStoredCandidate`，和普通任务共用加密队列、回执与刷新恢复。候选接口原子更新候选与任务；自动加入保留服务端资格判断，候选投影不得混入任务 PUT。
+普通和待核对记录共用 `renderTaskRow`、编辑草稿与完成/撤销状态处理；候选确认、忽略与撤销在 `import-ui.js` 调用 `team-store.resolveStoredCandidate`，和普通任务共用保存队列与回执，安全入口支持加密暂存与刷新恢复。候选接口原子更新候选与任务；自动加入保留服务端资格判断，候选投影不得混入任务 PUT。
 
 `team-store.js` 保管服务器确认状态，`readProjectedStore/readStoredCandidates` 按顺序叠加已暂存操作；回执和恢复结果可更新权威状态，普通候选读取不能抢先打断未确认操作。新建投影的 `pendingReviewCandidateId` 仅用于读取当前候选原文，回执确认后改用任务证据接口，不进入任务 PUT。
+
+普通 HTTP 的 `isSecureContext === false` 入口在 `team-store.js` 复用在线队列，内部 ready 与对外 staged 分离；staged 等待服务器回执，未确认项不参与投影、不落地，重连保留同账号内存队列并核对原回执。HTTPS/localhost 存储失败仍拒绝写入，不回退到在线模式；相关边界见 `online-store.test.js` 和 `browser/insecure-task-writes.spec.js`。
 
 网页通过同源 `/api` 调用服务端，开发代理默认指向 `127.0.0.1:1332`。真实工作区保存到登录账号的服务端存储；浏览器保留会话 Cookie、界面偏好和按账号加密的未保存操作，不缓存整个工作区、密码或模型密钥。
 
