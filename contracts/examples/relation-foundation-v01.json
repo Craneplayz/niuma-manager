@@ -1,0 +1,224 @@
+{
+  "context": {
+    "contract_version": "relation-foundation/0.1",
+    "scope_id": "scope:fixture",
+    "source_account_id": "account:fixture",
+    "term_id": "2026-fall",
+    "sources": [
+      {
+        "id": "s6",
+        "input_id": "s6",
+        "course_id": "lecture",
+        "content_id": "s6",
+        "term_id": "2026-fall",
+        "course_name": "lecture",
+        "url": null,
+        "starts_on": "2026-09-01",
+        "ends_on": "2027-02-28",
+        "label": "s6",
+        "snapshot_id": "snapshot:s6",
+        "parts": [
+          {
+            "part_id": "body",
+            "label": "正文",
+            "text": "第6讲：提交书面作业题。",
+            "read_state": "complete",
+            "sha256": null,
+            "revision": "aaa1493ad3dcbbec2d764d0e106c69c2b01ab8e41cf4fa98150e607c5c1ddedb"
+          }
+        ],
+        "submission": null,
+        "revision": "86cc8875913106948e304f3464459fd7f3251cd570f0036e0f2defb275902751"
+      },
+      {
+        "id": "s7",
+        "input_id": "s7",
+        "course_id": "lecture",
+        "content_id": "s7",
+        "term_id": "2026-fall",
+        "course_name": "lecture",
+        "url": null,
+        "starts_on": "2026-09-01",
+        "ends_on": "2027-02-28",
+        "label": "s7",
+        "snapshot_id": "snapshot:s7",
+        "parts": [
+          {
+            "part_id": "body",
+            "label": "正文",
+            "text": "第7讲：提交书面作业题。",
+            "read_state": "complete",
+            "sha256": null,
+            "revision": "d094ec63fb21225e47912b36ffff6cb1543b296f45608d3eb8323cdbc60a4382"
+          }
+        ],
+        "submission": null,
+        "revision": "5797ec063e8b13a21ae4a073728d385e583edac6d3c94f16c4048b9c711767fc"
+      },
+      {
+        "id": "s67",
+        "input_id": "s67",
+        "course_id": "seminar",
+        "content_id": "s67",
+        "term_id": "2026-fall",
+        "course_name": "seminar",
+        "url": null,
+        "starts_on": "2026-09-01",
+        "ends_on": "2027-02-28",
+        "label": "s67",
+        "snapshot_id": "snapshot:s67",
+        "parts": [
+          {
+            "part_id": "body",
+            "label": "正文",
+            "text": "第6—7讲作业：只提交作业题，不交研讨题。",
+            "read_state": "complete",
+            "sha256": null,
+            "revision": "13cfbf351e786d1cd78dbbdd874b0eb57d4fac7faa09c8a4b6c05942160184d1"
+          }
+        ],
+        "submission": {
+          "state": "submitted",
+          "basis": "review_submission_history_title",
+          "snapshot_id": "native:1",
+          "sequence": 1,
+          "control_revision": 0,
+          "review_pending": false,
+          "scope": "unknown",
+          "control_digest": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "revision": "ac6c6612b7d0f77aee32bd0d12ea2d94e41084aa88fd33bd3d132a33e15c21b8"
+      }
+    ],
+    "actions": [],
+    "transitions": [],
+    "warnings": [],
+    "revision": "ba629905df81de6a5c829efa79a64ca129a832b0aacf4f9d9298b008cf04d909"
+  },
+  "relation": {
+    "contract_version": "relation-foundation/0.1",
+    "context_revision": "ba629905df81de6a5c829efa79a64ca129a832b0aacf4f9d9298b008cf04d909",
+    "kind": "bundle",
+    "source_ids": [
+      "s6",
+      "s7",
+      "s67"
+    ],
+    "roles": [
+      {
+        "source_id": "s6",
+        "role": "content",
+        "evidence": [
+          {
+            "source_id": "s6",
+            "part_id": "body",
+            "part_revision": "aaa1493ad3dcbbec2d764d0e106c69c2b01ab8e41cf4fa98150e607c5c1ddedb",
+            "offset": 0,
+            "quote": "第6讲：提交书面作业题。"
+          }
+        ]
+      },
+      {
+        "source_id": "s7",
+        "role": "content",
+        "evidence": [
+          {
+            "source_id": "s7",
+            "part_id": "body",
+            "part_revision": "d094ec63fb21225e47912b36ffff6cb1543b296f45608d3eb8323cdbc60a4382",
+            "offset": 0,
+            "quote": "第7讲：提交书面作业题。"
+          }
+        ]
+      },
+      {
+        "source_id": "s67",
+        "role": "submission",
+        "evidence": [
+          {
+            "source_id": "s67",
+            "part_id": "body",
+            "part_revision": "13cfbf351e786d1cd78dbbdd874b0eb57d4fac7faa09c8a4b6c05942160184d1",
+            "offset": 0,
+            "quote": "第6—7讲作业：只提交作业题，不交研讨题。"
+          }
+        ]
+      }
+    ],
+    "units": [
+      {
+        "id": "unit:6",
+        "label": "第6讲作业",
+        "channel": "书面",
+        "action_ids": [],
+        "evidence": [
+          {
+            "source_id": "s6",
+            "part_id": "body",
+            "part_revision": "aaa1493ad3dcbbec2d764d0e106c69c2b01ab8e41cf4fa98150e607c5c1ddedb",
+            "offset": 0,
+            "quote": "第6讲：提交书面作业题。"
+          }
+        ]
+      },
+      {
+        "id": "unit:7",
+        "label": "第7讲作业",
+        "channel": "书面",
+        "action_ids": [],
+        "evidence": [
+          {
+            "source_id": "s7",
+            "part_id": "body",
+            "part_revision": "d094ec63fb21225e47912b36ffff6cb1543b296f45608d3eb8323cdbc60a4382",
+            "offset": 0,
+            "quote": "第7讲：提交书面作业题。"
+          }
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "source_id": "s6",
+        "part_id": "body",
+        "part_revision": "aaa1493ad3dcbbec2d764d0e106c69c2b01ab8e41cf4fa98150e607c5c1ddedb",
+        "offset": 0,
+        "quote": "第6讲：提交书面作业题。"
+      },
+      {
+        "source_id": "s7",
+        "part_id": "body",
+        "part_revision": "d094ec63fb21225e47912b36ffff6cb1543b296f45608d3eb8323cdbc60a4382",
+        "offset": 0,
+        "quote": "第7讲：提交书面作业题。"
+      },
+      {
+        "source_id": "s67",
+        "part_id": "body",
+        "part_revision": "13cfbf351e786d1cd78dbbdd874b0eb57d4fac7faa09c8a4b6c05942160184d1",
+        "offset": 0,
+        "quote": "第6—7讲作业：只提交作业题，不交研讨题。"
+      }
+    ],
+    "coverage": [
+      {
+        "source_id": "s67",
+        "unit_ids": [
+          "unit:6",
+          "unit:7"
+        ],
+        "extent": "complete",
+        "evidence": [
+          {
+            "source_id": "s67",
+            "part_id": "body",
+            "part_revision": "13cfbf351e786d1cd78dbbdd874b0eb57d4fac7faa09c8a4b6c05942160184d1",
+            "offset": 0,
+            "quote": "第6—7讲作业：只提交作业题，不交研讨题。"
+          }
+        ]
+      }
+    ],
+    "deadline": null
+  }
+}

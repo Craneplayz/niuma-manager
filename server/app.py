@@ -14,6 +14,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
 from pathlib import Path
 import recognition
+import relation_foundation
 import text_jobs
 import planning
 import source_sync
@@ -88,6 +89,7 @@ def initialize(recover=True):
     with connection() as db:
         initialize_accounts(db)
         recognition.initialize(db)
+        relation_foundation.initialize(db)
         text_jobs.initialize(db, recover=recover)
         usage.initialize(db)
         error_reports.initialize(db)
@@ -389,6 +391,7 @@ class Handler(BaseHTTPRequestHandler):
             if submission_runtime.route(self,db,uid,path,body,ApiError): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if text_jobs.route(self,db,uid,path,body,ApiError,DB): return
+            if relation_foundation.route(self,db,uid,path,body): return
             if recognition.route(self,db,uid,path,body,ApiError): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))

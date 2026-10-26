@@ -6,6 +6,11 @@
 
 ```text
 contracts/
+├── relation_foundation.py            # 跨课程关系证据、覆盖范围和非执行提案校验
+├── schemas/relation-foundation-v0.1.schema.json # 关系基础快照与提案信封
+├── examples/relation-foundation-v01.json # 两份材料与一个已提交入口的合成样例
+├── docs/relation-foundation-v0.1.md   # 稳定身份、原文证据、审计与阶段边界
+├── tests/test_relation_foundation.py # 关系类型、覆盖及证据反例
 ├── docs/text-import-jobs-v0.1.md      # 文本后台作业、幂等、停止与刷新恢复约定
 ├── schemas/text-import-jobs-v0.1.schema.json # 文本后台作业状态信封 Schema
 ├── examples/text-import-jobs-v01.json # 前后端共用的排队、识别及全部终态样例

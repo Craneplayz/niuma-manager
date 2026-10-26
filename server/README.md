@@ -42,6 +42,9 @@ server/
 ├── text_jobs.py              文本后台识别作业、停止保护与中断恢复。
 ├── test_text_jobs.py         文本作业真实 HTTP、幂等、账号隔离和迟到结果回归。
 ├── recognition.py            文本识别批次与候选确认接口。
+├── relation_foundation.py    跨课程关系的只读证据快照及不执行合并的提案审计。
+├── test_relation_foundation.py  关系身份、账号隔离、覆盖、原子审计和HTTP回归。
+├── run_relation_foundation_replay.py  在新账号以授权真实快照验收HTTP与存储一致性。
 ├── reprocessing.py           已保存教学网通知的定向运行、停止与持久进度。
 ├── test_reprocessing.py      来源分页、幂等、账号隔离、停止与旧结果保留测试。
 ├── test_teaching_reprocessing.py  原生快照重识别、自动入库、停止及既有决定保护测试。

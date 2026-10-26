@@ -70,6 +70,7 @@ OWNER_TABLES = (
     'teaching_asset_refs', 'teaching_asset_files', 'teaching_asset_inputs',
     'teaching_submission_recoveries', 'teaching_submission_requests', 'teaching_submission_sources',
     'submission_controls', 'submission_operations', 'submission_events',
+    'relation_foundation_events', 'relation_foundation_proposals',
     'source_sync_operations', 'source_sync_quiet_runs', 'source_sync_checks', 'source_sync_runs',
     'reprocessing_latest', 'reprocessing_request_sources', 'reprocessing_sources',
     'reprocessing_teaching_sources', 'reprocessing_runs', 'public_source_imports', 'public_source_runs',
