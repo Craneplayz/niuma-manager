@@ -33,6 +33,7 @@ async function openApp(page, { avatar = null, failSaveOnce = false, failSaveAt =
       user = { ...user, name };
     } else if (path === "/api/workspace") value = { tasks: { version: 1, value: [] } };
     else if (path === "/api/version") value = { environment: "test", revision: "avatar-synthetic", managed: true };
+    else if (path === "/api/usage/guest-visit") value = {};
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };

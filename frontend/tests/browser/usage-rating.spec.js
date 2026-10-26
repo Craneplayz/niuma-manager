@@ -8,6 +8,7 @@ async function openRating(page, { failRatingOnce = false, failFeedbackOnce = fal
     let value = {}, status = 200;
     if (path === '/api/auth/me') value = { user: { id: 'rating-synthetic', name: '合成账号' } };
     else if (path === '/api/workspace') value = { tasks: { version: 1, value: [] } };
+    else if (path === '/api/usage/guest-visit') value = {};
     else if (path === '/api/usage/visit') value = { offerRating: true };
     else if (path === '/api/recognition/batches') value = [];
     else if (path === '/api/usage/feedback') {

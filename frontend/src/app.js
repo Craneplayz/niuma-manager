@@ -2,11 +2,15 @@ import {
   api,
   session,
   readStore,
+  readProjectedStore,
+  taskWritesAreOnlineOnly,
   readCancelledTasks,
   initSession,
+  reconnectStore,
   reloadStore,
   refreshStore,
-  saveStore,
+  saveStoredTask,
+  setStoredTaskStatus,
   flushStore,
   retrySave,
   trashStoredTasks,
@@ -33,6 +37,7 @@ import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
 import { loadTaskEvidence } from "./task-evidence.js";
+import { updateDOM, isComposing } from "./dom-update.js";
 import { demoWorkspace } from "./demo.js";
 import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
@@ -63,7 +68,7 @@ let demo = params.get("demo") === "1",
   state = demo ? demoWorkspace(today) : readStore(),
   loading = !demo,
   loadError = "",
-  taskBusy = false,
+
   drawerId = null,
   drawerEditing = false,
   drawerError = null,
@@ -73,6 +78,54 @@ let demo = params.get("demo") === "1",
   sidebarTooltipTarget,
   environment = null,
   backendRevision = "unknown";
+const busyTasks = new Set();
+const taskBusy = id => busyTasks.has(id);
+function canChangeTask(id) {
+  if (taskBusy(id) || loading || session.changing) return false;
+  if (!demo && session.sync === "error") {
+    toast("请先重试保存或重新读取任务");
+    return false;
+  }
+  return true;
+}
+function syncTaskControls() {
+  document.querySelectorAll("[data-task-complete]").forEach(button => {
+    button.disabled = taskBusy(button.dataset.taskComplete) ||
+      button.dataset.taskComplete.startsWith("review:") && imports.isReviewBusy(button.dataset.taskComplete.slice(7)) ||
+      !demo && session.sync === "error";
+  });
+  document.querySelectorAll("[data-restore-task]").forEach(button => {
+    button.disabled = taskBusy(button.dataset.restoreTask) || !demo && session.sync === "error";
+  });
+}
+function finishTask(id, epoch, repaint = false) {
+  if (epoch !== accountVersion()) return;
+  busyTasks.delete(id);
+  if (repaint) render();
+  else syncTaskControls();
+  // Another operation must not replace an open editor's unsent draft.
+  if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
+}
+async function stageTaskSave(saving, id, epoch, form) {
+  const fields = !demo && taskWritesAreOnlineOnly() && form
+    ? [...form.querySelectorAll('input,textarea,select,button')]
+      .filter(field => field.dataset.action !== 'drawer-cancel')
+      .map(field => ({ field, disabled: field.disabled })) : [];
+  for (const { field } of fields) field.disabled = true;
+  try {
+    await saving.staged;
+    return epoch === accountVersion();
+  } catch (error) {
+    if (epoch === accountVersion()) {
+      toast(error.message);
+      finishTask(id, epoch);
+    }
+    return false;
+  } finally {
+    if (epoch === accountVersion() && form?.isConnected)
+      for (const { field, disabled } of fields) field.disabled = disabled;
+  }
+}
 let preferences = {};
 try {
   preferences = JSON.parse(localStorage.getItem("niuma.task-ui.v2") || "{}");
@@ -124,6 +177,21 @@ const host = {
     else toast("这条任务或通知已不在当前列表中");
   },
   getState: () => state,
+  onReviewStore() {
+    if (demo) return;
+    state = readProjectedStore();
+    render();
+    if (drawer.open && !drawerEditing) {
+      if (!editableTask(drawerId) && drawerId?.startsWith('review:')) {
+        const candidateId = drawerId.slice(7);
+        const saved = state.tasks.find(task => task.pendingReviewCandidateId === candidateId ||
+          task.recognitionHistory?.some(event => event.storageId === candidateId));
+        if (saved) drawerId = saved.id;
+        else { closeDrawer(); return; }
+      }
+      if (editableTask(drawerId)) updateDrawer();
+    }
+  },
   getCancelledTasks: () => demo ? [] : readCancelledTasks(),
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
@@ -149,8 +217,9 @@ const host = {
 const imports = createImportUI(host),
   account = createAccountUI(host);
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
+let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 function draggableTask(id) {
-  if (taskBusy || loading || session.changing || ui.page !== "tasks" ||
+  if (taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
       dialog.open || drawer.open || !demo && !session.user) return null;
   return state.tasks.find((task) => task.id === id &&
@@ -164,6 +233,7 @@ function clearUndo() {
 }
 function resetAccountUI() {
   clearUndo();
+  busyTasks.clear();
   imports.reset();
   ui.query = "";
   ui.course = "";
@@ -268,6 +338,7 @@ const courses = () =>
   );
 const sources = () =>
   [...new Set(listItems().map((t) => t.source || "手动添加"))].sort();
+const taskListLoading = () => loading || !demo && Boolean(session.user) && !imports.taskReviewsReady();
 function sidebar() {
   const mobile = matchMedia("(max-width: 700px)").matches;
   const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
@@ -286,7 +357,7 @@ function sidebar() {
   ]
     .map(
       ([scope, label, name]) =>
-        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${counts[scope]}</span></button>`,
+        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${taskListLoading() ? '…' : counts[scope]}</span></button>`,
     )
     .join(
       "",
@@ -378,7 +449,7 @@ function taskResults() {
   if (taskView() === "list")
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
-  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today })}</div>`;
+  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -411,10 +482,11 @@ function tasksPage() {
 }
 function syncAlert() {
   return loadError
-    ? `<div class="connection-alert">${userErrorMarkup(loadError, "tasks_load")}<button type="button" class="btn quiet" data-action="reload">重新连接</button></div>`
+    ? `<div class="connection-alert">${userErrorMarkup(loadError, "tasks_load")}<button type="button" class="btn quiet" data-action="reconnect">重新连接</button></div>`
     : session.sync === "error" && !demo
-      ? `<div class="connection-alert">${userErrorMarkup(session.failure || session.error, "tasks_save")}<button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
-      : "";
+      ? `<div class="connection-alert task-save-alert"><div class="sync-error-message">${userErrorMarkup(session.failure || session.error, "tasks_save")}<p>${taskWritesAreOnlineOnly() ? '待保存操作仅保留在当前页面，刷新或关闭后无法自动恢复。' : '待保存操作保留在当前浏览器。'}${session.conflict ? '重新读取将放弃本页待保存的修改。' : '重试前会先核对服务器是否已经保存。'}</p></div><button type="button" class="btn quiet" data-action="${session.conflict ? "reload" : "retry-save"}">${session.conflict ? "重新读取" : "重试保存"}</button></div>`
+      : !demo && session.user && taskWritesAreOnlineOnly()
+        ? '<p class="status-note">当前入口使用在线保存，请等到“已保存”后再刷新或关闭页面。</p>' : "";
 }
 function focusToken(el) {
   if (el?.id) return { id: el.id };
@@ -478,21 +550,21 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
-  app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
+  const epoch = accountVersion();
+  updateDOM(app, `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading || ui.page === "tasks" && taskView() === "list" && taskListLoading() ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`, { reset: renderedAccount !== epoch });
+  renderedAccount = epoch;
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
     if (next) {
-      next.focus({ preventScroll: true });
-      if (typeof start === "number" && next.setSelectionRange)
+      if (next !== document.activeElement) next.focus({ preventScroll: true });
+      if (!isComposing(next) && typeof start === "number" && next.setSelectionRange)
         try {
           next.setSelectionRange(start, end);
         } catch {}
     }
   }
-  document
-    .querySelectorAll("[data-task-complete]")
-    .forEach((button) => (button.disabled = taskBusy));
+  syncTaskControls();
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
@@ -503,7 +575,8 @@ function renderResults() {
   const dayFocus = document.activeElement?.dataset.calendarDay;
   const results = document.querySelector("#task-results");
   if (!results) return;
-  results.innerHTML = taskResults();
+  updateDOM(results, taskResults());
+  syncTaskControls();
   document.querySelector("#result-count").textContent = headingCount();
   if (dayFocus)
     document
@@ -527,8 +600,8 @@ function requireAccount() {
 }
 function openTask(id, editing = false) {
   hideSidebarTooltip();
-  if (taskBusy) return toast("正在保存，请稍候");
   if (!requireAccount()) return;
+  drawerVisit++;
   lastFocus = document.activeElement;
   drawerId = id;
   drawerEditing = editing;
@@ -544,41 +617,41 @@ function updateDrawer() {
     course: "",
     notes: "",
   };
-  drawer.innerHTML = renderTaskDrawer({
+  const identity = JSON.stringify([accountVersion(), drawerId, drawerEditing,
+    task.reviewCandidateId || task.pendingReviewCandidateId || '', task.recognitionHistory || []]);
+  const reuse = renderedDrawer === identity;
+  updateDOM(drawer, renderTaskDrawer({
     task,
     editing: drawerEditing,
     escapeHtml: esc,
     icon,
     deadlineLabel,
-  });
+  }).replace('id="task-evidence"', `id="task-evidence"${reuse ? ' data-preserve-content' : ''}`), { reset: !reuse });
+  renderedDrawer = identity;
   const actionError = drawer.querySelector("#task-action-error");
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
-  if (!drawerEditing && task.id) {
+  if (!reuse && !drawerEditing && task.id) {
     const evidence = drawer.querySelector("#task-evidence");
-    if (task.reviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId);
+    if (task.reviewCandidateId || task.pendingReviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId || task.pendingReviewCandidateId);
     else if (demo)
       evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
     else void loadTaskEvidence(task.id, evidence, api);
   }
-  if (taskBusy)
-    drawer
-      .querySelectorAll("button,input,textarea")
-      .forEach((el) => (el.disabled = true));
+  if (taskBusy(drawerId))
+    drawer.querySelectorAll("button,input,textarea,select").forEach(el => {
+      if (!["drawer-close", "drawer-cancel"].includes(el.dataset.action)) el.disabled = true;
+    });
 }
 function closeDrawer() {
+  drawerVisit++;
   drawer.close();
+  renderedDrawer = null;
   drawerId = null;
   drawerEditing = false;
   drawerError = null;
   const fallback = document.querySelector('[data-action="task-new"]');
   if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
   else fallback?.focus({ preventScroll: true });
-}
-async function persist() {
-  if (demo) return;
-  if (!saveStore(state)) throw new Error(session.error || "保存失败");
-  if (session.sync === "error" && !session.conflict) await retrySave();
-  else await flushStore();
 }
 const taskDate = (task) => ({ due: task.due || "", dueTime: task.dueTime || "" });
 async function saveTaskDeadline(id, next, expected) {
@@ -591,17 +664,19 @@ async function saveTaskDeadline(id, next, expected) {
   } else {
     const saved = await setStoredTaskDeadline(id, next, expected);
     if (epoch !== accountVersion()) throw new Error("账号已切换");
-    state = saved;
+    const current = state.tasks.find(task => task.id === id);
+    const updated = saved.tasks.find(task => task.id === id);
+    if (current && updated) Object.assign(current, taskDate(updated));
   }
 }
 async function dropTaskOnDate(id, date) {
   const task = draggableTask(id);
-  if (!task || !shiftDay(date, 0) || task.due === date) return;
+  if (!task || !canChangeTask(id) || !shiftDay(date, 0) || task.due === date) return;
   const epoch = accountVersion(), previous = taskDate(task), applied = { due: date, dueTime: previous.dueTime };
   const verb = shiftDay(previous.due, 0) ? "更改" : "设置";
   const dateLabel = isNotice(task) ? "关键日期" : "截止日期";
   const origin = { anchor: ui.anchor, selectedDate: ui.selectedDate, mode: ui.mode, pane: ui.pane };
-  taskBusy = true;
+  busyTasks.add(id);
   render();
   toast(`正在${verb}${dateLabel}…`);
   try {
@@ -613,137 +688,147 @@ async function dropTaskOnDate(id, date) {
       syncNavigation("replace");
     }
     toast(`${dateLabel}已${verb === "更改" ? "改为" : "设为"} ${date}${applied.dueTime ? ` ${applied.dueTime}` : ""}`, async () => {
-      if (taskBusy) throw new Error("正在保存，请稍候再撤销");
+      if (!canChangeTask(id)) throw new Error("正在保存或需要处理保存错误，请稍候再撤销");
       if (drawerEditing && drawer.open) throw new Error("请先关闭任务编辑再撤销");
       const current = state.tasks.find((item) => item.id === id);
       if (!current || current.due !== applied.due || (current.dueTime || "") !== applied.dueTime)
         throw new Error("任务日期已变化，无法撤销这次操作");
-      taskBusy = true;
+      busyTasks.add(id);
       render();
       try {
         await saveTaskDeadline(id, previous, applied);
       } finally {
-        taskBusy = false;
-        render();
-        if (drawer.open && !drawerEditing) updateDrawer();
+        finishTask(id, epoch, true);
       }
     });
   } catch (error) {
     if (epoch === accountVersion()) toast(`未${verb}${dateLabel}：${error.message}，${session.conflict ? "请先重新读取任务" : "可重新拖动重试"}`);
   } finally {
-    taskBusy = false;
-    render();
+    finishTask(id, epoch, true);
   }
 }
 async function toggleTask(id) {
-  if (taskBusy || !requireAccount()) return;
-  const epoch = accountVersion(),
-    task = editableTask(id);
+  if (!canChangeTask(id) || !requireAccount()) return;
+  const task = editableTask(id);
   if (!task) return;
-  if (task.reviewCandidateId) {
-    taskBusy = true;
-    drawerError = null;
-    render();
-    if (drawer.open) updateDrawer();
-    try {
-      const saved = await imports.confirmTask(task.reviewCandidateId, task, true);
-      if (epoch !== accountVersion()) return;
-      if (drawerId === id && saved) drawerId = saved.id;
-      toast(isNotice(task) ? '通知已标记为已阅读' : '任务已完成', saved ? () => toggleTask(saved.id) : undefined);
-    } catch (error) {
-      if (epoch !== accountVersion()) return;
-      drawerError = { error, action: 'tasks_save' };
-      toastError(error, 'tasks_save');
-    } finally {
-      taskBusy = false;
-      render();
-      if (drawer.open) updateDrawer();
-    }
-    return;
-  }
   drawerError = null;
-  const notice = isNotice(task);
-  const readFocus = notice ? focusToken(document.activeElement) : null;
-  const origin = { page: ui.page, scope: ui.scope, drawerId, drawerOpen: drawer.open };
   const previous = { status: task.status, completedAt: task.completedAt || "" };
-  task.status = task.status === "done" ? "todo" : "done";
-  task.completedAt = task.status === "done" ? todayKey() : "";
-  const applied = { status: task.status, completedAt: task.completedAt };
-  taskBusy = true;
-  render();
-  if (drawer.open) updateDrawer();
-  try {
-    await persist();
-    if (epoch !== accountVersion()) return;
-    toast(
-      notice
-        ? task.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
-        : task.status === "done" ? "任务已完成" : "任务已重新打开",
-      async () => {
-        if (taskBusy) throw new Error("正在保存，请稍候再撤销");
-        const currentTask = state.tasks.find((item) => item.id === id);
-        if (!currentTask || currentTask.status !== applied.status ||
-            (currentTask.completedAt || "") !== applied.completedAt)
-          throw new Error(`${notice ? "通知" : "任务"}状态已变化，无法撤销这次操作`);
-        taskBusy = true;
-        Object.assign(currentTask, previous);
-        render();
-        if (drawer.open) updateDrawer();
-        try {
-          await persist();
-        } finally {
-          taskBusy = false;
-          render();
-          if (drawer.open) updateDrawer();
-        }
-      },
-    );
-  } catch (e) {
-    if (drawer.open || session.sync !== "error") toastError(session.failure || e, "tasks_save");
-  } finally {
-    taskBusy = false;
+  const next = { status: task.status === "done" ? "todo" : "done", completedAt: task.status === "done" ? "" : todayKey() };
+  await saveStatus(id, next, previous);
+}
+async function saveStatus(id, next, expected) {
+  if (!canChangeTask(id)) throw new Error("请等待当前任务保存，或先处理保存错误");
+  const epoch = accountVersion(), task = editableTask(id);
+  if (!task || task.status !== expected.status || (task.completedAt || "") !== expected.completedAt)
+    throw new Error("任务状态已变化，无法撤销这次操作");
+  const notice = isNotice(task);
+  const pending = Boolean(task.reviewCandidateId);
+  let savedId = id, acknowledged = next;
+  busyTasks.add(id);
+  if (pending) {
     render();
-    if (drawer.open) updateDrawer();
-    if (readFocus && epoch === accountVersion() &&
-        ui.page === origin.page && ui.scope === origin.scope &&
-        drawerId === origin.drawerId && drawer.open === origin.drawerOpen &&
-        (document.activeElement === document.body || document.activeElement === drawer)) {
-      restoreFocus(readFocus);
-      if (document.activeElement === document.body && !drawer.open)
-        document.getElementById("page-title")?.focus({ preventScroll: true });
+    if (drawer.open && drawerId === id) updateDrawer();
+  }
+  const saving = pending ? imports.confirmTask(task.reviewCandidateId, task, true)
+    : demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
+  try {
+    if (pending) {
+      const saved = await saving.staged;
+      if (epoch !== accountVersion()) return;
+      savedId = saved?.id || saving.taskId;
+      if (saved) acknowledged = { status: saved.status, completedAt: saved.completedAt || '' };
+      busyTasks.delete(id);
+      if (drawerId === id && savedId) drawerId = savedId;
+      render();
+      if (drawer.open && !drawerEditing) updateDrawer();
+      await saving;
+    } else {
+      if (!await stageTaskSave(saving, id, epoch)) return;
+      if (demo) Object.assign(task, next);
+      else state = readProjectedStore();
+      render();
+      if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
+      await saving;
     }
+    if (epoch !== accountVersion()) return;
+    toast(notice
+      ? next.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
+      : next.status === "done" ? "任务已完成" : "任务已重新打开",
+    savedId ? () => saveStatus(savedId, expected, acknowledged) : undefined);
+  } catch (error) {
+    if (epoch === accountVersion() && (pending || session.sync !== "error")) {
+      if (!pending) Object.assign(task, expected);
+      render();
+      toastError(error, "tasks_save");
+    }
+  } finally {
+    finishTask(id, epoch, pending);
+    if (pending && epoch === accountVersion() && drawer.open && drawerId !== id && !drawerEditing) updateDrawer();
   }
 }
 async function trashTask() {
-  if (taskBusy || !drawerId) return;
   const id = drawerId;
-  drawerError = null;
+  if (!id || !canChangeTask(id)) return;
+  const task = state.tasks.find(task => task.id === id);
+  if (!task) return;
+  const epoch = accountVersion(), visit = drawerVisit;
+  busyTasks.add(id);
+  const saving = demo ? Promise.resolve() : trashStoredTasks([id]);
+  if (!await stageTaskSave(saving, id, epoch)) return;
   if (demo) {
-    const task = state.tasks.find((t) => t.id === id);
-    state.tasks = state.tasks.filter((t) => t.id !== id);
-    closeDrawer();
-    render();
-    toast("已移入回收站", () => {
+    state.tasks = state.tasks.filter(task => task.id !== id);
+    state.trash.push(task);
+  } else state = readProjectedStore();
+  if (drawer.open && drawerVisit === visit) closeDrawer();
+  render();
+  try {
+    await saving;
+    if (epoch !== accountVersion()) return;
+    toast("已移入回收站", () => restoreTask(id));
+  } catch (error) {
+    if (epoch === accountVersion() && session.sync !== "error") {
+      state.trash = state.trash.filter(item => item.id !== id);
       state.tasks.push(task);
       render();
-    });
-    return;
-  }
-  try {
-    taskBusy = true;
-    updateDrawer();
-    await trashStoredTasks([id]);
-    closeDrawer();
-    await refresh();
-    toast("已移入回收站", async () => {
-      await restoreStoredTasks([id]);
-      await refresh();
-    });
-  } catch (e) {
-    toastError(e, "tasks_delete");
+      toastError(error, "tasks_delete");
+    }
   } finally {
-    taskBusy = false;
-    if (drawer.open) updateDrawer();
+    finishTask(id, epoch);
+  }
+}
+async function restoreTask(id) {
+  if (!canChangeTask(id)) throw new Error("请等待当前任务保存，或先处理保存错误");
+  const task = state.trash.find(task => task.id === id);
+  if (!task) return;
+  const epoch = accountVersion();
+  busyTasks.add(id);
+  const saving = demo ? Promise.resolve() : restoreStoredTasks([id]);
+  if (!await stageTaskSave(saving, id, epoch)) return;
+  if (demo) {
+    state.trash = state.trash.filter(task => task.id !== id);
+    const { recycleBin, ...restored } = task;
+    state.tasks.push(restored);
+  } else state = readProjectedStore();
+  render();
+  // Refresh only the original trash dialog, never reopen one the user closed.
+  const trashDialog = dialog.querySelector(".trash-list");
+  if (dialog.open && trashDialog) actions["open-trash"]();
+  const restoreDialog = dialog.open ? dialog.querySelector(".trash-list") : null;
+  try {
+    await saving;
+    if (epoch === accountVersion()) toast("任务已恢复");
+  } catch (error) {
+    if (epoch === accountVersion()) {
+      if (session.sync !== "error") {
+        state.tasks = state.tasks.filter(item => item.id !== id);
+        state.trash.push(task);
+        render();
+      }
+      if (session.sync !== "error" || restoreDialog && dialog.open && dialog.querySelector(".trash-list") === restoreDialog)
+        toastError(error, "tasks_restore");
+    }
+  } finally {
+    finishTask(id, epoch);
   }
 }
 function showMobileDay() {
@@ -786,6 +871,7 @@ const actions = {
   "task-new": () => openTask(null, true),
   "drawer-close": closeDrawer,
   "drawer-edit": () => {
+    if (!canChangeTask(drawerId)) return;
     drawerEditing = true;
     updateDrawer();
     drawer.querySelector('[name="title"]').focus();
@@ -828,12 +914,13 @@ const actions = {
       toastError(e);
     }
   },
-  reload: async () => {
+  reconnect: () => actions.reload(false),
+  reload: async (discard = true) => {
     loading = true;
     loadError = "";
     render();
     try {
-      state = await reloadStore();
+      state = await (discard ? reloadStore() : reconnectStore());
     } catch (e) {
       loadError = e;
     } finally {
@@ -843,7 +930,7 @@ const actions = {
   },
   "open-trash": () => {
     openDialog(
-      `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon("close")}</button></header><div class="trash-list">${state.trash.length ? state.trash.map((t) => `<div><span>${esc(t.title)}</span><button type="button" class="btn quiet" data-restore-task="${esc(t.id)}">恢复</button></div>`).join("") : '<p class="empty-state">回收站为空</p>'}</div>`,
+      `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon("close")}</button></header><div class="trash-list">${state.trash.length ? state.trash.map((t) => `<div><span>${esc(t.title)}</span><button type="button" class="btn quiet" data-restore-task="${esc(t.id)}" ${taskBusy(t.id) ? "disabled" : ""}>恢复</button></div>`).join("") : '<p class="empty-state">回收站为空</p>'}</div>`,
     );
   },
 };
@@ -905,10 +992,7 @@ document.addEventListener("click", async (e) => {
       return;
     }
     if (button.dataset.restoreTask) {
-      await restoreStoredTasks([button.dataset.restoreTask]);
-      await refresh();
-      actions["open-trash"]();
-      toast("任务已恢复");
+      await restoreTask(button.dataset.restoreTask);
       return;
     }
     if (button.dataset.scope) {
@@ -1003,7 +1087,7 @@ document.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
   if (form.id === "task-edit-form") {
-    if (taskBusy) return;
+    if (!canChangeTask(form.dataset.id)) return;
     const values = Object.fromEntries(new FormData(form)),
       error = form.querySelector("#task-edit-error");
     if (!values.title.trim()) {
@@ -1024,30 +1108,40 @@ document.addEventListener("submit", async (e) => {
       }
     }
     const epoch = accountVersion();
+    const draftId = form.dataset.id || newId();
+    const task = {
+      ...(existing || { id: draftId, status: "todo", source: "手动添加" }),
+      ...values, title: values.title.trim(), course: values.course.trim(),
+    };
     if (existing?.reviewCandidateId) {
-      const edited = { ...existing, ...values, title: values.title.trim(), course: values.course.trim() };
-      if (taskEditSnapshot(edited) === taskEditSnapshot(existing)) {
+      if (taskEditSnapshot(task) === taskEditSnapshot(existing)) {
         drawerEditing = false;
         updateDrawer();
         toast('没有修改，仍保留待核对状态');
         return;
       }
-      taskBusy = true;
+      busyTasks.add(existing.id);
       form.querySelectorAll('button,input,textarea,select').forEach(field => { field.disabled = true; });
       render();
       try {
-        const saved = await imports.confirmTask(existing.reviewCandidateId, edited, false, Number(form.dataset.reviewVersion));
+        const saving = imports.confirmTask(existing.reviewCandidateId, task, false, Number(form.dataset.reviewVersion));
+        const saved = await saving.staged;
         if (epoch !== accountVersion()) return;
+        busyTasks.delete(existing.id);
         if (form.isConnected && drawer.open) closeDrawer();
-        toast(isNotice(edited) ? '通知已保存' : '任务已保存');
+        render();
         if (saved) restoreFocus({ key: 'taskOpen', value: saved.id });
+        await saving;
+        if (epoch === accountVersion()) toast(isNotice(task) ? '通知已保存' : '任务已保存');
       } catch (cause) {
         if (epoch === accountVersion()) {
           if (form.isConnected) error.innerHTML = userErrorMarkup(cause, 'tasks_save');
           else toastError(cause, 'tasks_save');
         }
       } finally {
-        taskBusy = false;
+        if (epoch === accountVersion()) {
+          busyTasks.delete(existing.id);
+        }
         if (form.isConnected) form.querySelectorAll('button,input,textarea,select').forEach(field => {
           if (!field.dataset.errorFeedback) field.disabled = false;
         });
@@ -1055,47 +1149,26 @@ document.addEventListener("submit", async (e) => {
       }
       return;
     }
-    taskBusy = true;
-    form.querySelectorAll("button,input,textarea,select").forEach((field) => {
-      field.disabled = true;
-    });
-    const draftId = form.dataset.id || newId();
+    const expected = existing ? form.dataset.taskEditSnapshot : undefined;
     form.dataset.id = draftId;
-    const task = {
-      ...(existing || {
-        id: draftId,
-        status: "todo",
-        source: "手动添加",
-      }),
-      ...values,
-      title: values.title.trim(),
-      course: values.course.trim(),
-    };
-    if (existing) Object.assign(existing, task);
-    else state.tasks.push(task);
-    form.dataset.taskEditSnapshot = taskEditSnapshot(task);
+    busyTasks.add(draftId);
+    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
+    if (!await stageTaskSave(saving, draftId, epoch, form)) return;
+    if (demo) {
+      if (existing) Object.assign(existing, task);
+      else state.tasks.push(task);
+    } else state = readProjectedStore();
+    const ownsDrawer = form.isConnected && drawer.open;
+    if (ownsDrawer) closeDrawer();
+    render();
+    if (ownsDrawer) restoreFocus({ key: "taskOpen", value: draftId });
     try {
-      await persist();
-      if (epoch !== accountVersion()) return;
-      taskBusy = false;
-      render();
-      if (form.isConnected && drawer.open) {
-        closeDrawer();
-        restoreFocus({ key: "taskOpen", value: draftId });
-      }
-      toast(isNotice(task) ? "通知已保存" : "任务已保存");
-    } catch (e) {
-      if (epoch === accountVersion()) {
-        if (form.isConnected) { error.textContent = "保存未完成"; error.innerHTML = userErrorMarkup(session.failure || e, "tasks_save"); }
-        else toastError(e);
-      }
+      await saving;
+      if (epoch === accountVersion()) toast(isNotice(task) ? "通知已保存" : "任务已保存");
+    } catch (error) {
+      if (epoch === accountVersion() && session.sync !== "error") toastError(error, "tasks_save");
     } finally {
-      taskBusy = false;
-      if (form.isConnected) {
-        form.querySelectorAll("button,input,textarea,select").forEach((field) => {
-          if (!field.dataset.errorFeedback) field.disabled = false;
-        });
-      }
+      finishTask(draftId, epoch);
     }
     return;
   }
@@ -1185,6 +1258,7 @@ window.addEventListener("niuma:account-reset", () => {
   }
   clearUndo();
   state = readStore();
+  busyTasks.clear();
   imports.reset();
   drawer.close();
   drawerId = null;
@@ -1212,6 +1286,7 @@ window.addEventListener("niuma:sync", () => {
   if (label) label.textContent = saveLabel();
   const alert = document.querySelector("#sync-alert");
   if (alert) alert.innerHTML = syncAlert();
+  syncTaskControls();
 });
 matchMedia("(max-width: 700px)").addEventListener("change", () => {
   ui.mobileMenu = false;

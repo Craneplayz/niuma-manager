@@ -20,6 +20,14 @@ export function describeUserError(error, action = "general") {
     return value;
   };
   const reason = error?.failure?.reason;
+  if (code === 'task_journal_unavailable')
+    return report('service_connection', '本地待保存操作暂不可用，请检查浏览器存储权限、剩余空间及 HTTPS 连接。', '尚未成功暂存的操作不会修改任务；请勿清理站点数据后再尝试恢复。');
+  if (/服务器未提供有效的保存回执|服务器未确认操作编号/.test(text))
+    return report('service_version', '服务器保存接口需要更新，本地待保存操作仍保留。请联系维护人员后重试。');
+  if (/账号已切换/.test(text))
+    return report('session', '账号已切换，请重新登录原账号恢复待保存操作。');
+  if (/^其他页面仍有待保存操作/.test(text))
+    return report('conflict', '其他页面还有未保存操作，请先保存后再退出或切换账号。');
   if (typeof reason === "string" && Object.hasOwn(recognitionErrors, reason)) {
     const description = recognitionErrors[reason];
     const diagnostic = error.diagnostic;

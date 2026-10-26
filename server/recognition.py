@@ -372,16 +372,28 @@ def route(handler,db,uid,path,body,ApiError):
         from urllib.parse import unquote
         cid=unquote(path.split('/')[-2])
         db.execute('BEGIN IMMEDIATE')
+        operation=body.get('operation')
+        if operation is not None:
+            import task_operations
+            intent=task_operations.review_request(operation,uid,cid,body,ApiError)
+            replayed=task_operations.acknowledged(db,uid,operation,ApiError)
+            if not replayed:
+                resolve_candidate(db,uid,cid,{key:value for key,value in body.items() if key!='operation'},ApiError,intent=intent)
+                task_operations.record(db,uid,operation,task_operations.workspace(db,uid)['version'],ApiError)
+            handler.reply(200,dict(operationId=operation['id'],replayed=replayed,**task_operations.snapshot(db,uid,[operation])));return True
         resolve_candidate(db,uid,cid,body,ApiError)
         handler.reply(200,dict(batches=batches(db,uid)));return True
     raise ApiError(404,'识别接口不存在')
 
 
-def resolve_candidate(db, uid, cid, body, ApiError):
+def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None):
     """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     import submission_runtime
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
     if not row: raise ApiError(404,'候选不存在')
+    if intent is not None and (row['version']!=intent['expectedCandidateVersion'] or
+            row['state']!=('ignored' if intent['action']=='reopen' else 'pending')):
+        raise ApiError(409,'候选已变化，请重新核对；本地操作仍保留')
     canonical=json.dumps(body,sort_keys=True)
     action=body.get('action')
     if 'complete' in body and (type(body['complete']) is not bool or action!='create' or body.get('auto_apply') is True or body.get('reviewed') is not True):
@@ -421,6 +433,12 @@ def resolve_candidate(db, uid, cid, body, ApiError):
         target=next((t for t in tasks if t['id']==body.get('target_id')),None)
         if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
         if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
+        if intent is not None and action!='create':
+            import task_operations
+            if target.get('recycleBin') or target.get('status')=='cancelled' or task_operations.target_snapshot(target)!=intent['expectedTarget']:
+                raise ApiError(409,'目标任务已变化，请重新核对；本地操作仍保留')
+        if intent is not None and action=='create' and any(task['id']==intent['newTaskId'] for task in tasks):
+            raise ApiError(409,'新增任务编号已存在，请重新核对')
         draft=body.get('draft',{})
         if auto:
             automatic_due=None
@@ -446,7 +464,7 @@ def resolve_candidate(db, uid, cid, body, ApiError):
             if action=='create':
                 platform=c['sources'][0]['platform']
                 source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
-                target=dict(id=secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=datetime.now(timezone.utc).isoformat())
+                target=dict(id=intent['newTaskId'] if intent is not None else secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=intent.get('createdAt',datetime.now(timezone.utc).isoformat()) if intent is not None else datetime.now(timezone.utc).isoformat())
                 tasks.append(target)
                 target['course']=course
                 target['category']='课程作业' if course else '个人事务'
@@ -462,7 +480,7 @@ def resolve_candidate(db, uid, cid, body, ApiError):
         else: target['status']='cancelled'
         if body.get('complete') is True:
             target['status']='completed'
-            target['completedAt']=datetime.now(usage.TZ).date().isoformat()
+            target['completedAt']=intent['completedAt'] if intent is not None else datetime.now(usage.TZ).date().isoformat()
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
