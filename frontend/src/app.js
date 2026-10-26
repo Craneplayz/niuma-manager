@@ -49,7 +49,7 @@ const esc = (value) =>
         c
       ],
   );
-const mascotHeads = new URL("./assets/mascot-heads.png", import.meta.url).href;
+const brandLogo = new URL("./assets/brand-logo.webp", import.meta.url).href;
 const mascotPeek = new URL("./assets/mascot-peek.png", import.meta.url).href;
 
 const app = document.querySelector("#app"),
@@ -281,7 +281,7 @@ function sidebar() {
     done: filterTasks(state.tasks, { scope: "done", today }).length,
     notices: filterTasks(listItems(), { scope: "notices", today }).length,
   };
-  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器"><img class="brand-mascots" src="${esc(mascotHeads)}" width="52" height="32" alt="" aria-hidden="true" decoding="async"><span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
+  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器"><img class="brand-logo" src="${esc(brandLogo)}" width="36" height="32" alt="" aria-hidden="true" decoding="async"><span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
     ["notices", "通知", "info"],
     ["near", "临近截止", "clock"],

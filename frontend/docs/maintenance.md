@@ -26,7 +26,8 @@
 | `team-store.js` | 同源 API、任务与回收站状态、账号请求隔离、保存队列与冲突处理 |
 | `demo.js` | 不持久化、不提交识别的合成任务预览 |
 | `theme.css` | 普通应用与独立后台共用的颜色、控件圆角和页面尺寸变量 |
-| `assets/mascot-heads.png` / `assets/mascot-peek.png` | 侧栏品牌双头像与底部探头形象 |
+| `assets/brand-logo.webp` / `assets/mascot-peek.png` | 主站与后台共用品牌图标及侧栏底部探头形象 |
+| `favicon.svg` | 嵌入同一品牌图的主站与后台标签页图标 |
 | `styles.css` | 共用页面与阅读区坐标、侧栏、查询控件、表单与弹窗 |
 | `icons.js` / `id.js` / `environment-badge.js` | 当前入口使用的图标、浏览器兼容 ID、环境和版本描述 |
 
@@ -100,9 +101,11 @@
 
 新页面必须共用 `app.js` 的 `workspaceHeading` 与 `.page-frame`（最大宽度 1450px）。`workspaceHeading` 为 `renderPageHeading` 注入导航与日期，导入模块通过 host 使用同一入口；桌面正式标题与右侧操作、日期共处首行，添加按钮在日期左侧。手机首行容纳导航、操作与日期，标题和视图切换在次行。不得恢复浅色辅助标注或独立的顶部占位行。清单与日历使用框架内可用宽度，导入正文使用左对齐的 `.page-reading`（最大宽度 860px）；不能另设居中或限宽的页面外框。
 
-`theme.css` 由 `styles.css` 与 `admin-usage.css` 引入，统一维护纯白底色、杏色操作、深棕按钮文字、日期雾蓝和控件圆角；状态颜色保持原有语义。`styles.css` 维护页面、日历布局、当日面板分隔线和内边距；`calendar.css` 维护日历与任务组件样式，避免重复声明被页面布局覆盖的边框与间距。
+`theme.css` 由 `styles.css` 与 `admin-usage.css` 引入，统一维护纯白底色、珊瑚桃色操作、品牌深棕与按钮文字、日期雾蓝和控件圆角；主操作、悬停、按下、浅底、边框与焦点颜色成组维护，普通按钮按下与账号入口悬停复用主题变量，状态颜色保持原有语义。`styles.css` 维护页面、日历布局、当日面板分隔线和内边距；`calendar.css` 维护日历与任务组件样式，避免重复声明被页面布局覆盖的边框与间距。
 
-`app.js` 通过 `new URL(..., import.meta.url)` 打包 `src/assets/` 的透明牛马图片；品牌双头像和底部探头均预留固定宽高，并以空 `alt`、`aria-hidden` 和禁止指针事件保持装饰语义。底部插画在折叠栏、700px 及以下手机宽度和 720px 及以下窗口高度隐藏，不增加正文插画或挤占导航入口。
+`app.js` 与 `admin-usage.js` 通过 `new URL(..., import.meta.url)` 打包同一 `src/assets/brand-logo.webp`，分别用于主站品牌区、后台顶栏与后台登录；图像来自确认稿的白边裁切与缩小，保留空心勾选牛角、点与直线进度嘴及左上、右下扫描角。`favicon.svg` 嵌入同一图片，不依赖外部资源。主站品牌图固定为 36×32px，窄桌面侧栏为 32×28px，保留图片的实际比例并避免拉伸。
+
+侧栏底部继续打包透明的 `assets/mascot-peek.png`；品牌图与探头使用空 `alt`、`aria-hidden` 和预留尺寸，品牌名称承担可访问名称。底部插画在折叠栏、700px 及以下手机宽度和 720px 及以下窗口高度隐藏，不增加正文插画或挤占导航入口。
 
 在 `frontend/` 运行：
 

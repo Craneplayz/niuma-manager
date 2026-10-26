@@ -130,16 +130,13 @@ button .icon {
   text-decoration: none;
   font-size: 15px;
   font-weight: 650;
+  color: var(--brand-ink);
   white-space: nowrap;
   min-width: 0;
   overflow: hidden;
 }
-.brand .icon {
-  width: 23px;
-  height: 23px;
-}
-.brand-mascots {
-  width: 52px;
+.brand-logo {
+  width: 36px;
   height: 32px;
   object-fit: contain;
   flex: none;
@@ -186,7 +183,7 @@ button .icon {
   border-color: var(--action-border);
 }
 .btn:not(:disabled):active {
-  background: #fce5d7;
+  background: var(--action-soft-active);
 }
 .btn.primary {
   color: var(--action-ink);
@@ -334,7 +331,10 @@ button .icon {
   text-align: left;
 }
 .account-entry:hover {
-  background: #eeefee;
+  background: var(--action-soft);
+}
+.account-entry:hover .account-name small {
+  color: var(--action-text);
 }
 .avatar {
   background: #e7e9e8;
@@ -1379,9 +1379,9 @@ dialog p {
     font-size: 13px;
     gap: 6px;
   }
-  .brand .icon {
-    width: 20px;
-    height: 20px;
+  .brand-logo {
+    width: 32px;
+    height: 28px;
   }
   #main {
     padding-left: 22px;
@@ -1466,9 +1466,9 @@ dialog p {
   .brand {
     font-size: 15px;
   }
-  .brand .icon {
-    width: 23px;
-    height: 23px;
+  .brand-logo {
+    width: 36px;
+    height: 32px;
   }
   .page-heading {
     grid-template-columns: 36px minmax(0, 1fr);
