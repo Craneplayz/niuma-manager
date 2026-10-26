@@ -228,6 +228,8 @@ def process(path, uid, run_id, ApiError):
                 save(db, run, 'running')
                 attachments = teaching.attachment_context(db,uid,item['request']['request_id']) if item.get('kind')=='teaching' else {}
                 selected_context=getattr(attachments.get('prepare_context'),'selected',[])
+                context_revision=(teaching.course_context.catalog_revision(db,uid,item['account'],item['request']['records'][0])
+                                  if item.get('kind')=='teaching' else None)
             request = json.loads(json.dumps(item['request']))
             request['request_id']='reprocessing:'+run_id+':'+str(index)
             result = None
@@ -261,8 +263,8 @@ def process(path, uid, run_id, ApiError):
                     record.update(state='interrupted', error=dict(code='interrupted',message='已停止，未接纳迟到结果'))
                 elif (not latest or latest['run_id']!=run_id or not still_current(db,uid,item,ApiError)
                       or native and (not teaching.course_context.evidence_current(db,uid,item['account'],request)
-                        or teaching.course_context.fingerprint(teaching.course_context.select(db,uid,item['account'],item['request']['records'][0]))
-                            != teaching.course_context.fingerprint(selected_context))):
+                        or teaching.course_context.catalog_revision(db,uid,item['account'],item['request']['records'][0])
+                            != context_revision)):
                     record['state']='superseded'
                 elif result is None:
                     record.update(state='failed',error=dict(code='agent_unavailable',message='识别未成功，已有数据未变更'))

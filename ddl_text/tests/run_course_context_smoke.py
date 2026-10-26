@@ -29,6 +29,7 @@ def evaluate(result,expected):
     if result['status'] not in ('success','no_tasks'):errors.append('recognition failed')
     if len(decisions)!=expected['count']:errors.append('item count')
     if sorted(d['recommendation'] for d in decisions)!=sorted(expected['routes']):errors.append('routing')
+    if 'types' in expected and sorted(d['content_type'] for d in decisions)!=sorted(expected['types']):errors.append('content types')
     dates=[d['pair']['assessment']['deadline']['value'] for d in decisions]
     if 'dates' in expected and sorted(dates,key=str)!=sorted(expected['dates'],key=str):errors.append('dates')
     if 'channels' in expected and not all(any(c in d['title'] for d in decisions) for c in expected['channels']):errors.append('delivery channels')

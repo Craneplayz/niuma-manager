@@ -69,6 +69,17 @@ class CourseContextTests(unittest.TestCase):
         inconsistent=request('bad-window','教学大纲：错误日期。')
         inconsistent['records'][0]['record']['course_term']['starts_on']='2026-10-01';self.save(inconsistent)
         self.assertEqual([r['request']['request_id'] for r in context.select(self.db,'u','a',target['records'][0])],['request:syllabus'])
+        token=context.catalog_revision(self.db,'u','a',target['records'][0])
+        self.db.execute("UPDATE teaching_sources SET digest='changed' WHERE input_id!='syllabus'")
+        self.assertEqual(token,context.catalog_revision(self.db,'u','a',target['records'][0]))
+        # A source outside lexical top-K is still part of the raw eligible catalog.
+        other=request('unselected','普通资料。');self.save(other)
+        added=context.catalog_revision(self.db,'u','a',target['records'][0])
+        self.assertNotEqual(token,added)
+        other['records'][0]['record']['text']='资料更正。';self.save(other)
+        self.assertNotEqual(added,context.catalog_revision(self.db,'u','a',target['records'][0]))
+        self.db.execute("DELETE FROM teaching_sources WHERE input_id='unselected'")
+        self.assertEqual(token,context.catalog_revision(self.db,'u','a',target['records'][0]))
         target['records'][0]['record']['course_term']=None
         self.assertEqual(context.select(self.db,'u','a',target['records'][0]),[])
 
@@ -276,7 +287,9 @@ class CourseContextTests(unittest.TestCase):
                 titles.append(result['decisions'][0]['title'])
         self.assertEqual(titles,['书面作业 · 第4章','书面作业 · 第5章','POJ作业 · 第4章','POJ作业 · 第5章','MOOC作业 · 第4章','MOOC作业 · 第5章'])
         task['title_facts']['sequence']='第九十九章'
-        with self.assertRaises(Exception):compile_teaching_response(json.dumps(dict(tasks=[task])),r,source_verified=True)
+        decision=compile_teaching_response(json.dumps(dict(tasks=[task])),r,source_verified=True)['decisions'][0]
+        self.assertEqual(decision['title'],task['title'])
+        self.assertIsNone(decision['title_facts'])
 
     def test_teaching_week_calculation_and_missing_anchor(self):
         target=request('exam','考试安排在第16周周五。')

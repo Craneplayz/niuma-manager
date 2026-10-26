@@ -621,6 +621,441 @@
         ],
         "title": "书面作业 · 第5次"
       }
+    },
+    {
+      "name": "lecture-outline",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-outline",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-outline",
+              "source_item_id": "lecture-outline",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-outline",
+              "platform": "teaching_web",
+              "text": "第十二讲：纹理映射。涉及纹理坐标、采样和插值。已附讲义及课件。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-outline",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": []
+      }
+    },
+    {
+      "name": "lecture-summary",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-summary",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-summary",
+              "source_item_id": "lecture-summary",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-summary",
+              "platform": "teaching_web",
+              "text": "第十二讲：纹理映射。涉及纹理坐标、采样和插值。已附讲义及课件。",
+              "body_status": "summary",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "lecture-file",
+                  "kind": "attachment",
+                  "label": "第十二讲讲义.pdf",
+                  "read_state": "unsupported",
+                  "text": null
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-summary",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": []
+      }
+    },
+    {
+      "name": "lecture-with-other-assignment",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-with-other-assignment",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-with-other-assignment",
+              "source_item_id": "lecture-with-other-assignment",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-with-other-assignment",
+              "platform": "teaching_web",
+              "text": "第十二讲：纹理映射。涉及纹理坐标、采样和插值。已附讲义及课件。",
+              "body_status": "summary",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:b5c84aa3df911b0f807ef8bde6d94862",
+                  "kind": "course_context",
+                  "label": "two-files-exception-material-0",
+                  "read_state": "complete",
+                  "text": "课程大纲：书面作业统一在2026年11月6日截止。实验报告另行通知。"
+                },
+                {
+                  "ref_id": "context:dc6252f0584a8aedd76ccc1ae453473f",
+                  "kind": "course_context",
+                  "label": "two-files-exception-material-1",
+                  "read_state": "complete",
+                  "text": "作业安排更正：第11讲书面作业不适用大纲统一日期，改为2026年11月13日提交。其他作业不变。"
+                },
+                {
+                  "ref_id": "lecture-file",
+                  "kind": "attachment",
+                  "label": "第十二讲讲义.pdf",
+                  "read_state": "unsupported",
+                  "text": null
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:b5c84aa3df911b0f807ef8bde6d94862",
+                    "input_id": "two-files-exception-material-0",
+                    "snapshot_id": "snapshot:two-files-exception-material-0",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "two-files-exception-material-0",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 34
+                  },
+                  {
+                    "ref_id": "context:dc6252f0584a8aedd76ccc1ae453473f",
+                    "input_id": "two-files-exception-material-1",
+                    "snapshot_id": "snapshot:two-files-exception-material-1",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "two-files-exception-material-1",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 48
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "860eec761cc265cb1ce3258bc17fda7a0828b2872556d430798683e5b05da4e6"
+              }
+            },
+            "source": {
+              "label": "lecture-with-other-assignment",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": []
+      }
+    },
+    {
+      "name": "lecture-homework",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-homework",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-homework",
+              "source_item_id": "lecture-homework",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-homework",
+              "platform": "teaching_web",
+              "text": "第十二讲作业题，完成题1至3。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-homework",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "lecture-required-reading",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-required-reading",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-required-reading",
+              "source_item_id": "lecture-required-reading",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-required-reading",
+              "platform": "teaching_web",
+              "text": "请阅读第十二讲讲义，下次课测验。不规定阅读截止日期。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-required-reading",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "types": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "lecture-room-change",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-room-change",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-room-change",
+              "source_item_id": "lecture-room-change",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-room-change",
+              "platform": "teaching_web",
+              "text": "第十二讲上课地点改为理教408。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-room-change",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "notice"
+        ]
+      }
+    },
+    {
+      "name": "group-invitation-paraphrase",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:group-invitation-paraphrase",
+        "records": [
+          {
+            "record": {
+              "input_id": "group-invitation-paraphrase",
+              "source_item_id": "group-invitation-paraphrase",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:group-invitation-paraphrase",
+              "platform": "teaching_web",
+              "text": "先添加老师微信，老师加你进课程微信群。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "group-invitation-paraphrase",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "task"
+        ]
+      }
     }
   ]
 }

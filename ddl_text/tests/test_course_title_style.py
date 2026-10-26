@@ -5,7 +5,8 @@ from copy import deepcopy
 
 from ddl_text.adapters import AgentError
 from ddl_text.course_facts import sequence_display, title
-from ddl_text.teaching_draft import compile_teaching_response
+from ddl_text.teaching_draft import compile_teaching_response, evidence_catalog
+from ddl_text import diagnostics
 from ddl_text.tests.teaching_cases import model_task, policy_case
 
 
@@ -84,12 +85,64 @@ class CourseTitleStyleTests(unittest.TestCase):
     def test_normalization_cannot_replace_literal_source_evidence(self):
         record,task=sample('第四章')
         task['title_facts']['sequence']='Chapter 4'
-        with self.assertRaises(AgentError) as failure:
-            compile_teaching_response(json.dumps(dict(tasks=[task])),record,source_verified=True)
-        self.assertEqual(failure.exception.code,'invalid_agent_output')
+        decision=compile_teaching_response(json.dumps(dict(tasks=[task])),record,source_verified=True)['decisions'][0]
+        self.assertEqual(decision['title'],task['title'])
+        self.assertIsNone(decision['title_facts'])
+
+    def test_optional_title_faults_preserve_valid_tasks_and_report_fallback(self):
+        for text,title_text in [('先添加老师微信，老师加你进课程微信群。','加入课程微信群'),
+                                ('请完成第三讲作业题。','第三讲作业')]:
+            for broken in ('paraphrase','quote','shape','kind','span'):
+                with self.subTest(text=text,broken=broken):
+                    record,task=sample()
+                    record['text']=text
+                    evidence=[dict(part_id='body',quote=text)]
+                    task.update(title=title_text,description=title_text)
+                    task['assessment']['action']['evidence']=deepcopy(evidence)
+                    task['title_facts'].update(channel='',sequence='',subject='不在原文中的转述',evidence=deepcopy(evidence))
+                    if broken=='quote':task['title_facts']['evidence'][0]['quote']='伪造引用'
+                    if broken=='shape':task['title_facts']=['invalid']
+                    if broken=='kind':task['title_facts']['kind']='unsupported'
+                    if broken=='span':task['title_facts']['evidence']=[dict(span_id='missing')]
+                    events=[]
+                    with diagnostics.scope(lambda stage,**fields:events.append(dict(stage=stage,**fields))):
+                        result=compile_teaching_response(json.dumps(dict(tasks=[task,dict(task,title_facts=None)])),record,source_verified=True)
+                    self.assertEqual(len(result['decisions']),2)
+                    decision=result['decisions'][0]
+                    self.assertEqual((decision['title'],decision['description']),(title_text,title_text))
+                    self.assertIsNone(decision['title_facts'])
+                    self.assertTrue(any(e.get('code')=='title_facts' and e.get('status')=='fallback' for e in events),events)
+
+    def test_indexed_optional_facts_degrade_but_core_evidence_stays_strict(self):
+        record,task=sample()
+        span=next(k for k,v in evidence_catalog(record).items() if v['part_id']=='body')
+        task.update(content_type='task',time_role='none',submission_relation='assignment_submission')
+        task['assessment']['action']['evidence']=[dict(span_id=span)]
+        task['relevance']['evidence']=[]
+        task['title_facts']['evidence']=[dict(span_id='missing')]
+        result=compile_teaching_response(json.dumps(dict(tasks=[task])),record,source_verified=True,indexed=True)
+        self.assertIsNone(result['decisions'][0]['title_facts'])
+        for field in ('action','deadline'):
+            invalid=deepcopy(task)
+            invalid['assessment'][field]['evidence']=[dict(span_id='missing')]
+            with self.subTest(field=field),self.assertRaises(AgentError):
+                compile_teaching_response(json.dumps(dict(tasks=[invalid])),record,source_verified=True,indexed=True)
 
     def test_historical_draft_without_facts_keeps_its_title(self):
         self.assertEqual(title(dict(title='完成 Chapter 4 的第4.2题')), '完成 Chapter 4 的第4.2题')
+
+    def test_title_fallback_never_relaxes_action_date_calendar_or_source(self):
+        for fault in ('action','deadline','calendar','source'):
+            record,task=sample()
+            task['title_facts']['subject']='未引用的主题'
+            if fault in ('action','deadline'):
+                task['assessment'][fault]['evidence']=[dict(part_id='body',quote='伪造证据')]
+            elif fault=='calendar':
+                task['calendar_rule']=dict(week_one_monday='2026-09-07',week=4,weekday=1,offset_days=0,
+                    evidence=[dict(part_id='body',quote='伪造基准日期')])
+            else:record['course_id']=[]
+            with self.subTest(fault=fault),self.assertRaises(AgentError):
+                compile_teaching_response(json.dumps(dict(tasks=[task])),record,source_verified=True)
 
 
 if __name__=='__main__':unittest.main()

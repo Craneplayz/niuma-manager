@@ -125,6 +125,29 @@ def fingerprint(selected):
     return contract.revision(sorted((s['request']['records'][0]['record']['input_id'],s['digest']) for s in selected))
 
 
+def catalog_revision(db, uid, account, entry):
+    """Raw captured course membership/content, independent of reader progress.
+
+    Freeze retrieval for one attempt. A concurrent cache completion may change
+    even top-K membership; it should schedule a later refresh, not reject valid
+    work. Raw additions, removals and edits still invalidate the save, including
+    sources outside the selected top-K. Request IDs are execution identities.
+    """
+    scope = contract.scope(entry['record'])
+    if scope is None: return contract.revision([])
+    rows = db.execute('''SELECT s.input_id,s.digest,s.request FROM teaching_sources s
+        JOIN teaching_course_index i USING(user_id,account,input_id)
+        WHERE i.user_id=? AND i.account=? AND i.course_id=? AND i.term_id=?
+        ORDER BY s.input_id''', (uid,account,*scope)).fetchall()
+    current = entry['record']['course_term']
+    values = []
+    for iid, digest, raw in rows:
+        term = json.loads(raw)['records'][0]['record'].get('course_term')
+        if term and (term['starts_on'],term['ends_on']) == (current['starts_on'],current['ends_on']):
+            values.append((iid,digest))
+    return contract.revision(values)
+
+
 def cache_receipt(ref,version,result):
     if result and json.loads(result).get('read_state')=='complete':
         return (ref,version,hashlib.sha256(result.encode()).hexdigest())

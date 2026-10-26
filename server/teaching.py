@@ -328,9 +328,10 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     request = resolve_snapshot(db,uid,body['request_id'],ApiError)
     captured = deepcopy(request)
     control_token = submission.controls.token(db,uid,request['request_id'])
-    attachments = attachment_context(db,uid,request['request_id'])
     cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     acct=account(cred['username'])
+    context_revision=course_context.catalog_revision(db,uid,acct,captured['records'][0])
+    attachments = attachment_context(db,uid,request['request_id'])
     context_selection=getattr(attachments.get('prepare_context'),'selected',None)
     if context_selection is None: context_selection=course_context.select(db,uid,acct,captured['records'][0])
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
@@ -361,7 +362,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             if guard: guard(db)
             if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
             if (not course_context.current(db,uid,acct,context_selection)
-                    or course_context.fingerprint(course_context.select(db,uid,acct,captured['records'][0]))!=course_context.fingerprint(context_selection)):
+                    or course_context.catalog_revision(db,uid,acct,captured['records'][0])!=context_revision):
                 raise ApiError(409,'课程资料在识别期间发生变化，请重新同步')
             if submission.controls.token(db,uid,request['request_id'])!=control_token: raise ApiError(409,'作业关联在识别期间发生变化，请重新同步')
             now = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()

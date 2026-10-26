@@ -143,7 +143,20 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
         envelope = json.loads(raw, object_pairs_hook=_object,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite')))
         stage = 'draft_schema'
-        Draft202012Validator(teaching_draft_schema(record, indexed=indexed), format_checker=FormatChecker()).validate(envelope)
+        schema = teaching_draft_schema(record, indexed=indexed)
+        # Presentation hints are optional, unlike action/date/identity proof.
+        # Discard only this field, before expanding indexed evidence; retain the
+        # original task and run every core schema/evidence check unchanged.
+        facts_schema = dict(schema['properties']['tasks']['items']['properties']['title_facts'],
+                            **{'$defs': schema['$defs']})
+        tasks = envelope.get('tasks') if isinstance(envelope, dict) else None
+        for draft in tasks if isinstance(tasks, list) else []:
+            if isinstance(draft, dict) and draft.get('title_facts') is not None:
+                try:
+                    Draft202012Validator(facts_schema).validate(draft['title_facts'])
+                except ValidationError:
+                    discard_title_facts(draft, 'schema')
+        Draft202012Validator(schema, format_checker=FormatChecker()).validate(envelope)
         if indexed:
             catalog = evidence_catalog(record)
             def expand(value):
@@ -170,10 +183,14 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             content_type = draft.get('content_type', 'task')
             _quotes(record, assessment['action']['evidence'])
             _quotes(record, assessment['deadline']['evidence'], allow_metadata=True)
-            for name in ('title_facts','calendar_rule'):
-                if draft.get(name): _quotes(record,draft[name]['evidence'])
+            if draft.get('calendar_rule'): _quotes(record,draft['calendar_rule']['evidence'])
             course_facts.check_primary_action(draft,record)
-            rendered_title=course_facts.title(draft)
+            try:
+                if draft.get('title_facts'): _quotes(record,draft['title_facts']['evidence'])
+                rendered_title=course_facts.title(draft)
+            except (AgentError, ValueError):
+                discard_title_facts(draft, 'evidence')
+                rendered_title=draft['title']
             for relation in assessment['unread_relations']:
                 _quotes(record, relation['evidence'])
             time_needs_review = normalize_time(draft, record)
@@ -252,6 +269,12 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
         failure = AgentError('invalid_agent_output', True, stage)
         failure.model_feedback = str(error)[:512] if isinstance(error, ValueError) else stage
         raise failure from None
+
+
+def discard_title_facts(draft, reason):
+    from . import diagnostics
+    draft['title_facts'] = None
+    diagnostics.emit('presentation', status='fallback', code='title_facts', diagnostic=reason)
 
 
 def compile_teaching_draft(raw, record, *, source_verified=False, indexed=False):

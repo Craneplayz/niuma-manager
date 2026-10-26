@@ -158,6 +158,72 @@ class CourseContextHTTPTests(unittest.TestCase):
         self.assertEqual(len(next_views),1)
         self.assertNotEqual(next_views[0]['request_id'],rid)
 
+    def test_top_k_cache_membership_change_saves_and_refreshes_once(self):
+        for replay in (False,True):
+            with self.subTest(reprocessing=replay):
+                course='rank-replay' if replay else 'rank-normal'
+                iid=course+'-task';primary=request(iid,'请完成书面作业。',course=course)
+                pairs=[self.file_source(course+'-'+name,course=course) for name in 'abcdefz']
+                raw=[primary]+[p[0] for p in pairs]
+                assets={p['records'][0]['record']['input_id']:[a] for p,a in pairs}
+                rid=self.sync(raw,assets)['requests'][0]['request_id']
+                acct=teaching.account('synthetic-course-user')
+                with app.connection() as db:
+                    before=course_context.select(db,self.uid,acct,primary['records'][0])
+                    token=[tuple(row) for row in db.execute('SELECT input_id,digest FROM teaching_sources WHERE user_id=? AND account=? ORDER BY input_id',(self.uid,acct))]
+                    zrid=db.execute('SELECT request_id FROM teaching_sources WHERE user_id=? AND input_id=?',
+                                   (self.uid,course+'-z')).fetchone()[0]
+                self.assertEqual(len(before),6)
+                self.assertNotIn(course+'-z',[s['request']['records'][0]['record']['input_id'] for s in before])
+                def classify(record,**kwargs):
+                    with app.connection() as db:
+                        asset=teaching_assets.load(db,self.uid,acct,zrid)[0]
+                        teaching_assets.save_read_cache(db,self.uid,asset,teaching_assets.cache_version(Settings(model='synthetic',endpoint='https://example.test')),
+                            dict(read_state='complete',text='教学大纲：所有书面作业无需额外登记。'))
+                        self.assertEqual(token,[tuple(row) for row in db.execute('SELECT input_id,digest FROM teaching_sources WHERE user_id=? AND account=? ORDER BY input_id',(self.uid,acct))])
+                        self.assertNotEqual(course_context.fingerprint(before),course_context.fingerprint(course_context.select(db,self.uid,acct,primary['records'][0])))
+                    compiled=compile_teaching_response(empty_reply(record,'no_tasks'),record,source_verified=True)
+                    return TeachingPreview((),True,(),compiled['empty_decision'])
+                with self.reader(return_value=dict(read_state='complete',text='课堂资料内容。')):
+                    if replay:
+                        source=self.call('/recognition/reprocessing/sources')[1]['accounts'][0]
+                        options=dict(provider='qiniu',key='synthetic-key',model='synthetic',endpoint='https://example.test')
+                        with patch.object(teaching,'live_options',return_value=options),patch.object(teaching_pipeline,'process_teaching_draft',side_effect=classify):
+                            status,run=self.call('/recognition/reprocessing/runs',dict(contract_version='reprocessing/0.1',operation_id=course,
+                                source_account_id=source['source_account_id'],input_ids=[iid]))
+                            self.assertEqual(status,202,run)
+                            self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+                        saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
+                        self.assertEqual(saved['state'],'succeeded',saved)
+                    else:
+                        self.assertEqual(self.run_record(rid,classifier=classify)['result']['status'],'no_tasks')
+                    with app.connection() as db:
+                        saved_rid=db.execute('SELECT request_id FROM teaching_sources WHERE user_id=? AND input_id=?',(self.uid,iid)).fetchone()[0]
+                    views=self.sync(raw,assets)['requests']
+                    next_rid=next(v['request_id'] for v in views if v['records'][0]['input_id']==iid)
+                    self.assertNotEqual(next_rid,saved_rid)
+                    self.run_record(next_rid,classifier=lambda record,**kw:TeachingPreview((),True,(),
+                        compile_teaching_response(empty_reply(record,'no_tasks'),record,source_verified=True)['empty_decision']))
+                    for _ in range(2):
+                        self.assertNotIn(iid,[v['records'][0]['input_id'] for v in self.sync(raw,assets)['requests']])
+
+    def test_optional_title_failure_survives_http_validation_and_autosave(self):
+        primary=request('group-notice','先添加老师微信，老师加你进课程微信群。')
+        rid=self.sync([primary])['requests'][0]['request_id']
+        def classify(record,**kwargs):
+            task=draft(record)
+            task.update(title='加入课程微信群',time_role='none',submission_relation='other',
+                title_facts=dict(kind='other',channel='',sequence='',subject='加课程微信群',
+                    evidence=[dict(part_id='body',quote=record['text'])]))
+            compiled=compile_teaching_response(json.dumps(dict(tasks=[task])),record,source_verified=True)
+            return TeachingPreview(tuple(compiled['decisions']),False,())
+        batch=self.run_record(rid,classifier=classify)
+        self.assertEqual(len(batch['items']),1)
+        item=batch['items'][0]
+        self.assertEqual(item['candidate']['title'],'加入课程微信群')
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+
     def test_existing_unrepresentable_cache_is_skipped_without_endless_retries(self):
         primary,asset=self.file_source('oversized-cache')
         rid=self.sync([primary],{'oversized-cache':[asset]})['requests'][0]['request_id']
