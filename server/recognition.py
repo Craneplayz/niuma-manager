@@ -368,7 +368,7 @@ def route(handler,db,uid,path,body,ApiError):
     raise ApiError(404,'识别接口不存在')
 
 
-def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None):
+def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, record_usage=True):
     """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     import submission_runtime
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
@@ -463,7 +463,7 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None):
             target['completedAt']=intent['completedAt'] if intent is not None else datetime.now(usage.TZ).date().isoformat()
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
-        usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
+        if record_usage: usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
     if action!='ignore': submission_runtime.candidate_applied(db,uid,cid,target['id'])
     return

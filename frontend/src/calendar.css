@@ -830,3 +830,22 @@ body.is-calendar-dragging * {
     min-height: 44px;
   }
 }
+
+.task-select {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  min-height: 44px;
+  margin-top: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.task-select input { position: absolute; inset: 0; width: 44px; height: 44px; margin: 0; opacity: 0; cursor: pointer; }
+.task-select > span { width: 18px; height: 18px; border: 1px solid #9aa5af; border-radius: 4px; background: #fff; }
+.task-select input:checked + span { background: #343b42; border-color: #343b42; }
+.task-select input:checked + span::after { content: ''; display: block; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: translate(5px, 2px) rotate(45deg); }
+.task-select input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 4px; }
+.task-select input:disabled + span { opacity: .45; }
+.task-row.is-bulk-selected { background: #f0f3f5; }
+@media (max-width: 700px) { .task-row:not(.is-compact) .task-select { margin-left: -3px; } }
