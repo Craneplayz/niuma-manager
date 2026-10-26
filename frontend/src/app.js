@@ -39,6 +39,7 @@ import { createAccountUI } from "./account-ui.js";
 import { readNavigation, navigationURL } from "./navigation.js";
 import { feedbackBox } from "./usage-feedback.js";
 import { describeEnvironment } from "./environment-badge.js";
+import { renderCourseDot, syncCourseColors } from "./course-identity.js";
 import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
 
 const esc = (value) =>
@@ -257,6 +258,12 @@ async function refresh() {
   render();
 }
 const listItems = () => projectReviewTasks(state.tasks, imports.getReviewItems(), today);
+const syncCourseIdentity = () => syncCourseColors([
+  ...listItems().map((task) => task.course),
+  ...(imports.getCourseNames?.() || []),
+], {
+  scope: demo ? "demo" : session.user?.id ? `account:${session.user.id}` : "anonymous",
+});
 const editableTask = id => state.tasks.find(task => task.id === id)
   || listItems().find(task => task.id === id && task.reviewCandidateId && !task.reviewChange);
 const filtered = () => filterTasks(listItems(), { ...ui, today });
@@ -350,7 +357,7 @@ function toolbar() {
   const mixed = ui.scope === "near" || ui.scope === "done";
   const searchLabel = ui.scope === "notices" ? "搜索通知" : mixed ? "搜索任务与通知" : "搜索任务";
   const dateLabel = ui.scope === "notices" ? "关键日期" : mixed ? "日期范围" : "截止日期";
-  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
+  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter${ui.course ? " has-course" : ""}"><span class="sr-only">课程筛选</span>${ui.course ? renderCourseDot(ui.course) : ""}<select id="course-filter" aria-label="课程筛选" title="${esc(ui.course || "全部课程")}"><option value="">全部课程</option>${courses()
     .map(
       (c) =>
         `<option ${ui.course === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`,
@@ -474,6 +481,7 @@ function syncToday() {
 function render() {
   calendarDrag.cancel();
   refreshToday();
+  syncCourseIdentity();
   hideSidebarTooltip();
   imports.setVisible(ui.page === "import" && !demo && !loading);
   const focus = document.activeElement,
@@ -503,6 +511,7 @@ function render() {
 function renderResults() {
   calendarDrag.cancel();
   if (refreshToday()) return render();
+  syncCourseIdentity();
   const dayFocus = document.activeElement?.dataset.calendarDay;
   const results = document.querySelector("#task-results");
   if (!results) return;
@@ -540,6 +549,7 @@ function openTask(id, editing = false) {
   if (!drawer.open) drawer.showModal();
 }
 function updateDrawer() {
+  syncCourseIdentity();
   const task = editableTask(drawerId) || {
     title: "",
     due: "",

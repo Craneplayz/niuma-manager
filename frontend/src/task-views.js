@@ -6,6 +6,7 @@ import {
   sortTasks,
   todayKey,
 } from "./task-model.js";
+import { renderCourseBadge } from "./course-identity.js";
 
 const escape = (value) =>
   String(value ?? "").replace(
@@ -22,7 +23,7 @@ function renderPendingTaskRow(task, { escapeHtml, icon, today, reviewBusy }) {
   const title = escapeHtml(task.title);
   const label = task.reviewChange ? '待核对变更' : '待核对';
   const due = task.reviewDateLabel || deadlineLabel(task, today);
-  const meta = [...new Set([task.course, task.source, task.reviewActionLabel].filter(Boolean))];
+  const meta = [...new Set([task.source, task.reviewActionLabel].filter((value) => value && value !== task.course))];
   const disabled = reviewBusy ? 'disabled' : '';
   const marker = task.reviewChange
     ? `<button type="button" class="task-complete task-review-marker" data-import-review="${id}" aria-label="核对：${title}" ${disabled}><span>${icon('info')}</span></button>`
@@ -30,7 +31,7 @@ function renderPendingTaskRow(task, { escapeHtml, icon, today, reviewBusy }) {
   const open = task.reviewChange ? `data-import-review="${id}"` : `data-task-open="${escapeHtml(task.id)}"`;
   return `<article class="task-row is-pending-review" data-review-id="${id}">
     ${marker}
-    <button type="button" class="task-open" ${open} ${disabled}><span class="task-title"><span class="review-label">${label}</span>${task.content_type === 'notice' ? '<span class="notice-label">通知</span>' : ''}${title}</span><span class="task-meta">${meta.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</span></button>
+    <button type="button" class="task-open" ${open} ${disabled}><span class="task-title"><span class="review-label">${label}</span>${task.content_type === 'notice' ? '<span class="notice-label">通知</span>' : ''}${title}</span><span class="task-meta">${renderCourseBadge(task.course)}${meta.map(value => `<span>${escapeHtml(value)}</span>`).join('')}</span></button>
     <div class="task-review-actions"><span class="task-deadline${task.reviewDateLabel ? ' is-unconfirmed' : ''}">${escapeHtml(due)}</span><button type="button" class="task-review-ignore" data-import-ignore="${id}" aria-label="忽略：${title}" ${disabled}>忽略</button></div>
   </article>`;
 }
@@ -50,7 +51,7 @@ export function renderTaskRow(
   const notice = isNotice(task);
   const done = task.status === "done";
   const overdue = !done && Boolean(shiftDay(task.due, 0)) && task.due < today;
-  const meta = [...new Set([task.course, task.source].filter(Boolean))];
+  const meta = [...new Set([task.source].filter((value) => value && value !== task.course))];
   if (!notice && task.status === "doing") meta.push("进行中");
   const due = compact
     ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(task.dueTime || "")
@@ -66,7 +67,7 @@ export function renderTaskRow(
     ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看${notice ? "通知" : "任务"}，拖到日历日期${shiftDay(task.due, 0) ? "更改" : "设置"}${notice ? "关键日期" : "截止日期"}"` : "";
   const marker = `<button type="button" class="task-complete" data-task-complete="${escapeHtml(task.id)}" aria-label="${action}${escapeHtml(task.title)}" ${notice ? `role="checkbox" aria-checked="${done}"` : `aria-pressed="${done}"`}><span class="task-complete-mark">${done ? icon("check") : ""}</span></button>`;
   const changes = (task.reviewChanges || []).map(change => `<div class="task-review-change"><button type="button" data-import-review="${escapeHtml(change.id)}" ${reviewBusy ? 'disabled' : ''}><span class="review-label">待核对变更</span>${escapeHtml(({ update: '更新内容', postpone: change.proposedDate ? `拟改为 ${change.proposedDate}` : '调整截止日期', cancel: '建议取消任务' })[change.action])}</button><button type="button" class="task-review-ignore" data-import-ignore="${escapeHtml(change.id)}" aria-label="忽略变更：${escapeHtml(change.title)}" ${reviewBusy ? 'disabled' : ''}>忽略</button></div>`).join('');
-  return `<article class="task-row${notice ? " is-notice" : ""}${compact ? " is-compact" : ""}${done ? notice ? " is-read" : " is-completed" : ""}${overdue ? " is-overdue" : ""}" data-task-id="${escapeHtml(task.id)}">${marker}<button type="button" class="task-open" data-task-open="${escapeHtml(task.id)}"${drag}><span class="task-title">${notice ? '<span class="notice-label">通知</span>' : ""}${escapeHtml(task.title)}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${due ? `<span class="task-deadline">${escapeHtml(due)}</span>` : ""}${changes ? `<div class="task-review-changes">${changes}</div>` : ''}</article>`;
+  return `<article class="task-row${notice ? " is-notice" : ""}${compact ? " is-compact" : ""}${done ? notice ? " is-read" : " is-completed" : ""}${overdue ? " is-overdue" : ""}" data-task-id="${escapeHtml(task.id)}">${marker}<button type="button" class="task-open" data-task-open="${escapeHtml(task.id)}"${drag}><span class="task-title">${notice ? '<span class="notice-label">通知</span>' : ""}${escapeHtml(task.title)}</span><span class="task-meta">${renderCourseBadge(task.course)}${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span></button>${due ? `<span class="task-deadline">${escapeHtml(due)}</span>` : ""}${changes ? `<div class="task-review-changes">${changes}</div>` : ''}</article>`;
 }
 
 export function renderTaskList(

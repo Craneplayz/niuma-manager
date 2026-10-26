@@ -1,3 +1,4 @@
+import { renderCourseBadge } from "./course-identity.js";
 import { candidateDue, zonedParts } from "./candidate-data.js";
 export { candidateDue } from "./candidate-data.js";
 import { describeUserError, userErrorMarkup } from "./user-errors.js";
@@ -404,7 +405,7 @@ export function createImportUI(host) {
         (record) => record.input_id === c.input_id,
       ),
       label = record?.source_label === "用户主动上传的文件" ? "图片与文件" : platforms[record?.platform] || c.sources?.[0]?.label || "通知";
-    return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${blocked() ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${blocked() ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${blocked() ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
+    return `<article class="candidate-row"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note candidate-course">${renderCourseBadge(c.course_or_project)}<span>${esc(label)}</span></p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${blocked() ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${blocked() ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${blocked() ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
   }
   function teachingPanel() {
     const connected = credentials?.configured;
@@ -1094,6 +1095,8 @@ export function createImportUI(host) {
   }
   return { render, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
     reviewEvidence: id => evidence(itemById(id)),
-    getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: blocked,
+    getReviewItems: () => allItems().filter(item => item.state === 'pending'),
+    getCourseNames: () => allItems().map(item => item.candidate?.course_or_project).filter(Boolean),
+    isReviewBusy: blocked,
     setVisible, setSource, cancelRecoveryNavigation: () => sourceSync.cancelRecoveryNavigation(), dismissRecoveryHighlight: () => sourceSync.dismissRecoveryHighlight(), loadSourceSync: () => sourceSync.load(), toggle: (event) => sourceSync.toggle(event) || materials.toggle(event) };
 }

@@ -198,6 +198,7 @@ body.is-calendar-dragging * {
 
 .calendar-view .calendar-task-title {
   display: block;
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -205,6 +206,39 @@ body.is-calendar-dragging * {
   font-size: 12px;
   font-weight: 500;
   line-height: 1.6;
+}
+
+.calendar-view .calendar-task-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: none;
+}
+
+.calendar-view .calendar-task-context .course-badge {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.calendar-month .calendar-task .course-name {
+  max-width: 3em;
+}
+
+.calendar-month .calendar-task.is-notice .course-name {
+  display: none;
+}
+
+.calendar-view .calendar-day-course-dots {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  flex: none;
+}
+
+.calendar-view .is-other-month .calendar-day-course-dots {
+  opacity: 0.5;
 }
 
 .calendar-view .calendar-task-time {
@@ -286,8 +320,15 @@ body.is-calendar-dragging * {
 
 .calendar-view.calendar-week .calendar-task-time {
   display: block;
-  margin-bottom: 3px;
+  margin-bottom: 0;
   font-size: 11px;
+}
+
+.calendar-week .calendar-task-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  margin-bottom: 3px;
 }
 
 .calendar-view.calendar-week .calendar-task-title {
@@ -435,6 +476,10 @@ body.is-calendar-dragging * {
 
 .task-row .task-meta {
   display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   flex-wrap: wrap;
   gap: 3px 11px;
   color: var(--muted);
@@ -688,6 +733,18 @@ body.is-calendar-dragging * {
     justify-content: center;
     gap: 2px;
   }
+  .calendar-month .calendar-day-course-dots {
+    display: inline-flex;
+  }
+}
+
+@container calendar-day (max-width: 96px) {
+  .calendar-month .calendar-task .course-name {
+    display: none;
+  }
+  .calendar-month .calendar-task .notice-label {
+    display: none;
+  }
 }
 
 /* A shorter mouse-only month header leaves more room for task previews. */
@@ -719,6 +776,11 @@ body.is-calendar-dragging * {
       flex-direction: row;
       justify-content: space-between;
       gap: 0;
+    }
+  }
+  @container calendar-day (max-width: 76px) {
+    .calendar-month .calendar-day-course-dots {
+      display: none;
     }
   }
 }
@@ -765,6 +827,10 @@ body.is-calendar-dragging * {
 
   .calendar-view .calendar-day-mobile-empty {
     color: transparent;
+  }
+
+  .calendar-view .calendar-day-course-dots {
+    display: inline-flex;
   }
 
   .calendar-view .is-other-month .calendar-day-mobile-count {
@@ -817,6 +883,11 @@ body.is-calendar-dragging * {
     font-size: 12px;
   }
 
+  .calendar-week .calendar-task-context {
+    max-width: 110px;
+    margin-bottom: 0;
+  }
+
   .calendar-view.calendar-week .calendar-task-title {
     font-size: 15px;
   }
@@ -849,5 +920,11 @@ body.is-calendar-dragging * {
   .calendar-view .calendar-task,
   .calendar-view .calendar-more {
     min-height: 44px;
+  }
+}
+
+@container calendar-day (max-height: 60px) {
+  .calendar-month .calendar-day-course-dots {
+    display: none;
   }
 }
