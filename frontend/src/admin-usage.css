@@ -8,3 +8,9 @@
 #range>button:not(:disabled):hover,.login button:not(:disabled):hover,#operations-range>button:first-of-type:not(:disabled):hover{background:var(--action-hover);border-color:var(--action-hover)}
 #range>button:not(:disabled):active,.login button:not(:disabled):active,#operations-range>button:first-of-type:not(:disabled):active{background:var(--action-active);border-color:var(--action-active)}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
+
+.admin-brand { display: inline-flex; align-items: center; gap: 9px; color: var(--brand-ink); }
+.admin-brand img { width: 36px; height: 32px; object-fit: contain; flex: none; }
+.login .admin-brand { margin-bottom: 20px; }
+#range > button:not(:disabled):hover, .login button:not(:disabled):hover { background: var(--action-hover); border-color: var(--action-hover); }
+#range > button:not(:disabled):active, .login button:not(:disabled):active { background: var(--action-active); border-color: var(--action-active); }
