@@ -99,6 +99,7 @@
           "maxLength": 128,
           "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
         },
+        "course_context": { "$ref": "#/$defs/course_context" },
         "course_term": {
           "anyOf": [
             {
@@ -254,7 +255,8 @@
           "enum": [
             "attachment",
             "content_image",
-            "linked_detail"
+            "linked_detail",
+            "course_context"
           ]
         },
         "label": {
@@ -285,6 +287,36 @@
         }
       },
       "additionalProperties": false
+    },
+    "course_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_version", "revision", "documents", "omitted_documents"],
+      "properties": {
+        "contract_version": {"const": "course-context/0.1"},
+        "revision": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "omitted_documents": {"type": "integer", "minimum": 0},
+        "documents": {
+          "type": "array", "maxItems": 12,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["ref_id", "input_id", "snapshot_id", "course_id", "term_id", "part_id", "source_url", "source_label", "published_at", "offset", "length"],
+            "properties": {
+              "ref_id": {"type": "string", "minLength": 1, "maxLength": 256},
+              "input_id": {"type": "string", "minLength": 1, "maxLength": 256},
+              "snapshot_id": {"type": "string", "minLength": 1, "maxLength": 256},
+              "course_id": {"type": "string", "minLength": 1, "maxLength": 256},
+              "term_id": {"type": "string", "minLength": 1, "maxLength": 256},
+              "part_id": {"type": "string", "minLength": 1, "maxLength": 256},
+              "source_url": {"type": ["string", "null"], "maxLength": 4096},
+              "source_label": {"type": ["string", "null"], "maxLength": 512},
+              "published_at": {"type": ["string", "null"], "maxLength": 64},
+              "offset": {"type": "integer", "minimum": 0},
+              "length": {"type": "integer", "minimum": 1, "maximum": 24000}
+            }
+          }
+        }
+      }
     },
     "term": {
       "type": "object",
@@ -397,6 +429,7 @@
             "missing_year",
             "relative",
             "offset",
+            "course_rule",
             "unresolved",
             "not_provided"
           ]

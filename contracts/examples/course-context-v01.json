@@ -1,0 +1,1937 @@
+{
+  "contract_version": "course-context/0.1",
+  "synthetic_only": true,
+  "cases": [
+    {
+      "name": "two-files-exception",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:two-files-exception",
+        "records": [
+          {
+            "record": {
+              "input_id": "two-files-exception",
+              "source_item_id": "two-files-exception",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:two-files-exception",
+              "platform": "teaching_web",
+              "text": "请完成第11讲书面作业，交题目1至5；按课程大纲及实验安排提交。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:b5c84aa3df911b0f807ef8bde6d94862",
+                  "kind": "course_context",
+                  "label": "two-files-exception-material-0",
+                  "read_state": "complete",
+                  "text": "课程大纲：书面作业统一在2026年11月6日截止。实验报告另行通知。"
+                },
+                {
+                  "ref_id": "context:dc6252f0584a8aedd76ccc1ae453473f",
+                  "kind": "course_context",
+                  "label": "two-files-exception-material-1",
+                  "read_state": "complete",
+                  "text": "作业安排更正：第11讲书面作业不适用大纲统一日期，改为2026年11月13日提交。其他作业不变。"
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:b5c84aa3df911b0f807ef8bde6d94862",
+                    "input_id": "two-files-exception-material-0",
+                    "snapshot_id": "snapshot:two-files-exception-material-0",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "two-files-exception-material-0",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 34
+                  },
+                  {
+                    "ref_id": "context:dc6252f0584a8aedd76ccc1ae453473f",
+                    "input_id": "two-files-exception-material-1",
+                    "snapshot_id": "snapshot:two-files-exception-material-1",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "two-files-exception-material-1",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 48
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "860eec761cc265cb1ce3258bc17fda7a0828b2872556d430798683e5b05da4e6"
+              }
+            },
+            "source": {
+              "label": "two-files-exception",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "dates": [
+          "2026-11-13"
+        ],
+        "routes": [
+          "task"
+        ],
+        "context_date": true
+      }
+    },
+    {
+      "name": "conflicting-rules",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:conflicting-rules",
+        "records": [
+          {
+            "record": {
+              "input_id": "conflicting-rules",
+              "source_item_id": "conflicting-rules",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:conflicting-rules",
+              "platform": "teaching_web",
+              "text": "请提交第4次实验报告。截止日期见两份课程材料。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:ddbf341a9da824e9204d8dd98cb3cba2",
+                  "kind": "course_context",
+                  "label": "conflicting-rules-material-0",
+                  "read_state": "complete",
+                  "text": "教学大纲：第4次实验报告于2026年11月10日提交。"
+                },
+                {
+                  "ref_id": "context:51c94a6b731181d89f36b806f783d2f4",
+                  "kind": "course_context",
+                  "label": "conflicting-rules-material-1",
+                  "read_state": "complete",
+                  "text": "实验安排：第4次实验报告于2026年11月12日提交。"
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:ddbf341a9da824e9204d8dd98cb3cba2",
+                    "input_id": "conflicting-rules-material-0",
+                    "snapshot_id": "snapshot:conflicting-rules-material-0",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "conflicting-rules-material-0",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 27
+                  },
+                  {
+                    "ref_id": "context:51c94a6b731181d89f36b806f783d2f4",
+                    "input_id": "conflicting-rules-material-1",
+                    "snapshot_id": "snapshot:conflicting-rules-material-1",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "conflicting-rules-material-1",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 27
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "67b259b73b7fe20bea7d6a132634717384bd2c5149817f1047ef538fc17e6cfc"
+              }
+            },
+            "source": {
+              "label": "conflicting-rules",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "candidate"
+        ]
+      }
+    },
+    {
+      "name": "three-channels",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:three-channels",
+        "records": [
+          {
+            "record": {
+              "input_id": "three-channels",
+              "source_item_id": "three-channels",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:three-channels",
+              "platform": "teaching_web",
+              "text": "第四章作业分为三项独立提交：书面作业、POJ作业、MOOC作业。三项均于2026年11月20日截止。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [],
+                "omitted_documents": 0,
+                "revision": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              }
+            },
+            "source": {
+              "label": "three-channels",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 3,
+        "dates": [
+          "2026-11-20",
+          "2026-11-20",
+          "2026-11-20"
+        ],
+        "routes": [
+          "task",
+          "task",
+          "task"
+        ],
+        "channels": [
+          "书面",
+          "POJ",
+          "MOOC"
+        ]
+      }
+    },
+    {
+      "name": "far-exam-lab",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:far-exam-lab",
+        "records": [
+          {
+            "record": {
+              "input_id": "far-exam-lab",
+              "source_item_id": "far-exam-lab",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:far-exam-lab",
+              "platform": "teaching_web",
+              "text": "课程安排：期末考试于2027年1月20日举行；第9次实验于2026年12月18日开始。两项相互独立。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [],
+                "omitted_documents": 0,
+                "revision": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              }
+            },
+            "source": {
+              "label": "far-exam-lab",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 2,
+        "dates": [
+          "2027-01-20",
+          "2026-12-18"
+        ],
+        "routes": [
+          "task",
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "published-not-due",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:published-not-due",
+        "records": [
+          {
+            "record": {
+              "input_id": "published-not-due",
+              "source_item_id": "published-not-due",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:published-not-due",
+              "platform": "teaching_web",
+              "text": "10月23日布置的第5周书面作业：完成教材第4章1、2、3题。本次未规定截止日期。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:2822a539c1d71ac04c3649f0d526a4dc",
+                  "kind": "course_context",
+                  "label": "published-not-due-material-0",
+                  "read_state": "complete",
+                  "text": "教学大纲于2026年9月1日发布。课程期末考试于2027年1月20日举行。"
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:2822a539c1d71ac04c3649f0d526a4dc",
+                    "input_id": "published-not-due-material-0",
+                    "snapshot_id": "snapshot:published-not-due-material-0",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "published-not-due-material-0",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 37
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "876e0bcaab9b405fb64646349989c3e7f4d26de1e01f6c2713660f273b1e1db6"
+              }
+            },
+            "source": {
+              "label": "published-not-due",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "dates": [
+          null
+        ],
+        "routes": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "teaching-week",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:teaching-week",
+        "records": [
+          {
+            "record": {
+              "input_id": "teaching-week",
+              "source_item_id": "teaching-week",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:teaching-week",
+              "platform": "teaching_web",
+              "text": "课程考试在第16周周五举行。具体日历日期按课程教学周安排。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:fbebbac32cf1bc2daf54cf1beb1a245c",
+                  "kind": "course_context",
+                  "label": "teaching-week-material-0",
+                  "read_state": "complete",
+                  "text": "教学周安排：第一周周一为2026年9月7日。没有调课或节假日例外。"
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:fbebbac32cf1bc2daf54cf1beb1a245c",
+                    "input_id": "teaching-week-material-0",
+                    "snapshot_id": "snapshot:teaching-week-material-0",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "teaching-week-material-0",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 33
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "37209e606fa19ebe69d4431bb48c80cd34671fa3365d9ecc61c911f4a28f5214"
+              }
+            },
+            "source": {
+              "label": "teaching-week",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "dates": [
+          "2026-12-25"
+        ],
+        "routes": [
+          "candidate"
+        ],
+        "calendar": true
+      }
+    },
+    {
+      "name": "series-4",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:series-4",
+        "records": [
+          {
+            "record": {
+              "input_id": "series-4",
+              "source_item_id": "series-4",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:series-4",
+              "platform": "teaching_web",
+              "text": "第4次书面作业：完成教材配套习题。于2026年11月20日提交。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [],
+                "omitted_documents": 0,
+                "revision": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              }
+            },
+            "source": {
+              "label": "series-4",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "dates": [
+          "2026-11-20"
+        ],
+        "routes": [
+          "task"
+        ],
+        "title": "书面作业 · 第4次"
+      }
+    },
+    {
+      "name": "series-5",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:series-5",
+        "records": [
+          {
+            "record": {
+              "input_id": "series-5",
+              "source_item_id": "series-5",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:series-5",
+              "platform": "teaching_web",
+              "text": "第5次书面作业：完成教材配套习题。于2026年11月20日提交。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [],
+                "omitted_documents": 0,
+                "revision": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+              }
+            },
+            "source": {
+              "label": "series-5",
+              "url": null,
+              "course_or_project": "合成课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "dates": [
+          "2026-11-20"
+        ],
+        "routes": [
+          "task"
+        ],
+        "title": "书面作业 · 第5次"
+      }
+    },
+    {
+      "name": "lecture-outline",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-outline",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-outline",
+              "source_item_id": "lecture-outline",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-outline",
+              "platform": "teaching_web",
+              "text": "第十二讲：纹理映射。涉及纹理坐标、采样和插值。已附讲义及课件。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-outline",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": []
+      }
+    },
+    {
+      "name": "lecture-summary",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-summary",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-summary",
+              "source_item_id": "lecture-summary",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-summary",
+              "platform": "teaching_web",
+              "text": "第十二讲：纹理映射。涉及纹理坐标、采样和插值。已附讲义及课件。",
+              "body_status": "summary",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "lecture-file",
+                  "kind": "attachment",
+                  "label": "第十二讲讲义.pdf",
+                  "read_state": "unsupported",
+                  "text": null
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-summary",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": []
+      }
+    },
+    {
+      "name": "lecture-with-other-assignment",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-with-other-assignment",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-with-other-assignment",
+              "source_item_id": "lecture-with-other-assignment",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-with-other-assignment",
+              "platform": "teaching_web",
+              "text": "第十二讲：纹理映射。涉及纹理坐标、采样和插值。已附讲义及课件。",
+              "body_status": "summary",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:b5c84aa3df911b0f807ef8bde6d94862",
+                  "kind": "course_context",
+                  "label": "two-files-exception-material-0",
+                  "read_state": "complete",
+                  "text": "课程大纲：书面作业统一在2026年11月6日截止。实验报告另行通知。"
+                },
+                {
+                  "ref_id": "context:dc6252f0584a8aedd76ccc1ae453473f",
+                  "kind": "course_context",
+                  "label": "two-files-exception-material-1",
+                  "read_state": "complete",
+                  "text": "作业安排更正：第11讲书面作业不适用大纲统一日期，改为2026年11月13日提交。其他作业不变。"
+                },
+                {
+                  "ref_id": "lecture-file",
+                  "kind": "attachment",
+                  "label": "第十二讲讲义.pdf",
+                  "read_state": "unsupported",
+                  "text": null
+                }
+              ],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:b5c84aa3df911b0f807ef8bde6d94862",
+                    "input_id": "two-files-exception-material-0",
+                    "snapshot_id": "snapshot:two-files-exception-material-0",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "two-files-exception-material-0",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 34
+                  },
+                  {
+                    "ref_id": "context:dc6252f0584a8aedd76ccc1ae453473f",
+                    "input_id": "two-files-exception-material-1",
+                    "snapshot_id": "snapshot:two-files-exception-material-1",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "two-files-exception-material-1",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 48
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "860eec761cc265cb1ce3258bc17fda7a0828b2872556d430798683e5b05da4e6"
+              }
+            },
+            "source": {
+              "label": "lecture-with-other-assignment",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": []
+      }
+    },
+    {
+      "name": "lecture-homework",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-homework",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-homework",
+              "source_item_id": "lecture-homework",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-homework",
+              "platform": "teaching_web",
+              "text": "第十二讲作业题，完成题1至3。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-homework",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "lecture-required-reading",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-required-reading",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-required-reading",
+              "source_item_id": "lecture-required-reading",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-required-reading",
+              "platform": "teaching_web",
+              "text": "请阅读第十二讲讲义，下次课测验。不规定阅读截止日期。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-required-reading",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "types": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "lecture-room-change",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:lecture-room-change",
+        "records": [
+          {
+            "record": {
+              "input_id": "lecture-room-change",
+              "source_item_id": "lecture-room-change",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:lecture-room-change",
+              "platform": "teaching_web",
+              "text": "第十二讲上课地点改为理教408。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "lecture-room-change",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "notice"
+        ]
+      }
+    },
+    {
+      "name": "group-invitation-paraphrase",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:group-invitation-paraphrase",
+        "records": [
+          {
+            "record": {
+              "input_id": "group-invitation-paraphrase",
+              "source_item_id": "group-invitation-paraphrase",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:group-invitation-paraphrase",
+              "platform": "teaching_web",
+              "text": "先添加老师微信，老师加你进课程微信群。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [],
+              "published_at": {
+                "value": "2026-10-23",
+                "basis": "source"
+              },
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "group-invitation-paraphrase",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "primary-short-many-labs",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:primary-short-many-labs",
+        "records": [
+          {
+            "record": {
+              "input_id": "primary-short-many-labs",
+              "source_item_id": "primary-short-many-labs",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:primary-short-many-labs",
+              "platform": "teaching_web",
+              "text": "10-geometry-reconstruction：本讲介绍隐式曲面、点云重建与网格优化。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:other-lab-2",
+                  "kind": "course_context",
+                  "label": "other-lab-2",
+                  "read_state": "complete",
+                  "text": "Lab 2：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 2。"
+                },
+                {
+                  "ref_id": "context:other-lab-3",
+                  "kind": "course_context",
+                  "label": "other-lab-3",
+                  "read_state": "complete",
+                  "text": "Lab 3：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 3。"
+                },
+                {
+                  "ref_id": "context:other-lab-4",
+                  "kind": "course_context",
+                  "label": "other-lab-4",
+                  "read_state": "complete",
+                  "text": "Lab 4：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 4。"
+                },
+                {
+                  "ref_id": "context:other-lab-5",
+                  "kind": "course_context",
+                  "label": "other-lab-5",
+                  "read_state": "complete",
+                  "text": "Lab 5：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 5。"
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:other-lab-2",
+                    "input_id": "other-lab-2",
+                    "snapshot_id": "snapshot:other-lab-2",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-2",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-3",
+                    "input_id": "other-lab-3",
+                    "snapshot_id": "snapshot:other-lab-3",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-3",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-4",
+                    "input_id": "other-lab-4",
+                    "snapshot_id": "snapshot:other-lab-4",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-4",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-5",
+                    "input_id": "other-lab-5",
+                    "snapshot_id": "snapshot:other-lab-5",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-5",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "6b400d032c16a3011127a50487b870b92d3bfed48cf154abf0b1b98ee64ecca6"
+              }
+            },
+            "source": {
+              "label": "primary-short-many-labs",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": [],
+        "dates": [],
+        "types": []
+      }
+    },
+    {
+      "name": "primary-full-many-labs",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:primary-full-many-labs",
+        "records": [
+          {
+            "record": {
+              "input_id": "primary-full-many-labs",
+              "source_item_id": "primary-full-many-labs",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:primary-full-many-labs",
+              "platform": "teaching_web",
+              "text": "Part III 渲染。辐射度量用于描述光在场景中的传播；局部光照模型近似表面反射；可见性计算判断遮挡关系。全局光照使用渲染方程描述多次散射。采样理论讨论离散采样和重建滤波之间的关系。纹理映射把图像属性关联到几何表面。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:other-lab-2",
+                  "kind": "course_context",
+                  "label": "other-lab-2",
+                  "read_state": "complete",
+                  "text": "Lab 2：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 2。"
+                },
+                {
+                  "ref_id": "context:other-lab-3",
+                  "kind": "course_context",
+                  "label": "other-lab-3",
+                  "read_state": "complete",
+                  "text": "Lab 3：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 3。"
+                },
+                {
+                  "ref_id": "context:other-lab-4",
+                  "kind": "course_context",
+                  "label": "other-lab-4",
+                  "read_state": "complete",
+                  "text": "Lab 4：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 4。"
+                },
+                {
+                  "ref_id": "context:other-lab-5",
+                  "kind": "course_context",
+                  "label": "other-lab-5",
+                  "read_state": "complete",
+                  "text": "Lab 5：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 5。"
+                },
+                {
+                  "ref_id": "context:other-lab-6",
+                  "kind": "course_context",
+                  "label": "other-lab-6",
+                  "read_state": "complete",
+                  "text": "Lab 6：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 6。"
+                },
+                {
+                  "ref_id": "context:other-lab-7",
+                  "kind": "course_context",
+                  "label": "other-lab-7",
+                  "read_state": "complete",
+                  "text": "Lab 7：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 7。"
+                },
+                {
+                  "ref_id": "context:other-lab-8",
+                  "kind": "course_context",
+                  "label": "other-lab-8",
+                  "read_state": "complete",
+                  "text": "Lab 8：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 8。"
+                },
+                {
+                  "ref_id": "context:other-lab-9",
+                  "kind": "course_context",
+                  "label": "other-lab-9",
+                  "read_state": "complete",
+                  "text": "Lab 9：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 9。"
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:other-lab-2",
+                    "input_id": "other-lab-2",
+                    "snapshot_id": "snapshot:other-lab-2",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-2",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-3",
+                    "input_id": "other-lab-3",
+                    "snapshot_id": "snapshot:other-lab-3",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-3",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-4",
+                    "input_id": "other-lab-4",
+                    "snapshot_id": "snapshot:other-lab-4",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-4",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-5",
+                    "input_id": "other-lab-5",
+                    "snapshot_id": "snapshot:other-lab-5",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-5",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-6",
+                    "input_id": "other-lab-6",
+                    "snapshot_id": "snapshot:other-lab-6",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-6",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-7",
+                    "input_id": "other-lab-7",
+                    "snapshot_id": "snapshot:other-lab-7",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-7",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-8",
+                    "input_id": "other-lab-8",
+                    "snapshot_id": "snapshot:other-lab-8",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-8",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-9",
+                    "input_id": "other-lab-9",
+                    "snapshot_id": "snapshot:other-lab-9",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-9",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "9a0d0b220eb1826094b7d36ce69a1b1f0e73c47ad2b90369a31d85baaaa5bced"
+              }
+            },
+            "source": {
+              "label": "primary-full-many-labs",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 0,
+        "routes": [],
+        "dates": [],
+        "types": []
+      }
+    },
+    {
+      "name": "primary-preparation-eight",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:primary-preparation-eight",
+        "records": [
+          {
+            "record": {
+              "input_id": "primary-preparation-eight",
+              "source_item_id": "primary-preparation-eight",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:primary-preparation-eight",
+              "platform": "teaching_web",
+              "text": "Lab 0：请尽快通过 Lab 0 了解框架并安装、运行和调试，无需提交文件。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:other-lab-2",
+                  "kind": "course_context",
+                  "label": "other-lab-2",
+                  "read_state": "complete",
+                  "text": "Lab 2：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 2。"
+                },
+                {
+                  "ref_id": "context:other-lab-3",
+                  "kind": "course_context",
+                  "label": "other-lab-3",
+                  "read_state": "complete",
+                  "text": "Lab 3：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 3。"
+                },
+                {
+                  "ref_id": "context:other-lab-4",
+                  "kind": "course_context",
+                  "label": "other-lab-4",
+                  "read_state": "complete",
+                  "text": "Lab 4：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 4。"
+                },
+                {
+                  "ref_id": "context:other-lab-5",
+                  "kind": "course_context",
+                  "label": "other-lab-5",
+                  "read_state": "complete",
+                  "text": "Lab 5：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 5。"
+                },
+                {
+                  "ref_id": "context:other-lab-6",
+                  "kind": "course_context",
+                  "label": "other-lab-6",
+                  "read_state": "complete",
+                  "text": "Lab 6：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 6。"
+                },
+                {
+                  "ref_id": "context:other-lab-7",
+                  "kind": "course_context",
+                  "label": "other-lab-7",
+                  "read_state": "complete",
+                  "text": "Lab 7：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 7。"
+                },
+                {
+                  "ref_id": "context:other-lab-8",
+                  "kind": "course_context",
+                  "label": "other-lab-8",
+                  "read_state": "complete",
+                  "text": "Lab 8：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 8。"
+                },
+                {
+                  "ref_id": "context:other-lab-9",
+                  "kind": "course_context",
+                  "label": "other-lab-9",
+                  "read_state": "complete",
+                  "text": "Lab 9：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 9。"
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:other-lab-2",
+                    "input_id": "other-lab-2",
+                    "snapshot_id": "snapshot:other-lab-2",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-2",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-3",
+                    "input_id": "other-lab-3",
+                    "snapshot_id": "snapshot:other-lab-3",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-3",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-4",
+                    "input_id": "other-lab-4",
+                    "snapshot_id": "snapshot:other-lab-4",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-4",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-5",
+                    "input_id": "other-lab-5",
+                    "snapshot_id": "snapshot:other-lab-5",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-5",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-6",
+                    "input_id": "other-lab-6",
+                    "snapshot_id": "snapshot:other-lab-6",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-6",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-7",
+                    "input_id": "other-lab-7",
+                    "snapshot_id": "snapshot:other-lab-7",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-7",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-8",
+                    "input_id": "other-lab-8",
+                    "snapshot_id": "snapshot:other-lab-8",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-8",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-9",
+                    "input_id": "other-lab-9",
+                    "snapshot_id": "snapshot:other-lab-9",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-9",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "9a0d0b220eb1826094b7d36ce69a1b1f0e73c47ad2b90369a31d85baaaa5bced"
+              }
+            },
+            "source": {
+              "label": "primary-preparation-eight",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "task"
+        ]
+      }
+    },
+    {
+      "name": "primary-preparation-twelve",
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "request:primary-preparation-twelve",
+        "records": [
+          {
+            "record": {
+              "input_id": "primary-preparation-twelve",
+              "source_item_id": "primary-preparation-twelve",
+              "course_id": "synthetic-course",
+              "snapshot_id": "snapshot:primary-preparation-twelve",
+              "platform": "teaching_web",
+              "text": "Lab 0：请尽快通过 Lab 0 了解框架并安装、运行和调试，无需提交文件。",
+              "body_status": "complete",
+              "source_metadata_text": "学期：2026-autumn",
+              "references": [
+                {
+                  "ref_id": "context:other-lab-2",
+                  "kind": "course_context",
+                  "label": "other-lab-2",
+                  "read_state": "complete",
+                  "text": "Lab 2：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 2。"
+                },
+                {
+                  "ref_id": "context:other-lab-3",
+                  "kind": "course_context",
+                  "label": "other-lab-3",
+                  "read_state": "complete",
+                  "text": "Lab 3：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 3。"
+                },
+                {
+                  "ref_id": "context:other-lab-4",
+                  "kind": "course_context",
+                  "label": "other-lab-4",
+                  "read_state": "complete",
+                  "text": "Lab 4：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 4。"
+                },
+                {
+                  "ref_id": "context:other-lab-5",
+                  "kind": "course_context",
+                  "label": "other-lab-5",
+                  "read_state": "complete",
+                  "text": "Lab 5：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 5。"
+                },
+                {
+                  "ref_id": "context:other-lab-6",
+                  "kind": "course_context",
+                  "label": "other-lab-6",
+                  "read_state": "complete",
+                  "text": "Lab 6：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 6。"
+                },
+                {
+                  "ref_id": "context:other-lab-7",
+                  "kind": "course_context",
+                  "label": "other-lab-7",
+                  "read_state": "complete",
+                  "text": "Lab 7：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 7。"
+                },
+                {
+                  "ref_id": "context:other-lab-8",
+                  "kind": "course_context",
+                  "label": "other-lab-8",
+                  "read_state": "complete",
+                  "text": "Lab 8：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 8。"
+                },
+                {
+                  "ref_id": "context:other-lab-9",
+                  "kind": "course_context",
+                  "label": "other-lab-9",
+                  "read_state": "complete",
+                  "text": "Lab 9：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 9。"
+                },
+                {
+                  "ref_id": "context:other-lab-10",
+                  "kind": "course_context",
+                  "label": "other-lab-10",
+                  "read_state": "complete",
+                  "text": "Lab 10：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 10。"
+                },
+                {
+                  "ref_id": "context:other-lab-11",
+                  "kind": "course_context",
+                  "label": "other-lab-11",
+                  "read_state": "complete",
+                  "text": "Lab 11：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 11。"
+                },
+                {
+                  "ref_id": "context:other-lab-12",
+                  "kind": "course_context",
+                  "label": "other-lab-12",
+                  "read_state": "complete",
+                  "text": "Lab 12：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 12。"
+                },
+                {
+                  "ref_id": "context:other-lab-13",
+                  "kind": "course_context",
+                  "label": "other-lab-13",
+                  "read_state": "complete",
+                  "text": "Lab 13：请实现独立的图形算法并提交实验报告，于2026年12月20日截止。本条仅适用于 Lab 13。"
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-23T10:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-autumn",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-02-28",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "学期：2026-autumn"
+                  }
+                ]
+              },
+              "course_context": {
+                "contract_version": "course-context/0.1",
+                "documents": [
+                  {
+                    "ref_id": "context:other-lab-2",
+                    "input_id": "other-lab-2",
+                    "snapshot_id": "snapshot:other-lab-2",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-2",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-3",
+                    "input_id": "other-lab-3",
+                    "snapshot_id": "snapshot:other-lab-3",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-3",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-4",
+                    "input_id": "other-lab-4",
+                    "snapshot_id": "snapshot:other-lab-4",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-4",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-5",
+                    "input_id": "other-lab-5",
+                    "snapshot_id": "snapshot:other-lab-5",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-5",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-6",
+                    "input_id": "other-lab-6",
+                    "snapshot_id": "snapshot:other-lab-6",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-6",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-7",
+                    "input_id": "other-lab-7",
+                    "snapshot_id": "snapshot:other-lab-7",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-7",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-8",
+                    "input_id": "other-lab-8",
+                    "snapshot_id": "snapshot:other-lab-8",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-8",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-9",
+                    "input_id": "other-lab-9",
+                    "snapshot_id": "snapshot:other-lab-9",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-9",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 52
+                  },
+                  {
+                    "ref_id": "context:other-lab-10",
+                    "input_id": "other-lab-10",
+                    "snapshot_id": "snapshot:other-lab-10",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-10",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 54
+                  },
+                  {
+                    "ref_id": "context:other-lab-11",
+                    "input_id": "other-lab-11",
+                    "snapshot_id": "snapshot:other-lab-11",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-11",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 54
+                  },
+                  {
+                    "ref_id": "context:other-lab-12",
+                    "input_id": "other-lab-12",
+                    "snapshot_id": "snapshot:other-lab-12",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-12",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 54
+                  },
+                  {
+                    "ref_id": "context:other-lab-13",
+                    "input_id": "other-lab-13",
+                    "snapshot_id": "snapshot:other-lab-13",
+                    "course_id": "synthetic-course",
+                    "term_id": "2026-autumn",
+                    "part_id": "body",
+                    "source_url": null,
+                    "source_label": "other-lab-13",
+                    "published_at": null,
+                    "offset": 0,
+                    "length": 54
+                  }
+                ],
+                "omitted_documents": 0,
+                "revision": "59a5ff08189ab8d9acb3b93a3edacd7dee70a765c02799a8268eb92724023a1b"
+              }
+            },
+            "source": {
+              "label": "primary-preparation-twelve",
+              "url": null,
+              "course_or_project": "合成图形课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "count": 1,
+        "routes": [
+          "task"
+        ],
+        "dates": [
+          null
+        ],
+        "types": [
+          "task"
+        ]
+      }
+    }
+  ]
+}

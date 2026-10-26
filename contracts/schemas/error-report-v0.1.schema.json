@@ -74,7 +74,8 @@
         "internal_error",
         "worker_terminated",
         "worker_timeout",
-        "recognition_dependency"
+        "recognition_dependency",
+        "primary_source_evidence"
       ]
     },
     "action": {

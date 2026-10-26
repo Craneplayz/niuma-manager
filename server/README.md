@@ -1,5 +1,9 @@
 ```text
 server/
+├── course_context.py          同账号课程资料索引、受限检索、按需附件读取及依赖更新。
+├── test_course_context.py     课程/学期隔离、取段、预算、标题、周次与增量回归。
+├── test_course_context_http.py HTTP证据、自动入库、人工决定和迟到结果回归。
+├── run_course_context_smoke.py 真实合成DOCX、真实模型、HTTP入库及重复同步验收。
 ├── task_operations.py        当前账号任务写入回执、幂等恢复与测试清空代次。
 ├── test_review_operations.py  候选稳定任务身份、混合队列、回执及目标冲突的真实 HTTP/SQLite 回归。
 ├── test_task_operations.py   真实 HTTP/SQLite 的回执丢失、原子性、账号及契约回归。
@@ -40,8 +44,8 @@ server/
 ├── test_container_environment.py 用临时 Docker 卷验证三环境、HTTPS 与重建持久化。
 ├── recognition_diagnostics.py 测试环境限量失败诊断、阶段耗时与账号隔离查询。
 ├── test_recognition_diagnostics.py 测试环境开关、敏感字段拒绝与历史保留回归。
-├── teaching_identity.py      稳定来源指纹及已处理来源变更的防重复保护。
-├── test_teaching_identity.py  附件字节、引用顺序与读取状态变化的身份回归。
+├── teaching_identity.py      稳定来源指纹、完整已验证结果复用及已处理来源变更的防重复保护。
+├── test_teaching_identity.py  附件身份、相同结果复用、真正更正及账号隔离回归。
 ├── text_jobs.py              文本后台识别作业、停止保护与中断恢复。
 ├── test_text_jobs.py         文本作业真实 HTTP、幂等、账号隔离和迟到结果回归。
 ├── recognition.py            文本识别批次与候选确认接口。

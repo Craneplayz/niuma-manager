@@ -15,6 +15,7 @@ from server.model_queue import WAIT_ERROR, disconnected
 from server import operations
 import time
 from server import recognition_diagnostics as diagnostics
+from server import course_context
 
 from contracts.teaching_io import canonical, check_request, snapshot_digest
 from contracts.teaching_capture import check_capture
@@ -47,6 +48,7 @@ def initialize(db):
     # Snapshot lookup and attachment pruning use request_id, not input_id.
     db.execute('''CREATE INDEX IF NOT EXISTS teaching_sources_request
         ON teaching_sources(user_id,account,request_id)''')
+    course_context.initialize(db)
     teaching_identity.upgrade_pending_candidates(db)
 
 
@@ -66,7 +68,8 @@ def request_view(request):
             timezone=r['timezone'], timezone_basis='source', source_url=source['url'],
             source_label=source['label'], source_item_id=r['source_item_id'],
             course_or_project=source['course_or_project'], context=[],
-            upstream_hints=dict(references=r['references'], course_term=r['course_term'])))
+            upstream_hints=dict(references=r['references'], course_term=r['course_term'],
+                                **({'course_context':r['course_context']} if 'course_context' in r else {}))))
     return dict(contract_version=VIEW, request_id=request['request_id'], records=records)
 
 
@@ -78,14 +81,23 @@ def candidate_view(decision, entry, *, model_routing=False):
     # merely because the source's age still needs confirmation.
     codes = set(decision['review_codes'])
     known = d['value'] is not None and (model_routing or not (UNRESOLVED_TIME - {'original_age_unknown'}).intersection(codes))
-    inferred = known and not model_routing and 'original_age_unknown' in codes
+    context={d['ref_id']:d for d in r.get('course_context',{}).get('documents',[])}
+    inferred = known and ((not model_routing and 'original_age_unknown' in codes)
+                          or d['derivation'] == 'course_rule'
+                          or any(q['part_id'] in context for q in d['evidence']))
     evidence = []; by_quote = {}
+    sources=[dict(input_id=r['input_id'],platform=r['platform'],url=source['url'],label=source['label'],source_item_id=r['source_item_id'])]
     for quotes, supports in [(a['action']['evidence'], ['title','description']), (d['evidence'], ['deadline'])]:
         for q in quotes:
             key=(q['part_id'],q['quote'])
             if key not in by_quote:
-                by_quote[key]=dict(input_id=r['input_id'],field=q['part_id'],quote=q['quote'],supports=[])
+                origin=context.get(q['part_id'])
+                by_quote[key]=dict(input_id=origin['input_id'] if origin else r['input_id'],
+                    field=origin['part_id'] if origin else q['part_id'],quote=q['quote'],supports=[])
                 evidence.append(by_quote[key])
+                if origin and not any(s['input_id']==origin['input_id'] for s in sources):
+                    sources.append(dict(input_id=origin['input_id'],platform=r['platform'],url=origin['source_url'],
+                                        label=origin['source_label'],source_item_id=None))
             by_quote[key]['supports']=list(dict.fromkeys(by_quote[key]['supports']+supports))
     return dict(candidate_id=a['candidate_id'], input_id=r['input_id'], title=decision['title'],
         content_type=decision.get('content_type', 'task'),
@@ -96,10 +108,9 @@ def candidate_view(decision, entry, *, model_routing=False):
             value=d['value'] if known else None, precision=d['precision'] if known else 'unknown',
             timezone=r['timezone'], alternatives=[],
             raw=d['evidence'][0]['quote'] if d['evidence'] else None,
-            basis='日期已识别，来源年代待核实。' if inferred else '教学网正文及课程上下文' if known else '原文未提供截止要求。' if d['derivation']=='not_provided' else '请查看原文中的截止要求。'),
+            basis='依据原文与课程时间信息推定日期；具体依据见证据。' if inferred else '教学网正文及课程上下文' if known else '原文未提供截止要求。' if d['derivation']=='not_provided' else '请查看原文中的截止要求。'),
         needs_review=decision['recommendation']!='task', review_reasons=decision['review_reasons'],
-        evidence=evidence, sources=[dict(input_id=r['input_id'], platform=r['platform'],
-            url=source['url'], label=source['label'], source_item_id=r['source_item_id'])])
+        evidence=evidence, sources=sources)
 
 
 def result_view(request, result):
@@ -138,6 +149,8 @@ def register(db, uid, username, requests, *, assets=None):
         else: check_request(batch)
         for entry in batch['records']:
             entry = deepcopy(entry); r = entry['record']
+            if 'course_context' in r or any(ref['kind']=='course_context' for ref in r['references']):
+                raise ValueError('course context is selected by the server, not the capture producer')
             if r['input_id'] in seen: continue
             seen.add(r['input_id']); total += 1
             previous_state = submission.source_state(db,uid,account(username),r['input_id'])
@@ -191,6 +204,7 @@ def register(db, uid, username, requests, *, assets=None):
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
                                        old_request_id=row['request_id'] if row else None,source=entry['source'],
                                        assets=teaching_assets.identity(files))
+            course_context.index(db,uid,account(username),request['records'][0]['record'])
             if submission.skip_model(state):
                 skipped += 1
                 continue
@@ -201,7 +215,13 @@ def register(db, uid, username, requests, *, assets=None):
                            and not has_unapplied_auto_tasks(db,uid,request,stored['demo'])):
                 skipped += 1
             else: pending.append(request_view(request))
-    return dict(requests=pending, summary=dict(total=total, skipped=skipped, pending=len(pending)))
+    for old,current in course_context.refresh_dependents(db,uid,account(username)):
+        pending=[p for p in pending if p['request_id']!=old]
+        state=submission.source_state(db,uid,account(username),current['records'][0]['record']['input_id'])
+        if not submission.skip_model(state): pending.append(request_view(current))
+    # Dependencies are captured when recognition actually starts, after every
+    # source in this sync has been registered; capture order is irrelevant.
+    return dict(requests=pending, summary=dict(total=max(total,skipped+len(pending)), skipped=skipped, pending=len(pending)))
 
 
 def resolve_snapshot(db, uid, request_id, ApiError):
@@ -213,7 +233,7 @@ def resolve_snapshot(db, uid, request_id, ApiError):
     return json.loads(row['request'])
 
 
-def recognize(request, ApiError, *, files=(), save_cache=None):
+def recognize(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
     try:
         options = live_options(model_env_path(ROOT))
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
@@ -231,6 +251,7 @@ def recognize(request, ApiError, *, files=(), save_cache=None):
     def check_active():
         if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
     teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
+    if prepare_context: prepare_context(request,client,settings,check_active)
     check_active()
     with operations.span('recognition') as observation:
         result = process_teaching_request(request, client=client, settings=settings,
@@ -254,7 +275,35 @@ def attachment_context(db, uid, request_id):
         with closing(sqlite3.connect(path,timeout=30,factory=operations.TimedConnection)) as cache_db, cache_db:
             cache_db.execute('BEGIN IMMEDIATE')
             teaching_assets.save_read_cache(cache_db,uid,asset,version,result)
-    return dict(files=files,save_cache=save_cache) if files else {}
+    if not cred: return {}
+    acct=account(cred['username'])
+    row=db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND account=? AND request_id=?',
+                   (uid,acct,request_id)).fetchone()
+    if not row: return dict(files=files,save_cache=save_cache) if files else {}
+    captured=json.loads(row[0]); selected=course_context.select(db,uid,acct,captured['records'][0])
+    def load_files(item):
+        if not path: return teaching_assets.load(db,uid,acct,item['request']['request_id'])
+        with closing(sqlite3.connect(path,timeout=30)) as current_db:
+            current_db.row_factory=sqlite3.Row
+            row=current_db.execute('SELECT request_id,digest FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
+                                   (uid,acct,item['request']['records'][0]['record']['input_id'])).fetchone()
+            return teaching_assets.load(current_db,uid,acct,row['request_id']) if row and row['digest']==item['digest'] else []
+    def prepare_context(request,client,settings,guard):
+        def read_token(item,references):
+            options=dict(references=references,observed=item.get('observed_receipts',()))
+            if not path: return course_context.readiness(db,uid,acct,item['request']['request_id'],**options)
+            with closing(sqlite3.connect(path,timeout=30)) as current_db:
+                return course_context.readiness(current_db,uid,acct,item['request']['request_id'],**options)
+        def load_cached(item,version):
+            if not path: return teaching_assets.load_cached(db,uid,acct,item['request']['request_id'],version)
+            with closing(sqlite3.connect(path,timeout=30)) as current_db:
+                return teaching_assets.load_cached(current_db,uid,acct,item['request']['request_id'],version)
+        course_context.prepare(request,selected,load_files,client,settings,save_cache,guard,read_token=read_token,load_cached=load_cached)
+    prepare_context.selected=selected
+    # Preserve compatibility for callers without a captured course/semester.
+    if not selected:
+        return dict(files=files,save_cache=save_cache) if files else {}
+    return dict(files=files,save_cache=save_cache,prepare_context=prepare_context)
 
 
 def validate_current_result(request, result, policy, ApiError):
@@ -279,7 +328,12 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     request = resolve_snapshot(db,uid,body['request_id'],ApiError)
     captured = deepcopy(request)
     control_token = submission.controls.token(db,uid,request['request_id'])
+    cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+    acct=account(cred['username'])
+    context_revision=course_context.catalog_revision(db,uid,acct,captured['records'][0])
     attachments = attachment_context(db,uid,request['request_id'])
+    context_selection=getattr(attachments.get('prepare_context'),'selected',None)
+    if context_selection is None: context_selection=course_context.select(db,uid,acct,captured['records'][0])
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
     if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')):
         operations.emit('outcome',code='cache_hit')
@@ -307,6 +361,9 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             db.execute('BEGIN IMMEDIATE')
             if guard: guard(db)
             if resolve_snapshot(db,uid,request['request_id'],ApiError)!=captured: raise ApiError(409,'来源在识别期间发生变化，请重新同步')
+            if (not course_context.current(db,uid,acct,context_selection)
+                    or course_context.catalog_revision(db,uid,acct,captured['records'][0])!=context_revision):
+                raise ApiError(409,'课程资料在识别期间发生变化，请重新同步')
             if submission.controls.token(db,uid,request['request_id'])!=control_token: raise ApiError(409,'作业关联在识别期间发生变化，请重新同步')
             now = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
             if now and (not previous or now['result']!=previous['result']):
@@ -323,7 +380,13 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
                 db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
             cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
             teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
-            for card in teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks']):
+            course_context.remember(db,uid,acct,captured['records'][0],context_selection,
+                references=request['records'][0]['record']['references'],files=attachments.get('files',[]))
+            unchanged = teaching_identity.reuse_unchanged_result(db,uid,request['request_id'],result)
+            if result['status'] in ('success','no_tasks') and not unchanged:
+                teaching_identity.supersede_unhandled(db,uid,request['request_id'],captured['records'][0]['record']['snapshot_id'])
+            cards = [] if unchanged else teaching_identity.protect_source_changes(db,uid,request['request_id'],result_view(request,result)['tasks'])
+            for card in cards:
                 db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                     (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
             submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))

@@ -91,7 +91,12 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
                 texts.update({x['ref_id']:x['text'] for x in r['references'] if x['read_state'] in ('complete','partial')})
                 for e in empty['evidence']:
                     require(e['part_id'] in texts and e['quote'].strip() and e['quote'] in texts[e['part_id']], 'invalid empty-decision evidence')
-                if status=='no_tasks':require(verified and bool(empty['evidence']), 'no_tasks requires verified captured evidence')
+                if status=='no_tasks':
+                    require(verified and bool(empty['evidence']), 'no_tasks requires verified captured evidence')
+                    context={d['ref_id'] for d in r.get('course_context',{}).get('documents',[])}
+                    if context:
+                        require(any(e['part_id'] not in context for e in empty['evidence']),
+                                'no_tasks requires primary-source evidence, not only course context')
             else:
                 covered=verified and r['body_status']=='complete' and all(x['read_state']=='complete' for x in r['references'])
                 require((status=='no_tasks')==covered,'unread or unverified input cannot prove no_tasks')
@@ -115,6 +120,19 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
                 require(quote['part_id'] in available and quote['quote'].strip() and quote['quote'] in available[quote['part_id']],'invalid decision quotation')
             if decision['target'] is not None:
                 require(decision['notice_type']!='create' and (model_routing or decision['target']['part_id']!='source_metadata'),'invalid change target')
+            for name in ('title_facts','calendar_rule'):
+                for quote in (decision.get(name) or {}).get('evidence',[]):
+                    require(quote['part_id'] in available and quote['quote'].strip() and quote['quote'] in available[quote['part_id']],
+                            'invalid course fact quotation')
+            if pair['assessment']['deadline']['derivation']=='course_rule':
+                require(decision.get('calendar_rule') is not None and decision['recommendation']!='task',
+                        'course week calculation requires a quoted rule and applicability review')
+            context={d['ref_id'] for d in r.get('course_context',{}).get('documents',[])}
+            if context:
+                evidence=pair['assessment']['action']['evidence']
+                if decision['recommendation']=='filtered':evidence=evidence+rel['evidence']
+                require(any(q['part_id'] not in context for q in evidence),
+                        'including or filtering a task requires primary-source evidence, not only course context')
             route=decision['recommendation']
             require((route=='filtered')==(decision['filter_reason'] is not None),'filter reason mismatch')
             if route in ('task','filtered'):

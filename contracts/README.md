@@ -6,6 +6,10 @@
 
 ```text
 contracts/
+├── course_context.py                # 课程上下文版本、证据预算与出处校验
+├── course_facts.py                  # 标题事实、课程周次及固定行动旁证补充的共享 Schema
+├── examples/course-context-v01.json # 跨文件、无日期、三交付、冲突及教学周的合成输入与独立预期
+├── docs/course-context-v0.1.md      # 跨文件取证、增量、日期边界及查询接口
 ├── docs/task-writes-v0.1.md         # 浏览器恢复、回执、账号隔离及缓存清理约定
 ├── schemas/task-writes-v0.1.schema.json # 单条操作身份与恢复请求 Schema
 ├── examples/task-writes-v01.json    # 生产方与消费方共用的保存和回执样例
