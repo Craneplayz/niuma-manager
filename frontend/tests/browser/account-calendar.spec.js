@@ -17,7 +17,7 @@ async function openApp(page, { holdCredentials = false } = {}) {
     else if (path === "/api/workspace") value = { tasks: { version, value: tasks } };
     else if (path === "/api/data/tasks") {
       const body = request.postDataJSON();
-      writes.push(body); tasks = body.value; value = { version: ++version };
+      writes.push(body); tasks = body.value; value = { version: ++version, operationId: body.operation?.id };
     } else if (path === "/api/sources/credentials") {
       credentialCalls.push(request.method());
       if (request.method() === "GET") {
@@ -30,6 +30,7 @@ async function openApp(page, { holdCredentials = false } = {}) {
       value = credentials = { configured: false };
     } else if (path === "/api/sources/sync-schedule") value = { contract_version: "source-sync/0.1", enabled: false, available: true, revision: 0, interval_minutes: 60, sources: ["teaching_web"] };
     else if (path === "/api/version") value = { environment: "test", revision: "a7fe0a8", managed: true };
+    else if (path === "/api/usage/guest-visit") value = {};
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };

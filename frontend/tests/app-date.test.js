@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import 'fake-indexeddb/auto';
 
 // A small DOM boundary for running the real controller with synthetic API data.
 class Surface {
@@ -49,7 +50,7 @@ class Element extends Surface {
 }
 
 let instance = 0;
-async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false, url = "http://synthetic.test/" } = {}) {
+async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false, recycled = false, url = "http://synthetic.test/" } = {}) {
   const instanceId = ++instance;
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-10-15T23:59:59") });
   const app = new Element("app"), dialog = new Element("dialog"), drawer = new Element("task-drawer");
@@ -102,14 +103,16 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
   ];
   if (undated) tasks.push({ id: "undated", title: "合成无日期任务", status: "not_started", due: null, plans: [], subtasks: [] });
   if (undatedNotice) tasks.push({ id: "undated-notice", title: "合成无日期通知", content_type: "notice", planningExcluded: true, status: "not_started", due: null, plans: [], subtasks: [] });
+  if (recycled) Object.assign(tasks.find(task => task.id === "undated"), { status: "cancelled", recycleBin: { status: "not_started", deletedAt: "2026-10-15T00:00:00Z" } });
   const writes = [];
   globalThis.fetch = async (path, options = {}) => {
     let value = {};
     if (path === "/api/auth/me") value = { user: { id: "synthetic-" + instanceId, name: "合成账号" } };
     else if (path === "/api/workspace") value = { tasks: { version: 1, value: tasks } };
     else if (path === "/api/data/tasks") {
-      if (failWrite) return { ok: false, status: 503, json: async () => ({ error: "合成保存失败" }) };
-      writes.push(JSON.parse(options.body)); value = { version: writes.length + 1 };
+      if (failWrite) return { ok: false, status: 400, json: async () => ({ error: "合成保存失败" }) };
+      const body = JSON.parse(options.body);
+      writes.push(body); value = { version: writes.length + 1, operationId: body.operation?.id };
     }
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
@@ -121,7 +124,9 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     else assert.ok(["/api/version", "/api/sources/credentials", "/api/recognition/task-evidence"].includes(path), "unexpected synthetic request: " + path);
     return { ok: true, json: async () => structuredClone(value) };
   };
+  const ready = new Promise(resolve => win.addEventListener('niuma:session-ready', resolve));
   await import(`../src/app.js?date-test=${instanceId}`);
+  await ready;
   await new Promise(setImmediate);
   const click = dataset => doc.emit("click", { closest: () => ({ dataset }) });
   const drag = async (date = "2026-10-20", id = "undated") => {
@@ -137,6 +142,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     await doc.emit("pointermove", source, { ...pointer, clientX: 100 });
     await doc.emit("pointerup", source, { ...pointer, clientX: 100 });
     await doc.emit("click", { closest: () => ({ dataset: { taskOpen: id } }) }, { detail: 1 });
+    await (await import('../src/team-store.js')).flushStore().catch(() => {});
     await new Promise(setImmediate);
   };
   return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, entries, toast: elements.get("#toast") };
@@ -309,6 +315,7 @@ test("an action after sleeping past midnight saves the actual completion and rea
   t.mock.timers.setTime(new Date("2026-10-17T01:00:00").getTime());
   await f.click({ taskComplete: "task" });
   await f.doc.emit("change", { dataset: { noticeRead: "notice" } });
+  await (await import('../src/team-store.js')).flushStore();
   await new Promise(setImmediate);
   assert.equal(f.writes.length, 2);
   for (const task of f.writes.at(-1).value) {
@@ -416,4 +423,15 @@ test("read notices share completed task protection against calendar drag", async
   await f.drag("2026-10-20", "notice");
   assert.equal(f.writes.length, 0);
   assert.doesNotMatch(f.toast.innerHTML, /关键日期已/);
+});
+
+
+test("a restored server trash item can immediately be rescheduled without a workspace refresh", async t => {
+  const f = await fixture(t, { undated: true, recycled: true, url: "http://synthetic.test/?view=calendar" });
+  await f.click({ restoreTask: "undated" });
+  await f.drag("2026-10-20", "undated");
+  assert.equal(f.writes.length, 2);
+  const restored = f.writes.at(-1).value.find(task => task.id === "undated");
+  assert.equal(restored.recycleBin, undefined);
+  assert.equal(restored.due.date, "2026-10-20");
 });

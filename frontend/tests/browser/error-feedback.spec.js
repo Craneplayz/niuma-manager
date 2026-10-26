@@ -89,15 +89,17 @@ test("save failures keep the report control after the task view redraws", async 
   expect(reports[0].action).toBe("tasks_save");
 });
 
-test("feedback stays inside an open task dialog and remains clickable after delete fails", async ({ page }) => {
+test("delete failures keep report and retry controls accessible after the drawer closes", async ({ page }) => {
   const reports = await openApp(page);
   await page.getByRole("button", { name: "合成任务", exact: true }).click();
   const drawer = page.locator("#task-drawer");
   await drawer.getByRole("button", { name: "移入回收站" }).click();
-  await expect(drawer.getByText("暂时无法删除任务，请稍后重试。")).toBeVisible();
-  await drawer.getByRole("button", { name: "反馈此问题" }).click();
-  await expect(drawer.getByText("已提交，感谢反馈。")).toBeVisible();
-  expect(reports[0].action).toBe("tasks_delete");
+  await expect(drawer).not.toBeVisible();
+  const alert = page.locator("#sync-alert");
+  await expect(alert.getByRole("button", { name: "重试保存", exact: true })).toBeVisible();
+  await alert.getByRole("button", { name: "反馈此问题" }).click();
+  await expect(alert.getByText("已提交，感谢反馈。")).toBeVisible();
+  expect(reports[0].action).toBe("tasks_save");
 });
 
 test("restore failures keep feedback inside the recycle-bin dialog", async ({ page }) => {

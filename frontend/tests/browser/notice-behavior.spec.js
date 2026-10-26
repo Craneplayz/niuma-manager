@@ -16,8 +16,9 @@ async function openApp(page, initialTasks) {
     else if (path === "/api/workspace") value = { tasks: { version, value: tasks } };
     else if (path === "/api/data/tasks") {
       const body = request.postDataJSON();
-      writes.push(body); tasks = body.value; value = { version: ++version };
+      writes.push(body); tasks = body.value; value = { version: ++version, operationId: body.operation?.id };
     } else if (path === "/api/version") value = { environment: "test", revision: "issue179", managed: true };
+    else if (path === "/api/usage/guest-visit") value = {};
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };

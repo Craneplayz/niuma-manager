@@ -27,11 +27,14 @@ async function openHistory(page, runs, linked = null, { batches = [], tasks = []
     else if (path === "/api/recognition/batches") value = batches;
     else if (path.endsWith("/resolve")) {
       const id = path.split("/").at(-2), item = batches.flatMap(batch => batch.items).find(item => item.id === id);
-      expect(request.postDataJSON().reviewed).toBe(true);
+      const body = request.postDataJSON();
+      expect(body.reviewed).toBe(true);
       item.state = "applied"; item.version++; version++;
-      tasks.push({ id: `task-${id}`, title: item.candidate.title, status: "not_started", due: null, plans: [], subtasks: [],
+      item.taskId = body.operation.intent.newTaskId;
+      tasks.push({ id: item.taskId, ...body.draft, status: "not_started", plans: [], subtasks: [],
         recognitionHistory: [{ storageId: id, action: "create" }] });
-      value = { batches };
+      value = { operationId: body.operation.id, tasks: { value: tasks, version }, generation: 0,
+        candidates: [{ id, state: item.state, version: item.version, taskId: item.taskId }] };
     }
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs };
     else if (path.startsWith("/api/sources/sync-runs/")) {
@@ -223,9 +226,9 @@ test("history separates notice type from completion and distinguishes reviewed c
   ];
   const batches = [{ sourceSyncManaged: true, request: { contract_version: "0.2", request_id: "states", records: [] },
     result: { status: "success" }, items: [
-      { id: "removed", state: "applied", autoApplied: true, candidate: { title: "原先新增的任务" } },
-      { id: "cancel", state: "applied", candidate: { title: "取消原定报告" } },
-      { id: "pending", state: "pending", candidate: { title: "待确认的考试地点", content_type: "notice" } },
+      { id: "removed", state: "applied", version: 2, autoApplied: true, candidate: { title: "原先新增的任务" } },
+      { id: "cancel", state: "applied", version: 2, candidate: { title: "取消原定报告" } },
+      { id: "pending", state: "pending", version: 1, candidate: { title: "待确认的考试地点", content_type: "notice" } },
     ] }];
   const writes = await openHistory(page, [run], null, { tasks, batches });
   const row = page.locator(`[id="sync-run-${run.run_id}"]`);
