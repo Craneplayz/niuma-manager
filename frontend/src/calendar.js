@@ -1,4 +1,5 @@
 import { isNotice, sortTasks } from "./task-model.js";
+import { classMarkup } from "./timetable.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const DAY_MS = 86400000;
@@ -44,6 +45,7 @@ function fallbackEscape(value) {
  */
 export function renderCalendar({
   tasks = [],
+  classes = [],
   anchorDate,
   mode = "month",
   selectedDate,
@@ -79,10 +81,11 @@ export function renderCalendar({
   function day(date, index) {
     const iso = isoDate(date);
     const members = byDate.get(iso) || [];
+    const lessons = classes.filter(event => event.date === iso);
     const isToday = iso === todayISO;
     const isSelected = iso === selectedISO;
     const isOtherMonth = !isWeek && date.getUTCMonth() !== anchor.getUTCMonth();
-    const classes = [
+    const dayClasses = [
       "calendar-day",
       isToday && "is-today",
       isSelected && "is-selected",
@@ -91,12 +94,12 @@ export function renderCalendar({
       .filter(Boolean)
       .join(" ");
     const unit = members.some(isNotice) ? "条内容" : "项任务";
-    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "暂无内容"}`;
+    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "暂无任务"}${lessons.length ? `，${lessons.length}节课程` : ""}`;
     const weekday = isWeek
       ? `<span class="calendar-day-weekday">星期${WEEKDAYS[index]}</span>`
       : "";
-    const mobileCount = members.length
-      ? `<span class="calendar-day-mobile-count">${members.length} 项</span>`
+    const mobileCount = members.length + lessons.length
+      ? `<span class="calendar-day-mobile-count">${members.length + lessons.length} 项</span>`
       : '<span class="calendar-day-mobile-count calendar-day-mobile-empty" aria-hidden="true">·</span>';
     const count =
       isWeek && members.length
@@ -108,10 +111,10 @@ export function renderCalendar({
         ? `<button type="button" class="calendar-more" data-calendar-day="${iso}" aria-label="查看 ${accessibleDate(date)}的全部 ${members.length} ${unit}">+${members.length - 2} 项</button>`
         : "";
     const empty =
-      isWeek && !members.length
+      isWeek && !members.length && !lessons.length
         ? '<p class="calendar-day-empty">无任务</p>'
         : "";
-    return `<section class="${classes}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
+    return `<section class="${dayClasses}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${(isWeek ? lessons : lessons.slice(0, 2)).map(event => classMarkup(event, escapeHtml)).join('')}${!isWeek && lessons.length > 2 ? `<button class="calendar-more" data-calendar-day="${iso}">另${lessons.length-2}节课</button>` : ''}${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
   }
 
   if (isWeek) {

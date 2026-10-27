@@ -830,3 +830,34 @@ body.is-calendar-dragging * {
     min-height: 44px;
   }
 }
+.timetable-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+dialog:has([data-timetable-panel]) { width: min(760px, calc(100vw - 32px)); }
+[data-timetable-panel] .form-error { color: var(--danger); font-size: 13px; }
+.timetable-file { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.timetable-file > span { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.timetable-file label:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+.timetable-file label[aria-disabled="true"] { opacity: .5; cursor: wait; }
+.timetable-hint { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 12px 0; }
+.calendar-class.is-exam { border-left-style: double; border-left-width: 4px; font-weight: 500; }
+.calendar-class { display: grid; gap: 3px; padding: 6px 8px; margin-bottom: 5px; border-left: 3px solid var(--muted); background: var(--rail); border-radius: 5px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.calendar-class strong { font-size: inherit; font-weight: 600; }
+.calendar-class-time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timetable-day { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; }
+.timetable-day h3 { margin: 0 0 12px; font-size: 15px; }
+[data-timetable-panel] { max-width: 760px; }
+[data-timetable-panel] > p { color: var(--muted); line-height: 1.6; font-size: 13px; }
+.timetable-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.timetable-meeting, .timetable-saved article { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.timetable-meeting > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.timetable-meeting p, .timetable-saved p { margin: 5px 0; font-size: 12px; color: var(--muted); }
+.timetable-meeting small { color: var(--muted); }
+.timetable-clocks { display: flex; gap: 8px; flex-shrink: 0; }
+.timetable-clocks label { display: grid; gap: 4px; font-size: 12px; }
+.timetable-clocks input { width: 112px; min-width: 0; }
+@media (max-width: 700px) {
+  .timetable-dates { grid-template-columns: 1fr; }
+  .timetable-meeting { align-items: stretch; flex-direction: column; }
+  .timetable-clocks input { width: 100%; }
+  .timetable-clocks label { min-width: 0; flex: 1; }
+  .calendar-month .calendar-class { display: none; }
+}
