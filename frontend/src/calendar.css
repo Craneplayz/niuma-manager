@@ -928,3 +928,93 @@ body.is-calendar-dragging * {
     display: none;
   }
 }
+
+/* Fixed density bands: each day keeps blue, green, orange in the same positions. */
+.calendar-activity-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: none;
+  gap: 6px 18px;
+  margin: -5px 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.calendar-activity-keys { display: flex; align-items: center; gap: 14px; }
+.calendar-activity-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.calendar-activity-legend p { display: flex; flex-wrap: wrap; gap: 0 12px; margin: 0; }
+.calendar-activity-legend .calendar-activity-cell { width: 9px; height: 9px; border-radius: 2px; }
+.calendar-activity-row { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: none; }
+.calendar-activity-cell {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+}
+.calendar-activity-cell[data-activity="pending"] { --activity-1: #d7e9f6; --activity-2: #9bc5e5; --activity-3: #62a0cf; --activity-4: #3378ad; }
+.calendar-activity-cell[data-activity="done"] { --activity-1: #d6ecde; --activity-2: #a2d3b6; --activity-3: #65ad85; --activity-4: #2d8052; }
+.calendar-activity-cell[data-activity="overdue"] { --activity-1: #f7e2d1; --activity-2: #eebc94; --activity-3: #d88c54; --activity-4: #b86427; }
+.calendar-activity-cell[data-level="0"] { border-color: #e1e6e9; }
+.calendar-activity-cell[data-level="1"] { background: var(--activity-1); }
+.calendar-activity-cell[data-level="2"] { background: var(--activity-2); }
+.calendar-activity-cell[data-level="3"] { background: var(--activity-3); }
+.calendar-activity-cell[data-level="4"] { background: var(--activity-4); }
+.calendar-view.calendar-month .calendar-date-button {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  gap: 2px;
+  padding: 2px 0;
+}
+.calendar-month .calendar-day-number { order: 0; }
+.calendar-month .calendar-activity-row { order: 1; }
+.calendar-month .calendar-day-mobile-count { order: 2; }
+.calendar-month .calendar-day-course-dots { order: 3; }
+.calendar-view.calendar-week .calendar-activity-row { flex-basis: 100%; justify-content: flex-start; order: 3; margin-top: 2px; }
+.day-panel-activity { margin: -3px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.day-panel-due > h3,
+.day-panel-completed > h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+  line-height: 1.6;
+}
+.day-panel-due > h3 > span,
+.day-panel-completed > h3 > span { font-size: 11px; font-variant-numeric: tabular-nums; }
+.day-panel-completed { margin-top: 24px; }
+.day-panel-completed .task-empty,
+.day-panel-due .task-empty { padding: 8px 0; font-size: 12px; }
+
+@container calendar-day (max-height: 88px) {
+  .calendar-month .calendar-day-tasks { display: none; }
+  .calendar-month .calendar-day-mobile-count { display: none; }
+  .calendar-month .calendar-date-button { height: 100%; }
+}
+@container calendar-day (max-width: 64px) {
+  .calendar-month .calendar-activity-row { gap: 3px; }
+  .calendar-month .calendar-activity-cell { width: 10px; height: 10px; border-radius: 2px; }
+}
+@media (max-width: 700px) {
+  .calendar-activity-legend { gap: 4px; margin: -2px 0 12px; }
+  .calendar-activity-keys { gap: 12px; }
+  .calendar-activity-legend p { gap: 0 8px; }
+  .calendar-view.calendar-month .calendar-day-number { width: 24px; height: 24px; font-size: 12px; }
+  .calendar-view .calendar-activity-row { gap: 2px; }
+  .calendar-view .calendar-activity-cell { width: 9px; height: 9px; border-radius: 2px; }
+  .calendar-view.calendar-week .calendar-activity-row { flex-basis: auto; margin: 0 0 0 2px; }
+  @container calendar-day (min-height: 49px) {
+    .calendar-month .calendar-day-course-dots { display: inline-flex; }
+  }
+  @container calendar-day (max-height: 48px) {
+    .calendar-month .calendar-day-course-dots { display: none; }
+  }
+}

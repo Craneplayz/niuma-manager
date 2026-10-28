@@ -28,7 +28,7 @@ import {
 } from "./task-model.js";
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
-import { renderCalendar } from "./calendar.js";
+import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -388,7 +388,7 @@ function taskResults() {
   if (taskView() === "list")
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
-  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today })}</div>`;
+  return `${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks: state.tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks: state.tasks, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({

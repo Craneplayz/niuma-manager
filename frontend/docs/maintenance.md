@@ -10,6 +10,7 @@
 | `course-identity.js` / `course-identity.css` | 规范化课程身份、账号范围配色偏好、课程签、简称与色点 |
 | `task-views.js` | 清单任务行、截止分组、当日及无日期任务面板 |
 | `calendar.js` / `calendar.css` | 月历、周截止日程及任务组件样式 |
+| `calendar-activity.js` | 按截止日与实际完成日聚合任务数量，固定色阶与日期记录筛选 |
 | `calendar-drag.js` | 任务分配日期与改期的鼠标手势、日期落点预览和取消 |
 | `task-drawer.js` / `task-evidence.js` | 任务详情、编辑字段、原文与证据链接 |
 | `import-ui.js` | 文本通知、教学网连接与采集、候选确认和失败重试 |

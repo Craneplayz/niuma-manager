@@ -1,8 +1,14 @@
 import { isNotice, sortTasks } from "./task-model.js";
 import { courseIdentity, renderCourseBadge, renderCourseDot } from "./course-identity.js";
+import { buildCalendarActivity, activityLevel, activitySummary } from "./calendar-activity.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const DAY_MS = 86400000;
+const ACTIVITY_KINDS = [["pending", "待完成"], ["done", "已完成"], ["overdue", "已逾期"]];
+
+export function renderCalendarActivityLegend() {
+  return `<div class="calendar-activity-legend" aria-label="任务活动图例"><div class="calendar-activity-keys">${ACTIVITY_KINDS.map(([kind, label]) => `<span class="calendar-activity-key"><span class="calendar-activity-cell" data-activity="${kind}" data-level="3" aria-hidden="true"></span>${label}</span>`).join("")}</div><p>颜色越深，数量越多<span>完成按完成日，其余按截止日</span></p></div>`;
+}
 
 function readDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
@@ -45,6 +51,7 @@ function fallbackEscape(value) {
  */
 export function renderCalendar({
   tasks = [],
+  activityTasks = tasks,
   anchorDate,
   mode = "month",
   selectedDate,
@@ -60,6 +67,7 @@ export function renderCalendar({
   const todayISO = readDate(today) ? today : "";
   const isWeek = mode === "week";
   const byDate = new Map();
+  const activity = buildCalendarActivity(activityTasks, { today: todayISO || isoDate(anchor) });
 
   for (const task of Array.isArray(tasks) ? tasks : []) {
     if ((!isNotice(task) && task.status === "done") || !readDate(task.due)) continue;
@@ -81,6 +89,8 @@ export function renderCalendar({
   function day(date, index) {
     const iso = isoDate(date);
     const members = byDate.get(iso) || [];
+    const counts = activity.get(iso) || { pending: 0, done: 0, overdue: 0 };
+    const activityText = activitySummary(counts);
     const isToday = iso === todayISO;
     const isSelected = iso === selectedISO;
     const isOtherMonth = !isWeek && date.getUTCMonth() !== anchor.getUTCMonth();
@@ -95,7 +105,8 @@ export function renderCalendar({
     const unit = members.some(isNotice) ? "条内容" : "项任务";
     const dayCourses = [...new Map(members.map(task => [courseIdentity(task.course).key, task.course])).values()];
     const courseNames = dayCourses.map(course => courseIdentity(course).label || "未分类");
-    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "暂无内容"}${courseNames.length ? `，课程：${courseNames.join("、")}` : ""}`;
+    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "无截止内容"}，${activityText}${courseNames.length ? `，课程：${courseNames.join("、")}` : ""}`;
+    const activityRow = `<span class="calendar-activity-row" data-activity-date="${iso}" aria-hidden="true">${ACTIVITY_KINDS.map(([kind]) => `<span class="calendar-activity-cell" data-activity="${kind}" data-count="${counts[kind]}" data-level="${activityLevel(counts[kind])}"></span>`).join("")}</span>`;
     const courseDots = !isWeek && dayCourses.length
       ? `<span class="calendar-day-course-dots" aria-hidden="true">${dayCourses.slice(0, 3).map(renderCourseDot).join("")}</span>`
       : "";
@@ -116,9 +127,9 @@ export function renderCalendar({
         : "";
     const empty =
       isWeek && !members.length
-        ? '<p class="calendar-day-empty">无任务</p>'
+        ? '<p class="calendar-day-empty">无截止内容</p>'
         : "";
-    return `<section class="${classes}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}${courseDots}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
+    return `<section class="${classes}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" title="${escapeHtml(activityText)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}${courseDots}${activityRow}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
   }
 
   if (isWeek) {
