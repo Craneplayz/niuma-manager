@@ -2,6 +2,7 @@ import {
   api,
   session,
   readStore,
+  readSavedTasks,
   readCancelledTasks,
   initSession,
   reloadStore,
@@ -39,6 +40,8 @@ import { createAccountUI } from "./account-ui.js";
 import { readNavigation, navigationURL } from "./navigation.js";
 import { feedbackBox } from "./usage-feedback.js";
 import { createCompletionCompanion, countRemainingTasks } from "./completion-companion.js";
+import { createSidebarCompanion } from "./sidebar-companion.js";
+import { selectSidebarCompanion } from "./sidebar-companion-state.js";
 import { describeEnvironment } from "./environment-badge.js";
 import { renderCourseDot, syncCourseColors } from "./course-identity.js";
 import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
@@ -52,7 +55,6 @@ const esc = (value) =>
       ],
   );
 const brandLogo = new URL("./assets/brand-logo.webp", import.meta.url).href;
-const mascotPeek = new URL("./assets/mascot-peek.png", import.meta.url).href;
 
 const app = document.querySelector("#app"),
   dialog = document.querySelector("#dialog"),
@@ -99,6 +101,23 @@ const completionCompanion = createCompletionCompanion({
   getContainer: () => drawer.open && !drawerEditing ? drawer : document.body,
   canShow: () => !dialog.open && !drawerEditing && !ui.mobileMenu,
 });
+const sidebarCompanion = createSidebarCompanion({
+  canInteract: () => !dialog.open && !drawer.open &&
+    (!matchMedia("(max-width: 700px)").matches || ui.mobileMenu),
+  isCompact: () => (!matchMedia("(max-width: 700px)").matches && ui.sidebarCollapsed) ||
+    matchMedia("(max-height: 720px)").matches,
+  onOpen: hideSidebarTooltip,
+});
+let sidebarAccountEpoch = accountVersion();
+function syncSidebarCompanion() {
+  const epoch = accountVersion();
+  if (epoch !== sidebarAccountEpoch) {
+    sidebarAccountEpoch = epoch;
+    sidebarCompanion.reset();
+  }
+  const ready = demo || Boolean(!loading && session.user && !session.changing && !loadError);
+  sidebarCompanion.update(selectSidebarCompanion(demo ? state.tasks : readSavedTasks(), { today, ready }));
+}
 const host = {
   escapeHtml: esc,
   icon,
@@ -178,6 +197,7 @@ function clearUndo() {
 }
 function resetAccountUI() {
   clearUndo();
+  sidebarCompanion.reset();
   imports.reset();
   ui.query = "";
   ui.course = "";
@@ -250,6 +270,7 @@ function toastError(error, action = "general") {
 }
 function openDialog(html) {
   completionCompanion.dismiss();
+  sidebarCompanion.dismiss({ stop: true });
   hideSidebarTooltip();
   dialog.innerHTML = html;
   if (!dialog.querySelector("#dialog-heading")) {
@@ -313,7 +334,7 @@ function sidebar() {
     )
     .join(
       "",
-    )}</nav><div class="sidebar-mascots" aria-hidden="true"><img src="${esc(mascotPeek)}" width="156" height="84" alt="" decoding="async" loading="lazy"></div><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${avatarContent(session.user, esc)}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small>${!demo && session.user && !session.user.emailVerified ? '<small class="account-verification-hint">邮箱待验证</small>' : ""}</span>${icon("chevron")}</button></div></aside>`;
+    )}</nav><div id="sidebar-companion-slot" class="sidebar-mascots"></div><div class="sidebar-bottom">${demo ? '<div class="preview-note">示例预览 <a href="/">使用我的账号 ↗</a></div>' : ""}<button type="button" class="account-entry" data-account-action="open" aria-label="账号与数据" data-sidebar-label="账号与数据"><span class="avatar">${avatarContent(session.user, esc)}</span><span class="account-name">${esc(session.user?.name || "登录账号")}<small id="save-status">${demo ? "示例数据" : saveLabel()}</small>${!demo && session.user && !session.user.emailVerified ? '<small class="account-verification-hint">邮箱待验证</small>' : ""}</span>${icon("chevron")}</button></div></aside>`;
 }
 function hideSidebarTooltip() {
   clearTimeout(sidebarTooltipTimer);
@@ -328,6 +349,7 @@ function hasSidebarTooltip(button) {
 }
 function showSidebarTooltip(button) {
   if (!hasSidebarTooltip(button)) return;
+  sidebarCompanion.dismiss();
   sidebarTooltipTarget = button;
   sidebarTooltip.textContent = button.dataset.sidebarLabel;
   sidebarTooltip.hidden = false;
@@ -339,6 +361,7 @@ function showSidebarTooltip(button) {
 }
 function updateSidebarState() {
   hideSidebarTooltip();
+  sidebarCompanion.dismiss({ stop: true });
   const mobile = matchMedia("(max-width: 700px)").matches;
   const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
   const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
@@ -357,6 +380,7 @@ function updateSidebarState() {
     if (!mobile && ui.sidebarCollapsed) accountEntry.removeAttribute("title");
     else accountEntry.title = environment.detail;
   }
+  sidebarCompanion.reposition();
 }
 function saveLabel() {
   if (loading) return "连接中…";
@@ -484,6 +508,7 @@ function syncToday() {
         label.dateTime = today;
         label.textContent = dateLabel();
       }
+      syncSidebarCompanion();
     }
   }
   clearTimeout(dayTimer);
@@ -502,7 +527,10 @@ function render() {
     focusId = focus?.id,
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
+  sidebarCompanion.detach();
   app.innerHTML = `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`;
+  syncSidebarCompanion();
+  sidebarCompanion.mount(document.querySelector("#sidebar-companion-slot"));
   if (!focusId) restoreFocus(token);
   if (focusId) {
     const next = document.getElementById(focusId);
@@ -529,6 +557,7 @@ function renderResults() {
   const results = document.querySelector("#task-results");
   if (!results) return;
   results.innerHTML = taskResults();
+  syncSidebarCompanion();
   document.querySelector("#result-count").textContent = headingCount();
   if (dayFocus)
     document
@@ -552,6 +581,7 @@ function requireAccount() {
 }
 function openTask(id, editing = false) {
   completionCompanion.dismiss();
+  sidebarCompanion.dismiss({ stop: true });
   hideSidebarTooltip();
   if (taskBusy) return toast("正在保存，请稍候");
   if (!requireAccount()) return;
@@ -1214,6 +1244,7 @@ drawer.addEventListener("cancel", (e) => {
 });
 window.addEventListener("niuma:account-reset", () => {
   resetErrorFeedback();
+  sidebarCompanion.reset();
   const authForm = dialog.querySelector("[data-account-form]");
   if (
     !(
@@ -1253,7 +1284,9 @@ window.addEventListener("niuma:sync", () => {
   if (label) label.textContent = saveLabel();
   const alert = document.querySelector("#sync-alert");
   if (alert) alert.innerHTML = syncAlert();
+  syncSidebarCompanion();
 });
+window.addEventListener("niuma:session-ready", syncSidebarCompanion);
 matchMedia("(max-width: 700px)").addEventListener("change", () => {
   ui.mobileMenu = false;
   render();

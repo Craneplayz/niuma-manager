@@ -2,9 +2,9 @@
 
 当前网页围绕两件事组织：导入通知，以及查询和处理任务。全部任务标题右侧的双段开关切换清单与日历，不再单设标签栏；导入与任务共用最大宽度 1450px 的页面容器，统一移除顶部浅色辅助标注及独立占位行。桌面标题与日期位于同一行，“添加任务”在日期左侧，二者整体靠右；手机将导航、操作与日期置于首行，正式标题与视图切换置于次行。清单和日历使用页面可用宽度，导入正文使用左对齐的 860px 阅读区。临近截止与已完成固定使用清单；账号入口固定在侧栏底部。当前界面规格见 [设计说明](docs/design.md)，模块边界见 [维护指南](docs/maintenance.md)。
 
-界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，底部小幅探头保留为牛马点缀，并在折叠栏、手机和矮窗口中隐藏。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
+界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，左下角常驻伙伴根据已保存任务切换形象，支持悬停、聚焦和轻点对话，折叠栏与矮窗口使用紧凑尺寸。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
 
-手动完成任务保存成功后显示底部牛马伙伴，连续完成合并并保留撤销；账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马完成伙伴](docs/mascots.md)。
+手动完成任务保存成功后显示底部牛马伙伴，连续完成合并并保留撤销；账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马伙伴](docs/mascots.md)。
 
 ## 功能与数据
 
@@ -45,7 +45,7 @@ frontend/
 ├── src/
 │   ├── assets/
 │   │   ├── brand-logo.webp   主站与后台共用的扫描牛品牌图标
-│   │   └── mascot-peek.png   侧栏底部透明牛马探头点缀
+│   │   └── mascot-peek.png   旧侧栏探头素材，保留备用
 │   ├── app.js                页面组织、筛选、日历导航和任务交互
 │   ├── navigation.js         网址导航状态、日期与参数校验
 │   ├── page-layout.js        共用标题、导航、控件、操作与日期区域渲染器
@@ -68,6 +68,9 @@ frontend/
 │   ├── course-identity.css   课程签、紧凑简称与色点的 8 色样式
 │   ├── completion-companion.js 完成伙伴文案、连续合并、撤销与本地偏好
 │   ├── completion-companion.css 底部伙伴提示、有限动作与减少动态样式
+│   ├── sidebar-companion-state.js 已保存任务的侧栏角色、情绪与真实数量文案
+│   ├── sidebar-companion.js  常驻角色、悬停聚焦和轻点对话的交互
+│   ├── sidebar-companion.css 侧栏角色、紧凑形态、话语与短动作样式
 │   ├── assets/companions/    牛马透明动作姿势与角色完成文案
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
@@ -86,6 +89,8 @@ frontend/
 ├── tests/
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
 │   ├── completion-companion.test.js 完成伙伴文案选择、剩余任务与偏好容错
+│   ├── sidebar-companion-state.test.js 状态优先级、计数边界和未确认数据排除
+│   ├── browser/sidebar-companion.spec.js 侧栏角色、已保存状态、对话及手机交互
 │   ├── browser/completion-companion.spec.js 保存后反馈、合并撤销、弹窗和偏好交互
 │   ├── navigation.test.js    导航恢复、旧链接兼容、参数校验与隐私边界
 │   ├── calendar-drag.test.js 点击、拖放、取消与触屏边界
@@ -124,6 +129,10 @@ frontend/
     ├── maintenance.md        模块职责与验证要求
     ├── mascots.md            牛马性格、动作素材与完成反馈规则
     ├── screenshots/
+    │   ├── sidebar-companion-horse.png 逾期较多时的小马与话语
+    │   ├── sidebar-companion-cow.png 今日完成良好时的小牛与话语
+    │   ├── sidebar-companion-mobile.png 手机菜单内的状态伙伴
+    │   ├── sidebar-companion-collapsed.png 折叠栏的紧凑角色与对话
     │   ├── completion-companion-desktop.png 桌面保存后的牛马完成反馈
     │   ├── completion-companion-mobile.png 手机清单的牛马完成反馈
     │   ├── completion-companion-drawer.png 手机详情内避开操作栏的完成反馈

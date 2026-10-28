@@ -1,0 +1,65 @@
+#sidebar .sidebar-mascots {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  margin-top: auto;
+  padding-top: 20px;
+  pointer-events: auto;
+  min-height: 132px;
+}
+#sidebar .sidebar-bottom { margin-top: 0; }
+.sidebar-companion { position: relative; display: flex; justify-content: center; width: 100%; user-select: none; }
+.sidebar-companion-button {
+  display: grid;
+  place-items: center;
+  width: 124px;
+  height: 112px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#sidebar .sidebar-companion-button img {
+  display: block;
+  width: 112px;
+  height: 112px;
+  object-fit: contain;
+  transform-origin: 50% 85%;
+}
+.sidebar-companion-button:hover { background: var(--action-soft); }
+.sidebar-companion-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+#sidebar .sidebar-mascots[data-compact="true"] { min-height: 64px; padding-top: 10px; }
+.sidebar-companion[data-compact="true"] .sidebar-companion-button { width: 52px; height: 52px; }
+#sidebar .sidebar-companion[data-compact="true"] img { width: 52px; height: 52px; }
+.sidebar-companion-speech {
+  position: fixed;
+  z-index: 61;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--action-border);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--brand-ink);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+.sidebar-companion-speech::after { content: ""; position: absolute; inset: auto 0 -12px; height: 12px; }
+@media (min-width: 701px) {
+  .sidebar-collapsed #sidebar .sidebar-mascots { display: flex; }
+}
+@media (max-width: 700px) {
+  #sidebar .sidebar-mascots { min-height: 124px; padding-top: 12px; }
+  #sidebar .sidebar-bottom { margin-top: 0; }
+}
+@media (max-height: 500px) {
+  #sidebar .sidebar-mascots { min-height: 54px; padding-top: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-companion-button img { transform: none !important; }
+}

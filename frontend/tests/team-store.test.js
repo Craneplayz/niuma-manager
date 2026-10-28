@@ -11,6 +11,7 @@ const {
   initSession,
   readStore,
   readCancelledTasks,
+  readSavedTasks,
   saveStore,
   trashStoredTasks,
   restoreStoredTasks,
@@ -261,6 +262,47 @@ test("an account reset aborts pending requests and rejects late results from the
   const state = await initSession();
   assert.equal(session.user.id, "new-account");
   assert.deepEqual(state.tasks.map(item => item.id), ["new-task"]);
+});
+
+test("saved task snapshots are isolated from callers and pending or failed drafts, and clear on account reset", async () => {
+  const original = task("saved-snapshot", {
+    due: { date: "2026-10-29", precision: "date" },
+    plans: [{ id: "kept-plan", title: "已保存安排" }],
+  });
+  fixture("saved-snapshot-user", [original]);
+  const state = await initSession();
+  const expected = structuredClone(state.tasks);
+  assert.deepEqual(readSavedTasks(), expected);
+  const snapshot = readSavedTasks();
+  snapshot[0].title = "调用者修改";
+  snapshot[0].due = "2099-01-01";
+  snapshot[0].plans[0].title = "调用者修改嵌套字段";
+  snapshot.push(task("caller-only"));
+  assert.deepEqual(readSavedTasks(), expected);
+
+  const currentFetch = globalThis.fetch;
+  let enter, release;
+  const entered = new Promise(resolve => { enter = resolve; });
+  const waiting = new Promise(resolve => { release = resolve; });
+  globalThis.fetch = async (path, options = {}) => {
+    if (path === "/api/data/tasks" && options.method === "PUT") {
+      enter(); await waiting;
+      return { ok: false, status: 503, json: async () => ({ error: "合成保存失败" }) };
+    }
+    if (path === "/api/auth/logout") return reply({});
+    return currentFetch(path, options);
+  };
+  state.tasks[0].status = "done";
+  state.tasks[0].completedAt = "2026-10-29";
+  assert.equal(saveStore(state), true);
+  await entered;
+  assert.deepEqual(readSavedTasks(), expected);
+  release();
+  await assert.rejects(flushStore(), /合成保存失败/);
+  assert.deepEqual(readSavedTasks(), expected);
+  await reloadStore();
+  await logout();
+  assert.deepEqual(readSavedTasks(), []);
 });
 
 test("explicit reload recovers a conflict and never resurrects the discarded failed draft", async () => {

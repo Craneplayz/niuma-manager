@@ -87,6 +87,10 @@ export async function api(path, body, method = "POST", options = {}) {
 export function readStore() {
   return empty();
 }
+// The sidebar reads confirmed records; optimistic drafts never enter this snapshot.
+export function readSavedTasks() {
+  return view().tasks;
+}
 // Cancelled tasks stay out of active lists but still explain import-history results.
 export function readCancelledTasks() {
   return clone(canonicalTasks.filter(task => task.status === "cancelled" && !task.recycleBin));

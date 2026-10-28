@@ -9,6 +9,7 @@
 | `task-model.js` | 本地日期、截止排序、范围及组合筛选、日期分组 |
 | `course-identity.js` / `course-identity.css` | 规范化课程身份、账号范围配色偏好、课程签、简称与色点 |
 | `completion-companion.js` / `completion-companion.css` | 保存后完成反馈、角色轮换、连续合并、撤销、弹窗位置与浏览器偏好 |
+| `sidebar-companion-state.js` / `sidebar-companion.js` / `sidebar-companion.css` | 已保存任务的常驻角色情绪、可聚焦对话、紧凑布局与有限动作 |
 | `assets/companions/` | 两只角色的透明关键姿势及完成文案；姿势用于短动作，不作为逐帧素材循环播放 |
 | `task-views.js` | 清单任务行、截止分组、当日及无日期任务面板 |
 | `calendar.js` / `calendar.css` | 月历、周截止日程及任务组件样式 |
@@ -29,7 +30,7 @@
 | `team-store.js` | 同源 API、任务与回收站状态、账号请求隔离、保存队列与冲突处理 |
 | `demo.js` | 不持久化、不提交识别的合成任务预览 |
 | `theme.css` | 普通应用与独立后台共用的颜色、控件圆角和页面尺寸变量 |
-| `assets/brand-logo.webp` / `assets/mascot-peek.png` | 主站与后台共用品牌图标及侧栏底部探头形象 |
+| `assets/brand-logo.webp` / `assets/mascot-peek.png` | 主站与后台共用品牌图标；旧探头素材保留备用 |
 | `favicon.svg` | 嵌入同一品牌图的主站与后台标签页图标 |
 | `styles.css` | 共用页面与阅读区坐标、侧栏、查询控件、表单与弹窗 |
 | `icons.js` / `id.js` / `environment-badge.js` | 当前入口使用的图标、浏览器兼容 ID、环境和版本描述 |
@@ -112,7 +113,7 @@
 
 `app.js` 与 `admin-usage.js` 通过 `new URL(..., import.meta.url)` 打包同一 `src/assets/brand-logo.webp`，分别用于主站品牌区、后台顶栏与后台登录；图像来自确认稿的白边裁切与缩小，保留空心勾选牛角、点与直线进度嘴及左上、右下扫描角。`favicon.svg` 嵌入同一图片，不依赖外部资源。主站品牌图固定为 36×32px，窄桌面侧栏为 32×28px，保留图片的实际比例并避免拉伸。
 
-侧栏底部继续打包透明的 `assets/mascot-peek.png`；品牌图与探头使用空 `alt`、`aria-hidden` 和预留尺寸，品牌名称承担可访问名称。底部插画在折叠栏、700px 及以下手机宽度和 720px 及以下窗口高度隐藏，不增加正文插画或挤占导航入口。
+侧栏底部使用 `assets/companions/` 的单只角色，图片为空 `alt`，外层按钮承担名称与对话入口；`readSavedTasks()` 仅返回已确认记录的规范化深拷贝，保存中和失败草稿不进入情绪计数。角色节点在页面重绘前后移动并复用，对话位于页面层避免被侧栏滚动容器裁掉；折叠和矮窗口使用紧凑尺寸，手机菜单内可轻点。旧 `mascot-peek.png` 保留备用，不再从应用入口打包。
 
 在 `frontend/` 运行：
 

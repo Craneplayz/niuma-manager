@@ -200,7 +200,7 @@ export function createCompletionCompanion({ escapeHtml, icon, accountVersion = (
     return true;
   }
   function preferenceMarkup() {
-    return `<section class="companion-preferences" aria-labelledby="companion-preferences-heading"><h3 id="companion-preferences-heading">牛马伙伴</h3><label><input type="checkbox" data-companion-preference="enabled" ${preferences.enabled ? "checked" : ""}><span>完成时显示牛马伙伴<small>小牛夸一夸，小马陪你看下一步</small></span></label><label><input type="checkbox" data-companion-preference="animated" ${preferences.animated ? "checked" : ""} ${preferences.enabled ? "" : "disabled"}><span>播放伙伴小动画<small>跟随系统的减少动态效果设置</small></span></label></section>`;
+    return `<section class="companion-preferences" aria-labelledby="companion-preferences-heading"><h3 id="companion-preferences-heading">牛马伙伴</h3><label><input type="checkbox" data-companion-preference="enabled" ${preferences.enabled ? "checked" : ""}><span>完成时显示牛马伙伴<small>小牛夸一夸，小马陪你看下一步</small></span></label><label><input type="checkbox" data-companion-preference="animated" ${preferences.animated ? "checked" : ""}><span>播放伙伴小动画<small>侧栏和完成反馈共用，跟随系统减少动态效果</small></span></label></section>`;
   }
   function change(event) {
     const setting = event.target?.dataset?.companionPreference;
@@ -208,8 +208,7 @@ export function createCompletionCompanion({ escapeHtml, icon, accountVersion = (
     preferences = writeCompanionPreferences({ ...preferences, [setting]: event.target.checked });
     if (!preferences.enabled) dismiss();
     else staticPose();
-    const animation = doc.querySelector('[data-companion-preference="animated"]');
-    if (animation) animation.disabled = !preferences.enabled;
+    globalThis.window?.dispatchEvent(new CustomEvent("niuma:companion-preferences", { detail: { ...preferences } }));
     return true;
   }
   doc.addEventListener("visibilitychange", () => {
@@ -229,8 +228,9 @@ export function createCompletionCompanion({ escapeHtml, icon, accountVersion = (
     if (!preferences.enabled) dismiss(); else staticPose();
     for (const setting of ["enabled", "animated"]) {
       const input = doc.querySelector(`[data-companion-preference="${setting}"]`);
-      if (input) { input.checked = preferences[setting]; input.disabled = setting === "animated" && !preferences.enabled; }
+      if (input) input.checked = preferences[setting];
     }
+    globalThis.window?.dispatchEvent(new CustomEvent("niuma:companion-preferences", { detail: { ...preferences } }));
   });
   motion?.addEventListener?.("change", staticPose);
   return { show, dismiss, reset, detach, relocate, preferenceMarkup, change };
