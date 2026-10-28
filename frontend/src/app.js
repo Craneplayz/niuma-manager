@@ -38,6 +38,7 @@ import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
 import { readNavigation, navigationURL } from "./navigation.js";
 import { feedbackBox } from "./usage-feedback.js";
+import { createCompletionCompanion, countRemainingTasks } from "./completion-companion.js";
 import { describeEnvironment } from "./environment-badge.js";
 import { renderCourseDot, syncCourseColors } from "./course-identity.js";
 import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
@@ -92,6 +93,12 @@ const ui = {
   sidebarCollapsed: preferences.sidebarCollapsed === true,
   mobileMenu: false,
 };
+const completionCompanion = createCompletionCompanion({
+  escapeHtml: esc, icon, accountVersion,
+  onError: error => toastError(error, "tasks_save"),
+  getContainer: () => drawer.open && !drawerEditing ? drawer : document.body,
+  canShow: () => !dialog.open && !drawerEditing && !ui.mobileMenu,
+});
 const host = {
   escapeHtml: esc,
   icon,
@@ -137,6 +144,8 @@ const host = {
     syncNavigation();
   },
   feedbackBox: () => demo ? "" : feedbackBox(),
+  companionPreferences: () => completionCompanion.preferenceMarkup(),
+  changeCompanionPreference: event => completionCompanion.change(event),
   setState(next) {
     state = next;
     demo = false;
@@ -161,6 +170,7 @@ function draggableTask(id) {
     task.status !== "done" && !task.recycleBin);
 }
 function clearUndo() {
+  completionCompanion.reset();
   clearTimeout(toastTimer);
   const el = document.querySelector("#toast");
   el.innerHTML = "";
@@ -195,6 +205,7 @@ function remember() {
   } catch {}
 }
 function toast(message, undo) {
+  completionCompanion.dismiss();
   const epoch = accountVersion();
   clearTimeout(toastTimer);
   const el = document.querySelector("#toast");
@@ -216,6 +227,7 @@ function toast(message, undo) {
   );
 }
 function toastError(error, action = "general") {
+  completionCompanion.dismiss();
   if (dialog.open) {
     let target = dialog.querySelector("[data-dialog-operation-error]");
     if (!target) {
@@ -237,6 +249,7 @@ function toastError(error, action = "general") {
   el.classList.add("visible");
 }
 function openDialog(html) {
+  completionCompanion.dismiss();
   hideSidebarTooltip();
   dialog.innerHTML = html;
   if (!dialog.querySelector("#dialog-heading")) {
@@ -538,6 +551,7 @@ function requireAccount() {
   return false;
 }
 function openTask(id, editing = false) {
+  completionCompanion.dismiss();
   hideSidebarTooltip();
   if (taskBusy) return toast("正在保存，请稍候");
   if (!requireAccount()) return;
@@ -549,6 +563,7 @@ function openTask(id, editing = false) {
   if (!drawer.open) drawer.showModal();
 }
 function updateDrawer() {
+  completionCompanion.detach();
   syncCourseIdentity();
   const task = editableTask(drawerId) || {
     title: "",
@@ -577,12 +592,15 @@ function updateDrawer() {
     drawer
       .querySelectorAll("button,input,textarea")
       .forEach((el) => (el.disabled = true));
+  completionCompanion.relocate();
 }
 function closeDrawer() {
+  completionCompanion.detach();
   drawer.close();
   drawerId = null;
   drawerEditing = false;
   drawerError = null;
+  completionCompanion.relocate();
   const fallback = document.querySelector('[data-action="task-new"]');
   if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
   else fallback?.focus({ preventScroll: true });
@@ -662,7 +680,9 @@ async function toggleTask(id) {
       const saved = await imports.confirmTask(task.reviewCandidateId, task, true);
       if (epoch !== accountVersion()) return;
       if (drawerId === id && saved) drawerId = saved.id;
-      toast(isNotice(task) ? '通知已标记为已阅读' : '任务已完成', saved ? () => toggleTask(saved.id) : undefined);
+      const undo = saved ? () => toggleTask(saved.id) : undefined;
+      if (!isNotice(task) && saved) showCompletion(undo, epoch);
+      else toast(isNotice(task) ? '通知已标记为已阅读' : '任务已完成', undo);
     } catch (error) {
       if (epoch !== accountVersion()) return;
       drawerError = { error, action: 'tasks_save' };
@@ -688,28 +708,30 @@ async function toggleTask(id) {
   try {
     await persist();
     if (epoch !== accountVersion()) return;
-    toast(
-      notice
-        ? task.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
-        : task.status === "done" ? "任务已完成" : "任务已重新打开",
-      async () => {
-        if (taskBusy) throw new Error("正在保存，请稍候再撤销");
-        const currentTask = state.tasks.find((item) => item.id === id);
-        if (!currentTask || currentTask.status !== applied.status ||
-            (currentTask.completedAt || "") !== applied.completedAt)
-          throw new Error(`${notice ? "通知" : "任务"}状态已变化，无法撤销这次操作`);
-        taskBusy = true;
-        Object.assign(currentTask, previous);
+    const undo = async () => {
+      if (taskBusy) throw new Error("正在保存，请稍候再撤销");
+      const currentTask = state.tasks.find((item) => item.id === id);
+      if (!currentTask || currentTask.status !== applied.status ||
+          (currentTask.completedAt || "") !== applied.completedAt)
+        throw new Error(`${notice ? "通知" : "任务"}状态已变化，无法撤销这次操作`);
+      taskBusy = true;
+      Object.assign(currentTask, previous);
+      render();
+      if (drawer.open) updateDrawer();
+      try {
+        await persist();
+      } finally {
+        taskBusy = false;
         render();
         if (drawer.open) updateDrawer();
-        try {
-          await persist();
-        } finally {
-          taskBusy = false;
-          render();
-          if (drawer.open) updateDrawer();
-        }
-      },
+      }
+    };
+    if (!notice && applied.status === "done") showCompletion(undo, epoch);
+    else toast(
+      notice
+        ? task.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
+        : "任务已重新打开",
+      undo,
     );
   } catch (e) {
     if (drawer.open || session.sync !== "error") toastError(session.failure || e, "tasks_save");
@@ -726,6 +748,12 @@ async function toggleTask(id) {
         document.getElementById("page-title")?.focus({ preventScroll: true });
     }
   }
+}
+function showCompletion(undo, epoch) {
+  if (document.querySelector("#toast.visible .user-error") || drawerError) return;
+  clearTimeout(toastTimer);
+  const remaining = countRemainingTasks(listItems());
+  if (!completionCompanion.show({ remaining, undo, epoch })) toast("任务已完成", undo);
 }
 async function trashTask() {
   if (taskBusy || !drawerId) return;

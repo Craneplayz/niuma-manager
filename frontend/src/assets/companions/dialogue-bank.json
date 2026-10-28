@@ -1,0 +1,78 @@
+{
+  "version": "completion-companions-v1",
+  "language": "zh-CN",
+  "status": "user-confirmed-personality-direction",
+  "confirmed_on": "2026-10-29",
+  "character_ids": {
+    "cow": "牛牛",
+    "horse": "马马"
+  },
+  "selection_contract": {
+    "trigger": "An explicit task completion successfully saved; not task import, restore, external synchronization, notification read, or rollback.",
+    "ordinary": "One completion, at least one incomplete task remains.",
+    "batch": "Two or more completions merged, at least one incomplete task remains.",
+    "allDone": "No incomplete tasks remain; takes precedence over ordinary and batch.",
+    "character": "Alternate cow and horse between feedback appearances. Merged updates stay with the current character.",
+    "repeat": "Avoid immediately repeating the same line for the same character and category.",
+    "title": "Use one of the title templates; render it outside the illustration. allDone single or batch may share the same title.",
+    "placeholders": "Only count is substituted, as a positive integer from actual completed tasks. No task titles or inferred difficulty in lines.",
+    "motion": "One short character action, then settle. Static presentation when reduced motion is requested. Never claim unfinished animation assets are full frame-by-frame animation."
+  },
+  "titles": {
+    "ordinary": "完成一项",
+    "batch": "完成 {count} 项",
+    "allDone": "清单完成啦"
+  },
+  "cow": {
+    "ordinary": [
+      { "id": "cow-ordinary-01", "line": "做得不错，又完成一项！", "pose": "cow-praise" },
+      { "id": "cow-ordinary-02", "line": "这一项，稳稳拿下啦。", "pose": "cow-nod" },
+      { "id": "cow-ordinary-03", "line": "又往前走了一步，给你点个头。", "pose": "cow-nod" },
+      { "id": "cow-ordinary-04", "line": "完成啦，你的努力有了着落。", "pose": "cow-praise" },
+      { "id": "cow-ordinary-05", "line": "这一步，是你实实在在走出来的。", "pose": "cow-nod" },
+      { "id": "cow-ordinary-06", "line": "勾上这一项，值得小小开心一下。", "pose": "cow-praise" },
+      { "id": "cow-ordinary-07", "line": "干得漂亮，先给自己一个小肯定。", "pose": "cow-praise" },
+      { "id": "cow-ordinary-08", "line": "这件事收好尾啦，做得不错。", "pose": "cow-nod" },
+      { "id": "cow-ordinary-09", "line": "看见这个勾，我也跟着开心。", "pose": "cow-praise" },
+      { "id": "cow-ordinary-10", "line": "辛苦啦，肩膀可以放松一下了。", "pose": "cow-rest" }
+    ],
+    "batch": [
+      { "id": "cow-batch-01", "line": "这些完成的小事，都算数。", "pose": "cow-praise" },
+      { "id": "cow-batch-02", "line": "一步一步，真的往前走了不少。", "pose": "cow-nod" },
+      { "id": "cow-batch-03", "line": "又收好了几件事，给你一个肯定。", "pose": "cow-praise" },
+      { "id": "cow-batch-04", "line": "完成的都记下啦，慢慢来很不错。", "pose": "cow-nod" }
+    ],
+    "allDone": [
+      { "id": "cow-all-done-01", "line": "清单清空啦，接下来留点时间给自己。", "pose": "cow-rest" },
+      { "id": "cow-all-done-02", "line": "都完成了，安心歇一会儿吧。", "pose": "cow-rest" },
+      { "id": "cow-all-done-03", "line": "每一项都收好尾了，真不错。", "pose": "cow-nod" },
+      { "id": "cow-all-done-04", "line": "清单里的事做完啦，我替你开心。", "pose": "cow-praise" }
+    ]
+  },
+  "horse": {
+    "ordinary": [
+      { "id": "horse-ordinary-01", "line": "拿下一项！下一项，要不要顺手看看？", "pose": "horse-nudge" },
+      { "id": "horse-ordinary-02", "line": "这项过关。下一关，我陪你瞄一眼？", "pose": "horse-nudge" },
+      { "id": "horse-ordinary-03", "line": "勾得漂亮，接下来想先处理哪个？", "pose": "horse-ready" },
+      { "id": "horse-ordinary-04", "line": "这项收工！清单里还有谁等着咱们？", "pose": "horse-nudge" },
+      { "id": "horse-ordinary-05", "line": "做得不错嘛，要不要再挑个小目标？", "pose": "horse-ready" },
+      { "id": "horse-ordinary-06", "line": "漂亮！下一步，你来选，我陪着。", "pose": "horse-nudge" },
+      { "id": "horse-ordinary-07", "line": "这一项拿下，下一项先瞄一眼？", "pose": "horse-nudge" },
+      { "id": "horse-ordinary-08", "line": "完成得好！歇口气，再看看下一项？", "pose": "horse-ready" },
+      { "id": "horse-ordinary-09", "line": "收到这个勾啦，下一个目标先瞅瞅？", "pose": "horse-nudge" },
+      { "id": "horse-ordinary-10", "line": "嘿，又少一项！想继续时，我随时在。", "pose": "horse-ready" }
+    ],
+    "batch": [
+      { "id": "horse-batch-01", "line": "接连拿下，漂亮！下一步想选哪个？", "pose": "horse-ready" },
+      { "id": "horse-batch-02", "line": "清单轻了不少，剩下的咱们慢慢看？", "pose": "horse-nudge" },
+      { "id": "horse-batch-03", "line": "这几个勾真利落，下一步你来定。", "pose": "horse-ready" },
+      { "id": "horse-batch-04", "line": "好，几项到手！歇会儿再看下一项？", "pose": "horse-nudge" }
+    ],
+    "allDone": [
+      { "id": "horse-all-done-01", "line": "清单空了，我也不催啦，去歇会儿。", "pose": "horse-rest" },
+      { "id": "horse-all-done-02", "line": "全拿下了！这回可以安心歇着啦。", "pose": "horse-rest" },
+      { "id": "horse-all-done-03", "line": "没有下一项啦，这回轮到我给你鼓掌。", "pose": "horse-ready" },
+      { "id": "horse-all-done-04", "line": "清单清空，漂亮收工！我也歇会儿。", "pose": "horse-rest" }
+    ]
+  }
+}

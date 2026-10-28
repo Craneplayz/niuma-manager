@@ -1,5 +1,6 @@
 @import "./theme.css";
 @import "./course-identity.css";
+@import "./completion-companion.css";
 .user-error { min-width: 0; color: var(--danger); font-size: 13px; line-height: 1.65; }
 .user-error-message { margin: 0; overflow-wrap: anywhere; }
 .test-error-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; font-size: .8rem; }

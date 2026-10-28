@@ -8,6 +8,8 @@
 | `page-layout.js` | `renderPageHeading` 只渲染单行标题、`controls` 与 `actions`，统一标题行与首控件起点 |
 | `task-model.js` | 本地日期、截止排序、范围及组合筛选、日期分组 |
 | `course-identity.js` / `course-identity.css` | 规范化课程身份、账号范围配色偏好、课程签、简称与色点 |
+| `completion-companion.js` / `completion-companion.css` | 保存后完成反馈、角色轮换、连续合并、撤销、弹窗位置与浏览器偏好 |
+| `assets/companions/` | 两只角色的透明关键姿势及完成文案；姿势用于短动作，不作为逐帧素材循环播放 |
 | `task-views.js` | 清单任务行、截止分组、当日及无日期任务面板 |
 | `calendar.js` / `calendar.css` | 月历、周截止日程及任务组件样式 |
 | `calendar-drag.js` | 任务分配日期与改期的鼠标手势、日期落点预览和取消 |

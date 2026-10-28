@@ -4,6 +4,8 @@
 
 界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，底部小幅探头保留为牛马点缀，并在折叠栏、手机和矮窗口中隐藏。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
 
+手动完成任务保存成功后显示底部牛马伙伴，连续完成合并并保留撤销；账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马完成伙伴](docs/mascots.md)。
+
 ## 功能与数据
 
 独立 `/admin.html` 保留使用数据并提供“运行监控”切换，仅使用管理员会话读取 `/api/admin/operations`；首次不传日期（最近 24 小时），提交日期沿用使用数据筛选，监控失败单独提示，会话失效可重新验证。时间统一转为北京时间，阶段、操作与结果码显示中文；资源采样超过 180 秒标明“采样已过期”，过期或不可用的数值显示“—”。监控合成浏览器验收运行 `node tests/admin-operations-browser.mjs`，需要已安装 Playwright 浏览器；可用 `NIUMA_TEST_BROWSER_PATH` 指定既有 headless 可执行文件，设置 `NIUMA_TEST_SCREENSHOTS=1` 才更新截图，脚本结束自动关闭临时静态服务。
@@ -64,6 +66,9 @@ frontend/
 │   ├── source-sync-ui.js    后台教学网同步、进度恢复与失败重试
 │   ├── course-identity.js    课程身份、固定配色偏好及共用课程标记
 │   ├── course-identity.css   课程签、紧凑简称与色点的 8 色样式
+│   ├── completion-companion.js 完成伙伴文案、连续合并、撤销与本地偏好
+│   ├── completion-companion.css 底部伙伴提示、有限动作与减少动态样式
+│   ├── assets/companions/    牛马透明动作姿势与角色完成文案
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
@@ -80,6 +85,8 @@ frontend/
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
+│   ├── completion-companion.test.js 完成伙伴文案选择、剩余任务与偏好容错
+│   ├── browser/completion-companion.spec.js 保存后反馈、合并撤销、弹窗和偏好交互
 │   ├── navigation.test.js    导航恢复、旧链接兼容、参数校验与隐私边界
 │   ├── calendar-drag.test.js 点击、拖放、取消与触屏边界
 │   ├── user-errors.test.js   用户提示、点击提交、重试、去重及账号重置
@@ -115,7 +122,11 @@ frontend/
 └── docs/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
+    ├── mascots.md            牛马性格、动作素材与完成反馈规则
     ├── screenshots/
+    │   ├── completion-companion-desktop.png 桌面保存后的牛马完成反馈
+    │   ├── completion-companion-mobile.png 手机清单的牛马完成反馈
+    │   ├── completion-companion-drawer.png 手机详情内避开操作栏的完成反馈
     │   ├── cartoon-a-task-list.png 纯白卡通 A 主题的桌面任务清单
     │   ├── cartoon-a-calendar.png A 主题的完整月历与当日面板
     │   ├── cartoon-a-import.png  A 主题的文本导入与核对区
