@@ -2,6 +2,8 @@
 
 当前网页围绕两件事组织：导入通知，以及查询和处理任务。全部任务标题右侧的双段开关切换清单与日历，不再单设标签栏；导入与任务共用最大宽度 1450px 的页面容器，统一移除顶部浅色辅助标注及独立占位行。桌面标题与日期位于同一行，“添加任务”在日期左侧，二者整体靠右；手机将导航、操作与日期置于首行，正式标题与视图切换置于次行。860px 阅读区左对齐，日历使用较宽区域。临近截止与已完成固定使用清单；账号入口固定在侧栏底部。当前界面规格见 [设计说明](docs/design.md)，模块边界见 [维护指南](docs/maintenance.md)。
 
+月周日历每格只用一种底色：逾期亮红优先于待办亮蓝，其次为完成亮绿；透明度按该类别数量固定分档，点击日期显示当天全部内容，今天有明确时刻的任务到期后自动更新底色。
+
 ## 功能与数据
 
 全部任务切换“日历”后点“导入课表”，上传教务导出的 XLS，本学期起止预填2026-09-07至12-25、考试周为12-28至2027-01-10，确认作息后保存；连续节次合并，单双周按学期计算，课程起止时间和教室在日历与当日面板展示，备注中的明确考试日期与上午/下午另作考试事件，手机点击日期查看，重复导入不会重复添加，导入弹窗中可删除旧课表。
@@ -71,6 +73,7 @@ frontend/
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
+│   ├── calendar-activity.js  按截止日、时刻和完成日汇总，并决定单色底与数量档位
 │   ├── calendar-drag.js      任务拖放分配日期与改期、日期高亮和手势区分
 │   ├── calendar.css          日历、任务清单和当日面板样式
 │   ├── task-drawer.js        任务详情及新增、编辑表单
@@ -92,6 +95,8 @@ frontend/
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
 │   ├── browser/render-latency.spec.js 日历独立读取、后台输入保持与原文复用
 │   ├── browser/import-latency.spec.js 导入读取隔离与下一段草稿保护
+│   ├── calendar-activity.test.js 日期归属、明确时刻到期、单色优先级与独立数量档位
+│   ├── browser/calendar-activity.spec.js 单色优先级、完整日期点击、月周一致与到时更新
 │   ├── navigation.test.js    导航恢复、旧链接兼容、参数校验与隐私边界
 │   ├── calendar-drag.test.js 点击、拖放、取消与触屏边界
 │   ├── user-errors.test.js   用户提示、点击提交、重试、去重及账号重置
@@ -138,6 +143,9 @@ frontend/
     │   ├── task-save-queue-desktop.png 保存期间编辑其他任务的桌面示例
     │   ├── task-save-queue-mobile.png 390px 下保存期间保留编辑草稿
     │   ├── task-save-queue-compact.png 320px 下保存期间保留编辑草稿
+    │   ├── calendar-status-desktop.png 单色月历与当天全部任务
+    │   ├── calendar-status-mobile.png 手机单色日历与当日任务
+    │   ├── calendar-status-week.png 周视图沿用单色与日期点击
     │   ├── test-account-reset.png 测试账号面板的清空入口
     │   ├── test-account-reset-mobile.png 手机清空确认弹窗
     │   ├── 2026-10-20-admin-operations-desktop.png 合成运行监控桌面验收

@@ -30,5 +30,6 @@ export function navigationURL(href, navigation) {
   for (const key of Object.keys(choices)) url.searchParams.set(key, navigation[key]);
   url.searchParams.set("anchor", navigation.anchor);
   url.searchParams.set("date", navigation.selectedDate);
+  url.searchParams.delete("activity");
   return url;
 }

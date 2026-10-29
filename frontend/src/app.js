@@ -2,6 +2,7 @@ import {
   api,
   session,
   readStore,
+  readSavedTasks,
   readProjectedStore,
   taskWritesAreOnlineOnly,
   readCancelledTasks,
@@ -34,8 +35,9 @@ import {
 } from "./task-model.js";
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
-import { renderCalendar } from "./calendar.js";
+import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
 import { createTimetableUI } from "./timetable.js";
+import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -62,7 +64,7 @@ const app = document.querySelector("#app"),
   drawer = document.querySelector("#task-drawer"),
   sidebarTooltip = document.querySelector("#sidebar-tooltip");
 const params = new URLSearchParams(location.search);
-let today = todayKey(), dayTimer;
+let today = todayKey(), dayTimer, calendarActivityTimer;
 const dateFormat = new Intl.DateTimeFormat("zh-CN", {
   month: "long", day: "numeric", weekday: "long",
 });
@@ -453,7 +455,8 @@ function taskResults() {
   if (taskView() === "list")
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
-  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
+  const now = new Date(), activityTasks = demo ? state.tasks : readSavedTasks();
+  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, now, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today, now })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -538,11 +541,27 @@ function syncToday() {
         label.textContent = dateLabel();
       }
     }
-  }
+  } else if (document.visibilityState !== "hidden" && ui.page === "tasks" && taskView() === "calendar") renderResults();
   clearTimeout(dayTimer);
   const now = new Date();
   dayTimer = setTimeout(syncToday,
     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now);
+}
+function scheduleCalendarActivity() {
+  clearTimeout(calendarActivityTimer);
+  if (loading || document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
+  const now = new Date();
+  const next = nextCalendarActivityChange(demo ? state.tasks : readSavedTasks(), { today, now });
+  if (next === null) return;
+  const update = () => {
+    if (document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
+    if (busyTasks.size || document.body.classList.contains?.("is-calendar-dragging")) {
+      calendarActivityTimer = setTimeout(update, 500);
+      return;
+    }
+    renderResults();
+  };
+  calendarActivityTimer = setTimeout(update, Math.max(1, next - now.getTime() + 1));
 }
 function render() {
   calendarDrag.cancel();
@@ -572,20 +591,20 @@ function render() {
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
+  scheduleCalendarActivity();
 }
 function renderResults() {
   calendarDrag.cancel();
   if (refreshToday()) return render();
-  const dayFocus = document.activeElement?.dataset.calendarDay;
+  const token = focusToken(document.activeElement);
+  const restore = document.querySelector("#task-results")?.contains(document.activeElement);
   const results = document.querySelector("#task-results");
   if (!results) return;
   updateDOM(results, taskResults());
   syncTaskControls();
   document.querySelector("#result-count").textContent = headingCount();
-  if (dayFocus)
-    document
-      .querySelector(`[data-calendar-day="${dayFocus}"]`)
-      ?.focus({ preventScroll: true });
+  if (restore && token) restoreFocus(token);
+  scheduleCalendarActivity();
 }
 function navigatePage(page, scope = ui.scope) {
   const fromMobileMenu = ui.mobileMenu;
@@ -1292,6 +1311,7 @@ window.addEventListener("niuma:sync", () => {
   const alert = document.querySelector("#sync-alert");
   if (alert) alert.innerHTML = syncAlert();
   syncTaskControls();
+  if (session.sync === "saved" && !loading && ui.page === "tasks" && taskView() === "calendar") renderResults();
 });
 matchMedia("(max-width: 700px)").addEventListener("change", () => {
   ui.mobileMenu = false;

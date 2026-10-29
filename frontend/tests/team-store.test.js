@@ -12,6 +12,8 @@ const {
   authenticate,
   initSession,
   readStore,
+  readSavedTasks,
+  readProjectedStore,
   readCancelledTasks,
   saveStore,
   saveStoredTask,
@@ -878,4 +880,23 @@ test('logout waits for all queued mutations and none reaches the next account', 
   const next = fixture('after-queue-logout', [task('new')]);
   await initSession(); await retrySave();
   assert.equal(next.writes.length, 0);
+});
+
+
+test('calendar activity reads confirmed tasks until the pending completion receives a receipt', async () => {
+  fixture('calendar-confirmed', [task('a'), task('cancelled', { status: 'cancelled' })]);
+  await initSession();
+  const gate = holdFirstWrite();
+  const completion = setStoredTaskStatus('a', { status: 'done', completedAt: '2026-10-29' }, { status: 'todo', completedAt: '' });
+  try {
+    await gate.entered;
+    assert.equal(readProjectedStore().tasks[0].status, 'done');
+    assert.equal(readSavedTasks().length, 1);
+    assert.equal(readSavedTasks()[0].status, 'todo');
+    readSavedTasks()[0].title = 'caller-only';
+    assert.equal(readSavedTasks()[0].title, '任务 a');
+  } finally { gate.release(); }
+  await completion;
+  assert.equal(readSavedTasks()[0].status, 'done');
+  assert.equal(readSavedTasks()[0].completedAt, '2026-10-29');
 });
