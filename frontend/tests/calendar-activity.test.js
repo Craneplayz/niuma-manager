@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activityLevel, activitySummary, buildCalendarActivity, calendarDayTasks, calendarActivityOf, nextCalendarActivityChange } from "../src/calendar-activity.js";
+import { activityLevel, activitySummary, buildCalendarActivity, calendarDayTasks, calendarActivityOf, nextCalendarActivityChange, calendarDayAppearance } from "../src/calendar-activity.js";
 
 const today = "2026-10-29";
 const task = (id, fields = {}) => ({ id, title: id, content_type: "task", status: "todo", due: today, ...fields });
@@ -106,6 +106,35 @@ test("day lookup follows the same activity dates and preserves record identity a
 test("density bands use stable absolute counts, with empty and invalid counts remaining neutral", () => {
   assert.deepEqual([0, 1, 2, 3, 4, 6, 7, 20, 1000].map(activityLevel), [0, 1, 2, 2, 3, 3, 4, 4, 4]);
   for (const count of [undefined, null, NaN, Infinity, -1, "4"]) assert.equal(activityLevel(count), 0);
+});
+
+test("a day's single color prioritizes overdue over pending over done and only counts the chosen category", () => {
+  const mixed = Object.freeze({ done: 100, pending: 50, overdue: 1 });
+  assert.deepEqual(calendarDayAppearance(mixed), { kind: "overdue", count: 1, level: 1 });
+  assert.deepEqual(calendarDayAppearance({ done: 100, pending: 50, overdue: 3 }), { kind: "overdue", count: 3, level: 2 });
+  assert.deepEqual(calendarDayAppearance({ done: 100, pending: 2, overdue: 0 }), { kind: "pending", count: 2, level: 2 });
+  assert.deepEqual(calendarDayAppearance({ done: 4, pending: 0, overdue: 0 }), { kind: "done", count: 4, level: 3 });
+  assert.deepEqual([1, 2, 3, 4, 6, 7, 20].map(count => calendarDayAppearance({ done: 1000, pending: count }).level), [1, 2, 2, 3, 3, 4, 4]);
+  assert.deepEqual(mixed, { done: 100, pending: 50, overdue: 1 });
+});
+
+test("future deadlines produce pending color while completed-only days use their actual completion records", () => {
+  const activity = buildCalendarActivity([
+    task("future-one", { due: "2026-11-03" }),
+    task("future-two", { due: "2026-11-03" }),
+    task("completed", { status: "done", due: "2026-11-03", completedAt: "2026-10-28" }),
+  ], { today });
+  assert.deepEqual(calendarDayAppearance(activity.get("2026-11-03")), { kind: "pending", count: 2, level: 2 });
+  assert.deepEqual(calendarDayAppearance(activity.get("2026-10-28")), { kind: "done", count: 1, level: 1 });
+  assert.equal(calendarDayAppearance(activity.get("2026-10-27")), null);
+});
+
+test("empty or invalid counts keep the day white and fractional counts use the existing cleanup", () => {
+  for (const value of [undefined, null, {}, [], "unknown", { done: 0, pending: 0, overdue: 0 },
+    { done: Infinity, pending: "50", overdue: NaN }, { done: -1, pending: null, overdue: -3 }, { unknown: 7 }]) {
+    assert.equal(calendarDayAppearance(value), null);
+  }
+  assert.deepEqual(calendarDayAppearance({ overdue: 0.9, pending: 2.9, done: 100 }), { kind: "pending", count: 2, level: 2 });
 });
 
 test("accessible summaries expose each present category and do not create activity from invalid counts", () => {

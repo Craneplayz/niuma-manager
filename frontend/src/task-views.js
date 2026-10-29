@@ -45,7 +45,7 @@ export function renderTaskRow(
     today = todayKey(),
     compact = false,
     hideDeadline = false,
-    activityKind,
+    now,
     dateDraggable = false,
     reviewBusy = false,
   } = {},
@@ -53,7 +53,9 @@ export function renderTaskRow(
   if (task.reviewCandidateId) return renderPendingTaskRow(task, { escapeHtml, icon, today, reviewBusy });
   const notice = isNotice(task);
   const done = task.status === "done";
-  const overdue = !done && (activityKind ? activityKind === "overdue" : Boolean(shiftDay(task.due, 0)) && task.due < today);
+  const overdue = !done && (now && !notice
+    ? calendarActivityOf(task, { today, now })?.kind === "overdue"
+    : Boolean(shiftDay(task.due, 0)) && task.due < today);
   const meta = [...new Set([task.source].filter((value) => value && value !== task.course))];
   if (!notice && task.status === "doing") meta.push("进行中");
   const due = hideDeadline ? "" : compact
@@ -98,7 +100,6 @@ export function renderDayPanel({
   tasks = [],
   activityTasks = tasks,
   selectedDate,
-  activityPriority = "all",
   pane = "day",
   allowDateDrag = false,
   escapeHtml = escape,
@@ -127,17 +128,7 @@ export function renderDayPanel({
   const hint = visible.some(draggable)
     ? `<p class="calendar-drag-hint">按住${hasNotices ? "任务或通知" : "任务"}拖到日历日期，${isUndated ? "设置" : "更改"}${hasNotices ? "日期" : "截止日期"}</p>` : "";
   const dueRows = visible.length
-    ? visible.map((task) => renderTaskRow(task, { escapeHtml, icon, today, compact: true, dateDraggable: draggable(task) })).join("")
+    ? visible.map((task) => renderTaskRow(task, { escapeHtml, icon, today, now, compact: true, dateDraggable: draggable(task) })).join("")
     : `<p class="task-empty">${isUndated ? `没有无日期${kind}` : `当天没有${hasNotices ? "任务与通知" : "截止任务"}`}</p>`;
-  const priority = ["pending", "done", "overdue"].includes(activityPriority) ? activityPriority : "all";
-  const groups = [
-    { key: "overdue", label: "已逾期", tasks: visible.filter(task => !isNotice(task) && calendarActivityOf(task, { today, now })?.kind === "overdue") },
-    { key: "pending", label: "待完成", tasks: visible.filter(task => !isNotice(task) && calendarActivityOf(task, { today, now })?.kind !== "overdue") },
-    { key: "done", label: "这天完成", tasks: completed },
-    { key: "notice", label: "通知", tasks: visible.filter(isNotice) },
-  ];
-  if (priority !== "all") groups.sort((a, b) => Number(b.key === priority) - Number(a.key === priority));
-  const chips = `<div class="calendar-priority-switch" role="group" aria-label="当日任务优先顺序">${[["all", "全部"], ["overdue", "已逾期"], ["pending", "待完成"], ["done", "已完成"]].map(([key, label]) => `<button type="button" data-calendar-priority="${key}" aria-pressed="${priority === key}">${label}<span>${key === "all" ? dated.length + completed.length : counts[key]}</span></button>`).join("")}</div>`;
-  const rows = groups.filter(group => group.tasks.length || group.key === priority).map(group => `<section class="day-panel-group${group.key === "done" ? " day-panel-completed" : group.key === "notice" ? " day-panel-notices day-panel-due" : " day-panel-due"}" data-activity-group="${group.key}" aria-label="${group.label}"><h3>${group.label}<span>${group.tasks.length}</span>${group.key === priority ? '<span class="day-panel-priority-note">优先显示</span>' : ""}</h3>${group.tasks.length ? group.tasks.map(task => renderTaskRow(group.key === "done" ? { ...task, status: "done" } : task, { escapeHtml, icon, today, compact: true, hideDeadline: group.key === "done", dateDraggable: draggable(task), activityKind: group.key === "notice" ? undefined : group.key })).join("") : '<p class="task-empty">这天没有这类任务，其余内容仍在下方</p>'}</section>`).join("");
-  return `<aside class="day-panel" aria-label="${isUndated ? `无日期${kind}` : `${escapeHtml(dateText)}任务活动与日程`}"><div class="calendar-pane-switch" role="group" aria-label="日历内容范围"><button type="button" data-calendar-pane="day" class="${isUndated ? "" : "is-selected"}" aria-pressed="${!isUndated}">当日${kind}${dated.length + completed.length ? `<span>${dated.length + completed.length}</span>` : ""}</button><button type="button" data-calendar-pane="undated" class="${isUndated ? "is-selected" : ""}" aria-pressed="${isUndated}">无日期${undated.length ? `<span>${undated.length}</span>` : ""}</button></div><header class="day-panel-heading"><h2>${isUndated ? hasNotices ? "无日期内容" : "无截止日期" : escapeHtml(dateText)}</h2>${isUndated ? "" : `<span>${date === today ? "今天 · " : ""}星期${weekday}</span>`}</header>${isUndated ? "" : `<p class="day-panel-activity">${escapeHtml(activity)}</p>${chips}`}${hint}<div class="day-panel-tasks">${isUndated ? dueRows : rows || '<p class="task-empty">当天没有任务活动或通知</p>'}</div></aside>`;
+  return `<aside class="day-panel" aria-label="${isUndated ? `无日期${kind}` : `${escapeHtml(dateText)}任务活动与日程`}"><div class="calendar-pane-switch" role="group" aria-label="日历内容范围"><button type="button" data-calendar-pane="day" class="${isUndated ? "" : "is-selected"}" aria-pressed="${!isUndated}">当日${kind}${dated.length + completed.length ? `<span>${dated.length + completed.length}</span>` : ""}</button><button type="button" data-calendar-pane="undated" class="${isUndated ? "is-selected" : ""}" aria-pressed="${isUndated}">无日期${undated.length ? `<span>${undated.length}</span>` : ""}</button></div><header class="day-panel-heading"><h2>${isUndated ? hasNotices ? "无日期内容" : "无截止日期" : escapeHtml(dateText)}</h2>${isUndated ? "" : `<span>${date === today ? "今天 · " : ""}星期${weekday}</span>`}</header>${isUndated ? "" : `<p class="day-panel-activity">${escapeHtml(activity)}</p>`}${hint}<div class="day-panel-tasks">${isUndated ? dueRows : `<section class="day-panel-due" aria-label="截止与通知"><h3>截止与通知<span>${visible.length}</span></h3>${dueRows}</section><section class="day-panel-completed" aria-label="这天完成"><h3>这天完成<span>${completed.length}</span></h3>${completed.length ? completed.map(task => renderTaskRow({ ...task, status: "done" }, { escapeHtml, icon, today, compact: true, hideDeadline: true })).join("") : '<p class="task-empty">这天还没有完成记录</p>'}</section>`}</div></aside>`;
 }

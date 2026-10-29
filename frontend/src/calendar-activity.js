@@ -79,6 +79,15 @@ export function activityLevel(count) {
   return value === 0 ? 0 : value === 1 ? 1 : value <= 3 ? 2 : value <= 6 ? 3 : 4;
 }
 
+/** One day, one status color; its density comes only from that priority category. */
+export function calendarDayAppearance(counts = {}) {
+  for (const kind of ["overdue", "pending", "done"]) {
+    const count = countValue(counts?.[kind]);
+    if (count) return { kind, count, level: activityLevel(count) };
+  }
+  return null;
+}
+
 /** Plain text for date labels and tooltips; no markup or task content is interpolated. */
 export function activitySummary(counts = {}) {
   const labels = [["pending", "待完成"], ["done", "已完成"], ["overdue", "已逾期"]];

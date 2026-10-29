@@ -18,10 +18,23 @@ test("unknown navigation values and impossible dates fall back safely", () => {
   assert.deepEqual(navigation, {
     page: "tasks", scope: "all", view: "calendar", mode: "week", pane: "day",
     importSource: "text", anchor: "2026-10-18", selectedDate: "2026-10-18",
-    activityPriority: "all",
   });
   assert.equal(read("date=2024-02-29").selectedDate, "2024-02-29");
   assert.equal(read("date=2025-02-29").selectedDate, "2026-10-18");
+});
+
+test("legacy activity links keep the selected date and discard removed colour-priority navigation", () => {
+  const current = "view=calendar&mode=week&date=2026-10-21&anchor=2026-10-19";
+  const navigation = read(current);
+  for (const kind of ["done", "pending", "overdue", "all", "invalid"]) {
+    assert.deepEqual(read(`${current}&activity=${kind}`), navigation);
+  }
+  const url = navigationURL(`https://example.test/?${current}&activity=done&activity=overdue&other=kept`, navigation);
+  assert.equal(url.searchParams.has("activity"), false);
+  assert.equal(url.searchParams.get("date"), "2026-10-21");
+  assert.equal(url.searchParams.get("mode"), "week");
+  assert.equal(url.searchParams.get("other"), "kept");
+  assert.deepEqual(read(url.searchParams), navigation);
 });
 
 test("navigation round trips without leaking filters, credentials or form drafts", () => {

@@ -1,14 +1,13 @@
 import { isNotice, sortTasks } from "./task-model.js";
 import { courseIdentity, renderCourseBadge, renderCourseDot } from "./course-identity.js";
-import { buildCalendarActivity, activitySummary } from "./calendar-activity.js";
-import { renderCalendarSurface } from "./calendar-surface.js";
+import { buildCalendarActivity, calendarDayAppearance, activitySummary } from "./calendar-activity.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const DAY_MS = 86400000;
-const ACTIVITY_KINDS = [["pending", "待完成"], ["done", "已完成"], ["overdue", "已逾期"]];
+const ACTIVITY_KINDS = [["overdue", "已逾期"], ["pending", "待完成"], ["done", "已完成"]];
 
 export function renderCalendarActivityLegend() {
-  return `<div class="calendar-activity-legend" aria-label="任务活动图例"><div class="calendar-activity-keys">${ACTIVITY_KINDS.map(([kind, label]) => `<span class="calendar-activity-key"><span class="calendar-activity-cell" data-activity="${kind}" data-level="3" aria-hidden="true"></span>${label}</span>`).join("")}</div><p>颜色越深，数量越多<span>完成按完成日，其余按截止日；今天有时刻的任务按时刻判断</span></p></div>`;
+  return `<div class="calendar-activity-legend" aria-label="任务活动图例"><div class="calendar-activity-keys">${ACTIVITY_KINDS.map(([kind, label]) => `<span class="calendar-activity-key"><span class="calendar-activity-cell" data-activity="${kind}" data-level="3" aria-hidden="true"></span>${label}</span>`).join("")}</div><p>数量越多，颜色越浓<span>逾期优先，其次待办、完成；完成按完成日，其余按截止日</span></p></div>`;
 }
 
 function readDate(value) {
@@ -56,7 +55,6 @@ export function renderCalendar({
   anchorDate,
   mode = "month",
   selectedDate,
-  activityPriority = "all",
   today,
   now = new Date(),
   allowDateDrag = false,
@@ -94,6 +92,8 @@ export function renderCalendar({
     const members = byDate.get(iso) || [];
     const counts = activity.get(iso) || { pending: 0, done: 0, overdue: 0 };
     const activityText = activitySummary(counts);
+    const appearance = calendarDayAppearance(counts);
+    const appearanceAttrs = appearance ? ` data-activity-kind="${appearance.kind}" data-activity-count="${appearance.count}" data-activity-level="${appearance.level}"` : "";
     const isToday = iso === todayISO;
     const isSelected = iso === selectedISO;
     const isOtherMonth = !isWeek && date.getUTCMonth() !== anchor.getUTCMonth();
@@ -109,7 +109,6 @@ export function renderCalendar({
     const dayCourses = [...new Map(members.map(task => [courseIdentity(task.course).key, task.course])).values()];
     const courseNames = dayCourses.map(course => courseIdentity(course).label || "未分类");
     const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "无截止内容"}，${activityText}${courseNames.length ? `，课程：${courseNames.join("、")}` : ""}`;
-    const surface = renderCalendarSurface({ date: iso, counts, mode: isWeek ? "week" : "month", selectedKind: isSelected ? activityPriority : "", escapeHtml });
     const courseDots = !isWeek && dayCourses.length
       ? `<span class="calendar-day-course-dots" aria-hidden="true">${dayCourses.slice(0, 3).map(renderCourseDot).join("")}</span>`
       : "";
@@ -132,7 +131,7 @@ export function renderCalendar({
       isWeek && !members.length
         ? '<p class="calendar-day-empty">无截止内容</p>'
         : "";
-    return `<section class="${classes}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}">${surface}<div class="calendar-day-heading">${weekday}<button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" title="${escapeHtml(activityText)}" aria-pressed="${isSelected}"><span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span></button>${count}${!isWeek ? mobileCount : ""}${courseDots}</div><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
+    return `<section class="${classes}" data-calendar-drop-date="${iso}"${appearanceAttrs} role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" title="${escapeHtml(activityText)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}${courseDots}</button><div class="calendar-day-tasks">${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
   }
 
   if (isWeek) {

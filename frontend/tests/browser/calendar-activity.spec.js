@@ -10,7 +10,6 @@ const task = (id, date, fields = {}) => ({
   course: "数据结构", source: "教学网", plans: [], subtasks: [], ...fields,
 });
 const cell = (page, date) => page.locator(`.calendar-day[data-calendar-drop-date="${date}"]`);
-const square = (page, date, kind) => cell(page, date).locator(`.calendar-activity-region[data-calendar-activity="${kind}"]`);
 
 function pendingReview() {
   return [{
@@ -34,11 +33,14 @@ function activityTasks() {
       ...(kind === "done" ? { status: "completed", completedAt: date } : {}),
     }));
   };
-  [["2026-10-29", 1], ["2026-10-30", 2], ["2026-10-31", 4], ["2026-11-01", 7]].forEach(([date, count]) => add("pending", date, count));
-  [["2026-10-26", 1], ["2026-10-27", 2], ["2026-10-28", 4], ["2026-10-25", 7]].forEach(([date, count]) => {
-    add("overdue", date, count);
-    add("done", date, count);
-  });
+  add("done", today, 9);
+  add("pending", today, 8);
+  tasks.push(task("today-expired", today, { due: { date: today, time: "09:00", precision: "datetime" } }));
+  for (const [date, count] of [["2026-10-25", 7], ["2026-10-27", 1], ["2026-10-28", 3]]) add("overdue", date, count);
+  add("done", "2026-10-27", 1);
+  add("done", "2026-10-28", 14);
+  add("done", "2026-10-26", 2);
+  for (const [date, count] of [["2026-10-30", 2], ["2026-10-31", 4], ["2026-11-01", 7]]) add("pending", date, count);
   tasks.push(
     task("unread-notice", "2026-10-30", { content_type: "notice" }),
     task("read-notice", "2026-10-26", { content_type: "notice", status: "completed", completedAt: "2026-10-26" }),
@@ -49,16 +51,17 @@ function activityTasks() {
   return tasks;
 }
 
-async function workspace(page, { tasks: initialTasks = activityTasks(), reviews = pendingReview(), url = "/" } = {}) {
-  await page.clock.setFixedTime(new Date("2026-10-29T04:00:00Z"));
-  let tasks = structuredClone(initialTasks), version = 1;
+async function workspace(page, { tasks: initialTasks = activityTasks(), reviews = pendingReview(), url = "/", timers = false } = {}) {
+  if (timers) await page.clock.install({ time: new Date("2026-10-29T04:00:00Z") });
+  else await page.clock.setFixedTime(new Date("2026-10-29T04:00:00Z"));
+  let tasks = structuredClone(initialTasks), version = 1, reads = 0;
   const unknown = [], errors = [], writes = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", async route => {
     const request = route.request(), path = new URL(request.url()).pathname;
     let value;
     if (path === "/api/auth/me") value = { user: { id: "activity-browser-user", name: "合成账号", email: "activity@example.test", emailVerified: true } };
-    else if (path === "/api/workspace") value = { tasks: { version, value: tasks }, trash: { version: 1, value: [] } };
+    else if (path === "/api/workspace") { reads++; value = { tasks: { version, value: tasks }, trash: { version: 1, value: [] } }; }
     else if (path === "/api/data/tasks") {
       const body = structuredClone(request.postDataJSON());
       expect(body.version).toBe(version);
@@ -80,7 +83,7 @@ async function workspace(page, { tasks: initialTasks = activityTasks(), reviews 
   });
   await page.goto(url);
   await expect(page.locator(".loading-state")).toHaveCount(0);
-  return { unknown, errors, writes, tasks: () => structuredClone(tasks) };
+  return { unknown, errors, writes, reads: () => reads, tasks: () => structuredClone(tasks) };
 }
 
 function noErrors(state) {
@@ -88,78 +91,79 @@ function noErrors(state) {
   expect(state.errors).toEqual([]);
 }
 
-async function expectActivity(page, date, expected) {
-  await expect(cell(page, date).locator(".calendar-activity-region")).toHaveCount(Object.values(expected).filter(count => count > 0).length);
-  for (const [kind, count] of Object.entries(expected)) {
-    const level = count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 6 ? 3 : 4;
-    if (!count) { await expect(square(page, date, kind)).toHaveCount(0); continue; }
-    await expect(square(page, date, kind)).toHaveAttribute("data-count", String(count));
-    await expect(square(page, date, kind)).toHaveAttribute("data-level", String(level));
+async function expectStatus(page, date, kind, count = 0) {
+  const target = cell(page, date);
+  if (!kind) {
+    for (const name of ["data-activity-kind", "data-activity-count", "data-activity-level"]) await expect(target).not.toHaveAttribute(name);
+    return;
   }
+  const level = count === 1 ? 1 : count <= 3 ? 2 : count <= 6 ? 3 : 4;
+  await expect(target).toHaveAttribute("data-activity-kind", kind);
+  await expect(target).toHaveAttribute("data-activity-count", String(count));
+  await expect(target).toHaveAttribute("data-activity-level", String(level));
 }
 
-test("month activity uses due dates for blue/orange, actual completion dates for green, and four stable intensity levels", async ({ page }, info) => {
-  const state = await workspace(page);
-  await expect(page.locator('[data-review-id="activity-pending"]')).toBeVisible();
-  await page.locator('[data-view="calendar"]').click();
-  for (const [date, count] of [["2026-10-29", 1], ["2026-10-30", 2], ["2026-10-31", 4], ["2026-11-01", 7]]) {
-    await expectActivity(page, date, { pending: count, done: 0, overdue: 0 });
-  }
-  for (const [date, count] of [["2026-10-26", 1], ["2026-10-27", 2], ["2026-10-28", 4], ["2026-10-25", 7]]) {
-    await expectActivity(page, date, { pending: 0, done: count, overdue: count });
-  }
-  await expectActivity(page, "2026-10-24", { pending: 0, done: 0, overdue: 0 });
-  // A notice, cancelled task, trashed task and unconfirmed draft all share this
-  // deadline, but only the two real unfinished tasks contribute to activity.
-  await expect(square(page, "2026-10-30", "pending")).toHaveAttribute("data-count", "2");
-  const samples = [
-    ["pending", ["2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"]],
-    ["done", ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-25"]],
-    ["overdue", ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-25"]],
-  ];
-  const strongest = [];
-  for (const [kind, dates] of samples) {
-    const colors = [];
-    for (const date of dates) colors.push(await cell(page, date).locator(`.calendar-surface-region[data-activity="${kind}"]`).evaluate(element => getComputedStyle(element).fill));
-    expect(new Set(colors).size).toBe(4);
-    strongest.push(colors[3]);
-  }
-  expect(new Set(strongest).size).toBe(3);
-  await expect(cell(page, "2026-10-30").locator(".calendar-date-button")).toHaveAttribute("title", /2/);
-  // Dates lead keyboard navigation; the large day-panel controls provide equivalent priority selection.
-  await expect(page.locator('.calendar-activity-region[tabindex="0"]')).toHaveCount(0);
-  await page.screenshot({ path: info.outputPath("calendar-activity-month.png"), fullPage: true });
+const color = locator => locator.evaluate(element => getComputedStyle(element).backgroundColor);
+const calendarURL = "/?view=calendar&mode=month&anchor=2026-10-29&date=2026-10-29";
+
+test("each day has one priority colour and its intensity uses only the highest-priority count", async ({ page }, info) => {
+  const state = await workspace(page, { url: calendarURL });
+  for (const [date, kind, count] of [
+    [today, "overdue", 1], ["2026-10-27", "overdue", 1], ["2026-10-28", "overdue", 3],
+    ["2026-10-25", "overdue", 7], ["2026-10-26", "done", 2], ["2026-10-30", "pending", 2],
+    ["2026-10-31", "pending", 4], ["2026-11-01", "pending", 7],
+  ]) await expectStatus(page, date, kind, count);
+  await expectStatus(page, "2026-10-24", null);
+  // Today's nine completions and eight remaining tasks cannot darken its one
+  // overdue task. Another day with one overdue task has the same red.
+  expect(await color(cell(page, today))).toBe(await color(cell(page, "2026-10-27")));
+  expect(await color(cell(page, today))).not.toBe(await color(cell(page, "2026-10-28")));
+  const tones = await Promise.all([today, "2026-10-26", "2026-10-30"].map(date => color(cell(page, date))));
+  expect(new Set(tones).size).toBe(3);
+  const channels = tones.map(tone => tone.match(/[\d.]+/g).slice(0, 3).map(Number));
+  expect(channels[0][0]).toBeGreaterThan(channels[0][1]);
+  expect(channels[1][1]).toBeGreaterThan(channels[1][0]);
+  expect(channels[2][2]).toBeGreaterThan(channels[2][0]);
+  for (const date of [today, "2026-10-26", "2026-10-30"]) await expect(cell(page, date)).toHaveCSS("background-image", "none");
+  expect(["rgb(255, 255, 255)", "rgba(0, 0, 0, 0)"]).toContain(await color(cell(page, "2026-10-24")));
+  await expect(page.locator(".calendar-surface, .calendar-activity-region, [data-calendar-priority]")).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+  await page.screenshot({ path: info.outputPath("calendar-day-status-month.png"), fullPage: true });
   noErrors(state);
 });
 
-test("calendar activity ignores list filters, matches across month/week, and preserves mobile course markers and the full month", async ({ page }, info) => {
+test("month and week agree, while clicking a date shows all its content and retains narrow course markers", async ({ page }, info) => {
   const state = await workspace(page);
+  await expect(page.locator('[data-review-id="activity-pending"]')).toBeVisible();
   await page.locator("#task-search").fill("不存在的合成搜索词");
   await page.locator("#course-filter").selectOption("线性代数");
   await expect(page.locator(".task-row")).toHaveCount(0);
   await page.locator('[data-view="calendar"]').click();
-  await expect(page.locator("#task-search")).toHaveCount(0);
-  await expectActivity(page, "2026-10-30", { pending: 2, done: 0, overdue: 0 });
+  await expectStatus(page, "2026-10-30", "pending", 2);
   await expect(cell(page, "2026-10-30").locator(".calendar-day-course-dots > .course-dot")).toHaveCount(2);
   if (page.viewportSize().width <= 700) await expect(cell(page, "2026-10-30").locator(".calendar-day-course-dots")).toBeVisible();
   const grid = await page.locator(".calendar-month-grid").boundingBox();
   expect(grid.y + grid.height).toBeLessThanOrEqual(page.viewportSize().height + 1);
-  const weekDates = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"];
-  const snapshot = async () => Promise.all(weekDates.map(async date => ({
-    date,
-    counts: await cell(page, date).locator(".calendar-activity-region").evaluateAll(elements => elements.map(element => ({ kind: element.dataset.calendarActivity, count: element.dataset.count, level: element.dataset.level }))),
-  })));
+  await cell(page, today).locator(".calendar-date-button").click();
+  await expect(page.locator(".day-panel .task-row")).toHaveCount(18);
+  for (const id of ["today-expired", `pending-${today}-0`, `done-${today}-0`]) await expect(page.locator(`.day-panel [data-task-id="${id}"]`)).toHaveCount(1);
+  await cell(page, "2026-10-30").locator(".calendar-date-button").click();
+  await expect(page.locator(".day-panel .task-row")).toHaveCount(3);
+  await expect(page.locator('.day-panel [data-task-id="unread-notice"]')).toHaveCount(1);
+  await expect(page.locator("[data-calendar-priority], .calendar-activity-region")).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.has("activity")).toBe(false);
+  expect(new URL(page.url()).searchParams.has("priority")).toBe(false);
+  const dates = ["2026-10-26", "2026-10-27", "2026-10-28", today, "2026-10-30", "2026-10-31", "2026-11-01"];
+  const snapshot = () => Promise.all(dates.map(date => cell(page, date).evaluate(element => ({
+    kind: element.dataset.activityKind, count: element.dataset.activityCount, level: element.dataset.activityLevel,
+    color: getComputedStyle(element).backgroundColor,
+  }))));
   const month = await snapshot();
-  await page.screenshot({ path: info.outputPath("calendar-activity-month-filter-independent.png"), fullPage: true });
   await page.locator('[data-calendar-mode="week"]').click();
   expect(await snapshot()).toEqual(month);
   await expect(page.locator(".calendar-week .calendar-day")).toHaveCount(7);
-  const surfaceBox = await cell(page, today).locator(".calendar-surface").boundingBox();
-  const dayBox = await cell(page, today).boundingBox();
-  expect(Math.abs(surfaceBox.width - dayBox.width)).toBeLessThanOrEqual(2);
-  expect(Math.abs(surfaceBox.height - dayBox.height)).toBeLessThanOrEqual(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: info.outputPath("calendar-activity-week.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("calendar-day-status-week.png"), fullPage: true });
   await page.locator('[data-view="list"]').click();
   await expect(page.locator("#task-search")).toHaveValue("不存在的合成搜索词");
   await expect(page.locator("#course-filter")).toHaveValue("线性代数");
@@ -167,46 +171,63 @@ test("calendar activity ignores list filters, matches across month/week, and pre
   noErrors(state);
 });
 
-test("a completed-only historical day opens real tasks; reopening and completing recompute green on the actual day and support undo", async ({ page }, info) => {
-  const state = await workspace(page, {
-    tasks: [
-      task("historical", "2026-11-12", { status: "completed", completedAt: "2026-10-20", title: unsafeTitle }),
-      task("future", "2026-10-30"),
-    ], reviews: [], url: "/?view=calendar&mode=month&anchor=2026-10-29&date=2026-10-29",
-  });
-  await expectActivity(page, "2026-10-20", { pending: 0, done: 1, overdue: 0 });
+test("an explicit deadline turns a blue day red at its time without a refresh or task write", async ({ page }) => {
+  const state = await workspace(page, { reviews: [], url: calendarURL, timers: true, tasks: [
+    task("timed", today, { due: { date: today, time: "12:01", precision: "datetime" } }),
+    task("date-only", today),
+    task("already-done", "2026-11-12", { status: "completed", completedAt: today }),
+  ] });
+  await expectStatus(page, today, "pending", 2);
+  const url = page.url();
+  await page.clock.fastForward(60_100);
+  await expectStatus(page, today, "overdue", 1);
+  await expect(page.locator(".day-panel .task-row")).toHaveCount(3);
+  for (const id of ["timed", "date-only", "already-done"]) await expect(page.locator(`.day-panel [data-task-id="${id}"]`)).toHaveCount(1);
+  expect(page.url()).toBe(url);
+  expect(state.reads()).toBe(1);
+  expect(state.writes).toEqual([]);
+  noErrors(state);
+});
+
+test("historical completion records support reopening and undo without inventing a completion deadline", async ({ page }, info) => {
+  const state = await workspace(page, { reviews: [], url: calendarURL, tasks: [
+    task("historical", "2026-10-28", { status: "completed", completedAt: "2026-10-20", title: unsafeTitle }),
+    task("future", "2026-10-30"),
+  ] });
+  await expectStatus(page, "2026-10-20", "done", 1);
+  await expectStatus(page, "2026-10-28", null);
   await cell(page, "2026-10-20").locator(".calendar-date-button").click();
   const completed = page.locator(".day-panel-completed");
   await expect(completed.locator('[data-task-id="historical"]')).toBeVisible();
-  await expect(page.locator('[data-calendar-pane="day"] > span')).toHaveText("1");
-  await expect(page.locator('.day-panel-due [data-task-id="historical"]')).toHaveCount(0);
   await expect(completed.locator('[data-task-open="historical"] .task-title')).toHaveText(unsafeTitle);
   await expect(completed.locator("img")).toHaveCount(0);
   await completed.locator('[data-task-open="historical"]').click();
   const drawer = page.locator("#task-drawer");
   await expect(drawer.locator("#drawer-heading")).toHaveText(unsafeTitle);
-  await expect(drawer.locator("#drawer-heading img")).toHaveCount(0);
   await drawer.getByRole("button", { name: "重新打开", exact: true }).click();
   await expect.poll(() => state.tasks().find(item => item.id === "historical").status).toBe("not_started");
-  expect(state.tasks().find(item => item.id === "historical").completedAt).toBe("");
-  await expectActivity(page, "2026-10-20", { pending: 0, done: 0, overdue: 0 });
+  await expectStatus(page, "2026-10-20", null);
+  await expectStatus(page, "2026-10-28", "overdue", 1);
   await page.keyboard.press("Escape");
-  await expect(page.locator('.day-panel-completed [data-task-id="historical"]')).toHaveCount(0);
+  await page.locator("#toast-undo").click();
+  await expect.poll(() => state.tasks().find(item => item.id === "historical").status).toBe("completed");
+  expect(state.tasks().find(item => item.id === "historical").completedAt).toBe("2026-10-20");
+  await expectStatus(page, "2026-10-20", "done", 1);
+  await expectStatus(page, "2026-10-28", null);
   await cell(page, "2026-10-30").locator(".calendar-date-button").click();
-  await page.locator('.day-panel-due [data-task-complete="future"]').click();
+  await page.locator('.day-panel [data-task-complete="future"]').click();
   await expect.poll(() => state.tasks().find(item => item.id === "future").status).toBe("completed");
   expect(state.tasks().find(item => item.id === "future").completedAt).toBe(today);
-  await expectActivity(page, "2026-10-30", { pending: 0, done: 0, overdue: 0 });
-  await expectActivity(page, today, { pending: 0, done: 1, overdue: 0 });
+  await expectStatus(page, "2026-10-30", null);
+  await expectStatus(page, today, "done", 1);
   await cell(page, today).locator(".calendar-date-button").click();
   await expect(page.locator('.day-panel-completed [data-task-id="future"]')).toBeVisible();
-  await page.screenshot({ path: info.outputPath("calendar-activity-completed-day.png"), fullPage: true });
+  await page.screenshot({ path: info.outputPath("calendar-day-status-completed-day.png"), fullPage: true });
   await page.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "future").status).toBe("not_started");
-  await expectActivity(page, today, { pending: 0, done: 0, overdue: 0 });
-  await expectActivity(page, "2026-10-30", { pending: 1, done: 0, overdue: 0 });
+  await expectStatus(page, today, null);
+  await expectStatus(page, "2026-10-30", "pending", 1);
   expect(await page.evaluate(() => window.__calendarActivityUnsafe)).toBeUndefined();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  expect(state.writes).toHaveLength(3);
+  expect(state.writes).toHaveLength(4);
   noErrors(state);
 });

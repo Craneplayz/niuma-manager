@@ -390,7 +390,7 @@ function taskResults() {
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
   const now = new Date();
-  return `${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks: state.tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, activityPriority: ui.activityPriority, today, now, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks: state.tasks, selectedDate: ui.selectedDate, activityPriority: ui.activityPriority, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today, now })}</div>`;
+  return `${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks: state.tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, now, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks: state.tasks, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today, now })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -430,7 +430,6 @@ function syncAlert() {
 }
 function focusToken(el) {
   if (el?.id) return { id: el.id };
-  if (el?.dataset.calendarActivity) return { key: "calendarActivity", value: el.dataset.calendarActivity, date: el.dataset.calendarDay };
   const key = Object.keys(el?.dataset || {}).find((key) =>
     [
       "action",
@@ -443,7 +442,6 @@ function focusToken(el) {
       "calendarDay",
       "calendarMode",
       "calendarPane",
-      "calendarPriority",
       "accountAction",
     ].includes(key),
   );
@@ -451,16 +449,11 @@ function focusToken(el) {
 }
 function restoreFocus(token) {
   if (!token) return;
-  let el = token.id
+  const el = token.id
     ? document.getElementById(token.id)
     : [...document.querySelectorAll("button,input")].find(
-        (el) => el.dataset[token.key] === token.value &&
-          (token.key !== "calendarActivity" || el.dataset.calendarDay === token.date) &&
-          (token.key !== "calendarDay" || !el.dataset.calendarActivity),
+        (el) => el.dataset[token.key] === token.value,
       );
-  if (!el && token.key === "calendarActivity") {
-    el = [...document.querySelectorAll(".calendar-date-button")].find(button => button.dataset.calendarDay === token.date);
-  }
   if (el && !el.disabled) el.focus({ preventScroll: true });
 }
 function refreshToday() {
@@ -805,7 +798,6 @@ function calendarStep(direction) {
     ui.selectedDate = ui.anchor;
   }
   ui.pane = "day";
-  ui.activityPriority = "all";
   syncNavigation();
   renderResults();
 }
@@ -854,7 +846,6 @@ const actions = {
     ui.anchor = todayKey();
     ui.selectedDate = ui.anchor;
     ui.pane = "day";
-    ui.activityPriority = "all";
     syncNavigation();
     renderResults();
   },
@@ -970,7 +961,6 @@ document.addEventListener("click", async (e) => {
     }
     if (button.dataset.calendarMode) {
       ui.mode = button.dataset.calendarMode;
-      ui.activityPriority = "all";
       if (ui.mode === "week") ui.anchor = ui.selectedDate;
       remember();
       syncNavigation();
@@ -979,18 +969,10 @@ document.addEventListener("click", async (e) => {
     }
     if (button.dataset.calendarDay) {
       ui.selectedDate = button.dataset.calendarDay;
-      ui.activityPriority = ["pending", "done", "overdue"].includes(button.dataset.calendarActivity) ? button.dataset.calendarActivity : "all";
       ui.pane = "day";
       syncNavigation();
       renderResults();
       showMobileDay();
-      return;
-    }
-    if (button.dataset.calendarPriority) {
-      ui.activityPriority = ["pending", "done", "overdue"].includes(button.dataset.calendarPriority) ? button.dataset.calendarPriority : "all";
-      ui.pane = "day";
-      syncNavigation();
-      renderResults();
       return;
     }
     if (button.dataset.calendarPane) {
@@ -1040,7 +1022,6 @@ document.addEventListener("change", (e) => {
       ui.anchor = value;
       ui.selectedDate = value;
       ui.pane = "day";
-      ui.activityPriority = "all";
       syncNavigation();
     }
   } else return;

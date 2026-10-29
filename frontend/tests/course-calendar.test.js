@@ -18,8 +18,7 @@ test("collapsed date summaries show at most three distinct course markers withou
   syncCourseColors(tasks.map(item => item.course), { scope: "calendar-markers", storage: null });
   const html = renderCalendar({ tasks, today, anchorDate: today });
   const button = dateButton(html);
-  const heading = dayCell(html).match(/<div class="calendar-day-heading">[\s\S]*?<\/div>/)?.[0] || "";
-  const dots = heading.match(/class="course-dot"/g) || [];
+  const dots = button.match(/class="course-dot"/g) || [];
   assert.equal(dots.length, 3);
   for (const name of ["数据结构", "概率论", "线性代数", "大学英语"])
     assert.ok(button.includes(name), `date accessible name includes ${name}`);
