@@ -10,6 +10,7 @@
 | `course-identity.js` / `course-identity.css` | 规范化课程身份、账号范围配色偏好、课程签、简称与色点 |
 | `task-views.js` | 清单任务行、截止分组、当日及无日期任务面板 |
 | `calendar.js` / `calendar.css` | 月历、周截止日程及任务组件样式 |
+| `calendar-activity.js` | 按截止日、明确时刻与完成日聚合，决定最高优先类别及其数量档位，并计算下一次变化时间 |
 | `calendar-drag.js` | 任务分配日期与改期的鼠标手势、日期落点预览和取消 |
 | `task-drawer.js` / `task-evidence.js` | 任务详情、编辑字段、原文与证据链接 |
 | `import-ui.js` | 文本通知、教学网连接与采集、候选确认和失败重试 |
@@ -46,7 +47,7 @@
 
 找回密码使用 `purpose=reset_password`，挑战同时绑定表单用途和邮箱，不能复用注册或补验证挑战。提交 `{email,challengeId,code,newPassword}` 成功后仅返回登录面板，不自动登录或改写已登录账号的工作区；邮箱资格不从发码响应推断。后台撤销所有旧会话，当前浏览器再次使用时由原鉴权流程处理过期状态。
 
-客户端工作区只有 `tasks` 与 `trash`；任务使用字符串 ID、`due: YYYY-MM-DD`、可选 `dueTime: HH:MM` 和 `status: todo | doing | done`。`team-store.js` 只缓存任务与其版本，保存只写任务，不保存 `courses` 或 `materials`；导入核对通过 `getTaskVersion()` 读取任务版本。账号昵称使用服务端的 `name` 字段。编辑表单保存前校验打开时的可编辑字段，目标被删除或内容已变化时保留草稿并提示重新核对；状态等独立变化不阻止编辑。日历只读取未完成任务的截止日期，不维护 `schedule`、学习时段日期转换、估时、子任务编辑或依赖关系恢复等旧界面适配，也不包含历史任务迁移。
+客户端工作区只有 `tasks` 与 `trash`；任务使用字符串 ID、`due: YYYY-MM-DD`、可选 `dueTime: HH:MM` 和 `status: todo | doing | done`。`team-store.js` 只缓存任务与其版本，保存只写任务，不保存 `courses` 或 `materials`；导入核对通过 `getTaskVersion()` 读取任务版本。账号昵称使用服务端的 `name` 字段。编辑表单保存前校验打开时的可编辑字段，目标被删除或内容已变化时保留草稿并提示重新核对；状态等独立变化不阻止编辑。日历按截止日展示未完成任务，按实际完成日读取完成记录，不维护 `schedule`、学习时段日期转换、估时、子任务编辑或依赖关系恢复等旧界面适配，也不包含历史任务迁移。
 
 服务端任务 PUT 仍要求 `plans`、`subtasks` 为数组；新任务使用空数组，已有任务字段直接透传，不重新构造对应内容。来源证据通过 `task-evidence.js` 的接口读取；删除、撤销与恢复通过任务保存接口更新回收站标记。
 

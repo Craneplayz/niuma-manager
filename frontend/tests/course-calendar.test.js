@@ -7,7 +7,8 @@ const today = "2026-10-26";
 const task = (id, course, extra = {}) => ({
   id, title: `任务 ${id}`, course, due: today, status: "todo", ...extra,
 });
-const dateButton = html => html.match(new RegExp(`<button[^>]*data-calendar-day="${today}"[^>]*>[\\s\\S]*?<\\/button>`))?.[0] || "";
+const dateButton = html => html.match(new RegExp(`<button[^>]*class="calendar-date-button"[^>]*data-calendar-day="${today}"[^>]*>[\\s\\S]*?<\\/button>`))?.[0] || "";
+const dayCell = html => html.match(new RegExp(`<section[^>]*data-calendar-drop-date="${today}"[^>]*>[\\s\\S]*?<\\/section>`))?.[0] || "";
 
 test("collapsed date summaries show at most three distinct course markers without losing accessible course names", () => {
   const tasks = [
@@ -30,7 +31,7 @@ test("course names stay escaped in task and day labels while click and drag iden
   const course = '"><svg onload="unsafe">';
   const item = task('quoted"id', course);
   const html = renderCalendar({ tasks: [item], today, anchorDate: today, allowDateDrag: true });
-  assert.doesNotMatch(html, /<svg|onload="unsafe"/);
+  assert.doesNotMatch(html, /<svg onload|onload="unsafe"/);
   assert.match(html, /&lt;svg/);
   assert.match(html, /data-task-open="quoted&quot;id"/);
   assert.match(html, /data-calendar-drag-task="quoted&quot;id"/);

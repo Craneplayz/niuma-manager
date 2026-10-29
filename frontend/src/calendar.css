@@ -837,6 +837,85 @@ body.is-calendar-dragging * {
     opacity: 0.5;
   }
 
+  .task-row:not(.is-compact) {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 0 7px;
+    padding: 7px 0;
+  }
+
+  .task-row:not(.is-compact) .task-complete {
+    margin-left: -3px;
+  }
+
+  .task-row:not(.is-compact) .task-deadline {
+    grid-column: 2;
+    padding: 0 0 4px;
+  }
+
+  .task-row:not(.is-compact) .task-title {
+    font-size: 17px;
+  }
+
+  .day-panel {
+    margin-top: 26px;
+  }
+}
+
+@media (pointer: coarse) {
+  .calendar-view .calendar-task,
+  .calendar-view .calendar-more {
+    min-height: 44px;
+  }
+}
+
+@container calendar-day (max-height: 60px) {
+  .calendar-month .calendar-day-course-dots {
+    display: none;
+  }
+}
+
+/* One background per day. Only the highest-priority category determines its density. */
+.calendar-activity-legend { display: flex; align-items: center; flex-wrap: wrap; flex: none; gap: 6px 18px; margin: -5px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.6; }
+.calendar-activity-keys { display: flex; align-items: center; gap: 14px; }
+.calendar-activity-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.calendar-activity-legend p { display: flex; flex-wrap: wrap; gap: 0 12px; margin: 0; }
+.calendar-activity-cell { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.calendar-activity-cell[data-activity="overdue"], .calendar-day[data-activity-kind="overdue"] { --activity-rgb: 255 77 87; }
+.calendar-activity-cell[data-activity="pending"], .calendar-day[data-activity-kind="pending"] { --activity-rgb: 22 155 255; }
+.calendar-activity-cell[data-activity="done"], .calendar-day[data-activity-kind="done"] { --activity-rgb: 23 217 138; }
+.calendar-activity-cell[data-level="1"], .calendar-day[data-activity-level="1"] { --activity-alpha: .10; }
+.calendar-activity-cell[data-level="2"], .calendar-day[data-activity-level="2"] { --activity-alpha: .18; }
+.calendar-activity-cell[data-level="3"], .calendar-day[data-activity-level="3"] { --activity-alpha: .26; }
+.calendar-activity-cell[data-level="4"], .calendar-day[data-activity-level="4"] { --activity-alpha: .34; }
+.calendar-activity-cell { background: rgb(var(--activity-rgb) / var(--activity-alpha)); }
+.calendar-view .calendar-day.is-selected { background: #fff; box-shadow: inset 0 0 0 1px var(--action-text); }
+.calendar-view .calendar-day.is-drop-target { box-shadow: inset 0 0 0 2px var(--blue); }
+.calendar-view .calendar-day[data-activity-kind] { background: rgb(var(--activity-rgb) / var(--activity-alpha)); --muted: #45535f; }
+.calendar-view .calendar-day[data-activity-kind] .calendar-task .course-name { color: color-mix(in srgb, var(--course-ink) 70%, var(--ink)); }
+.calendar-view .calendar-day[data-activity-kind] .calendar-date-button:not(:disabled):hover,
+.calendar-view .calendar-day[data-activity-kind] .calendar-task:not(:disabled):hover { background: #ffffff66; }
+.calendar-view .is-other-month[data-activity-kind] .calendar-day-number,
+.calendar-view .is-other-month[data-activity-kind] .calendar-day-tasks { opacity: 1; }
+.calendar-view.calendar-month .calendar-date-button { flex-direction: column; align-items: center; justify-content: center; min-height: 44px; gap: 3px; padding: 2px 0; }
+.day-panel-activity { margin: -3px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.day-panel-due > h3, .day-panel-completed > h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 12px; color: var(--muted); font-weight: 500; line-height: 1.6; }
+.day-panel-due > h3 > span, .day-panel-completed > h3 > span { font-size: 11px; font-variant-numeric: tabular-nums; }
+.day-panel-completed { margin-top: 24px; }
+.day-panel-completed .task-empty, .day-panel-due .task-empty { padding: 8px 0; font-size: 12px; }
+@container calendar-day (max-height: 88px) {
+  .calendar-month .calendar-day-tasks { display: none; }
+  .calendar-month .calendar-day-mobile-count { display: none; }
+  .calendar-month .calendar-date-button { height: 100%; }
+}
+@media (max-width: 700px) {
+  .calendar-activity-legend { gap: 4px; margin: -2px 0 12px; }
+  .calendar-activity-keys { gap: 12px; }
+  .calendar-activity-legend p { gap: 0 8px; }
+  .calendar-view.calendar-month .calendar-day-number { width: 24px; height: 24px; font-size: 12px; }
+  @container calendar-day (min-height: 40px) { .calendar-month .calendar-day-course-dots { display: inline-flex; } }
+  @container calendar-day (max-height: 39px) { .calendar-month .calendar-day-course-dots { display: none; } }
+}
+@media (max-width: 900px) {
   .calendar-view.calendar-week {
     display: block;
   }
@@ -892,39 +971,4 @@ body.is-calendar-dragging * {
     font-size: 15px;
   }
 
-  .task-row:not(.is-compact) {
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 0 7px;
-    padding: 7px 0;
-  }
-
-  .task-row:not(.is-compact) .task-complete {
-    margin-left: -3px;
-  }
-
-  .task-row:not(.is-compact) .task-deadline {
-    grid-column: 2;
-    padding: 0 0 4px;
-  }
-
-  .task-row:not(.is-compact) .task-title {
-    font-size: 17px;
-  }
-
-  .day-panel {
-    margin-top: 26px;
-  }
-}
-
-@media (pointer: coarse) {
-  .calendar-view .calendar-task,
-  .calendar-view .calendar-more {
-    min-height: 44px;
-  }
-}
-
-@container calendar-day (max-height: 60px) {
-  .calendar-month .calendar-day-course-dots {
-    display: none;
-  }
 }

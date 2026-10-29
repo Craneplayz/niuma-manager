@@ -4,6 +4,8 @@
 
 界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，底部小幅探头保留为牛马点缀，并在折叠栏、手机和矮窗口中隐藏。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
 
+月周日历每格只用一种底色：逾期亮红优先于待办亮蓝，其次为完成亮绿；透明度按该类别数量固定分档，点击日期显示当天全部内容，今天有明确时刻的任务到期后自动更新底色。
+
 ## 功能与数据
 
 独立 `/admin.html` 保留使用数据并提供“运行监控”切换，仅使用管理员会话读取 `/api/admin/operations`；首次不传日期（最近 24 小时），提交日期沿用使用数据筛选，监控失败单独提示，会话失效可重新验证。时间统一转为北京时间，阶段、操作与结果码显示中文；资源采样超过 180 秒标明“采样已过期”，过期或不可用的数值显示“—”。监控合成浏览器验收运行 `node tests/admin-operations-browser.mjs`，需要已安装 Playwright 浏览器；可用 `NIUMA_TEST_BROWSER_PATH` 指定既有 headless 可执行文件，设置 `NIUMA_TEST_SCREENSHOTS=1` 才更新截图，脚本结束自动关闭临时静态服务。
@@ -67,6 +69,7 @@ frontend/
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
+│   ├── calendar-activity.js  按截止日、时刻和完成日汇总，并决定单色底与数量档位
 │   ├── calendar-drag.js      任务拖放分配日期与改期、日期高亮和手势区分
 │   ├── calendar.css          日历、任务清单和当日面板样式
 │   ├── task-drawer.js        任务详情及新增、编辑表单
@@ -80,6 +83,8 @@ frontend/
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
+│   ├── calendar-activity.test.js 日期归属、明确时刻到期、单色优先级与独立数量档位
+│   ├── browser/calendar-activity.spec.js 单色优先级、完整日期点击、月周一致与到时更新
 │   ├── navigation.test.js    导航恢复、旧链接兼容、参数校验与隐私边界
 │   ├── calendar-drag.test.js 点击、拖放、取消与触屏边界
 │   ├── user-errors.test.js   用户提示、点击提交、重试、去重及账号重置
@@ -116,6 +121,9 @@ frontend/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
     ├── screenshots/
+    │   ├── calendar-status-desktop.png 单色月历与当天全部任务
+    │   ├── calendar-status-mobile.png 手机单色日历与课程点
+    │   ├── calendar-status-week.png 周视图沿用单色与日期点击
     │   ├── cartoon-a-task-list.png 纯白卡通 A 主题的桌面任务清单
     │   ├── cartoon-a-calendar.png A 主题的完整月历与当日面板
     │   ├── cartoon-a-import.png  A 主题的文本导入与核对区
