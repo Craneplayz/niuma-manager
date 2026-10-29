@@ -29,6 +29,7 @@ import {
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
 import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
+import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -58,7 +59,7 @@ const app = document.querySelector("#app"),
   drawer = document.querySelector("#task-drawer"),
   sidebarTooltip = document.querySelector("#sidebar-tooltip");
 const params = new URLSearchParams(location.search);
-let today = todayKey(), dayTimer;
+let today = todayKey(), dayTimer, calendarActivityTimer;
 const dateFormat = new Intl.DateTimeFormat("zh-CN", {
   month: "long", day: "numeric", weekday: "long",
 });
@@ -388,7 +389,8 @@ function taskResults() {
   if (taskView() === "list")
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
-  return `${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks: state.tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks: state.tasks, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today })}</div>`;
+  const now = new Date();
+  return `${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks: state.tasks, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, activityPriority: ui.activityPriority, today, now, allowDateDrag: !taskBusy, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks: state.tasks, selectedDate: ui.selectedDate, activityPriority: ui.activityPriority, pane: ui.pane, allowDateDrag: !taskBusy, escapeHtml: esc, icon, today, now })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -428,6 +430,7 @@ function syncAlert() {
 }
 function focusToken(el) {
   if (el?.id) return { id: el.id };
+  if (el?.dataset.calendarActivity) return { key: "calendarActivity", value: el.dataset.calendarActivity, date: el.dataset.calendarDay };
   const key = Object.keys(el?.dataset || {}).find((key) =>
     [
       "action",
@@ -440,6 +443,7 @@ function focusToken(el) {
       "calendarDay",
       "calendarMode",
       "calendarPane",
+      "calendarPriority",
       "accountAction",
     ].includes(key),
   );
@@ -447,11 +451,16 @@ function focusToken(el) {
 }
 function restoreFocus(token) {
   if (!token) return;
-  const el = token.id
+  let el = token.id
     ? document.getElementById(token.id)
     : [...document.querySelectorAll("button,input")].find(
-        (el) => el.dataset[token.key] === token.value,
+        (el) => el.dataset[token.key] === token.value &&
+          (token.key !== "calendarActivity" || el.dataset.calendarDay === token.date) &&
+          (token.key !== "calendarDay" || !el.dataset.calendarActivity),
       );
+  if (!el && token.key === "calendarActivity") {
+    el = [...document.querySelectorAll(".calendar-date-button")].find(button => button.dataset.calendarDay === token.date);
+  }
   if (el && !el.disabled) el.focus({ preventScroll: true });
 }
 function refreshToday() {
@@ -472,11 +481,27 @@ function syncToday() {
         label.textContent = dateLabel();
       }
     }
-  }
+  } else if (document.visibilityState !== "hidden" && ui.page === "tasks" && taskView() === "calendar") renderResults();
   clearTimeout(dayTimer);
   const now = new Date();
   dayTimer = setTimeout(syncToday,
     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now);
+}
+function scheduleCalendarActivity() {
+  clearTimeout(calendarActivityTimer);
+  if (loading || document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
+  const now = new Date();
+  const next = nextCalendarActivityChange(state.tasks, { today, now });
+  if (next === null) return;
+  const update = () => {
+    if (document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
+    if (taskBusy || document.body.classList.contains?.("is-calendar-dragging")) {
+      calendarActivityTimer = setTimeout(update, 500);
+      return;
+    }
+    renderResults();
+  };
+  calendarActivityTimer = setTimeout(update, Math.max(1, next - now.getTime() + 1));
 }
 function render() {
   calendarDrag.cancel();
@@ -507,20 +532,20 @@ function render() {
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
+  scheduleCalendarActivity();
 }
 function renderResults() {
   calendarDrag.cancel();
   if (refreshToday()) return render();
   syncCourseIdentity();
-  const dayFocus = document.activeElement?.dataset.calendarDay;
+  const token = focusToken(document.activeElement);
   const results = document.querySelector("#task-results");
   if (!results) return;
+  const restore = results.contains(document.activeElement);
   results.innerHTML = taskResults();
   document.querySelector("#result-count").textContent = headingCount();
-  if (dayFocus)
-    document
-      .querySelector(`[data-calendar-day="${dayFocus}"]`)
-      ?.focus({ preventScroll: true });
+  if (restore && token) restoreFocus(token);
+  scheduleCalendarActivity();
 }
 function navigatePage(page, scope = ui.scope) {
   const fromMobileMenu = ui.mobileMenu;
@@ -780,6 +805,7 @@ function calendarStep(direction) {
     ui.selectedDate = ui.anchor;
   }
   ui.pane = "day";
+  ui.activityPriority = "all";
   syncNavigation();
   renderResults();
 }
@@ -828,6 +854,7 @@ const actions = {
     ui.anchor = todayKey();
     ui.selectedDate = ui.anchor;
     ui.pane = "day";
+    ui.activityPriority = "all";
     syncNavigation();
     renderResults();
   },
@@ -943,6 +970,7 @@ document.addEventListener("click", async (e) => {
     }
     if (button.dataset.calendarMode) {
       ui.mode = button.dataset.calendarMode;
+      ui.activityPriority = "all";
       if (ui.mode === "week") ui.anchor = ui.selectedDate;
       remember();
       syncNavigation();
@@ -951,10 +979,18 @@ document.addEventListener("click", async (e) => {
     }
     if (button.dataset.calendarDay) {
       ui.selectedDate = button.dataset.calendarDay;
+      ui.activityPriority = ["pending", "done", "overdue"].includes(button.dataset.calendarActivity) ? button.dataset.calendarActivity : "all";
       ui.pane = "day";
       syncNavigation();
       renderResults();
       showMobileDay();
+      return;
+    }
+    if (button.dataset.calendarPriority) {
+      ui.activityPriority = ["pending", "done", "overdue"].includes(button.dataset.calendarPriority) ? button.dataset.calendarPriority : "all";
+      ui.pane = "day";
+      syncNavigation();
+      renderResults();
       return;
     }
     if (button.dataset.calendarPane) {
@@ -1004,6 +1040,7 @@ document.addEventListener("change", (e) => {
       ui.anchor = value;
       ui.selectedDate = value;
       ui.pane = "day";
+      ui.activityPriority = "all";
       syncNavigation();
     }
   } else return;

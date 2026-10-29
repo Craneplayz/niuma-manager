@@ -10,7 +10,7 @@ const task = (id, date, fields = {}) => ({
   course: "数据结构", source: "教学网", plans: [], subtasks: [], ...fields,
 });
 const cell = (page, date) => page.locator(`.calendar-day[data-calendar-drop-date="${date}"]`);
-const square = (page, date, kind) => cell(page, date).locator(`.calendar-activity-row > [data-activity="${kind}"]`);
+const square = (page, date, kind) => cell(page, date).locator(`.calendar-activity-region[data-calendar-activity="${kind}"]`);
 
 function pendingReview() {
   return [{
@@ -89,9 +89,10 @@ function noErrors(state) {
 }
 
 async function expectActivity(page, date, expected) {
-  await expect(cell(page, date).locator(".calendar-activity-row > [data-activity]")).toHaveCount(3);
+  await expect(cell(page, date).locator(".calendar-activity-region")).toHaveCount(Object.values(expected).filter(count => count > 0).length);
   for (const [kind, count] of Object.entries(expected)) {
     const level = count === 0 ? 0 : count === 1 ? 1 : count <= 3 ? 2 : count <= 6 ? 3 : 4;
+    if (!count) { await expect(square(page, date, kind)).toHaveCount(0); continue; }
     await expect(square(page, date, kind)).toHaveAttribute("data-count", String(count));
     await expect(square(page, date, kind)).toHaveAttribute("data-level", String(level));
   }
@@ -119,14 +120,14 @@ test("month activity uses due dates for blue/orange, actual completion dates for
   const strongest = [];
   for (const [kind, dates] of samples) {
     const colors = [];
-    for (const date of dates) colors.push(await square(page, date, kind).evaluate(element => getComputedStyle(element).backgroundColor));
+    for (const date of dates) colors.push(await cell(page, date).locator(`.calendar-surface-region[data-activity="${kind}"]`).evaluate(element => getComputedStyle(element).fill));
     expect(new Set(colors).size).toBe(4);
     strongest.push(colors[3]);
   }
   expect(new Set(strongest).size).toBe(3);
   await expect(cell(page, "2026-10-30").locator(".calendar-date-button")).toHaveAttribute("title", /2/);
-  // Activity indicators themselves do not add 105 keyboard stops to a month.
-  await expect(page.locator('.calendar-activity-row [tabindex="0"], .calendar-activity-row button')).toHaveCount(0);
+  // Dates lead keyboard navigation; the large day-panel controls provide equivalent priority selection.
+  await expect(page.locator('.calendar-activity-region[tabindex="0"]')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("calendar-activity-month.png"), fullPage: true });
   noErrors(state);
 });
@@ -146,17 +147,17 @@ test("calendar activity ignores list filters, matches across month/week, and pre
   const weekDates = ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"];
   const snapshot = async () => Promise.all(weekDates.map(async date => ({
     date,
-    counts: await cell(page, date).locator(".calendar-activity-row > [data-activity]").evaluateAll(elements => elements.map(element => ({ kind: element.dataset.activity, count: element.dataset.count, level: element.dataset.level }))),
+    counts: await cell(page, date).locator(".calendar-activity-region").evaluateAll(elements => elements.map(element => ({ kind: element.dataset.calendarActivity, count: element.dataset.count, level: element.dataset.level }))),
   })));
   const month = await snapshot();
   await page.screenshot({ path: info.outputPath("calendar-activity-month-filter-independent.png"), fullPage: true });
   await page.locator('[data-calendar-mode="week"]').click();
   expect(await snapshot()).toEqual(month);
   await expect(page.locator(".calendar-week .calendar-day")).toHaveCount(7);
-  const indicatorSizes = await cell(page, today).locator(".calendar-activity-row > [data-activity]").evaluateAll(elements => elements.map(element => {
-    const box = element.getBoundingClientRect(); return { width: box.width, height: box.height };
-  }));
-  expect(indicatorSizes.every(size => size.width > 0 && Math.abs(size.width - size.height) <= 1)).toBe(true);
+  const surfaceBox = await cell(page, today).locator(".calendar-surface").boundingBox();
+  const dayBox = await cell(page, today).boundingBox();
+  expect(Math.abs(surfaceBox.width - dayBox.width)).toBeLessThanOrEqual(2);
+  expect(Math.abs(surfaceBox.height - dayBox.height)).toBeLessThanOrEqual(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("calendar-activity-week.png"), fullPage: true });
   await page.locator('[data-view="list"]').click();

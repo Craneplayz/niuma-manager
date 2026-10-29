@@ -21,6 +21,7 @@ export function readNavigation(params, { today = todayKey(), preferences = {} } 
     anchor: date(params.get("anchor"), today),
     selectedDate: date(params.get("date"), today),
     pane: choice("pane", params.get("pane"), "day"),
+    activityPriority: ["pending", "done", "overdue"].includes(params.get("activity")) ? params.get("activity") : "all",
     importSource: choice("importSource", params.get("importSource"), "text"),
   };
 }
@@ -30,5 +31,6 @@ export function navigationURL(href, navigation) {
   for (const key of Object.keys(choices)) url.searchParams.set(key, navigation[key]);
   url.searchParams.set("anchor", navigation.anchor);
   url.searchParams.set("date", navigation.selectedDate);
+  url.searchParams.set("activity", ["pending", "done", "overdue"].includes(navigation.activityPriority) ? navigation.activityPriority : "all");
   return url;
 }

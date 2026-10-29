@@ -4,7 +4,7 @@
 
 界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，底部小幅探头保留为牛马点缀，并在折叠栏、手机和矮窗口中隐藏。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
 
-月周日历的每天格子内加入蓝、绿、橙三类数量色块，分别表示待完成、已完成、逾期，深浅使用固定数量档位；完成按实际完成日，其余按截止日，当日面板可查看完成记录。
+月周日历以整格蓝、绿、橙波浪分区表示待完成、已完成与逾期，面积按数量占比、深浅按固定档位；点击数字看全部，点击颜色优先排列对应任务，今天支持三类并存与到时自动变橙。
 
 ## 功能与数据
 
@@ -69,7 +69,8 @@ frontend/
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
-│   ├── calendar-activity.js  按截止日或实际完成日汇总的三色活动数量
+│   ├── calendar-activity.js  按截止日、明确时刻和实际完成日汇总活动
+│   ├── calendar-surface.js   数量比例对应的整格波浪几何、柔和填色与点击区域
 │   ├── calendar-drag.js      任务拖放分配日期与改期、日期高亮和手势区分
 │   ├── calendar.css          日历、任务清单和当日面板样式
 │   ├── task-drawer.js        任务详情及新增、编辑表单
@@ -83,7 +84,9 @@ frontend/
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
-│   ├── calendar-activity.test.js 三类日期归属、固定色阶与历史完成数量
+│   ├── calendar-activity.test.js 三类日期归属、明确时刻到期与历史完成数量
+│   ├── calendar-surface.test.js 波浪面积比例、完整覆盖、边界与点击区域
+│   ├── browser/calendar-waves.spec.js 三色点击优先、导航、到时变色与焦点
 │   ├── browser/calendar-activity.spec.js 日历色块、历史完成、状态更新与窄屏交互
 │   ├── navigation.test.js    导航恢复、旧链接兼容、参数校验与隐私边界
 │   ├── calendar-drag.test.js 点击、拖放、取消与触屏边界
@@ -121,9 +124,9 @@ frontend/
     ├── design.md             当前产品规格
     ├── maintenance.md        模块职责与验证要求
     ├── screenshots/
-    │   ├── calendar-activity-desktop.png 月历三色数量与当日完成记录
-    │   ├── calendar-activity-mobile.png 手机月历三色数量与课程点
-    │   ├── calendar-activity-week.png 周视图复用三色数量口径
+    │   ├── calendar-waves-desktop.png 整格波浪比例、固定深浅与当日任务
+    │   ├── calendar-waves-mobile.png 手机整格三色与课程点
+    │   ├── calendar-waves-week.png 周视图复用整格比例与优先顺序
     │   ├── cartoon-a-task-list.png 纯白卡通 A 主题的桌面任务清单
     │   ├── cartoon-a-calendar.png A 主题的完整月历与当日面板
     │   ├── cartoon-a-import.png  A 主题的文本导入与核对区

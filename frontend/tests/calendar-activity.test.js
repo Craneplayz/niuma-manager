@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activityLevel, activitySummary, buildCalendarActivity, calendarDayTasks } from "../src/calendar-activity.js";
+import { activityLevel, activitySummary, buildCalendarActivity, calendarDayTasks, calendarActivityOf, nextCalendarActivityChange } from "../src/calendar-activity.js";
 
 const today = "2026-10-29";
 const task = (id, fields = {}) => ({ id, title: id, content_type: "task", status: "todo", due: today, ...fields });
@@ -21,7 +21,7 @@ test("early and late completions appear only on their actual completion day, nev
   assert.equal(activity.has("2026-10-24"), false);
 });
 
-test("pending and overdue are exclusive date-based categories and time earlier today is still pending", () => {
+test("today can contain pending, completed and explicitly overdue timed tasks", () => {
   const activity = buildCalendarActivity([
     task("old", { due: "2026-10-28", dueTime: "23:59", status: "doing" }),
     task("today-early", { dueTime: "00:01" }),
@@ -29,9 +29,9 @@ test("pending and overdue are exclusive date-based categories and time earlier t
     task("future", { due: "2026-10-30", status: "not_started" }),
     task("finished-today", { status: "done", due: "2026-11-01", completedAt: today }),
     task("finished-earlier", { status: "completed", due: "2026-11-02", completedAt: "2026-10-28" }),
-  ], { today });
+  ], { today, now: new Date(2026, 9, 29, 12, 0) });
   assert.deepEqual(counts(activity, "2026-10-28"), { pending: 0, done: 1, overdue: 1 });
-  assert.deepEqual(counts(activity, today), { pending: 2, done: 1, overdue: 0 });
+  assert.deepEqual(counts(activity, today), { pending: 1, done: 1, overdue: 1 });
   assert.deepEqual(counts(activity, "2026-10-30"), { pending: 1, done: 0, overdue: 0 });
 });
 
@@ -52,7 +52,7 @@ test("date validation accepts leap days and server due objects without timezone 
   tasks.push(task("leap", { due: { date: "2024-02-29", precision: "date" } }));
   tasks.push(task("server", { status: "not_started", due: { date: today, time: "00:01", precision: "datetime" } }));
   tasks.push(task("cross-year", { due: "2027-01-01" }));
-  const activity = buildCalendarActivity(tasks, { today });
+  const activity = buildCalendarActivity(tasks, { today, now: new Date(2026, 9, 29, 0, 0) });
   assert.equal(activity.size, 3);
   assert.deepEqual(counts(activity, "2024-02-29"), { pending: 0, done: 0, overdue: 1 });
   assert.deepEqual(counts(activity, today), { pending: 1, done: 0, overdue: 0 });
@@ -114,4 +114,27 @@ test("accessible summaries expose each present category and do not create activi
   assert.equal(activitySummary({ pending: -1, done: NaN, overdue: Infinity }), "无任务活动");
   assert.equal(activitySummary(), "无任务活动");
   assert.equal(activitySummary(null), "无任务活动");
+});
+
+
+test("same-day deadline boundary is exact and date-only tasks never receive an invented time", () => {
+  const timed = task("timed", { dueTime: "12:00" });
+  assert.equal(calendarActivityOf(timed, { today, now: new Date(2026, 9, 29, 11, 59, 59) }).kind, "pending");
+  assert.equal(calendarActivityOf(timed, { today, now: new Date(2026, 9, 29, 12, 0) }).kind, "overdue");
+  for (const dueTime of ["", "24:00", "9:30", "12:60", null])
+    assert.equal(calendarActivityOf(task("no-time", { dueTime }), { today, now: new Date(2026, 9, 29, 23, 59) }).kind, "pending");
+  assert.equal(calendarActivityOf(timed, { today, now: new Date(2026, 9, 30, 23, 0) }).kind, "pending");
+  assert.equal(calendarActivityOf(task("raw", { due: { date: today, time: "10:00", precision: "datetime" } }), { today, now: new Date(2026, 9, 29, 12, 0) }).kind, "overdue");
+  assert.equal(calendarActivityOf(task("date-only", { due: { date: today, time: "10:00", precision: "date" } }), { today, now: new Date(2026, 9, 29, 12, 0) }).kind, "pending");
+});
+
+test("only the next eligible timed deadline schedules a calendar status refresh", () => {
+  const now = new Date(2026, 9, 29, 12, 0);
+  const tasks = [task("past", { dueTime: "11:59" }), task("later", { dueTime: "15:00" }),
+    task("next", { dueTime: "12:01" }), task("undated-time", { due: "", dueTime: "12:00" }),
+    task("notice", { dueTime: "12:00", content_type: "notice" }), task("date-only")];
+  assert.equal(nextCalendarActivityChange(tasks, { today, now }), new Date(2026, 9, 29, 12, 1).getTime());
+  assert.equal(nextCalendarActivityChange(tasks, { today, now: new Date(2026, 9, 29, 16, 0) }), null);
+  assert.equal(nextCalendarActivityChange(tasks, { today, now: new Date(NaN) }), null);
+  assert.equal(nextCalendarActivityChange(null, { today, now }), null);
 });

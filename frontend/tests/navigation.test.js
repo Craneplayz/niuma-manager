@@ -18,6 +18,7 @@ test("unknown navigation values and impossible dates fall back safely", () => {
   assert.deepEqual(navigation, {
     page: "tasks", scope: "all", view: "calendar", mode: "week", pane: "day",
     importSource: "text", anchor: "2026-10-18", selectedDate: "2026-10-18",
+    activityPriority: "all",
   });
   assert.equal(read("date=2024-02-29").selectedDate, "2024-02-29");
   assert.equal(read("date=2025-02-29").selectedDate, "2026-10-18");
