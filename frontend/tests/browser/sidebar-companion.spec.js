@@ -66,7 +66,6 @@ async function workspace(page, { tasks: initialTasks = overdueTasks(), reviews =
 }
 
 async function showSidebar(page) {
-  if (page.viewportSize().width <= 700 && await page.locator("#sidebar-toggle").getAttribute("aria-expanded") !== "true") await page.locator("#sidebar-show").click();
   await expect(button(page)).toBeVisible();
 }
 async function showMain(page) {
@@ -90,7 +89,7 @@ test("the stern checklist horse counts only saved tasks and ignores list filters
   await expect(page.locator('[data-review-id="sidebar-pending"]')).toBeVisible();
   await expect(mascot(page)).toHaveAttribute("data-state", "overdue-high");
   await expect(mascot(page)).toHaveAttribute("data-character", "horse");
-  await expect(mascot(page).locator("img")).toHaveAttribute("src", /horse-checklist/);
+  await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
   await talk(page);
   await expect(speech(page)).toContainText("今天完成 2 项");
   await expect(speech(page)).toContainText("3 项逾期");
@@ -116,9 +115,11 @@ test("three completions today produce the dancing cow and ordinary rerenders do 
   ] });
   await expect(mascot(page)).toHaveAttribute("data-state", "progress");
   await expect(mascot(page)).toHaveAttribute("data-character", "cow");
-  await expect(mascot(page).locator("img")).toHaveAttribute("src", /cow-dance/);
+  await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
   await talk(page);
   await expect(speech(page)).toContainText("今天完成 3 项");
+  const caption = await speech(page).boundingBox(), figure = await button(page).boundingBox();
+  expect(caption.y).toBeGreaterThanOrEqual(figure.y + figure.height);
   await expect(mascot(page)).toHaveAttribute("data-playing", "false", { timeout: 4000 });
   await page.keyboard.press("Escape");
   await showMain(page);
@@ -148,7 +149,7 @@ test("speech works by keyboard, pointer and touch, stays open across the hover g
   } else {
     await button(page).tap();
     await expect(speech(page)).toBeVisible();
-    await page.locator("#sidebar-toggle").tap();
+    await page.locator("#page-title").tap();
   }
   await expect(speech(page)).not.toBeVisible();
   clean(state);
@@ -178,14 +179,13 @@ test("saving three overdue completions changes checklist horse to gentle horse t
   await page.locator('[data-task-complete="one"]').click();
   await expect.poll(() => state.writes.length).toBe(1);
   await expect(mascot(page)).toHaveAttribute("data-state", "overdue-low");
-  await expect(mascot(page).locator("img")).toHaveAttribute("src", /horse-settle/);
   await page.locator('[data-task-complete="two"]').click();
   await expect.poll(() => state.writes.length).toBe(2);
   await expect(mascot(page)).toHaveAttribute("data-state", "overdue-low");
   await page.locator('[data-task-complete="three"]').click();
   await expect(mascot(page)).toHaveAttribute("data-state", "progress");
-  await expect(mascot(page).locator("img")).toHaveAttribute("src", /cow-dance/);
-  await page.locator("[data-companion-undo]").click();
+  await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
+  await page.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "three").status).toBe("not_started");
   await expect(mascot(page)).toHaveAttribute("data-state", "overdue-low");
   await talk(page);
@@ -228,7 +228,7 @@ test("shared animation preferences and reduced motion keep static companions, wi
 test("midnight refresh changes the companion without replacing an unsent import draft", async ({ page }) => {
   const state = await workspace(page, { tasks: [...completedTasks(), task("tonight")], time: "2026-10-29T15:58:00Z", runningClock: true });
   await expect(mascot(page)).toHaveAttribute("data-state", "progress");
-  await showSidebar(page);
+  if (page.viewportSize().width <= 700) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
   await expect(page.locator("#import-text")).toBeVisible();
   const draft = "这段合成草稿尚未识别，跨过午夜也必须保留。";
@@ -247,6 +247,7 @@ test("logout clears the previous account's mascot counts and open speech", async
   const state = await workspace(page);
   await talk(page);
   await expect(speech(page)).toContainText("3 项逾期");
+  if (page.viewportSize().width <= 700) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "账号与数据", exact: true }).click();
   await expect(speech(page)).not.toBeVisible();
   await page.locator("#dialog").getByRole("button", { name: "退出登录", exact: true }).click();
@@ -254,5 +255,88 @@ test("logout clears the previous account's mascot counts and open speech", async
   await expect(mascot(page)).not.toHaveAttribute("data-state", "overdue-high");
   expect((await speech(page).allTextContents()).join("")).not.toContain("3 项逾期");
   expect(state.writes).toHaveLength(0);
+  clean(state);
+});
+
+test("pointer gaze and click change authored face and limb frames without moving the dock", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Near-pointer gaze is for a mouse; touch uses click responses.");
+  const state = await workspace(page, { tasks: [task("future")] });
+  await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
+  const before = await mascot(page).boundingBox(), target = await button(page).boundingBox();
+  await page.mouse.move(target.x + target.width / 2 + 100, target.y + target.height / 2);
+  await expect(mascot(page)).toHaveAttribute("data-frame", "3");
+  await page.mouse.move(target.x + target.width / 2 - 70, target.y + target.height / 2);
+  await expect(mascot(page)).toHaveAttribute("data-frame", "2");
+  const after = await mascot(page).boundingBox();
+  expect(after.x).toBe(before.x); expect(after.y).toBe(before.y);
+  await button(page).click();
+  await expect(mascot(page)).toHaveAttribute("data-action", "wave");
+  const cells = new Set();
+  for (let i = 0; i < 8; i++) {
+    cells.add(await mascot(page).getAttribute("data-frame"));
+    await page.waitForTimeout(140);
+  }
+  expect(cells.size).toBeGreaterThanOrEqual(3);
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  clean(state);
+});
+
+test("dragging picks up the character, docks at an edge, and keeps undo separately reachable", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Mouse dragging uses pointer capture; touch has the same runtime pointer path.");
+  const state = await workspace(page, { tasks: [task("one"), task("two")] });
+  await page.locator('[data-task-complete="one"]').click();
+  await expect(mascot(page)).toHaveAttribute("data-completion", "true");
+  const b = await button(page).boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(1350, 760, { steps: 8 });
+  await expect(mascot(page)).toHaveAttribute("data-dragging", "true");
+  await expect(mascot(page)).toHaveAttribute("data-frame", "13");
+  await page.mouse.up();
+  await expect(mascot(page)).toHaveAttribute("data-edge", "right");
+  await expect(mascot(page)).toHaveAttribute("data-dragging", "false");
+  const pet = await mascot(page).boundingBox(), undo = await page.locator("#toast-undo").boundingBox();
+  expect(pet.y + pet.height <= undo.y || pet.x + pet.width <= undo.x || pet.x >= undo.x + undo.width).toBe(true);
+  await page.locator("#toast-undo").click();
+  await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("not_started");
+  await button(page).focus();
+  await page.keyboard.press("Home");
+  await expect(mascot(page)).toHaveAttribute("data-edge", "left");
+  clean(state);
+});
+
+test("keyboard docking stays within a narrow viewport and Escape closes the completion caption", async ({ page }) => {
+  const state = await workspace(page, { tasks: [task("one"), task("two")] });
+  await page.locator('[data-task-complete="one"]').click();
+  await expect(mascot(page)).toHaveAttribute("data-completion", "true");
+  await button(page).focus();
+  await page.keyboard.press("ArrowRight");
+  for (let i = 0; i < 24; i++) await page.keyboard.press("ArrowDown");
+  const bounds = await mascot(page).boundingBox(), view = page.viewportSize();
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(view.width);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(view.height);
+  await page.keyboard.press("Escape");
+  await expect(mascot(page)).toHaveAttribute("data-completion", "false");
+  await expect(speech(page)).not.toBeVisible();
+  clean(state);
+});
+
+test("the fixed pet hides during task details and navigation overlays, then returns with the same mood", async ({ page }, info) => {
+  const state = await workspace(page);
+  await expect(mascot(page)).toBeVisible();
+  if (info.project.name !== "desktop") {
+    await page.locator("#sidebar-show").click();
+    await expect(mascot(page)).not.toBeVisible();
+    await page.locator("#sidebar-toggle").click();
+    await expect(mascot(page)).toBeVisible();
+  }
+  await page.locator('[data-task-open="one"]').click();
+  await expect(page.locator("#task-drawer")).toBeVisible();
+  await expect(mascot(page)).not.toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#task-drawer")).not.toBeVisible();
+  await expect(mascot(page)).toBeVisible();
+  await expect(mascot(page)).toHaveAttribute("data-state", "overdue-high");
   clean(state);
 });

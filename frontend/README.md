@@ -4,7 +4,7 @@
 
 界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，左下角常驻伙伴根据已保存任务切换形象，支持悬停、聚焦和轻点对话，折叠栏与矮窗口使用紧凑尺寸。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
 
-手动完成任务保存成功后显示底部牛马伙伴，连续完成合并并保留撤销；账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马伙伴](docs/mascots.md)。
+手动完成任务保存成功后由左下角伙伴播放真实动作帧，话语位于脚下；支持附近目光、点击回应与拖动靠边，连续完成合并；撤回统一放在右下角圆按钮，账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马伙伴](docs/mascots.md)。
 
 ## 功能与数据
 
@@ -66,12 +66,14 @@ frontend/
 │   ├── source-sync-ui.js    后台教学网同步、进度恢复与失败重试
 │   ├── course-identity.js    课程身份、固定配色偏好及共用课程标记
 │   ├── course-identity.css   课程签、紧凑简称与色点的 8 色样式
-│   ├── completion-companion.js 完成伙伴文案、连续合并、撤销与本地偏好
-│   ├── completion-companion.css 底部伙伴提示、有限动作与减少动态样式
+│   ├── completion-companion.js 完成伙伴文案、连续合并、反馈时限与本地偏好
+│   ├── completion-companion.css 撤回圆按钮、操作说明与伙伴设置样式
+│   ├── undo-feedback.js       统一撤回入口、时限暂停、账号与弹窗保护
+│   ├── companion-motion.js    角色动作帧、目光方向与停靠边界
 │   ├── sidebar-companion-state.js 已保存任务的侧栏角色、情绪与真实数量文案
-│   ├── sidebar-companion.js  常驻角色、悬停聚焦和轻点对话的交互
-│   ├── sidebar-companion.css 侧栏角色、紧凑形态、话语与短动作样式
-│   ├── assets/companions/    牛马透明动作姿势与角色完成文案
+│   ├── sidebar-companion.js  常驻精灵帧、完成反馈、目光回应与拖动靠边交互
+│   ├── sidebar-companion.css 角落角色、脚下话语、紧凑形态与选项样式
+│   ├── assets/companions/    牛马原姿势、pet-v2/逐帧图集及角色完成文案
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
@@ -89,6 +91,8 @@ frontend/
 ├── tests/
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
 │   ├── completion-companion.test.js 完成伙伴文案选择、剩余任务与偏好容错
+│   ├── undo-feedback.test.js  最新操作撤回、重复点击、账号与计时边界
+│   ├── companion-motion.test.js 动作序列、目光方向与停靠边界
 │   ├── sidebar-companion-state.test.js 状态优先级、计数边界和未确认数据排除
 │   ├── browser/sidebar-companion.spec.js 侧栏角色、已保存状态、对话及手机交互
 │   ├── browser/completion-companion.spec.js 保存后反馈、合并撤销、弹窗和偏好交互
@@ -129,6 +133,9 @@ frontend/
     ├── maintenance.md        模块职责与验证要求
     ├── mascots.md            牛马性格、动作素材与完成反馈规则
     ├── screenshots/
+    │   ├── pet-v2-desktop.png    当前桌面伙伴与圆形撤回
+    │   ├── pet-v2-mobile.png     当前手机伙伴与脚下话语
+    │   ├── pet-v2-horse.png      当前小马连续完成反馈
     │   ├── sidebar-companion-horse.png 逾期较多时的小马与话语
     │   ├── sidebar-companion-cow.png 今日完成良好时的小牛与话语
     │   ├── sidebar-companion-mobile.png 手机菜单内的状态伙伴

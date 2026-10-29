@@ -1,0 +1,542 @@
+{
+  "version": 2,
+  "columns": 4,
+  "rows": 4,
+  "cellSize": 384,
+  "size": 1536,
+  "fps": 8,
+  "characters": {
+    "cow": {
+      "file": "cow.webp"
+    },
+    "horse": {
+      "file": "horse.webp"
+    }
+  },
+  "states": {
+    "idle": [
+      0
+    ],
+    "blink": [
+      0,
+      1,
+      0
+    ],
+    "lookLeft": [
+      2
+    ],
+    "lookRight": [
+      3
+    ],
+    "lookUp": [
+      4
+    ],
+    "lookDown": [
+      5
+    ],
+    "wave": [
+      6,
+      7,
+      6,
+      7,
+      8,
+      0
+    ],
+    "celebrate": [
+      9,
+      10,
+      11,
+      10,
+      11,
+      12,
+      15
+    ],
+    "drag": [
+      13
+    ],
+    "land": [
+      14,
+      15,
+      0
+    ]
+  },
+  "frameNames": [
+    "idle",
+    "blink",
+    "look-left",
+    "look-right",
+    "look-up",
+    "look-down",
+    "wave-low",
+    "wave-high",
+    "wave-return",
+    "celebration-anticipation",
+    "celebration-beat-one",
+    "celebration-beat-two",
+    "proud-settle",
+    "picked-up",
+    "landing-squash",
+    "landing-return"
+  ],
+  "provenance": {
+    "method": "Builtin image generation, alpha-preserving mechanical crop and packing",
+    "sourceFiles": {
+      "cow": "exec-09c0ac5a-6335-44ac-87cd-63e69d75ba2b.png",
+      "horse": "exec-9b7d09fb-7266-4249-bd81-46983310b4b8.png"
+    }
+  },
+  "frames": {
+    "cow": [
+      {
+        "index": 0,
+        "name": "idle",
+        "sourceCrop": {
+          "left": 56,
+          "top": 10,
+          "width": 242,
+          "height": 305
+        },
+        "left": 66,
+        "top": 33,
+        "width": 252,
+        "height": 317
+      },
+      {
+        "index": 1,
+        "name": "blink",
+        "sourceCrop": {
+          "left": 356,
+          "top": 10,
+          "width": 243,
+          "height": 305
+        },
+        "left": 66,
+        "top": 33,
+        "width": 253,
+        "height": 317
+      },
+      {
+        "index": 2,
+        "name": "look-left",
+        "sourceCrop": {
+          "left": 969,
+          "top": 9,
+          "width": 244,
+          "height": 306
+        },
+        "left": 65,
+        "top": 32,
+        "width": 254,
+        "height": 318
+      },
+      {
+        "index": 3,
+        "name": "look-right",
+        "sourceCrop": {
+          "left": 653,
+          "top": 8,
+          "width": 243,
+          "height": 307
+        },
+        "left": 66,
+        "top": 31,
+        "width": 253,
+        "height": 319
+      },
+      {
+        "index": 4,
+        "name": "look-up",
+        "sourceCrop": {
+          "left": 48,
+          "top": 321,
+          "width": 248,
+          "height": 306
+        },
+        "left": 63,
+        "top": 32,
+        "width": 258,
+        "height": 318
+      },
+      {
+        "index": 5,
+        "name": "look-down",
+        "sourceCrop": {
+          "left": 357,
+          "top": 327,
+          "width": 245,
+          "height": 300
+        },
+        "left": 65,
+        "top": 38,
+        "width": 255,
+        "height": 312
+      },
+      {
+        "index": 6,
+        "name": "wave-low",
+        "sourceCrop": {
+          "left": 657,
+          "top": 323,
+          "width": 245,
+          "height": 304
+        },
+        "left": 65,
+        "top": 34,
+        "width": 255,
+        "height": 316
+      },
+      {
+        "index": 7,
+        "name": "wave-high",
+        "sourceCrop": {
+          "left": 963,
+          "top": 317,
+          "width": 258,
+          "height": 310
+        },
+        "left": 58,
+        "top": 28,
+        "width": 268,
+        "height": 322
+      },
+      {
+        "index": 8,
+        "name": "wave-return",
+        "sourceCrop": {
+          "left": 48,
+          "top": 631,
+          "width": 248,
+          "height": 302
+        },
+        "left": 63,
+        "top": 36,
+        "width": 258,
+        "height": 314
+      },
+      {
+        "index": 9,
+        "name": "celebration-anticipation",
+        "sourceCrop": {
+          "left": 354,
+          "top": 660,
+          "width": 253,
+          "height": 268
+        },
+        "left": 61,
+        "top": 71,
+        "width": 263,
+        "height": 279
+      },
+      {
+        "index": 10,
+        "name": "celebration-beat-one",
+        "sourceCrop": {
+          "left": 662,
+          "top": 631,
+          "width": 256,
+          "height": 302
+        },
+        "left": 59,
+        "top": 36,
+        "width": 266,
+        "height": 314
+      },
+      {
+        "index": 11,
+        "name": "celebration-beat-two",
+        "sourceCrop": {
+          "left": 955,
+          "top": 629,
+          "width": 254,
+          "height": 304
+        },
+        "left": 60,
+        "top": 34,
+        "width": 264,
+        "height": 316
+      },
+      {
+        "index": 12,
+        "name": "proud-settle",
+        "sourceCrop": {
+          "left": 55,
+          "top": 940,
+          "width": 248,
+          "height": 306
+        },
+        "left": 63,
+        "top": 32,
+        "width": 258,
+        "height": 318
+      },
+      {
+        "index": 13,
+        "name": "picked-up",
+        "sourceCrop": {
+          "left": 352,
+          "top": 933,
+          "width": 250,
+          "height": 284
+        },
+        "left": 62,
+        "top": 26,
+        "width": 260,
+        "height": 295
+      },
+      {
+        "index": 14,
+        "name": "landing-squash",
+        "sourceCrop": {
+          "left": 649,
+          "top": 994,
+          "width": 253,
+          "height": 251
+        },
+        "left": 61,
+        "top": 89,
+        "width": 263,
+        "height": 261
+      },
+      {
+        "index": 15,
+        "name": "landing-return",
+        "sourceCrop": {
+          "left": 956,
+          "top": 940,
+          "width": 250,
+          "height": 307
+        },
+        "left": 62,
+        "top": 31,
+        "width": 260,
+        "height": 319
+      }
+    ],
+    "horse": [
+      {
+        "index": 0,
+        "name": "idle",
+        "sourceCrop": {
+          "left": 93,
+          "top": 8,
+          "width": 229,
+          "height": 309
+        },
+        "left": 73,
+        "top": 29,
+        "width": 238,
+        "height": 321
+      },
+      {
+        "index": 1,
+        "name": "blink",
+        "sourceCrop": {
+          "left": 381,
+          "top": 9,
+          "width": 226,
+          "height": 308
+        },
+        "left": 75,
+        "top": 30,
+        "width": 235,
+        "height": 320
+      },
+      {
+        "index": 2,
+        "name": "look-left",
+        "sourceCrop": {
+          "left": 679,
+          "top": 8,
+          "width": 222,
+          "height": 309
+        },
+        "left": 77,
+        "top": 29,
+        "width": 231,
+        "height": 321
+      },
+      {
+        "index": 3,
+        "name": "look-right",
+        "sourceCrop": {
+          "left": 959,
+          "top": 8,
+          "width": 235,
+          "height": 311
+        },
+        "left": 70,
+        "top": 27,
+        "width": 244,
+        "height": 323
+      },
+      {
+        "index": 4,
+        "name": "look-up",
+        "sourceCrop": {
+          "left": 83,
+          "top": 319,
+          "width": 236,
+          "height": 310
+        },
+        "left": 70,
+        "top": 28,
+        "width": 245,
+        "height": 322
+      },
+      {
+        "index": 5,
+        "name": "look-down",
+        "sourceCrop": {
+          "left": 393,
+          "top": 328,
+          "width": 224,
+          "height": 301
+        },
+        "left": 76,
+        "top": 37,
+        "width": 233,
+        "height": 313
+      },
+      {
+        "index": 6,
+        "name": "wave-low",
+        "sourceCrop": {
+          "left": 658,
+          "top": 318,
+          "width": 262,
+          "height": 311
+        },
+        "left": 56,
+        "top": 27,
+        "width": 272,
+        "height": 323
+      },
+      {
+        "index": 7,
+        "name": "wave-high",
+        "sourceCrop": {
+          "left": 967,
+          "top": 319,
+          "width": 255,
+          "height": 311
+        },
+        "left": 60,
+        "top": 27,
+        "width": 265,
+        "height": 323
+      },
+      {
+        "index": 8,
+        "name": "wave-return",
+        "sourceCrop": {
+          "left": 61,
+          "top": 631,
+          "width": 233,
+          "height": 305
+        },
+        "left": 71,
+        "top": 33,
+        "width": 242,
+        "height": 317
+      },
+      {
+        "index": 9,
+        "name": "celebration-anticipation",
+        "sourceCrop": {
+          "left": 311,
+          "top": 634,
+          "width": 218,
+          "height": 302
+        },
+        "left": 79,
+        "top": 36,
+        "width": 227,
+        "height": 314
+      },
+      {
+        "index": 10,
+        "name": "celebration-beat-one",
+        "sourceCrop": {
+          "left": 525,
+          "top": 637,
+          "width": 228,
+          "height": 299
+        },
+        "left": 74,
+        "top": 39,
+        "width": 237,
+        "height": 311
+      },
+      {
+        "index": 11,
+        "name": "celebration-beat-two",
+        "sourceCrop": {
+          "left": 761,
+          "top": 638,
+          "width": 210,
+          "height": 298
+        },
+        "left": 83,
+        "top": 40,
+        "width": 218,
+        "height": 310
+      },
+      {
+        "index": 12,
+        "name": "proud-settle",
+        "sourceCrop": {
+          "left": 994,
+          "top": 633,
+          "width": 237,
+          "height": 301
+        },
+        "left": 69,
+        "top": 37,
+        "width": 246,
+        "height": 313
+      },
+      {
+        "index": 13,
+        "name": "picked-up",
+        "sourceCrop": {
+          "left": 97,
+          "top": 940,
+          "width": 205,
+          "height": 283
+        },
+        "left": 86,
+        "top": 27,
+        "width": 213,
+        "height": 294
+      },
+      {
+        "index": 14,
+        "name": "landing-squash",
+        "sourceCrop": {
+          "left": 381,
+          "top": 991,
+          "width": 242,
+          "height": 247
+        },
+        "left": 66,
+        "top": 93,
+        "width": 252,
+        "height": 257
+      },
+      {
+        "index": 15,
+        "name": "landing-return",
+        "sourceCrop": {
+          "left": 685,
+          "top": 939,
+          "width": 222,
+          "height": 303
+        },
+        "left": 77,
+        "top": 35,
+        "width": 231,
+        "height": 315
+      }
+    ]
+  }
+}

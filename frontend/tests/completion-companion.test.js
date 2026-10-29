@@ -94,3 +94,56 @@ test("normal and merged feedback keep the selected character and vary the author
     }
   }
 });
+
+import { createCompletionCompanion } from '../src/completion-companion.js';
+
+function controllerFixture(t) {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 10000 });
+  const handlers = {};
+  const doc = { visibilityState: 'visible', querySelector: () => null,
+    addEventListener(type, listener) { handlers[type] = listener; } };
+  const win = { addEventListener() {}, dispatchEvent() {} };
+  const old = { document: globalThis.document, window: globalThis.window };
+  Object.assign(globalThis, { document: doc, window: win });
+  t.after(() => Object.assign(globalThis, old));
+  let epoch = 1, dismissed = 0;
+  const shows = [], preferences = [];
+  const controller = createCompletionCompanion({ accountVersion: () => epoch,
+    onShow: value => shows.push(value), onDismiss: () => dismissed++, onPreferences: v => preferences.push(v) });
+  return { controller, shows, preferences, doc, handlers, setEpoch: value => { epoch = value; }, dismissed: () => dismissed };
+}
+
+test('saved completions merge without replay and alternate only after the merge window', t => {
+  const f = controllerFixture(t);
+  f.controller.show({ remaining: 5, epoch: 1 });
+  t.mock.timers.tick(500);
+  f.controller.show({ remaining: 4, epoch: 1 });
+  assert.equal(f.shows[1].character, 'cow');
+  assert.equal(f.shows[1].count, 2);
+  assert.equal(f.shows[1].replay, false);
+  t.mock.timers.tick(2001);
+  f.controller.show({ remaining: 3, epoch: 1 });
+  assert.equal(f.shows[2].character, 'horse');
+  assert.equal(f.shows[2].count, 1);
+  assert.equal(f.shows[2].replay, true);
+  f.controller.reset();
+  f.setEpoch(2);
+  assert.equal(f.controller.show({ epoch: 1 }), false);
+  assert.equal(f.shows.length, 3);
+});
+
+test('completion expiry pauses in a hidden tab and does not restart on unrelated focus changes', t => {
+  const f = controllerFixture(t);
+  f.controller.show({ epoch: 1 });
+  t.mock.timers.tick(5000);
+  f.doc.visibilityState = 'hidden';
+  f.handlers.visibilitychange();
+  t.mock.timers.tick(20000);
+  assert.equal(f.dismissed(), 0);
+  f.doc.visibilityState = 'visible';
+  f.handlers.visibilitychange();
+  t.mock.timers.tick(1999);
+  assert.equal(f.dismissed(), 0);
+  t.mock.timers.tick(1);
+  assert.equal(f.dismissed(), 1);
+});

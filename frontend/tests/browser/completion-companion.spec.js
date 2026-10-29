@@ -7,7 +7,7 @@ const task = (id, fields = {}) => ({
   id, title: `合成任务 ${id}`, content_type: "task", status: "not_started",
   due: { date: "2026-10-29", precision: "date" }, course: "数据结构", plans: [], subtasks: [], ...fields,
 });
-const companion = page => page.locator("#completion-companion");
+const companion = page => page.locator('#sidebar-companion[data-completion="true"]');
 const complete = (page, id) => page.locator(`[data-task-id="${id}"] [data-task-complete="${id}"]`).click();
 const gate = () => {
   let enter, release;
@@ -124,11 +124,11 @@ test("a saved task gets one cow acknowledgement and undo restores its real statu
   await expect(companion(page)).toHaveAttribute("data-character", "cow");
   await expect(companion(page)).toHaveAttribute("data-count", "1");
   await expect(companion(page).locator("[data-companion-message]")).not.toBeEmpty();
-  await expect(companion(page).locator("img")).toBeVisible();
-  await expect.poll(() => companion(page).locator("img").evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+  await expect(companion(page).locator(".companion-pet-sprite")).toBeVisible();
+  await expect(companion(page)).toHaveAttribute("data-sprite-ready", "true");
   expect(state.tasks().find(item => item.id === "one").status).toBe("completed");
   await page.screenshot({ path: info.outputPath("completion-cow.png"), fullPage: true });
-  await page.locator("[data-companion-undo]").click();
+  await page.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("not_started");
   await expect(companion(page)).toHaveCount(0);
   await expect(page.locator('[data-task-id="one"]')).not.toHaveClass(/is-completed/);
@@ -152,9 +152,9 @@ test("rapid completions merge, a later appearance alternates, and undo affects o
   await complete(page, "four");
   await expect(companion(page)).toHaveAttribute("data-count", "2");
   await expect(companion(page)).toHaveAttribute("data-character", "horse");
-  await expect(page.locator("#completion-companion")).toHaveCount(1);
+  await expect(page.locator('#sidebar-companion[data-completion="true"]')).toHaveCount(1);
   await page.screenshot({ path: info.outputPath("completion-horse-merged.png"), fullPage: true });
-  await page.locator("[data-companion-undo]").click();
+  await page.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "four").status).toBe("not_started");
   for (const id of ["one", "two", "three"]) expect(state.tasks().find(item => item.id === id).status).toBe("completed");
   await expect(companion(page)).toHaveCount(0);
@@ -207,10 +207,10 @@ test("completion and undo stay reachable inside an open task-details modal", asy
   const drawer = page.locator("#task-drawer");
   await drawer.getByRole("button", { name: "完成任务", exact: true }).click();
   await expect(drawer).toBeVisible();
-  await expect(drawer.locator("#completion-companion")).toBeVisible();
-  await expect(drawer.locator("[data-companion-undo]")).toBeEnabled();
+  await expect(companion(page)).toBeHidden();
+  await expect(drawer.locator("#toast-undo")).toBeEnabled();
   await page.screenshot({ path: info.outputPath("completion-details.png"), fullPage: true });
-  await drawer.locator("[data-companion-undo]").click();
+  await drawer.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("not_started");
   await expect(drawer.getByRole("button", { name: "完成任务", exact: true })).toBeVisible();
   await expect(companion(page)).toHaveCount(0);
@@ -227,8 +227,8 @@ test("completion preferences persist through reload and disabling preserves stan
   await closeAccount(page);
   await complete(page, "one");
   await expect(companion(page)).toHaveAttribute("data-animated", "false");
-  await expect(companion(page).locator(".companion-figure")).toHaveCSS("animation-name", "none");
-  await page.locator("[data-companion-undo]").click();
+  await expect(companion(page)).toHaveAttribute("data-playing", "false");
+  await page.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("not_started");
   account = await openAccount(page);
   await account.locator('[data-companion-preference="enabled"]').uncheck();
@@ -241,7 +241,7 @@ test("completion preferences persist through reload and disabling preserves stan
   await closeAccount(page);
   await complete(page, "one");
   await expect(page.locator("#toast")).toContainText("任务已完成");
-  await expect(companion(page)).toHaveCount(0);
+  await expect(companion(page)).toBeHidden();
   await page.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("not_started");
   noUnexpectedErrors(state);
@@ -253,11 +253,11 @@ test("reduced motion keeps the character and copy without spatial animation or n
   await expect(page.locator("#usage-rating")).toBeVisible();
   await complete(page, "one");
   await expect(companion(page)).toBeVisible();
-  await expect(companion(page).locator("img")).toBeVisible();
+  await expect(companion(page).locator(".companion-pet-sprite")).toBeVisible();
   await expect(companion(page).locator("[data-companion-message]")).not.toBeEmpty();
-  const spatialAnimations = await page.locator("#toast").evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.effect?.getKeyframes().some(frame => frame.transform && frame.transform !== "none")).length);
+  const spatialAnimations = await companion(page).evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.effect?.getKeyframes().some(frame => frame.transform && frame.transform !== "none")).length);
   expect(spatialAnimations).toBe(0);
-  const toast = await page.locator("#toast").boundingBox(), viewport = page.viewportSize();
+  const toast = await companion(page).boundingBox(), viewport = page.viewportSize();
   expect(toast.x).toBeGreaterThanOrEqual(0);
   expect(toast.x + toast.width).toBeLessThanOrEqual(viewport.width + 1);
   expect(toast.y).toBeGreaterThanOrEqual(0);
@@ -268,12 +268,11 @@ test("reduced motion keeps the character and copy without spatial animation or n
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("completion-reduced-motion.png"), fullPage: true });
-  await page.locator("[data-companion-undo]").click();
+  await page.locator("#toast-undo").click();
   await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("not_started");
   await complete(page, "two");
   await expect(companion(page)).toBeVisible();
   await page.locator("#usage-rating").getByRole("button", { name: "3分", exact: true }).click();
-  await expect(companion(page)).toHaveCount(0);
   const ratingForm = page.locator("#usage-rating [data-rating-feedback]");
   await expect(ratingForm).toBeVisible();
   await ratingForm.getByRole("textbox", { name: "使用反馈（选填）", exact: true }).fill("合成界面反馈");
@@ -299,10 +298,23 @@ test("logout clears a completion and a delayed save cannot bring it back after a
   save.release();
   await expect(page.locator("#toast")).toContainText("已退出登录");
   await expect(companion(page)).toHaveCount(0);
-  await expect(page.locator("[data-companion-undo]")).toHaveCount(0);
+  await expect(page.locator("#toast-undo")).toHaveCount(0);
   await expect(page.locator(".account-entry")).toContainText("登录账号");
   // Let pending render microtasks and the exit transition finish after reset.
   await page.waitForTimeout(300);
   await expect(companion(page)).toHaveCount(0);
+  noUnexpectedErrors(state);
+});
+
+test('an existing undo moves into newly opened task details and stays actionable', async ({ page }) => {
+  const state = await openApp(page);
+  await complete(page, 'one');
+  await expect(page.locator('#toast-undo')).toBeVisible();
+  await page.locator('[data-task-open="two"]').click();
+  const undo = page.locator('#task-drawer #toast-undo');
+  await expect(undo).toBeVisible();
+  await expect(undo).toBeEnabled();
+  await undo.click();
+  await expect.poll(() => state.tasks().find(item => item.id === 'one').status).toBe('not_started');
   noUnexpectedErrors(state);
 });

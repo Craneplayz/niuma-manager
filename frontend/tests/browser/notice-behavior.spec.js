@@ -72,7 +72,7 @@ test("notices sort unread before read, share overdue task color, and undo readin
   expect(f.writes[0].value.find(task => task.id === "notice-overdue").status).toBe("completed");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("notice-read-order-and-overdue.png"), fullPage: true });
-  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await page.getByRole("button", { name: "撤回最近一次操作", exact: true }).click();
   await expect.poll(order).toEqual(initialOrder);
   await expect(overdue).toHaveClass(/is-overdue/);
   await expect(overdue.getByRole("checkbox")).toHaveAttribute("aria-checked", "false");
@@ -114,7 +114,7 @@ for (const mode of ["month", "week"]) test(`${mode} calendar and day panel resch
   await expect(page.locator("#toast")).toContainText("关键日期已改为 2026-10-17 18:30");
   expect(f.writes[0].value.find(task => task.id === "dated").due).toEqual(due("2026-10-17", "18:30"));
   await expect(page.locator('[data-calendar-drop-date="2026-10-17"] [data-task-open="dated"]')).toBeVisible();
-  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await page.getByRole("button", { name: "撤回最近一次操作", exact: true }).click();
   await expect(page.locator('[data-calendar-drop-date="2026-10-16"] [data-task-open="dated"]')).toBeVisible();
   expect(f.writes[1].value.find(task => task.id === "dated").due).toEqual(due("2026-10-16", "18:30"));
   await page.locator('[data-calendar-day="2026-10-16"]').click();
@@ -149,7 +149,7 @@ test("undated notices can acquire a date and undo it while read notices cannot d
   expect(f.writes[0].value.find(task => task.id === "undated").due).toEqual(due("2026-10-18"));
   await expect(page.locator('[data-calendar-drop-date="2026-10-18"] [data-task-open="undated"]')).toBeVisible();
   await expect(page.locator('.day-panel [data-task-open="undated"]')).toHaveCount(0);
-  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await page.getByRole("button", { name: "撤回最近一次操作", exact: true }).click();
   await expect(page.locator('.day-panel [data-calendar-drag-task="undated"]')).toBeVisible();
   expect(f.writes[1].value.find(task => task.id === "undated").due).toBeNull();
   await expect(page.locator('.day-panel [data-task-open="read-undated"]')).not.toHaveAttribute("data-calendar-drag-task");

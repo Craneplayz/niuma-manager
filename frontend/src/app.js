@@ -41,6 +41,7 @@ import { readNavigation, navigationURL } from "./navigation.js";
 import { feedbackBox } from "./usage-feedback.js";
 import { createCompletionCompanion, countRemainingTasks } from "./completion-companion.js";
 import { createSidebarCompanion } from "./sidebar-companion.js";
+import { createUndoFeedback } from "./undo-feedback.js";
 import { selectSidebarCompanion } from "./sidebar-companion-state.js";
 import { describeEnvironment } from "./environment-badge.js";
 import { renderCourseDot, syncCourseColors } from "./course-identity.js";
@@ -96,17 +97,25 @@ const ui = {
   mobileMenu: false,
 };
 const completionCompanion = createCompletionCompanion({
-  escapeHtml: esc, icon, accountVersion,
-  onError: error => toastError(error, "tasks_save"),
-  getContainer: () => drawer.open && !drawerEditing ? drawer : document.body,
+  accountVersion,
   canShow: () => !dialog.open && !drawerEditing && !ui.mobileMenu,
+  onShow: value => sidebarCompanion.showCompletion(value),
+  onDismiss: () => sidebarCompanion.endCompletion(),
+  onPreferences: value => sidebarCompanion.preferences(value),
 });
 const sidebarCompanion = createSidebarCompanion({
-  canInteract: () => !dialog.open && !drawer.open &&
-    (!matchMedia("(max-width: 700px)").matches || ui.mobileMenu),
+  canInteract: () => !dialog.open && !drawer.open && !ui.mobileMenu &&
+    (demo || Boolean(!loading && session.user && !session.changing && !loadError)),
   isCompact: () => (!matchMedia("(max-width: 700px)").matches && ui.sidebarCollapsed) ||
     matchMedia("(max-height: 720px)").matches,
   onOpen: hideSidebarTooltip,
+  onCompletionDismiss: () => completionCompanion.dismiss(),
+});
+const undoFeedback = createUndoFeedback({
+  escapeHtml: esc, icon, accountVersion,
+  onError: error => toastError(error, "tasks_save"),
+  onUndo: () => completionCompanion.dismiss(),
+  getContainer: () => drawer.open && !drawerEditing ? drawer : document.body,
 });
 let sidebarAccountEpoch = accountVersion();
 function syncSidebarCompanion() {
@@ -190,6 +199,7 @@ function draggableTask(id) {
 }
 function clearUndo() {
   completionCompanion.reset();
+  undoFeedback.clear();
   clearTimeout(toastTimer);
   const el = document.querySelector("#toast");
   el.innerHTML = "";
@@ -226,28 +236,21 @@ function remember() {
 }
 function toast(message, undo) {
   completionCompanion.dismiss();
+  undoFeedback.clear();
   const epoch = accountVersion();
   clearTimeout(toastTimer);
   const el = document.querySelector("#toast");
-  el.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" id="toast-undo">撤销</button>' : ""}`;
+  if (undo) return undoFeedback.show({ message, undo, epoch });
+  el.innerHTML = `<span>${esc(message)}</span>`;
   el.classList.add("visible");
-  if (undo)
-    el.querySelector("button").onclick = async () => {
-      if (epoch !== accountVersion()) return;
-      try {
-        await undo();
-        el.classList.remove("visible");
-      } catch (e) {
-        toastError(e);
-      }
-    };
   toastTimer = setTimeout(
     () => el.classList.remove("visible"),
-    undo ? 7000 : 4000,
+    4000,
   );
 }
 function toastError(error, action = "general") {
   completionCompanion.dismiss();
+  undoFeedback.clear();
   if (dialog.open) {
     let target = dialog.querySelector("[data-dialog-operation-error]");
     if (!target) {
@@ -270,6 +273,7 @@ function toastError(error, action = "general") {
 }
 function openDialog(html) {
   completionCompanion.dismiss();
+  undoFeedback.clear();
   sidebarCompanion.dismiss({ stop: true });
   hideSidebarTooltip();
   dialog.innerHTML = html;
@@ -279,12 +283,14 @@ function openDialog(html) {
     else dialog.setAttribute("aria-label", "操作面板");
   }
   if (!dialog.open) dialog.showModal();
+  sidebarCompanion.reposition();
 }
 function closeDialog() {
   dialog.close();
 }
 dialog.addEventListener("close", () => {
   if (!dialog.open) account.closed?.();
+  sidebarCompanion.reposition();
 });
 async function refresh() {
   if (demo) return;
@@ -591,9 +597,13 @@ function openTask(id, editing = false) {
   drawerError = null;
   updateDrawer();
   if (!drawer.open) drawer.showModal();
+  if (drawerEditing) undoFeedback.clear();
+  else undoFeedback.relocate();
+  sidebarCompanion.reposition();
 }
 function updateDrawer() {
-  completionCompanion.detach();
+  if (drawerEditing) undoFeedback.clear();
+  else undoFeedback.detach();
   syncCourseIdentity();
   const task = editableTask(drawerId) || {
     title: "",
@@ -622,15 +632,17 @@ function updateDrawer() {
     drawer
       .querySelectorAll("button,input,textarea")
       .forEach((el) => (el.disabled = true));
-  completionCompanion.relocate();
+  undoFeedback.relocate();
+  sidebarCompanion.reposition();
 }
 function closeDrawer() {
-  completionCompanion.detach();
+  undoFeedback.detach();
   drawer.close();
   drawerId = null;
   drawerEditing = false;
   drawerError = null;
-  completionCompanion.relocate();
+  undoFeedback.relocate();
+  sidebarCompanion.reposition();
   const fallback = document.querySelector('[data-action="task-new"]');
   if (lastFocus?.isConnected) lastFocus.focus({ preventScroll: true });
   else fallback?.focus({ preventScroll: true });
@@ -783,7 +795,10 @@ function showCompletion(undo, epoch) {
   if (document.querySelector("#toast.visible .user-error") || drawerError) return;
   clearTimeout(toastTimer);
   const remaining = countRemainingTasks(listItems());
-  if (!completionCompanion.show({ remaining, undo, epoch })) toast("任务已完成", undo);
+  const shown = completionCompanion.show({ remaining, epoch });
+  undoFeedback.show({ message: "任务已完成", undo, epoch });
+  sidebarCompanion.reposition();
+  if (!shown && !undo) toast("任务已完成");
 }
 async function trashTask() {
   if (taskBusy || !drawerId) return;

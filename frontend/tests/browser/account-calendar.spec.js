@@ -122,7 +122,7 @@ for (const mode of ["month", "week"]) test(`${mode} calendar and day panel resch
   await expect(page.locator('#toast')).toContainText("截止日期已改为 2026-10-17 18:30");
   expect(f.writes[0].value.find(task => task.id === "dated").due).toEqual({ date: "2026-10-17", time: "18:30", precision: "datetime" });
   await expect(page.locator('[data-calendar-drop-date="2026-10-17"] [data-task-open="dated"]')).toBeVisible();
-  await page.getByRole("button", { name: "撤销", exact: true }).click();
+  await page.getByRole("button", { name: "撤回最近一次操作", exact: true }).click();
   await expect(page.locator('[data-calendar-drop-date="2026-10-16"] [data-task-open="dated"]')).toBeVisible();
   expect(f.writes[1].value.find(task => task.id === "dated").due).toEqual({ date: "2026-10-16", time: "18:30", precision: "datetime" });
   await page.locator('[data-calendar-day="2026-10-16"]').click();

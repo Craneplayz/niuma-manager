@@ -89,7 +89,7 @@ test('ignore is one click, undo restores the same draft, and the import list sta
   await row.getByRole('button', { name: '忽略：提交课程研究计划' }).click();
   await expect(row).toHaveCount(0);
   await expect(page.locator('#dialog')).not.toBeVisible();
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await page.getByRole('button', { name: '撤回最近一次操作', exact: true }).click();
   await expect(row).toBeVisible();
   expect(f.resolutions.map(item => [item.action, item.version])).toEqual([['ignore', 1], ['reopen', 2]]);
   expect(f.writes).toEqual([]);

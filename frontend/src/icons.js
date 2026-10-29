@@ -9,6 +9,7 @@ const paths = {
   clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2",
   info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 11v6M12 7h.01",
   check: "M5 12l4 4L19 6",
+  undo: "m8 4-5 5 5 5M3 9h10a7 7 0 0 1 0 14",
   chevron: "M9 5l7 7-7 7",
   close: "M6 6l12 12M6 18L18 6",
   cow: "M3 4l5 5h8l5-5M5 11v7l7 4 7-4v-7M9 14h.1M15 14h.1",

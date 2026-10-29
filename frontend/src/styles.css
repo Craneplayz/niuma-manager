@@ -1355,6 +1355,7 @@ dialog p {
   transform: translate(-50%, 0);
   pointer-events: auto;
 }
+#toast.visible:not(:has(button)) { pointer-events: none; }
 #toast button {
   background: transparent;
   border: 0;
