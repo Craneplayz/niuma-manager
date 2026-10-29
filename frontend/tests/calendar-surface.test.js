@@ -127,7 +127,7 @@ test("surface markup exposes date, status and exact count on clipped sibling but
   assert.equal(ids.length, new Set(ids).size);
   assert.ok(ids.every(id => /^calendar-surface-week-2026-10-29-[a-z-]+$/.test(id)));
   for (const reference of [...html.matchAll(/(?:url\(#|href="#)([a-z\d-]+)/g)].map(match => match[1])) assert.ok(ids.includes(reference));
-  assert.match(html, /feGaussianBlur/);
+  assert.match(html, /feGaussianBlur stdDeviation="0\.006"/);
   assert.doesNotMatch(html, /<image|https?:|data:image|<script/);
   let buttonDepth = 0;
   for (const [tag] of html.matchAll(/<\/?button\b[^>]*>/g)) {

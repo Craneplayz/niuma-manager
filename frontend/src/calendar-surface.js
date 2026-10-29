@@ -122,13 +122,11 @@ export function renderCalendarSurface({ date, counts = {}, mode = "month", selec
   const dateLabel = `${year} 年 ${month} 月 ${day} 日`;
   const clips = regions.map(region => `<clipPath id="${prefix}-${region.kind}-clip" clipPathUnits="objectBoundingBox"><path d="${region.path}"/></clipPath>`).join("");
   const paths = regions.map(region => `<path class="calendar-surface-region" data-activity="${region.kind}" data-count="${region.count}" data-level="${region.level}" d="${region.path}"/>`).join("");
-  // Blur the complete colour field, then restore its opacity so the outside
-  // edges stay filled. An unfiltered copy underneath would leave a hard seam.
-  // Small minority regions get less bleed to retain their visible colour core.
-  const bleed = Math.min(0.07, Math.sqrt(Math.min(...regions.map(region => region.share))) * 0.16).toFixed(4);
+  // A sharp base underneath the blurred paint keeps the outer cell edges fully
+  // covered. Only category boundaries blend; hit targets never use the filter.
   const soft = regions.length > 1
-    ? `<filter id="${prefix}-blend" x="0" y="0" width="1" height="1" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="${bleed}" result="wash"/><feComponentTransfer in="wash"><feFuncA type="table" tableValues="1 1"/></feComponentTransfer></filter>` : "";
-  const paint = `<svg class="calendar-activity-surface" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs>${clips}${soft}</defs><g id="${prefix}-paint"${soft ? ` filter="url(#${prefix}-blend)"` : ""}>${paths}</g></svg>`;
+    ? `<filter id="${prefix}-blend" x="-0.03" y="-0.03" width="1.06" height="1.06" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="0.006"/></filter>` : "";
+  const paint = `<svg class="calendar-activity-surface" viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" focusable="false"><defs>${clips}${soft}</defs><g id="${prefix}-paint">${paths}</g>${soft ? `<use href="#${prefix}-paint" filter="url(#${prefix}-blend)"/>` : ""}</svg>`;
   const targets = regions.map(region => {
     const label = `优先显示 ${dateLabel}，${KINDS.find(([kind]) => kind === region.kind)[1]} ${region.count} 项`;
     return `<button type="button" class="calendar-activity-region" data-calendar-activity="${region.kind}" data-calendar-day="${date}" data-count="${region.count}" data-level="${region.level}" data-share="${region.share}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}" aria-pressed="${selectedKind === region.kind}" tabindex="-1" style="clip-path:url(#${prefix}-${region.kind}-clip)"><span class="sr-only">${escapeHtml(label)}</span></button>`;
