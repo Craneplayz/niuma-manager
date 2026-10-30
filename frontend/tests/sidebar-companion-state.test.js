@@ -15,7 +15,7 @@ test("unready and invalid-day states are neutral and do not report fictitious ze
     assert.equal(state.character, "cow");
     assert.equal(state.ready, false);
     for (const key of ["completedToday", "overdue", "pending", "taskCount"]) assert.equal(state[key], null);
-    assert.doesNotMatch(state.message, /完成 \d|逾期|超额|又多/);
+    assert.doesNotMatch(state.message, /(?:完成|做完) \d|逾期|超额|又多/);
   }
 });
 
@@ -28,7 +28,7 @@ test("empty data and old completed work have distinct quiet poses without invent
   assert.equal(history.key, "all-clear");
   assert.equal(history.pose, "wave");
   assert.equal(history.completedToday, 0);
-  assert.doesNotMatch(history.message, /今天.*完成|下一项.*等|超额/);
+  assert.doesNotMatch(history.message, /今天.*(?:完成|做完)|下一项.*等|超额/);
   assert.equal(select(null).key, "idle");
   assert.equal(selectSidebarCompanion(null, null).key, "idle");
 });
@@ -54,7 +54,7 @@ test("completed progress is acknowledged before overdue work and cannot override
         ...Array.from({ length: doneCount }, (_, index) => finished(`done-${index}`)),
       ]);
       assert.equal(state.character, "horse");
-      assert.match(state.message, new RegExp(`^今天完成 ${doneCount} 项`));
+      assert.match(state.message, new RegExp(`^今天做完 ${doneCount} 项`));
       assert.ok(state.message.includes(`还有 ${overdueCount} 项逾期`));
       assert.equal(state.completedToday, doneCount);
     }
@@ -69,14 +69,14 @@ test("three recorded completions with no overdue work select dancing cow, even w
     assert.equal(state.pose, "dance");
     assert.equal(state.completedToday, 3);
     assert.equal(state.overdue, 0);
-    assert.match(state.message, /今天完成 3 项/);
+    assert.match(state.message, /今天做完 3 项/);
     assert.doesNotMatch(state.message, /超额|比昨天|提前完成/);
   }
   for (const count of [1, 2]) {
     const state = select(Array.from({ length: count }, (_, index) => finished(String(index))));
     assert.equal(state.key, "small-progress");
     assert.equal(state.pose, "celebrate");
-    assert.match(state.message, new RegExp(`今天完成 ${count} 项`));
+    assert.match(state.message, new RegExp(`今天做完 ${count} 项`));
   }
 });
 

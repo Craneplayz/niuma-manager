@@ -91,7 +91,7 @@ test("the stern checklist horse counts only saved tasks and ignores list filters
   await expect(mascot(page)).toHaveAttribute("data-character", "horse");
   await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
   await talk(page);
-  await expect(speech(page)).toContainText("今天完成 2 项");
+  await expect(speech(page)).toContainText("今天做完 2 项");
   await expect(speech(page)).toContainText("3 项逾期");
   await page.keyboard.press("Escape");
   await showMain(page);
@@ -117,7 +117,7 @@ test("three completions today produce the dancing cow and ordinary rerenders do 
   await expect(mascot(page)).toHaveAttribute("data-character", "cow");
   await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
   await talk(page);
-  await expect(speech(page)).toContainText("今天完成 3 项");
+  await expect(speech(page)).toContainText("今天做完 3 项");
   const caption = await speech(page).boundingBox(), figure = await button(page).boundingBox();
   expect(caption.y).toBeGreaterThanOrEqual(figure.y + figure.height);
   await expect(mascot(page)).toHaveAttribute("data-playing", "false", { timeout: 4000 });
@@ -189,7 +189,7 @@ test("saving three overdue completions changes checklist horse to gentle horse t
   await expect.poll(() => state.tasks().find(item => item.id === "three").status).toBe("not_started");
   await expect(mascot(page)).toHaveAttribute("data-state", "overdue-low");
   await talk(page);
-  await expect(speech(page)).toContainText("今天完成 2 项");
+  await expect(speech(page)).toContainText("今天做完 2 项");
   await expect(speech(page)).toContainText("1 项逾期");
   clean(state);
 });
@@ -258,25 +258,32 @@ test("logout clears the previous account's mascot counts and open speech", async
   clean(state);
 });
 
-test("pointer gaze and click change authored face and limb frames without moving the dock", async ({ page }, info) => {
-  test.skip(info.project.name !== "desktop", "Near-pointer gaze is for a mouse; touch uses click responses.");
+test("passing pointers do not change the pet and hover only reveals its caption", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Pointer proximity is meaningful only for a mouse.");
   const state = await workspace(page, { tasks: [task("future")] });
   await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
   const before = await mascot(page).boundingBox(), target = await button(page).boundingBox();
-  await page.mouse.move(target.x + target.width / 2 + 100, target.y + target.height / 2);
-  await expect(mascot(page)).toHaveAttribute("data-frame", "3");
-  await page.mouse.move(target.x + target.width / 2 - 70, target.y + target.height / 2);
-  await expect(mascot(page)).toHaveAttribute("data-frame", "2");
+  const frame = await mascot(page).getAttribute("data-frame");
+  const count = await mascot(page).getAttribute("data-motion-count");
+  await page.mouse.move(target.x + target.width + 70, target.y + target.height / 2);
+  await page.waitForTimeout(120);
+  await expect(mascot(page)).toHaveAttribute("data-frame", frame);
+  await button(page).hover();
+  await page.waitForTimeout(180);
+  await expect(speech(page)).not.toBeVisible();
+  await expect(speech(page)).toBeVisible();
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  await expect(mascot(page)).toHaveAttribute("data-motion-count", count);
   const after = await mascot(page).boundingBox();
   expect(after.x).toBe(before.x); expect(after.y).toBe(before.y);
   await button(page).click();
   await expect(mascot(page)).toHaveAttribute("data-action", "wave");
   const cells = new Set();
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 16; i++) {
     cells.add(await mascot(page).getAttribute("data-frame"));
-    await page.waitForTimeout(140);
+    await page.waitForTimeout(85);
   }
-  expect(cells.size).toBeGreaterThanOrEqual(3);
+  expect(cells.size).toBeGreaterThanOrEqual(10);
   await expect(mascot(page)).toHaveAttribute("data-playing", "false");
   clean(state);
 });
@@ -339,4 +346,160 @@ test("the fixed pet hides during task details and navigation overlays, then retu
   await expect(mascot(page)).toBeVisible();
   await expect(mascot(page)).toHaveAttribute("data-state", "overdue-high");
   clean(state);
+});
+
+async function isolatedPet(page, character = "cow", pose = "arrive") {
+  await page.route("**/pet-runtime-harness", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><link rel="stylesheet" href="/src/styles.css"><link rel="stylesheet" href="/src/sidebar-companion.css"></head><body><aside id="sidebar" style="width:240px;height:100vh"><nav class="task-nav"></nav><div id="sidebar-companion-slot"></div><div class="sidebar-bottom" style="position:fixed;bottom:16px;height:60px"></div></aside></body></html>` }));
+  await page.goto("/pet-runtime-harness");
+  await page.evaluate(async ({ character, pose }) => {
+    const { createSidebarCompanion } = await import("/src/sidebar-companion.js");
+    window.petAllowed = true;
+    window.pet = createSidebarCompanion({ canInteract: () => window.petAllowed });
+    window.pet.update({ key: "synthetic-mood", character, pose, message: "合成的日常状态", ready: true });
+    window.pet.mount(document.querySelector("#sidebar-companion-slot"));
+  }, { character, pose });
+  await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
+}
+async function harnessCompletion(page, line = "合成的完成回应") {
+  await page.evaluate(line => window.pet.showCompletion({ character: "cow", message: { line, title: "合成完成", mode: "ordinary" }, count: 1 }), line);
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false", { timeout: 5000 });
+}
+
+test("same-character expiry settles in place and fades the old caption without replacing the actor", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "The same state machine is exercised at all widths by completion tests.");
+  await isolatedPet(page);
+  await harnessCompletion(page);
+  const figure = await button(page).boundingBox();
+  await page.evaluate(() => {
+    window.returnCharacters = [];
+    new MutationObserver(() => window.returnCharacters.push(document.querySelector("#sidebar-companion").dataset.character))
+      .observe(document.querySelector("#sidebar-companion"), { attributes: true, attributeFilter: ["data-character"] });
+    window.pet.endCompletion();
+  });
+  await expect(mascot(page)).toHaveAttribute("data-phase", "settling");
+  await expect(mascot(page)).toHaveAttribute("data-caption", "leaving");
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(speech(page)).not.toBeVisible();
+  expect(await button(page).boundingBox()).toEqual(figure);
+  expect(await page.evaluate(() => window.returnCharacters.every(value => value === "cow"))).toBe(true);
+  await page.screenshot({ path: info.outputPath("same-character-settled.png") });
+});
+
+test("different-character expiry performs goodbye then entrance and a new completion cancels the old return", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused transition regression.");
+  await isolatedPet(page, "horse", "settle");
+  await harnessCompletion(page);
+  await page.evaluate(() => window.pet.endCompletion());
+  await expect(mascot(page)).toHaveAttribute("data-phase", "goodbye");
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-phase", "entering");
+  await expect(mascot(page)).toHaveAttribute("data-character", "horse");
+  // Interrupt after the incoming actor is visible, when old timers are most dangerous.
+  await page.evaluate(() => window.pet.showCompletion({ character: "cow", message: { line: "新的合成回应", mode: "batch" }, count: 2 }));
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false", { timeout: 5000 });
+  await page.waitForTimeout(1200);
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-completion", "true");
+  await expect(speech(page)).toHaveText("新的合成回应");
+  await page.screenshot({ path: info.outputPath("interrupted-return-new-completion.png") });
+});
+
+test("reduced motion, hiding and account reset cancel the return without stale frames or captions", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused lifecycle cancellation regression.");
+  await isolatedPet(page, "horse", "settle");
+  await harnessCompletion(page);
+  await page.evaluate(() => window.pet.endCompletion());
+  await expect(mascot(page)).toHaveAttribute("data-phase", "goodbye");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(mascot(page)).toHaveAttribute("data-character", "horse");
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  await page.waitForTimeout(650);
+  await expect(mascot(page)).toHaveAttribute("data-character", "horse");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await harnessCompletion(page);
+  await page.evaluate(() => {
+    window.pet.endCompletion();
+    window.petAllowed = false;
+    window.pet.reposition();
+    window.pet.reset();
+    window.pet.update({ key: "new-account", character: "cow", pose: "settle", message: "新账号的安静状态", ready: true });
+    window.petAllowed = true;
+    window.pet.reposition();
+  });
+  await page.waitForTimeout(1200);
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-state", "new-account");
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  await expect(speech(page)).not.toBeVisible();
+});
+
+test("real seven-second completion expiry returns to the saved mood with an authored handoff", async ({ browser }, info) => {
+  test.skip(info.project.name !== "desktop", "One desktop recording proves the real expiry; responsive tests cover placement.");
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 }, timezoneId: "Asia/Shanghai",
+    baseURL: info.project.use.baseURL || "http://127.0.0.1:18763",
+    recordVideo: { dir: info.outputPath("recording"), size: { width: 1440, height: 900 } },
+  });
+  const page = await context.newPage();
+  try {
+    const state = await workspace(page);
+    await page.evaluate(() => {
+      window.expiryPhases = [];
+      new MutationObserver(() => window.expiryPhases.push(document.querySelector("#sidebar-companion").dataset.phase))
+        .observe(document.querySelector("#sidebar-companion"), { attributes: true, attributeFilter: ["data-phase"] });
+    });
+    await page.locator('[data-task-complete="one"]').click();
+    await page.mouse.move(900, 160);
+    await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+    // Real wall-clock time: the recording must show the actual seven-second lifecycle.
+    await page.waitForTimeout(7250);
+    await expect(mascot(page)).toHaveAttribute("data-character", "horse");
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    await expect(mascot(page)).toHaveAttribute("data-completion", "false");
+    const phases = await page.evaluate(() => window.expiryPhases);
+    for (const phase of ["goodbye", "leaving", "entering"]) expect(phases).toContain(phase);
+    await page.screenshot({ path: info.outputPath("actual-seven-second-return.png") });
+    clean(state);
+  } finally {
+    await context.close();
+    const path = await page.video()?.path();
+    if (path) await info.attach("actual-seven-second-return", { path, contentType: "video/webm" });
+  }
+});
+
+test("rapid completions merge while the other actor is still leaving without restarting the entrance", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused merge during entrance regression.");
+  await isolatedPet(page, "horse", "settle");
+  await page.evaluate(() => window.pet.showCompletion({ character: "cow", message: { line: "第一项的合成回应", mode: "ordinary" }, count: 1 }));
+  await expect(mascot(page)).toHaveAttribute("data-phase", "goodbye");
+  const count = await mascot(page).getAttribute("data-motion-count");
+  await page.evaluate(() => window.pet.showCompletion({ character: "cow", message: { line: "连续两项的合成回应", mode: "batch" }, count: 2, replay: false }));
+  await expect(mascot(page)).toHaveAttribute("data-motion-count", count);
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false", { timeout: 5000 });
+  await expect(mascot(page)).toHaveAttribute("data-count", "2");
+  await expect(speech(page)).toHaveText("连续两项的合成回应");
+});
+
+test("dragging during the handoff postpones but preserves the pending completion action", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused mouse interruption regression.");
+  await isolatedPet(page, "horse", "settle");
+  await page.evaluate(() => window.pet.showCompletion({ character: "cow", message: { line: "拖动后仍应出现的合成回应", mode: "ordinary" }, count: 1 }));
+  await expect(mascot(page)).toHaveAttribute("data-phase", "goodbye");
+  const b = await button(page).boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(1100, 600, { steps: 5 });
+  await expect(mascot(page)).toHaveAttribute("data-dragging", "true");
+  await page.mouse.up();
+  await page.mouse.move(800, 100);
+  await expect(mascot(page)).toHaveAttribute("data-action", "celebrate");
+  await expect(mascot(page)).toHaveAttribute("data-character", "cow");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false", { timeout: 5000 });
+  await expect(speech(page)).toHaveText("拖动后仍应出现的合成回应");
 });

@@ -11,7 +11,7 @@ export function selectSidebarCompanion(tasks = [], options = {}) {
   const day = validDate(today);
   if (!ready || !day) return {
     key: "unknown", character: "cow", pose: "arrive", ready: false,
-    message: "牛牛在这儿，陪你把事情一件件理清楚。",
+    message: "我在这儿呢。",
     completedToday: null, overdue: null, pending: null, taskCount: null,
   };
 
@@ -30,16 +30,16 @@ export function selectSidebarCompanion(tasks = [], options = {}) {
   const result = (key, character, pose, message) => ({ key, character, pose, message, ...counts });
 
   if (overdue >= 3) return result("overdue-high", "horse", "checklist", completedToday
-    ? `今天完成 ${completedToday} 项，真不错！还有 ${overdue} 项逾期，咱们收个尾？`
-    : `还有 ${overdue} 项逾期呢，不能一直晾着啦，先挑一项？`);
+    ? `今天做完 ${completedToday} 项了。还有 ${overdue} 项逾期，先挑一件？`
+    : `还有 ${overdue} 项逾期，先挑一件做吧。`);
   if (overdue) return result("overdue-low", "horse", "settle", completedToday
-    ? `今天完成 ${completedToday} 项啦！还有 ${overdue} 项逾期，要不要先看看？`
-    : `还有 ${overdue} 项过了截止日，要不要先看看？`);
+    ? `今天做完 ${completedToday} 项了。还有 ${overdue} 项逾期，记得看看。`
+    : `有 ${overdue} 项逾期了，记得看一眼。`);
   if (completedToday >= 3) return result("progress", "cow", "dance",
-    `今天完成 ${completedToday} 项，真棒！跟牛牛跳个小舞吧～`);
+    `今天做完 ${completedToday} 项啦，跟我跳两下？`);
   if (completedToday) return result("small-progress", "cow", "celebrate",
-    `今天完成 ${completedToday} 项啦，每一步都算数。`);
-  if (pending) return result("steady", "cow", "arrive", "不用一口气想完，先挑一件就好。");
-  if (records.length) return result("all-clear", "cow", "wave", "这会儿歇一歇，想安排下一步时叫我。");
-  return result("idle", "cow", "settle", "清单慢慢安排，牛牛先陪你待一会儿。");
+    `今天做完 ${completedToday} 项啦，挺好。`);
+  if (pending) return result("steady", "cow", "arrive", "先看看要做哪件。");
+  if (records.length) return result("all-clear", "cow", "wave", "现在没待办，歇会儿吧。");
+  return result("idle", "cow", "settle", "有要做的事，记在这儿吧。");
 }
