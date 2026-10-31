@@ -641,6 +641,7 @@ body.is-calendar-dragging * {
 }
 @container calendar-day (max-height: 116px) {
   .calendar-day-tasks .calendar-task:not(:first-child),
+  .calendar-day-tasks .calendar-class:not(:first-child),
   .calendar-day-tasks .calendar-more {
     display: none;
   }
@@ -682,6 +683,7 @@ body.is-calendar-dragging * {
     .calendar-month .calendar-day-tasks .calendar-task:not(:first-child) {
       display: flex;
     }
+    .calendar-month .calendar-day-tasks .calendar-class:not(:first-child),
     .calendar-month .calendar-day-tasks .calendar-more {
       display: block;
     }
@@ -854,6 +856,11 @@ dialog:has([data-timetable-panel]) { width: min(760px, calc(100vw - 32px)); }
 .timetable-clocks { display: flex; gap: 8px; flex-shrink: 0; }
 .timetable-clocks label { display: grid; gap: 4px; font-size: 12px; }
 .timetable-clocks input { width: 112px; min-width: 0; }
+/* Month cells share two single-line preview slots; full times/rooms stay in day/week views. */
+.calendar-month .calendar-class { display: block; box-sizing: border-box; height: 23px; margin: 0; padding: 3px 4px; overflow: hidden; }
+.calendar-month .calendar-class strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 17px; }
+.calendar-month .calendar-class > span { display: none; }
+.calendar-month .calendar-class.is-exam strong::before { content: "考试 · "; }
 @media (max-width: 700px) {
   .timetable-dates { grid-template-columns: 1fr; }
   .timetable-meeting { align-items: stretch; flex-direction: column; }

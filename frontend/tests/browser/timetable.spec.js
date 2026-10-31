@@ -160,3 +160,30 @@ test('late upload preview never crosses account changes or reopens a closed pane
     await expect(page.locator('.timetable-saved article')).toHaveCount(0);
   } finally { release(); }
 });
+
+test('a course cannot hide the first deadline in a compact six-row month', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'Mouse month summaries are desktop-only');
+  await page.setViewportSize({ width: 1280, height: 768 });
+  await preview(page);
+  await page.getByLabel('第一周的星期一').fill('2026-10-26');
+  await page.getByRole('button', { name: '确认导入 2 个上课时段' }).click();
+  await expect(page.locator('.timetable-saved article')).toHaveCount(1);
+  await page.getByRole('button', { name: '关闭课表' }).click();
+  const saved = await page.evaluate(async () => {
+    const workspace = await (await fetch('/api/workspace')).json();
+    const task = { id: 'synthetic-deadline', title: '合成截止任务', description: '', status: 'not_started',
+      due: { date: '2026-11-02', precision: 'date' }, plans: [], subtasks: [] };
+    return (await fetch('/api/data/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: workspace.tasks?.version || 0, value: [task] }) })).status;
+  });
+  expect(saved).toBe(200);
+  await page.reload();
+  await page.getByLabel('跳转日期', { exact: true }).fill('2026-11-02');
+  const cell = page.locator('[data-calendar-drop-date="2026-11-02"]');
+  await expect(cell.getByRole('button', { name: /合成截止任务/ })).toBeVisible();
+  await expect(page.locator('.timetable-day')).toContainText('示例原理(Ⅰ)');
+  await expect(cell.locator('.calendar-day-mobile-count')).toHaveText('2 项');
+  const bounds = await cell.evaluate(el => ({ cell: el.getBoundingClientRect().bottom,
+    task: el.querySelector('.calendar-task').getBoundingClientRect().bottom }));
+  expect(bounds.task).toBeLessThanOrEqual(bounds.cell);
+});

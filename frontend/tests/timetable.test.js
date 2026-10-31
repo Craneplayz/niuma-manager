@@ -43,3 +43,19 @@ test('explicit exam dates survive teaching term end, with no guessed time or cla
   assert.match(html, /考试 · 下午/); assert.doesNotMatch(html, /08:00|示例楼101/);
   assert.match(html, /20270104下午/);
 });
+
+test('month previews prioritize deadlines and share two slots with courses', () => {
+  const classes = classEvents(fixture.value, '2026-09-01', '2026-10-01');
+  const task = { id: 'deadline', title: '截止任务', due: '2026-09-07', status: 'todo' };
+  const day = tasks => renderCalendar({ classes, tasks, anchorDate: '2026-09-07', today: '2026-09-07' })
+    .match(/data-calendar-drop-date="2026-09-07"[\s\S]*?<div class="calendar-day-tasks">([\s\S]*?)<\/section>/)[1];
+  const mixed = day([task]);
+  assert.ok(mixed.startsWith('<button type="button" class="calendar-task'));
+  assert.ok(mixed.indexOf('data-task-open="deadline"') < mixed.indexOf('calendar-class'));
+  assert.equal((mixed.match(/class="calendar-class(?: |")/g) || []).length, 1);
+  const crowded = day([task, { ...task, id: 'second' }, { ...task, id: 'third' }]);
+  assert.equal((crowded.match(/data-task-open=/g) || []).length, 2);
+  assert.doesNotMatch(crowded, /class="calendar-class/);
+  assert.match(crowded, /全部 4 项内容/);
+  assert.match(crowded, />\+2 项<\/button>/);
+});

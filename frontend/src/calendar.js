@@ -106,15 +106,21 @@ export function renderCalendar({
         ? `<span class="calendar-day-count">${members.length} 项</span>`
         : "";
     const visible = isWeek ? members : members.slice(0, 2);
+    // Deadline summaries keep the first slot used by compact-cell visibility rules.
+    const visibleLessons = isWeek ? lessons : lessons.slice(0, 2 - visible.length);
+    const hidden = members.length + lessons.length - visible.length - visibleLessons.length;
     const overflow =
-      !isWeek && members.length > 2
-        ? `<button type="button" class="calendar-more" data-calendar-day="${iso}" aria-label="查看 ${accessibleDate(date)}的全部 ${members.length} ${unit}">+${members.length - 2} 项</button>`
+      !isWeek && hidden > 0
+        ? `<button type="button" class="calendar-more" data-calendar-day="${iso}" aria-label="查看 ${accessibleDate(date)}的全部 ${members.length + lessons.length} ${lessons.length ? '项内容' : unit}">+${hidden} 项</button>`
         : "";
+    const taskPreviews = visible.map((task) => taskButton(task, date)).join('');
+    const coursePreviews = visibleLessons.map(event => classMarkup(event, escapeHtml)).join('');
+    const previews = isWeek ? coursePreviews + taskPreviews : taskPreviews + coursePreviews;
     const empty =
       isWeek && !members.length && !lessons.length
         ? '<p class="calendar-day-empty">无任务</p>'
         : "";
-    return `<section class="${dayClasses}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${(isWeek ? lessons : lessons.slice(0, 2)).map(event => classMarkup(event, escapeHtml)).join('')}${!isWeek && lessons.length > 2 ? `<button class="calendar-more" data-calendar-day="${iso}">另${lessons.length-2}节课</button>` : ''}${visible.map((task) => taskButton(task, date)).join("")}${overflow}${empty}</div></section>`;
+    return `<section class="${dayClasses}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${previews}${overflow}${empty}</div></section>`;
   }
 
   if (isWeek) {
