@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "meeting": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "title", "location", "notes", "weekday", "startPeriod", "endPeriod", "parity", "startTime", "endTime", "examNote", "exam"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9a-f]{20}$"},
+        "title": {"type": "string", "minLength": 1}, "location": {"type": "string"}, "notes": {"type": "string"},
+        "weekday": {"type": "integer", "minimum": 1, "maximum": 7},
+        "startPeriod": {"type": "integer", "minimum": 1, "maximum": 12},
+        "endPeriod": {"type": "integer", "minimum": 1, "maximum": 12},
+        "parity": {"enum": ["all", "odd", "even"]},
+        "startTime": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+        "endTime": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
+        "examNote": {"type": "string"},
+        "exam": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["date", "period"], "properties": {"date": {"type": "string", "format": "date"}, "period": {"enum": ["", "上午", "下午", "晚上"]}}}]}
+      }
+    },
+    "table": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "firstMonday", "lastDate", "meetings"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9a-f]{24}$"},
+        "firstMonday": {"type": "string", "format": "date"}, "lastDate": {"type": "string", "format": "date"},
+        "meetings": {"type": "array", "minItems": 1, "maxItems": 84, "items": {"$ref": "#/$defs/meeting"}}
+      }
+    }
+  },
+  "type": "object", "additionalProperties": false, "required": ["value", "version"],
+  "properties": {
+    "value": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/table"}},
+    "version": {"type": "integer", "minimum": 0}, "duplicate": {"type": "boolean"}
+  }
+}
