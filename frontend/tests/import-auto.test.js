@@ -154,7 +154,11 @@ function fixture({entries = [teaching(), teaching('no-deadline')], manualRequest
       for (const entry of selected) failed.delete(entry.run.request_id);
       return response(makeRun(who, body.operation_id, selected, run.run_id, 'succeeded'));
     }
-    if (path === '/api/recognition/batches' && method === 'GET') return response(db.batches);
+    if (path === '/api/recognition/batches' && method === 'GET') {
+      const snapshot = clone(db.batches);
+      await pause('batches', call);
+      return response(snapshot);
+    }
     if (path === '/api/recognition/text-jobs' && method === 'GET') return response({contract_version:'text-import-jobs/0.1',jobs:db.textJobs});
     if (path === '/api/recognition/text-jobs' && method === 'POST') {
       assert.equal(body.contract_version, '0.2');assert.equal(body.records[0].platform, 'manual');
@@ -216,7 +220,10 @@ check('returning to import unlocks controls for either read order with empty or 
       if (visible) html = ui.render();
     };
     f.host.render();
-    const gate = f.pauseNext(progressLast ? 'runs' : 'credentials'); t.after(gate.release);
+    const credentialReads = f.calls.filter(call => call.path === '/api/sources/credentials').length;
+    // Returning reuses the account's teaching connection. Candidate and run
+    // reads remain independent and must unlock in either completion order.
+    const gate = f.pauseNext(progressLast ? 'runs' : 'batches'); t.after(gate.release);
     visible = true; f.host.render();
     const loading = ui.load();
     await gate.entered;
@@ -231,6 +238,7 @@ check('returning to import unlocks controls for either read order with empty or 
     for (const control of ['data-import-source="text"', 'data-import-source="teaching"', 'data-import-action="sync"', 'data-import-action="refresh"'])
       assert.doesNotMatch(html, new RegExp(control + '[^>]*disabled'), control + ' unlocks after unchanged progress');
     assert.equal(f.calls.filter(call => call.path === '/api/workspace').length, reads, 'unchanged progress does not reload the workspace');
+    assert.equal(f.calls.filter(call => call.path === '/api/sources/credentials').length, credentialReads, 'returning reuses the known teaching connection');
     assert.equal(f.starts().length, Number(withHistory), 'returning never starts another import');
     ui.setVisible(false);
   }

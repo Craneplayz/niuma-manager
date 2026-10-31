@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import 'fake-indexeddb/auto';
 import {readFile} from 'node:fs/promises';
 import {setMaxListeners} from 'node:events';
 
@@ -76,8 +77,13 @@ function fakeForm(kind,values,extra={}){
  const fields=[submit,{disabled:false,dataset:{}}];
  return {dataset:{importForm:kind,...extra},values,error,retry,submit,querySelector(selector){if(selector.includes('refresh-review'))return retry;if(selector==='[data-import-error-details]')return null;if(selector.includes('error'))return error;if(selector==='[type="submit"]')return submit;return null;},querySelectorAll(){return fields;}};
 }
+function heldRequest() {
+ let enter,release;
+ const entered=new Promise(resolve=>enter=resolve),waiting=new Promise(resolve=>release=resolve);
+ return {entered,release,async wait(){enter();await waiting;}};
+}
 function fixture(scenario={}){
- let account='A',state,dialog='',calls=[],messages=[],renderCalls=0,batches={A:[],B:[]},taskVersion=7,deferred=null,workspaces={A:[],B:[]},teachingFailed=false,runs={A:[],B:[]},textJobs={A:[],B:[]};
+ let account='A',state,dialog='',calls=[],messages=[],renderCalls=0,batches={A:[],B:[]},taskVersion=7,deferred=null,workspaces={A:[],B:[]},teachingFailed=false,runs={A:[],B:[]},textJobs={A:[],B:[]},operations={A:new Map(),B:new Map()};
  const respond=value=>({ok:true,json:async()=>structuredClone(value)});
  const reject=error=>({ok:false,status:error.status||503,json:async()=>({error:error.message})});
  const syncCases=scenario.syncCases||[teachingCase('date-only'),teachingCase('no-deadline')];
@@ -144,16 +150,27 @@ function fixture(scenario={}){
    }else next={request:body,result:{status:'success'},items:[]};
    batches[account]=batches[account].filter(batch=>batch.request.request_id!==next.request.request_id);batches[account].push(next);return respond(batches[account]);
   }
+  if(path==='/api/tasks/reconcile')return respond({applied:body.operations.filter(operation=>operations[account].has(operation.id)).map(operation=>operation.id),tasks:{value:workspaces[account],version:taskVersion},candidates:batches[account].flatMap(batch=>batch.items).map(({id,state,version})=>({id,state,version})),generation:0});
   if(path.includes('/resolve')){
+   const operation=body.operation;
+   if(operation&&operations[account].has(operation.id))return respond({...operations[account].get(operation.id),replayed:true});
    const found=batches[account].flatMap(b=>b.items).find(item=>decodeURIComponent(path).includes(item.id));
    if(found){
     if(found.state==='pending'&&body.action==='create'){
-     const due=candidateDue(found.candidate.deadline);
-     workspaces[account].push({id:'task-'+found.id,title:found.candidate.title,description:found.candidate.description,course:found.candidate.course_or_project,source:'教学网',due:due.date?{date:due.date,precision:due.time?'datetime':'date',...(due.time?{time:due.time}:{})}:null,status:'not_started',plans:[],subtasks:[],recognitionHistory:[{storageId:found.id,requestId:batches[account].find(batch=>batch.items.includes(found)).request.request_id,action:'create'}]});taskVersion++;
+     const due=candidateDue(found.candidate.deadline),draft=body.draft||{title:found.candidate.title,description:found.candidate.description,course:found.candidate.course_or_project,due:due.date?{date:due.date,precision:due.time?'datetime':'date',...(due.time?{time:due.time}:{})}:null};
+     workspaces[account].push({id:operation?.intent.newTaskId||'task-'+found.id,...draft,source:'教学网',status:body.complete?'completed':'not_started',plans:[],subtasks:[],recognitionHistory:[{storageId:found.id,requestId:batches[account].find(batch=>batch.items.includes(found)).request.request_id,action:'create'}]});taskVersion++;
+    }else if(['update','postpone','cancel'].includes(body.action)){
+     const target=workspaces[account].find(task=>task.id===body.target_id);assert.ok(target,'review changes apply to an existing target');
+     if(body.action==='cancel')target.status='cancelled';
+     else if(body.action==='postpone')target.due=structuredClone(body.draft.due);
+     else Object.assign(target,structuredClone(body.draft));
+     target.recognitionHistory=[...(target.recognitionHistory||[]),{storageId:found.id,action:body.action}];taskVersion++;
     }
     found.state=body.action==='ignore'?'ignored':body.action==='reopen'?'pending':'applied';found.version++;
    }
-   return respond({batches:batches[account]});
+   const result={batches:batches[account],...(operation?{operationId:operation.id,tasks:{value:workspaces[account],version:taskVersion},candidates:batches[account].flatMap(batch=>batch.items).map(({id,state,version})=>({id,state,version})),generation:0}:{})};
+   if(operation)operations[account].set(operation.id,structuredClone(result));
+   return respond(result);
   }
   if(path==='/api/sources/sync-runs'){
    if(method==='GET')return respond({contract_version:'source-sync/0.1',runs:runs[account]});
@@ -184,8 +201,8 @@ function fixture(scenario={}){
   throw new Error('unexpected request '+path);
  };
  const focuses=[];
- const host={focusEmailSettings:()=>focuses.push("pku-email-settings"),focusAccountSection:section=>focuses.push(section),escapeHtml,icon:()=>'',toast:message=>messages.push(message),render(){renderCalls++;},openDialog(html){dialog=html;},closeDialog(){dialog='';},isDialogOpen:selector=>dialog.includes(selector.slice(1,-1)),getState:()=>state,setState:value=>state=value,refresh:async()=>state=await store.refreshStore(),isDemo:()=>false};
- return {host,batch,batches,calls,messages,focuses,scenario,get renderCalls(){return renderCalls;},get dialog(){return dialog;},get state(){return state;},async login(who='A'){state=await store.authenticate('login',{email:who+'@test.local',password:'test-password'});},setVersion(value){taskVersion=value;},defer(){let resolve,ready;const wait=new Promise(r=>resolve=r),entered=new Promise(r=>ready=r);deferred={wait,ready};return {entered,release:resolve};}};
+ const host={focusEmailSettings:()=>focuses.push("pku-email-settings"),focusAccountSection:section=>focuses.push(section),escapeHtml,icon:()=>'',toast:message=>messages.push(message),render(){renderCalls++;},openDialog(html){dialog=html;},closeDialog(){dialog='';},isDialogOpen:selector=>dialog.includes(selector.slice(1,-1)),getState:()=>state,setState:value=>state=value,onReviewStore:()=>state=store.readProjectedStore(),refresh:async()=>state=await store.refreshStore(),isDemo:()=>false};
+ return {host,batch,batches,calls,messages,focuses,scenario,get renderCalls(){return renderCalls;},get dialog(){return dialog;},get state(){return state;},async login(who='A'){state=await store.authenticate('login',{email:who+'@test.local',password:'test-password'});},seedTask(task,who='A'){workspaces[who].push(structuredClone(task));},setVersion(value){taskVersion=value;},defer(){let resolve,ready;const wait=new Promise(r=>resolve=r),entered=new Promise(r=>ready=r);deferred={wait,ready};return {entered,release:resolve};}};
 }
 
 test('email connection saves a school mailbox credential without exposing the secret in the page',async t=>{
@@ -426,6 +443,8 @@ test('confirming a candidate without a checkbox sends reviewed plus both version
  assert.equal(call.body.version,3);assert.equal(call.body.tasks_version,7);assert.equal(call.body.reviewed,true);
  assert.equal(f.calls.some(call=>call.path.includes('/planning/')),false);
  assert.equal(f.dialog,'');assert.ok(f.messages.includes('已加入任务'));
+ assert.equal(call.body.operation.intent.kind,'review');assert.equal(call.body.operation.intent.candidateId,'candidate-A');
+ assert.equal(f.calls.filter(call=>call.path==='/api/workspace').length,1,'manual review needs no follow-up workspace read');
 });
 
 test('a confirmed history candidate keeps its receipt count and opens the task with a live status',async t=>{
@@ -439,12 +458,13 @@ test('a confirmed history candidate keeps its receipt count and opens the task w
  assert.match(ui.render(),/待核对 1 项/);assert.doesNotMatch(ui.render(),/新增 1 项/);
  assert.match(ui.render(),/class="sync-category sync-category-success"[^>]*data-import-history-category="review"/);
  assert.match(ui.render(),/sync-item-status-muted">未完成/);
+ const confirmedId=f.state.tasks[0].id;
  f.state.tasks[0].status='done';
  f.state.tasks[0].content_type='notice';
  assert.match(ui.render(),/sync-item-status-success">✓ 已完成/);
  assert.match(ui.render(),/<span class="notice-label">通知<\/span><span class="sync-result-title">/);
  await ui.click({dataset:{importHistoryItem:'0',importHistoryBatch:'request-A'}});
- assert.deepEqual(opened,['task-candidate-A']);
+ assert.deepEqual(opened,[confirmedId]);
  f.state.trash=[f.state.tasks.pop()];
  assert.match(ui.render(),/>回收站<\/small>/);assert.doesNotMatch(ui.render(),/已移至|">未完成<|进行中/);
  f.state.trash=[];
@@ -453,13 +473,13 @@ test('a confirmed history candidate keeps its receipt count and opens the task w
  assert.equal(f.messages.at(-1),'这条任务或通知已移除，无法打开详情');
 });
 
-test('a task version change prevents a stale confirmation and offers rereading',async()=>{
+test('an unrelated workspace version change does not block a candidate creation',async()=>{
  const f=fixture();await f.login();const ui=createImportUI(f.host);await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
  f.setVersion(8);await f.host.refresh();
  const form=fakeForm('review',{action:'create',title:'报告',date:'2026-10-20',time:''},{candidate:'candidate-A'});
  await ui.submit(form);
- assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
- assert.match(form.error.textContent,/重新读取/);assert.equal(form.error.hidden,false);assert.equal(form.retry.hidden,false);
+ assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,1);
+ assert.equal(f.state.tasks[0].title,'报告');assert.equal(form.error.hidden,true);
 });
 
 test('independent history moves a reviewed category behind additions after confirmation',async t=>{
@@ -525,7 +545,8 @@ test('ignored candidates can be restored using the newest candidate version',asy
  assert.match(ui.render(),/已忽略/);
  await ui.click({dataset:{importReopen:'candidate-A'}});
  const calls=f.calls.filter(call=>call.path.endsWith('/resolve'));
- assert.deepEqual(calls.map(call=>call.body),[{action:'ignore',version:3},{action:'reopen',version:4}]);
+ assert.deepEqual(calls.map(call=>({action:call.body.action,version:call.body.version})),[{action:'ignore',version:3},{action:'reopen',version:4}]);
+ assert.ok(calls.every(call=>call.body.operation.intent.kind==='review'));
  assert.match(ui.render(),/data-import-review="candidate-A"/);
 });
 
@@ -546,6 +567,20 @@ test('an old account response cannot restore another account’s candidates or c
  await f.login('B');assert.equal(old.signal.aborted,true);pending.release();await loading;await ui.load();
  const html=ui.render();assert.doesNotMatch(html,/A 私有任务|A-campus/);assert.match(html,/B 私有任务/);
  await ui.click({dataset:{importSource:'teaching'}});assert.match(ui.render(),/B-campus/);
+});
+
+test('task-list readiness resets with the account and ignores an old pending read',async()=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);
+ assert.equal(ui.taskReviewsReady(),false);
+ const pending=f.defer(),reading=ui.loadTaskReviews();await pending.entered;
+ assert.equal(ui.taskReviewsReady(),false);
+ await f.login('B');pending.release();await reading;
+ assert.equal(ui.taskReviewsReady(),false);
+ assert.deepEqual(ui.getReviewItems(),[]);
+ await ui.loadTaskReviews();
+ assert.equal(ui.taskReviewsReady(),true);
+ assert.equal(ui.getReviewItems()[0].candidate.title,'B 私有任务');
+ ui.reset();assert.equal(ui.taskReviewsReady(),false);
 });
 
 test('demo text submit stays local',async()=>{
@@ -759,6 +794,98 @@ test('closing account management during a credential read does not reopen its di
  assert.equal(button.disabled,true);
  dialog.open=false;f.host.closeDialog();release();await reading;
  assert.equal(f.dialog,'');assert.equal(button.disabled,false);
+});
+
+test('text and file entry do not request teaching credentials',async t=>{
+ const f=fixture({intercept(path){
+  if(path==='/api/materials/limits')return {limits:{asset_bytes:20971520,account_bytes:209715200}};
+  if(path==='/api/materials/imports')return {jobs:[]};
+ }});await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/credentials'),false);
+ await ui.click({dataset:{importSource:'files'}});await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/credentials'),false);
+ assert.doesNotMatch(ui.render(),/id="material-files"[^>]*disabled/);
+});
+
+test('a slow teaching credential read cannot lock text drafting or file selection',async t=>{
+ const gate=heldRequest();t.after(gate.release);
+ const f=fixture({async intercept(path){
+  if(path==='/api/sources/credentials'){await gate.wait();return {configured:true,username:'A-campus'};}
+  if(path==='/api/materials/limits')return {limits:{asset_bytes:20971520,account_bytes:209715200}};
+  if(path==='/api/materials/imports')return {jobs:[]};
+ }});await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const reading=ui.click({dataset:{importSource:'teaching'}});await gate.entered;
+ await ui.click({dataset:{importSource:'text'}});
+ ui.input({target:{id:'import-text',value:'下一段草稿'}});
+ assert.match(ui.render(),/>下一段草稿<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/id="import-(?:text|published)"[^>]*disabled/);
+ await ui.click({dataset:{importSource:'files'}});
+ assert.doesNotMatch(ui.render(),/id="material-files"[^>]*disabled/);
+ gate.release();await reading;
+});
+
+test('teaching read errors remain scoped and may retry without clearing a text draft',async t=>{
+ let failed=false;
+ const f=fixture({intercept(path){if(path==='/api/sources/credentials'&&!failed){failed=true;throw new Error('合成连接读取失败');}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ ui.input({target:{id:'import-text',value:'保留的文本草稿'}});
+ await ui.click({dataset:{importSource:'teaching'}});
+ assert.match(ui.render(),/data-import-action="refresh-credentials"/);
+ await ui.click({dataset:{importSource:'text'}});
+ assert.match(ui.render(),/>保留的文本草稿<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/合成连接读取失败|data-import-action="refresh-credentials"/);
+ await ui.click({dataset:{importSource:'teaching'}});
+ assert.match(ui.render(),/A-campus/);
+});
+
+test('a late credential response cannot replace the next account connection state',async t=>{
+ const gate=heldRequest();t.after(gate.release);let readingA=true;
+ const f=fixture({async intercept(path){if(path==='/api/sources/credentials'&&readingA){readingA=false;await gate.wait();return {configured:true,username:'A-old-campus'};}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const reading=ui.click({dataset:{importSource:'teaching'}});await gate.entered;
+ await f.login('B');await ui.load();await ui.click({dataset:{importSource:'teaching'}});
+ assert.match(ui.render(),/B-campus/);
+ gate.release();await reading;
+ assert.match(ui.render(),/B-campus/);assert.doesNotMatch(ui.render(),/A-old-campus/);
+});
+
+test('failed candidate reads leave text drafting and independent teaching reads available',async t=>{
+ const f=fixture({intercept(path){if(path==='/api/recognition/batches')throw new Error('合成候选读取失败');}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ assert.equal(ui.taskReviewsReady(),true);assert.match(ui.taskReviewsStatus(),/重试读取待核对/);
+ ui.input({target:{id:'import-text',value:'候选失败后仍可编辑'}});
+ assert.match(ui.render(),/>候选失败后仍可编辑<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/id="import-(?:text|published)"[^>]*disabled/);
+ await ui.click({dataset:{importSource:'teaching'}});assert.match(ui.render(),/A-campus/);
+});
+
+test('pending text submission captures its payload and preserves a newer editable draft',async t=>{
+ const gate=heldRequest();t.after(gate.release);
+ const f=fixture({async intercept(path,body,method){if(path==='/api/recognition/text-jobs'&&method==='POST'){
+  await gate.wait();return {contract_version:'text-import-jobs/0.1',jobs:[{request_id:body.request_id,state:'recognizing',attempt:1,created_at:'2026-10-23T01:00:00Z',updated_at:'2026-10-23T01:00:00Z',error:null}]};
+ }}});await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const submitting=ui.submit(fakeForm('text',{text:'第一段已提交通知',published:'2026-10-23T09:00:00'}));await gate.entered;
+ ui.input({target:{id:'import-text',value:'第二段未提交草稿'}});
+ ui.input({target:{id:'import-published',value:'2026-10-24T10:30:00'}});
+ assert.doesNotMatch(ui.render(),/id="import-(?:text|published)"[^>]*disabled/);
+ assert.match(ui.render(),/<button class="btn primary" type="submit" disabled/);
+ gate.release();await submitting;
+ assert.match(ui.render(),/>第二段未提交草稿<\/textarea>/);
+ assert.match(ui.render(),/value="2026-10-24T10:30:00"/);
+ assert.match(ui.render(),/<button class="btn primary" type="submit" disabled/);
+ const post=f.calls.find(call=>call.path==='/api/recognition/text-jobs'&&call.method==='POST');
+ assert.equal(post.body.records[0].text,'第一段已提交通知');
+ assert.equal(post.body.records[0].published_at.value,'2026-10-23T09:00:00+08:00');
+});
+
+test('a rejected text submission leaves the newer draft untouched',async t=>{
+ const gate=heldRequest();t.after(gate.release);
+ const f=fixture({async intercept(path,body,method){if(path==='/api/recognition/text-jobs'&&method==='POST'){await gate.wait();throw new Error('合成提交失败');}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const submitting=ui.submit(fakeForm('text',{text:'失败的旧提交',published:'2026-10-23T09:00:00'}));await gate.entered;
+ ui.input({target:{id:'import-text',value:'新的待提交通知'}});gate.release();await submitting;
+ assert.match(ui.render(),/>新的待提交通知<\/textarea>/);
+ assert.doesNotMatch(ui.render(),/id="import-text"[^>]*disabled/);
 });
 
 test('credential storage errors remain visible in the connection dialog',async()=>{
@@ -1244,4 +1371,110 @@ test('direct outdated-cache update blocks duplicates and still checks saved cons
  ui.reset();scenario.emailPreferences.consent_granted=false;await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
  const before=f.calls.filter(c=>c.path==='/api/sources/email/reprocess').length;
  await ui.click({dataset:{importAction:'email-update-recognition'}});assert.equal(f.calls.filter(c=>c.path==='/api/sources/email/reprocess').length,before);assert.match(f.dialog,/data-email-settings-dialog/);
+});
+
+test('candidate confirmation stages different items continuously and rejects duplicate clicks',async t=>{
+ const gate=heldRequest();let held=false;
+ const f=fixture({async intercept(path){if(path.endsWith('/resolve')&&!held){held=true;await gate.wait();}}});
+ const other=f.batch('A','second-request');other.items[0].id='candidate-second';f.batches.A.push(other);
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());t.after(gate.release);await ui.load();
+ const draft={title:'立即显示的任务',notes:'合成内容',course:'合成课程',due:'2026-10-25',dueTime:'',reviewVersion:3};
+ const first=ui.confirmTask('candidate-A',draft,true);
+ const staged=await first.staged;await gate.entered;
+ assert.equal(staged.id,first.taskId);assert.equal(staged.status,'done');
+ assert.equal(f.state.tasks[0].id,first.taskId);assert.equal(ui.isReviewBusy('candidate-A'),false);assert.equal(ui.isReviewBusy(),false);
+ await assert.rejects(ui.confirmTask('candidate-A',draft),/候选已变化/);
+ const second=ui.confirmTask('candidate-second',{...draft,title:'连续确认的另一项'},false);
+ const next=await second.staged;
+ assert.equal(next.id,second.taskId);assert.notEqual(next.id,staged.id);
+ assert.equal(f.state.tasks.length,2);assert.equal(ui.getReviewItems().length,0);
+ assert.equal(f.calls.filter(call=>call.path.endsWith('/resolve')).length,1,'the second operation stages while the first network request waits');
+ gate.release();const saved=await Promise.all([first,second]);
+ assert.deepEqual(saved.map(task=>task.id),[first.taskId,second.taskId]);
+ assert.equal(f.state.tasks.length,2);assert.equal(ui.isReviewBusy('candidate-A'),false);
+});
+
+test('a review form closes after durable staging and another candidate remains usable',async t=>{
+ const gate=heldRequest();let held=false;
+ const f=fixture({async intercept(path){if(path.endsWith('/resolve')&&!held){held=true;await gate.wait();}}});
+ const other=f.batch('A','second-request');other.items[0].id='candidate-second';f.batches.A.push(other);
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());t.after(gate.release);await ui.load();
+ await ui.click({dataset:{importReview:'candidate-A'}});
+ const form=fakeForm('review',{action:'create',title:'第一项',description:'',course:'',date:'',time:''},{candidate:'candidate-A'});
+ const first=ui.submit(form);await gate.entered;await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(f.dialog,'');assert.equal(f.state.tasks[0].title,'第一项');
+ await ui.click({dataset:{importReview:'candidate-second'}});
+ assert.match(f.dialog,/data-candidate="candidate-second"/);
+ const second=ui.submit(fakeForm('review',{action:'create',title:'第二项',description:'',course:'',date:'',time:''},{candidate:'candidate-second'}));
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(ui.isReviewBusy(),false);
+ gate.release();await Promise.all([first,second]);
+ assert.deepEqual(f.state.tasks.map(task=>task.title),['第一项','第二项']);
+});
+
+test('candidate state overlays a stale reread after acknowledgement',async t=>{
+ const gate=heldRequest();
+ const f=fixture({async intercept(path){if(path.endsWith('/resolve'))await gate.wait();}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());t.after(gate.release);await ui.load();
+ const saving=ui.confirmTask('candidate-A',{title:'保留已经核对的任务',reviewVersion:3});await saving.staged;await gate.entered;
+ const stale=f.defer(),reading=ui.loadTaskReviews();t.after(stale.release);await stale.entered;
+ gate.release();await saving;stale.release();await reading;
+ assert.equal(ui.getReviewItems().length,0);assert.equal(f.state.tasks.length,1);
+ assert.doesNotMatch(ui.render(),/data-import-review="candidate-A"/);
+});
+
+test('failed review acknowledgement retains the staged task and retries its same operation identity',async t=>{
+ let failed=false;
+ const f=fixture({intercept(path){if(path.endsWith('/resolve')&&!failed){failed=true;throw new TypeError('synthetic network failure');}}});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const saving=ui.confirmTask('candidate-A',{title:'网络恢复后保存',reviewVersion:3});
+ const staged=await saving.staged;await assert.rejects(saving,/无法连接服务/);
+ assert.equal(f.state.tasks[0].id,staged.id);assert.equal(ui.getReviewItems().length,0);assert.equal(ui.isReviewBusy('candidate-A'),true);
+ assert.equal(store.session.sync,'error');
+ await store.retrySave();
+ const calls=f.calls.filter(call=>call.path.endsWith('/resolve'));
+ assert.equal(calls.length,2);assert.equal(calls[0].body.operation.id,calls[1].body.operation.id);
+ assert.equal(calls[1].body.operation.intent.newTaskId,staged.id);
+ assert.equal(f.state.tasks.length,1);assert.equal(store.session.sync,'saved');assert.equal(ui.isReviewBusy('candidate-A'),false);
+});
+
+test('a local staging failure leaves the candidate available and sends no resolve request',async t=>{
+ const f=fixture();await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();
+ const available=globalThis.indexedDB;globalThis.indexedDB=undefined;
+ try {
+  const saving=ui.confirmTask('candidate-A',{title:'不可丢失的操作',reviewVersion:3});
+  await assert.rejects(saving.staged,/无法保存本地/);await assert.rejects(saving,/无法保存本地/);
+ } finally {globalThis.indexedDB=available;}
+ assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
+ assert.equal(f.state.tasks.length,0);assert.equal(ui.getReviewItems().length,1);assert.equal(ui.isReviewBusy('candidate-A'),false);
+});
+
+
+test('editing a target before review submission retains the draft and offers rereading',async t=>{
+ const f=fixture();f.seedTask({id:'target',title:'原目标',description:'原说明',course:'合成课程',due:null,status:'not_started',plans:[],subtasks:[]});
+ Object.assign(f.batches.A[0].items[0].candidate,{notice_type:'update',target_reference:'target'});
+ await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
+ f.state.tasks.find(task=>task.id==='target').notes='另一个编辑刚修改的说明';
+ const form=fakeForm('review',{action:'update',target_id:'target',title:'拟更新名称',description:'拟更新说明',course:'合成课程',date:'',time:''},{candidate:'candidate-A'});
+ await ui.submit(form);
+ assert.equal(f.calls.some(call=>call.path.endsWith('/resolve')),false);
+ assert.equal(form.error.hidden,false);assert.equal(form.retry.hidden,false);assert.match(f.dialog,/核对任务/);
+});
+
+test('manual update postpone and cancel all use the durable review queue',async t=>{
+ for(const action of ['update','postpone','cancel']){
+  const f=fixture();f.seedTask({id:'target',title:'原目标',description:'原说明',course:'合成课程',due:{date:'2026-10-24',precision:'date'},status:'not_started',plans:[],subtasks:[]});
+  Object.assign(f.batches.A[0].items[0].candidate,{notice_type:action,target_reference:'target'});
+  await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importReview:'candidate-A'}});
+  await ui.submit(fakeForm('review',{action,target_id:'target',title:'已核对名称',description:'已核对说明',course:'合成课程',date:'2026-10-26',time:''},{candidate:'candidate-A'}));
+  const call=f.calls.find(call=>call.path.endsWith('/resolve'));
+  assert.equal(call.body.operation.intent.kind,'review');assert.equal(call.body.operation.intent.action,action);
+  assert.equal(call.body.operation.intent.targetId,'target');assert.equal(call.body.operation.intent.expectedTarget.title,'原目标');
+  if(action==='cancel')assert.equal(f.state.tasks.length,0);
+  else {
+   assert.equal(f.state.tasks[0].due,'2026-10-26');
+   assert.equal(f.state.tasks[0].title,action==='update'?'已核对名称':'原目标');
+  }
+  assert.equal(ui.getReviewItems().length,0);assert.equal(f.calls.filter(call=>call.path==='/api/workspace').length,1);
+ }
 });

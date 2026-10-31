@@ -25,6 +25,7 @@ import source_schedule
 import wechat_media
 import manual_materials
 import task_decomposition
+import task_operations
 import reprocessing
 import runtime_environment
 import usage
@@ -80,6 +81,7 @@ def initialize_accounts(db):
     CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, version INTEGER NOT NULL, result TEXT NOT NULL, applied INTEGER NOT NULL DEFAULT 0);
     ''')
     email_verification.initialize(db)
+    task_operations.initialize(db)
 
 def initialize(recover=True):
     runtime_environment.validate_storage(DB)
@@ -429,9 +431,14 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
                 email_verification.invalidate_account_codes(db, uid)
                 return self.reply(200,{})
+            if path=='/api/tasks/reconcile' and self.command=='POST':
+                return task_operations.reconcile(self,db,uid,body,ApiError)
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
-                return self.reply(200,{r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows})
+                snapshot={r['name']:dict(value=json.loads(r['value']),version=r['version']) for r in rows}
+                snapshot['taskWriteGeneration']=task_operations.generation(db,uid)
+                snapshot['taskWriteOwner']=uid
+                return self.reply(200,snapshot)
             if path=='/api/data/tasks' and self.command=='DELETE':
                 ids=body.get('ids')
                 if not isinstance(ids,list) or not ids or len(ids)>500 or any(not isinstance(item,str) or not item or len(item)>100 for item in ids) or len(ids)!=len(set(ids)): raise ApiError(400,'删除任务范围不正确')
@@ -498,6 +505,12 @@ class Handler(BaseHTTPRequestHandler):
                         if start>=end or not value['weekdays'] or any(type(d)!=int or d not in range(7) for d in value['weekdays']): raise ValueError()
                     except (ValueError,KeyError,TypeError): raise ApiError(400,'可用时间格式不正确')
                 db.execute('BEGIN IMMEDIATE')
+                operation=body.get('operation') if name=='tasks' else None
+                if operation is not None:
+                    task_operations.identity(operation,uid,ApiError)
+                    if operation['intent']['kind']=='review': raise ApiError(400,'候选操作必须通过核对接口提交')
+                if operation is not None and task_operations.acknowledged(db,uid,operation,ApiError):
+                    return self.reply(200,dict(task_operations.workspace(db,uid),replayed=True,operationId=operation['id']))
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()
                 version=row['version'] if row else 0
                 if body.get('version')!=version: raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
@@ -506,7 +519,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.usage_tasks=json.loads(old['value']) if old else []
                     submission_runtime.manual_task_write(db,uid,value)
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
-                return self.reply(200,dict(version=version+1))
+                if operation is not None: task_operations.record(db,uid,operation,version+1,ApiError)
+                return self.reply(200,dict(version=version+1,**({'operationId':operation['id']} if operation is not None else {})))
             if path=='/api/planning/proposals' and self.command=='POST':
                 rows={r['name']:r for r in db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,))}
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []

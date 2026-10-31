@@ -1,5 +1,8 @@
 ```text
 server/
+├── task_operations.py        当前账号任务写入回执、幂等恢复与测试清空代次。
+├── test_review_operations.py  候选稳定任务身份、混合队列、回执及目标冲突的真实 HTTP/SQLite 回归。
+├── test_task_operations.py   真实 HTTP/SQLite 的回执丢失、原子性、账号及契约回归。
 ├── README.md                 本目录的文件说明与启动命令。
 ├── .gitignore               排除本地凭据加密密钥。
 ├── app.py                    账号、工作区与规划的本地 HTTP API。
@@ -436,3 +439,5 @@ Qiniu DeepSeek 邮箱识别现在显式发送 `thinking: {"type":"disabled"}`，
 文本导入后台接口见 [text-import-jobs/0.1](../contracts/docs/text-import-jobs-v0.1.md)：接受后立即持久化，复用原识别队列和候选保存；刷新不重提请求，停止拒绝迟到入库，重启标记中断并等待用户重试。验证：`python -m unittest discover -s server -p test_text_jobs.py -v`，使用临时数据库和合成模型，不读取私人数据。
 
 文本、教学网和手动文件导入的错误分类、诊断编号及验证边界见 [统一错误约定](../contracts/docs/recognition-errors.md)。文本和文件沿用原有总预算，仅允许一次草稿纠错；DeepSeek 文本/文件识别与教学网一致关闭思考模式，无须改配置。开发和测试环境均可查看详情；生产保留安全诊断供维护人员排查，只向用户返回分类和编号。所有环境都不记录原文、模型回答、异常消息和凭据。
+
+普通任务与人工待核对写入共用浏览器持久队列的幂等回执和当前账号恢复核对，SQLite 首次启动自动增加回执及清空代次表，无需修改部署配置；后端需先于或与前端同版本部署，协议与保留规则见 [任务保存与恢复](../contracts/docs/task-writes-v0.1.md)。

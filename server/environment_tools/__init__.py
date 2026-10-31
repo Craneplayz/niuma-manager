@@ -116,6 +116,8 @@ def reset(db, uid, path, ApiError):
     if not isinstance(identity, dict) or identity.get('environment') != runtime_environment.environment():
         raise ApiError(409, '数据目录环境标记不匹配，已拒绝清空')
     db.execute('BEGIN IMMEDIATE')
+    import task_operations
+    task_operations.invalidate_pending(db, uid)
     # A cancelled model/crawler can still flush its diagnostic finally block.
     # Keep the reset boundary in the test database and ignore only older attempts.
     db.execute('CREATE TABLE IF NOT EXISTS environment_account_resets(user_id TEXT PRIMARY KEY, reset_at TEXT NOT NULL)')
