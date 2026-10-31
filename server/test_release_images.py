@@ -105,7 +105,7 @@ class ReleaseImageTests(unittest.TestCase):
                 release._running_pair('docker', {}, 'http')
 
     def test_production_entry_cannot_bypass_acceptance_and_pins_compose(self):
-        with patch.object(manager, 'read_config', return_value=(self.path.parent, self.production)), \
+        with patch.object(manager, 'read_config', return_value=(self.path.parent, self.production, {})), \
                 patch.object(manager.shutil, 'which', return_value='docker'), \
                 patch.object(manager, 'verified_images', side_effect=ValueError('missing acceptance')), \
                 patch.object(manager, 'compose_command') as compose, patch.object(manager.subprocess, 'call') as call:
@@ -113,7 +113,7 @@ class ReleaseImageTests(unittest.TestCase):
             compose.assert_not_called()
             call.assert_not_called()
         pinned = {key + '_image': value['id'] for key, value in self.pair.items()}
-        with patch.object(manager, 'read_config', return_value=(self.path.parent, self.production)), \
+        with patch.object(manager, 'read_config', return_value=(self.path.parent, self.production, {})), \
                 patch.object(manager.shutil, 'which', return_value='docker'), \
                 patch.object(manager, 'verified_images', return_value=pinned) as verified, \
                 patch.object(manager, 'compose_command', return_value=['docker', 'compose']) as compose, \
@@ -124,3 +124,18 @@ class ReleaseImageTests(unittest.TestCase):
             for key, value in pinned.items(): self.assertEqual(compose.call_args.args[2][key], value)
             self.assertIn('--no-build', call.call_args.args[0])
             self.assertEqual(call.call_args.args[0][-5:], ['--pull', 'never', '--force-recreate', 'api', 'web'])
+
+    def test_missing_managed_model_file_fails_closed_before_compose(self):
+        folder = manager.initialize('production', self.path.parent)
+        (folder / '.env.model').unlink()
+        (folder / 'config.json').write_text(json.dumps(self.production), encoding='utf-8')
+        pinned = {key + '_image': value['id'] for key, value in self.pair.items()}
+        read_profile = manager.read_config
+        with patch.object(manager, 'read_config', side_effect=lambda name, include_model_values=False:
+                          read_profile(name, self.path.parent, include_model_values=include_model_values)), \
+                patch.object(manager.shutil, 'which', return_value='docker'), \
+                patch.object(manager, 'verified_images', return_value=pinned), \
+                patch.object(manager, 'compose_command') as compose:
+            with self.assertRaises(FileNotFoundError):
+                manager.main(['up', 'production', '--acceptance', str(self.path)])
+        compose.assert_not_called()

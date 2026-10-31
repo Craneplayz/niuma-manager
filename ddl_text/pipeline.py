@@ -20,7 +20,7 @@ def error_result(input_id, code, retryable=False, diagnostic=None, detail=None):
 
 
 @diagnostics.traced
-def process_request(request, adapter=None, settings=None, budget_seconds=None, diagnostic_event=None):
+def process_request(request, adapter=None, settings=None, budget_seconds=None, attempt_observer=None, attempt_guard=None, diagnostic_event=None):
     settings = settings or Settings()
     adapter = adapter if adapter is not None else UnavailableAdapter()
     request_id = request.get("request_id") if isinstance(request, dict) else None
@@ -47,16 +47,22 @@ def process_request(request, adapter=None, settings=None, budget_seconds=None, d
                 raise ContractError("invalid_input") from None
             if record["text_quality"] in {"partial", "summary"}:
                 outcome["warnings"].append("incomplete_text")
-            for attempt in range(settings.max_retries + 1):
+            attempt = 0
+            ordinary_retries = 0
+            fallback_used = False
+            execution_settings = settings
+            while True:
                 attempts += 1
                 try:
-                    attempt_settings = settings
+                    if attempt_guard is not None and not attempt_guard():
+                        raise AgentError('agent_unavailable',False)
+                    attempt_settings = execution_settings
                     if expires is not None:
                         remaining = expires - time.monotonic()
                         if remaining <= 0:
                             raise AgentError("agent_timeout", True)
-                        attempt_settings = replace(settings, timeout_seconds=min(settings.timeout_seconds, remaining))
-                    tasks = validate_tasks(run_attempt(adapter, record, attempt_settings, attempt), record)
+                        attempt_settings = replace(execution_settings, timeout_seconds=min(execution_settings.timeout_seconds, remaining))
+                    tasks = validate_tasks(run_attempt(adapter, record, attempt_settings, attempt, observer=attempt_observer), record)
                     warnings = getattr(tasks, "warnings", [])
                     if not isinstance(warnings, list) or not all(nonempty(w) for w in warnings):
                         raise ContractError("invalid_agent_output")
@@ -64,11 +70,22 @@ def process_request(request, adapter=None, settings=None, budget_seconds=None, d
                         raise ContractError("invalid_agent_output")
                     break
                 except ContractError:
-                    if attempt == settings.max_retries:
+                    if ordinary_retries >= settings.max_retries or fallback_used:
                         raise
+                    ordinary_retries += 1
                 except AgentError as error:
-                    if not error.retryable or attempt == settings.max_retries:
+                    if (not fallback_used and settings.truncation_retry_tokens is not None and
+                            error.code == 'invalid_agent_output' and error.diagnostic == 'output_truncated' and
+                            (getattr(error,'telemetry',None) or {}).get('finish_reason') == 'length'):
+                        # Only provider-confirmed truncation gets one larger output allowance.
+                        fallback_used = True
+                        execution_settings = replace(settings,max_output_tokens=settings.truncation_retry_tokens,
+                                                     truncation_retry_tokens=None)
+                    elif not error.retryable or ordinary_retries >= settings.max_retries or fallback_used:
                         raise
+                    else:
+                        ordinary_retries += 1
+                attempt += 1
             used_ids.update(task["candidate_id"] for task in tasks)
             result["tasks"].extend(tasks)
             outcome["warnings"].extend(warnings)

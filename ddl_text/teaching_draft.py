@@ -11,6 +11,7 @@ from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from contracts.teaching_review_draft import SCHEMA, validate_pair
 
 from .adapters import AgentError, OUTPUT_DIAGNOSTICS
+from .content_types import content_type_schema, content_type_instructions
 from .extraction import MAX_DRAFT_BYTES, _object
 from .runner import run_attempt
 from .teaching_semantics import normalize_time, TIME_ROLES, SUBMISSION_RELATIONS
@@ -78,7 +79,7 @@ def teaching_draft_schema(record=None, *, indexed=False):
             description='task 仅用于 create 直接新增；既有条目的变更用 candidate 等待关联，不能直接新增重复任务。'),
         reason=dict(type='string', maxLength=1024)))
     # Optional only for historical replay; new model calls always supply the kind.
-    task['properties']['content_type'] = dict(enum=['task', 'notice'])
+    task['properties']['content_type'] = content_type_schema()
     task['properties']['time_role'] = dict(enum=TIME_ROLES, description='先区分时间用途；布置/发布/参考日期不填入 deadline。')
     task['properties']['submission_relation'] = dict(enum=SUBMISSION_RELATIONS,
         description='此行动是否就是本来源布置的作业提交义务（包含完成作业题）；独立阅读/入群/展示等为 other；不能确定为 unknown。不判断用户是否已提交。')
@@ -246,7 +247,7 @@ def compile_teaching_draft(raw, record, *, source_verified=False, indexed=False)
 
 
 def teaching_instructions(record=None, *, indexed=False):
-    return SKILL.read_text(encoding='utf-8') + '\n只输出符合此内部草稿 Schema 的 JSON：\n' + json.dumps(
+    return SKILL.read_text(encoding='utf-8') + '\n' + content_type_instructions() + '\n只输出符合此内部草稿 Schema 的 JSON：\n' + json.dumps(
         teaching_draft_schema(record, indexed=indexed), ensure_ascii=False)
 
 

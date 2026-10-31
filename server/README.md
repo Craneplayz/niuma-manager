@@ -55,7 +55,34 @@ server/
 ├── manual_materials.py       登录用户主动上传材料的隔离入口，不接受采集器凭证。
 ├── test_manual_materials.py  主动上传、加密拒绝、会话鉴权与旧作业隔离测试。
 ├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
-├── source_sync.py            调用教学网采集并保存 v0.4 来源快照。
+├── source_sync.py            教学网同步、邮箱凭据与邮件读取 API。
+├── email_source.py           北大邮箱 IMAP TLS 只读预览及所选正文读取。
+├── email_import.py           邮箱同意与缓存策略、账号保护及后台导入编排。
+├── email_import_routes.py    邮件导入 HTTP 校验、路由及公开响应。
+├── email_import_store.py     邮件表结构、事务、作业与逐项进度持久化。
+├── test_email_import_store.py 旧快照迁移、原子回滚及进度计数一致性测试。
+├── email_header_cache.py     邮件标题快照、分页缓存与并发刷新合并。
+├── email_scheduler.py        账号公平派发、执行上限与进程所有权。
+├── email_mailbox_pool.py     IMAP 会话与正文缓冲容量限制。
+├── email_db_gate.py          邮件进度写入与用户控制的优先调度。
+├── diagnose_email_response.py 显式授权后单封重放的无正文诊断工具。
+├── benchmark_email_concurrency.py 合成多账号负载、缓存与延迟基准。
+├── EMAIL_TESTS.md            邮件测试逐项说明、运行命令与验证边界。
+├── test_email_cache_routes.py 缓存预览 API、排除项及范围恢复回归。
+├── test_email_header_cache.py 标题快照、UID 变化与并发刷新回归。
+├── test_email_import_integration.py 合成 HTTP 导入、核对、保存与恢复。
+├── test_email_import_parallel.py 并发计数、停止、限流与失败重试回归。
+├── test_email_import_safety.py 模型排队期间的授权与账号保护回归。
+├── test_email_list_filters.py 全范围筛选、排序及状态投影回归。
+├── test_email_reprocess.py   缓存更新、审核决定保护与范围重识别回归。
+├── test_email_scheduler.py   公平调度、取消与所有权恢复回归。
+├── email_telemetry.py        无正文的邮件阶段耗时与数量指标。
+├── email_test_support.py     共享合成 IMAP、模型结果与独立账号 HTTP 测试夹具。
+├── test_email_capacity.py    邮箱/模型容量、限流及数据库写入调度回归。
+├── test_email_recognition.py 邮件模型设置、耗时与 token 传递回归。
+├── test_email_telemetry.py   无正文指标、诊断、token 聚合与保留期回归。
+├── test_email_source.py      邮件主机、只读读取、解析限制及身份校验测试。
+├── test_email_source_routes.py 邮箱凭据加密、预览、同意门槛与增量同步 API 测试。
 ├── source_jobs.py            教学网后台同步、逐条持久进度、受控并发与自动入库。
 ├── source_schedule.py        账号定时配置、服务端调度、凭据变化暂停及环境开关。
 ├── test_source_schedule.py   定时恢复、互斥派发、关闭及迟到结果保护测试。
@@ -97,10 +124,15 @@ server/
 ├── test_planning_runtime.py   规划直调/HTTP、配置、并发、异常与确认入库测试。
 ├── test_wechat_media.py       微信附件鉴权、导入幂等、失败及候选入库测试。
 ├── test_text_contract.py     文本识别契约测试。
+├── docs/email-capacity.md    邮件容量、资源边界、恢复与监控操作说明。
+├── docs/archive/email-capacity-30-users-2026-10-20.json 30 账号合成持续负载结果。
+├── docs/archive/email-capacity-stress-2026-10-20.json   短生成合成压力结果。
+├── docs/archive/email-cleanup-capacity-2026-10-20.json  模块拆分后的合成负载结果。
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
 
+邮件导入并发由环境私有 `server/deploy/environments/<环境>/config.json` 的 `email_concurrency` 控制，省略时按 `2` 处理，可设为整数 `1` 至 `4`。统一环境入口将 profile 值传给本机 API 和 Compose API 的 `NIUMA_EMAIL_CONCURRENCY`，不会读取终端中同名设置。邮件作业队列最多运行 8 个 worker，邮件与其他入口仍共用最多 20 个模型调用名额；作业排队、模型排队、生成、校验和整段识别耗时各自描述不同但可能重叠的阶段，不能相加成总工作量。受限原因码和聚合诊断只向授权管理员提供并保留 90 天，不记录邮件正文、标题、身份或凭据。成功结果使用缓存；停止作业阻止后续项目启动，撤销/移除邮箱连接会阻止后续处理，在途远端请求可能完成。见[邮件导入约定](../contracts/docs/email-import.md)。
 ## 后台同步容量
 
 教学网后台同步最多执行4轮、额外排队20轮，每账号最多一轮；复用有界FIFO等待器，排队最长180秒，停止或凭据失效会退出等待，超时可重试且不调用采集器；每轮记录仍最多4并发，模型总池仍为20并发。
@@ -191,6 +223,12 @@ python server/manage_environment.py test-account development
 - 评分允许修改，同一账号更新同一条评分及其时间，以最后一次保存为准；修改不增加统计样本数。
 - 连续两个北京时间自然日使用时原子领取一次评分提示，关闭不再提醒，刷新、多窗口及后续日期不重复领取。
 - 第一版展示活跃趋势、功能使用/成功率/请求耗时、任务变更计数、按时完成计数及反馈评分；不以独立事件数量冒充同批任务转化漏斗、模型准确率、工时偏差或逐用户追踪。
+
+### 邮件来源遥测
+
+邮件流程沿用同一 `usage_events` 表和管理员聚合接口，不创建单独的平台或内容明细。后端 `email_telemetry.record(path, uid, stage, duration_ms=0, success=True, quantity=1)` 可在邮件业务事务结束后写入 `email_<stage>` 事件；`email_telemetry.measure(path, uid, stage)` 是记录执行耗时、正常退出成功状态并在异常退出记失败后重新抛出原异常的上下文管理器。仅接受 `headers`、`queue`、`fetch`、`parse`、`recognition`、`model_queue`、`generation`、`validation`、`job`、`cache_hit`、`excluded`、`failed` 阶段。写入使用独立 SQLite 连接，锁等待最多约 250 毫秒；失败会丢弃遥测记录，不影响邮件业务。不要在持有业务写事务时调用，避免争抢 SQLite 写锁。
+
+遥测只保存现有匿名用户哈希、阶段、耗时、结果和数量，不记录邮件地址、主题、发件人、正文、`input_id`、`request_id` 或异常文本。数量用于汇总命中、排除及失败条目；每条事件数仍表示遥测记录数。所有指标自动复用管理员账号/排除账号过滤、中位数、最近秩 P95 和 90 天保留。整项 `job` 耗时应覆盖创建到结束并包含排队；`queue` 只在能单独测量真实排队时记录。`recognition` 是包含模型准入排队、生成、校验及进程开销的总耗时，不应与组成阶段相加。被强制终止且未返回测量的子进程不填充虚假的零耗时或成功记录；其耗时仍包含在识别总耗时中。不要同时把同一封邮件流程再计入通用同步或识别事件。
 
 后台教学网同步接口见 [source-sync/0.1](../contracts/docs/source-sync-v0.1.md)：每轮最多 4 条识别，全服务最多 4 轮活动同步，共用原模型队列；采集和模型期间不持有数据库写锁。刷新不影响执行，停止拒绝迟到写入，服务重启保留结果并标记中断。重试可选 request_ids，服务端按最新尝试、已保存结果及来源有效性筛选，已恢复或提交的旧记录不重跑；相同操作编号不能更换选择。运行 `python -m unittest discover -s server -p test_source_jobs.py -v` 使用临时数据库和合成采集/模型验证。
 
@@ -346,6 +384,15 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 教学网采集后按应用账号、教学网账号及通知 ID 保存内容版本；只向模型发送新增、修改、未处理或识别失败的记录，忽略采集时间变化，首次启用增量索引仍处理历史通知。
 每条通知生成独立 v0.2 请求并保留首次采集时间作为重试的时间基准；成功（含无任务）且没有待自动创建的任务时跳过。识别成功后若页面关闭或创建失败，再次同步复用已保存的候选补建任务，不重复调用模型；已加入、已忽略、撤回后待核对及有疑点的候选不自动补建。修改后生成新候选，不自动改动已确认任务。
 `POST /api/sources/sync` 返回 `requests`（单条记录的 v0.2 请求列表）及 `summary`（total / skipped / pending），并附带 `updated_tasks` 表示采集事务实际修改的已有任务；爬虫输出契约不变。
+
+### 北大邮箱来源
+
+仅支持 `@stu.pku.edu.cn` 与 `@pku.edu.cn`。按域名使用固定 IMAP TLS 主机，只读打开收件箱并使用 `BODY.PEEK`。默认列出最新 50 封标题元数据，不再限制 30 天；可指定最近 N 封或起始日期，并按页预览。正文需当前应用账号及邮箱的持久同意；可单独排除敏感邮件，批量模式同样尊重排除项，附件不下载。候选始终由用户核对，不自动创建任务。
+
+凭据仍由 `source_sync.py` 加密保存；连接表与持久偏好、排除项、任务运行记录隔离于其他应用账号。`email_import.py` 负责后台任务、失败重试、缓存投影和重启中断恢复，沿用 `recognition_batches`、候选存储及全局模型队列。成功的有任务/无任务结果不会因刷新、再次导入、忽略候选或服务重启而再次读取正文或调用模型；旧邮箱增量索引中的成功结果也直接复用。移除连接不删除已生成候选或用户任务。
+
+接口、状态和手工验收说明见 [邮件导入](../contracts/docs/email-import.md)。旧 `POST /api/sources/sync` 邮箱分支返回 410，避免绕过持久授权及排除项。逐项说明见[邮件测试目录](EMAIL_TESTS.md)。离线验证：`python -m unittest discover -s server -p 'test_email*.py' -v`；全部使用临时数据、模拟 IMAP 和模型，不能代替真实邮箱验收。
+
 `POST /api/recognition/retry` 接收原 v0.2 请求，仅重新识别失败记录；保留成功候选及确认状态，成功请求保持幂等，原 `/batches` 重放行为不变。
 业务 API 直接使用模型侧校验过的 v0.2 时间字段；无疑点的外部新增行动可自动入库，无日期任务保留空 DDL 并在工作台补充，需核实及手动输入的候选仍待用户确认。
 重试由用户点击或再次同步触发，不在同次同步内无限重试；采集本身的超时独立于每条识别的 90 秒预算。
@@ -366,6 +413,29 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 接线回归：`python -m unittest server.test_submission_runtime server.test_public_sources server.test_source_jobs server.test_source_schedule server.test_teaching_reprocessing server.test_manual_materials -q`（`PYTHONPATH` 包含仓库根及 `server`）；浏览器完整入口验收按 [前端说明](../frontend/README.md) 执行，合成外部服务与真实模型联调须分别记录。
 
+### 单封邮件模型响应诊断（测试环境）
+
+`python3 -m server.diagnose_email_response --live --request-id <已保存的单封邮件请求编号> --output /tmp/email-response-diagnostic.json`
+
+此命令从 `server/data/test/niuma.sqlite3` 只读加载正文快照，仅使用 `server/deploy/environments/test/.env.model`，忽略外部 shell 模型凭据。`--live` 会把该封已保存邮件再次发送至测试配置的 Qiniu 服务一次，应在明确授权该次发送后运行。不会访问 IMAP、更新识别缓存或创建任务。使用与邮件识别相同的模型参数、提示、8192 输出 token 上限及默认 270 秒超时（可用 `--timeout-seconds` 调整，最多 300 秒），不自动重试。
+
+报告文件必须不存在，以 0600 权限创建；只保存响应字节数、JSON 外层有效性、选择数量、完成原因、正文及推理文本长度、token 用量、固定错误码、校验是否到达及阶段耗时，不记录邮件、模型正文、推理文本、密钥或 provider 错误正文。`output_truncated` 表示输出达到 token 上限，`provider_response` 表示外层响应不完整或不支持；进入校验后可区分 JSON、schema、evidence 等原因。退出码 1 同时用于诊断捕获失败及设置失败，应结合报告 `status` 判断。新的回放只能诊断本次响应，不能恢复历史模型原始响应。
+
+离线回归：`python3 -m unittest ddl_text.tests.test_email_response_diagnostic ddl_text.tests.test_chat_client ddl_text.tests.test_validation_diagnostics -q`。
+
+### 邮件模型 Token 遥测
+
+正常邮箱识别的每次模型调用会把提供方报告的 `prompt_tokens`、`completion_tokens`、`total_tokens` 和 `reasoning_tokens`，以及固定完成原因、模型响应成功状态和时间写入 `email_model_token_usage`。包含被截断或后续校验失败的调用；缓存命中不新增调用记录。缺失字段为 NULL，不以 0 代替，也不估算历史用量。推理 token 属于输出 token，不能与输出重复相加。此处响应成功不等于任务识别结果通过校验。
+
+数据沿用 90 天留存、账号哈希、管理员及分析排除账号过滤；遥测写入失败不影响识别。仅保存计数及固定枚举，不保存正文、模型回答或推理文本。旧数据库在首次遥测写入时创建新表；读取管理报表不做数据库变更。
+
+管理后台 `/api/admin/usage` 的 `emailTokens` 提供调用数、响应失败数、长度截断数，以及每类计数的累计值和有报告值的调用数；界面同时展示平均值及覆盖率。仅从新代码启用后统计。Codex/未提供 usage 的响应保留未知值；HTTP 失败、被终止且未返回 usage 的调用不能据此估算实际计费。
+
+Qiniu DeepSeek 邮箱识别现在显式发送 `thinking: {"type":"disabled"}`，保留 8192 输出 token 上限，邮箱识别及诊断默认等待上限为 270 秒。设置由识别、当前缓存规则版本及单封诊断共用，避免新结果被误标为旧版；不自动重跑缓存。邮箱设置只作用于 Qiniu DeepSeek 邮箱调用；开发分支的手动文本识别也独立关闭 DeepSeek 思考，但继续使用自己的超时、证据编号和纠错策略。合成 A/B 验收运行 `python -m ddl_text.tests.run_email_thinking_smoke --live --output /tmp/email-thinking.json`，只使用测试环境模型配置，对 4 个合成邮箱场景分别调用默认和关闭思考模式，不读取邮箱或写入任务。
+
+邮件后台识别的 provider 调用及整次模型执行预算均为 270 秒（排队等待独立计算），可选 Harness HTTP 传输等待为 275 秒；手动文本等非邮箱直调继续使用 90 / 95 秒。独立部署的 Harness 自身预算需由该服务配置，调用方等待增加不会自动改变远端上限。
+
+邮箱 Qiniu 模型首次调用使用 8192 输出 token；仅提供方明确返回 `finish_reason=length` 时，自动以 16384 输出 token 重试一次。不是扩大输入上下文。第二次仍失败则结束；超时、证据或 JSON 校验失败不触发此升级。两次调用共用每封邮件的 270 秒模型执行预算，并在下一次调用前重查停止、授权与排除状态；每次调用的 token 和耗时分别记录。手动文本默认不启用该策略。单封诊断工具仍遵守一次 replay 只调用一次的约定。
 文本导入后台接口见 [text-import-jobs/0.1](../contracts/docs/text-import-jobs-v0.1.md)：接受后立即持久化，复用原识别队列和候选保存；刷新不重提请求，停止拒绝迟到入库，重启标记中断并等待用户重试。验证：`python -m unittest discover -s server -p test_text_jobs.py -v`，使用临时数据库和合成模型，不读取私人数据。
 
 文本、教学网和手动文件导入的错误分类、诊断编号及验证边界见 [统一错误约定](../contracts/docs/recognition-errors.md)。文本和文件沿用原有总预算，仅允许一次草稿纠错；DeepSeek 文本/文件识别与教学网一致关闭思考模式，无须改配置。开发和测试环境均可查看详情；生产保留安全诊断供维护人员排查，只向用户返回分类和编号。所有环境都不记录原文、模型回答、异常消息和凭据。

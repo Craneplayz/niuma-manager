@@ -76,6 +76,7 @@ def validate_request(request):
 
 def validate_candidate(c,r):
     fields(c,'candidate_id input_id title description prerequisites course_or_project course_basis notice_type target_reference deadline needs_review review_reasons sources evidence')
+    if 'content_type' in c: require(c['content_type'] in ('task','notice'))
     string(c['candidate_id'],nonempty=True);require(c['input_id']==r['input_id'])
     string(c['title'],nonempty=True);string(c['description']);strings(c['prerequisites'])
     string(c['course_or_project'],nullable=True);string(c['target_reference'],nullable=True)

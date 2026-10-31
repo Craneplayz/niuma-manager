@@ -1,0 +1,81 @@
+# Persistent PKU email import
+
+Email bodies continue to use the existing text v0.2 recognition contract. The following authenticated application endpoints manage mailbox selection and durable jobs; their JSON envelopes are email-specific, rather than teaching-web `source-sync/0.1` envelopes.
+
+## Consent and selection
+
+- `GET /api/sources/email/credentials`: connection status, mailbox address, login username; never returns the password.
+- `POST /api/sources/email/credentials`: existing credential fields plus optional boolean `consent` and `process_all`. Credentials are encrypted. Explicit consent is bound to the current application account and mailbox.
+- `POST /api/sources/email/credentials/remove`: removes the connection; retained recognition results and user tasks are not deleted.
+- `GET /api/sources/email/preferences`: `consent_granted`, `consent_version`, `consented_at`, `process_all`.
+- `POST /api/sources/email/preferences`: booleans `consent`, `process_all`. Consent remains valid until revoked; changing the mailbox requires new consent. This does not enable scheduled mailbox polling.
+- `POST /api/sources/email/preview`: `{limit:50,start_date:null,offset:0,page_size:50,filter:"all",sort:"attention"}`. Date mode uses `limit:null` and an inclusive `YYYY-MM-DD` start date in Asia/Shanghai; batched INTERNALDATE metadata checks handle timezone boundaries. Returns `messages`, `summary.total`, `summary.matched_total`, and `next_offset`. Header preview never fetches message bodies. `refresh:true` explicitly synchronizes the selected range; legacy API paging reuses a persistent UID snapshot and fetches only missing page headers. The application uses `load_all:true` with offset zero: explicit “获取邮件” synchronizes the entire selected header range in one IMAP session, fetching missing headers in bounded batches of at most 50 UIDs. It returns all available headers with `next_offset:null`; `page_size` then controls browser presentation. Background refresh and reload use `load_all:true,cache_only:true`, returning only cached headers and never opening IMAP, even for a partially hydrated older snapshot. Pass its opaque `snapshot_id` on subsequent page requests. `cache_only:true` restores cached headers without IMAP access or credential decryption; a miss is reported without initiating a mailbox request. Results add `cache:{snapshot_id,complete,miss,cache_only,synced_at}`. Stale snapshot tokens and UIDVALIDITY changes detected during lazy paging return 409 and require an explicit refresh. Failed refreshes retain the prior snapshot. Cached headers and snapshots are scoped to the application account and mailbox, cleared on disconnect or mailbox/login changes, and contain no bodies.
+- `POST /api/sources/email/exclusions`: `{input_ids:[...],excluded:true}`; `false` removes the exclusion. Exclusions are persistent and override bulk selection.
+
+Each preview row contains `input_id`, `subject`, `sender`, `received_at`, `state`, `excluded`, `task_count`, `request_id`, `pending_review_count`, `needs_attention`, and a safe `error` or null. The full-range total is separate from the page count.
+
+`process_all` controls whether the user's Start action selects the complete current range. It does not override explicit exclusions, classify sensitive contents, or silently enable a scheduler. Users identify and exclude sensitive mail from the header list.
+
+## Mail list filters and sorting
+
+The default list shows all messages with those needing attention first. Attention includes unrecognized, failed, or interrupted messages and recognized messages with task candidates still pending review; excluded messages do not need attention. This is application processing status, not the mailbox read/unread flag. Pending review is derived from current account-scoped candidates, so accepting or ignoring all candidates removes that mail from the pending-review filter without rerunning recognition.
+
+`filter` accepts `all`, `attention`, `unprocessed`, `pending_review`, `has_tasks`, `no_tasks`, `failed` (including interrupted), or `excluded`. `sort` accepts `attention`, `newest`, or `oldest`. A compact icon button cycles through attention, newest and oldest on each click, with a distinct symbol for each state. Its accessible label names the current and next modes; there is no dropdown. The UI defaults to 25 messages per page. A compact switch beside Sort cycles through 25, 50, and 100 messages, preserving selections and the loaded range. Page navigation and size switching slice the in-memory list and make zero HTTP requests; they never fetch missing headers. Incomplete restored caches show their loaded count and require explicit “获取邮件” to fill missing headers. The page size and last page offset are remembered per account/mailbox in the browser pointer. The UI filter and sort both operate on the currently loaded page in memory and perform no network requests. Hidden rows remain in the loaded list, so switching back to all restores them immediately. Selecting the page selects only the visible nonexcluded rows. Page membership continues to use the unfiltered, stable server attention order so changing the local sort does not shift records between pagination requests. Newest/oldest mean mailbox receipt order (IMAP UID), not dates written by the sender. API filters and ordering apply across the complete selected range before pagination; only the resulting page's headers are fetched. `summary.total` remains the original range size, `matched_total` counts matching messages, and `next_offset` follows the filtered list.
+
+List changes never trigger recognition or body reads. Explicit selections remain selected when hidden by a filter, with the selected count visible. The UI reports current-page matches separately from the original range total. Selecting the page affects its visible, nonexcluded messages; selecting the entire range and the saved `process_all` setting still cover the original range, including hidden messages, subject to exclusions. The UI labels this distinction explicitly. The range dropdown, count/date field and read button share one compact toolbar. Its dark primary button is “读取邮件” (and “正在读取…” while loading); there is no separate apply-range action. Edited range values apply only after clicking that button. Filtering, paging and whole-range recognition continue to use the last successfully loaded range. A browser-local pointer remembers only that range, page size, and page offset per app account and mailbox, so reload can restore the corresponding server cache without an IMAP request. Headers and recognition bodies remain in the account-scoped server database; no email contents are copied to browser storage.
+
+## Durable jobs
+
+- `POST /api/sources/email/jobs`: `{operation_id,input_ids:[...]}` for explicit selections, or `{operation_id,range:{limit:50,start_date:null}}` for a whole range. There is no 20-message logical selection cap; workers process bounded individual messages. Accepted jobs return HTTP 202.
+- `GET /api/sources/email/jobs`: `{jobs:[...]}` for this application account.
+- `GET /api/sources/email/jobs/{job_id}`: current progress.
+- `POST /api/sources/email/jobs/{job_id}/stop`: stops unfinished work; a network/model request already in flight may finish remotely.
+- `POST /api/sources/email/jobs/{job_id}/retry`: `{operation_id}`; retries unfinished or failed items and reuses successful results.
+
+A job contains `job_id`, `state`, `counts`, `items`, and `error`. Counts cover `selected`, `processed`, `cached`, `excluded`, `failed`, and `pending`. Pending includes interrupted work eligible for retry; cached is a subset of processed. Items contain message identity, processing state, task count, cached request identity, and safe errors; job responses omit bodies and credentials. Repeating an operation ID reuses the original operation; it must not identify a different selection.
+
+Job states are `queued`, `running`, `succeeded`, `partial_success`, `failed`, `stopped`, and `interrupted`. Message states are `unprocessed`, `excluded`, `queued`, `processing`, `has_tasks`, `no_tasks`, `failed`, and `interrupted`.
+
+Preview rows also include `policy_status` (`current`, `outdated`, `unknown`, or `unavailable`), `saved_policy_version`, and `current_policy_version`. These are opaque recognition policy identities, never configuration values. Legacy or unavailable versions do not invalidate successful caches. Preview adds `recognition_updates` containing full cached-range counts (`outdated_count`, `unknown_count`), `available`, opaque `policy_version`, and `selection_token`. Counts cover every page, skip excluded and unsuccessful messages, and do not fetch bodies or invoke recognition.
+
+`POST /api/sources/email/reprocess` accepts `{operation_id,input_ids:[...],consent:true}` for an explicitly confirmed re-recognition of successfully cached, nonexcluded messages. It reuses stored bodies without another IMAP body fetch and uses the same bounded workers and stop controls. The completed-job action “更新识别” updates the entire loaded range, using `{operation_id,range,snapshot_id,policy_version,selection_token,include_unknown:false,consent:true}` instead of `input_ids`. This range form is not subject to the explicit-ID limit. Only outdated successful results are selected by default; unknown versions require opting in separately. A changed snapshot, policy, or eligible selection returns 409 before model dispatch and requires a fresh confirmation. Repeating an accepted operation reuses its existing job even after its cache has advanced. Jobs add `kind:"reprocess"`; retrying these requires renewed explicit confirmation through this endpoint. A successful attempt advances the latest-success pointer while preserving historical batches and evidence. A failed attempt keeps the previous successful result and task candidates. Only untouched pending candidates may be replaced; edited, accepted, and ignored decisions and saved tasks are preserved, and new candidates that overlap protected history require manual association review.
+
+Successful `has_tasks` and `no_tasks` classifications persist independently of candidate review decisions. A message may yield multiple task candidates. Ignoring or accepting a candidate does not invalidate its recognition cache. Existing successful email `source_versions` entries are reused. Email records are excluded from the generic force-reprocessing catalog and cannot bypass their cache through that API. Failed work remains eligible for retry; successful messages are not automatically re-recognized after model or policy changes.
+
+## Parallelism and diagnostics
+
+Each deployment profile controls email recognition with the optional `email_concurrency` integer in its private `config.json`. It defaults to `2` (including older profiles that omit it) and accepts values from `1` through `4`. The environment manager passes this profile value to native and Compose API processes as `NIUMA_EMAIL_CONCURRENCY`; shell environment values do not override a managed profile. Message workers share a process-wide pool capped at eight, separate from the four job coordinators, while all email and non-email model calls still share the existing model queue limit of 20. Job-queue wait, model-queue wait, generation, validation, and end-to-end recognition duration are distinct but overlapping measurements; do not sum them as if they represented disjoint time or work.
+
+Email diagnostics may expose only bounded, whitelisted reason codes and aggregate stage/count/timing data to authorized administrators, with a 90-day retention limit. They do not include email addresses, message identities, subjects, bodies, credentials, model prompts, or raw exception text. Repeated successful message results use the recognition cache; stopping a job prevents later work from starting, and removing/revoking a mailbox connection blocks future processing while an already in-flight remote request may complete.
+
+Candidates are read through the normal recognition batch API and reviewed through existing candidate resolution endpoints. Email jobs never automatically save tasks. The legacy email branch of `POST /api/sources/sync` is retired with HTTP 410.
+
+## Telemetry and verification
+
+`email_headers`, `email_queue`, `email_fetch`, `email_parse`, `email_recognition`, `email_job`, `email_cache_hit`, `email_excluded`, and `email_failed` use the existing usage-event store and admin median/p95 aggregates. Recognition timing includes model admission waiting. Telemetry records counts, timings, outcome, and a hashed app-account identifier; no email identity, subject, body, credentials, or exception text. Telemetry is best effort and must not block business work.
+
+Offline acceptance uses temporary databases and synthetic IMAP/model responses. Real-mailbox verification remains a separate manual step: grant consent, preview, exclude a message, process one suitable email, inspect candidates and evidence before saving, then repeat it and confirm cached status without another recognition call.
+
+## 任务与通知
+
+邮件识别与教学网使用同一份任务/通知分类定义。v0.2 邮箱候选增加可选 `content_type: task | notice`，新模型草稿必须提供，旧结果缺省按 task 兼容。task 是需执行的具体行动，notice 是无需执行但会直接影响用户的重要告知；有无期限不决定内容类型。notice_type 仍表示 create/update/postpone/cancel/uncertain。邮件候选均保留人工核对，不自动保存；确认通知时持久化 notice 并沿用通知视图与规划排除行为。成功缓存继续复用；新规则改变 policy version，旧结果显示旧版缓存，只有用户主动更新识别才重新运行。
+
+正常邮件模型调用现在记录提供方报告的输入/输出/总计/推理 token；包括截断与校验失败调用，缓存命中不产生 token 事件。缺失计数保持未知，推理是输出的子集。管理后台按查询时间范围汇总并显示每个字段的报告覆盖率；不回填历史用量，不记录邮件或模型文本。
+
+Qiniu DeepSeek 邮件调用关闭思考模式，保留 8K 输出上限；执行设置与缓存 policy version 保持一致。此次变更仅影响后续调用，旧成功缓存仍由用户主动更新识别。
+
+“更新识别”直接更新当前已获取范围内的旧版缓存，包含其他页；按钮下方使用简短 tooltip，不再弹出确认窗口，未知版本保持不变。模型调用及执行预算为 270 秒，持久授权、排除项、快照和 policy token 检查继续生效。请求失败原位显示，重试相同范围保留 operation_id。
+
+模型输出预算：8192 起步，提供方确认 token 截断后最多自动升级到 16384 重试一次，复用同一正文；输入上下文窗口不变。两次模型尝试共享 270 秒预算，每次尝试前验证取消/授权状态，token 遥测包含两次实际调用。普通证据校验失败、超时、空响应不触发该升级；其他重试行为仍由用户操作。执行 policy version 包含该预算策略。
+
+## Background failure diagnostics
+
+Email recognition uses the shared bounded, content-free diagnostic capture. Persisted batches store the exact producing `attempt_id`; job items and preview messages expose an optional `recognition_error` with the shared `failure` descriptor and `diagnostic_id`. The UI uses the common feedback component. Detailed diagnostic lookup remains development/test-only and scoped to the app account. Mail content, provider responses and exception messages are excluded; save failures retain diagnostics after rollback. Capacity deferrals and cancellation do not create failure receipts.
+
+A process lease alone does not enable job admission. Startup/takeover recovery commits before readiness is published; requests during takeover receive HTTP 503 with `Retry-After: 5`. Losing ownership clears readiness. Provider cooldown clears queued tickets from the whole job, including tickets created later by still-inflight siblings; ordinary model-capacity waits retain FIFO order.
+
+## Mailbox identity and retry admission
+
+Message IDs retain the existing format and remain stable for each app account/address/IMAP-login combination. The first existing login keeps its legacy IDs. Other logins receive opaque namespaces, preventing overlapping IMAP UID values from inheriting another login's cached results or exclusions. Password changes keep the namespace; disconnect retains the non-secret identity mapping so reconnecting the same login reuses its cache. Existing recognition history and evidence are not rewritten or deleted. Credential/identity/header invalidation changes share one SQLite transaction.
+
+Failed email batches cannot invoke recognition through the generic synchronous retry endpoint (HTTP 409 after authorization checks). Mail history actions use the durable email import/reprocessing endpoints and their account/global admission, stop and progress controls; read-only replays of already successful results remain cached. Worker body-buffer contention defers immediately, releases execution/FIFO tickets and reuses the captured body when resources return. Provider timeouts remain failures and are not automatically replayed as capacity waits.

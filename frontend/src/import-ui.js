@@ -195,6 +195,56 @@ export function createImportUI(host) {
     published = shanghaiNow(),
     batches = [],
     credentials = null,
+    emailCredentials = null,
+    emailSettingsState = "idle",
+    emailSettingsError = "",
+    emailSettingsRevision = 0,
+    emailSettingsDialogOperation = 0,
+    emailMessages = [],
+    emailSelected = new Set(),
+    emailPreferences = { consent_granted: false, process_all: false },
+    emailStartBusy = false,
+    emailStartOperationId = null,
+    emailStartSelectionKey = null,
+    emailRetryOperationId = null,
+    emailJobActionBusy = false,
+    emailPollError = false,
+    emailSnapshotId = null,
+    emailCacheInfo = null,
+    emailMessageById = new Map(),
+    emailLoadedIds = [],
+    emailReprocessConfirmIds = [],
+    emailRecognitionUpdates = null,
+    emailReprocessScope = null,
+    emailUpdateUnknown = false,
+    emailReprocessOperationId = null,
+    emailReprocessError = "",
+    emailPreviewOffset = 0,
+    emailPageSize = 25,
+    emailNextOffset = null,
+    emailFilter = "all",
+    emailSort = "attention",
+    emailMatchedTotal = null,
+    emailPreviewRequestId = 0,
+    emailWholeRange = false,
+    emailManualSelection = false,
+    emailTotal = 0,
+    emailRange = { limit: 50, start_date: null },
+    emailLoadedRange = null,
+    emailJob = null,
+    emailJobTimer = null,
+    emailJobRevision = null,
+    emailJobDetailsRevision = null,
+    emailJobPollDelay = 1000,
+    emailJobVisibilityHandler = null,
+    emailJobPolling = false,
+    emailJobRequestId = 0,
+    emailJobVisibilityDocument = null,
+    emailPreviewed = false,
+    emailExplicitRangeRead = false,
+    emailPreviewBusy = false,
+    emailPreviewApplyRange = false,
+    emailError = "",
     loaded = false,
     loading = false,
     busy = false,
@@ -224,7 +274,7 @@ export function createImportUI(host) {
   const refresh = () => host.render();
   const demo = () => Boolean(host.isDemo?.());
   async function refreshResults(isCurrent = () => true) {
-    const stamp = current(), previousBatchesRevision = batchesRevision;
+    const stamp = current(), previousBatchesRevision = batchesRevision, settingsRevision = emailSettingsRevision;
     const superseded = () => busy || previousBatchesRevision !== batchesRevision;
     if (superseded()) return null;
     await flushStore();
@@ -291,6 +341,36 @@ export function createImportUI(host) {
     }
     return true;
   };
+  function emailPointerKey(credentials = emailCredentials) {
+    const userId = session.user?.id, address = String(credentials?.address || "").trim().toLowerCase();
+    if (!userId || !address) return null;
+    let hash = 2166136261, value = `${userId}\0${address}`;
+    for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+    return `niuma:email-range:${(hash >>> 0).toString(36)}`;
+  }
+  function clearEmailPointer(credentials = emailCredentials) {
+    const key = emailPointerKey(credentials);
+    try { if (key) globalThis.localStorage?.removeItem(key); } catch { /* storage may be disabled */ }
+  }
+  function saveEmailPointer(range, offset) {
+    const key = emailPointerKey();
+    if (!key || !range || !Number.isInteger(offset) || offset < 0) return;
+    try { globalThis.localStorage?.setItem(key, JSON.stringify({ range, offset, page_size: emailPageSize })); } catch { /* storage may be disabled */ }
+  }
+  function restoreEmailPointer() {
+    const key = emailPointerKey();
+    if (!key) return;
+    try {
+      const value = JSON.parse(globalThis.localStorage?.getItem(key) || "null");
+      const range = value?.range, offset = value?.offset, pageSize = value?.page_size ?? 25;
+      const validRange = range && ((range.start_date === null && Number.isInteger(range.limit) && range.limit > 0) || (typeof range.start_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(range.start_date) && range.limit === null));
+      if (!validRange || !Number.isInteger(offset) || offset < 0 || ![25,50,100].includes(pageSize) || offset % pageSize !== 0) return;
+      emailRange = { limit: range.limit, start_date: range.start_date };
+      emailLoadedRange = { ...emailRange };
+      emailPreviewOffset = offset; emailPageSize = pageSize;
+      emailSnapshotId = null;
+    } catch { /* storage may be disabled or malformed */ }
+  }
   const allItems = () =>
     readStoredCandidates(batches.flatMap((batch) =>
       (batch.items || []).map((item) => ({ ...item, batch })),
@@ -301,6 +381,7 @@ export function createImportUI(host) {
   }
   function reset() {
     revision++;
+    emailJobRequestId++;
     controller?.abort();
     controller = null;
     source = host.getImportSource?.() || "text";
@@ -312,6 +393,24 @@ export function createImportUI(host) {
     taskReviewsError = '';
     batchesRead = null;
     credentials = null;
+    emailCredentials = null;
+    emailSettingsState = "idle";
+    emailSettingsError = "";
+    emailSettingsRevision++;
+    emailSettingsDialogOperation++;
+    emailMessages = [];
+    emailSelected = new Set();
+    emailPreferences = { consent_granted: false, process_all: false };
+    emailStartBusy = false; emailStartOperationId = null; emailStartSelectionKey = null; emailRetryOperationId = null; emailJobActionBusy = false; emailPollError = false;
+    emailPreviewRequestId++; emailPreviewOffset = 0; emailPageSize = 25; emailNextOffset = null; emailFilter = "all"; emailSort = "attention"; emailMatchedTotal = null; emailWholeRange = false; emailManualSelection = false; emailTotal = 0; emailRange = { limit: 50, start_date: null }; emailLoadedRange = null; emailJob = null;
+    emailSnapshotId = null; emailCacheInfo = null; emailMessageById = new Map(); emailLoadedIds = []; emailReprocessConfirmIds = []; emailReprocessScope = null; emailRecognitionUpdates = null; emailUpdateUnknown = false; emailReprocessOperationId = null; emailReprocessError = "";
+    clearTimeout(emailJobTimer); emailJobTimer = null;
+    if (emailJobVisibilityHandler) emailJobVisibilityDocument?.removeEventListener?.("visibilitychange", emailJobVisibilityHandler);
+    emailJobVisibilityHandler = null; emailJobVisibilityDocument = null; emailJobRevision = null; emailJobDetailsRevision = null; emailJobPollDelay = 1000; emailJobPolling = false;
+    emailPreviewed = false;
+    emailExplicitRangeRead = false;
+    emailPreviewBusy = false; emailPreviewApplyRange = false;
+    emailError = "";
     credentialsLoading = credentialsLoaded = false;
     credentialsError = credentialsRead = null;
     credentialsRevision++;
@@ -444,6 +543,9 @@ export function createImportUI(host) {
   async function load() {
     if (busy || !session.user || session.changing || demo()) return;
     const stamp = current(), reading = loadTaskReviews();
+    void loadEmailSettings().then(() => {
+      if (valid(stamp) && source === 'email') void loadEmailSource();
+    });
     if (source === "teaching") {
       void loadCredentials().then(() => {
         if (valid(stamp) && source === 'teaching') { void refreshSourceSync(); void schedule.load(); }
@@ -452,6 +554,16 @@ export function createImportUI(host) {
     if (source === "files") void materials.load();
     if (source === "text") void textJobs.load();
     await reading;
+  }
+  async function loadEmailSource() {
+    const stamp = current();
+    if (emailCredentials === null) await loadEmailSettings();
+    if (!valid(stamp) || source !== 'email' || !emailCredentials?.configured || emailPreviewBusy) return;
+    void refreshEmailJob();
+    if (!emailPreviewed) {
+      restoreEmailPointer();
+      void previewEmail(emailPreviewOffset, { autoSelectInitial: false, cacheOnly: true });
+    }
   }
   function deadlineLabel(deadline = {}) {
     if (deadline.kind === "reference") return "参考时间，待核对";
@@ -473,7 +585,7 @@ export function createImportUI(host) {
         (record) => record.input_id === c.input_id,
       ),
       label = record?.source_label === "用户主动上传的文件" ? "图片与文件" : platforms[record?.platform] || c.sources?.[0]?.label || "通知";
-    return `<article class="candidate-row" data-candidate-id="${esc(item.id)}"><div class="candidate-copy"><p class="status-note">${esc(actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
+    return `<article class="candidate-row" data-candidate-id="${esc(item.id)}"><div class="candidate-copy"><p class="status-note">${esc(c.content_type === "notice" ? ({create:"新增通知",update:"更新通知",cancel:"取消通知",postpone:"调整日期",uncertain:"待确认"}[c.notice_type] || "通知") : actions[c.notice_type] || "待确认")} · ${esc(deadlineLabel(c.deadline))}</p><h3>${esc(c.title)}</h3><p class="status-note">${esc([c.course_or_project, label].filter(Boolean).join(" · "))}</p>${item.state === "pending" ? evidence(item) : ""}</div><div class="candidate-actions">${item.state === "pending" ? `<button class="btn" type="button" data-import-review="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>核对${c.notice_type === "create" ? "并加入" : ""}</button><button class="btn quiet" type="button" data-import-ignore="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>忽略</button>` : item.state === "ignored" ? `<button class="btn quiet" type="button" data-import-reopen="${esc(item.id)}" ${reviewBlocked(item.id) ? "disabled" : ""}>撤回忽略</button>` : '<span class="status-note">已处理</span>'}</div></article>`;
   }
   function teachingPanel() {
     const connected = credentials?.configured;
@@ -483,8 +595,9 @@ export function createImportUI(host) {
     const groups = new Map(), tasks = host.getState().tasks || [];
     for (const batch of batches) {
       if (syncOwnsBatch(batch) || materials.owns(batch.request.request_id) || batch.request.contract_version === "0.3.1") continue;
-      const teaching = batch.request.records?.some(record => record.platform === "teaching_web");
-      if (source === "files" || teaching !== (source === "teaching")) continue;
+      const platform = batch.request.records?.[0]?.platform;
+      const batchSource = platform === "teaching_web" ? "teaching" : platform === "email" ? "email" : "text";
+      if (source === "files" || batchSource !== source) continue;
       const id = batch.importId || batch.request.request_id;
       if (!groups.has(id)) groups.set(id, { id, batches: [], time: batch.importedAt || batch.request.records?.[0]?.collected_at });
       groups.get(id).batches.push(batch);
@@ -529,35 +642,120 @@ export function createImportUI(host) {
     const selected = historyCategories.get(group.id), category = collections[selected]?.length ? selected : null;
     const token = encodeURIComponent(group.id), region = `import-batch-${token}`;
     const summary = importCategorySummaries(collections, { ...host, getCandidate: itemById }).map(({ key, label, count, unit, tone, description }) =>
-      `<button id="${esc(region)}-${key}" class="sync-category sync-category-${tone}" type="button" data-import-history-category="${key}" data-import-history-batch="${esc(group.id)}" aria-expanded="${category === key}" aria-controls="${esc(region)}" title="${esc(description)}" aria-description="${esc(description)}">${label} ${count} ${unit}</button>`).join("");
+      `<button id="${esc(region)}-${key}" class="sync-category sync-category-${tone}" type="button" data-import-history-category="${key}" data-import-history-batch="${esc(group.id)}" aria-label="${esc(`${label} ${count} ${unit}`)}" aria-expanded="${category === key}" aria-controls="${esc(region)}" title="${esc(description)}" aria-description="${esc(description)}"><span>${label}</span><span class="sync-category-count" aria-hidden="true">${count}</span></button>`).join("");
     const items = collections[category] || [];
     const names = items.map((item, index) => {
       const status = importResultStatus(item, category, { ...host, getCandidate: itemById });
-      return `<li><button id="${esc(region)}-${category}-${index}" class="sync-result-name" type="button" data-import-history-item="${index}" data-import-history-batch="${esc(group.id)}" title="${esc([item.label,item.course,status.label].filter(Boolean).join(" · "))}" ${category === "error" ? `aria-expanded="${historyProblems.get(group.id) === index}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${importStatusMarkup(status)}</button></li>`;
+      const isError = category === "error", expanded = isError && historyProblems.get(group.id) === index;
+      const itemId = `${region}-${category}-${index}`, detailId = `${itemId}-detail`;
+      const detail = expanded ? `<div id="${esc(detailId)}" class="sync-problem" role="region" aria-labelledby="${esc(itemId)}">${errorMarkup(batchErrorReport(item.batch,item.input_id), source === "teaching" ? "teaching_sync" : "text_import", JSON.stringify(["recognition",item.batch.request.request_id,item.input_id]))}${item.links ? `<p class="status-note">${item.links}</p>` : ""}</div>` : "";
+      return `<li${isError ? ` class="sync-error-entry${expanded ? " is-expanded" : ""}"` : ""}><button id="${esc(itemId)}" class="sync-result-name" type="button" data-import-history-item="${index}" data-import-history-batch="${esc(group.id)}" title="${esc([item.label,item.course,status.label].filter(Boolean).join(" · "))}" ${isError ? `aria-expanded="${expanded}"${expanded ? ` aria-controls="${esc(detailId)}"` : ""}` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${importStatusMarkup(status)}${isError ? `<span class="sync-result-chevron" aria-hidden="true">${host.icon("chevron")}</span>` : ""}</button>${detail}</li>`;
     }).join("");
-    const problem = category === "error" ? items[historyProblems.get(group.id)] : null;
-    const detail = problem ? `<div class="sync-problem" role="region" aria-label="${esc(problem.label)}的处理情况"><strong>${esc(problem.label)}</strong>${errorMarkup(batchErrorReport(problem.batch, problem.input_id), source === "teaching" ? "teaching_sync" : "text_import", JSON.stringify(["recognition",problem.batch.request.request_id,problem.input_id]))}${problem.links ? `<p class="status-note">${problem.links}</p>` : ""}</div>` : "";
     const job = group.job;
     const retry = group.batches.filter(batch => ["failed", "partial_success"].includes(batch.result?.status) && !incomplete(batch));
     const results = group.added.length || group.review.length || group.updated.length;
     const statusLabel = job ? TEXT_JOB_LABELS[job.state] : group.batches.every(batch => batch.result?.status === 'no_tasks') ? '未识别出任务' : null;
     const jobControls = job ? textJobs.controls(job) : '';
     const jobNote = job?.state === 'stopped' ? '<p class="status-note">已停止本次导入，后续返回的识别结果不会加入任务。</p>' : job?.state === 'interrupted' ? '<p class="status-note">服务重启导致识别中断，已保存的结果保留，可重试未完成的识别。</p>' : '';
-    return `<article class="sync-run" data-import-history-batch-entry="${esc(group.id)}"><div class="sync-run-heading"><div class="sync-run-status"><strong role="status">${esc(statusLabel || (group.problems.length ? results ? "部分完成" : "导入未完成" : "导入完成"))}</strong><div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div></div>${job ? jobControls : retry.length ? `<div class="candidate-actions"><button class="btn quiet" type="button" data-import-history-retry="${esc(group.id)}" ${blocked() ? "disabled" : ""}>处理未完成</button></div>` : ""}</div>${jobNote}<div id="${esc(region)}" class="sync-results" role="region" aria-label="${labels[category] || "导入"}内容" ${category ? "" : "hidden"}>${names ? `<ul class="sync-result-list">${names}</ul>` : ""}${detail}</div></article>`;
+    return `<article class="sync-run sync-run-independent" data-import-history-batch-entry="${esc(group.id)}"><div class="sync-run-heading"><div class="sync-run-status"><strong role="status">${esc(statusLabel || (group.problems.length ? results ? "部分完成" : "导入未完成" : "导入完成"))}</strong><div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div></div>${job ? jobControls : retry.length ? `<div class="candidate-actions"><button class="btn quiet sync-history-retry" type="button" data-import-history-retry="${esc(group.id)}" ${blocked() ? "disabled" : ""}>${host.icon("refresh")}重试识别</button></div>` : ""}</div>${jobNote}<div id="${esc(region)}" class="sync-results" role="region" aria-label="${labels[category] || "导入"}内容" ${category ? "" : "hidden"}>${names ? `<ul class="sync-result-list"${category === "error" ? " data-import-error-list" : ""}>${names}</ul>` : ""}</div></article>`;
+  }
+
+  function emailWholeRangeSelected() {
+    return emailWholeRange || (emailPreferences.process_all && !emailManualSelection);
+  }
+  function emailSenderMarkup(value, index) {
+    const full = String(value || "发件人未知").trim();
+    const match = full.match(/^([^<>]+?)\s*<([^<>\s@]+@[^<>\s@]+)>$/);
+    if (!match) return esc(full);
+    let name = match[1].trim();
+    if (name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1).trim();
+    if (!name) return esc(full);
+    const tooltipId = `email-sender-tooltip-${index}`;
+    return `<span class="email-sender-desktop" data-email-stop-toggle tabindex="0" aria-describedby="${tooltipId}">${esc(name)}<span id="${tooltipId}" class="email-sort-tooltip" role="tooltip">${esc(match[2])}</span></span><span class="email-sender-full">${esc(full)}</span>`;
+  }
+  function emailNeedsAttention(message) {
+    return !message.excluded && (["unprocessed","failed","interrupted"].includes(message.state) || message.pending_review_count > 0 || (!message.state && message.needs_attention));
+  }
+  function orderedEmailMessages() {
+    const receiptOrder = message => {
+      const uid = /:(\d+)$/.exec(message.input_id || "");
+      return uid ? Number(uid[1]) : Date.parse(message.received_at || "") || 0;
+    };
+    return emailLoadedIds.map(id => emailMessageById.get(id)).filter(Boolean).filter(message => {
+      if (emailFilter === "all") return true;
+      if (emailFilter === "excluded") return Boolean(message.excluded);
+      if (message.excluded) return false;
+      if (emailFilter === "attention") return emailNeedsAttention(message);
+      if (emailFilter === "pending_review") return message.pending_review_count > 0;
+      if (emailFilter === "failed") return ["failed","interrupted"].includes(message.state);
+      return message.state === emailFilter;
+    }).sort((a,b) => {
+      if (emailSort === "attention") {
+        const tier = message => message.excluded ? 2 : emailNeedsAttention(message) ? 0 : 1;
+        const priority = tier(a) - tier(b);
+        if (priority) return priority;
+      }
+      return emailSort === "oldest" ? receiptOrder(a) - receiptOrder(b) : receiptOrder(b) - receiptOrder(a);
+    });
+  }
+  function visibleEmailMessages() { return emailMessages; }
+  function emailPanel() {
+    pageEmailLocally(emailPreviewOffset,emailPageSize,false);
+    const connected = emailCredentials?.configured, selected = emailSelected.size;
+    const wholeRange = emailWholeRangeSelected();
+    const startCount = wholeRange ? emailTotal : selected;
+    const entireRangeLoaded = emailLoadedIds.length >= emailTotal;
+    const rangeFullySelected = wholeRange || (emailTotal > 0 && selected >= emailTotal) || (entireRangeLoaded && emailLoadedIds.every(id => emailMessageById.get(id)?.excluded || emailSelected.has(id)));
+    const activeEmailJob = ["queued", "running"].includes(emailJob?.state);
+    const rangeInputs = `<div class="email-range-controls" role="group" aria-label="邮件获取范围"><label class="field email-range-mode"><select aria-label="范围" data-email-range-limit><option value="recent" ${emailRange.limit !== null ? "selected" : ""}>最近 N 封邮件</option><option value="all" ${emailRange.limit === null ? "selected" : ""}>按日期范围</option></select></label>${emailRange.limit !== null ? `<label class="field email-count-field"><input aria-label="邮件数量" type="number" min="1" step="1" data-email-limit value="${esc(emailRange.limit)}"><span aria-hidden="true">封</span></label>` : `<label class="field email-date-field"><input aria-label="起始日期" type="date" data-email-start-date value="${esc(emailRange.start_date || "")}"></label>`}<button class="btn primary email-fetch-button" type="button" data-import-action="email-preview" aria-busy="${emailPreviewBusy && emailPreviewApplyRange}" aria-disabled="${blocked()||(emailPreviewBusy && emailPreviewApplyRange)}" ${blocked()?"disabled":""}><span class="email-fetch-symbol" aria-hidden="true">${host.icon("mail")}</span>获取邮件</button></div>`;
+    const sortChoices = [["attention","待处理优先","sortAttention"],["newest","最新收件优先","sortNewest"],["oldest","最早收件优先","sortOldest"]];
+    const filterIcon = { all: "inbox", attention: "clock", unprocessed: "mail", pending_review: "check", has_tasks: "tasks", no_tasks: "minus", failed: "warning", excluded: "excluded" }[emailFilter] || "inbox";
+    const filterControls = `<div class="email-filter-controls"><label class="email-filter-picker"><span class="email-filter-symbol" aria-hidden="true">${host.icon(filterIcon)}</span><select aria-label="筛选邮件" data-email-filter>${[["all","全部邮件"],["attention","待处理"],["unprocessed","未识别"],["pending_review","待核对"],["has_tasks","已识别有任务"],["no_tasks","已识别无任务"],["failed","失败或中断"],["excluded","已排除"]].map(([value,label])=>`<option value="${value}" ${emailFilter===value?"selected":""}>${label}</option>`).join("")}</select></label><span class="email-sort-control"><button class="email-sort-toggle" type="button" data-import-action="email-cycle-sort" data-email-sort-trigger aria-describedby="email-sort-tooltip" aria-label="排序：${esc(sortChoices.find(([value])=>value===emailSort)[1])}；点击切换为${esc(sortChoices[(sortChoices.findIndex(([value])=>value===emailSort)+1)%sortChoices.length][1])}" ${blocked()?"disabled":""}>${host.icon(sortChoices.find(([value])=>value===emailSort)[2])}</button><span id="email-sort-tooltip" class="email-sort-tooltip" role="tooltip">${esc(sortChoices.find(([value])=>value===emailSort)[1])}</span></span><span class="email-sort-control email-page-size-control"><button class="email-sort-toggle email-page-size-toggle" type="button" data-import-action="email-cycle-page-size" data-email-page-size-trigger aria-label="每页 ${emailPageSize} 封；点击切换为${[25,50,100][([25,50,100].indexOf(emailPageSize)+1)%3]}封" aria-describedby="email-page-size-tooltip" aria-disabled="${blocked()||emailPreviewBusy}" ${blocked()?"disabled":""}>${emailPageSize}<span aria-hidden="true"> / 页</span></button><span id="email-page-size-tooltip" class="email-sort-tooltip" role="tooltip">每页 ${emailPageSize} 封</span></span></div>`;
+    const status = message => ({unprocessed:"未处理",excluded:"已排除",queued:"排队中",processing:"识别中",has_tasks:`${message.task_count || 0}项任务${message.pending_review_count ? ` · 待核对 ${message.pending_review_count}` : ""}`,no_tasks:"未识别到任务",failed:"识别失败",interrupted:"处理中断"}[message.state] || "待处理");
+    const sortedMessages = visibleEmailMessages();
+    const policyLabel = message => ({unknown:"识别规则版本未知",unavailable:"识别规则状态不可用"}[message.policy_status] || "");
+    const rows = sortedMessages.map((message, index) => { const successful = ["has_tasks", "no_tasks"].includes(message.state); return `<div class="email-message ${message.excluded ? "is-excluded" : ""}"><label class="email-message-selection"><input type="checkbox" data-email-message="${esc(message.input_id)}" ${!message.excluded && (wholeRange || emailSelected.has(message.input_id)) ? "checked" : ""} ${blocked() || message.excluded || wholeRange ? "disabled" : ""} aria-label="选择 ${esc(message.subject || '无主题邮件')}"><span><strong>${esc(message.subject || "(无主题)")}${successful && message.policy_status === "outdated" ? ` <span class="email-policy-warning" data-policy-status="outdated" role="img" tabindex="0" data-email-stop-toggle aria-label="使用旧版规则识别" aria-describedby="email-policy-tooltip-${index}">${host.icon("warningFilled")}<span id="email-policy-tooltip-${index}" class="email-sort-tooltip" role="tooltip">使用旧版规则识别</span></span>` : ""}</strong><small>${emailSenderMarkup(message.sender, index)}${message.received_at ? ` · ${esc(new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai",dateStyle:"medium",timeStyle:"short"}).format(new Date(message.received_at)))}` : ""} · ${esc(status(message))}${successful && policyLabel(message) ? ` <span class="email-policy-status" data-policy-status="${esc(message.policy_status)}">${esc(policyLabel(message))}</span>` : ""}</small>${message.error && !message.recognition_error ? `<small class="error">${esc(message.error)}</small>` : ""}</span></label><button class="btn quiet" type="button" data-email-exclude="${esc(message.input_id)}" data-excluded="${message.excluded ? "false" : "true"}" ${blocked() ? "disabled" : ""}>${message.excluded ? "恢复" : "排除"}</button>${message.recognition_error ? `<div class="email-message-failure">${errorMarkup(message.recognition_error,"email_sync",JSON.stringify(["email",message.input_id,message.recognition_error.diagnostic_id]))}</div>` : ""}</div>`; }).join("");
+    const jobTotal = Math.max(0, Number(emailJob?.counts?.selected) || 0);
+    const jobDone = Math.min(jobTotal, Math.max(0, jobTotal - (Number(emailJob?.counts?.pending) || 0)));
+    const jobPercent = jobTotal ? Math.round(jobDone / jobTotal * 100) : 0;
+    const waitingLabels = { global_capacity: "等待系统处理名额", account_capacity: "等待账户处理名额", mailbox_capacity: "等待邮件读取资源", provider_backoff: "等待邮件服务恢复", provider_budget: "等待邮件服务处理额度", model_capacity: "等待识别服务处理名额" };
+    const waitingNote = emailJob?.state === "queued" && waitingLabels[emailJob.waiting_reason] ? `<p class="status-note">${waitingLabels[emailJob.waiting_reason]}</p>` : "";
+    const jobProgress = `<div class="email-job-progress" role="progressbar" aria-label="邮件识别进度" aria-valuemin="0" aria-valuemax="${jobTotal || 1}" aria-valuenow="${jobDone}" aria-valuetext="已完成 ${jobDone} / ${jobTotal} 封"><span class="email-job-progress-fill" style="width:${jobPercent}%"></span><span class="email-job-progress-animation" aria-hidden="true"></span></div>${waitingNote}`;
+    const retryableJob = ["failed","partial_success","stopped","interrupted"].includes(emailJob?.state) && (
+      emailJob.counts?.failed > 0 || emailJob.counts?.pending > 0 ||
+      (emailJob.items || []).some(item => ["failed","interrupted"].includes(item.state)) ||
+      ["failed","stopped","interrupted"].includes(emailJob.state)
+    );
+    const jobAction = activeEmailJob
+      ? { action:"email-stop-job", tone:"stop", icon:"stop", label:emailJobActionBusy ? "正在停止…" : "停止", disabled:emailJobActionBusy }
+      : retryableJob
+        ? { action:emailJob.kind === "reprocess" ? "email-reprocess-retry" : "email-retry-job", tone:"retry", icon:"retry", label:"重试识别", disabled:blocked()||emailJobActionBusy||emailStartBusy||emailPreviewBusy }
+        : emailJob && emailRecognitionUpdates?.available && emailRecognitionUpdates.outdated_count > 0
+          ? { action:"email-update-recognition", tone:"update", icon:"refresh", label:"更新识别", disabled:blocked()||emailStartBusy||emailPreviewBusy }
+          : null;
+    const retryHint = emailJob?.kind === "reprocess"
+      ? "仅重试失败或中断邮件，复用已保存正文发送至当前识别服务，不重新读取邮箱。保留已审核任务和处理决定；失败时保留原识别结果。"
+      : "重试失败或未完成的邮件；成功缓存会跳过。尚未保存正文的邮件可能需要重新读取邮箱。";
+    const jobHint = jobAction?.tone === "retry" ? retryHint : jobAction?.tone === "update"
+      ? "复用已保存正文更新整个范围的旧版结果；保留已审核任务和决定，失败保留原结果。"
+      : "";
+    const jobTooltipId = jobAction?.tone === "retry" ? "email-retry-tooltip" : "email-update-tooltip";
+    const jobActionButton = jobAction ? `<span class="email-job-action-slot"><button class="btn quiet email-job-action email-job-${jobAction.tone}" type="button" data-import-action="${jobAction.action}" ${jobHint ? `aria-describedby="${jobTooltipId}"` : ""} ${jobAction.disabled ? "disabled" : ""}>${host.icon(jobAction.icon)}${jobAction.label}</button>${jobHint ? `<span id="${jobTooltipId}" class="email-sort-tooltip" role="tooltip">${jobHint}</span>` : ""}</span>` : "";
+    return `<section class="email-source"><div class="email-source-heading"><div class="email-source-title"><h2>北大邮箱</h2>${connected ? `<span class="email-connection-identity"><span class="status-note">${esc(emailCredentials.address)}</span><button class="icon-button email-connection-edit" type="button" data-import-action="email-credentials" aria-label="管理北大邮箱连接" title="管理北大邮箱连接" ${blocked()?"disabled":""}>${host.icon("edit")}</button></span>` : `<span class="status-note">${loading ? "正在读取连接…" : "连接学校邮箱，预览近期通知"}</span>`}</div><div class="email-source-actions">${connected ? rangeInputs : `<button class="btn primary" type="button" data-import-action="email-credentials" ${blocked()?"disabled":""}>连接北大邮箱</button>`}</div></div>${!connected ? `<p class="status-note">首发支持 @stu.pku.edu.cn 和 @pku.edu.cn。请使用邮箱客户端专用密码。</p>` : ""}${emailError ? `<p class="error" role="alert">${esc(emailError)}</p>` : ""}${emailPreviewed ? `<div class="email-list-toolbar">${filterControls}<div class="email-selection-count">${wholeRange ? `整个范围已选择（含筛选隐藏邮件，已排除项除外）` : `已选 ${selected} 封${selected && emailFilter !== "all" ? ` · 当前页 ${visibleEmailMessages().filter(m => emailSelected.has(m.input_id)).length} 封` : ""}`} · ${emailFilter === "all" ? `本范围共 ${emailTotal} 封` : `匹配 ${emailMatchedTotal} 封 / 本范围共 ${emailTotal} 封`}</div></div><div class="email-bulk-actions"><button class="btn quiet" type="button" data-import-action="email-select-page">选择本页</button><button class="btn quiet" type="button" data-import-action="email-clear-selection" ${!selected && !(wholeRange && emailTotal > 0) ? "disabled" : ""}>清除所有</button><button class="btn quiet" type="button" data-import-action="email-select-range" ${rangeFullySelected ? "disabled" : ""}>选择所有</button></div><div class="email-message-list">${rows || `<p class="empty-state">${emailCacheInfo?.miss ? "本地缓存暂无邮件；点击“获取邮件”后同步" : emailFilter !== "all" && emailLoadedIds.length ? "已获取邮件中没有匹配邮件" : "此页没有邮件"}</p>`}</div><div class="email-import-footer">${emailPreviewOffset > 0 || emailNextOffset !== null ? `<div class="email-pagination"><button class="btn quiet" type="button" data-import-action="email-prev" aria-label="上一页" title="上一页" ${emailPreviewOffset<=0?"disabled":""}>${host.icon("arrowLeft")}</button><span>第 ${Math.floor(emailPreviewOffset/emailPageSize)+1} 页</span><button class="btn quiet" type="button" data-import-action="email-next" aria-label="下一页" title="下一页" ${emailNextOffset===null?"disabled":""}>${host.icon("arrowRight")}</button></div>` : ""}<button class="btn primary" type="button" data-import-action="email-start-job" aria-label="${emailStartOperationId ? "重试启动邮件识别" : "识别邮件"}${startCount ? `，已选 ${startCount} 封邮件` : ""}" ${!emailPreferences.consent_granted ? 'title="开始识别前，请在邮箱设置中同意正文处理"' : ""} ${blocked()||emailStartBusy||activeEmailJob||(!selected && !wholeRange)?"disabled":""}>${host.icon("scan")}${emailStartOperationId ? "重试启动邮件识别" : "识别邮件"}${startCount ? `<span class="email-selection-badge" aria-hidden="true">${startCount}</span>` : ""}</button></div>` : ""}${emailJob ? `<div class="email-job" role="status"><div class="email-job-summary"><div class="email-job-copy"><div class="email-job-heading"><strong>${esc(({queued:'排队中',running:'正在处理',succeeded:'处理完成',partial_success:'部分完成',failed:'处理失败',stopped:'已停止',interrupted:'处理中断'})[emailJob.state] || emailJob.state)}</strong>${activeEmailJob ? `<span class="email-job-progress-count">${jobDone} / ${jobTotal}</span>` : ""}</div><div class="email-job-caption">${activeEmailJob ? jobProgress : `<p>已处理 ${emailJob.counts?.processed||0} / ${emailJob.counts?.selected||0} · 缓存 ${emailJob.counts?.cached||0} · 旧版缓存 ${emailRecognitionUpdates?.available ? emailRecognitionUpdates.outdated_count : "—"} · 排除 ${emailJob.counts?.excluded||0} · 失败 ${emailJob.counts?.failed||0} · 未完成 ${emailJob.counts?.pending||0}</p>`}</div></div>${jobActionButton}</div>${emailJob.error ? `<p class="error">${esc(emailJob.error)}</p>` : ""}${emailPollError ? `<button class="btn quiet" data-import-action="email-poll">继续读取状态</button>`:""}</div>` : ""}</section>`;
   }
   function render() {
     if (session.user && !demo() && !loaded && !loading && !busy) queueMicrotask(load);
     const items = allItems(), pending = items.filter(item => item.state === "pending"),
       ignored = items.filter(item => item.state === "ignored");
     const history = independentHistory().map(group => ({ time: group.time, html: independentBatchMarkup(group) }));
-    const tabs = [["text", "文本"], ["teaching", "教学网"], ["files", "图片与文件"]]
+    const tabs = [["text", "文本"], ["teaching", "教学网"], ["email", "邮箱"], ["files", "图片与文件"]]
       .map(([key, label]) => `<button type="button" class="btn ${source === key ? "selected" : "quiet"}" data-import-source="${key}" aria-pressed="${source === key}">${label}</button>`).join("");
     const textBlocked = blocked() || textJobs.isActive() || textJobs.isWriting();
     const textPanel = `<form data-import-form="text"><label class="field" for="import-text">通知内容<textarea id="import-text" name="text" rows="6" maxlength="4000" placeholder="粘贴通知、邮件正文或任务内容">${esc(text)}</textarea></label><details class="import-time"><summary>通知时间</summary><label class="field" for="import-published">发布时间<input id="import-published" name="published" type="datetime-local" step="1" value="${esc(published)}"></label><p class="status-note">按此时间理解“今天”“明天”。</p></details><div class="import-form-actions"><button class="btn primary" type="submit" ${textBlocked ? "disabled" : ""}>${(busy && source === "text") || textJobs.isActive() ? "正在识别…" : "识别任务"}</button></div></form>`;
     const panel = source === "text" ? textPanel : source === "teaching" ? teachingPanel()
-      : materials.render();
+      : source === "email" ? emailPanel() : materials.render();
     return `${(host.renderPageHeading || renderPageHeading)({ title: "导入", escapeHtml: esc })}<div class="page-reading">
-      <div class="import-source-tabs" role="group" aria-label="导入来源">${tabs}<button type="button" class="btn quiet" disabled title="邮箱尚未接入">邮箱 <span class="status-note">尚未接入</span></button></div>
+      <div class="import-source-tabs" role="group" aria-label="导入来源">${tabs}</div>
       <section class="import-input">${panel}${source === "text" ? textJobs.renderProgress() : ""}
         ${busy && progress && source !== "text" ? `<div class="import-progress" role="status"><span class="status-note">${esc(progress)}</span><button class="btn quiet" type="button" data-import-action="stop">停止导入</button></div>` : ""}
         ${source !== "files" && !demo() ? sourceSync.renderHistory({ entries: history, includeSync: source === "teaching" }) : ""}
@@ -572,8 +770,53 @@ export function createImportUI(host) {
   function openCredentials() {
     modal = null;
     host.openDialog(
-      `<form data-import-form="credentials">${dialogHeader("连接教学网")}<label class="field">教学网账号<input name="username" required maxlength="200" autocomplete="username" value="${esc(credentials?.username || "")}"></label><label class="field">教学网密码<input name="password" type="password" required maxlength="200" autocomplete="current-password"></label><div class="error" data-import-error hidden></div><div class="dialog-actions"><button class="btn primary" type="submit">保存连接</button>${credentials?.configured ? '<button class="btn quiet" type="button" data-import-action="remove-credentials">移除连接</button>' : ""}</div></form>`,
+      `<form data-import-form="credentials" data-connection-settings="teaching">${dialogHeader("连接教学网")}<label class="field">教学网账号<input name="username" required maxlength="200" autocomplete="username" value="${esc(credentials?.username || "")}"></label><label class="field">教学网密码<input name="password" type="password" required maxlength="200" autocomplete="current-password"></label><div class="error" data-import-error hidden></div><div class="dialog-actions"><button class="btn primary" type="submit">保存连接</button>${credentials?.configured ? '<button class="btn quiet" type="button" data-import-action="remove-credentials">移除连接</button>' : ""}</div></form>`,
     );
+  }
+  function renderEmailSettings(details = false) {
+    if (!details) return `<section class="account-connection" data-account-section="pku-email" tabindex="-1" aria-label="北大邮箱账号管理"><div><h3>北大邮箱</h3><p class="status-note">管理用于获取邮件通知的账号</p></div><button type="button" class="btn quiet" data-import-action="email-settings">管理连接</button></section>`;
+    const content = emailSettingsState === "loading"
+      ? '<p class="status-note" role="status">正在读取邮箱设置…</p>'
+      : emailSettingsState === "error"
+        ? `<p class="error" role="alert">${esc(emailSettingsError)}</p><button type="button" class="btn quiet" data-import-action="email-settings">重试读取设置</button>`
+        : `<form data-import-form="email-credentials" data-account-email-settings><label class="field">邮箱地址<input name="address" type="email" required maxlength="254" autocomplete="email" placeholder="name@stu.pku.edu.cn" value="${esc(emailCredentials?.address || "")}"></label><label class="field">邮箱登录账号<input name="username" required maxlength="200" autocomplete="username" value="${esc(emailCredentials?.username || "")}"></label><div class="field"><div class="email-password-label"><label for="email-client-password">客户端专用密码</label><span class="email-password-help"><button type="button" aria-label="客户端专用密码说明" aria-describedby="email-password-tooltip">${host.icon("info")}</button><span id="email-password-tooltip" class="email-sort-tooltip" role="tooltip">${emailCredentials?.configured ? "只修改授权或识别设置时，无需填写密码；更换邮箱地址、登录账号或更新密码时再填写。" : "请填写学校邮箱提供的客户端专用密码。"}密码会加密保存，不会显示在页面或识别请求中。</span></span></div><input id="email-client-password" name="password" type="password" ${emailCredentials?.configured ? 'placeholder="留空以保留已保存的密码"' : "required"} maxlength="200" autocomplete="new-password"></div><label class="field check-field"><input type="checkbox" name="consent" value="true" ${emailPreferences.consent_granted ? "checked" : ""}>同意邮件正文发送至识别服务处理</label><label class="field check-field"><input type="checkbox" name="process_all" value="true" ${emailPreferences.process_all ? "checked" : ""}>默认处理整个范围</label><div class="error" data-import-error hidden></div><div class="dialog-actions"><button class="btn primary" type="submit">${emailCredentials?.configured ? "保存设置" : "保存连接"}</button>${emailCredentials?.configured ? '<button class="btn quiet" type="button" data-import-action="remove-email-credentials">移除连接</button>' : ""}</div></form>`;
+    return `<div data-email-settings-dialog data-connection-settings="pku-email">${dialogHeader("北大邮箱设置")}${content}</div>`;
+  }
+  async function loadEmailSettings() {
+    if (!session.user || session.changing || demo()) return false;
+    const stamp = current(), attempt = ++emailSettingsRevision;
+    emailSettingsState = "loading";
+    emailSettingsError = "";
+    const results = await Promise.allSettled([
+      api("/api/sources/email/credentials"), api("/api/sources/email/preferences"),
+    ]);
+    if (!valid(stamp) || attempt !== emailSettingsRevision) return false;
+    const failure = results.find(result => result.status === "rejected");
+    if (failure) {
+      emailSettingsState = "error";
+      emailSettingsError = describeImportError(failure.reason).message;
+      return false;
+    }
+    emailCredentials = results[0].value;
+    emailPreferences = results[1].value;
+    emailSettingsState = "ready";
+    refresh();
+    return true;
+  }
+  async function openEmailCredentials() {
+    await openEmailSettings();
+  }
+  async function openEmailSettings() {
+    modal = null;
+    const stamp = current(), attempt = ++emailSettingsDialogOperation;
+    const pending = loadEmailSettings();
+    host.openDialog(renderEmailSettings(true));
+    host.focusEmailSettings?.();
+    await pending;
+    if (valid(stamp) && attempt === emailSettingsDialogOperation && host.isDialogOpen?.("[data-email-settings-dialog]")) {
+      host.openDialog(renderEmailSettings(true));
+      host.focusEmailSettings?.();
+    }
   }
   function openReview(item) {
     if (!item || item.state !== "pending" || reviewBlocked(item.id)) return;
@@ -606,13 +849,14 @@ export function createImportUI(host) {
       tasks = host.getState().tasks.filter((task) => !task.recycleBin),
       target = tasks.find((task) => task.id === v.target_id);
     modal.targetFingerprint = taskFingerprint(target);
+    const isNotice = item.candidate.content_type === "notice";
     const exact =
       item.candidate.deadline?.precision === "datetime" &&
       item.candidate.deadline.value &&
       Number.isFinite(Date.parse(item.candidate.deadline.value)) &&
       new Date(item.candidate.deadline.value).getUTCSeconds();
     host.openDialog(
-      `<form data-import-form="review" data-candidate="${esc(item.id)}">${dialogHeader("核对任务")}<p class="status-note">${esc(item.candidate.title)}</p>${
+      `<form data-import-form="review" data-candidate="${esc(item.id)}">${dialogHeader(isNotice ? "核对通知" : "核对任务")}<p class="status-note">${esc(item.candidate.title)}</p>${
         item.candidate.notice_type === "uncertain"
           ? `<label class="field">处理方式<select name="action" required data-import-field="action"><option value="">请选择</option>${Object.entries(
               actions,
@@ -624,7 +868,7 @@ export function createImportUI(host) {
               )
               .join("")}</select></label>`
           : `<input type="hidden" name="action" value="${esc(action)}">`
-      }${action && action !== "create" ? `<label class="field">目标任务<select name="target_id" required data-import-field="target"><option value="">选择已有任务</option>${tasks.map((task) => `<option value="${esc(task.id)}" ${task.id === v.target_id ? "selected" : ""}>${esc(task.title)}</option>`).join("")}</select></label>${target ? `<p class="status-note">当前任务：${esc(target.title)}${target.due ? " · " + esc(target.due) + (target.dueTime ? " " + esc(target.dueTime) : "") : ""}</p>` : ""}` : ""}${["create", "update"].includes(action) ? `<label class="field">任务名称<input name="title" required maxlength="180" value="${esc(v.title)}"></label><label class="field">课程<input name="course" maxlength="200" value="${esc(v.course)}" placeholder="可不填写"></label><label class="field">说明<textarea name="description" rows="3">${esc(v.description)}</textarea></label>` : ""}${action && action !== "cancel" ? `<div class="form-grid"><label class="field">截止日期<input name="date" type="date" value="${esc(v.date)}" ${action === "postpone" ? "required" : ""}></label><label class="field">截止时刻<input name="time" type="time" value="${esc(v.time)}"></label></div><p class="status-note">${exact ? "原文时间包含秒，请确认要保存的时刻。" : "原文只有日期时，时刻可以留空。"}</p>` : ""}${action === "cancel" ? '<p class="status-note">确认后将取消所选任务，原记录保留。</p>' : ""}${evidence(item)}<div class="error" data-import-error hidden></div><div class="dialog-actions"><button class="btn primary" type="submit" ${!action ? "disabled" : ""}>${action === "create" ? "确认加入任务" : action === "cancel" ? "确认取消任务" : "确认保存"}</button><button class="btn quiet" type="button" data-import-action="refresh-review" hidden>刷新后重新核对</button></div></form>`,
+      }${action && action !== "create" ? `<label class="field">目标任务<select name="target_id" required data-import-field="target"><option value="">选择已有任务</option>${tasks.map((task) => `<option value="${esc(task.id)}" ${task.id === v.target_id ? "selected" : ""}>${esc(task.title)}</option>`).join("")}</select></label>${target ? `<p class="status-note">当前任务：${esc(target.title)}${target.due ? " · " + esc(target.due) + (target.dueTime ? " " + esc(target.dueTime) : "") : ""}</p>` : ""}` : ""}${["create", "update"].includes(action) ? `<label class="field">${isNotice ? "通知名称" : "任务名称"}<input name="title" required maxlength="180" value="${esc(v.title)}"></label><label class="field">课程<input name="course" maxlength="200" value="${esc(v.course)}" placeholder="可不填写"></label><label class="field">说明<textarea name="description" rows="3">${esc(v.description)}</textarea></label>` : ""}${action && action !== "cancel" ? `<div class="form-grid"><label class="field">截止日期<input name="date" type="date" value="${esc(v.date)}" ${action === "postpone" ? "required" : ""}></label><label class="field">截止时刻<input name="time" type="time" value="${esc(v.time)}"></label></div><p class="status-note">${exact ? "原文时间包含秒，请确认要保存的时刻。" : "原文只有日期时，时刻可以留空。"}</p>` : ""}${action === "cancel" ? '<p class="status-note">确认后将取消所选任务，原记录保留。</p>' : ""}${evidence(item)}<div class="error" data-import-error hidden></div><div class="dialog-actions"><button class="btn primary" type="submit" ${!action ? "disabled" : ""}>${action === "create" ? (isNotice ? "确认加入通知" : "确认加入任务") : action === "cancel" ? "确认取消任务" : "确认保存"}</button><button class="btn quiet" type="button" data-import-action="refresh-review" hidden>刷新后重新核对</button></div></form>`,
     );
   }
   function formError(form, message, conflict = false) {
@@ -632,7 +876,7 @@ export function createImportUI(host) {
     const node = form.querySelector("[data-import-error]");
     if (node) {
       node.textContent = report?.message || "";
-      node.innerHTML = userErrorMarkup(report, form.dataset.importForm === "credentials" ? "teaching_sync" : "import_review");
+      node.innerHTML = userErrorMarkup(report, form.dataset.importForm === "credentials" ? "teaching_sync" : form.dataset.importForm === "email-credentials" ? "email_sync" : "import_review");
       node.hidden = !report;
     }
     const retry = form.querySelector('[data-import-action="refresh-review"]');
@@ -741,6 +985,226 @@ export function createImportUI(host) {
     if (!credentials?.configured) { openCredentials(); return; }
     await schedule.start();
   }
+  function pageEmailLocally(offset, pageSize = emailPageSize, render = true) {
+    emailPageSize = pageSize;
+    const ordered = orderedEmailMessages();
+    emailMatchedTotal = ordered.length;
+    const lastOffset = Math.max(0, Math.ceil(ordered.length/pageSize)-1)*pageSize;
+    emailPreviewOffset = Math.min(Math.max(0,offset),lastOffset);
+    emailMessages = ordered.slice(emailPreviewOffset,emailPreviewOffset+pageSize);
+    emailNextOffset = emailPreviewOffset+pageSize<ordered.length ? emailPreviewOffset+pageSize : null;
+    if (render) { if (emailLoadedRange) saveEmailPointer(emailLoadedRange,emailPreviewOffset); refresh(); }
+  }
+  async function previewEmail(offset = 0, { autoSelectInitial = true, applyRange = false, cacheOnly = false, pageSize = emailPageSize } = {}) {
+    if (blocked() || !allowed()) return;
+    if (!emailCredentials?.configured) { await openEmailCredentials(); return; }
+    const requestedRange = { ...(applyRange || !emailLoadedRange ? emailRange : emailLoadedRange) };
+    const rangeChanged = emailLoadedRange && JSON.stringify(requestedRange) !== JSON.stringify(emailLoadedRange);
+    const stamp = current(), requestId = ++emailPreviewRequestId, firstPreview = applyRange && !emailExplicitRangeRead; emailPreviewBusy = true; emailPreviewApplyRange = applyRange; emailError = "";
+    // Keep the mounted toolbar and focused button while the request is pending.
+    if (host.setEmailPreviewBusy?.(true, { fetching:applyRange }) !== true) refresh();
+    try {
+      const sameSnapshotRange = !rangeChanged && emailLoadedRange && JSON.stringify(requestedRange) === JSON.stringify(emailLoadedRange);
+      const result = await api("/api/sources/email/preview", { ...requestedRange, filter: "all", sort: "attention", offset:0, page_size: pageSize, load_all:true, refresh: !cacheOnly && applyRange, cache_only: cacheOnly || !applyRange, ...(sameSnapshotRange && emailSnapshotId && !applyRange ? { snapshot_id: emailSnapshotId } : {}) }, "POST");
+      if (!valid(stamp) || requestId !== emailPreviewRequestId) return;
+      if (rangeChanged) { emailSelected.clear(); emailWholeRange = false; emailManualSelection = false; }
+      emailLoadedRange = requestedRange;
+      const allMessages = Array.isArray(result.messages) ? result.messages : [];
+      emailMessageById = new Map(allMessages.map(message=>[message.input_id,message]));
+      emailLoadedIds = [...emailMessageById.keys()];
+      emailSnapshotId = result.cache?.snapshot_id || null;
+      emailCacheInfo = result.cache || null;
+      emailRecognitionUpdates = result.recognition_updates || null;
+      emailTotal = Number(result.summary?.total || 0); emailMatchedTotal = Number(result.summary?.matched_total ?? emailTotal);
+      pageEmailLocally(offset,pageSize,false);
+      if (!cacheOnly) saveEmailPointer(requestedRange,emailPreviewOffset);
+      emailSelected = new Set([...emailSelected].filter(id => emailMessageById.has(id) && !emailMessageById.get(id).excluded));
+      if (firstPreview && autoSelectInitial) emailSelected = new Set(emailMessages.filter(item => !item.excluded).map(item => item.input_id));
+      emailPreviewed = true;
+      if (applyRange) emailExplicitRangeRead = true;
+      if (result.cache?.miss) notice = `已加载 ${emailLoadedIds.length} / ${emailTotal} 封邮件的缓存标题；点击“获取邮件”补全列表`;
+      else if (!emailMatchedTotal) notice = emailTotal ? "筛选条件下没有邮件" : "此范围内没有邮件";
+      else notice = "";
+    } catch (e) { if (valid(stamp) && requestId === emailPreviewRequestId) emailError = e?.status === 409 ? "邮件列表已更新，请点击“获取邮件”重新同步后重试" : describeImportError(e).message; }
+    finally { if (valid(stamp) && requestId === emailPreviewRequestId) { emailPreviewBusy = false; emailPreviewApplyRange = false; refresh(); } }
+  }
+  async function refreshEmailJob() {
+    const stamp = current(), requestId = ++emailJobRequestId;
+    try {
+      const jobs = await api("/api/sources/email/jobs?summary=1");
+      if (!valid(stamp) || requestId !== emailJobRequestId) return;
+      const visibleJobs = jobs.jobs || [];
+      const active = visibleJobs.find(job => ["queued","running"].includes(job.state));
+      const latest = active || visibleJobs[0] || null;
+      if (emailJob?.job_id !== latest?.job_id) emailJobDetailsRevision = null;
+      clearTimeout(emailJobTimer); emailJobTimer = null;
+      emailJob = latest;
+      if (active) {
+        emailPollError = false;
+        emailJobRevision = active.revision ?? null;
+        emailJobPollDelay = 1000;
+        scheduleEmailJobPoll(active.job_id, emailJobPollDelay);
+      }
+      refresh();
+    } catch (e) { if (valid(stamp) && requestId === emailJobRequestId) { emailError = describeImportError(e).message; refresh(); } }
+  }
+  function scheduleEmailJobPoll(id, delay) {
+    clearTimeout(emailJobTimer); emailJobTimer = null;
+    if (!emailJobVisibilityHandler && globalThis.document?.addEventListener) {
+      emailJobVisibilityDocument = globalThis.document;
+      emailJobVisibilityHandler = () => {
+        if (globalThis.document.hidden) { clearTimeout(emailJobTimer); emailJobTimer = null; }
+        else if (emailJob?.job_id && ["queued", "running"].includes(emailJob.state) && !emailJobTimer) void pollEmailJob(emailJob.job_id);
+      };
+      emailJobVisibilityDocument.addEventListener("visibilitychange", emailJobVisibilityHandler);
+    }
+    if (globalThis.document?.hidden) return;
+    emailJobTimer = setTimeout(() => { emailJobTimer = null; void pollEmailJob(id); }, delay);
+  }
+  function mergeEmailJobItems(job) {
+    const itemStates = new Map((job.items || []).map(item => [item.input_id, item]));
+    for (const [id,message] of emailMessageById) { const item = itemStates.get(id); if (item) emailMessageById.set(id,{...message,state:item.state,task_count:item.task_count,request_id:item.request_id,error:item.error,recognition_error:item.recognition_error}); }
+    pageEmailLocally(emailPreviewOffset,emailPageSize,false);
+  }
+  async function pollEmailJob(id) {
+    if (!emailJob?.job_id || emailJob.job_id !== id) return;
+    clearTimeout(emailJobTimer);
+    emailJobTimer = null;
+    if (globalThis.document?.hidden || emailJobPolling) return;
+    emailJobPolling = true;
+    const stamp = current(), requestId = ++emailJobRequestId;
+    const currentRequest = () => valid(stamp) && requestId === emailJobRequestId && emailJob?.job_id === id;
+    try {
+      const summary = await api(`/api/sources/email/jobs/${encodeURIComponent(id)}?summary=1`);
+      if (!currentRequest()) return;
+      emailPollError = false;
+      const changed = emailJobRevision === null || summary.revision !== emailJobRevision || emailJobDetailsRevision !== summary.revision;
+      if (changed || !["queued", "running"].includes(summary.state)) {
+        const job = await api(`/api/sources/email/jobs/${encodeURIComponent(id)}`);
+        if (!currentRequest()) return;
+        emailJob = job; emailJobRevision = job.revision ?? summary.revision ?? null;
+        emailJobDetailsRevision = emailJobRevision;
+        mergeEmailJobItems(job);
+        if (!["queued","running"].includes(job.state)) { await refreshResults(currentRequest); if (currentRequest()) await previewEmail(emailPreviewOffset); }
+        emailJobPollDelay = 1000;
+        if (currentRequest()) refresh();
+      } else {
+        const before = emailJob;
+        emailJob = { ...emailJob, ...summary };
+        emailJobRevision = summary.revision ?? emailJobRevision;
+        const visibleSummaryChanged = before.state !== emailJob.state ||
+          before.waiting_reason !== emailJob.waiting_reason ||
+          JSON.stringify(before.counts || {}) !== JSON.stringify(emailJob.counts || {});
+        emailJobPollDelay = summary.state === "queued" ? Math.min(15000, Math.max(3000, emailJobPollDelay * 1.7)) : Math.min(8000, Math.max(1200, emailJobPollDelay * 1.35));
+        if (visibleSummaryChanged && currentRequest()) refresh();
+      }
+      if (currentRequest() && ["queued","running"].includes(emailJob.state)) scheduleEmailJobPoll(id, emailJobPollDelay);
+    } catch (e) { if (currentRequest()) { emailPollError = true; emailError = describeImportError(e).message; refresh(); } }
+    finally { emailJobPolling = false; }
+  }
+  async function syncEmail(inputIds = null) {
+    if (blocked() || emailStartBusy || ["queued","running"].includes(emailJob?.state) || !allowed()) return;
+    if (inputIds ? !inputIds.length : !emailWholeRangeSelected() && !emailSelected.size) return;
+    if (!emailPreferences.consent_granted) { await openEmailSettings(); return; }
+    const stamp = current(), requestId = ++emailJobRequestId;
+    clearTimeout(emailJobTimer); emailJobTimer = null;
+    const selection = inputIds ? {input_ids: inputIds} : emailSelected.size && !emailWholeRangeSelected()
+      ? {input_ids: [...emailSelected]} : {range: emailLoadedRange || emailRange};
+    const key = JSON.stringify(selection);
+    if (key !== emailStartSelectionKey) { emailStartOperationId = null; emailStartSelectionKey = key; }
+    if (!emailStartOperationId) emailStartOperationId = newId();
+    const operation_id = emailStartOperationId;
+    emailStartBusy = true; emailError = ""; refresh();
+    try {
+      const requestBody = {operation_id, ...selection};
+      const job = await api("/api/sources/email/jobs", requestBody, "POST");
+      if (!valid(stamp) || requestId !== emailJobRequestId) return;
+      emailJob = job; emailPollError = false; emailStartOperationId = null; emailJobRevision = job.revision ?? null; emailJobDetailsRevision = job.revision ?? null;
+      clearTimeout(emailJobTimer);
+      if (["queued","running"].includes(job.state)) { emailJobRevision = job.revision ?? null; emailJobPollDelay = 1000; scheduleEmailJobPoll(job.job_id, emailJobPollDelay); }
+      refresh();
+    } catch (e) {
+      if (valid(stamp) && requestId === emailJobRequestId) { emailError = describeImportError(e).message; refresh(); }
+    } finally {
+      if (valid(stamp)) { emailStartBusy = false; refresh(); }
+    }
+  }
+  function openEmailReprocessConfirm(inputIds, showDialog = true) {
+    emailReprocessScope = null; emailUpdateUnknown = false;
+    const ids = [...new Set(inputIds)].filter(Boolean);
+    if (!ids.length || ids.length > 1000) { emailError = ids.length > 1000 ? "每次最多重新识别 1000 封邮件" : "没有可重新识别的邮件"; refresh(); return false; }
+    if (JSON.stringify(ids) !== JSON.stringify(emailReprocessConfirmIds)) emailReprocessOperationId = null;
+    emailReprocessConfirmIds = ids;
+    emailReprocessError = "";
+    if (showDialog) renderEmailReprocessConfirm();
+    return true;
+  }
+  async function updateEmailRecognition() {
+    if (blocked() || emailStartBusy || emailPreviewBusy || ["queued","running"].includes(emailJob?.state) || !allowed()) return;
+    if (!emailLoadedRange || !emailSnapshotId || !emailRecognitionUpdates?.available) return;
+    if (!emailPreferences.consent_granted) { void openEmailSettings(); return; }
+    const stamp = current();
+    await previewEmail(emailPreviewOffset, { autoSelectInitial: false, cacheOnly: true });
+    if (!valid(stamp) || emailError || !emailRecognitionUpdates?.available) return;
+    if (!emailRecognitionUpdates.outdated_count) { host.toast("当前范围无需更新识别结果"); return; }
+    const scope = { range: { ...emailLoadedRange }, snapshot_id: emailSnapshotId, ...emailRecognitionUpdates };
+    const identity = value => value && JSON.stringify([value.range,value.snapshot_id,value.policy_version,value.selection_token]);
+    if (identity(scope) !== identity(emailReprocessScope)) emailReprocessOperationId = null;
+    emailReprocessScope = scope;
+    emailReprocessConfirmIds = []; emailReprocessError = ""; emailUpdateUnknown = false;
+    await confirmEmailReprocess({ showDialog: false });
+  }
+  function renderEmailReprocessConfirm() {
+    const scope = emailReprocessScope;
+    const count = scope ? scope.outdated_count + (emailUpdateUnknown ? scope.unknown_count : 0) : emailReprocessConfirmIds.length;
+    host.openDialog(`<section class="email-reprocess-confirm">${dialogHeader(scope ? "更新识别结果" : "重新识别邮件")}<p>${scope ? "将使用当前规则更新整个已读取范围内的旧版识别结果，包括其他页；已排除邮件和当前版本结果会跳过。" : "将复用系统保存的邮件正文，再次发送至当前配置的识别服务。"}已审核的任务和处理决定会保留。</p>${scope?.unknown_count ? `<label class="email-update-unknown"><input type="checkbox" data-email-update-unknown ${emailUpdateUnknown?"checked":""} ${emailStartBusy?"disabled":""}>同时更新版本未知的 ${scope.unknown_count} 封邮件</label>` : ""}<p class="status-note">本次将重新识别 ${count} 封邮件，复用已保存正文；不会重新读取邮箱。失败时保留原识别结果。</p>${emailReprocessError ? `<p class="error" role="alert">${esc(emailReprocessError)}</p>` : ""}<div class="dialog-actions"><button class="btn quiet" type="button" data-import-action="email-reprocess-cancel" ${emailStartBusy?"disabled":""}>取消</button><button class="btn primary" type="button" data-import-action="email-reprocess-confirm" ${emailStartBusy||!count?"disabled":""}>${emailStartBusy?"正在提交…":scope?"确认更新":"确认重新识别"}</button></div></section>`);
+  }
+  async function startEmailReprocess(inputIds = [...emailSelected].filter(id => ["has_tasks", "no_tasks"].includes(emailMessageById.get(id)?.state)), { confirm = true } = {}) {
+    if (blocked() || emailStartBusy || ["queued", "running"].includes(emailJob?.state) || !allowed()) return;
+    if (!emailPreferences.consent_granted) { await openEmailSettings(); return; }
+    if (openEmailReprocessConfirm(inputIds, confirm) && !confirm) await confirmEmailReprocess({ showDialog: false });
+  }
+  async function confirmEmailReprocess({ showDialog = true } = {}) {
+    if (blocked() || emailStartBusy || ["queued", "running"].includes(emailJob?.state) || !allowed()) return;
+    const ids = [...emailReprocessConfirmIds], scope = emailReprocessScope;
+    if (!emailPreferences.consent_granted) { emailError = "请先在邮箱设置中同意正文处理"; refresh(); return; }
+    if (scope ? !(scope.outdated_count + (emailUpdateUnknown ? scope.unknown_count : 0)) : (!ids.length || ids.length > 1000)) { emailError = "重新识别范围无效"; refresh(); return; }
+    if (!emailReprocessOperationId) emailReprocessOperationId = newId();
+    const stamp = current(), requestId = ++emailJobRequestId; emailStartBusy = true; emailError = ""; emailReprocessError = ""; if (showDialog) renderEmailReprocessConfirm(); refresh();
+    try {
+      const selection = scope ? { range: scope.range, snapshot_id: scope.snapshot_id, policy_version: scope.policy_version, selection_token: scope.selection_token, include_unknown: emailUpdateUnknown } : { input_ids: ids };
+      const job = await api("/api/sources/email/reprocess", { operation_id: emailReprocessOperationId, ...selection, consent: true }, "POST");
+      if (!valid(stamp) || requestId !== emailJobRequestId) return;
+      emailJob = job; emailPollError = false; emailJobRevision = job.revision ?? null; emailJobDetailsRevision = job.revision ?? null; emailReprocessOperationId = null; emailReprocessConfirmIds = []; emailReprocessScope = null;
+      emailReprocessError = "";
+      if (showDialog && host.isDialogOpen?.(".email-reprocess-confirm")) host.closeDialog();
+      clearTimeout(emailJobTimer);
+      if (["queued", "running"].includes(job.state) && job.job_id) { emailJobRevision = job.revision ?? null; emailJobPollDelay = 1000; scheduleEmailJobPoll(job.job_id, emailJobPollDelay); }
+      refresh();
+    } catch (e) { if (valid(stamp) && requestId === emailJobRequestId) { emailReprocessError = describeImportError(e).message; if (!showDialog) emailError = emailReprocessError; refresh(); } }
+    finally { if (valid(stamp)) { emailStartBusy = false; if (showDialog && (emailReprocessConfirmIds.length || emailReprocessScope) && emailReprocessError && host.isDialogOpen?.(".email-reprocess-confirm")) renderEmailReprocessConfirm(); refresh(); } }
+  }
+  async function emailJobAction(action) {
+    if (!emailJob?.job_id || blocked() || emailJobActionBusy) return;
+    const stamp = current(), jobId = emailJob.job_id;
+    const requestId = action === "poll" ? null : ++emailJobRequestId;
+    if (action !== "poll") { clearTimeout(emailJobTimer); emailJobTimer = null; }
+    emailJobActionBusy = true; emailError = ""; refresh();
+    try {
+      let next;
+      if (action === "stop") next = await api(`/api/sources/email/jobs/${encodeURIComponent(jobId)}/stop`, {}, "POST");
+      else if (action === "retry") {
+        if (!emailRetryOperationId) emailRetryOperationId = newId();
+        next = await api(`/api/sources/email/jobs/${encodeURIComponent(jobId)}/retry`, { operation_id: emailRetryOperationId }, "POST");
+      } else if (action === "poll") { await pollEmailJob(jobId); return; }
+      if (!valid(stamp) || (requestId !== null && requestId !== emailJobRequestId)) return;
+      emailJob = next;
+      if (action === "retry") emailRetryOperationId = null;
+      emailPollError = false;
+      await refreshEmailJob();
+    } catch (e) { if (valid(stamp) && (requestId === null || requestId === emailJobRequestId)) { emailError = describeImportError(e).message; refresh(); } }
+    finally { if (valid(stamp)) { emailJobActionBusy = false; refresh(); } }
+  }
   async function resolveSmall(item, action) {
     if (
       !item || reviewBlocked(item.id) || !allowed() ||
@@ -766,12 +1230,20 @@ export function createImportUI(host) {
         error = describeImportError(e);
         if (host.isImportVisible?.() === false) host.reportReviewError?.(e);
         refresh();
+        if (source === "email" && emailPreviewed) void previewEmail(emailPreviewOffset, { autoSelectInitial: false });
       }
       return staged;
     }
   }
   async function retryBatch(batch) {
     if (blocked() || !allowed() || !batch || syncOwnsBatch(batch) || !["failed", "partial_success"].includes(batch.result?.status) || incomplete(batch)) return;
+    if (batch.request?.records?.some(record => record.platform === 'email')) {
+      const failed = new Set((batch.result.record_results || []).filter(item => item.status === 'failed').map(item => item.input_id));
+      const ids = batch.request.records.filter(record => failed.has(record.input_id)).map(record => record.input_id);
+      if (batch.request.request_id.startsWith('email:reprocess:')) await startEmailReprocess(ids, {confirm:false});
+      else await syncEmail(ids);
+      return;
+    }
     const stamp = current();
     busy = true;
     error = "";
@@ -808,6 +1280,31 @@ export function createImportUI(host) {
   }
   async function click(button) {
     const d = button.dataset;
+    if (d.importAction === "email-cycle-sort") {
+      if (blocked()) return true;
+      const modes = ["attention", "newest", "oldest"];
+      emailSort = modes[(modes.indexOf(emailSort) + 1) % modes.length];
+      pageEmailLocally(0);
+      host.focusEmailSort?.();
+      return true;
+    }
+    if (d.emailExclude) {
+      const id = d.emailExclude, excluded = d.excluded === "true", stamp = current();
+      try {
+        const result = await api("/api/sources/email/exclusions", {input_ids:[id], excluded}, "POST");
+        if (valid(stamp)) {
+          const authoritative = result?.states?.[id];
+          const fallback = {state:excluded ? "excluded" : "unprocessed", excluded};
+          const updated = {...(authoritative || fallback), excluded};
+          emailMessages = emailMessages.map(m => m.input_id === id ? {...m, ...updated} : m);
+          if (emailMessageById.has(id)) emailMessageById.set(id, {...emailMessageById.get(id), ...updated});
+          emailSelected.delete(id);
+          refresh();
+        }
+      }
+      catch (e) { if (valid(stamp)) { emailError = describeImportError(e).message; refresh(); } }
+      return true;
+    }
     if (d.textJobAction) { if (allowed()) await textJobs.click(button); return true; }
     if (d.sourceSyncAction) {
       if (allowed()) await sourceSync.click(button);
@@ -819,12 +1316,14 @@ export function createImportUI(host) {
         if (!setSource(d.importSource)) return true;
         sourceSync.dismissRecoveryHighlight();
         host.onImportSourceChange?.(source);
+        emailError = "";
         const stamp = current();
         refresh();
         if (source === "teaching" && allowed()) {
           await loadCredentials();
           if (valid(stamp) && source === 'teaching') { void refreshSourceSync(); void schedule.load(); }
         }
+        if (source === "email" && allowed()) await loadEmailSource();
         if (source === "files" && allowed()) void materials.load();
       return true;
     }
@@ -937,6 +1436,44 @@ export function createImportUI(host) {
       }
       return true;
     }
+    if (action === "email-settings") {
+      if (!blocked() && allowed()) await openEmailSettings();
+      return true;
+    }
+    if (action === "email-credentials") {
+      if (!blocked() && allowed()) await openEmailCredentials();
+      return true;
+    }
+    if (action === "email-preview") {
+      if (emailPreviewBusy && emailPreviewApplyRange) return true;
+      await previewEmail(0, { applyRange: true });
+      return true;
+    }
+    if (action === "email-sync") {
+      await syncEmail();
+      return true;
+    }
+    if (action === "email-cycle-page-size") {
+      if (blocked() || emailPreviewBusy) return true;
+      const nextSize = [25,50,100][([25,50,100].indexOf(emailPageSize)+1)%3];
+      pageEmailLocally(Math.floor(emailPreviewOffset/nextSize)*nextSize,nextSize);
+      host.focusEmailPageSize?.();
+      return true;
+    }
+    if (action === "email-next") { if (!emailPreviewBusy && emailNextOffset !== null) pageEmailLocally(emailNextOffset); return true; }
+    if (action === "email-prev") { if (!emailPreviewBusy) pageEmailLocally(Math.max(0,emailPreviewOffset-emailPageSize)); return true; }
+    if (action === "email-select-page") { emailSelected = new Set(visibleEmailMessages().filter(m => !m.excluded).map(m => m.input_id)); emailWholeRange = false; emailManualSelection = true; refresh(); return true; }
+    if (action === "email-clear-selection") { emailSelected.clear(); emailWholeRange = false; emailManualSelection = true; emailStartOperationId = null; refresh(); return true; }
+    if (action === "email-select-range") { emailSelected.clear(); emailWholeRange = true; emailManualSelection = true; refresh(); return true; }
+    if (action === "email-start-job") { await syncEmail(); return true; }
+    if (action === "email-update-recognition") { await updateEmailRecognition(); return true; }
+    if (action === "email-reprocess") { await startEmailReprocess(); return true; }
+    if (action === "email-reprocess-retry") { await startEmailReprocess((emailJob?.items || []).filter(item => ["failed", "interrupted"].includes(item.state)).map(item => item.input_id), { confirm: false }); return true; }
+    if (action === "email-reprocess-cancel") { emailReprocessConfirmIds = []; emailReprocessScope = null; emailUpdateUnknown = false; emailReprocessOperationId = null; if (host.isDialogOpen?.(".email-reprocess-confirm")) host.closeDialog(); return true; }
+    if (action === "email-reprocess-confirm") { await confirmEmailReprocess(); return true; }
+    if (action === "email-stop-job") { await emailJobAction("stop"); return true; }
+    if (action === "email-retry-job") { await emailJobAction("retry"); return true; }
+    if (action === "email-poll") { await emailJobAction("poll"); return true; }
     if (action === "sync") {
       await sync();
       return true;
@@ -972,6 +1509,39 @@ export function createImportUI(host) {
           if (form) lockForm(form, false);
           refresh();
         }
+      }
+      return true;
+    }
+    if (action === "remove-email-credentials") {
+      if (credentialsBlocked() || !allowed()) return true;
+      emailSettingsRevision++;
+      const stamp = current(), form = button.closest?.("form");
+      if (form) lockForm(form, true);
+      try {
+        const result = await api("/api/sources/email/credentials/remove", {}, "POST");
+        if (valid(stamp)) {
+          emailSettingsRevision++;
+          clearEmailPointer(emailCredentials); emailPageSize = 25;
+          emailCredentials = result;
+          emailPreferences = { ...emailPreferences, consent_granted: false };
+          emailPreviewRequestId++; emailPreviewBusy = false; emailPreviewApplyRange = false; emailMessages = [];
+          emailMessageById = new Map(); emailLoadedIds = []; emailSnapshotId = null; emailCacheInfo = null; emailRecognitionUpdates = null; emailReprocessScope = null; emailExplicitRangeRead = false;
+          emailSelected = new Set();
+          emailPreviewed = false;
+          emailManualSelection = false;
+          emailLoadedRange = null;
+          emailPreviewOffset = 0; emailSnapshotId = null; emailCacheInfo = null; emailMessageById = new Map(); emailLoadedIds = []; emailExplicitRangeRead = false;
+          emailError = "";
+          modal = null;
+          emailSettingsState = "ready";
+          if (formIsOpen(form)) host.closeDialog();
+          host.toast("邮箱连接已移除");
+          refresh();
+        }
+      } catch (e) {
+        if (valid(stamp) && form) formError(form, describeImportError(e));
+      } finally {
+        if (valid(stamp) && form) lockForm(form, false);
       }
       return true;
     }
@@ -1051,6 +1621,69 @@ export function createImportUI(host) {
       }
       return true;
     }
+    if (kind === "email-credentials") {
+      const address = String(values.address || "").trim().toLowerCase();
+      const username = String(values.username || "").trim();
+      const password = String(values.password || "");
+      const sameConnection = emailCredentials?.configured && address === emailCredentials.address && username === emailCredentials.username;
+      const settingsOnly = sameConnection && !password.trim();
+      if (!settingsOnly && !password.trim()) {
+        formError(form, emailCredentials?.configured ? "更换邮箱地址或登录账号时，请填写客户端专用密码" : "请填写邮箱客户端专用密码");
+        return true;
+      }
+      if (!settingsOnly && credentialsBlocked()) return true;
+      emailSettingsRevision++;
+      busy = true;
+      formError(form, "");
+      lockForm(form, true);
+      refresh();
+      try {
+        if (!valid(stamp)) return true;
+        const preferencesBody = {consent: values.consent === "true", process_all: values.process_all === "true"};
+        if (settingsOnly) {
+          const preferences = await api("/api/sources/email/preferences", preferencesBody, "POST");
+          if (!valid(stamp)) return true;
+          emailSettingsRevision++;
+          emailPreferences = preferences;
+          emailManualSelection = false;
+        } else {
+          const result = await api("/api/sources/email/credentials", {
+            address, username, password, ...preferencesBody,
+          }, "POST");
+          if (!valid(stamp)) return true;
+          const preferences = await api("/api/sources/email/preferences");
+          if (!valid(stamp)) return true;
+          if (emailCredentials?.address?.toLowerCase() !== result.address?.toLowerCase() || emailCredentials?.username !== result.username) {
+            clearEmailPointer(emailCredentials); clearEmailPointer(result); emailPageSize = 25;
+          }
+          emailSettingsRevision++;
+          emailCredentials = result;
+          emailPreferences = preferences;
+          emailManualSelection = false;
+          emailPreviewRequestId++; emailPreviewBusy = false; emailPreviewApplyRange = false; emailMessages = [];
+          emailMessageById = new Map(); emailLoadedIds = []; emailSnapshotId = null; emailCacheInfo = null; emailRecognitionUpdates = null; emailReprocessScope = null; emailExplicitRangeRead = false;
+          emailSelected = new Set();
+          emailPreviewed = false;
+          emailManualSelection = false;
+          emailLoadedRange = null;
+          emailPreviewOffset = 0; emailSnapshotId = null; emailCacheInfo = null; emailMessageById = new Map(); emailLoadedIds = []; emailExplicitRangeRead = false;
+        }
+        emailError = "";
+        modal = null;
+        emailSettingsState = "ready";
+        if (formIsOpen(form)) host.closeDialog();
+        host.toast(settingsOnly ? "邮箱设置已保存" : "北大邮箱已连接");
+      } catch (e) {
+        if (valid(stamp)) formError(form, describeImportError(e));
+      } finally {
+        if (valid(stamp)) {
+          busy = false;
+          lockForm(form, false);
+          refresh();
+        }
+      }
+      return true;
+    }
     if (kind === "review") {
       const item = itemById(form.dataset.candidate), reviewing = modal;
       if (reviewBlocked(item?.id)) return true;
@@ -1091,7 +1724,10 @@ export function createImportUI(host) {
           }
         }
       } finally {
-        if (valid(stamp)) { lockForm(form, false); refresh(); }
+        if (valid(stamp)) {
+          lockForm(form, false); refresh();
+          if (source === 'email' && emailPreviewed) void previewEmail(emailPreviewOffset, { autoSelectInitial: false, cacheOnly: true });
+        }
       }
       return true;
     }
@@ -1101,6 +1737,26 @@ export function createImportUI(host) {
     if (materials.input(event)) return true;
     if (schedule.input(event)) return true;
     const target = event.target;
+    if (target.dataset?.emailFilter !== undefined) {
+      if (!["all","attention","unprocessed","pending_review","has_tasks","no_tasks","failed","excluded"].includes(target.value)) return true;
+      emailFilter = target.value;
+      pageEmailLocally(0);
+      return true;
+    }
+    if (target.dataset?.emailMessage) {
+      emailManualSelection = true;
+      if (target.checked) emailSelected.add(target.dataset.emailMessage);
+      else emailSelected.delete(target.dataset.emailMessage);
+      emailError = "";
+      refresh();
+      return true;
+    }
+    if (target.dataset?.emailRangeLimit !== undefined) {
+      emailRange = target.value === "all" ? { limit: null, start_date: emailRange.start_date || "" } : { limit: 50, start_date: null }; refresh(); return true;
+    }
+    if (target.dataset?.emailUpdateUnknown !== undefined) { if (!emailStartBusy && emailReprocessScope) { emailUpdateUnknown = target.checked; emailReprocessOperationId = null; renderEmailReprocessConfirm(); } return true; }
+    if (target.dataset?.emailStartDate !== undefined) { emailRange = { ...emailRange, start_date: target.value || null }; return true; }
+    if (target.dataset?.emailLimit !== undefined) { const value = Number(target.value); if (Number.isInteger(value) && value > 0) emailRange = {limit:value,start_date:null}; return true; }
     if (target.id === "import-text") {
       text = target.value;
       return true;
@@ -1126,13 +1782,13 @@ export function createImportUI(host) {
     textJobs.setVisible(visible && source === "text");
   }
   function setSource(next) {
-    if (!["text", "teaching", "files"].includes(next)) return false;
+    if (!["text", "teaching", "email", "files"].includes(next)) return false;
     source = next;
     error = "";
     notice = "";
     return true;
   }
-  return { render, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
+  return { render, renderEmailSettings, loadEmailSettings, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
     taskReviewsReady: () => taskReviewsSettled,
     reviewEvidence: id => evidence(itemById(id)),
     getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: reviewBlocked,

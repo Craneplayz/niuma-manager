@@ -25,6 +25,10 @@ from ddl_text.extraction import OfflineDraftClient
 ROOT = Path(__file__).resolve().parent.parent
 REQUEST = json.loads((ROOT / 'contracts/source-to-text/text-frontend-v02-request.json').read_text(encoding='utf-8'))
 DRAFTS = json.loads((ROOT / 'ddl_text/tests/fixtures/text-frontend-v02-drafts.json').read_text(encoding='utf-8'))
+# Keep the exact-input offline replay aligned with the manual HTTP fixture below.
+for entry in DRAFTS:
+    if entry['record']['platform'] == 'email':
+        entry['record']['platform'] = 'manual'
 
 
 class RecognitionRuntimeTests(unittest.TestCase):
@@ -141,6 +145,11 @@ class RecognitionRuntimeTests(unittest.TestCase):
         self.root.start()
         self.addCleanup(self.root.stop)
         self.request = copy.deepcopy(REQUEST)
+        # These are transport/queue tests. Mailbox authorization is tested by
+        # test_email_import_*; supplied notification text uses manual provenance.
+        for record in self.request['records']:
+            if record['platform'] == 'email':
+                record['platform'] = 'manual'
         self.request['request_id'] = self.id()
         self.client = self.new_client(self.id())
 
@@ -196,7 +205,8 @@ class RecognitionRuntimeTests(unittest.TestCase):
                 policy=next(iter(policies.values()))
                 self.assertTrue(all(item==policy for item in policies.values()))
                 self.assertEqual(policy['execution'],dict(provider='qiniu',model=model,endpoint=endpoint,
-                    timeout_seconds=90.0,max_retries=0,deployment_revision=None))
+                    timeout_seconds=90.0,max_retries=0,deployment_revision=None,
+                    max_output_tokens=8192,truncation_retry_tokens=None))
                 self.assertEqual(policy['components'],recognition._POLICY_COMPONENTS)
                 self.assertNotIn(key,json.dumps(policy))
                 versions.append(policy['version'])
@@ -303,7 +313,9 @@ class RecognitionRuntimeTests(unittest.TestCase):
             settings = pipeline.call_args.args[2]
             self.assertEqual((settings.mode, settings.model, settings.timeout_seconds, settings.max_retries),
                              ('real', 'synthetic-file-model', 90, 0))
-            self.assertEqual(pipeline.call_args.kwargs, {'budget_seconds': 90, 'diagnostic_event': recognition.diagnostics.event})
+            self.assertEqual(pipeline.call_args.kwargs['budget_seconds'], 90)
+            self.assertTrue(callable(pipeline.call_args.kwargs['attempt_observer']))
+            self.assertEqual(pipeline.call_args.kwargs['diagnostic_event'], recognition.diagnostics.event)
             recognition.os.environ['QINIU_API_KEY'] = 'synthetic-env-key'
             self.request['request_id'] += ':environment'
             self.assertEqual(self.submit()[0], 200)
@@ -370,7 +382,7 @@ class RecognitionRuntimeTests(unittest.TestCase):
                 if count==20:twenty.set()
             self.assertTrue(release.wait(10))
             return self.empty_result(req)
-        def generate(*args):
+        def generate(*args, **kwargs):
             plan_started.set()
             return dict(estimates={'queue-plan':60},blocks=[dict(taskId='queue-plan',title='写报告',startAt=day+'T19:00:00+08:00',endAt=day+'T20:00:00+08:00')],warnings=[])
         with patch.dict(recognition.os.environ,QINIU_API_KEY='synthetic-key'), \

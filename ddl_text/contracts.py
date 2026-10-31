@@ -116,7 +116,7 @@ def validate_tasks(tasks, record):
         if record.get("contract_version") == "0.2":
             from .contract_v02 import validate_candidate
             for task in tasks:
-                require(isinstance(task, dict) and required == task.keys())
+                require(isinstance(task, dict) and required == task.keys() - ({"content_type"} if record.get("platform") == "email" else set()))
                 require(task["candidate_id"] not in seen)
                 seen.add(task["candidate_id"])
                 validate_candidate(task, record)

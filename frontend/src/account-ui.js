@@ -40,6 +40,9 @@ export function createAccountUI(host) {
     avatarImage = null;
     selecting = false;
   }
+  const accountPanelOpen = () =>
+    !host.isDialogOpen || host.isDialogOpen("[data-account-settings-panel]");
+  const focusEmailSection = () => host.focusAccountSection?.("pku-email");
   function reset() {
     clearAvatarDraft();
     if (!registering) clearVerification();
@@ -67,7 +70,7 @@ export function createAccountUI(host) {
   }
   function render() {
     if (mode === "summary" && session.user)
-      return `${header("账号")}<div class="account-summary"><button type="button" class="avatar account-avatar" data-account-action="avatar" aria-label="更改头像" ${busy ? "disabled" : ""}>${avatarContent(session.user, esc)}<span class="account-avatar-overlay" aria-hidden="true">更改头像</span></button><div class="account-summary-copy"><h3>${esc(session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p><p class="status-note">${session.user.emailVerified ? "邮箱已验证" : '邮箱未验证，现有功能可正常使用。<button type="button" class="btn quiet" data-account-action="verify-email">验证邮箱</button>'}</p></div></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${teachingAccount()}${host.accountTools?.render(busy) || ""}${host.feedbackBox?.() || ""}${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div>`;
+      return `<div data-account-settings-panel>${header("账号")}<div class="account-summary"><button type="button" class="avatar account-avatar" data-account-action="avatar" aria-label="更改头像" ${busy ? "disabled" : ""}>${avatarContent(session.user, esc)}<span class="account-avatar-overlay" aria-hidden="true">更改头像</span></button><div class="account-summary-copy"><h3>${esc(session.user.name || "我的账号")}</h3><p class="status-note">${esc(session.user.email)}</p><p class="status-note">${session.user.emailVerified ? "邮箱已验证" : '邮箱未验证，现有功能可正常使用。<button type="button" class="btn quiet" data-account-action="verify-email">验证邮箱</button>'}</p></div></div><div class="account-actions"><button type="button" class="btn" data-account-action="profile" ${busy ? "disabled" : ""}>修改昵称</button><button type="button" class="btn" data-account-action="password" ${busy ? "disabled" : ""}>修改密码</button></div>${teachingAccount()}${host.renderEmailSettings?.() || ""}${host.accountTools?.render(busy) || ""}${host.feedbackBox?.() || ""}${errorMarkup()}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="logout" ${busy ? "disabled" : ""}>${busy ? "正在退出…" : "退出登录"}</button></div></div>`;
     if (mode === "avatar")
       return `<form data-account-form="avatar">${header("更改头像")}<div class="avatar-editor"><div class="avatar-editor-preview"><div class="avatar avatar-editor-current">${avatarContent(session.user, esc)}</div><canvas data-avatar-preview width="256" height="256" role="img" aria-label="头像裁切预览" hidden></canvas></div><button type="button" class="btn" data-account-action="avatar-choose">选择图片</button><input type="file" data-avatar-file accept="image/png,image/jpeg,image/webp" aria-label="选择头像图片" hidden><p class="status-note">支持 JPG、PNG、WebP，最大 5 MB</p><p class="status-note" data-avatar-selection-status role="status" hidden></p></div><div class="avatar-crop-controls" data-avatar-controls hidden><label>缩放<input type="range" name="zoom" min="1" max="3" step="0.01" value="1"></label><label>水平位置<input type="range" name="x" min="-100" max="100" value="0"></label><label>垂直位置<input type="range" name="y" min="-100" max="100" value="0"></label></div>${errorMarkup()}<div class="avatar-editor-actions">${session.user?.avatar ? '<button type="button" class="btn quiet" data-account-action="avatar-reset">恢复默认头像</button>' : ""}<div class="dialog-actions"><button type="button" class="btn quiet" data-account-action="avatar-cancel">取消</button><button type="submit" class="btn primary" disabled>保存头像</button></div></div></form>`;
     if (mode === "verify-email")
@@ -89,6 +92,29 @@ export function createAccountUI(host) {
     mode = nextMode;
     error = "";
     host.openDialog(render());
+  }
+  async function open(section) {
+    mode = session.user ? "summary" : "login";
+    error = "";
+    const attempt = ++operation;
+    const epoch = accountVersion();
+    const pending = mode === "summary" ? Promise.resolve(host.loadEmailSettings?.()) : null;
+    host.openDialog(render());
+    if (section === "pku-email" && mode === "summary") focusEmailSection();
+    if (pending) await pending;
+    if (
+      attempt === operation && epoch === accountVersion() &&
+      mode === "summary" && session.user && accountPanelOpen()
+    ) {
+      host.openDialog(render());
+      if (section === "pku-email") focusEmailSection();
+    }
+  }
+  function refresh(section) {
+    if (mode !== "summary" || !session.user || !accountPanelOpen()) return false;
+    host.openDialog(render());
+    if (section === "pku-email") focusEmailSection();
+    return true;
   }
   function formError(form, message) {
     error = message;
@@ -230,7 +256,7 @@ export function createAccountUI(host) {
       return true;
     }
     if (action === "open") {
-      show(session.user ? "summary" : "login");
+      await open();
       return true;
     }
     if (action === "avatar-choose") {
@@ -483,5 +509,5 @@ export function createAccountUI(host) {
       busy = false;
     }
   }
-  return { click, submit, input, change, closed };
+  return { click, submit, input, change, closed, open, refresh };
 }

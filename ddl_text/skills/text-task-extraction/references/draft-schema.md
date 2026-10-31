@@ -57,3 +57,7 @@ unresolved 和 urgency 的 value=null、precision=unknown、anchor=null。日期
 missing_year 仍如实填写补年类别与基准，不伪装成 absolute。正常补年不写核实原因：校验通过的 deadline 按 explicit 输出；reference 仍需核实。缺基准、冲突和其他疑点照常保留。
 
 日期与时刻分隔、中文数字、其他语言或标点形式不限制归一化；模型根据语义判断，程序只验证标准值、日历、基准、时区和逐字引文。结构通过不等于语义一定正确。
+
+## 邮箱内容类型扩展
+
+v0.2 邮箱输入的每个草稿增加必填 `content_type: task | notice`，定义复用 [共享分类](../../content-types.md)。生成 Schema 强制提供；编译器仅为旧回放允许省略并默认 task。输出候选保留此字段；非邮箱旧协议不变。通用 evidence 支持条目事实，通知不需要编造动作。

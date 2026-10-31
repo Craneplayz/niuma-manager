@@ -1,5 +1,10 @@
 const paths = {
   sidebar: "M4 4h16v16H4zM9 4v16M6 8h.1M6 12h.1",
+  inbox: "M4 4h16l2 12v4H2v-4L4 4zM2 14h6l2 3h4l2-3h6",
+  mail: "M3 5h18v14H3zM3 6l9 7 9-7",
+  stop: "M6 6h12v12H6z",
+  minus: "M5 12h14",
+  excluded: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M6 6l12 12",
   filter: "M4 6h16M7 12h10M10 18h4",
   trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",
   tasks: "M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1",
@@ -7,12 +12,22 @@ const paths = {
   plus: "M12 5v14M5 12h14",
   search: "M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14M15 15l6 6",
   clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 7v5l3 2",
+  scan: "M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5M7 12h10M7 8h6M7 16h6",
+  retry: "M4 4v6h6M4 10a8 8 0 1 1 1 8",
+  refresh: "M3 12a9 9 0 0 1 15.36-6.36L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.36 6.36L3 16M8 16H3v5",
+  warning: "M12 3L2 21h20L12 3zM12 9v5M12 17h.01",
   info: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M12 11v6M12 7h.01",
   check: "M5 12l4 4L19 6",
+  arrowLeft: "M19 12H5M12 5l-7 7 7 7",
+  arrowRight: "M5 12h14M12 5l7 7-7 7",
   chevron: "M9 5l7 7-7 7",
   close: "M6 6l12 12M6 18L18 6",
+  sortAttention: "M5 21V3h14l-3 5 3 5H5M10 5.5v3M10 10.5h.01",
+  sortNewest: "M14.5 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0zM8.5 8.5V12l2.5 1.5M20 5v14M17 16l3 3 3-3",
+  sortOldest: "M14.5 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0zM8.5 8.5V12l2.5 1.5M20 19V5M17 8l3-3 3 3",
+  edit: "M15 5l4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z",
   cow: "M3 4l5 5h8l5-5M5 11v7l7 4 7-4v-7M9 14h.1M15 14h.1",
 };
 
 export const icon = (name, cls = "") =>
-  `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.tasks}"/></svg>`;
+  `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${name === "warningFilled" ? `<path d="M12 3L2 21h20L12 3z" fill="currentColor"/><path d="M12 9v5M12 17h.01" stroke="#fff" stroke-width="2.2"/>` : `<path d="${paths[name] || paths.tasks}"/>`}</svg>`;

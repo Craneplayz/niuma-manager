@@ -170,8 +170,13 @@ class OperationsTests(unittest.TestCase):
             client=ops.observe_chat(ChatClient('SYNTHETIC-KEY'))
         self.assertIs(type(client),ChatClient)
         restored=pickle.loads(pickle.dumps(client))
-        with patch.object(ChatClient,'complete_json',return_value='{"tasks":[]}'):
+        def complete(client, instructions, payload, settings, event):
+            event['result_code'] = 'ok'
+            client.response_metrics = dict(total_tokens=123,finish_reason='stop')
+            return '{"tasks":[]}'
+        with patch.object(ChatClient,'_complete_json',autospec=True,side_effect=complete):
             self.assertEqual(restored.complete_json('SYNTHETIC-PROMPT','{}',None),'{"tasks":[]}')
+        self.assertEqual(restored.response_metrics['total_tokens'],123)
         row=next(r for r in self.events() if r['stage']=='model_call')
         self.assertEqual(row['request_id'],'c'*32)
         self.assertEqual(row['run_id'],'d'*32)

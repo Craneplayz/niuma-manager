@@ -17,6 +17,7 @@ import recognition
 import text_jobs
 import planning
 import source_sync
+import email_import
 import source_jobs
 import submission_runtime
 import public_sources
@@ -94,6 +95,7 @@ def initialize(recover=True):
         usage.initialize(db)
         error_reports.initialize(db)
         source_sync.initialize(db)
+        email_import.initialize(db, recover=recover)
         source_jobs.initialize(db, recover=recover)
         source_schedule.initialize(db)
         public_sources.initialize(db,recover=recover)
@@ -103,6 +105,7 @@ def initialize(recover=True):
         if manual_materials.enabled():
             manual_materials.initialize(db,recover=recover and not wechat_enabled())
         task_decomposition.initialize(db)
+    email_import.finish_initialization(DB, recover=recover)
     if recover and wechat_enabled() and runtime_environment.allow_background_recovery():
         wechat_media.resume(DB)
 
@@ -178,6 +181,12 @@ class Handler(BaseHTTPRequestHandler):
         context=operations.captured()
         if context:self.send_header('X-Request-ID',context['request_id'])
         self.send_header('Content-Length',str(len(data)))
+        if getattr(self, 'retry_after', None) is not None:
+            self.send_header('Retry-After', str(self.retry_after))
+            self.retry_after = None
+        if self.command == 'GET' and self.path.startswith('/api/sources/email/jobs'):
+            email_import.email_telemetry.observe_status(
+                (time.monotonic() - getattr(self, 'usage_started', time.monotonic())) * 1000, len(data))
         if cookie: self.send_header('Set-Cookie',cookie)
         if getattr(self, 'retry_after', None): self.send_header('Retry-After', str(self.retry_after))
         self.end_headers()
@@ -387,11 +396,13 @@ class Handler(BaseHTTPRequestHandler):
             if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
             if source_schedule.route(self,db,uid,path,body,ApiError): return
             if public_sources.route(self,db,uid,path,body,ApiError,DB): return
+            with email_import.admission_context(path,self.command,DB):
+                if email_import.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key',DB): return
             if source_sync.route(self,db,uid,path,body,ApiError,DB.parent / 'credential.key'): return
             if submission_runtime.route(self,db,uid,path,body,ApiError): return
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if text_jobs.route(self,db,uid,path,body,ApiError,DB): return
-            if recognition.route(self,db,uid,path,body,ApiError): return
+            if recognition.route(self,db,uid,path,body,ApiError,email_import.recognition_guard): return
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
@@ -458,7 +469,7 @@ class Handler(BaseHTTPRequestHandler):
                 value=body.get('value')
                 if not isinstance(value,dict if name in ['availability','focus','preferences'] else list): raise ApiError(400,'数据格式不正确')
                 if name=='preferences' and (set(value)!=set(['askCompletionMinutes']) or type(value['askCompletionMinutes'])!=bool): raise ApiError(400,'个性化设置格式不正确')
-                if name=='sources' and (len(value)>1 or any(source!='teaching_web' for source in value)): raise ApiError(400,'来源选择不正确')
+                if name=='sources' and (len(value)>2 or any(not isinstance(source,str) or source not in ['teaching_web','email'] for source in value) or len(value)!=len(set(value))): raise ApiError(400,'来源选择不正确')
                 if name=='courses':
                     from urllib.parse import urlsplit
                     ids,names=set(),set()
@@ -613,6 +624,9 @@ class Handler(BaseHTTPRequestHandler):
             if e.retry_after is not None: value['retryAfter']=e.retry_after
             self.reply(e.status, value)
         except ApiError as e:
+            retry_after = getattr(e, 'retry_after', None)
+            if type(retry_after) in (int, float) and 0 < retry_after <= 300:
+                self.retry_after = max(1, int(retry_after))
             self.ops_code=operations.classify(e)
             if getattr(e,'_recognition_failure',None):
                 value = dict(self.recognition_failure(e))

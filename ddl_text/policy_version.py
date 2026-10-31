@@ -16,6 +16,7 @@ COMPONENTS = (
     'policy_version.py', 'config.py', 'adapters.py', 'pipeline.py', 'runner.py', 'diagnostics.py',
     'provider.py', 'chat_client.py', 'codex_client.py', 'extraction.py',
     'classification.py', 'dates.py', 'time_validation.py', 'contracts.py',
+    'content_types.py', 'skills/content-types.md', 'model_usage.py',
     'contract_v02.py', 'draft_schema.py', 'draft_recovery.py', 'evidence_spans.py',
     '../contracts/recognition_errors.py', '../contracts/recognition-errors.json',
     'skills/text-task-extraction/SKILL.md',
@@ -79,6 +80,9 @@ def text_policy_manifest(settings: Settings, *, provider: str, contract_version=
                        timeout_seconds=float(settings.timeout_seconds), max_retries=settings.max_retries,
                        deployment_revision=_label(deployment_revision) if deployment_revision is not None else None),
         runtime=dict(python=platform.python_version(), system=platform.system(), tzdata=timezone_version))
+    if provider == 'qiniu':
+        manifest['execution'].update(max_output_tokens=settings.max_output_tokens,
+                                     truncation_retry_tokens=settings.truncation_retry_tokens)
     if settings.thinking_mode is not None:
         manifest['execution']['thinking_mode'] = settings.thinking_mode
     digest = hashlib.sha256(_canonical(manifest)).hexdigest()

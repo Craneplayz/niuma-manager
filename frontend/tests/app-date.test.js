@@ -128,7 +128,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
   await import(`../src/app.js?date-test=${instanceId}`);
   await ready;
   await new Promise(setImmediate);
-  const click = dataset => doc.emit("click", { closest: () => ({ dataset }) });
+  const click = dataset => doc.emit("click", { closest: selector => selector === "[data-email-stop-toggle]" ? null : ({ dataset }) });
   const drag = async (date = "2026-10-20", id = "undated") => {
     const source = new Element();
     source.dataset.calendarDragTask = id;
@@ -141,7 +141,7 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
     await doc.emit("pointerdown", source, pointer);
     await doc.emit("pointermove", source, { ...pointer, clientX: 100 });
     await doc.emit("pointerup", source, { ...pointer, clientX: 100 });
-    await doc.emit("click", { closest: () => ({ dataset: { taskOpen: id } }) }, { detail: 1 });
+    await doc.emit("click", { closest: selector => selector === "[data-email-stop-toggle]" ? null : ({ dataset: { taskOpen: id } }) }, { detail: 1 });
     await (await import('../src/team-store.js')).flushStore().catch(() => {});
     await new Promise(setImmediate);
   };

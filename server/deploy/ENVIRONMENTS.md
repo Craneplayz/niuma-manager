@@ -12,9 +12,12 @@
 
 配置在 `server/deploy/environments/<环境>/config.json`，模型配置在同目录 `.env.model`，二者均不入 Git / 镜像；开发和测试不继承仓库根 `.env` 或终端遗留的模型、Compose 配置。
 
+模型配置沿用本地识别器的字面量格式，不展开 `$变量`、反斜杠或行内注释；注释单独成行。容器入口自动生成同目录私有 `.env.model.compose`、`.env.mail.compose` 和 `.env.compose`，文件只保存变量引用，实际配置通过受控的 Compose 子进程环境传递，以保留特殊字符；不要手工编辑或提交它们。[Compose 变量展开规则](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)
+
+一次容器启动使用同一次读取并校验的模型配置，避免生成文件与子进程环境使用不同版本；缺少 `.env.model` 时拒绝继续，即使该环境原本打算使用空的模型配置，也应保留一个空文件。
+
 邮箱验证码配置使用同目录独立 `.env.mail`，初始化只补充缺失模板，未配置不阻断已有账号登录；新注册和补验证需先完成 [阿里云发信配置](EMAIL.md)。本地与容器均只读取当前环境邮件配置，Compose 入口生成私有 `.env.mail.compose`；邮件凭据不得放入模型文件或前端变量。Compose 需 2.24 或更新版本。
 
-模型配置沿用本地识别器的字面量格式，不展开 `$变量`、反斜杠或行内注释；注释单独成行。容器入口自动生成同目录私有 `.env.model.compose` 和 `.env.compose`，不要手工编辑或提交它们。[Compose 变量展开规则](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)
 
 本地数据在 `server/data/<环境>/`，容器数据在独立卷的 `/data`，包括 SQLite、凭据加密密钥、附件及作业记录；不得跨环境共享或复制生产数据来初始化测试。
 
@@ -160,8 +163,11 @@ python server/manage_environment.py accept test --evidence "验收链接或合�
 
 教学网定时同步使用各环境私有 `config.json` 的 `scheduled_sync` 布尔开关，省略时兼容为 false；统一入口将其注入 `NIUMA_ENABLE_SCHEDULED_SYNC`，不会继承其他环境终端的值。三个环境均默认关闭，开发 / 测试只在独立合成账号验收时显式设为 true 并重启。`/api/version` 的 `scheduled_sync_available` 表示环境是否开放该能力，账号还须在来源设置中选定来源、间隔并同意启用。`background_recovery` 不能替代此开关。定时运行与手动同步共用队列、数据库和状态保护，详见 [接口约定](../../contracts/docs/source-sync-v0.1.md)。
 
+邮件导入使用各环境私有 `config.json` 的可选 `email_concurrency` 整数，旧配置省略时默认为 `2`，允许 `1` 至 `4`；统一入口按 profile 注入 `NIUMA_EMAIL_CONCURRENCY` 到本机和 Compose API，不继承 shell 值。邮件作业队列最多 8 个 worker，模型队列跨所有识别入口共用上限 20。作业排队、模型排队、生成、校验和整段识别耗时是可能重叠的观测维度，不能直接相加。邮件缓存、停止、撤销连接和 90 天聚合诊断规则见[邮件导入约定](../../contracts/docs/email-import.md)。
+
 Compose 配置、镜像启动、服务器挂载和真实业务联调须由对应环境分别验收，不能由本地回归结果推定生产已隔离。[Compose 项目与环境变量规则](https://docs.docker.com/compose/how-tos/project-name/)
 
+邮件服务并发、队列及模型配额配置见 [邮件容量说明](../docs/email-capacity.md)。并发设置属于环境配置，旧配置自动使用默认值；模型实际配额需单独核实。
 ## 清空测试数据
 
 用统一入口 `local development`、`local test` 或 `up development/test` 启动后，在已登录账号面板点击「清空测试数据」并确认；只清空当前账号，保留登录资料、邮箱验证、头像和教学网连接，可重新导入相同内容。定时同步关闭，需要时重新开启；其他会话失效，旧窗口须刷新。
