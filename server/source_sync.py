@@ -12,6 +12,7 @@ from pathlib import Path
 from text_contract import validate_request
 from recognition import has_unapplied_auto_tasks
 import teaching
+import email_identity
 import teaching_assets
 import email_source
 import email_header_cache
@@ -47,6 +48,7 @@ def initialize(db):
     teaching.initialize(db)
     db.execute('CREATE TABLE IF NOT EXISTS source_credentials(user_id TEXT PRIMARY KEY, username TEXT NOT NULL, secret BLOB NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS email_source_credentials(user_id TEXT PRIMARY KEY, address TEXT NOT NULL, username TEXT NOT NULL, secret BLOB NOT NULL)')
+    email_identity.initialize(db)
     db.execute('''CREATE TABLE IF NOT EXISTS source_versions(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
         digest TEXT NOT NULL, request TEXT NOT NULL,
@@ -133,9 +135,12 @@ def route(handler, db, uid, path, body, ApiError, key_path):
             raise ApiError(400, '请填写邮箱客户端专用密码')
         encrypted = cipher(key_path, ApiError, create=True).encrypt(password.encode())
         username = username.strip()
+        if not db.in_transaction:
+            db.execute('BEGIN IMMEDIATE')
         previous = db.execute('SELECT address,username FROM email_source_credentials WHERE user_id=?',(uid,)).fetchone()
         if previous and (previous['address'] != address or previous['username'] != username):
             email_header_cache.delete_mailbox(db, uid)
+        email_identity.remember(db, uid, address, username)
         db.execute('INSERT INTO email_source_credentials VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET address=excluded.address,username=excluded.username,secret=excluded.secret',
                    (uid, address, username, encrypted))
         if db.execute("SELECT 1 FROM sqlite_master WHERE name='email_import_body_snapshots'").fetchone():
@@ -172,7 +177,7 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         except (InvalidToken, UnicodeDecodeError):
             raise ApiError(503, '无法解密邮箱凭据；请重新保存')
         try:
-            result = email_source.preview(row['address'], row['username'], password)
+            result = email_source.preview(row['address'], row['username'], password, identity_namespace=email_identity.namespace(db,uid))
         except email_source.EmailSourceError as error:
             raise ApiError(error.status, error.message)
         current = db.execute('SELECT address,username,secret FROM email_source_credentials WHERE user_id=?', (uid,)).fetchone()

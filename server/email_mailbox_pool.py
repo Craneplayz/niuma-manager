@@ -6,6 +6,10 @@ import time
 from contextlib import contextmanager
 
 
+class BodyCapacityTimeout(TimeoutError):
+    """Only local body-buffer admission failed; no provider call was made."""
+
+
 def _setting(name, default, minimum, maximum):
     try:
         value = int(os.environ.get(name, default))
@@ -106,14 +110,14 @@ def mailbox(address, cancel_check=None):
 
 
 @contextmanager
-def body_slot(max_bytes, cancel_check=None, *, count=1):
+def body_slot(max_bytes, cancel_check=None, *, count=1, timeout=None):
     """Reserve body count and literal bytes through consumption; object overhead is extra."""
     global _reserved_body_bytes, _active_body_buffers, _waiting_body_buffers, _active_body_bodies
     if type(max_bytes) is not int or max_bytes < 1 or max_bytes > BODY_BYTES:
         raise ValueError('invalid body reservation')
     if type(count) is not int or count < 1 or count > BODY_PREFETCH:
         raise ValueError('invalid body count reservation')
-    deadline = time.monotonic() + WAIT_SECONDS
+    deadline = time.monotonic() + (WAIT_SECONDS if timeout is None else timeout)
     with _state:
         _waiting_body_buffers += 1
     reserved = False
@@ -124,7 +128,7 @@ def body_slot(max_bytes, cancel_check=None, *, count=1):
                 _cancel(cancel_check)
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError('body capacity wait expired')
+                    raise BodyCapacityTimeout('body capacity wait expired')
                 _state.wait(min(0.1, remaining))
             _cancel(cancel_check)
             _reserved_body_bytes += max_bytes

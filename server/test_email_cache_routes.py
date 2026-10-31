@@ -103,6 +103,59 @@ class EmailCacheRouteTests(acceptance.EmailHTTPTestCase):
             status,restored=self.call('/sources/email/preview',dict(limit=61,load_all=True,cache_only=True,snapshot_id=full['cache']['snapshot_id']))
         self.assertEqual(status,200,restored); self.assertEqual(restored['messages'],full['messages'])
         self.assertEqual(self.imap_calls,1); self.assertEqual(self.model.call_count,0)
+    def test_login_namespaces_survive_migration_password_changes_and_reconnects(self):
+        from email_source import _identity
+        address=acceptance.ADDRESS
+        old=[_identity(address,'77',uid) for uid in (60,61)]
+        initial=self.settled(self.start(old,'login-a')['job_id'])
+        self.assertEqual(initial['state'],'succeeded',initial)
+        self.call('/sources/email/exclusions',dict(input_ids=[old[1]],excluded=True))
+        # Upgrade an existing database without rewriting its IDs or evidence.
+        with app.connection() as db: db.execute('DROP TABLE email_source_identities')
+        app.initialize(recover=False)
+        def connect(login, password='Synthetic-password'):
+            status,_=self.call('/sources/email/credentials',dict(address=address,username=login,password=password,consent=True,process_all=False))
+            self.assertEqual(status,200)
+        def preview():
+            status,data=self.call('/sources/email/preview',dict(limit=2,page_size=25,refresh=True))
+            self.assertEqual(status,200)
+            return data['messages']
+        connect('different-login')
+        new=preview()
+        new_ids=[message['input_id'] for message in new]
+        self.assertTrue(set(old).isdisjoint(new_ids))
+        self.assertTrue(all(message['state']=='unprocessed' and not message['excluded'] for message in new))
+        self.assertEqual(self.call('/sources/email/jobs',dict(operation_id='reject-old-login',input_ids=old))[0],400)
+        # Range expansion and BODY.PEEK must use the same new namespace as headers.
+        status,job=self.call('/sources/email/jobs',dict(operation_id='login-b',range={'limit':2,'start_date':None}))
+        self.assertEqual(status,202)
+        final=self.settled(job['job_id'])
+        self.assertEqual(final['counts']['processed'],2,final)
+        self.assertEqual(final['counts']['cached'],0)
+        self.assertEqual({item['input_id'] for item in final['items']},set(new_ids))
+        self.assertEqual(self.model.call_count,4)
+        with patch.object(email_import,'current_policy_version',return_value='synthetic-rule'):
+            _,scoped=self.call('/sources/email/preview',dict(limit=2,page_size=25,cache_only=True))
+        self.assertEqual(scoped['recognition_updates']['unknown_count'],2,'range updates must use the current login namespace')
+        status,rerun=self.call('/sources/email/reprocess',dict(operation_id='login-b-reprocess',input_ids=[new_ids[0]],consent=True))
+        self.assertEqual(status,202)
+        self.assertEqual(self.settled(rerun['job_id'])['state'],'succeeded')
+        connect('different-login','Rotated-synthetic-password')
+        self.assertEqual([message['input_id'] for message in preview()],new_ids)
+        self.call('/sources/email/credentials/remove',{})
+        connect('different-login')
+        self.assertEqual([message['input_id'] for message in preview()],new_ids)
+        cached=self.settled(self.start(new_ids,'login-b-reconnected')['job_id'])
+        self.assertEqual(cached['counts']['cached'],2)
+        connect('synthetic')
+        restored={message['input_id']:message for message in preview()}
+        self.assertEqual(set(restored),set(old))
+        self.assertEqual(restored[old[0]]['state'],'no_tasks')
+        self.assertTrue(restored[old[1]]['excluded'])
+        self.assertEqual(self.model.call_count,5,'switching back must reuse the original cache')
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],5,'keep both logins historical evidence')
+
 
 if __name__ == '__main__':
     unittest.main()

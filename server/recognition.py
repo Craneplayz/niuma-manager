@@ -337,6 +337,8 @@ def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before
             try: email_guard(db,uid,request,phase)
             except ValueError: raise ApiError(403,'邮箱授权已撤销、邮件已排除或来源不属于当前邮箱') from None
     check_email('model')
+    if email_request:
+        raise ApiError(409,'邮件识别由后台任务处理，请通过邮箱导入记录重试')
     extraction_request=request
     if previous:
         completed={r['input_id'] for r in previous['record_results'] if r['status']!='failed'}

@@ -76,14 +76,14 @@ def _range_key(limit, start_date):
                        'start_date': start_date}, sort_keys=True, separators=(',', ':'))
 
 
-def _decode_row(source, address, validity, uid, metadata, raw_headers):
+def _decode_row(source, address, validity, uid, metadata, raw_headers, identity_namespace=None):
     from email.parser import BytesParser
     from email.policy import default
     received = source._received_at(metadata)
     headers = BytesParser(policy=default).parsebytes(raw_headers)
     sender = source._decode_header(headers.get('From', ''))[:300]
     subject = source._decode_header(headers.get('Subject', ''))[:300] or '(无主题)'
-    return {'input_id': source._identity(address, validity, uid), 'subject': subject,
+    return {'input_id': source._identity(address, validity, uid, identity_namespace), 'subject': subject,
             'sender': sender, 'received_at': received.isoformat() if received else None}
 
 
@@ -114,7 +114,7 @@ def _guarded_commit(db, guard, error_type):
 
 def preview(cache_path, user_id, address, limit=50, start_date=None, offset=0, page_size=50,
             *, refresh=False, cache_only=False, snapshot_id=None, password_loader=None,
-            guard=None, select_uids=None, load_all=False, _coalesced=False,
+            guard=None, select_uids=None, load_all=False, identity_namespace=None, _coalesced=False,
             _coalesced_result=False):
     """Read a cached page or sync its range. Credentials load only when IMAP is needed."""
     try:
@@ -153,7 +153,7 @@ def preview(cache_path, user_id, address, limit=50, start_date=None, offset=0, p
                 hit = db.execute('SELECT metadata,headers FROM email_cached_headers WHERE user_id=? AND address=? AND uidvalidity=? AND uid=?',
                                  (str(user_id), address, initial['uidvalidity'], uid)).fetchone()
                 if hit:
-                    records[uid] = _decode_row(source, address, initial['uidvalidity'], uid, hit['metadata'], hit['headers'])
+                    records[uid] = _decode_row(source, address, initial['uidvalidity'], uid, hit['metadata'], hit['headers'], identity_namespace)
             matched = len(selected) if select_uids else None
             if len(records) == len(page):
                 return _response(selected, records, offset, page_size, len(indexed), matched,
@@ -211,7 +211,7 @@ def preview(cache_path, user_id, address, limit=50, start_date=None, offset=0, p
             return preview(cache_path, user_id, address, limit, start_date, offset, page_size,
                 refresh=(refresh and not sync_succeeded), cache_only=cache_only, snapshot_id=snapshot_id,
                 password_loader=lambda: (username, password), guard=guard,
-                select_uids=select_uids, load_all=load_all, _coalesced=True,
+                select_uids=select_uids, load_all=load_all, identity_namespace=identity_namespace, _coalesced=True,
                 _coalesced_result=sync_succeeded)
         finally:
             _release_sync_lock(key, entry)
@@ -285,7 +285,7 @@ def preview(cache_path, user_id, address, limit=50, start_date=None, offset=0, p
             hit = db.execute('SELECT metadata,headers FROM email_cached_headers WHERE user_id=? AND address=? AND uidvalidity=? AND uid=?',
                              (str(user_id), address, validity, uid)).fetchone()
             if hit:
-                records[uid] = _decode_row(source, address, validity, uid, hit['metadata'], hit['headers'])
+                records[uid] = _decode_row(source, address, validity, uid, hit['metadata'], hit['headers'], identity_namespace)
     complete = len(records) == len(page)
     response_synced_at = snapshot_synced_at
     return _response(selected, records, offset, page_size, len(all_uids), matched_total, snap_id,
@@ -317,7 +317,7 @@ def clear(cache_path, user_id, address):
         delete_mailbox(db, user_id, address)
 
 
-def snapshot_inputs(db, user_id, address, range_spec, snapshot_id):
+def snapshot_inputs(db, user_id, address, range_spec, snapshot_id, *, identity_namespace=None):
     """Read the complete loaded range without IMAP or header hydration."""
     try:
         from . import email_source as source
@@ -336,4 +336,4 @@ def snapshot_inputs(db, user_id, address, range_spec, snapshot_id):
     row=_read_row(db,user_id,address,_range_key(limit,start))
     if row is None or row['snapshot_id']!=snapshot_id:
         raise source.EmailSourceError(409, '邮件列表已变化，请点击“获取邮件”后重试')
-    return [source._identity(address,row['uidvalidity'],uid) for uid in json.loads(row['uids'])]
+    return [source._identity(address,row['uidvalidity'],uid,identity_namespace) for uid in json.loads(row['uids'])]

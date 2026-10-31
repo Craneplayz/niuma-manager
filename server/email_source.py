@@ -239,9 +239,10 @@ def _received_at(metadata):
     return None
 
 
-def _identity(address, uidvalidity, uid):
+def _identity(address, uidvalidity, uid, namespace=None):
     import hashlib
-    mailbox_hash = hashlib.sha256(address.encode('utf-8')).hexdigest()[:20]
+    identity = address if namespace is None else address + '\0' + namespace
+    mailbox_hash = hashlib.sha256(identity.encode('utf-8')).hexdigest()[:20]
     return f'email:{mailbox_hash}:{uidvalidity}:{uid}'
 
 
@@ -255,11 +256,11 @@ def preview_cached(cache_path, user_id, address, limit=50, start_date=None, offs
                                       page_size, **options)
 
 
-def preview(address, username, password):
-    return preview_range(address, username, password, limit=MAX_PREVIEW, offset=0, page_size=MAX_PREVIEW)
+def preview(address, username, password, *, identity_namespace=None):
+    return preview_range(address, username, password, limit=MAX_PREVIEW, offset=0, page_size=MAX_PREVIEW, identity_namespace=identity_namespace)
 
 
-def list_input_ids(address, username, password, *, limit=50, start_date=None):
+def list_input_ids(address, username, password, *, limit=50, start_date=None, identity_namespace=None):
     address=normalize_address(address)
     if start_date is None and (type(limit) is not int or limit < 1):
         raise EmailSourceError(400,'邮件数量范围无效')
@@ -268,11 +269,11 @@ def list_input_ids(address, username, password, *, limit=50, start_date=None):
         uidvalidity=_select_inbox(client)
         uids=_search_uids(client,start_date)
         if start_date is None: uids=uids[:limit]
-        return [_identity(address,uidvalidity,uid) for uid in uids]
+        return [_identity(address,uidvalidity,uid,identity_namespace) for uid in uids]
 
 
 def preview_range(address, username, password, *, limit=50, start_date=None, offset=0, page_size=50,
-                  select_uids=None):
+                  select_uids=None, identity_namespace=None):
     address = normalize_address(address)
     _start_day(start_date)
     if start_date is None and (type(limit) is not int or limit < 1):
@@ -308,7 +309,7 @@ def preview_range(address, username, password, *, limit=50, start_date=None, off
             sender = _decode_header(headers.get('From', ''))[:300]
             subject = _decode_header(headers.get('Subject', ''))[:300] or '(无主题)'
             messages.append({
-                'input_id': _identity(address, uidvalidity, uid),
+                'input_id': _identity(address, uidvalidity, uid, identity_namespace),
                 'subject': subject,
                 'sender': sender,
                 'received_at': received.isoformat() if received else None,
@@ -522,11 +523,11 @@ def _fetch_text(client, uid, timings=None, guard=None, body_capacity_reserved=Fa
 
 
 def fetch_selected(address, username, password, input_ids, *, timings=None, guard=None,
-                   body_capacity_reserved=False, message_guard=None):
+                   body_capacity_reserved=False, message_guard=None, identity_namespace=None):
     address = normalize_address(address)
     if not isinstance(input_ids, list) or not 1 <= len(input_ids) <= MAX_SELECTED:
         raise EmailSourceError(400, f'每次请选择 1–{MAX_SELECTED} 封邮件')
-    account_prefix = _identity(address, 'x', 1).rsplit(':', 2)[0] + ':'
+    account_prefix = _identity(address, 'x', 1, identity_namespace).rsplit(':', 2)[0] + ':'
     selected = []
     seen = set()
     for value in input_ids:
@@ -546,7 +547,7 @@ def fetch_selected(address, username, password, input_ids, *, timings=None, guar
         for offset in range(0, len(selected), 5):
             batch_records, summary = fetch_selected(address, username, password,
                 [item[0] for item in selected[offset:offset + 5]], timings=timings, guard=guard,
-                body_capacity_reserved=body_capacity_reserved, message_guard=message_guard)
+                body_capacity_reserved=body_capacity_reserved, message_guard=message_guard, identity_namespace=identity_namespace)
             records.extend(batch_records)
             unavailable += summary['unavailable']
             truncated += summary['truncated']

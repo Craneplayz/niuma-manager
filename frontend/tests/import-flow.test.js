@@ -1478,3 +1478,25 @@ test('manual update postpone and cancel all use the durable review queue',async 
   assert.equal(ui.getReviewItems().length,0);assert.equal(f.calls.filter(call=>call.path==='/api/workspace').length,1);
  }
 });
+
+
+test('mail history retries use durable jobs with stable operation IDs and never call generic recognition',async t=>{
+ for(const kind of ['import','reprocess']){
+  let attempts=0;
+  const endpoint=kind==='import'?'/api/sources/email/jobs':'/api/sources/email/reprocess';
+  const id='email:history:'+kind;
+  const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},intercept:async(path,body,method)=>{if(path===endpoint&&method==='POST'&&++attempts===1)throw new Error('synthetic retryable connection failure');}});
+  const batch=f.batch();batch.request.request_id='email:'+kind+':history';batch.request.records[0].platform='email';batch.request.records[0].input_id=id;
+  batch.result={status:'failed',record_results:[{input_id:id,status:'failed'}],errors:[{code:'agent_timeout'}]};batch.items=[];
+  f.batches.A.splice(0,f.batches.A.length,batch);
+  await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});
+  await ui.click({dataset:{importHistoryRetry:batch.request.request_id}});
+  await ui.click({dataset:{importHistoryRetry:batch.request.request_id}});
+  const posts=f.calls.filter(call=>call.path===endpoint&&call.method==='POST');
+  assert.equal(posts.length,2);assert.deepEqual(posts[1].body.input_ids,[id]);assert.equal(posts[0].body.operation_id,posts[1].body.operation_id);
+  assert.equal(f.calls.some(call=>call.path==='/api/recognition/retry'),false);
+  await ui.click({dataset:{importHistoryRetry:batch.request.request_id}});
+  assert.equal(f.calls.filter(call=>call.path===endpoint&&call.method==='POST').length,2,'active job blocks duplicate history retries');
+  ui.reset();
+ }
+});

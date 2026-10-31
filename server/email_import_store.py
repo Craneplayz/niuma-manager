@@ -12,6 +12,7 @@ from contextlib import contextmanager, nullcontext
 
 import email_db_gate
 import email_scheduler
+import email_identity
 
 _recovered_paths = set()
 _recovery_watchers = set()
@@ -82,6 +83,7 @@ def _ensure_owner_watcher(db_path):
 
 
 def initialize(db, recover=True):
+    email_identity.initialize(db)
     db_path = database_path(db)
     if db_path:
         db_path = str(Path(db_path).resolve())

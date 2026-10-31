@@ -71,7 +71,7 @@ def route(handler,db,uid,path,body,ApiError,key_path,database):
             with email_telemetry.measure(database,uid,'headers'):
                 result=email_source.preview_cached(database,uid,cred['address'],limit=limit,start_date=start,offset=offset,page_size=page,
                     refresh=refresh,cache_only=cache_only,snapshot_id=snapshot_id,password_loader=load_password,
-                    guard=same_connection,select_uids=runtime._email_list_selection(db,uid,filter_name,sort_name),load_all=load_all)
+                    guard=same_connection,identity_namespace=runtime.email_identity.namespace(db,uid),select_uids=runtime._email_list_selection(db,uid,filter_name,sort_name),load_all=load_all)
         except email_source.EmailSourceError as error: raise ApiError(error.status,error.message)
         if not same_connection(db): raise ApiError(409,'邮箱凭据在预览期间发生变化，请重新预览')
         ids=[m['input_id'] for m in result['messages']]
@@ -132,7 +132,7 @@ def route(handler,db,uid,path,body,ApiError,key_path,database):
                 raise ApiError(409,'识别规则或邮件状态已变化，请刷新列表后重新确认')
             ids=outdated+(unknown if body.get('include_unknown',False) else [])
             if not ids: raise ApiError(409,'当前范围没有需要更新的识别结果')
-        prefix=email_source._identity(cred['address'],'x',1).rsplit(':',2)[0]+':'
+        prefix=email_source._identity(cred['address'],'x',1,runtime.email_identity.namespace(db,uid)).rsplit(':',2)[0]+':'
         if any(not re.fullmatch(re.escape(prefix)+r'\d+:\d+',x) for x in ids): raise ApiError(400,'邮件选择不属于当前邮箱')
         items=[]
         for input_id in ids:
@@ -187,7 +187,7 @@ def route(handler,db,uid,path,body,ApiError,key_path,database):
             items.append(dict(input_id=x,state='excluded' if excluded else ('has_tasks' if state=='has_tasks' else ('no_tasks' if state=='no_tasks' else ('failed' if state=='failed' else 'queued'))),task_count=count,request_id=request_id,error=error,cached=state in ('has_tasks','no_tasks')))
         credential=db.execute('SELECT address,username,secret FROM email_source_credentials WHERE user_id=?',(uid,)).fetchone()
         if ids:
-            prefix=email_source._identity(credential['address'],'x',1).rsplit(':',2)[0]+':'
+            prefix=email_source._identity(credential['address'],'x',1,runtime.email_identity.namespace(db,uid)).rsplit(':',2)[0]+':'
             if any(not re.fullmatch(re.escape(prefix)+r'\d+:\d+', x) for x in ids):
                 raise ApiError(400,'邮件选择不属于当前邮箱')
         job=dict(job_id=job_id,state='queued',mailbox=credential['address'],credential=runtime._credential_key(credential),queued_at=datetime.now().astimezone().isoformat(),selection_hash=signature,range_spec=range_spec,counts={'selected':len(items),'processed':sum(i['state'] in ('has_tasks','no_tasks') for i in items),'cached':sum(i.get('cached',False) for i in items),'excluded':sum(i['state']=='excluded' for i in items),'failed':sum(i['state']=='failed' for i in items),'pending':sum(i['state']=='queued' for i in items)},items=items,error=None,stop=False)

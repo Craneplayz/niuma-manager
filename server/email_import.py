@@ -26,6 +26,7 @@ import email_telemetry
 import email_scheduler
 import email_mailbox_pool
 import email_db_gate
+import email_identity
 from email_import_store import (
     initialize, finish_initialization, counts as _counts,
     save as _save, bump_list_revision as _bump_list_revision,
@@ -109,7 +110,7 @@ def _guard_job(db, uid, job_id, input_id=None):
     if not credential or job.get('credential') != _credential_key(credential):
         raise ValueError('mailbox connection changed')
     if input_id:
-        prefix = email_source._identity(credential['address'], 'x', 1).rsplit(':', 2)[0] + ':'
+        prefix = email_source._identity(credential['address'], 'x', 1, email_identity.namespace(db,uid)).rsplit(':', 2)[0] + ':'
         if not re.fullmatch(re.escape(prefix) + r'\d+:\d+', input_id):
             raise ValueError('invalid mailbox message identity')
         if db.execute('SELECT 1 FROM email_import_exclusions WHERE user_id=? AND input_id=? AND excluded=1',
@@ -201,7 +202,7 @@ def policy_cache_metadata(db, uid, input_ids, current=_POLICY_UNSET):
 
 def _recognition_updates(db, uid, range_spec, snapshot_id, current=_POLICY_UNSET):
     address=_email_address(db,uid)
-    ids=email_header_cache.snapshot_inputs(db,uid,address,range_spec,snapshot_id)
+    ids=email_header_cache.snapshot_inputs(db,uid,address,range_spec,snapshot_id,identity_namespace=email_identity.namespace(db,uid))
     if current is _POLICY_UNSET: current=current_policy_version()
     successful=[input_id for input_id in ids if _item_state(db,uid,input_id)[0] in ('has_tasks','no_tasks')]
     metadata=policy_cache_metadata(db,uid,successful,current=current)
@@ -263,12 +264,13 @@ EMAIL_LIST_SORTS={'attention','newest','oldest'}
 
 def _email_list_selection(db,uid,filter_name,sort_name):
     address=_email_address(db,uid)
+    namespace=email_identity.namespace(db,uid)
     def select(uidvalidity,uids):
-        input_ids=[email_source._identity(address,uidvalidity,x) for x in uids]
+        input_ids=[email_source._identity(address,uidvalidity,x,namespace) for x in uids]
         states=_message_states(db,uid,input_ids)
         eligible=[]
         for uid_value in uids:
-            input_id=email_source._identity(address,uidvalidity,uid_value)
+            input_id=email_source._identity(address,uidvalidity,uid_value,namespace)
             state=states[input_id]['state']; review=states[input_id]['pending_review_count']
             keep=(filter_name=='all' or
                 filter_name=='attention' and states[input_id]['needs_attention'] or
@@ -298,7 +300,7 @@ def recognition_guard(db, uid, request, phase):
         if record.get('platform') != 'email': continue
         row=db.execute('SELECT address FROM email_source_credentials WHERE user_id=?',(uid,)).fetchone()
         if not row: raise ValueError('邮箱凭据未配置')
-        prefix=email_source._identity(row['address'],'x',1).rsplit(':',2)[0]+':'
+        prefix=email_source._identity(row['address'],'x',1,email_identity.namespace(db,uid)).rsplit(':',2)[0]+':'
         input_id=record.get('input_id','')
         if not input_id.startswith(prefix): raise ValueError('邮件来源不属于当前邮箱')
         if db.execute('SELECT 1 FROM email_import_exclusions WHERE user_id=? AND input_id=? AND excluded=1',(uid,input_id)).fetchone():
@@ -322,7 +324,7 @@ def _public_job(job):
 
 def _public_job_summary(job):
     waiting = job.get('waiting_reason')
-    if waiting not in ('global_capacity', 'account_capacity', 'provider_backoff', 'provider_budget', 'model_capacity'):
+    if waiting not in ('global_capacity', 'account_capacity', 'provider_backoff', 'provider_budget', 'model_capacity', 'mailbox_capacity'):
         waiting = None
     return {'job_id': job['job_id'], 'state': job['state'], 'counts': job['counts'],
             'kind': job.get('kind', 'import'), 'revision': int(job.get('revision', 0)),
@@ -421,8 +423,13 @@ def _waiting_reason(path, uid, job_id, reason):
 def _recognize_item(path, uid, job_id, input_id, ApiError, key_path, prefetched_record=None):
     guard = lambda: _guard_path(path, uid, job_id, input_id)
     reservation = min(email_source.MAX_BODY_BYTES, email_mailbox_pool.BODY_BYTES)
-    with email_mailbox_pool.body_buffer(reservation, cancel_check=guard):
-        return _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, prefetched_record)
+    try:
+        with email_mailbox_pool.body_buffer(reservation, cancel_check=guard, timeout=0):
+            return _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, prefetched_record)
+    except email_mailbox_pool.BodyCapacityTimeout:
+        recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
+        return dict(input_id=input_id,state='queued',error=None,
+                    _wait_reason='mailbox_capacity',_wait_seconds=.5)
 
 
 def _prepare_bodies(path, uid, job_id, input_ids, ApiError, key_path):
@@ -432,6 +439,8 @@ def _prepare_bodies(path, uid, job_id, input_ids, ApiError, key_path):
     results. They allow capacity/backoff retries without repeating a mailbox read.
     """
     job, credential = _guard_path(path, uid, job_id)
+    with _connection(path) as db:
+        namespace=email_identity.namespace(db,uid)
     need_fetch = []
     for input_id in input_ids:
         try:
@@ -451,6 +460,8 @@ def _prepare_bodies(path, uid, job_id, input_ids, ApiError, key_path):
                 need_fetch.append(input_id)
     if not need_fetch:
         return input_ids
+    # Do not retain an unconsumed model ticket while acquiring source resources.
+    recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
     def job_guard():
         _guard_path(path, uid, job_id)
     def message_guard(input_id):
@@ -466,7 +477,7 @@ def _prepare_bodies(path, uid, job_id, input_ids, ApiError, key_path):
         try:
             records, _ = email_source.fetch_selected(credential['address'], credential['username'], password,
                 need_fetch, timings=timings, guard=job_guard, message_guard=message_guard,
-                body_capacity_reserved=True)
+                body_capacity_reserved=True, identity_namespace=namespace)
             fetched = bool(records)
         finally:
             parse_ms = timings.get('parse_ms', 0)
@@ -507,6 +518,7 @@ def _prepare_bodies(path, uid, job_id, input_ids, ApiError, key_path):
 def _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, prefetched_record=None):
     job, credential = _guard_path(path, uid, job_id, input_id)
     with _connection(path) as db:
+        namespace=email_identity.namespace(db,uid)
         state, _, count, request_id, error = _item_state(db, uid, input_id)
         if state in ('has_tasks', 'no_tasks') and job.get('kind')!='reprocess':
             return dict(input_id=input_id, state=state, task_count=count,
@@ -536,7 +548,7 @@ def _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, pr
         try:
             records, _ = email_source.fetch_selected(credential['address'], credential['username'],
                 password, [input_id], timings=timings,
-                guard=lambda: _guard_path(path, uid, job_id, input_id), body_capacity_reserved=True)
+                guard=lambda: _guard_path(path, uid, job_id, input_id), body_capacity_reserved=True, identity_namespace=namespace)
             fetched = bool(records)
         finally:
             parse_ms = timings.get('parse_ms', 0)
@@ -666,8 +678,10 @@ def _pending_ids(path, uid, job_id):
 
 def _expand_range(path, uid, job_id, credential, ApiError, key_path, range_spec):
     password = source_sync.cipher(key_path, ApiError).decrypt(credential['secret']).decode()
+    with _connection(path) as db:
+        namespace=email_identity.namespace(db,uid)
     with email_telemetry.measure(path, uid, 'headers'):
-        ids = email_source.list_input_ids(credential['address'], credential['username'], password, **range_spec)
+        ids = email_source.list_input_ids(credential['address'], credential['username'], password, identity_namespace=namespace, **range_spec)
     for offset in range(0, len(ids), 200):
         with _connection(path, write=True) as db:
             metadata, _ = _guard_job(db, uid, job_id)
@@ -700,11 +714,11 @@ def _run(path, uid, job_id, ApiError, key_path):
     retries = {}
     serial = 0
     blocked_until = 0
-    provider_blocked_until = 0
+    admission_blocked_until = 0
     exhausted = False
 
     def collect(future, input_id):
-        nonlocal serial, blocked_until, provider_blocked_until
+        nonlocal serial, blocked_until, admission_blocked_until
         try:
             item = future.result()
         except _Excluded:
@@ -728,16 +742,16 @@ def _run(path, uid, job_id, ApiError, key_path):
                 ready_at = time.monotonic()+seconds
                 serial += 1
                 heapq.heappush(delayed,(ready_at,serial,input_id))
-                if reason in ('provider_backoff','provider_budget','model_capacity'):
+                if reason in ('provider_backoff','provider_budget','model_capacity','mailbox_capacity'):
                     if reason != 'model_capacity':
-                        provider_blocked_until = max(provider_blocked_until, ready_at)
-                    if reason != 'model_capacity' or time.monotonic() < provider_blocked_until:
+                        admission_blocked_until = max(admission_blocked_until, ready_at)
+                    if reason != 'model_capacity' or time.monotonic() < admission_blocked_until:
                         # A still-inflight sibling can enqueue after the initial
-                        # cooldown cleanup. Clear its late ticket too; ordinary
-                        # capacity waits retain FIFO order outside provider cooldown.
+                        # resource cleanup. Clear its late ticket too; ordinary
+                        # model-capacity waits retain FIFO order when otherwise ready.
                         recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
-                    # Provider quota/cooldown and the shared model pool are
-                    # global constraints, not a per-message semantic failure.
+                    # Source capacity, provider cooldown and the shared model pool
+                    # are admission constraints, not per-message recognition failures.
                     # Stop prefetching more bodies while that admission is closed.
                     blocked_until = max(blocked_until,ready_at)
                 item['provider_retries'] = retries.get(input_id,0)
@@ -765,7 +779,7 @@ def _run(path, uid, job_id, ApiError, key_path):
                               email_mailbox_pool.BODY_BYTES//email_source.MAX_BODY_BYTES))
 
         def dispatch():
-            nonlocal exhausted, serial, blocked_until
+            nonlocal exhausted, serial, blocked_until, admission_blocked_until
             if time.monotonic() < blocked_until:
                 return
             while len(inflight) < concurrency:
@@ -793,6 +807,8 @@ def _run(path, uid, job_id, ApiError, key_path):
                             serial += 1
                             heapq.heappush(delayed,(ready_at,serial,retry_id))
                         blocked_until = max(blocked_until,ready_at)
+                        admission_blocked_until = max(admission_blocked_until,ready_at)
+                        recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
                         _waiting_reason(path,uid,job_id,'mailbox_capacity')
                         email_telemetry.record(path,uid,'dispatch_wait',
                             duration_ms=(time.monotonic()-capacity_wait_started)*1000,success=False)

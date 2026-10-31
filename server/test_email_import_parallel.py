@@ -419,5 +419,81 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
         self.assertEqual(final['state'],'stopped',final)
         self.assertEqual(self.model.call_count,1)
 
+    def test_failed_mail_cannot_be_recognized_by_generic_retry_during_background_work(self):
+        input_id=self.ids(1)[0]
+        def failed(request,error):
+            result=no_tasks(request,error)
+            result['status']=result['record_results'][0]['status']='failed'
+            result['errors']=[dict(input_id=input_id,code='agent_timeout',message='Synthetic timeout',retryable=True)]
+            return result
+        self.model.side_effect=failed
+        self.assertEqual(self.settled(self.start([input_id],'failed-for-retry')['job_id'])['state'],'failed')
+        with app.connection() as db:
+            request=json.loads(db.execute('SELECT request FROM recognition_batches').fetchone()[0])
+        entered=threading.Event();release=threading.Event()
+        def blocked(request,error):
+            entered.set();self.assertTrue(release.wait(5))
+            return no_tasks(request,error)
+        self.model.side_effect=blocked
+        job=self.start([input_id],'durable-retry')
+        try:
+            self.assertTrue(entered.wait(5))
+            calls=self.model.call_count
+            self.assertEqual(self.call('/recognition/retry',request)[0],409)
+            self.assertEqual(self.call('/sources/email/jobs',dict(operation_id='parallel-duplicate',input_ids=[input_id]))[0],409)
+            self.assertEqual(self.model.call_count,calls)
+        finally: release.set()
+        self.assertEqual(self.settled(job['job_id'])['state'],'succeeded')
+        # A read-only replay of a successful result remains harmless and cached.
+        self.assertEqual(self.call('/recognition/retry',request)[0],200)
+        self.assertEqual(self.model.call_count,calls)
+
+    def test_worker_body_capacity_defers_releases_tickets_and_resumes_without_refetch(self):
+        import email_mailbox_pool as pool
+        from server import model_queue
+        queue=model_queue.ModelQueue(limit=1)
+        self.assertTrue(queue.acquire())
+        waiting=threading.Event();released=threading.Event();reservations=[]
+        original_prepare=email_import._prepare_bodies
+        original_waiting=email_import._waiting_reason
+        dispatcher=email_scheduler.dispatcher();original_release=dispatcher._released
+        def prepare(path,uid,job_id,ids,*args,**kwargs):
+            ready=original_prepare(path,uid,job_id,ids,*args,**kwargs)
+            if waiting.is_set(): return ready
+            self.assertFalse(queue.acquire_background((str(app.DB.resolve()),str(uid),job_id,ids[0])))
+            slot=pool.body_buffer(pool.BODY_BYTES);slot.__enter__();reservations.append(slot)
+            return ready
+        def mark_waiting(path,uid,job_id,reason):
+            original_waiting(path,uid,job_id,reason)
+            if reason=='mailbox_capacity':waiting.set()
+        def release_unit(*args):
+            original_release(*args);released.set()
+        try:
+            with patch.object(email_import,'_prepare_bodies',side_effect=prepare), \
+                 patch.object(email_import,'_waiting_reason',side_effect=mark_waiting), \
+                 patch.object(dispatcher,'_released',side_effect=release_unit), \
+                 patch.object(recognition,'_ACTIVE',queue), \
+                 patch.object(email_source,'fetch_selected',wraps=email_source.fetch_selected) as fetch:
+                job=self.start(self.ids(1),'body-capacity-deferral')
+                self.assertTrue(waiting.wait(5));self.assertTrue(released.wait(5))
+                snapshot=self.call('/sources/email/jobs/'+job['job_id']+'?summary=1')[1]
+                self.assertEqual(snapshot['waiting_reason'],'mailbox_capacity')
+                self.assertEqual(snapshot['counts']['failed'],0)
+                self.assertEqual(snapshot['counts']['pending'],1)
+                self.assertEqual(self.model.call_count,0)
+                self.assertEqual(email_scheduler.stats()['running'],0)
+                queue.release()
+                self.assertEqual(queue.snapshot()['queued'],0)
+                self.assertTrue(queue.acquire(blocking=False),'resource wait retained a dormant FIFO head')
+                queue.release()
+                for slot in reservations:slot.__exit__(None,None,None)
+                reservations.clear()
+                final=self.settled(job['job_id'])
+                self.assertEqual(final['state'],'succeeded',final)
+                self.assertEqual(self.model.call_count,1)
+                self.assertEqual(fetch.call_count,1)
+        finally:
+            for slot in reservations:slot.__exit__(None,None,None)
+
 
 if __name__ == '__main__': unittest.main()

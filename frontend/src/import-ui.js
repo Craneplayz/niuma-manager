@@ -205,6 +205,7 @@ export function createImportUI(host) {
     emailPreferences = { consent_granted: false, process_all: false },
     emailStartBusy = false,
     emailStartOperationId = null,
+    emailStartSelectionKey = null,
     emailRetryOperationId = null,
     emailJobActionBusy = false,
     emailPollError = false,
@@ -400,7 +401,7 @@ export function createImportUI(host) {
     emailMessages = [];
     emailSelected = new Set();
     emailPreferences = { consent_granted: false, process_all: false };
-    emailStartBusy = false; emailStartOperationId = null; emailRetryOperationId = null; emailJobActionBusy = false; emailPollError = false;
+    emailStartBusy = false; emailStartOperationId = null; emailStartSelectionKey = null; emailRetryOperationId = null; emailJobActionBusy = false; emailPollError = false;
     emailPreviewRequestId++; emailPreviewOffset = 0; emailPageSize = 25; emailNextOffset = null; emailFilter = "all"; emailSort = "attention"; emailMatchedTotal = null; emailWholeRange = false; emailManualSelection = false; emailTotal = 0; emailRange = { limit: 50, start_date: null }; emailLoadedRange = null; emailJob = null;
     emailSnapshotId = null; emailCacheInfo = null; emailMessageById = new Map(); emailLoadedIds = []; emailReprocessConfirmIds = []; emailReprocessScope = null; emailRecognitionUpdates = null; emailUpdateUnknown = false; emailReprocessOperationId = null; emailReprocessError = "";
     clearTimeout(emailJobTimer); emailJobTimer = null;
@@ -1101,19 +1102,21 @@ export function createImportUI(host) {
     } catch (e) { if (currentRequest()) { emailPollError = true; emailError = describeImportError(e).message; refresh(); } }
     finally { emailJobPolling = false; }
   }
-  async function syncEmail() {
+  async function syncEmail(inputIds = null) {
     if (blocked() || emailStartBusy || ["queued","running"].includes(emailJob?.state) || !allowed()) return;
-    if (!emailWholeRangeSelected() && !emailSelected.size) return;
+    if (inputIds ? !inputIds.length : !emailWholeRangeSelected() && !emailSelected.size) return;
     if (!emailPreferences.consent_granted) { await openEmailSettings(); return; }
     const stamp = current(), requestId = ++emailJobRequestId;
     clearTimeout(emailJobTimer); emailJobTimer = null;
+    const selection = inputIds ? {input_ids: inputIds} : emailSelected.size && !emailWholeRangeSelected()
+      ? {input_ids: [...emailSelected]} : {range: emailLoadedRange || emailRange};
+    const key = JSON.stringify(selection);
+    if (key !== emailStartSelectionKey) { emailStartOperationId = null; emailStartSelectionKey = key; }
     if (!emailStartOperationId) emailStartOperationId = newId();
     const operation_id = emailStartOperationId;
     emailStartBusy = true; emailError = ""; refresh();
     try {
-      const requestBody = emailSelected.size && !emailWholeRangeSelected()
-        ? { operation_id, input_ids: [...emailSelected] }
-        : { operation_id, range: emailLoadedRange || emailRange };
+      const requestBody = {operation_id, ...selection};
       const job = await api("/api/sources/email/jobs", requestBody, "POST");
       if (!valid(stamp) || requestId !== emailJobRequestId) return;
       emailJob = job; emailPollError = false; emailStartOperationId = null; emailJobRevision = job.revision ?? null; emailJobDetailsRevision = job.revision ?? null;
@@ -1234,6 +1237,13 @@ export function createImportUI(host) {
   }
   async function retryBatch(batch) {
     if (blocked() || !allowed() || !batch || syncOwnsBatch(batch) || !["failed", "partial_success"].includes(batch.result?.status) || incomplete(batch)) return;
+    if (batch.request?.records?.some(record => record.platform === 'email')) {
+      const failed = new Set((batch.result.record_results || []).filter(item => item.status === 'failed').map(item => item.input_id));
+      const ids = batch.request.records.filter(record => failed.has(record.input_id)).map(record => record.input_id);
+      if (batch.request.request_id.startsWith('email:reprocess:')) await startEmailReprocess(ids, {confirm:false});
+      else await syncEmail(ids);
+      return;
+    }
     const stamp = current();
     busy = true;
     error = "";
