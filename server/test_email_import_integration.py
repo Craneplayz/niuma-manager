@@ -27,6 +27,21 @@ class MixedContentClient:
             for title,kind,quote in [('上课地点调整到理教408','notice','上课地点调整到理教408。'),
                                      ('回复参加确认','task','请回复确认是否参加。')]]},ensure_ascii=False)
 
+class DiagnosticClient:
+    """Pickleable synthetic provider for the real extraction worker."""
+    def __init__(self, mode): self.mode = mode
+    def generate(self, instructions, record_json, settings, attempt):
+        from ddl_text.adapters import AgentError
+        from ddl_text.tests.test_extraction import draft
+        if self.mode == 'timeout': raise AgentError('agent_timeout', True, 'model_timeout')
+        if self.mode == 'json': return 'PRIVATE_PROVIDER_SENTINEL'
+        if self.mode == 'schema': return '{"tasks":[{"title":"PRIVATE_PROVIDER_SENTINEL"}]}'
+        if self.mode == 'evidence':
+            record = json.loads(record_json)
+            return json.dumps({'tasks':[draft(record, content_type='task', relevance=dict(state='current',reason='synthetic',evidence=[]), evidence=[dict(input_id=record['input_id'], quote='PRIVATE_NOT_IN_SOURCE')])]})
+        return '{"tasks":[]}'
+
+
 class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
 
 
@@ -176,7 +191,7 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         from ddl_text.pipeline import process_request
         from ddl_text.config import Settings
         self.imap.body = '上课地点调整到理教408。请回复确认是否参加。'.encode()
-        self.model.side_effect = lambda request, _: process_request(request,ExtractionAdapter(MixedContentClient()),Settings())
+        self.model.side_effect = lambda request, _: process_request(request,ExtractionAdapter(MixedContentClient()),Settings(timeout_seconds=20))
         input_id = email_source._identity(ADDRESS,'77',61)
         job = self.settled(self.start([input_id],'mixed-types')['job_id'])
         self.assertEqual(job['state'],'succeeded',job)
@@ -211,6 +226,72 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         repeat=self.settled(self.start([input_id],'mixed-cached')['job_id'])
         self.assertEqual(repeat['counts']['cached'],1)
         self.assertEqual(self.model.call_count,before)
+
+    def test_background_failures_keep_shared_diagnostics_without_private_content(self):
+        import recognition
+        from server import model_queue
+        from server import recognition_diagnostics as diagnostics
+        from ddl_text.codex_client import ENV_KEYS
+        from ddl_text.config import email_model_settings
+        from dataclasses import replace
+        self.model_patch.stop()  # Use the real recognition path with only the provider faked.
+        self.imap.body = b'PRIVATE_BODY_SENTINEL'
+        uid = self.call('/auth/me')[1]['user']['id']
+        other = self.account('diagnostic-other')
+        options = dict(key='Synthetic-unused-key', provider='qiniu', model='synthetic', endpoint='https://synthetic.invalid')
+        for index, (mode, reason) in enumerate([
+                ('json', 'draft_json'), ('schema', 'draft_schema'), ('evidence', 'draft_evidence'),
+                ('timeout', 'model_timeout'), ('configuration', 'model_configuration'), ('rollback', 'save_failed')]):
+            with self.subTest(mode=mode):
+                input_id = email_source._identity(ADDRESS, '77', 20 + index)
+                if mode == 'rollback':
+                    with app.connection() as db:
+                        db.execute("CREATE TRIGGER reject_email_result BEFORE INSERT ON recognition_batches BEGIN SELECT RAISE(ABORT,'PRIVATE_DB_SENTINEL'); END")
+                configured = dict(options, key='' if mode == 'configuration' else options['key'])
+                with patch.dict(recognition.os.environ, {**dict.fromkeys(ENV_KEYS, ''), 'TEXT_HARNESS_URL':''}), \
+                     patch.object(recognition, '_ACTIVE', model_queue.ModelQueue(limit=2)), \
+                     patch.object(recognition, 'live_options', return_value=configured), \
+                     patch.object(recognition, 'make_client', return_value=DiagnosticClient(mode)), \
+                     patch.object(recognition, 'email_model_settings', side_effect=lambda value: replace(email_model_settings(value), timeout_seconds=20)):
+                    final = self.settled(self.start([input_id], 'diagnostic-' + mode)['job_id'], timeout=30)
+                failure = final['items'][0]['recognition_error']
+                self.assertEqual(final['state'], 'failed', final)
+                self.assertEqual(failure['failure']['reason'], reason, failure)
+                identity = failure['diagnostic_id']
+                self.assertRegex(identity, r'^[0-9a-f]{24}$')
+                with app.connection() as db:
+                    attempts = diagnostics.lookup(db, uid, identity)
+                    self.assertEqual(len(attempts), 1)
+                    self.assertTrue(attempts[0]['events'])
+                    self.assertEqual(diagnostics.lookup(db, 'other-user', identity), [])
+                    states = email_import._message_states(db, uid, [input_id])
+                    self.assertEqual(states[input_id]['recognition_error'], failure)
+                    batch = db.execute('SELECT attempt_id FROM recognition_batches WHERE user_id=? AND request_id=?',
+                                       (uid, email_import._request_id(input_id))).fetchone()
+                    if mode in ('configuration', 'rollback'):
+                        self.assertIsNone(batch)
+                    else:
+                        self.assertEqual(batch['attempt_id'], identity)
+                    if mode == 'rollback':
+                        self.assertEqual(db.execute('SELECT count(*) FROM recognition_candidates WHERE user_id=?', (uid,)).fetchone()[0], 0)
+                        self.assertIsNotNone(db.execute('SELECT 1 FROM email_import_body_snapshots WHERE user_id=? AND input_id=?', (uid,input_id)).fetchone())
+                        db.execute('DROP TRIGGER reject_email_result')
+                self.assertNotIn('PRIVATE_', json.dumps([failure, attempts, states]))
+                status, data = self.call('/recognition/diagnostics', dict(diagnostic_id=identity))
+                self.assertEqual(status, 200)
+                self.assertEqual(data['attempts'][0]['attempt_id'], identity)
+                self.assertEqual(self.call('/recognition/diagnostics', dict(diagnostic_id=identity), client=other)[1]['attempts'], [])
+                status, preview = self.call('/sources/email/preview', dict(limit=50, page_size=50))
+                self.assertEqual(status, 200)
+                message = next(row for row in preview['messages'] if row['input_id'] == input_id)
+                self.assertEqual(message['recognition_error'], failure)
+        # A successful retry replaces the failure state without carrying its receipt forward.
+        with patch.object(recognition, 'recognize', side_effect=no_tasks):
+            status, retry = self.call('/sources/email/jobs/' + final['job_id'] + '/retry', dict(operation_id='diagnostic-recovered'))
+            self.assertEqual(status, 202)
+            recovered = self.settled(retry['job_id'])
+        self.assertEqual(recovered['state'], 'succeeded', recovered)
+        self.assertIsNone(recovered['items'][0]['recognition_error'])
 
     def test_restart_marks_only_unfinished_work_and_reuses_completed_results(self):
         completed = email_source._identity(ADDRESS, '77', 61)

@@ -272,6 +272,102 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
             self.assertEqual(final['state'], 'succeeded', final)
             self.assertEqual(fetch.call_count, 1, 'backoff must not reread IMAP')
             self.assertEqual(calls, 2)
+            with app.connection() as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM recognition_attempt_diagnostics').fetchone()[0], 1,
+                                 'capacity/backoff deferral must not fill diagnostic history')
+
+    def test_late_sibling_ticket_is_cleared_during_provider_cooldown(self):
+        from server import model_queue
+        queue = model_queue.ModelQueue(limit=1)
+        self.assertTrue(queue.acquire())
+        initial_cleanup = threading.Event()
+        late_collected = threading.Event()
+        sibling_entered = threading.Event()
+        ids = self.ids(2)
+        original_cancel, original_update = queue.cancel_background, email_import._update_item
+        def cancel(prefix):
+            original_cancel(prefix)
+            initial_cleanup.set()
+        def update(path, uid, job_id, input_id, item, *args, **kwargs):
+            result = original_update(path, uid, job_id, input_id, item, *args, **kwargs)
+            if input_id == ids[1] and item['state'] == 'queued':
+                late_collected.set()
+            return result
+        def model(request, error):
+            if request['records'][0]['input_id'] == ids[0]:
+                self.assertTrue(sibling_entered.wait(5))
+                raise model_queue.EmailDeferred(10, 'provider_backoff')
+            sibling_entered.set()
+            self.assertTrue(initial_cleanup.wait(5), 'sibling must enter after cleanup')
+            self.assertFalse(queue.acquire_background(model_queue.background_identity()))
+            self.assertEqual(queue.snapshot()['queued'], 1, 'reproduce the late FIFO ticket')
+            raise model_queue.EmailDeferred(.25, 'model_capacity')
+        self.model.side_effect = model
+        with patch.object(recognition, '_ACTIVE', queue), patch.object(queue, 'cancel_background', side_effect=cancel), \
+             patch.object(email_import, '_update_item', side_effect=update):
+            job = self.start(ids, 'late-sibling-backoff')
+            try:
+                self.assertTrue(late_collected.wait(5))
+                queue.release()
+                self.assertEqual(queue.snapshot()['running'], 0)
+                self.assertEqual(queue.snapshot()['queued'], 0)
+                self.assertTrue(queue.acquire(blocking=False), 'foreground blocked by a sleeping job')
+                queue.release()
+            finally:
+                self.call('/sources/email/jobs/' + job['job_id'] + '/stop', {})
+                self.settled(job['job_id'])
+        self.assertEqual(self.model.call_count, 2)
+
+    def test_takeover_rejects_new_http_jobs_until_recovery_commits(self):
+        import email_import_store as store
+        from pathlib import Path
+        path = str(Path(app.DB).resolve())
+        uid = self.call('/auth/me')[1]['user']['id']
+        email_scheduler._forget_owner(path)
+        with app.connection() as db:
+            db.execute("UPDATE email_import_scheduler_owner SET host='previous-host',heartbeat=0")
+            store.insert_job(db, 'previous-user', 'old-job', 'old-op', 'running',
+                dict(state='running', items=[dict(input_id='old-mail', state='processing')]))
+        claimed, release, ready = threading.Event(), threading.Event(), threading.Event()
+        original_claim, original_ready = email_scheduler.claim_process_owner, email_scheduler.mark_ready
+        original_sleep = time.sleep
+        def claim(value):
+            result = original_claim(value)
+            claimed.set()
+            if not release.wait(5): raise AssertionError('takeover barrier timed out')
+            return result
+        def mark_ready(value):
+            original_ready(value)
+            ready.set()
+        def poll(seconds):
+            if threading.current_thread().name == 'synthetic-takeover': raise StopIteration
+            original_sleep(seconds)
+        def watch():
+            try: store._watch_process_owner(path)
+            except StopIteration: pass
+        with patch.object(email_scheduler, 'claim_process_owner', side_effect=claim), \
+             patch.object(email_scheduler, 'mark_ready', side_effect=mark_ready), \
+             patch.object(store.time, 'sleep', side_effect=poll):
+            thread = threading.Thread(target=watch, name='synthetic-takeover')
+            thread.start()
+            try:
+                self.assertTrue(claimed.wait(5))
+                self.assertTrue(email_scheduler.owns_process(path))
+                self.assertFalse(email_scheduler.ready_process(path))
+                status, _ = self.call('/sources/email/jobs', dict(operation_id='during-takeover', input_ids=self.ids(1)))
+                self.assertEqual(status, 503)
+                with app.connection() as db:
+                    self.assertEqual(db.execute('SELECT count(*) FROM email_import_jobs WHERE user_id=?', (uid,)).fetchone()[0], 0)
+                release.set()
+                self.assertTrue(ready.wait(5))
+            finally:
+                release.set()
+                thread.join(5)
+            self.assertFalse(thread.is_alive())
+        with app.connection() as db:
+            self.assertEqual(db.execute("SELECT state FROM email_import_jobs WHERE job_id='old-job'").fetchone()[0], 'interrupted')
+        final = self.settled(self.start(self.ids(1), 'after-takeover')['job_id'])
+        self.assertEqual(final['state'], 'succeeded', final)
 
     def test_repeated_provider_429_has_bounded_retries_without_imap_reread(self):
         from server import model_queue
@@ -309,15 +405,17 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
 
     def test_stop_during_backoff_prevents_later_model_call(self):
         from server import model_queue
-        self.model.side_effect = lambda *_args: (_ for _ in ()).throw(model_queue.EmailDeferred(1,'provider_backoff'))
-        job = self.start(self.ids(1),'stop-backoff')
-        deadline = time.monotonic()+3
-        while time.monotonic() < deadline:
-            if self.call('/sources/email/jobs/'+job['job_id'])[1].get('waiting_reason') == 'provider_backoff':
-                break
-            time.sleep(.005)
-        self.assertEqual(self.call('/sources/email/jobs/'+job['job_id']+'/stop',{})[0],200)
-        final = self.settled(job['job_id'])
+        backoff = threading.Event()
+        waiting_reason = email_import._waiting_reason
+        def waiting(path, uid, job_id, reason):
+            waiting_reason(path, uid, job_id, reason)
+            if reason == 'provider_backoff': backoff.set()
+        self.model.side_effect = lambda *_args: (_ for _ in ()).throw(model_queue.EmailDeferred(30,'provider_backoff'))
+        with patch.object(email_import, '_waiting_reason', side_effect=waiting):
+            job = self.start(self.ids(1),'stop-backoff')
+            self.assertTrue(backoff.wait(10), 'wait for the actual cooldown, not an elapsed polling deadline')
+            self.assertEqual(self.call('/sources/email/jobs/'+job['job_id']+'/stop',{})[0],200)
+            final = self.settled(job['job_id'])
         self.assertEqual(final['state'],'stopped',final)
         self.assertEqual(self.model.call_count,1)
 

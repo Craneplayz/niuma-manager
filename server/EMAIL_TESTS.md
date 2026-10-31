@@ -1,6 +1,6 @@
 # Email test index
 
-131 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. Account email-verification tests belong to authentication and are excluded. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
+134 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
 
 Related variants share subtests or one lifecycle fixture. Queue/lease races remain separate; retired popup actions are excluded.
 
@@ -76,16 +76,17 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 4. [Reject invalid filters before mailbox access.](test_email_list_filters.py#L98)
 5. [Chunk state queries below SQLite’s parameter limit.](test_email_list_filters.py#L108)
 
-### [test_email_import_integration.py](test_email_import_integration.py) — HTTP import lifecycle (8)
+### [test_email_import_integration.py](test_email_import_integration.py) — HTTP import lifecycle (9)
 
-1. [Handle encoded job IDs and isolate read/stop/retry operations.](test_email_import_integration.py#L33)
-2. [Preview, exclude, recognize and reuse a persistent no-task cache.](test_email_import_integration.py#L59)
-3. [Reuse legacy successful results without IMAP or model calls.](test_email_import_integration.py#L100)
-4. [Process over 50 messages; retry only failed items.](test_email_import_integration.py#L132)
-5. [Prevent operation-ID replay with a different selection.](test_email_import_integration.py#L163)
-6. [Review task/notice results, ignore/reopen a task, save both types and reuse their cache.](test_email_import_integration.py#L174)
-7. [Interrupt unfinished work on restart; reuse completed results.](test_email_import_integration.py#L215)
-8. [Bind queued ranges to credentials; disconnect revokes consent.](test_email_import_integration.py#L248)
+1. [Handle encoded job IDs and isolate read/stop/retry operations.](test_email_import_integration.py#L48)
+2. [Preview, exclude, recognize and reuse a persistent no-task cache.](test_email_import_integration.py#L74)
+3. [Reuse legacy successful results without IMAP or model calls.](test_email_import_integration.py#L115)
+4. [Process over 50 messages; retry only failed items.](test_email_import_integration.py#L147)
+5. [Prevent operation-ID replay with a different selection.](test_email_import_integration.py#L178)
+6. [Review task/notice results, ignore/reopen a task, save both types and reuse their cache.](test_email_import_integration.py#L189)
+7. [Keep exact, private-free diagnostics for malformed JSON/schema/evidence, timeout, configuration and save rollback; isolate owners.](test_email_import_integration.py#L230)
+8. [Interrupt unfinished work on restart; reuse completed results.](test_email_import_integration.py#L296)
+9. [Bind queued ranges to credentials; disconnect revokes consent.](test_email_import_integration.py#L329)
 
 ### [test_email_import_store.py](test_email_import_store.py) — Durable storage (3)
 
@@ -99,7 +100,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 2. [Resume after capacity becomes available without rereading bodies.](test_email_import_safety.py#L218)
 3. [Enforce consent and ownership through generic recognition endpoints.](test_email_import_safety.py#L239)
 
-### [test_email_import_parallel.py](test_email_import_parallel.py) — Concurrent import behavior (12)
+### [test_email_import_parallel.py](test_email_import_parallel.py) — Concurrent import behavior (14)
 
 1. [Handle out-of-order completion with correct progress counts.](test_email_import_parallel.py#L30)
 2. [Enforce eight concurrent email workers across accounts.](test_email_import_parallel.py#L59)
@@ -109,24 +110,26 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 6. [Allow explicit retry of failed items in a new job.](test_email_import_parallel.py#L185)
 7. [Persist in-flight successes when another dispatch submission fails.](test_email_import_parallel.py#L200)
 8. [Release capacity during provider backoff; reuse captured bodies.](test_email_import_parallel.py#L239)
-9. [Bound repeated HTTP 429 retries without rereading IMAP.](test_email_import_parallel.py#L276)
-10. [Never automatically replay an ambiguous timeout.](test_email_import_parallel.py#L285)
-11. [Keep sibling messages when one is excluded during preparation.](test_email_import_parallel.py#L291)
-12. [Prevent another model call after stopping during backoff.](test_email_import_parallel.py#L310)
+9. [Clear late sibling FIFO tickets created after provider cooldown cleanup.](test_email_import_parallel.py#L279)
+10. [Reject HTTP jobs during lease takeover; admit only after recovery commits.](test_email_import_parallel.py#L321)
+11. [Bound repeated HTTP 429 retries without rereading IMAP.](test_email_import_parallel.py#L372)
+12. [Never automatically replay an ambiguous timeout.](test_email_import_parallel.py#L381)
+13. [Keep sibling messages when one is excluded during preparation.](test_email_import_parallel.py#L387)
+14. [Prevent another model call after stopping during backoff.](test_email_import_parallel.py#L406)
 
 ### [test_email_scheduler.py](test_email_scheduler.py) — Fair scheduling and ownership (11)
 
-1. [Shutdown cancels all waiters without dispatching them.](test_email_scheduler.py#L18)
-2. [Shutdown cancels all waiters without dispatching them.](test_email_scheduler.py#L41)
-3. [Shutdown cancels all waiters without dispatching them.](test_email_scheduler.py#L78)
-4. [Serve 30 accounts round-robin with at most two slots each.](test_email_scheduler.py#L96)
-5. [Release capacity for canceled queued work.](test_email_scheduler.py#L114)
-6. [Recovery retries after real sqlite write lock.](test_email_scheduler.py#L127)
-7. [Real live owner survives probe and second instance.](test_email_scheduler.py#L158)
-8. [Wake eligible work when a blocked queue head is canceled.](test_email_scheduler.py#L189)
-9. [Recovery retries after real sqlite write lock.](test_email_scheduler.py#L220)
-10. [Claim does not create missing database.](test_email_scheduler.py#L235)
-11. [Drop ownership when the database disappears.](test_email_scheduler.py#L241)
+1. [Cancel all queued work on shutdown without dispatching it.](test_email_scheduler.py#L18)
+2. [Serve 30 accounts round-robin with at most two slots each.](test_email_scheduler.py#L41)
+3. [Release capacity for canceled queued work.](test_email_scheduler.py#L78)
+4. [Wake eligible work when a blocked queue head is canceled.](test_email_scheduler.py#L96)
+5. [Release weighted slots when executor submission fails.](test_email_scheduler.py#L114)
+6. [Retry lease recovery after a real SQLite write lock.](test_email_scheduler.py#L127)
+7. [Probe a live owner without terminating or stealing its lease.](test_email_scheduler.py#L158)
+8. [Fence fresh foreign leases; recover interrupted jobs after stale-lease takeover.](test_email_scheduler.py#L189)
+9. [Reclaim dead local owners while respecting live owners.](test_email_scheduler.py#L220)
+10. [Do not create a missing database during a claim.](test_email_scheduler.py#L235)
+11. [Drop process ownership when the database disappears.](test_email_scheduler.py#L241)
 
 ### [test_email_capacity.py](test_email_capacity.py) — Resource bounds and provider quotas (17)
 
@@ -236,6 +239,6 @@ The 8K → 16K setting enlarges the **output-token allowance**, not the context 
 ## Fixtures, load checks and maintenance
 
 - [email_test_support.py](email_test_support.py): shared fake IMAP, no-task model result and fresh authenticated HTTP fixture; not a test suite. Workers drain before fixture cleanup.
-- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 131 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
+- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 134 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
 - Add/rename/remove a test: update its one-line entry, count and source link here. Keep race scenarios separate when they guard different pipeline stages. Add a second-layer test only when it checks transport, persistence or another distinct contract.
 - Historical execution results stay in the capacity guide. This index describes coverage, not the latest run status.

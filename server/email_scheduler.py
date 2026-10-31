@@ -143,6 +143,7 @@ _instance = None
 _instance_lock = threading.Lock()
 _owner_threads = {}
 _owned_paths = set()
+_ready_paths = set()
 _identity = (socket.gethostname(), os.getpid())
 
 
@@ -198,6 +199,7 @@ def _forget_owner(path, owner_thread=None):
         if owner_thread is not None and current is not owner_thread:
             return
         _owned_paths.discard(path)
+        _ready_paths.discard(path)
         _owner_threads.pop(path, None)
 
 
@@ -239,6 +241,7 @@ def claim_process_owner(path):
             return False
         with _owner_lock:
             _owned_paths.discard(path)
+            _ready_paths.discard(path)
             _owner_threads.pop(path, None)
     now = time.time()
     try:
@@ -275,8 +278,23 @@ def owns_process(path):
         return _path_key(path) in _owned_paths
 
 
+def ready_process(path):
+    with _owner_lock:
+        key = _path_key(path)
+        return key in _owned_paths and key in _ready_paths
+
+
+def mark_ready(path):
+    with _owner_lock:
+        key = _path_key(path)
+        if key in _owned_paths:
+            _ready_paths.add(key)
+
+
 def _start_heartbeat(path, host, pid):
     with _owner_lock:
+        if path not in _owned_paths:
+            _ready_paths.discard(path)
         _owned_paths.add(path)
         if path not in _owner_threads:
             thread = threading.Thread(target=_heartbeat, args=(path, host, pid), daemon=True,

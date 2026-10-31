@@ -27,7 +27,7 @@ import email_scheduler
 import email_mailbox_pool
 import email_db_gate
 from email_import_store import (
-    initialize, counts as _counts,
+    initialize, finish_initialization, counts as _counts,
     save as _save, bump_list_revision as _bump_list_revision,
     load_job as _load_job,
     insert_job as _insert_job, connection as _connection,
@@ -35,6 +35,8 @@ from email_import_store import (
     begin as _begin, item_counts,
 )
 from server import model_queue
+from server import recognition_diagnostics as diagnostics
+from contracts.recognition_errors import describe
 from text_contract import validate_request, validate_result
 
 CONSENT_VERSION = 'email-body-recognition/1'
@@ -53,7 +55,7 @@ def _max_jobs():
 def _check_admission(db, ApiError, database):
     database_path = database if isinstance(database, (str, Path)) else getattr(database, 'name', None)
     if (not database_path or str(database_path) == ':memory:'
-            or not email_scheduler.owns_process(database_path)
+            or not email_scheduler.ready_process(database_path)
             or not email_scheduler.is_current_owner(db)):
         error = ApiError(503, '邮件处理服务暂时不可用，请稍后重试')
         error.retry_after = 5
@@ -129,6 +131,13 @@ def _prefs(db, uid):
             'process_all': bool(row and row['process_all']),
             'consent_version': row['consent_version'] if granted else None,
             'consented_at': row['consented_at'] if granted else None}
+
+
+def _public_failure(error):
+    if not error:
+        return None
+    return {key: error[key] for key in
+            ('code', 'message', 'retryable', 'failure', 'diagnostic', 'diagnostic_id') if key in error}
 
 
 def _safe_error(error):
@@ -239,7 +248,8 @@ def _message_states(db, uid, input_ids):
             state = saved['state']
             count, request_id, error = saved['task_count'], saved['request_id'], saved['error']
         result[input_id] = dict(state=state, excluded=excluded, task_count=count,
-                                request_id=request_id, error=error)
+                                request_id=request_id, error=error,
+                                recognition_error=saved.get('recognition_error') if saved and state == 'failed' else None)
     pending = _pending_review_counts(db, uid, input_ids)
     for input_id, item in result.items():
         item['pending_review_count'] = pending.get(input_id, 0)
@@ -305,7 +315,7 @@ def _require_consent(db, uid):
 
 def _public_job(job):
     return {'job_id':job['job_id'],'state':job['state'],'counts':job['counts'],
-            'items':[{key:item.get(key) for key in ('input_id','state','task_count','request_id','error')}
+            'items':[{key:item.get(key) for key in ('input_id','state','task_count','request_id','error','recognition_error')}
                      for item in job['items']], 'kind':job.get('kind','import'), 'error':job.get('error'),
             'revision':int(job.get('revision',0)), 'waiting_reason':job.get('waiting_reason')}
 
@@ -360,6 +370,8 @@ def _update_item(path, uid, job_id, input_id, new_item, allowed=('queued', 'fail
         if old.get('state') not in allowed:
             return old
         value = dict(old); value.update(new_item)
+        if value.get('state') != 'failed':
+            value.pop('recognition_error', None)
         if value == old:
             return old
         counts = dict(metadata.get('counts') or {})
@@ -537,6 +549,25 @@ def _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, pr
     validate_request(request)
     _guard_path(path, uid, job_id, input_id)
 
+    try:
+        # The idle read connection lets shared diagnostics persist independently
+        # after the separate result transaction commits or rolls back.
+        with _connection(path) as db, diagnostics.capture(db, uid, request['request_id'],
+                skip_exceptions=(model_queue.EmailDeferred, _Stopped, _Excluded)):
+            return _recognize_request(path, uid, job_id, input_id, request, job, ApiError)
+    except model_queue.EmailDeferred as deferred:
+        if deferred.reason not in ('provider_backoff', 'provider_budget', 'model_capacity'):
+            raise
+        with _connection(path, write=True) as db:
+            _guard_job(db, uid, job_id, input_id)
+            db.execute('INSERT INTO email_import_body_snapshots VALUES(?,?,?) '
+                       'ON CONFLICT(user_id,input_id) DO NOTHING',
+                       (uid, input_id, json.dumps(_single_email_record(request,input_id), ensure_ascii=False)))
+        return dict(input_id=input_id, state='queued', error=None,
+                    _wait_reason=deferred.reason, _wait_seconds=deferred.wait_seconds)
+
+
+def _recognize_request(path, uid, job_id, input_id, request, job, ApiError):
     def cancelled():
         try:
             _guard_path(path, uid, job_id, input_id)
@@ -552,26 +583,20 @@ def _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, pr
         recognition._EXECUTION.email_reprocess=job.get('kind')=='reprocess'
         recognition._EXECUTION.policy=None
         try:
-            try:
-                with model_queue.background((str(Path(path).resolve()),str(uid),job_id,input_id)), model_queue.cancel_if(cancelled), recognition.telemetry_context(path, uid):
-                    result = recognition.recognize(request, ApiError)
-            except model_queue.EmailDeferred as deferred:
-                deferred_call = True
-                if deferred.reason not in ('provider_backoff', 'provider_budget', 'model_capacity'):
-                    raise
-                # Most bodies were captured by the preparation stage. Preserve
-                # direct callers' source too, without publishing a failed result.
-                with _connection(path, write=True) as db:
-                    _guard_job(db, uid, job_id, input_id)
-                    db.execute('INSERT INTO email_import_body_snapshots VALUES(?,?,?) '
-                               'ON CONFLICT(user_id,input_id) DO NOTHING',
-                               (uid, input_id, json.dumps(_single_email_record(request,input_id), ensure_ascii=False)))
-                return dict(input_id=input_id, state='queued', error=None,
-                            _wait_reason=deferred.reason, _wait_seconds=deferred.wait_seconds)
+            with model_queue.background((str(Path(path).resolve()),str(uid),job_id,input_id)), model_queue.cancel_if(cancelled), recognition.telemetry_context(path, uid):
+                result = diagnostics.stamp(recognition.recognize(request, ApiError))
         finally:
             recognition._EXECUTION.email_reprocess=previous_flag
-        result = validate_result(request, result)
+        try:
+            result = validate_result(request, result)
+        except (ValueError, TypeError, KeyError):
+            error = ApiError(502, '邮件识别结果不符合契约，未保存候选')
+            error.code = 'invalid_agent_output'
+            raise error from None
         recognized = result['status'] in ('success', 'no_tasks')
+    except model_queue.EmailDeferred:
+        deferred_call = True
+        raise
     finally:
         if not deferred_call:
             email_telemetry.record(path, uid, 'recognition',
@@ -586,10 +611,10 @@ def _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, pr
         if cached:
             result = json.loads(previous['result'])
         else:
-            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0) '
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo,attempt_id) VALUES(?,?,?,?,?,0,?) '
                        'ON CONFLICT(user_id,request_id) DO UPDATE SET '
-                       'fingerprint=excluded.fingerprint,request=excluded.request,result=excluded.result',
-                       (uid, request['request_id'], fingerprint, json.dumps(request), json.dumps(result)))
+                       'fingerprint=excluded.fingerprint,request=excluded.request,result=excluded.result,attempt_id=excluded.attempt_id',
+                       (uid, request['request_id'], fingerprint, json.dumps(request), json.dumps(result), diagnostics.current_id()))
             protected=db.execute('''SELECT 1 FROM recognition_candidates WHERE user_id=?
                 AND json_extract(candidate,'$.input_id')=? AND (state!='pending' OR version!=1) LIMIT 1''',(uid,input_id)).fetchone()
             if job.get('kind')=='reprocess' and result['status'] in ('success','no_tasks'):
@@ -617,10 +642,11 @@ def _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, pr
                    (uid, request['request_id'], job_id, job['queued_at'], '邮箱'))
         db.execute('DELETE FROM email_import_body_snapshots WHERE user_id=? AND input_id=?',(uid,input_id))
     failed = result['status'] not in ('success', 'no_tasks')
+    failure = _public_failure(describe((result.get('errors') or [dict(code='invalid_agent_output',retryable=True)])[0])) if failed else None
     return dict(input_id=input_id,
                 state='failed' if failed else ('has_tasks' if result['tasks'] else 'no_tasks'),
                 task_count=len(result['tasks']), request_id=request['request_id'],
-                error='识别失败，可重试' if failed else None, cached=cached)
+                error='识别失败，可重试' if failed else None, recognition_error=failure, cached=cached)
 
 
 def _pending_ids(path, uid, job_id):
@@ -674,10 +700,11 @@ def _run(path, uid, job_id, ApiError, key_path):
     retries = {}
     serial = 0
     blocked_until = 0
+    provider_blocked_until = 0
     exhausted = False
 
     def collect(future, input_id):
-        nonlocal serial, blocked_until
+        nonlocal serial, blocked_until, provider_blocked_until
         try:
             item = future.result()
         except _Excluded:
@@ -685,7 +712,10 @@ def _run(path, uid, job_id, ApiError, key_path):
         except _Stopped:
             item = dict(input_id=input_id,state='interrupted',error=None)
         except Exception as error:
-            item = dict(input_id=input_id,state='failed',error=_safe_error(error))
+            with _connection(path) as db:
+                failure = diagnostics.finalize_error(db, uid, error)
+            item = dict(input_id=input_id,state='failed',error=_safe_error(error),
+                        recognition_error=_public_failure(failure))
         reason = item.pop('_wait_reason', None)
         seconds = item.pop('_wait_seconds', 0)
         if reason:
@@ -700,8 +730,11 @@ def _run(path, uid, job_id, ApiError, key_path):
                 heapq.heappush(delayed,(ready_at,serial,input_id))
                 if reason in ('provider_backoff','provider_budget','model_capacity'):
                     if reason != 'model_capacity':
-                        # Provider backoff releases the whole job's FIFO tickets;
-                        # a model-capacity wait retains its place in that FIFO.
+                        provider_blocked_until = max(provider_blocked_until, ready_at)
+                    if reason != 'model_capacity' or time.monotonic() < provider_blocked_until:
+                        # A still-inflight sibling can enqueue after the initial
+                        # cooldown cleanup. Clear its late ticket too; ordinary
+                        # capacity waits retain FIFO order outside provider cooldown.
                         recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
                     # Provider quota/cooldown and the shared model pool are
                     # global constraints, not a per-message semantic failure.
@@ -851,7 +884,7 @@ def capacity_snapshot():
 
 
 def _launch(path,uid,job_id,ApiError,key_path):
-    if not email_scheduler.claim_process_owner(path):
+    if not email_scheduler.ready_process(path) or not email_scheduler.claim_process_owner(path):
         return False
     key=(str(path),uid,job_id)
     with _lock:

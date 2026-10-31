@@ -34,36 +34,37 @@ def _recover_active_jobs(db, db_path):
         job['state'] = 'interrupted'
         job['error'] = '服务已重启，未完成邮件可重试'
         save(db, row['user_id'], row['job_id'], job)
-    _recovered_paths.add(db_path)
 
 
 def _watch_process_owner(db_path):
-    was_owner = email_scheduler.owns_process(db_path)
     try:
         while Path(db_path).exists():
             try:
                 if not email_scheduler.owns_process(db_path):
-                    if was_owner:
-                        _recovered_paths.discard(db_path)
-                    was_owner = False
+                    _recovered_paths.discard(db_path)
                     email_scheduler.claim_process_owner(db_path)
                 if email_scheduler.owns_process(db_path):
-                    if not was_owner or db_path not in _recovered_paths:
+                    if not email_scheduler.ready_process(db_path):
                         db = None
                         try:
                             db = sqlite3.connect(db_path, timeout=10)
                             db.row_factory = sqlite3.Row
                             with db:
+                                db.execute("BEGIN IMMEDIATE")
+                                if not email_scheduler.is_current_owner(db):
+                                    raise sqlite3.OperationalError("email_scheduler_owner_changed")
                                 _recover_active_jobs(db, db_path)
-                            was_owner = True
+                            # Recovery must commit before HTTP admission becomes ready.
+                            _recovered_paths.add(db_path)
+                            email_scheduler.mark_ready(db_path)
                         except (sqlite3.Error, ValueError, TypeError, KeyError):
-                            was_owner = False
+                            pass
                         finally:
                             if db is not None:
                                 db.close()
             except sqlite3.Error:
                 # A transient write lock must not permanently disable takeover.
-                was_owner = False
+                pass
             time.sleep(5)
     finally:
         with _recovery_watchers_lock:
@@ -120,10 +121,20 @@ def initialize(db, recover=True):
         saved_policy_version TEXT,PRIMARY KEY(user_id,input_id))''')
     db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS email_import_one_active
         ON email_import_jobs(user_id) WHERE state IN ('queued','running')''')
-    if recover and owner and db_path not in _recovered_paths:
+    if recover and owner and (not email_scheduler.ready_process(db_path) or db_path not in _recovered_paths):
         _recover_active_jobs(db, db_path)
-    if recover and db_path:
-        _ensure_owner_watcher(db_path)
+
+
+def finish_initialization(path, recover=True):
+    """Called after the application's schema/recovery transaction commits."""
+    path = str(Path(path).resolve())
+    with connection(path) as db:
+        if email_scheduler.owns_process(path) and email_scheduler.is_current_owner(db):
+            if recover:
+                _recovered_paths.add(path)
+            email_scheduler.mark_ready(path)
+    if recover:
+        _ensure_owner_watcher(path)
 
 
 def item_counts(item):
@@ -219,13 +230,17 @@ def job_states(db,uid,input_ids):
         try:
             rows=db.execute(f'''SELECT e.input_id AS input_id,
                 json_extract(e.item,'$.state') AS state,json_extract(e.item,'$.task_count') AS task_count,
-                json_extract(e.item,'$.request_id') AS request_id,json_extract(e.item,'$.error') AS error
+                json_extract(e.item,'$.request_id') AS request_id,json_extract(e.item,'$.error') AS error,
+                json_extract(e.item,'$.recognition_error') AS recognition_error
                 FROM email_import_jobs j JOIN email_import_job_items e
                   ON e.user_id=j.user_id AND e.job_id=j.job_id
                 WHERE j.user_id=? AND e.input_id IN ({marks})
                 ORDER BY j.rowid DESC''',(uid,*chunk)).fetchall()
             for row in rows:
-                if row['input_id'] not in result: result[row['input_id']]=dict(row)
+                if row['input_id'] not in result:
+                    result[row['input_id']]=dict(row)
+                    raw = row['recognition_error']
+                    result[row['input_id']]['recognition_error'] = json.loads(raw) if raw else None
         except sqlite3.Error: pass
     return result
 

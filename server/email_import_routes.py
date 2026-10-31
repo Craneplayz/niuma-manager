@@ -265,7 +265,7 @@ def route(handler,db,uid,path,body,ApiError,key_path,database):
             for item in job['items']:
                 state, excluded, count, request_id, error = runtime._item_state(db, uid, item['input_id'])
                 item.update(state=state if state in ('has_tasks','no_tasks','excluded') else 'queued',
-                            task_count=count, request_id=request_id, error=None,
+                            task_count=count, request_id=request_id, error=None, recognition_error=None,
                             cached=state in ('has_tasks','no_tasks'))
             next_id = 'email-job:' + secrets.token_hex(16)
             job.update(job_id=next_id, parent_job_id=job_id, state='queued', stop=False, error=None,

@@ -275,13 +275,15 @@ test('email preferences persist, range preview is paged, exclusions are explicit
 
 test('email filters and sorting operate on the loaded list without API requests',async t=>{
  const first='email:synthetic:1', second='email:synthetic:2';
- const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:first,subject:'样例一',state:'no_tasks',excluded:false},{input_id:second,subject:'样例二',state:'has_tasks',pending_review_count:1,excluded:false},{input_id:'email:synthetic:3',subject:'失败样例',state:'failed',excluded:false},{input_id:'email:synthetic:4',subject:'排除样例',state:'excluded',excluded:true}],summary:{total:80},next_offset:50}};
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailPreview:{messages:[{input_id:first,subject:'样例一',state:'no_tasks',excluded:false},{input_id:second,subject:'样例二',state:'has_tasks',pending_review_count:1,excluded:false},{input_id:'email:synthetic:3',subject:'失败样例',state:'failed',excluded:false,recognition_error:{code:'invalid_agent_output',retryable:true,failure:{reason:'draft_evidence',category:'evidence',stage:'validate'},diagnostic_id:'1234567890abcdef12345678'}},{input_id:'email:synthetic:4',subject:'排除样例',state:'excluded',excluded:true}],summary:{total:80},next_offset:50}};
  const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await ui.click({dataset:{importAction:'email-preview'}});
  const calls=f.calls.length;
  ui.input({target:{dataset:{emailFilter:''},value:'pending_review'}});
  assert.match(ui.render(),/匹配 1 封 \/ 本范围共 80 封/);assert.match(ui.render(),/已选 3 封/);assert.match(ui.render(),/样例二/);assert.doesNotMatch(ui.render(),/样例一|失败样例|排除样例/);
  await ui.click({dataset:{importAction:'email-select-page'}});assert.match(ui.render(),/已选 1 封/);
  ui.input({target:{dataset:{emailFilter:''},value:'failed'}});assert.match(ui.render(),/失败样例/);assert.doesNotMatch(ui.render(),/样例二/);
+ assert.match(ui.render(),/诊断编号：1234567890abcdef12345678/);assert.match(ui.render(),/data-error-feedback=/);
+ assert.match(ui.render(),/<\/label>[\s\S]*email-message-failure/);
  ui.input({target:{dataset:{emailFilter:''},value:'attention'}});assert.match(ui.render(),/样例二/);assert.match(ui.render(),/失败样例/);assert.doesNotMatch(ui.render(),/样例一|排除样例/);
  ui.input({target:{dataset:{emailFilter:''},value:'excluded'}});assert.match(ui.render(),/排除样例/);assert.doesNotMatch(ui.render(),/样例一|样例二|失败样例/);
  ui.input({target:{dataset:{emailFilter:''},value:'unprocessed'}});assert.match(ui.render(),/已获取邮件中没有匹配邮件/);

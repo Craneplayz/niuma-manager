@@ -1717,7 +1717,9 @@ dialog p {
 .email-source-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
 .email-message-list { margin-top: 20px; }
 .email-selection-count { margin: 0 0 8px; color: #75828c; font-size: 12px; }
-.email-message { display: flex; align-items: stretch; gap: 0; border-bottom: 1px solid var(--line); }
+.email-message { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; border-bottom: 1px solid var(--line); }
+.email-message-failure { flex-basis:100%; min-width:0; padding:0 8px 12px 35px; }
+.email-message-failure .user-error { margin:0; }
 .email-message-selection { display:flex; align-items:flex-start; flex:1; gap:11px; min-width:0; padding:13px 8px; cursor:pointer; }
 .email-message-selection:has(input:disabled) { cursor:default; }
 .email-message input { flex: 0 0 auto; width: 16px; height: 16px; margin: 3px 0 0; accent-color: var(--ink); }

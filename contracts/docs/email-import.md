@@ -67,3 +67,9 @@ Qiniu DeepSeek 邮件调用关闭思考模式，保留 8K 输出上限；执行�
 “更新识别”直接更新当前已获取范围内的旧版缓存，包含其他页；按钮下方使用简短 tooltip，不再弹出确认窗口，未知版本保持不变。模型调用及执行预算为 270 秒，持久授权、排除项、快照和 policy token 检查继续生效。请求失败原位显示，重试相同范围保留 operation_id。
 
 模型输出预算：8192 起步，提供方确认 token 截断后最多自动升级到 16384 重试一次，复用同一正文；输入上下文窗口不变。两次模型尝试共享 270 秒预算，每次尝试前验证取消/授权状态，token 遥测包含两次实际调用。普通证据校验失败、超时、空响应不触发该升级；其他重试行为仍由用户操作。执行 policy version 包含该预算策略。
+
+## Background failure diagnostics
+
+Email recognition uses the shared bounded, content-free diagnostic capture. Persisted batches store the exact producing `attempt_id`; job items and preview messages expose an optional `recognition_error` with the shared `failure` descriptor and `diagnostic_id`. The UI uses the common feedback component. Detailed diagnostic lookup remains development/test-only and scoped to the app account. Mail content, provider responses and exception messages are excluded; save failures retain diagnostics after rollback. Capacity deferrals and cancellation do not create failure receipts.
+
+A process lease alone does not enable job admission. Startup/takeover recovery commits before readiness is published; requests during takeover receive HTTP 503 with `Retry-After: 5`. Losing ownership clears readiness. Provider cooldown clears queued tickets from the whole job, including tickets created later by still-inflight siblings; ordinary model-capacity waits retain FIFO order.
