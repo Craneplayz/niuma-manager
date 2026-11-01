@@ -6,6 +6,10 @@ import time
 from contextlib import contextmanager
 
 
+class MailboxCapacityTimeout(TimeoutError):
+    """Only local IMAP admission failed; no connection was opened."""
+
+
 class BodyCapacityTimeout(TimeoutError):
     """Only local body-buffer admission failed; no provider call was made."""
 
@@ -59,7 +63,7 @@ def _acquire(semaphore, check, deadline):
         _cancel(check)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise TimeoutError('mailbox capacity wait expired')
+            raise MailboxCapacityTimeout('mailbox capacity wait expired')
         if semaphore.acquire(timeout=min(0.1, remaining)):
             try:
                 _cancel(check)

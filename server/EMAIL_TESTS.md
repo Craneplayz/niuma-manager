@@ -1,6 +1,6 @@
 # Email test index
 
-140 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
+141 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
 
 Related variants share subtests or one lifecycle fixture. Queue/lease races remain separate; retired popup actions are excluded.
 
@@ -23,20 +23,20 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 
 1. [Accept and normalize only supported PKU domains.](test_email_source.py#L14)
 2. [Use fixed TLS hosts and always log out.](test_email_source.py#L21)
-3. [Preview headers without reading bodies.](test_email_source.py#L35)
-4. [Default to 50 messages; paginate larger ranges.](test_email_source.py#L58)
-5. [Filter before pagination; fetch only visible headers.](test_email_source.py#L75)
-6. [Include the selected start date in Shanghai time.](test_email_source.py#L89)
-7. [Read selected plain-text bodies with BODY.PEEK.](test_email_source.py#L108)
-8. [Mark omitted attachments as incomplete content.](test_email_source.py#L127)
-9. [Reject foreign or duplicate message IDs.](test_email_source.py#L150)
-10. [Reuse short-lived connections in small batches.](test_email_source.py#L158)
-11. [Skip an excluded message without skipping its siblings.](test_email_source.py#L178)
-12. [Reject oversized or deeply nested MIME metadata before fetching content.](test_email_source.py#L198)
-13. [Reject content without a valid IMAP literal.](test_email_source.py#L209)
-14. [Strip scripts and styles from HTML.](test_email_source.py#L215)
-15. [Match headers by UID despite response reordering.](test_email_source.py#L227)
-16. [Reject unexpected, duplicate, missing or oversized header literals.](test_email_source.py#L238)
+3. [Preview headers with bounded FETCH literals and no body reads.](test_email_source.py#L35)
+4. [Default to 50 messages; paginate larger ranges.](test_email_source.py#L59)
+5. [Filter before pagination; fetch only visible headers.](test_email_source.py#L76)
+6. [Include the selected start date in Shanghai time.](test_email_source.py#L90)
+7. [Read selected plain-text bodies with BODY.PEEK.](test_email_source.py#L109)
+8. [Mark omitted attachments as incomplete content.](test_email_source.py#L128)
+9. [Reject foreign or duplicate message IDs.](test_email_source.py#L151)
+10. [Reuse short-lived connections in small batches.](test_email_source.py#L159)
+11. [Skip an excluded message without skipping its siblings.](test_email_source.py#L179)
+12. [Reject oversized or deeply nested MIME metadata before fetching content.](test_email_source.py#L199)
+13. [Reject content without a valid IMAP literal.](test_email_source.py#L210)
+14. [Strip scripts and styles from HTML.](test_email_source.py#L216)
+15. [Match headers by UID despite response reordering.](test_email_source.py#L228)
+16. [Reject unexpected, duplicate, missing or oversized header literals.](test_email_source.py#L240)
 
 ### [test_email_source_routes.py](test_email_source_routes.py) — Credentials and legacy API (3)
 
@@ -89,7 +89,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 7. [Keep exact, private-free diagnostics for malformed JSON/schema/evidence, timeout, configuration and save rollback; isolate owners.](test_email_import_integration.py#L230)
 8. [Interrupt unfinished work on restart; reuse completed results.](test_email_import_integration.py#L296)
 9. [Bind queued ranges to credentials; disconnect revokes consent.](test_email_import_integration.py#L329)
-10. [Isolate deeply nested MIME, oversized headers and malformed Base64 from healthy messages.](test_email_import_integration.py#L348)
+10. [Isolate deep MIME, oversized headers, malformed Base64 and unsupported charsets from healthy messages.](test_email_import_integration.py#L348)
 
 ### [test_email_import_store.py](test_email_import_store.py) — Durable storage (3)
 
@@ -103,25 +103,26 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 2. [Resume after capacity becomes available without rereading bodies.](test_email_import_safety.py#L218)
 3. [Enforce consent and ownership through generic recognition endpoints.](test_email_import_safety.py#L239)
 
-### [test_email_import_parallel.py](test_email_import_parallel.py) — Concurrent import behavior (17)
+### [test_email_import_parallel.py](test_email_import_parallel.py) — Concurrent import behavior (18)
 
-1. [Handle out-of-order completion with correct progress counts.](test_email_import_parallel.py#L30)
-2. [Enforce eight concurrent email workers across accounts.](test_email_import_parallel.py#L59)
-3. [Stop during a wave; reject late writes and emit terminal latency.](test_email_import_parallel.py#L102)
-4. [Prevent replenishment and late saves for newly excluded messages.](test_email_import_parallel.py#L126)
-5. [Revoke consent or rotate credentials mid-wave; reject late results and further work.](test_email_import_parallel.py#L149)
-6. [Allow explicit retry of failed items in a new job.](test_email_import_parallel.py#L185)
-7. [Persist in-flight successes when another dispatch submission fails.](test_email_import_parallel.py#L200)
-8. [Release capacity during provider backoff; reuse captured bodies.](test_email_import_parallel.py#L239)
-9. [Clear late sibling FIFO tickets created after provider cooldown cleanup.](test_email_import_parallel.py#L279)
-10. [Reject HTTP jobs during lease takeover; admit only after recovery commits.](test_email_import_parallel.py#L321)
-11. [Bound repeated HTTP 429 retries without rereading IMAP.](test_email_import_parallel.py#L372)
-12. [Never automatically replay an ambiguous timeout.](test_email_import_parallel.py#L381)
-13. [Keep sibling messages when one is excluded during preparation.](test_email_import_parallel.py#L387)
-14. [Prevent another model call after stopping during backoff.](test_email_import_parallel.py#L406)
-15. [Reject generic and duplicate email retries during background recognition; preserve successful read-only cache replay.](test_email_import_parallel.py#L422)
-16. [Defer worker body-capacity waits; release execution/FIFO slots and resume from one captured body.](test_email_import_parallel.py#L451)
-17. [Collect late model tickets during body-capacity or IMAP waits; admit foreground work, resume without duplicate fetches and stop without late source saves.](test_email_import_parallel.py#L499)
+1. [Handle out-of-order completion with correct progress counts.](test_email_import_parallel.py#L32)
+2. [Enforce eight concurrent email workers across accounts.](test_email_import_parallel.py#L61)
+3. [Stop during a wave; reject late writes and emit terminal latency.](test_email_import_parallel.py#L104)
+4. [Prevent replenishment and late saves for newly excluded messages.](test_email_import_parallel.py#L128)
+5. [Revoke consent or rotate credentials mid-wave; reject late results and further work.](test_email_import_parallel.py#L151)
+6. [Allow explicit retry of failed items in a new job.](test_email_import_parallel.py#L187)
+7. [Persist in-flight successes when another dispatch submission fails.](test_email_import_parallel.py#L202)
+8. [Release capacity during provider backoff; reuse captured bodies.](test_email_import_parallel.py#L241)
+9. [Clear late sibling FIFO tickets created after provider cooldown cleanup.](test_email_import_parallel.py#L281)
+10. [Reject HTTP jobs during lease takeover; admit only after recovery commits.](test_email_import_parallel.py#L323)
+11. [Bound repeated HTTP 429 retries without rereading IMAP.](test_email_import_parallel.py#L374)
+12. [Never automatically replay an ambiguous timeout.](test_email_import_parallel.py#L383)
+13. [Keep sibling messages when one is excluded during preparation.](test_email_import_parallel.py#L389)
+14. [Prevent another model call after stopping during backoff.](test_email_import_parallel.py#L408)
+15. [Reject generic and duplicate email retries during background recognition; preserve successful read-only cache replay.](test_email_import_parallel.py#L424)
+16. [Defer worker body-capacity waits; release execution/FIFO slots and resume from one captured body.](test_email_import_parallel.py#L453)
+17. [Collect late model tickets during body-capacity or IMAP waits; admit foreground work, resume without duplicate fetches and stop without late source saves.](test_email_import_parallel.py#L501)
+18. [Defer genuine IMAP admission waits; keep HTTP 503 safe, resume without model calls while blocked, and never replay connection timeouts.](test_email_import_parallel.py#L579)
 
 ### [test_email_scheduler.py](test_email_scheduler.py) — Fair scheduling and ownership (11)
 
@@ -237,7 +238,7 @@ The 8K → 16K setting enlarges the **output-token allowance**, not the context 
 
 | File | What it checks |
 | --- | --- |
-| [import-flow.test.js](../frontend/tests/import-flow.test.js) | Consent/settings, local full-range sort/filter/pagination, selection, stale responses, job progress, stop/retry/update, terminal-summary and parent-scoped retries, scheduler-only mail history retries and notice review. Shared with other import sources. |
+| [import-flow.test.js](../frontend/tests/import-flow.test.js) | Consent/settings, local full-range sort/filter/pagination, selection, stale responses, job progress, stop/retry/update, terminal-summary and parent-scoped retries, mutation/read precedence, scheduler-only mail history retries and notice review. Shared with other import sources. |
 | [account-email-settings.test.js](../frontend/tests/account-email-settings.test.js) — 6 | Open/focus PKU settings; prevent late reopening or cross-account updates. |
 | [connection-return-hint.test.js](../frontend/tests/connection-return-hint.test.js) — 7 | Safe return-to-settings hints, session changes and notification precedence. Includes teaching connections. |
 | [email-diagnostics.test.js](../frontend/tests/email-diagnostics.test.js) — 3 | Safe diagnostic rendering, token coverage and overlapping-timing explanations. |
@@ -245,6 +246,6 @@ The 8K → 16K setting enlarges the **output-token allowance**, not the context 
 ## Fixtures, load checks and maintenance
 
 - [email_test_support.py](email_test_support.py): shared fake IMAP, no-task model result and fresh authenticated HTTP fixture; not a test suite. Workers drain before fixture cleanup.
-- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 140 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
+- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 141 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
 - Add/rename/remove a test: update its one-line entry, count and source link here. Keep race scenarios separate when they guard different pipeline stages. Add a second-layer test only when it checks transport, persistence or another distinct contract.
 - Historical execution results stay in the capacity guide. This index describes coverage, not the latest run status.

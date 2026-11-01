@@ -1513,3 +1513,37 @@ test('mail job retry identities stay scoped to their parent after a failed reque
  const posts=f.calls.filter(call=>call.path.endsWith('/retry')&&call.method==='POST');
  assert.equal(posts.length,2);assert.notEqual(posts[0].body.operation_id,posts[1].body.operation_id,'different parent jobs require different operation IDs');
 });
+
+
+test('background summaries cannot supersede an in-flight mail mutation',async t=>{
+ const results=[];
+ for(const action of ['retry','stop','start','update']){
+  let entered,release;const reached=new Promise(resolve=>entered=resolve),wait=new Promise(resolve=>release=resolve);
+  const old={job_id:'parent-'+action,kind:action==='retry'?'reprocess':'import',state:action==='stop'?'running':action==='update'?'succeeded':'failed',revision:1,counts:{selected:9,processed:8,cached:0,failed:action==='stop'||action==='update'?0:1,pending:action==='stop'?1:0}};
+  const next={...old,job_id:action==='stop'?old.job_id:'child-'+action,state:action==='stop'?'stopped':'queued',revision:2,counts:{selected:9,processed:8,cached:8,failed:0,pending:1}};
+  const path=action==='retry'||action==='stop'?'/api/sources/email/jobs/'+old.job_id+'/'+(action==='retry'?'retry':'stop'):action==='start'?'/api/sources/email/jobs':'/api/sources/email/reprocess';
+  const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[old],emailPreview:{messages:[{input_id:'email:mutation:1',subject:'Synthetic mail',state:'no_tasks',excluded:false}],summary:{total:9},cache:{snapshot_id:'mutation-snapshot'},recognition_updates:{available:true,outdated_count:9,unknown_count:0,policy_version:'new',selection_token:'targets'}},intercept:async(p,body,method)=>{if(p===path&&method==='POST'){entered();await wait;scenario.emailJobs=[next];scenario.emailJob=next;return next;}}};
+  const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+  if(action==='start')await ui.click({dataset:{importAction:'email-select-range'}});
+  const button={retry:'email-reprocess-retry',stop:'email-stop-job',start:'email-start-job',update:'email-update-recognition'}[action];
+  const mutation=ui.click({dataset:{importAction:button}});await reached;
+  await ui.load();await new Promise(resolve=>setTimeout(resolve,0));
+  release();await mutation;
+  results.push([action,(action==='stop'?/已停止/:/排队中/).test(ui.render())]);
+  ui.reset();
+ }
+ assert.deepEqual(results,['retry','stop','start','update'].map(action=>[action,true]),'accepted mail mutations must survive background reads');
+ // A failed stop must resume polling after an older, invalidated read finishes.
+ const previousDocument=globalThis.document,previousTimeout=globalThis.setTimeout,doc=new EventTarget();doc.hidden=false;
+ let schedules=0,entered,release;const reached=new Promise(resolve=>entered=resolve),wait=new Promise(resolve=>release=resolve);
+ globalThis.document=doc;globalThis.setTimeout=(fn,delay,...args)=>{if(delay>=1000)schedules++;return previousTimeout(fn,delay,...args);};
+ const old={job_id:'stop-failure',state:'running',revision:1,counts:{selected:1,processed:0,pending:1},items:[]};
+ const f=fixture({emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[old],emailJob:old,intercept:async(path,body,method)=>{if(path==='/api/sources/email/jobs/stop-failure'){entered();await wait;}if(path.endsWith('/stop')&&method==='POST')throw new Error('synthetic stop failure');}});
+ const ui=createImportUI(f.host);
+ try {
+  await f.login();await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+  doc.hidden=true;doc.dispatchEvent(new Event('visibilitychange'));doc.hidden=false;doc.dispatchEvent(new Event('visibilitychange'));await reached;
+  const before=schedules;await ui.click({dataset:{importAction:'email-stop-job'}});release();await new Promise(resolve=>setTimeout(resolve,0));
+  assert.ok(schedules>before,'resume one status loop after the stale read drains');
+ } finally {release();ui.reset();globalThis.document=previousDocument;globalThis.setTimeout=previousTimeout;}
+});

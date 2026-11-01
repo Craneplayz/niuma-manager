@@ -33,6 +33,7 @@ MAX_BODY_CHARS = 30000
 MAX_IMAP_METADATA_BYTES = 200000
 MAX_MIME_DEPTH = 64
 MAX_HEADER_BYTES = 262144
+_HEADER_FETCH = f'(UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)]<0.{MAX_HEADER_BYTES + 1}>)'
 TZ = ZoneInfo('Asia/Shanghai')
 _ADDRESS = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$")
 
@@ -42,6 +43,10 @@ class EmailSourceError(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+class MailboxCapacityError(EmailSourceError):
+    """A local IMAP admission wait, distinct from a connection timeout."""
 
 
 class SkipEmail(Exception):
@@ -98,6 +103,8 @@ def _mailbox(address, username, password, cancel_check=None):
                     client.logout()
                 except (OSError, imaplib.IMAP4.error):
                     pass
+    except email_mailbox_pool.MailboxCapacityTimeout:
+        raise MailboxCapacityError(503, '邮箱读取资源繁忙，请稍后重试') from None
     except EmailSourceError:
         raise
     except (socket.timeout, TimeoutError):
@@ -204,7 +211,7 @@ def _fetch_headers(client, uids):
         batch=uids[offset:offset+50]; allowed=set(batch)
         _set_command_timeout(client)
         status,data=client.uid('FETCH',','.join(map(str,batch)),
-            '(UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])')
+            _HEADER_FETCH)
         if status!='OK': raise EmailSourceError(502,'无法获取邮件标题，请稍后重试')
         for item in data or []:
             if not isinstance(item,tuple) or len(item)<2: continue
@@ -298,7 +305,7 @@ def preview_range(address, username, password, *, limit=50, start_date=None, off
         for uid in uids[offset:offset + page_size]:
             metadata, raw_headers = _fetch_tuple(
                 client, uid,
-                '(UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])',
+                _HEADER_FETCH,
             )
             if raw_headers is None:
                 continue
@@ -481,6 +488,8 @@ def _decode_part(raw, part):
         text = decoded.decode(charset, 'replace')
     except LookupError:
         text = decoded.decode('utf-8', 'replace')
+    except ValueError:
+        raise EmailSourceError(422, '邮件正文字符集无法安全解析，未发送邮件内容') from None
     if part['subtype'] == 'html':
         parser = _VisibleHTML()
         try:
@@ -588,7 +597,7 @@ def fetch_selected(address, username, password, input_ids, *, timings=None, guar
             try:
                 metadata, raw_headers = _fetch_tuple(
                     client, uid,
-                    '(UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])',
+                    _HEADER_FETCH,
                 )
             except EmailSourceError as error:
                 if error.status != 422: raise

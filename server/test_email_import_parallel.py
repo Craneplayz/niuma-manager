@@ -17,6 +17,8 @@ import recognition
 from email_test_support import ADDRESS, no_tasks
 from email_test_support import FakeIMAP
 
+_REAL_MAILBOX = email_source._mailbox
+
 
 class EmailImportParallelTests(support.EmailHTTPTestCase):
     def mailbox_client(self):
@@ -572,6 +574,38 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
                         for input_id in ids[2:]:
                             stored=db.execute('SELECT 1 FROM email_import_body_snapshots WHERE input_id=?',(input_id,)).fetchone()
                             self.assertIsNone(stored,'settled jobs must not receive late source snapshots')
+
+
+    def test_imap_admission_wait_defers_but_connection_timeouts_do_not_replay(self):
+        import email_mailbox_pool as pool
+        waiting=threading.Event();original_waiting=email_import._waiting_reason
+        def mark_waiting(path,uid,job_id,reason):
+            original_waiting(path,uid,job_id,reason)
+            if reason=='mailbox_capacity':waiting.set()
+        with patch.object(pool,'_global',threading.BoundedSemaphore(1)), \
+             patch.object(pool,'WAIT_SECONDS',.03), \
+             patch.object(email_source,'_mailbox',_REAL_MAILBOX), \
+             patch.object(email_source.imaplib,'IMAP4_SSL',side_effect=lambda *a,**k:FakeIMAP(uids=self.mail_uids)) as connect, \
+             patch.object(email_import,'_waiting_reason',side_effect=mark_waiting):
+            with pool.mailbox('held-capacity@pku.edu.cn'):
+                job=self.start(self.ids(1),'imap-capacity-deferral')
+                deadline=time.monotonic()+3
+                while not waiting.is_set() and time.monotonic()<deadline:
+                    snapshot=self.call('/sources/email/jobs/'+job['job_id'])[1]
+                    if snapshot['state'] in support.FINAL:break
+                    time.sleep(.01)
+                self.assertTrue(waiting.is_set(),'local IMAP capacity became a terminal mail failure')
+                self.assertEqual(snapshot['counts']['failed'],0)
+                self.assertEqual((connect.call_count,self.model.call_count),(0,0))
+                self.assertEqual(self.call('/sources/email/preview',dict(limit=1,refresh=True))[0],503)
+            self.assertEqual(self.settled(job['job_id'])['state'],'succeeded')
+            self.assertEqual((connect.call_count,self.model.call_count),(1,1))
+            connect.reset_mock();connect.side_effect=TimeoutError('synthetic connection timeout')
+            job=self.start([self.ids(2)[1]],'imap-network-timeout')
+            self.assertEqual(self.settled(job['job_id'])['state'],'failed')
+            self.assertEqual((connect.call_count,self.model.call_count),(1,1),'network timeouts must not silently replay')
+        self.assertEqual(pool.capacity_snapshot()['waiting_sessions'],0)
+        self.assertEqual(pool.capacity_snapshot()['reserved_body_bytes'],0)
 
 
 if __name__ == '__main__': unittest.main()

@@ -349,7 +349,7 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
         import email_source
         original=self.imap.uid
         leaf='("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 30 1)'
-        for index,mode in enumerate(('nesting','header','base64')):
+        for index,mode in enumerate(('nesting','header','base64','charset')):
             with self.subTest(mode=mode):
                 bad=20+index*2
                 def response(command,*args):
@@ -357,8 +357,8 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
                         query=args[1]
                         if mode=='header' and 'HEADER.FIELDS' in query:
                             return 'OK',[(f'(UID {bad})'.encode(),b'x'*(email_source.MAX_HEADER_BYTES+1))]
-                        if 'BODYSTRUCTURE' in query and mode in ('nesting','base64'):
-                            structure='('*1100+leaf+' "MIXED")'*1100 if mode=='nesting' else leaf.replace('7BIT','BASE64')
+                        if 'BODYSTRUCTURE' in query and mode in ('nesting','base64','charset'):
+                            structure='('*1100+leaf+' "MIXED")'*1100 if mode=='nesting' else leaf.replace('7BIT','BASE64') if mode=='base64' else leaf.replace('UTF-8','IDNA')
                             return 'OK',[f'(UID {bad} BODYSTRUCTURE {structure})'.encode()]
                         if mode=='base64' and 'BODY.PEEK[' in query and 'HEADER.FIELDS' not in query:
                             return 'OK',[(f'(UID {bad})'.encode(),b'A')]

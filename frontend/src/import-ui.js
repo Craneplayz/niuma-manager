@@ -1029,7 +1029,8 @@ export function createImportUI(host) {
     } catch (e) { if (valid(stamp) && requestId === emailPreviewRequestId) emailError = e?.status === 409 ? "邮件列表已更新，请点击“获取邮件”重新同步后重试" : describeImportError(e).message; }
     finally { if (valid(stamp) && requestId === emailPreviewRequestId) { emailPreviewBusy = false; emailPreviewApplyRange = false; refresh(); } }
   }
-  async function refreshEmailJob() {
+  async function refreshEmailJob({ allowDuringAction = false } = {}) {
+    if (emailStartBusy || (emailJobActionBusy && emailJobActionBusy !== "poll" && !allowDuringAction)) return;
     const stamp = current(), requestId = ++emailJobRequestId;
     try {
       const jobs = await api("/api/sources/email/jobs?summary=1");
@@ -1067,13 +1068,13 @@ export function createImportUI(host) {
     for (const [id,message] of emailMessageById) { const item = itemStates.get(id); if (item) emailMessageById.set(id,{...message,state:item.state,task_count:item.task_count,request_id:item.request_id,error:item.error,recognition_error:item.recognition_error}); }
     pageEmailLocally(emailPreviewOffset,emailPageSize,false);
   }
-  async function pollEmailJob(id) {
-    if (!emailJob?.job_id || emailJob.job_id !== id) return;
+  async function pollEmailJob(id, { allowDuringAction = false } = {}) {
+    if (!emailJob?.job_id || emailJob.job_id !== id || emailStartBusy || (emailJobActionBusy && emailJobActionBusy !== "poll" && !allowDuringAction)) return;
     clearTimeout(emailJobTimer);
     emailJobTimer = null;
     if (globalThis.document?.hidden || emailJobPolling) return;
-    emailJobPolling = true;
     const stamp = current(), requestId = ++emailJobRequestId;
+    emailJobPolling = requestId;
     const currentRequest = () => valid(stamp) && requestId === emailJobRequestId && emailJob?.job_id === id;
     try {
       const summary = await api(`/api/sources/email/jobs/${encodeURIComponent(id)}?summary=1`);
@@ -1101,7 +1102,12 @@ export function createImportUI(host) {
       }
       if (currentRequest() && ["queued","running"].includes(emailJob.state)) scheduleEmailJobPoll(id, emailJobPollDelay);
     } catch (e) { if (currentRequest()) { emailPollError = true; emailError = describeImportError(e).message; refresh(); } }
-    finally { emailJobPolling = false; }
+    finally {
+      if (emailJobPolling === requestId) emailJobPolling = false;
+      if (!currentRequest() && valid(stamp) && emailJob?.job_id && ["queued", "running"].includes(emailJob.state) &&
+          !emailJobTimer && !emailJobPolling && !emailPollError && !emailStartBusy && !emailJobActionBusy)
+        scheduleEmailJobPoll(emailJob.job_id, emailJobPollDelay);
+    }
   }
   async function syncEmail(inputIds = null) {
     if (blocked() || emailStartBusy || ["queued","running"].includes(emailJob?.state) || !allowed()) return;
@@ -1191,7 +1197,7 @@ export function createImportUI(host) {
     const stamp = current(), jobId = emailJob.job_id;
     const requestId = action === "poll" ? null : ++emailJobRequestId;
     if (action !== "poll") { clearTimeout(emailJobTimer); emailJobTimer = null; }
-    emailJobActionBusy = true; emailError = ""; refresh();
+    emailJobActionBusy = action; emailError = ""; refresh();
     try {
       let next;
       if (action === "stop") next = await api(`/api/sources/email/jobs/${encodeURIComponent(jobId)}/stop`, {}, "POST");
@@ -1199,14 +1205,19 @@ export function createImportUI(host) {
         if (emailRetryJobId !== jobId) { emailRetryOperationId = null; emailRetryJobId = jobId; }
         if (!emailRetryOperationId) emailRetryOperationId = newId();
         next = await api(`/api/sources/email/jobs/${encodeURIComponent(jobId)}/retry`, { operation_id: emailRetryOperationId, ...(emailJob.kind === "reprocess" ? { consent: true } : {}) }, "POST");
-      } else if (action === "poll") { await pollEmailJob(jobId); return; }
+      } else if (action === "poll") { await pollEmailJob(jobId, { allowDuringAction: true }); return; }
       if (!valid(stamp) || (requestId !== null && requestId !== emailJobRequestId)) return;
       emailJob = next;
       if (action === "retry") emailRetryOperationId = null;
       emailPollError = false;
-      await refreshEmailJob();
+      await refreshEmailJob({ allowDuringAction: true });
     } catch (e) { if (valid(stamp) && (requestId === null || requestId === emailJobRequestId)) { emailError = describeImportError(e).message; refresh(); } }
-    finally { if (valid(stamp)) { emailJobActionBusy = false; refresh(); } }
+    finally { if (valid(stamp)) {
+      emailJobActionBusy = false;
+      if (emailJob?.job_id && ["queued", "running"].includes(emailJob.state) && !emailJobTimer && !emailJobPolling && !emailPollError)
+        scheduleEmailJobPoll(emailJob.job_id, emailJobPollDelay);
+      refresh();
+    } }
   }
   async function resolveSmall(item, action) {
     if (

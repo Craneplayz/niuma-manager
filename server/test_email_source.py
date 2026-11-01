@@ -50,6 +50,7 @@ class EmailSourceTests(unittest.TestCase):
         self.assertEqual(len(client.fetches), 50)
         self.assertEqual([uid for uid, _ in client.fetches], list(range(65, 15, -1)))
         self.assertTrue(all('HEADER.FIELDS' in query for _, query in client.fetches))
+        self.assertTrue(all(f'<0.{email_source.MAX_HEADER_BYTES+1}>' in query for _, query in client.fetches))
         self.assertTrue(all('BODY.PEEK[TEXT]' not in query and 'BODY.PEEK[1]' not in query
                             for _, query in client.fetches))
         self.assertTrue(result['messages'][0]['input_id'].endswith(':77:65'))
@@ -234,6 +235,7 @@ class BatchHeaderSafetyTests(unittest.TestCase):
             rows=email_source._fetch_headers(client,[1,2])
         self.assertEqual(set(rows),{1,2})
         self.assertIn(b'UID 1 ',rows[1][0]); self.assertIn(b'UID 2 ',rows[2][0])
+        self.assertTrue(all(f'<0.{email_source.MAX_HEADER_BYTES+1}>' in query for _,query in client.fetches))
 
     def test_unrequested_duplicate_missing_uid_and_oversize_literals_are_rejected(self):
         client=FakeIMAP()

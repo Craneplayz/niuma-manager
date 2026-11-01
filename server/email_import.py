@@ -430,7 +430,7 @@ def _recognize_item(path, uid, job_id, input_id, ApiError, key_path, prefetched_
     try:
         with email_mailbox_pool.body_buffer(reservation, cancel_check=guard, timeout=0):
             return _recognize_item_reserved(path, uid, job_id, input_id, ApiError, key_path, prefetched_record)
-    except email_mailbox_pool.BodyCapacityTimeout:
+    except (email_mailbox_pool.BodyCapacityTimeout, email_source.MailboxCapacityError):
         recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
         return dict(input_id=input_id,state='queued',error=None,
                     _wait_reason='mailbox_capacity',_wait_seconds=.5)
@@ -791,9 +791,7 @@ def _run(path, uid, job_id, ApiError, key_path):
             prefetch = None
             try:
                 prepared.extend(future.result())
-            except TimeoutError as error:
-                if str(error) not in ('body capacity wait expired', 'mailbox capacity wait expired'):
-                    raise
+            except (email_mailbox_pool.BodyCapacityTimeout, email_source.MailboxCapacityError):
                 ready_at = time.monotonic() + .5
                 for retry_id in reversed(ids):
                     serial += 1
