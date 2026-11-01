@@ -157,5 +157,48 @@ class EmailCacheRouteTests(acceptance.EmailHTTPTestCase):
             self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],5,'keep both logins historical evidence')
 
 
+    def test_disconnected_migration_keeps_unbound_history_separate(self):
+        from email_source import _identity
+        old_id=_identity(self.address,'77',61)
+        for variant in ('cache','legacy','excluded'):
+            with self.subTest(history=variant):
+                self.client=self.account('disconnected-'+variant)
+                uid=self.call('/auth/me')[1]['user']['id']
+                connection=dict(address=self.address,username='old-login',password='Synthetic-only',consent=True)
+                self.assertEqual(self.call('/sources/email/credentials',connection)[0],200)
+                if variant=='excluded':
+                    self.call('/sources/email/exclusions',dict(input_ids=[old_id],excluded=True))
+                else:
+                    self.assertEqual(self.settled(self.start([old_id],'old-'+variant)['job_id'])['state'],'succeeded')
+                self.call('/sources/email/credentials/remove',{})
+                with app.connection() as db:
+                    if variant=='legacy':
+                        # The old API retained only shared recognition history.
+                        for table in ('email_recognition_cache','email_import_jobs','email_import_job_items'):
+                            db.execute(f'DELETE FROM {table} WHERE user_id=?',(uid,))
+                    db.execute('DROP TABLE email_source_identities')
+                app.initialize(recover=False)
+                connection['username']='new-login'
+                self.assertEqual(self.call('/sources/email/credentials',connection)[0],200)
+                status,preview=self.call('/sources/email/preview',dict(limit=1,refresh=True))
+                self.assertEqual(status,200)
+                message=preview['messages'][0]; new_id=message['input_id']
+                self.assertNotEqual(new_id,old_id)
+                self.assertEqual(message['state'],'unprocessed');self.assertFalse(message['excluded'])
+                calls=self.model.call_count
+                result=self.settled(self.start([new_id],'new-'+variant)['job_id'])
+                self.assertEqual(result['state'],'succeeded');self.assertEqual(result['counts']['cached'],0)
+                self.assertEqual(self.model.call_count,calls+1)
+                # Reinitialization and reconnect retain the newly bound namespace.
+                self.call('/sources/email/credentials/remove',{});app.initialize(recover=False)
+                self.call('/sources/email/credentials',connection)
+                _,preview=self.call('/sources/email/preview',dict(limit=1,refresh=True))
+                self.assertEqual(preview['messages'][0]['input_id'],new_id)
+                self.assertEqual(preview['messages'][0]['state'],'no_tasks')
+                with app.connection() as db:
+                    retained=db.execute('SELECT count(*) FROM recognition_batches WHERE user_id=?',(uid,)).fetchone()[0]
+                    self.assertEqual(retained,1 if variant=='excluded' else 2,'preserve historical evidence')
+
+
 if __name__ == '__main__':
     unittest.main()

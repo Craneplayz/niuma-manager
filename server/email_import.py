@@ -44,6 +44,10 @@ CONSENT_VERSION = 'email-body-recognition/1'
 _workers = {}
 _lock = threading.Lock()
 _executor=ThreadPoolExecutor(max_workers=60,thread_name_prefix='email-import')
+# One source future per admitted job; mailbox reads must not block collection of
+# model completions. Source threads are bounded independently of model workers.
+_prefetch_executor=ThreadPoolExecutor(max_workers=email_mailbox_pool.IMAP_CONCURRENCY,
+                                    thread_name_prefix='email-prefetch')
 
 
 def _max_jobs():
@@ -471,7 +475,7 @@ def _prepare_bodies(path, uid, job_id, input_ids, ApiError, key_path):
             raise email_source.SkipEmail() from None
     timings = {}; records = []; fetched = False
     reservation = len(need_fetch) * email_source.MAX_BODY_BYTES
-    with email_mailbox_pool.body_buffer(reservation, cancel_check=job_guard, count=len(need_fetch)):
+    with email_mailbox_pool.body_buffer(reservation, cancel_check=job_guard, count=len(need_fetch), timeout=0):
         password = source_sync.cipher(key_path, ApiError).decrypt(credential['secret']).decode()
         started = time.monotonic()
         try:
@@ -708,6 +712,9 @@ def _expand_range(path, uid, job_id, credential, ApiError, key_path, range_spec)
 def _run(path, uid, job_id, ApiError, key_path):
     failure = None
     inflight = {}
+    prefetch = None
+    prefetch_ids = []
+    prefetch_started = 0
     pending = deque()
     prepared = deque()
     delayed = []
@@ -745,10 +752,10 @@ def _run(path, uid, job_id, ApiError, key_path):
                 if reason in ('provider_backoff','provider_budget','model_capacity','mailbox_capacity'):
                     if reason != 'model_capacity':
                         admission_blocked_until = max(admission_blocked_until, ready_at)
-                    if reason != 'model_capacity' or time.monotonic() < admission_blocked_until:
+                    if reason != 'model_capacity' or prefetch is not None or time.monotonic() < admission_blocked_until:
                         # A still-inflight sibling can enqueue after the initial
-                        # resource cleanup. Clear its late ticket too; ordinary
-                        # model-capacity waits retain FIFO order when otherwise ready.
+                        # resource cleanup. Pending source I/O also prevents reuse
+                        # of that ticket; retain FIFO only when otherwise ready.
                         recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
                     # Source capacity, provider cooldown and the shared model pool
                     # are admission constraints, not per-message recognition failures.
@@ -778,43 +785,45 @@ def _run(path, uid, job_id, ApiError, key_path):
         batch_limit = max(1,min(5,concurrency,email_mailbox_pool.BODY_PREFETCH,
                               email_mailbox_pool.BODY_BYTES//email_source.MAX_BODY_BYTES))
 
+        def collect_prefetch():
+            nonlocal prefetch, serial, blocked_until, admission_blocked_until
+            future, ids = prefetch, prefetch_ids
+            prefetch = None
+            try:
+                prepared.extend(future.result())
+            except TimeoutError as error:
+                if str(error) not in ('body capacity wait expired', 'mailbox capacity wait expired'):
+                    raise
+                ready_at = time.monotonic() + .5
+                for retry_id in reversed(ids):
+                    serial += 1
+                    heapq.heappush(delayed,(ready_at,serial,retry_id))
+                blocked_until = max(blocked_until,ready_at)
+                admission_blocked_until = max(admission_blocked_until,ready_at)
+                recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
+                _waiting_reason(path,uid,job_id,'mailbox_capacity')
+                email_telemetry.record(path,uid,'dispatch_wait',
+                    duration_ms=(time.monotonic()-prefetch_started)*1000,success=False)
+
         def dispatch():
-            nonlocal exhausted, serial, blocked_until, admission_blocked_until
+            nonlocal exhausted, prefetch, prefetch_ids, prefetch_started
             if time.monotonic() < blocked_until:
                 return
             while len(inflight) < concurrency:
                 if not prepared:
-                    # Refill a small batch independently of the number of newly
-                    # freed model slots. Keep at most one batch of ready IDs.
+                    if prefetch is not None:
+                        return
+                    # Keep only one bounded source batch per job. Its I/O runs
+                    # separately so late model tickets can always be collected.
                     while len(pending) < batch_limit and not exhausted:
                         try: pending.append(next(source))
                         except StopIteration: exhausted = True
                     ids = [pending.popleft() for _ in range(min(batch_limit,len(pending)))]
-                    if not ids:
-                        return
-                    capacity_wait_started = time.monotonic()
-                    try:
-                        prepared.extend(_prepare_bodies(path,uid,job_id,ids,ApiError,key_path))
-                    except TimeoutError as error:
-                        if str(error) not in ('body capacity wait expired', 'mailbox capacity wait expired'):
-                            raise
-                        # Local capacity contention is temporary, not a mail
-                        # recognition failure. Requeue the bounded batch and
-                        # retry after a short pause without re-reading captured
-                        # bodies that may already have been saved.
-                        ready_at = time.monotonic() + .5
-                        for retry_id in reversed(ids):
-                            serial += 1
-                            heapq.heappush(delayed,(ready_at,serial,retry_id))
-                        blocked_until = max(blocked_until,ready_at)
-                        admission_blocked_until = max(admission_blocked_until,ready_at)
-                        recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
-                        _waiting_reason(path,uid,job_id,'mailbox_capacity')
-                        email_telemetry.record(path,uid,'dispatch_wait',
-                            duration_ms=(time.monotonic()-capacity_wait_started)*1000,success=False)
-                        return
-                    if not prepared:
-                        continue
+                    if ids:
+                        prefetch_ids = ids
+                        prefetch_started = time.monotonic()
+                        prefetch = _prefetch_executor.submit(_prepare_bodies,path,uid,job_id,ids,ApiError,key_path)
+                    return
                 input_id = prepared.popleft()
                 try:
                     _guard_path(path,uid,job_id,input_id)
@@ -840,14 +849,19 @@ def _run(path, uid, job_id, ApiError, key_path):
             while delayed and delayed[0][0] <= now:
                 pending.appendleft(heapq.heappop(delayed)[2])
             dispatch()
-            if not inflight:
+            waiting = tuple(inflight) + ((prefetch,) if prefetch is not None else ())
+            if not waiting:
                 if exhausted and not pending and not prepared and not delayed:
                     break
                 # Only the lightweight per-job coordinator waits. No model,
                 # dispatcher unit, IMAP session or body buffer is held here.
                 time.sleep(.05)
                 continue
-            done,_ = wait(tuple(inflight),timeout=.1,return_when=FIRST_COMPLETED)
+            done,_ = wait(waiting,timeout=.1,return_when=FIRST_COMPLETED)
+            # Establish source cooldown before collecting late sibling tickets.
+            if prefetch in done:
+                done.remove(prefetch)
+                collect_prefetch()
             for future in done:
                 collect(future,inflight.pop(future))
     except _Stopped:
@@ -856,8 +870,13 @@ def _run(path, uid, job_id, ApiError, key_path):
         failure = _safe_error(error)
     finally:
         recognition._ACTIVE.cancel_background((str(Path(path).resolve()),str(uid),job_id))
+        if prefetch is not None:
+            prefetch.cancel()
         for future in tuple(inflight):
             future.cancel()  # Skip queued work; drain only calls already running.
+        if prefetch is not None:
+            try: prefetch.result()
+            except BaseException: pass
         for future,input_id in tuple(inflight.items()):
             try: collect(future,input_id)
             except BaseException:

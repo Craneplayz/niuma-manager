@@ -32,6 +32,7 @@ The concurrency review retains the following distinct boundaries rather than mer
 
 - Job admission bounds accepted coordinators, including stopped jobs still draining calls. It does not authorize additional model execution.
 - The dispatcher bounds active email work and enforces account fairness. Its per-account limit also controls coordinator prefetch/dispatch, using the same limit reader.
+- Each admitted coordinator has at most one source future, using a separate pool with at most the configured IMAP concurrency (four by default). Nonblocking body admission and asynchronous source reads keep the coordinator available to collect model completions and clear late tickets during source waits. Stop drains source work before releasing coordinator admission.
 - IMAP and body reservations bound mailbox connections and transient content memory independently of model availability. Body fetch reservations end before model dispatch; consumption reservations cover loading saved content for recognition.
 - The shared model queue bounds calls from all features. Deferred email tickets release dispatcher capacity while waiting; provider budgets separately enforce configured request/token windows and explicit throttle cooldowns.
 - The ownership lease prevents another API process from admitting email work for the same database. It is not a distributed worker system.

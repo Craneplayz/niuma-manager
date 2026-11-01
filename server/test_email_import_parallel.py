@@ -284,10 +284,10 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
         late_collected = threading.Event()
         sibling_entered = threading.Event()
         ids = self.ids(2)
-        original_cancel, original_update = queue.cancel_background, email_import._update_item
-        def cancel(prefix):
-            original_cancel(prefix)
-            initial_cleanup.set()
+        original_waiting, original_update = email_import._waiting_reason, email_import._update_item
+        def waiting(path, uid, job_id, reason):
+            original_waiting(path, uid, job_id, reason)
+            if reason == 'provider_backoff': initial_cleanup.set()
         def update(path, uid, job_id, input_id, item, *args, **kwargs):
             result = original_update(path, uid, job_id, input_id, item, *args, **kwargs)
             if input_id == ids[1] and item['state'] == 'queued':
@@ -303,7 +303,7 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
             self.assertEqual(queue.snapshot()['queued'], 1, 'reproduce the late FIFO ticket')
             raise model_queue.EmailDeferred(.25, 'model_capacity')
         self.model.side_effect = model
-        with patch.object(recognition, '_ACTIVE', queue), patch.object(queue, 'cancel_background', side_effect=cancel), \
+        with patch.object(recognition, '_ACTIVE', queue), patch.object(email_import, '_waiting_reason', side_effect=waiting), \
              patch.object(email_import, '_update_item', side_effect=update):
             job = self.start(ids, 'late-sibling-backoff')
             try:
@@ -494,6 +494,84 @@ class EmailImportParallelTests(support.EmailHTTPTestCase):
                 self.assertEqual(fetch.call_count,1)
         finally:
             for slot in reservations:slot.__exit__(None,None,None)
+
+
+    def test_prefetch_wait_collects_late_model_tickets_and_resumes(self):
+        from contextlib import contextmanager
+        import email_mailbox_pool as pool
+        from server import model_queue
+        for mode in ('body','imap','stop'):
+            with self.subTest(wait=mode):
+                base={'body':30,'imap':40,'stop':50}[mode]
+                ids=[email_source._identity(ADDRESS,'77',uid) for uid in range(base,base+4)]
+                queue=model_queue.ModelQueue(limit=1);self.assertTrue(queue.acquire())
+                sibling=threading.Event();source_wait=threading.Event();collected=threading.Event()
+                resume=threading.Event();capacity_wait=threading.Event();buffers=[];batches=0;deferred=False
+                original_slot=pool.body_slot;original_fetch=email_source.fetch_selected
+                original_update=email_import._update_item;original_waiting=email_import._waiting_reason
+                @contextmanager
+                def slot(size,cancel_check=None,*,count=1,timeout=None):
+                    nonlocal batches
+                    if count==2:
+                        batches+=1
+                        if mode=='body' and batches==2:
+                            other=original_slot(email_source.MAX_BODY_BYTES,timeout=0)
+                            other.__enter__();buffers.append(other);source_wait.set()
+                    with original_slot(size,cancel_check,count=count,timeout=timeout):yield
+                def fetch(*args,**kwargs):
+                    if mode!='body' and ids[2] in args[3]:
+                        source_wait.set();self.assertTrue(resume.wait(5),'source read not released')
+                    return original_fetch(*args,**kwargs)
+                def model(request,error):
+                    nonlocal deferred
+                    current=request['records'][0]['input_id']
+                    if current==ids[0]:self.assertTrue(sibling.wait(5))
+                    if current==ids[1] and not deferred:
+                        sibling.set();self.assertTrue(source_wait.wait(5))
+                        deferred=True
+                        self.assertFalse(queue.acquire_background(model_queue.background_identity()))
+                        raise model_queue.EmailDeferred(.25,'model_capacity')
+                    return no_tasks(request,error)
+                def update(path,uid,job_id,input_id,item,*args,**kwargs):
+                    value=original_update(path,uid,job_id,input_id,item,*args,**kwargs)
+                    if input_id==ids[1] and item['state']=='queued':collected.set()
+                    return value
+                def waiting(path,uid,job_id,reason):
+                    original_waiting(path,uid,job_id,reason)
+                    if reason=='mailbox_capacity':capacity_wait.set()
+                self.model.side_effect=model
+                with patch.object(pool,'BODY_BYTES',4*email_source.MAX_BODY_BYTES), \
+                     patch.object(pool,'body_buffer',side_effect=slot), \
+                     patch.object(email_source,'fetch_selected',side_effect=fetch) as fetched, \
+                     patch.object(recognition,'_ACTIVE',queue), \
+                     patch.object(email_import,'_update_item',side_effect=update), \
+                     patch.object(email_import,'_waiting_reason',side_effect=waiting):
+                    try:
+                        if mode=='body':
+                            other=original_slot(2*email_source.MAX_BODY_BYTES,count=2)
+                            other.__enter__();buffers.append(other)
+                        job=self.start(ids,'prefetch-'+mode)
+                        self.assertTrue(collected.wait(5),'source wait blocked model completion collection')
+                        if mode=='body':self.assertTrue(capacity_wait.wait(5),'body admission must defer immediately')
+                        queue.release()
+                        self.assertEqual(queue.snapshot()['queued'],0)
+                        self.assertTrue(queue.acquire(blocking=False),'idle model pool retained a dormant ticket')
+                        queue.release()
+                        self.assertEqual(self.call('/sources/email/jobs/'+job['job_id'])[1]['counts']['failed'],0)
+                        if mode=='stop':
+                            self.assertEqual(self.call('/sources/email/jobs/'+job['job_id']+'/stop',{})[1]['state'],'stopped')
+                    finally:
+                        resume.set()
+                        for buffer in reversed(buffers):buffer.__exit__(None,None,None)
+                        email_import.wait_for_jobs(app.DB)
+                    result=self.settled(job['job_id'])
+                    self.assertEqual(result['state'],'stopped' if mode=='stop' else 'succeeded',result)
+                    self.assertEqual(result['counts']['processed'],1 if mode=='stop' else 4)
+                    self.assertEqual(fetched.call_count,2,'each bounded body batch is fetched once')
+                    with app.connection() as db:
+                        for input_id in ids[2:]:
+                            stored=db.execute('SELECT 1 FROM email_import_body_snapshots WHERE input_id=?',(input_id,)).fetchone()
+                            self.assertIsNone(stored,'settled jobs must not receive late source snapshots')
 
 
 if __name__ == '__main__': unittest.main()

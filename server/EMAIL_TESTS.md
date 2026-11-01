@@ -1,6 +1,6 @@
 # Email test index
 
-137 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
+139 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
 
 Related variants share subtests or one lifecycle fixture. Queue/lease races remain separate; retired popup actions are excluded.
 
@@ -60,7 +60,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 12. [Coalesce matching simultaneous refreshes into one mailbox sync.](test_email_header_cache.py#L234)
 13. [Allow retry after a coalesced refresh fails.](test_email_header_cache.py#L260)
 
-### [test_email_cache_routes.py](test_email_cache_routes.py) — Cached header API (6)
+### [test_email_cache_routes.py](test_email_cache_routes.py) — Cached header API (7)
 
 1. [Restore full/partial cached headers and revisit pages without decryption or unnecessary IMAP.](test_email_cache_routes.py#L13)
 2. [Refresh exclusions and recognition flags on cached headers.](test_email_cache_routes.py#L49)
@@ -68,6 +68,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 4. [Reject invalid cache controls before mailbox access.](test_email_cache_routes.py#L83)
 5. [Load full-range headers in bounded batches; restore offline.](test_email_cache_routes.py#L92)
 6. [Isolate results/exclusions across logins; preserve legacy IDs, password rotation, reconnects and historical evidence.](test_email_cache_routes.py#L106)
+7. [Keep disconnected legacy caches, legacy-only batches and exclusions unbound to new logins; preserve evidence and reconnect identity.](test_email_cache_routes.py#L160)
 
 ### [test_email_list_filters.py](test_email_list_filters.py) — List filtering and sorting (5)
 
@@ -101,7 +102,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 2. [Resume after capacity becomes available without rereading bodies.](test_email_import_safety.py#L218)
 3. [Enforce consent and ownership through generic recognition endpoints.](test_email_import_safety.py#L239)
 
-### [test_email_import_parallel.py](test_email_import_parallel.py) — Concurrent import behavior (16)
+### [test_email_import_parallel.py](test_email_import_parallel.py) — Concurrent import behavior (17)
 
 1. [Handle out-of-order completion with correct progress counts.](test_email_import_parallel.py#L30)
 2. [Enforce eight concurrent email workers across accounts.](test_email_import_parallel.py#L59)
@@ -119,6 +120,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 14. [Prevent another model call after stopping during backoff.](test_email_import_parallel.py#L406)
 15. [Reject generic and duplicate email retries during background recognition; preserve successful read-only cache replay.](test_email_import_parallel.py#L422)
 16. [Defer worker body-capacity waits; release execution/FIFO slots and resume from one captured body.](test_email_import_parallel.py#L451)
+17. [Collect late model tickets during body-capacity or IMAP waits; admit foreground work, resume without duplicate fetches and stop without late source saves.](test_email_import_parallel.py#L499)
 
 ### [test_email_scheduler.py](test_email_scheduler.py) — Fair scheduling and ownership (11)
 
@@ -242,6 +244,6 @@ The 8K → 16K setting enlarges the **output-token allowance**, not the context 
 ## Fixtures, load checks and maintenance
 
 - [email_test_support.py](email_test_support.py): shared fake IMAP, no-task model result and fresh authenticated HTTP fixture; not a test suite. Workers drain before fixture cleanup.
-- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 137 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
+- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 139 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
 - Add/rename/remove a test: update its one-line entry, count and source link here. Keep race scenarios separate when they guard different pipeline stages. Add a second-layer test only when it checks transport, persistence or another distinct contract.
 - Historical execution results stay in the capacity guide. This index describes coverage, not the latest run status.

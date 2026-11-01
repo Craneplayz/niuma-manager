@@ -49,6 +49,10 @@ class EmailVerificationTests(unittest.TestCase):
         self.database = patch.object(app, 'DB', self.path)
         self.database.start()
         self.addCleanup(self.database.stop)
+        # Account snapshots must not race unrelated mailbox scheduler heartbeats.
+        heartbeat = patch('email_scheduler._start_heartbeat')
+        heartbeat.start()
+        self.addCleanup(heartbeat.stop)
         app.initialize(recover=False)
         self.mailbox = []
         self.configured = patch.object(verification.mail_delivery, 'configured', return_value=True)
