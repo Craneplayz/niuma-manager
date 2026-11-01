@@ -6,14 +6,20 @@ export const motionFrames = Object.freeze({
   blink: [[0, 120, "lifecycle"], [1, 70, "lifecycle"], [2, 95, "lifecycle"], [3, 110, "lifecycle"]],
   wave: action,
   celebrate: action,
+  horseAck: [[5, 70, "action"], [6, 70, "action"], [7, 90, "action"], [8, 90, "action"],
+    [9, 85, "action"], [10, 85, "action"], [11, 100, "action"], [12, 120, "action"],
+    [11, 65, "action"], [10, 65, "action"], [8, 65, "action"], [6, 65, "action"], [5, 80, "action"]],
   settle: [[4, 100, "lifecycle"], [5, 130, "lifecycle"], [6, 130, "lifecycle"], [7, 140, "lifecycle"]],
-  depart: [[8, 100, "lifecycle"], [9, 110, "lifecycle"], [10, 120, "lifecycle"], [11, 140, "lifecycle"]],
-  arrive: [[12, 110, "lifecycle"], [13, 130, "lifecycle"], [14, 140, "lifecycle"], [15, 150, "lifecycle"]],
   checklist: cells([0, 1, 2, 3, 4, 5], 65, "action"),
   putAway: cells([5, 4, 3, 2, 1, 0], 55, "action"),
   land: cells([14, 15], 110, "lifecycle"),
 });
-export const presentationDurations = Object.freeze({ caption: 180, leave: 150, enter: 220 });
+const story = holds => Array.from({ length: 48 }, (_, index) => [index, holds[index] || 115]);
+/** Complete films: every authored beat runs, with holds for the impact and task handoff. */
+export const storyFrames = Object.freeze({
+  "cow-to-horse": story({ 0: 180, 8: 190, 12: 170, 17: 150, 29: 150, 36: 170, 41: 170, 47: 220 }),
+  "horse-to-cow": story({ 0: 180, 8: 220, 14: 210, 22: 230, 35: 190, 42: 220, 47: 240 }),
+});
 
 /** Every pending wait resolves on cancellation, so abandoned async flows cannot repaint. */
 export function createMotionTimeline({ setTimer = setTimeout, clearTimer = clearTimeout } = {}) {

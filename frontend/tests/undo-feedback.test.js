@@ -60,3 +60,16 @@ test('undo failures report recovery once and old-account failures stay silent', 
   f.undo.show({ undo: async () => { f.epoch(2); throw Error('旧账号'); } });
   await f.button.onclick(); assert.deepEqual(f.errors, ['请重试']);
 });
+
+test('a full story preserves the time to undo after watching it', t => {
+  const f = fixture(t);
+  f.undo.setStoryActive(true);
+  f.undo.show({ undo() {} });
+  t.mock.timers.tick(6500);
+  assert.equal(f.classes.has('undo-toast'), true);
+  f.undo.setStoryActive(false);
+  t.mock.timers.tick(6999);
+  assert.equal(f.classes.has('undo-toast'), true);
+  t.mock.timers.tick(1);
+  assert.equal(f.classes.has('undo-toast'), false);
+});

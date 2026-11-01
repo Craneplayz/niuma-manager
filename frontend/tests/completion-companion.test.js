@@ -106,14 +106,14 @@ function controllerFixture(t) {
   const old = { document: globalThis.document, window: globalThis.window };
   Object.assign(globalThis, { document: doc, window: win });
   t.after(() => Object.assign(globalThis, old));
-  let epoch = 1, dismissed = 0;
+  let epoch = 1, dismissed = 0, character = "cow";
   const shows = [], preferences = [];
   const controller = createCompletionCompanion({ accountVersion: () => epoch,
-    onShow: value => shows.push(value), onDismiss: () => dismissed++, onPreferences: v => preferences.push(v) });
-  return { controller, shows, preferences, doc, handlers, setEpoch: value => { epoch = value; }, dismissed: () => dismissed };
+    getCharacter: () => character, onShow: value => shows.push(value), onDismiss: () => dismissed++, onPreferences: v => preferences.push(v) });
+  return { controller, shows, preferences, doc, handlers, setEpoch: value => { epoch = value; }, setCharacter: value => { character = value; }, dismissed: () => dismissed };
 }
 
-test('saved completions merge without replay and alternate only after the merge window', t => {
+test('saved completions merge without replay and keep the resident actor after the merge window', t => {
   const f = controllerFixture(t);
   f.controller.show({ remaining: 5, epoch: 1 });
   t.mock.timers.tick(500);
@@ -123,7 +123,7 @@ test('saved completions merge without replay and alternate only after the merge 
   assert.equal(f.shows[1].replay, false);
   t.mock.timers.tick(2001);
   f.controller.show({ remaining: 3, epoch: 1 });
-  assert.equal(f.shows[2].character, 'horse');
+  assert.equal(f.shows[2].character, 'cow');
   assert.equal(f.shows[2].count, 1);
   assert.equal(f.shows[2].replay, true);
   f.controller.reset();
@@ -146,4 +146,35 @@ test('completion expiry pauses in a hidden tab and does not restart on unrelated
   assert.equal(f.dismissed(), 0);
   t.mock.timers.tick(1);
   assert.equal(f.dismissed(), 1);
+});
+
+
+test('overdue policy chooses the voice and a policy change does not extend feedback or replay a completion', t => {
+  const f = controllerFixture(t);
+  f.setCharacter('horse');
+  f.controller.show({ remaining: 4, epoch: 1 });
+  t.mock.timers.tick(500);
+  f.controller.show({ remaining: 3, epoch: 1 });
+  assert.equal(f.shows[1].character, 'horse');
+  assert.equal(f.shows[1].count, 2);
+  t.mock.timers.tick(5000);
+  f.setCharacter('cow');
+  f.controller.refreshCharacter('cow');
+  assert.equal(f.shows[2].character, 'cow');
+  assert.equal(f.shows[2].count, 2);
+  assert.equal(f.shows[2].replay, false);
+  assert.match(f.shows[2].message.id, /^cow-/);
+  t.mock.timers.tick(1999); assert.equal(f.dismissed(), 0);
+  t.mock.timers.tick(1); assert.equal(f.dismissed(), 1);
+});
+
+test('a full handover movie does not consume the completion caption reading time', t => {
+  const f = controllerFixture(t);
+  f.controller.setStoryActive(true);
+  f.controller.show({ remaining: 2, epoch: 1 });
+  t.mock.timers.tick(6500);
+  assert.equal(f.dismissed(), 0);
+  f.controller.setStoryActive(false);
+  t.mock.timers.tick(6999); assert.equal(f.dismissed(), 0);
+  t.mock.timers.tick(1); assert.equal(f.dismissed(), 1);
 });

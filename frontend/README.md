@@ -4,7 +4,7 @@
 
 界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，左下角常驻伙伴根据已保存任务切换形象，支持悬停、聚焦和轻点对话，折叠栏与矮窗口使用紧凑尺寸。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
 
-手动完成任务保存成功后由左下角伙伴播放真实动作帧，话语位于脚下；支持悬停读话语、点击回应与拖动靠边，完成反馈自然收尾后回到状态伙伴，连续完成合并；撤回统一放在右下角圆按钮，账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马伙伴](docs/mascots.md)。
+手动完成任务保存成功后由左下角伙伴播放真实动作帧，话语位于脚下；支持悬停读话语、点击回应与拖动靠边，当前角色只按有无逾期决定，完成不换人；只在有无逾期变化时播放完整接班剧情，连续完成合并；撤回统一放在右下角圆按钮，账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马伙伴](docs/mascots.md)。
 
 ## 功能与数据
 
@@ -73,7 +73,7 @@ frontend/
 │   ├── sidebar-companion-state.js 已保存任务的侧栏角色、情绪与真实数量文案
 │   ├── sidebar-companion.js  常驻精灵帧、完成反馈衔接、点击与拖动靠边交互
 │   ├── sidebar-companion.css 角落角色、脚下话语、紧凑形态与选项样式
-│   ├── assets/companions/    牛马原姿势、pet-v3/连续动作图集及角色完成文案
+│   ├── assets/companions/    牛马原姿势、pet-v3/轻回应、pet-v4/完整接班场景及完成文案
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
@@ -133,12 +133,17 @@ frontend/
     ├── maintenance.md        模块职责与验证要求
     ├── mascots.md            牛马性格、动作素材与完成反馈规则
     ├── screenshots/
-    │   ├── pet-v3-desktop.png    当前连贯动作与完成话语
-    │   ├── pet-v3-mobile.png     当前手机伙伴与脚下话语
-    │   ├── pet-v3-horse.png      当前小马完成反馈
-    │   ├── pet-v2-desktop.png    当前桌面伙伴与圆形撤回
-    │   ├── pet-v2-mobile.png     当前手机伙伴与脚下话语
-    │   ├── pet-v2-horse.png      当前小马连续完成反馈
+    │   ├── pet-v3-desktop.png    旧版连续动作参考
+    │   ├── pet-v3-mobile.png     旧版手机伙伴参考
+    │   ├── pet-v3-horse.png      旧版小马完成反馈
+    │   ├── pet-v4-desktop.png   当前桌面完成反馈与撤回
+    │   ├── pet-v4-mobile.png    当前手机伙伴与脚下话语
+    │   ├── pet-v4-horse.png     有逾期时的持清单小马
+    │   ├── pet-v4-cow-to-horse.png  清单撞击后的接班场景
+    │   ├── pet-v4-horse-to-cow.png  举牌、纸面打勾的接班场景
+    │   ├── pet-v2-desktop.png    旧版桌面伙伴与圆形撤回
+    │   ├── pet-v2-mobile.png     旧版手机伙伴与脚下话语
+    │   ├── pet-v2-horse.png      旧版小马连续完成反馈
     │   ├── sidebar-companion-horse.png 逾期较多时的小马与话语
     │   ├── sidebar-companion-cow.png 今日完成良好时的小牛与话语
     │   ├── sidebar-companion-mobile.png 手机菜单内的状态伙伴

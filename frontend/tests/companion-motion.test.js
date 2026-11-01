@@ -1,12 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { motionFrames, framePosition, fitDock, snapEdge, createMotionTimeline } from "../src/companion-motion.js";
+import { motionFrames, storyFrames, framePosition, fitDock, snapEdge, createMotionTimeline } from "../src/companion-motion.js";
 
 test("completion uses sixteen consecutive authored cells and lifecycle gestures stay finite", () => {
   assert.deepEqual(motionFrames.celebrate.map(([cell]) => cell), Array.from({ length: 16 }, (_, i) => i));
   assert.deepEqual(motionFrames.settle.map(([cell]) => cell), [4, 5, 6, 7]);
-  assert.deepEqual(motionFrames.depart.map(([cell]) => cell), [8, 9, 10, 11]);
-  assert.deepEqual(motionFrames.arrive.map(([cell]) => cell), [12, 13, 14, 15]);
   for (const frames of Object.values(motionFrames)) {
     for (const [cell, duration, atlas] of frames) {
       assert.ok(Number.isInteger(cell) && cell >= 0 && cell < 16);
@@ -60,5 +58,16 @@ test("dragging and viewport changes keep the character and caption reachable", (
     }
     assert.equal(snapEdge(10, viewportWidth), "left");
     assert.equal(snapEdge(viewportWidth - 10, viewportWidth), "right");
+  }
+});
+
+test("both policy stories contain all 48 authored frames across three atlases and last five to seven seconds", () => {
+  assert.deepEqual(Object.keys(storyFrames), ["cow-to-horse", "horse-to-cow"]);
+  for (const sequence of Object.values(storyFrames)) {
+    assert.deepEqual(sequence.map(([frame]) => frame), Array.from({ length: 48 }, (_, i) => i));
+    const duration = sequence.reduce((total, [, ms]) => total + ms, 0);
+    assert.ok(duration >= 5000 && duration <= 7000);
+    assert.deepEqual([...new Set(sequence.map(([frame]) => Math.floor(frame / 16)))], [0, 1, 2]);
+    for (const [, ms] of sequence) assert.ok(ms >= 100 && ms <= 250);
   }
 });

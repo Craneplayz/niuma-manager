@@ -42,15 +42,15 @@ export function selectCompanionMessage({ character = "cow", count = 1, remaining
 // Completion scheduling is separate from the persistent pet and the undo control.
 export function createCompletionCompanion({ accountVersion = () => 0,
   canShow = () => true, onShow = () => {}, onDismiss = () => {},
-  onPreferences = () => {} } = {}) {
+  onPreferences = () => {}, getCharacter = () => 'cow' } = {}) {
   const doc = document;
-  let preferences = readCompanionPreferences(), active = null, turn = 0, timer;
+  let preferences = readCompanionPreferences(), active = null, timer, storyActive = false;
   let remainingTime = 7000, deadline = 0;
   const indices = new Map();
   function stop() { clearTimeout(timer); }
   function paused() {
     const pet = doc.querySelector('#sidebar-companion');
-    return doc.visibilityState === 'hidden' || Boolean(pet &&
+    return storyActive || doc.visibilityState === 'hidden' || Boolean(pet &&
       (pet.matches?.(':hover') || (doc.activeElement && pet.contains?.(doc.activeElement))));
   }
   function pause() {
@@ -66,24 +66,39 @@ export function createCompletionCompanion({ accountVersion = () => 0,
     timer = setTimeout(dismiss, remainingTime);
   }
   function dismiss() { stop(); deadline = 0; active = null; onDismiss(); }
-  function reset() { dismiss(); turn = 0; indices.clear(); }
+  function reset() { dismiss(); indices.clear(); }
+  function setStoryActive(value) {
+    storyActive = Boolean(value);
+    if (storyActive) pause(); else resume();
+  }
   function show({ remaining = 1, epoch = accountVersion() } = {}) {
     if (!preferences.enabled || !canShow() || epoch !== accountVersion()) return false;
     const now = Date.now();
     const merged = active && active.epoch === epoch && now - active.lastCompletion <= 2000;
-    const character = merged ? active.character : turn++ % 2 ? 'horse' : 'cow';
+    const character = getCharacter() === 'horse' ? 'horse' : 'cow';
     const count = merged ? active.count + 1 : 1;
     const category = remaining === 0 ? 'all-done' : count > 1 ? 'batch' : 'ordinary';
     const key = character + ':' + category;
     const index = indices.get(key) || 0;
     let message = selectCompanionMessage({ character, count, remaining, index });
-    if (merged && active.message.mode === category) {
+    if (merged && active.character === character && active.message.mode === category) {
       message = { ...message, id: active.message.id, line: active.message.line };
     } else indices.set(key, index + 1);
     active = { character, count, remaining, epoch, message, lastCompletion: now };
     onShow({ ...active, replay: !merged });
     remainingTime = 7000; deadline = 0; resume();
     return true;
+  }
+  // A deadline crossing changes who speaks, without replaying a completion or extending its timer.
+  function refreshCharacter(character) {
+    character = character === 'horse' ? 'horse' : 'cow';
+    if (!active || active.character === character) return;
+    const key = character + ':' + active.message.mode;
+    const index = indices.get(key) || 0;
+    const message = selectCompanionMessage({ character, count: active.count, remaining: active.remaining, index });
+    indices.set(key, index + 1);
+    active = { ...active, character, message };
+    onShow({ ...active, replay: false });
   }
   function syncPreferences(value) {
     preferences = { ...preferences, ...value };
@@ -118,5 +133,5 @@ export function createCompletionCompanion({ accountVersion = () => 0,
       if (input) input.checked = preferences[setting];
     }
   });
-  return { show, dismiss, reset, preferenceMarkup, change };
+  return { show, dismiss, reset, preferenceMarkup, change, refreshCharacter, setStoryActive };
 }

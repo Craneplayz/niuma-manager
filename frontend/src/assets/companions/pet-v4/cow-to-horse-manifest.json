@@ -1,0 +1,804 @@
+{
+  "version": 4,
+  "direction": "cow-to-horse",
+  "columns": 4,
+  "rows": 4,
+  "frameWidth": 512,
+  "frameHeight": 384,
+  "sheetWidth": 2048,
+  "sheetHeight": 1536,
+  "frameCount": 48,
+  "files": [
+    "cow-to-horse-1.webp",
+    "cow-to-horse-2.webp",
+    "cow-to-horse-3.webp"
+  ],
+  "durations": [
+    180,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    190,
+    115,
+    115,
+    115,
+    170,
+    115,
+    115,
+    115,
+    115,
+    150,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    150,
+    115,
+    115,
+    115,
+    115,
+    115,
+    115,
+    170,
+    115,
+    115,
+    115,
+    115,
+    170,
+    115,
+    115,
+    115,
+    115,
+    115,
+    220
+  ],
+  "totalDuration": 6000,
+  "anchors": {
+    "start": "v3 cow-action0",
+    "end": "v3 horse-action5",
+    "centerX": 256,
+    "feetY": 340,
+    "heroHeight": 240
+  },
+  "beats": {
+    "throw": 3,
+    "impact": 7,
+    "bump": 10,
+    "cover": 13,
+    "walk": 18,
+    "exit": 27,
+    "horseEntry": 30,
+    "bend": 36,
+    "touch": 39,
+    "lift": 41,
+    "rest": 47
+  },
+  "provenance": {
+    "sourceFiles": {
+      "first": "exec-41dad956-a99b-4426-b4dc-d6bb64ac8ded.png",
+      "middle": "exec-8b64d94e-8c8f-4692-93bc-9758ca966588.png",
+      "endingOriginal": "exec-fcc98476-0e86-442a-9375-f44f3e808875.png",
+      "ending": "exec-4151aa05-fbb5-4466-9ddb-79b5c9dc5d9c.png",
+      "steps": "exec-1b063248-6fd9-43da-9e21-6f0eee732c3a.png"
+    },
+    "retainedAlpha": "Original alpha retained on isolated painted components and antialias edges; unrelated grid-edge scraps excluded by object crop",
+    "floorNotebook": "Same source notebook crop held stationary until pickup",
+    "clippedExits": "Full articulated walk poses are naturally clipped by the logical scene edge, avoiding painted source clipping strips"
+  },
+  "frames": [
+    {
+      "frame": 0,
+      "layers": [
+        {
+          "left": 153,
+          "top": 100,
+          "width": 207,
+          "height": 240
+        }
+      ]
+    },
+    {
+      "frame": 1,
+      "layers": [
+        {
+          "left": 149,
+          "top": 99,
+          "width": 220,
+          "height": 244
+        }
+      ]
+    },
+    {
+      "frame": 2,
+      "layers": [
+        {
+          "left": 149,
+          "top": 99,
+          "width": 220,
+          "height": 244
+        }
+      ]
+    },
+    {
+      "frame": 3,
+      "layers": [
+        {
+          "left": 150,
+          "top": 99,
+          "width": 219,
+          "height": 244
+        },
+        {
+          "left": 470,
+          "top": 64,
+          "width": 71,
+          "height": 81
+        }
+      ]
+    },
+    {
+      "frame": 4,
+      "layers": [
+        {
+          "left": 148,
+          "top": 99,
+          "width": 220,
+          "height": 244
+        },
+        {
+          "left": 424,
+          "top": 69,
+          "width": 73,
+          "height": 81
+        }
+      ]
+    },
+    {
+      "frame": 5,
+      "layers": [
+        {
+          "left": 142,
+          "top": 98,
+          "width": 217,
+          "height": 245
+        },
+        {
+          "left": 371,
+          "top": 75,
+          "width": 79,
+          "height": 81
+        }
+      ]
+    },
+    {
+      "frame": 6,
+      "layers": [
+        {
+          "left": 145,
+          "top": 88,
+          "width": 266,
+          "height": 255
+        }
+      ]
+    },
+    {
+      "frame": 7,
+      "layers": [
+        {
+          "left": 145,
+          "top": 90,
+          "width": 231,
+          "height": 253
+        }
+      ]
+    },
+    {
+      "frame": 8,
+      "layers": [
+        {
+          "left": 152,
+          "top": 99,
+          "width": 220,
+          "height": 244
+        },
+        {
+          "left": 258,
+          "top": 136,
+          "width": 76,
+          "height": 77
+        }
+      ]
+    },
+    {
+      "frame": 9,
+      "layers": [
+        {
+          "left": 148,
+          "top": 98,
+          "width": 220,
+          "height": 245
+        },
+        {
+          "left": 270,
+          "top": 184,
+          "width": 77,
+          "height": 82
+        }
+      ]
+    },
+    {
+      "frame": 10,
+      "layers": [
+        {
+          "left": 148,
+          "top": 96,
+          "width": 220,
+          "height": 248
+        },
+        {
+          "left": 274,
+          "top": 246,
+          "width": 80,
+          "height": 80
+        }
+      ]
+    },
+    {
+      "frame": 11,
+      "layers": [
+        {
+          "left": 151,
+          "top": 99,
+          "width": 220,
+          "height": 244
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 12,
+      "layers": [
+        {
+          "left": 146,
+          "top": 101,
+          "width": 221,
+          "height": 242
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 13,
+      "layers": [
+        {
+          "left": 143,
+          "top": 99,
+          "width": 225,
+          "height": 245
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 14,
+      "layers": [
+        {
+          "left": 147,
+          "top": 100,
+          "width": 225,
+          "height": 244
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 15,
+      "layers": [
+        {
+          "left": 148,
+          "top": 100,
+          "width": 223,
+          "height": 243
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 16,
+      "layers": [
+        {
+          "left": 149,
+          "top": 97,
+          "width": 225,
+          "height": 247
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 17,
+      "layers": [
+        {
+          "left": 128,
+          "top": 97,
+          "width": 228,
+          "height": 247
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 18,
+      "layers": [
+        {
+          "left": 139,
+          "top": 103,
+          "width": 208,
+          "height": 240
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 19,
+      "layers": [
+        {
+          "left": 117,
+          "top": 99,
+          "width": 193,
+          "height": 244
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 20,
+      "layers": [
+        {
+          "left": 91,
+          "top": 105,
+          "width": 190,
+          "height": 238
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 21,
+      "layers": [
+        {
+          "left": 89,
+          "top": 102,
+          "width": 185,
+          "height": 241
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 22,
+      "layers": [
+        {
+          "left": 18,
+          "top": 109,
+          "width": 185,
+          "height": 235
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 23,
+      "layers": [
+        {
+          "left": -9,
+          "top": 111,
+          "width": 170,
+          "height": 232
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 24,
+      "layers": [
+        {
+          "left": -74,
+          "top": 105,
+          "width": 190,
+          "height": 238
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 25,
+      "layers": [
+        {
+          "left": -86,
+          "top": 102,
+          "width": 185,
+          "height": 241
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 26,
+      "layers": [
+        {
+          "left": -162,
+          "top": 109,
+          "width": 185,
+          "height": 235
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 27,
+      "layers": [
+        {
+          "left": -199,
+          "top": 111,
+          "width": 170,
+          "height": 232
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 28,
+      "layers": [
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 29,
+      "layers": [
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 30,
+      "layers": [
+        {
+          "left": 450,
+          "top": 121,
+          "width": 200,
+          "height": 222
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 31,
+      "layers": [
+        {
+          "left": 400,
+          "top": 121,
+          "width": 200,
+          "height": 222
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 32,
+      "layers": [
+        {
+          "left": 350,
+          "top": 121,
+          "width": 200,
+          "height": 222
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 33,
+      "layers": [
+        {
+          "left": 320,
+          "top": 101,
+          "width": 221,
+          "height": 240
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 34,
+      "layers": [
+        {
+          "left": 311,
+          "top": 101,
+          "width": 202,
+          "height": 240
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 35,
+      "layers": [
+        {
+          "left": 302,
+          "top": 95,
+          "width": 202,
+          "height": 248
+        },
+        {
+          "left": 270,
+          "top": 309,
+          "width": 90,
+          "height": 51
+        }
+      ]
+    },
+    {
+      "frame": 36,
+      "layers": [
+        {
+          "left": 269,
+          "top": 95,
+          "width": 244,
+          "height": 267
+        }
+      ]
+    },
+    {
+      "frame": 37,
+      "layers": [
+        {
+          "left": 270,
+          "top": 127,
+          "width": 230,
+          "height": 235
+        }
+      ]
+    },
+    {
+      "frame": 38,
+      "layers": [
+        {
+          "left": 270,
+          "top": 154,
+          "width": 216,
+          "height": 208
+        }
+      ]
+    },
+    {
+      "frame": 39,
+      "layers": [
+        {
+          "left": 269,
+          "top": 155,
+          "width": 229,
+          "height": 207
+        }
+      ]
+    },
+    {
+      "frame": 40,
+      "layers": [
+        {
+          "left": 270,
+          "top": 152,
+          "width": 226,
+          "height": 198
+        }
+      ]
+    },
+    {
+      "frame": 41,
+      "layers": [
+        {
+          "left": 282,
+          "top": 113,
+          "width": 222,
+          "height": 230
+        }
+      ]
+    },
+    {
+      "frame": 42,
+      "layers": [
+        {
+          "left": 274,
+          "top": 112,
+          "width": 218,
+          "height": 231
+        }
+      ]
+    },
+    {
+      "frame": 43,
+      "layers": [
+        {
+          "left": 275,
+          "top": 103,
+          "width": 200,
+          "height": 240
+        }
+      ]
+    },
+    {
+      "frame": 44,
+      "layers": [
+        {
+          "left": 243,
+          "top": 100,
+          "width": 203,
+          "height": 243
+        }
+      ]
+    },
+    {
+      "frame": 45,
+      "layers": [
+        {
+          "left": 220,
+          "top": 102,
+          "width": 201,
+          "height": 241
+        }
+      ]
+    },
+    {
+      "frame": 46,
+      "layers": [
+        {
+          "left": 197,
+          "top": 100,
+          "width": 197,
+          "height": 243
+        }
+      ]
+    },
+    {
+      "frame": 47,
+      "layers": [
+        {
+          "left": 166,
+          "top": 100,
+          "width": 180,
+          "height": 240
+        }
+      ]
+    }
+  ],
+  "timingSource": "frontend/src/companion-motion.js storyFrames[cow-to-horse]"
+}

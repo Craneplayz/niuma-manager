@@ -32,8 +32,8 @@ function pendingReview() {
   }];
 }
 
-async function openApp(page, { initialTasks = [task("one"), task("two"), task("three")], reviews = [], offerRating = false, onWrite } = {}) {
-  await page.clock.setFixedTime(new Date("2026-10-29T04:00:00Z"));
+async function openApp(page, { initialTasks = [task("one"), task("two"), task("three")], reviews = [], offerRating = false, onWrite, fixedTime = "2026-10-29T04:00:00Z" } = {}) {
+  if (fixedTime) await page.clock.setFixedTime(new Date(fixedTime));
   let tasks = structuredClone(initialTasks), version = 1;
   const batches = structuredClone(reviews), writes = [], resolutions = [], unknown = [], errors = [];
   let user = { id: "companion-synthetic", name: "合成账号", email: "companion@example.test", emailVerified: true };
@@ -136,7 +136,7 @@ test("a saved task gets one cow acknowledgement and undo restores its real statu
   noUnexpectedErrors(state);
 });
 
-test("rapid completions merge, a later appearance alternates, and undo affects only the latest task", async ({ page }, info) => {
+test("rapid completions merge, later feedback keeps the resident actor, and undo affects only the latest task", async ({ page }, info) => {
   const state = await openApp(page, { initialTasks: ["one", "two", "three", "four", "five"].map(id => task(id)) });
   await complete(page, "one");
   await expect(companion(page)).toHaveAttribute("data-count", "1");
@@ -147,11 +147,11 @@ test("rapid completions merge, a later appearance alternates, and undo affects o
   // Date.now drives the merge window; advance the fixed clock beyond it.
   await page.clock.setFixedTime(new Date("2026-10-29T04:00:03.001Z"));
   await complete(page, "three");
-  await expect(companion(page)).toHaveAttribute("data-character", "horse");
+  await expect(companion(page)).toHaveAttribute("data-character", "cow");
   await expect(companion(page)).toHaveAttribute("data-count", "1");
   await complete(page, "four");
   await expect(companion(page)).toHaveAttribute("data-count", "2");
-  await expect(companion(page)).toHaveAttribute("data-character", "horse");
+  await expect(companion(page)).toHaveAttribute("data-character", "cow");
   await expect(page.locator('#sidebar-companion[data-completion="true"]')).toHaveCount(1);
   await page.screenshot({ path: info.outputPath("completion-horse-merged.png"), fullPage: true });
   await page.locator("#toast-undo").click();
@@ -316,5 +316,48 @@ test('an existing undo moves into newly opened task details and stays actionable
   await expect(undo).toBeEnabled();
   await undo.click();
   await expect.poll(() => state.tasks().find(item => item.id === 'one').status).toBe('not_started');
+  noUnexpectedErrors(state);
+});
+
+
+test('the resident horse acknowledges completions until the last overdue task is saved done', async ({ page }) => {
+  const late = id => task(id, { due: { date: '2026-10-28', precision: 'date' } });
+  const state = await openApp(page, { initialTasks: [late('one'), late('two'), late('three'), task('future')] });
+  const pet = page.locator('#sidebar-companion');
+  await expect(pet).toHaveAttribute('data-character', 'horse');
+  await expect(pet).toHaveAttribute('data-story-count', '0');
+  for (const id of ['one', 'two']) {
+    await complete(page, id);
+    await expect(pet).toHaveAttribute('data-character', 'horse');
+    await expect(pet).toHaveAttribute('data-story-count', '0');
+    await expect(pet).toHaveAttribute('data-completion', 'true');
+  }
+  await complete(page, 'three');
+  await expect(pet).toHaveAttribute('data-story', 'horse-to-cow');
+  await expect(pet).toHaveAttribute('data-story-count', '1');
+  await expect(pet).toHaveAttribute('data-story-active', 'false', { timeout: 12000 });
+  await expect(pet).toHaveAttribute('data-character', 'cow');
+  expect(state.tasks().filter(t => t.status === 'completed')).toHaveLength(3);
+  noUnexpectedErrors(state);
+});
+
+test('the exact timed deadline changes the actor without refreshing or losing a search draft', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-10-29T04:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-10-29T04:00:01Z'));
+  const state = await openApp(page, { fixedTime: null, initialTasks: [task('timed', { due: { date: '2026-10-29', time: '12:01', precision: 'datetime' } })] });
+  const pet = page.locator('#sidebar-companion');
+  await expect(pet).toHaveAttribute('data-character', 'cow');
+  await expect(pet).toHaveAttribute('data-story-count', '0');
+  await page.locator('#task-search').fill('保留这个查询');
+  await page.clock.runFor(58999);
+  await expect(pet).toHaveAttribute('data-character', 'cow');
+  await page.clock.runFor(1);
+  await expect(pet).toHaveAttribute('data-story', 'cow-to-horse');
+  await expect(pet).toHaveAttribute('data-story-active', 'true');
+  await page.clock.runFor(7500);
+  await expect(pet).toHaveAttribute('data-character', 'horse');
+  await expect(pet).toHaveAttribute('data-story-count', '1');
+  await expect(page.locator('#task-search')).toHaveValue('保留这个查询');
+  expect(state.writes).toHaveLength(0);
   noUnexpectedErrors(state);
 });

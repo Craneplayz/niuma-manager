@@ -42,7 +42,7 @@ import { feedbackBox } from "./usage-feedback.js";
 import { createCompletionCompanion, countRemainingTasks } from "./completion-companion.js";
 import { createSidebarCompanion } from "./sidebar-companion.js";
 import { createUndoFeedback } from "./undo-feedback.js";
-import { selectSidebarCompanion } from "./sidebar-companion-state.js";
+import { selectSidebarCompanion, nextCompanionDeadline } from "./sidebar-companion-state.js";
 import { describeEnvironment } from "./environment-badge.js";
 import { renderCourseDot, syncCourseColors } from "./course-identity.js";
 import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
@@ -62,7 +62,7 @@ const app = document.querySelector("#app"),
   drawer = document.querySelector("#task-drawer"),
   sidebarTooltip = document.querySelector("#sidebar-tooltip");
 const params = new URLSearchParams(location.search);
-let today = todayKey(), dayTimer;
+let today = todayKey(), dayTimer, companionTimer;
 const dateFormat = new Intl.DateTimeFormat("zh-CN", {
   month: "long", day: "numeric", weekday: "long",
 });
@@ -99,6 +99,7 @@ const ui = {
 const completionCompanion = createCompletionCompanion({
   accountVersion,
   canShow: () => !dialog.open && !drawerEditing && !ui.mobileMenu,
+  getCharacter: () => sidebarCompanion.getCharacter(),
   onShow: value => sidebarCompanion.showCompletion(value),
   onDismiss: () => sidebarCompanion.endCompletion(),
   onPreferences: value => sidebarCompanion.preferences(value),
@@ -110,6 +111,10 @@ const sidebarCompanion = createSidebarCompanion({
     matchMedia("(max-height: 720px)").matches,
   onOpen: hideSidebarTooltip,
   onCompletionDismiss: () => completionCompanion.dismiss(),
+  onStoryChange: active => {
+    completionCompanion.setStoryActive(active);
+    undoFeedback.setStoryActive(active);
+  },
 });
 const undoFeedback = createUndoFeedback({
   escapeHtml: esc, icon, accountVersion,
@@ -119,13 +124,24 @@ const undoFeedback = createUndoFeedback({
 });
 let sidebarAccountEpoch = accountVersion();
 function syncSidebarCompanion() {
+  clearTimeout(companionTimer);
   const epoch = accountVersion();
   if (epoch !== sidebarAccountEpoch) {
     sidebarAccountEpoch = epoch;
     sidebarCompanion.reset();
   }
   const ready = demo || Boolean(!loading && session.user && !session.changing && !loadError);
-  sidebarCompanion.update(selectSidebarCompanion(demo ? state.tasks : readSavedTasks(), { today, ready }));
+  const records = demo ? state.tasks : readSavedTasks(), now = new Date();
+  const mood = selectSidebarCompanion(records, { today, ready, now });
+  sidebarCompanion.update(mood);
+  if (ready) completionCompanion.refreshCharacter(mood.character);
+  const next = ready && document.visibilityState !== "hidden"
+    ? nextCompanionDeadline(records, { today, now }) : null;
+  if (next != null) companionTimer = setTimeout(() => {
+    if (epoch !== accountVersion()) return;
+    refreshToday();
+    syncSidebarCompanion();
+  }, Math.max(1, next - now.getTime()));
 }
 const host = {
   escapeHtml: esc,
@@ -367,7 +383,7 @@ function showSidebarTooltip(button) {
 }
 function updateSidebarState() {
   hideSidebarTooltip();
-  sidebarCompanion.dismiss({ stop: true });
+  sidebarCompanion.dismiss();
   const mobile = matchMedia("(max-width: 700px)").matches;
   const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
   const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
@@ -505,7 +521,8 @@ function refreshToday() {
   return true;
 }
 function syncToday() {
-  if (document.visibilityState !== "hidden" && refreshToday()) {
+  const visible = document.visibilityState !== "hidden", changed = visible && refreshToday();
+  if (changed) {
     if (ui.page === "tasks") render();
     else {
       // Keep the import form and any unsaved review draft intact.
@@ -516,7 +533,7 @@ function syncToday() {
       }
       syncSidebarCompanion();
     }
-  }
+  } else if (visible) syncSidebarCompanion();
   clearTimeout(dayTimer);
   const now = new Date();
   dayTimer = setTimeout(syncToday,
