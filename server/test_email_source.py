@@ -196,11 +196,15 @@ class EmailSourceTests(unittest.TestCase):
         self.assertEqual([uid for uid, _ in body_fetches], [8])
 
     def test_bodystructure_metadata_limit_prevents_body_fetch(self):
-        client = FakeIMAP(structure='(' + 'x' * email_source.MAX_IMAP_METADATA_BYTES + ')')
-        with self.assertRaises(email_source.EmailSourceError) as caught:
-            email_source._fetch_text(client, 7)
-        self.assertEqual(caught.exception.status, 422)
-        self.assertEqual(client.fetches, [(7, '(UID BODYSTRUCTURE)')])
+        leaf='("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 30 1)'
+        for structure in ('(' + 'x' * email_source.MAX_IMAP_METADATA_BYTES + ')',
+                          '('*1100 + leaf + ' "MIXED")'*1100):
+            with self.subTest(size=len(structure)):
+                client = FakeIMAP(structure=structure)
+                with self.assertRaises(email_source.EmailSourceError) as caught:
+                    email_source._fetch_text(client, 7)
+                self.assertEqual(caught.exception.status, 422)
+                self.assertEqual(client.fetches, [(7, '(UID BODYSTRUCTURE)')])
 
     def test_nonliteral_response_does_not_supply_header_or_body_content(self):
         client = FakeIMAP()

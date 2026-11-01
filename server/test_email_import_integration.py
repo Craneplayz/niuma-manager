@@ -345,5 +345,33 @@ class EmailImportAcceptanceTests(support.EmailHTTPTestCase):
             username='different', password='Different-synthetic-password'))
         self.assertFalse(self.call('/sources/email/preferences')[1]['consent_granted'])
 
+    def test_unsafe_mime_does_not_fail_healthy_siblings(self):
+        import email_source
+        original=self.imap.uid
+        leaf='("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 30 1)'
+        for index,mode in enumerate(('nesting','header','base64')):
+            with self.subTest(mode=mode):
+                bad=20+index*2
+                def response(command,*args):
+                    if command=='FETCH' and str(args[0])==str(bad):
+                        query=args[1]
+                        if mode=='header' and 'HEADER.FIELDS' in query:
+                            return 'OK',[(f'(UID {bad})'.encode(),b'x'*(email_source.MAX_HEADER_BYTES+1))]
+                        if 'BODYSTRUCTURE' in query and mode in ('nesting','base64'):
+                            structure='('*1100+leaf+' "MIXED")'*1100 if mode=='nesting' else leaf.replace('7BIT','BASE64')
+                            return 'OK',[f'(UID {bad} BODYSTRUCTURE {structure})'.encode()]
+                        if mode=='base64' and 'BODY.PEEK[' in query and 'HEADER.FIELDS' not in query:
+                            return 'OK',[(f'(UID {bad})'.encode(),b'A')]
+                    return original(command,*args)
+                ids=[email_source._identity(self.address,'77',uid) for uid in (bad,bad+1)]
+                calls=self.model.call_count
+                with patch.object(self.imap,'uid',side_effect=response):
+                    job=self.settled(self.start(ids,'unsafe-'+mode)['job_id'])
+                self.assertEqual(job['state'],'partial_success',job)
+                self.assertEqual((job['counts']['processed'],job['counts']['failed']),(1,1))
+                self.assertEqual(self.model.call_count,calls+1)
+                self.assertEqual(self.model.call_args.args[0]['records'][0]['input_id'],ids[1])
+
+
 if __name__ == '__main__':
     unittest.main()

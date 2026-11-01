@@ -210,6 +210,18 @@ class EmailReprocessTests(support.EmailHTTPTestCase):
         repeat = self.settled(self.start([input_id],'ordinary-after-failure')['job_id'])
         self.assertEqual(repeat['counts']['cached'],1)
         self.assertEqual((self.imap_calls,self.model.call_count),calls)
+        path='/sources/email/jobs/'+job['job_id']+'/retry'
+        self.assertEqual(self.call(path,dict(operation_id='rerun-without-consent'))[0],400)
+        outsider=self.account('retry-outsider')
+        self.assertEqual(self.call(path,dict(operation_id='foreign-retry',consent=True),client=outsider)[0],404)
+        self.call('/sources/email/preferences',dict(consent=False,process_all=False))
+        self.assertEqual(self.call(path,dict(operation_id='revoked-retry',consent=True))[0],400)
+        self.call('/sources/email/preferences',dict(consent=True,process_all=False))
+        self.model.side_effect=one_task
+        status,retry=self.call(path,dict(operation_id='rerun-failure',consent=True))
+        self.assertEqual(status,202,retry);self.assertEqual(retry['kind'],'reprocess')
+        self.assertEqual(self.settled(retry['job_id'])['state'],'succeeded')
+        self.assertEqual(self.imap_calls,calls[0],'reprocessing retry must only reuse stored bodies')
 
     def test_saved_workspace_task_is_unchanged_by_successful_reprocessing(self):
         self.imap.body='请在2026年9月30日前提交需求报告。'.encode()
@@ -331,7 +343,7 @@ class BulkUpdateTests(support.EmailHTTPTestCase):
         uid=self.call('/auth/me')[1]['user']['id']
         with app.connection() as db:
             template=json.loads(db.execute('SELECT request FROM recognition_batches WHERE user_id=? LIMIT 1',(uid,)).fetchone()['request'])
-            numbers=list(range(2000,3001))
+            numbers=list(range(2000,3003))
             db.execute('UPDATE email_header_snapshots SET range_key=?,uids=? WHERE user_id=?',
                 (json.dumps(dict(limit=2000,start_date=None),sort_keys=True,separators=(',',':')),json.dumps(numbers),uid))
             for number in numbers:
@@ -342,14 +354,30 @@ class BulkUpdateTests(support.EmailHTTPTestCase):
                 db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',(uid,request['request_id'],record['input_id'],json.dumps(dict(version='old'))))
         calls=self.imap_calls
         status,preview=self.call('/sources/email/preview',dict(limit=2000,cache_only=True))
-        self.assertEqual(status,200,preview); self.assertEqual(preview['recognition_updates']['outdated_count'],1001)
+        self.assertEqual(status,200,preview); self.assertEqual(preview['recognition_updates']['outdated_count'],1003)
         self.assertEqual(self.imap_calls,calls)
         self.preview=preview
         body=self.payload('large-range'); body['range']['limit']=2000
         with patch.object(email_import,'_launch'):
             status,job=self.call('/sources/email/reprocess',body)
-        self.assertEqual(status,202,job); self.assertEqual(job['counts']['selected'],1001)
+        self.assertEqual(status,202,job); self.assertEqual(job['counts']['selected'],1003)
         self.assertEqual(self.model.call_count,0)
+        import email_import_store as store
+        with app.connection() as db:
+            row=db.execute('SELECT snapshot FROM email_import_jobs WHERE user_id=? AND job_id=?',(uid,job['job_id'])).fetchone()
+            failed=store.load_job(db,uid,job['job_id'],row['snapshot']);failed['state']='partial_success'
+            for item in failed['items']:item['state']='failed'
+            failed['items'][0]['state']='no_tasks'
+            store.save(db,uid,job['job_id'],failed)
+        self.call('/sources/email/exclusions',dict(input_ids=[failed['items'][-1]['input_id']],excluded=True))
+        path='/sources/email/jobs/'+job['job_id']+'/retry'
+        with patch.object(email_import,'_launch'):
+            status,retry=self.call(path,dict(operation_id='large-retry',consent=True))
+        self.assertEqual(status,202,retry)
+        self.assertEqual((retry['counts']['pending'],retry['counts']['cached'],retry['counts']['excluded']),(1001,1,1))
+        status,replayed=self.call(path,dict(operation_id='large-retry',consent=True))
+        self.assertEqual(status,200);self.assertEqual(replayed['job_id'],retry['job_id'])
+        self.assertEqual((self.imap_calls,self.model.call_count),(calls,0))
 
 
 if __name__ == "__main__":

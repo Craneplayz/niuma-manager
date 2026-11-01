@@ -207,6 +207,7 @@ export function createImportUI(host) {
     emailStartOperationId = null,
     emailStartSelectionKey = null,
     emailRetryOperationId = null,
+    emailRetryJobId = null,
     emailJobActionBusy = false,
     emailPollError = false,
     emailSnapshotId = null,
@@ -401,7 +402,7 @@ export function createImportUI(host) {
     emailMessages = [];
     emailSelected = new Set();
     emailPreferences = { consent_granted: false, process_all: false };
-    emailStartBusy = false; emailStartOperationId = null; emailStartSelectionKey = null; emailRetryOperationId = null; emailJobActionBusy = false; emailPollError = false;
+    emailStartBusy = false; emailStartOperationId = null; emailStartSelectionKey = null; emailRetryOperationId = null; emailRetryJobId = null; emailJobActionBusy = false; emailPollError = false;
     emailPreviewRequestId++; emailPreviewOffset = 0; emailPageSize = 25; emailNextOffset = null; emailFilter = "all"; emailSort = "attention"; emailMatchedTotal = null; emailWholeRange = false; emailManualSelection = false; emailTotal = 0; emailRange = { limit: 50, start_date: null }; emailLoadedRange = null; emailJob = null;
     emailSnapshotId = null; emailCacheInfo = null; emailMessageById = new Map(); emailLoadedIds = []; emailReprocessConfirmIds = []; emailReprocessScope = null; emailRecognitionUpdates = null; emailUpdateUnknown = false; emailReprocessOperationId = null; emailReprocessError = "";
     clearTimeout(emailJobTimer); emailJobTimer = null;
@@ -1186,6 +1187,7 @@ export function createImportUI(host) {
   }
   async function emailJobAction(action) {
     if (!emailJob?.job_id || blocked() || emailJobActionBusy) return;
+    if (action === "retry" && emailJob.kind === "reprocess" && !emailPreferences.consent_granted) { await openEmailSettings(); return; }
     const stamp = current(), jobId = emailJob.job_id;
     const requestId = action === "poll" ? null : ++emailJobRequestId;
     if (action !== "poll") { clearTimeout(emailJobTimer); emailJobTimer = null; }
@@ -1194,8 +1196,9 @@ export function createImportUI(host) {
       let next;
       if (action === "stop") next = await api(`/api/sources/email/jobs/${encodeURIComponent(jobId)}/stop`, {}, "POST");
       else if (action === "retry") {
+        if (emailRetryJobId !== jobId) { emailRetryOperationId = null; emailRetryJobId = jobId; }
         if (!emailRetryOperationId) emailRetryOperationId = newId();
-        next = await api(`/api/sources/email/jobs/${encodeURIComponent(jobId)}/retry`, { operation_id: emailRetryOperationId }, "POST");
+        next = await api(`/api/sources/email/jobs/${encodeURIComponent(jobId)}/retry`, { operation_id: emailRetryOperationId, ...(emailJob.kind === "reprocess" ? { consent: true } : {}) }, "POST");
       } else if (action === "poll") { await pollEmailJob(jobId); return; }
       if (!valid(stamp) || (requestId !== null && requestId !== emailJobRequestId)) return;
       emailJob = next;
@@ -1468,7 +1471,7 @@ export function createImportUI(host) {
     if (action === "email-start-job") { await syncEmail(); return true; }
     if (action === "email-update-recognition") { await updateEmailRecognition(); return true; }
     if (action === "email-reprocess") { await startEmailReprocess(); return true; }
-    if (action === "email-reprocess-retry") { await startEmailReprocess((emailJob?.items || []).filter(item => ["failed", "interrupted"].includes(item.state)).map(item => item.input_id), { confirm: false }); return true; }
+    if (action === "email-reprocess-retry") { await emailJobAction("retry"); return true; }
     if (action === "email-reprocess-cancel") { emailReprocessConfirmIds = []; emailReprocessScope = null; emailUpdateUnknown = false; emailReprocessOperationId = null; if (host.isDialogOpen?.(".email-reprocess-confirm")) host.closeDialog(); return true; }
     if (action === "email-reprocess-confirm") { await confirmEmailReprocess(); return true; }
     if (action === "email-stop-job") { await emailJobAction("stop"); return true; }

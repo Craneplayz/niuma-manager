@@ -31,6 +31,7 @@ MAX_SELECTED = 20
 MAX_BODY_BYTES = 131072
 MAX_BODY_CHARS = 30000
 MAX_IMAP_METADATA_BYTES = 200000
+MAX_MIME_DEPTH = 64
 MAX_HEADER_BYTES = 262144
 TZ = ZoneInfo('Asia/Shanghai')
 _ADDRESS = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$")
@@ -321,7 +322,9 @@ def preview_range(address, username, password, *, limit=50, start_date=None, off
             'next_offset': offset + page_size if offset + page_size < (matched_total if select_uids is not None else total) else None}
 
 
-def _parse_sexp(source, index=0):
+def _parse_sexp(source, index=0, depth=0):
+    if depth > MAX_MIME_DEPTH:
+        raise ValueError('IMAP structure nesting exceeds limit')
     length = len(source)
     while index < length and source[index].isspace():
         index += 1
@@ -336,7 +339,7 @@ def _parse_sexp(source, index=0):
                 raise ValueError('unterminated IMAP list')
             if source[index] == ')':
                 return values, index + 1
-            value, index = _parse_sexp(source, index)
+            value, index = _parse_sexp(source, index, depth + 1)
             values.append(value)
     if source[index] == '"':
         chars, index = [], index + 1
@@ -371,7 +374,7 @@ def _body_structure(metadata):
     try:
         value, _ = _parse_sexp(decoded, match.end())
         return value
-    except ValueError:
+    except (ValueError, RecursionError):
         raise EmailSourceError(422, '邮件正文结构无法安全解析，未发送邮件内容') from None
 
 
@@ -464,13 +467,16 @@ def _decode_part(raw, part):
     charset = part.get('charset') or 'utf-8'
     encoding = part.get('encoding', '7bit').lower()
     # IMAP returns the transfer-encoded leaf bytes; decode only this text part.
-    if encoding == 'base64':
-        compact = re.sub(rb'\s+', b'', raw)
-        decoded = base64.b64decode(compact + b'=' * (-len(compact) % 4), validate=False)
-    elif encoding == 'quoted-printable':
-        decoded = quopri.decodestring(raw)
-    else:
-        decoded = raw
+    try:
+        if encoding == 'base64':
+            compact = re.sub(rb'\s+', b'', raw)
+            decoded = base64.b64decode(compact + b'=' * (-len(compact) % 4), validate=False)
+        elif encoding == 'quoted-printable':
+            decoded = quopri.decodestring(raw)
+        else:
+            decoded = raw
+    except ValueError:
+        raise EmailSourceError(422, '邮件正文编码无法安全解析，未发送邮件内容') from None
     try:
         text = decoded.decode(charset, 'replace')
     except LookupError:
@@ -579,11 +585,17 @@ def fetch_selected(address, username, password, input_ids, *, timings=None, guar
                     unavailable += 1
                     continue
             started=time.perf_counter()
-            metadata, raw_headers = _fetch_tuple(
-                client, uid,
-                '(UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])',
-            )
-            if timings is not None: timings['fetch_ms']=timings.get('fetch_ms',0)+(time.perf_counter()-started)*1000
+            try:
+                metadata, raw_headers = _fetch_tuple(
+                    client, uid,
+                    '(UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (DATE FROM SUBJECT)])',
+                )
+            except EmailSourceError as error:
+                if error.status != 422: raise
+                unavailable += 1
+                continue
+            finally:
+                if timings is not None: timings['fetch_ms']=timings.get('fetch_ms',0)+(time.perf_counter()-started)*1000
             if raw_headers is None:
                 unavailable += 1
                 continue

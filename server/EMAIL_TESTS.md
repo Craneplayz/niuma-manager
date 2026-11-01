@@ -1,6 +1,6 @@
 # Email test index
 
-139 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
+140 backend tests in 14 files. Each line below describes one test and links to its definition, in source order. Account email-verification tests belong to authentication and are excluded. All use synthetic inputs; passing them does not establish real mailbox compatibility or model/deadline accuracy.
 
 Related variants share subtests or one lifecycle fixture. Queue/lease races remain separate; retired popup actions are excluded.
 
@@ -32,11 +32,11 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 9. [Reject foreign or duplicate message IDs.](test_email_source.py#L150)
 10. [Reuse short-lived connections in small batches.](test_email_source.py#L158)
 11. [Skip an excluded message without skipping its siblings.](test_email_source.py#L178)
-12. [Reject oversized body metadata before fetching content.](test_email_source.py#L198)
-13. [Reject content without a valid IMAP literal.](test_email_source.py#L205)
-14. [Strip scripts and styles from HTML.](test_email_source.py#L211)
-15. [Match headers by UID despite response reordering.](test_email_source.py#L223)
-16. [Reject unexpected, duplicate, missing or oversized header literals.](test_email_source.py#L234)
+12. [Reject oversized or deeply nested MIME metadata before fetching content.](test_email_source.py#L198)
+13. [Reject content without a valid IMAP literal.](test_email_source.py#L209)
+14. [Strip scripts and styles from HTML.](test_email_source.py#L215)
+15. [Match headers by UID despite response reordering.](test_email_source.py#L227)
+16. [Reject unexpected, duplicate, missing or oversized header literals.](test_email_source.py#L238)
 
 ### [test_email_source_routes.py](test_email_source_routes.py) — Credentials and legacy API (3)
 
@@ -68,7 +68,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 4. [Reject invalid cache controls before mailbox access.](test_email_cache_routes.py#L83)
 5. [Load full-range headers in bounded batches; restore offline.](test_email_cache_routes.py#L92)
 6. [Isolate results/exclusions across logins; preserve legacy IDs, password rotation, reconnects and historical evidence.](test_email_cache_routes.py#L106)
-7. [Keep disconnected legacy caches, legacy-only batches and exclusions unbound to new logins; preserve evidence and reconnect identity.](test_email_cache_routes.py#L160)
+7. [Keep disconnected legacy caches, legacy-only batches and exclusions unbound to new logins; preserve evidence and reconnect identity.](test_email_cache_routes.py#L161)
 
 ### [test_email_list_filters.py](test_email_list_filters.py) — List filtering and sorting (5)
 
@@ -78,7 +78,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 4. [Reject invalid filters before mailbox access.](test_email_list_filters.py#L98)
 5. [Chunk state queries below SQLite’s parameter limit.](test_email_list_filters.py#L108)
 
-### [test_email_import_integration.py](test_email_import_integration.py) — HTTP import lifecycle (9)
+### [test_email_import_integration.py](test_email_import_integration.py) — HTTP import lifecycle (10)
 
 1. [Handle encoded job IDs and isolate read/stop/retry operations.](test_email_import_integration.py#L48)
 2. [Preview, exclude, recognize and reuse a persistent no-task cache.](test_email_import_integration.py#L74)
@@ -89,6 +89,7 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 7. [Keep exact, private-free diagnostics for malformed JSON/schema/evidence, timeout, configuration and save rollback; isolate owners.](test_email_import_integration.py#L230)
 8. [Interrupt unfinished work on restart; reuse completed results.](test_email_import_integration.py#L296)
 9. [Bind queued ranges to credentials; disconnect revokes consent.](test_email_import_integration.py#L329)
+10. [Isolate deeply nested MIME, oversized headers and malformed Base64 from healthy messages.](test_email_import_integration.py#L348)
 
 ### [test_email_import_store.py](test_email_import_store.py) — Durable storage (3)
 
@@ -178,14 +179,14 @@ The second command runs 14 email extraction/diagnostic tests plus 5 shared fallb
 5. [Recheck review decisions made while generation is running.](test_email_reprocess.py#L128)
 6. [Mark new candidates uncertain when protected cards exist.](test_email_reprocess.py#L147)
 7. [Reject late rerun results after stop, revocation or exclusion.](test_email_reprocess.py#L164)
-8. [Keep pending cards and the successful cache after failed updates; reuse that cache.](test_email_reprocess.py#L186)
-9. [Preserve saved workspace tasks after successful reprocessing.](test_email_reprocess.py#L214)
-10. [Update outdated results across the full range; skip excluded/current/unknown items.](test_email_reprocess.py#L263)
-11. [Include unknown policy versions only by explicit choice.](test_email_reprocess.py#L283)
-12. [Reject stale confirmation after rules or selection change.](test_email_reprocess.py#L292)
-13. [Enforce snapshot ownership and explicit processing consent.](test_email_reprocess.py#L302)
-14. [Keep successful results available after a failed bulk update.](test_email_reprocess.py#L313)
-15. [Support ranges above 1,000 items without hydrating headers.](test_email_reprocess.py#L329)
+8. [Keep prior cards/cache; retry via saved bodies with explicit consent and account isolation.](test_email_reprocess.py#L186)
+9. [Preserve saved workspace tasks after successful reprocessing.](test_email_reprocess.py#L226)
+10. [Update outdated results across the full range; skip excluded/current/unknown items.](test_email_reprocess.py#L275)
+11. [Include unknown policy versions only by explicit choice.](test_email_reprocess.py#L295)
+12. [Reject stale confirmation after rules or selection change.](test_email_reprocess.py#L304)
+13. [Enforce snapshot ownership and explicit processing consent.](test_email_reprocess.py#L314)
+14. [Keep successful results available after a failed bulk update.](test_email_reprocess.py#L325)
+15. [Update/retry over 1,000 items; skip successful/excluded items and replay operations idempotently.](test_email_reprocess.py#L341)
 
 ### [test_email_telemetry.py](test_email_telemetry.py) — Content-free monitoring (10)
 
@@ -236,7 +237,7 @@ The 8K → 16K setting enlarges the **output-token allowance**, not the context 
 
 | File | What it checks |
 | --- | --- |
-| [import-flow.test.js](../frontend/tests/import-flow.test.js) | Consent/settings, local full-range sort/filter/pagination, selection, stale responses, job progress, stop/retry/update, scheduler-only mail history retries and notice review. Shared with other import sources. |
+| [import-flow.test.js](../frontend/tests/import-flow.test.js) | Consent/settings, local full-range sort/filter/pagination, selection, stale responses, job progress, stop/retry/update, terminal-summary and parent-scoped retries, scheduler-only mail history retries and notice review. Shared with other import sources. |
 | [account-email-settings.test.js](../frontend/tests/account-email-settings.test.js) — 6 | Open/focus PKU settings; prevent late reopening or cross-account updates. |
 | [connection-return-hint.test.js](../frontend/tests/connection-return-hint.test.js) — 7 | Safe return-to-settings hints, session changes and notification precedence. Includes teaching connections. |
 | [email-diagnostics.test.js](../frontend/tests/email-diagnostics.test.js) — 3 | Safe diagnostic rendering, token coverage and overlapping-timing explanations. |
@@ -244,6 +245,6 @@ The 8K → 16K setting enlarges the **output-token allowance**, not the context 
 ## Fixtures, load checks and maintenance
 
 - [email_test_support.py](email_test_support.py): shared fake IMAP, no-task model result and fresh authenticated HTTP fixture; not a test suite. Workers drain before fixture cleanup.
-- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 139 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
+- [benchmark_email_concurrency.py](benchmark_email_concurrency.py): separate synthetic load benchmark; not counted among the 140 tests. Workload, limits and recorded results: [capacity guide](docs/email-capacity.md).
 - Add/rename/remove a test: update its one-line entry, count and source link here. Keep race scenarios separate when they guard different pipeline stages. Add a second-layer test only when it checks transport, persistence or another distinct contract.
 - Historical execution results stay in the capacity guide. This index describes coverage, not the latest run status.

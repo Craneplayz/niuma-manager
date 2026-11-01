@@ -237,8 +237,8 @@ def route(handler,db,uid,path,body,ApiError,key_path,database):
                     store.save(db, uid, job_id, job)
                 handler.reply(200, runtime._public_job(job))
                 return True
-            if job.get('kind')=='reprocess':
-                raise ApiError(400,'请通过重新识别接口重新确认本次邮件处理')
+            if job.get('kind')=='reprocess' and body.get('consent') is not True:
+                raise ApiError(400,'请确认本次重新识别邮件正文')
             try:
                 runtime._require_consent(db, uid)
             except ValueError as error:
@@ -260,13 +260,22 @@ def route(handler,db,uid,path,body,ApiError,key_path,database):
             runtime._check_admission(db, ApiError, database)
             credential = db.execute('SELECT address,username,secret FROM email_source_credentials WHERE user_id=?',
                                     (uid,)).fetchone()
-            if job.get('mailbox') != credential['address']:
+            prefix=email_source._identity(credential['address'],'x',1,runtime.email_identity.namespace(db,uid)).rsplit(':',2)[0]+':'
+            if job.get('mailbox') != credential['address'] or any(
+                    not re.fullmatch(re.escape(prefix)+r'\d+:\d+',item['input_id']) for item in job['items']):
                 raise ApiError(409, '邮箱连接已变化，请重新选择邮件')
             for item in job['items']:
                 state, excluded, count, request_id, error = runtime._item_state(db, uid, item['input_id'])
-                item.update(state=state if state in ('has_tasks','no_tasks','excluded') else 'queued',
+                reprocess=job.get('kind')=='reprocess' and item['state'] in ('failed','interrupted') and not excluded
+                if reprocess:
+                    if state not in ('has_tasks','no_tasks'):
+                        raise ApiError(409,'邮件成功缓存不可用，请重新选择邮件')
+                    stored=db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request_id)).fetchone()
+                    try: runtime._single_email_record(json.loads(stored['request']),item['input_id'])
+                    except (TypeError,ValueError): raise ApiError(409,'邮件正文快照不可用，请重新导入该邮件') from None
+                item.update(state='queued' if reprocess else state if state in ('has_tasks','no_tasks','excluded') else 'queued',
                             task_count=count, request_id=request_id, error=None, recognition_error=None,
-                            cached=state in ('has_tasks','no_tasks'))
+                            cached=not reprocess and state in ('has_tasks','no_tasks'))
             next_id = 'email-job:' + secrets.token_hex(16)
             job.update(job_id=next_id, parent_job_id=job_id, state='queued', stop=False, error=None,
                        queued_at=datetime.now().astimezone().isoformat(), credential=runtime._credential_key(credential))

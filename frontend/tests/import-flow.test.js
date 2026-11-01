@@ -104,10 +104,10 @@ function fixture(scenario={}){
   if(path==='/api/sources/email/preview'&&method==='POST')return respond(scenario.emailPreview||{messages:[],summary:{total:0},next_offset:null});
   if(path==='/api/sources/email/reprocess'&&method==='POST')return respond(scenario.emailReprocessJob||{kind:'reprocess',job_id:'email-reprocess-1',state:'queued',counts:{selected:body.input_ids.length,processed:0,cached:0,excluded:0,failed:0,pending:body.input_ids.length},items:body.input_ids.map(input_id=>({input_id,state:'queued'}))});
   if(path==='/api/sources/email/exclusions'&&method==='POST')return respond({ok:true});
-  if(path==='/api/sources/email/jobs?summary=1'&&method==='GET')return respond({revision:1,jobs:(scenario.emailJobs||[]).map(job=>({...job,revision:job.revision??1}))});
+  if(path==='/api/sources/email/jobs?summary=1'&&method==='GET')return respond({revision:1,jobs:(scenario.emailJobs||[]).map(({items,...job})=>({...job,revision:job.revision??1}))});
   if(path==='/api/sources/email/jobs'&&method==='GET')return respond({jobs:scenario.emailJobs||[]});
   if(path==='/api/sources/email/jobs'&&method==='POST'){if(scenario.jobStartErrors>0){scenario.jobStartErrors--;return reject({status:503,message:'暂时失败'});}return respond(scenario.emailJob||{job_id:'email-job-1',state:'queued',counts:{selected:1,processed:0,cached:0,excluded:0,failed:0,pending:1},items:[]});}
-  if(path.startsWith('/api/sources/email/jobs/')&&method==='GET'){if(scenario.emailJobGetError)return reject(scenario.emailJobGetError);const job=(scenario.emailJobFull&& !path.endsWith('?summary=1'))?scenario.emailJobFull:(scenario.emailJob||{job_id:'email-job-1',state:'succeeded',counts:{selected:1,processed:1,cached:0,excluded:0,failed:0,pending:0},items:[]});return respond(path.endsWith('?summary=1')?((({items,...summary})=>({...summary,revision:scenario.emailSummaryRevision??job.revision??1,waiting_reason:scenario.emailWaitingReason??job.waiting_reason}))(job)):job);}
+  if(path.startsWith('/api/sources/email/jobs/')&&method==='GET'){if(scenario.emailJobGetError)return reject(scenario.emailJobGetError);const job=(scenario.emailJobFull&& !path.endsWith('?summary=1'))?scenario.emailJobFull:(scenario.emailJob||(scenario.emailJobs||[]).find(job=>path.split('?')[0].endsWith('/'+encodeURIComponent(job.job_id)))||{job_id:'email-job-1',state:'succeeded',counts:{selected:1,processed:1,cached:0,excluded:0,failed:0,pending:0},items:[]});return respond(path.endsWith('?summary=1')?((({items,...summary})=>({...summary,revision:scenario.emailSummaryRevision??job.revision??1,waiting_reason:scenario.emailWaitingReason??job.waiting_reason}))(job)):job);}
   if(path.startsWith('/api/sources/email/jobs/')&&method==='POST'){if(path.endsWith('/retry')&&scenario.jobRetryErrors>0){scenario.jobRetryErrors--;return reject({status:503,message:'暂时失败'});}return respond(scenario.emailJob||{job_id:'email-job-1',state:'stopped',counts:{selected:1,processed:0,cached:0,excluded:0,failed:0,pending:1},items:[]});}
   if(path==='/api/sources/sync'&&method==='POST'&&body.sources?.[0]==='email')return respond(scenario.emailSyncResponse||{requests:[],summary:{total:0,skipped:0,pending:0,selected:0,unavailable:0,partial:0}});
   if(path==='/api/auth/login'||path==='/api/auth/register'){account=body.email.split('@')[0];return respond({});}
@@ -1323,15 +1323,16 @@ test('email job states render progress and exactly one applicable action',async 
 
 test('direct reprocess retry shows inline errors and reuses its operation id without a popup',async t=>{
  const id='email:direct:1';let attempts=0;
- const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[{job_id:'direct-failed',kind:'reprocess',state:'failed',counts:{selected:1,failed:1,pending:0},items:[{input_id:id,state:'failed'},{input_id:'email:direct:2',state:'no_tasks'}]}],intercept:async(path)=>{if(path==='/api/sources/email/reprocess'&&++attempts===1)throw new Error('temporary');}};
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[{job_id:'direct-failed',kind:'reprocess',state:'failed',counts:{selected:1,failed:1,pending:0},items:[{input_id:id,state:'failed'},{input_id:'email:direct:2',state:'no_tasks'}]}],intercept:async(path)=>{if(path==='/api/sources/email/jobs/direct-failed/retry'&&++attempts===1)throw new Error('temporary');}};
  const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
  let opened=0;f.host.openDialog=()=>{opened++;};
  assert.match(ui.render(),/aria-describedby="email-retry-tooltip"/);assert.match(ui.render(),/id="email-retry-tooltip" class="email-sort-tooltip" role="tooltip">仅重试失败或中断邮件/);
  await ui.click({dataset:{importAction:'email-reprocess-retry'}});assert.match(ui.render(),/role="alert"/);assert.equal(opened,0);
  await ui.click({dataset:{importAction:'email-reprocess-retry'}});
- const calls=f.calls.filter(c=>c.path==='/api/sources/email/reprocess');assert.equal(calls.length,2);assert.equal(calls[0].body.operation_id,calls[1].body.operation_id);assert.deepEqual(calls[1].body.input_ids,[id]);assert.equal(opened,0);
+ const calls=f.calls.filter(c=>c.path==='/api/sources/email/jobs/direct-failed/retry');assert.equal(calls.length,2);assert.equal(calls[0].body.operation_id,calls[1].body.operation_id);assert.equal(calls[1].body.input_ids,undefined);assert.equal(opened,0);
  assert.equal(calls[1].body.consent,true);
- assert.equal(f.calls.some(call=>call.path.endsWith('/retry')&&call.method==='POST'),false);
+ assert.equal(f.calls.filter(call=>call.path==='/api/sources/email/jobs/direct-failed').length,0,'retry summaries by job ID without downloading items');
+ assert.equal(f.calls.some(call=>call.path==='/api/sources/email/reprocess'&&call.method==='POST'),false);
 });
 
 test('direct retry still requires persistent body-processing consent',async t=>{
@@ -1499,4 +1500,16 @@ test('mail history retries use durable jobs with stable operation IDs and never 
   assert.equal(f.calls.filter(call=>call.path===endpoint&&call.method==='POST').length,2,'active job blocks duplicate history retries');
   ui.reset();
  }
+});
+
+
+test('mail job retry identities stay scoped to their parent after a failed request',async t=>{
+ const failed=id=>({job_id:id,kind:'reprocess',state:'failed',counts:{selected:1,failed:1,pending:0}});
+ const scenario={emailCredentials:{configured:true,address:'student@stu.pku.edu.cn',username:'student'},emailPreferences:{consent_granted:true,process_all:false},emailJobs:[failed('parent-a')],intercept:async path=>{if(path==='/api/sources/email/jobs/parent-a/retry')throw new Error('synthetic failed request');}};
+ const f=fixture(scenario);await f.login();const ui=createImportUI(f.host);t.after(()=>ui.reset());await ui.load();await ui.click({dataset:{importSource:'email'}});await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-reprocess-retry'}});
+ scenario.emailJobs=[failed('parent-b')];await ui.load();await new Promise(resolve=>setTimeout(resolve,0));
+ await ui.click({dataset:{importAction:'email-reprocess-retry'}});
+ const posts=f.calls.filter(call=>call.path.endsWith('/retry')&&call.method==='POST');
+ assert.equal(posts.length,2);assert.notEqual(posts[0].body.operation_id,posts[1].body.operation_id,'different parent jobs require different operation IDs');
 });

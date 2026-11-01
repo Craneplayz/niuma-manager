@@ -126,6 +126,7 @@ class EmailCacheRouteTests(acceptance.EmailHTTPTestCase):
         self.assertTrue(set(old).isdisjoint(new_ids))
         self.assertTrue(all(message['state']=='unprocessed' and not message['excluded'] for message in new))
         self.assertEqual(self.call('/sources/email/jobs',dict(operation_id='reject-old-login',input_ids=old))[0],400)
+        self.assertEqual(self.call('/sources/email/jobs/'+initial['job_id']+'/retry',dict(operation_id='reject-old-login-retry'))[0],409)
         # Range expansion and BODY.PEEK must use the same new namespace as headers.
         status,job=self.call('/sources/email/jobs',dict(operation_id='login-b',range={'limit':2,'start_date':None}))
         self.assertEqual(status,202)
