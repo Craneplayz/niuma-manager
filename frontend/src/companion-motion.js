@@ -14,12 +14,53 @@ export const motionFrames = Object.freeze({
   putAway: cells([5, 4, 3, 2, 1, 0], 55, "action"),
   land: cells([14, 15], 110, "lifecycle"),
 });
-const story = holds => Array.from({ length: 48 }, (_, index) => [index, holds[index] || 115]);
-/** Complete films: every authored beat runs, with holds for the impact and task handoff. */
-export const storyFrames = Object.freeze({
-  "cow-to-horse": story({ 0: 180, 8: 190, 12: 170, 17: 150, 29: 150, 36: 170, 41: 170, 47: 220 }),
-  "horse-to-cow": story({ 0: 180, 8: 220, 14: 210, 22: 230, 35: 190, 42: 220, 47: 240 }),
+export { storyFrames } from "./companion-story.js";
+
+const fullSequence = (length, duration, holds = {}) => Array.from({ length }, (_, frame) => [frame, holds[frame] ?? duration]);
+export const gestureFrames = Object.freeze({
+  "cow-dance": fullSequence(32, 90, { 0: 120, 20: 100, 21: 100, 31: 120 }),
+  "cow-cake": fullSequence(48, 90, { 8: 130, 16: 140, 20: 140, 31: 140, 36: 140, 42: 130, 47: 140 }),
+  "horse-inspect": fullSequence(32, 110, { 0: 120, 12: 160, 21: 180, 23: 160, 31: 170 }),
 });
+export const idleFrames = Object.freeze({
+  "cow-rest": {
+    entry: fullSequence(8, 110, { 7: 180 }),
+    loop: fullSequence(8, 180).map(([frame, duration]) => [frame + 8, duration]),
+    wake: fullSequence(16, 110, { 8: 170, 9: 170, 15: 150 }).map(([frame, duration]) => [frame + 16, duration]),
+  },
+  "horse-desk": {
+    entry: fullSequence(12, 110, { 0: 140, 11: 130 }),
+    loop: fullSequence(20, 110, { 0: 150, 5: 140, 10: 180, 11: 220, 13: 160, 19: 150 }).map(([frame, duration]) => [frame + 12, duration]),
+    wake: fullSequence(16, 110, { 3: 130, 10: 130, 15: 160 }).map(([frame, duration]) => [frame + 32, duration]),
+  },
+});
+export const gestureChoices = Object.freeze({ cow: ["cow-dance", "cow-cake"], horse: ["horse-inspect", "horse-ack"] });
+
+/** Independent shuffle bags also avoid repeating across a refill boundary. */
+export function createGestureBag(random = Math.random) {
+  const bags = new Map(), previous = new Map();
+  const sample = () => {
+    const value = Number(random());
+    return Number.isFinite(value) ? Math.max(0, Math.min(.999999999, value)) : .5;
+  };
+  return {
+    next(actor) {
+      actor = actor === "horse" ? "horse" : "cow";
+      let bag = bags.get(actor);
+      if (!bag?.length) {
+        bag = [...gestureChoices[actor]];
+        for (let i = bag.length - 1; i > 0; i--) {
+          const j = Math.floor(sample() * (i + 1));
+          [bag[i], bag[j]] = [bag[j], bag[i]];
+        }
+        if (bag.length > 1 && bag[0] === previous.get(actor)) [bag[0], bag[1]] = [bag[1], bag[0]];
+        bags.set(actor, bag);
+      }
+      const id = bag.shift(); previous.set(actor, id); return id;
+    },
+    reset() { bags.clear(); previous.clear(); },
+  };
+}
 
 /** Every pending wait resolves on cancellation, so abandoned async flows cannot repaint. */
 export function createMotionTimeline({ setTimer = setTimeout, clearTimer = clearTimeout } = {}) {

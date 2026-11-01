@@ -1,0 +1,672 @@
+{
+  "version": 5,
+  "name": "horse-inspect",
+  "columns": 4,
+  "rows": 4,
+  "frameWidth": 512,
+  "frameHeight": 384,
+  "frames": 32,
+  "exports": [
+    "horse-inspect-1.webp",
+    "horse-inspect-2.webp"
+  ],
+  "durations": [
+    120,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    160,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    180,
+    110,
+    160,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    170
+  ],
+  "totalDuration": 3760,
+  "beats": {
+    "glassesOn": [
+      3,
+      8
+    ],
+    "inspectAndNod": [
+      9,
+      15
+    ],
+    "pencilCheck": [
+      16,
+      23
+    ],
+    "putPencilAway": [
+      24,
+      25
+    ],
+    "glassesOff": [
+      26,
+      28
+    ],
+    "pageTurn": [
+      29,
+      30
+    ],
+    "rest": [
+      31,
+      31
+    ]
+  },
+  "canonical": "pet-v4/cow-to-horse-3.webp#frame=15",
+  "anchor": {
+    "footX": 244.5,
+    "footY": 337,
+    "headX": 251,
+    "visibleHeight": 235
+  },
+  "scales": [
+    0.9056603773584906,
+    0.9056603773584906
+  ],
+  "tableTarget": null,
+  "frameMap": [
+    {
+      "index": 0,
+      "canonical": true
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 0,
+        "width": 362,
+        "height": 280
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 189,
+      "pivotY": 274,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 1,
+      "part": 1,
+      "cell": 1
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 0,
+        "width": 362,
+        "height": 280
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 173,
+      "pivotY": 275,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 2,
+      "part": 1,
+      "cell": 2
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 0,
+        "width": 362,
+        "height": 280
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 174.5,
+      "pivotY": 274,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 3,
+      "part": 1,
+      "cell": 3
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 280,
+        "width": 362,
+        "height": 272
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 197.5,
+      "pivotY": 267,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 4,
+      "part": 1,
+      "cell": 4
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 280,
+        "width": 362,
+        "height": 272
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 184,
+      "pivotY": 267,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 5,
+      "part": 1,
+      "cell": 5
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 280,
+        "width": 362,
+        "height": 272
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 180,
+      "pivotY": 267,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 6,
+      "part": 1,
+      "cell": 6
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 280,
+        "width": 362,
+        "height": 272
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 176,
+      "pivotY": 267,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 7,
+      "part": 1,
+      "cell": 7
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 552,
+        "width": 362,
+        "height": 269
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 198.5,
+      "pivotY": 262,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 8,
+      "part": 1,
+      "cell": 8
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 552,
+        "width": 362,
+        "height": 269
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 191.5,
+      "pivotY": 262,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 9,
+      "part": 1,
+      "cell": 9
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 552,
+        "width": 362,
+        "height": 269
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 205.5,
+      "pivotY": 262,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 10,
+      "part": 1,
+      "cell": 10
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 552,
+        "width": 362,
+        "height": 269
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 195.5,
+      "pivotY": 262,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 11,
+      "part": 1,
+      "cell": 11
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 821,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 210.5,
+      "pivotY": 259,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 12,
+      "part": 1,
+      "cell": 12
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 821,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 208.5,
+      "pivotY": 259,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 13,
+      "part": 1,
+      "cell": 13
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 821,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 190,
+      "pivotY": 259,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 14,
+      "part": 1,
+      "cell": 14
+    },
+    {
+      "source": "inspect1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 821,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 193,
+      "pivotY": 259,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 15,
+      "part": 1,
+      "cell": 15
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 189,
+      "pivotY": 274,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 16,
+      "part": 2,
+      "cell": 0
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 0,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 202,
+      "pivotY": 274,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 17,
+      "part": 2,
+      "cell": 1
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 0,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 203,
+      "pivotY": 275,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 18,
+      "part": 2,
+      "cell": 2
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 0,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 204,
+      "pivotY": 274,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 19,
+      "part": 2,
+      "cell": 3
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 278,
+        "width": 362,
+        "height": 274
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 199.5,
+      "pivotY": 271,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 20,
+      "part": 2,
+      "cell": 4
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 278,
+        "width": 362,
+        "height": 274
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 200.5,
+      "pivotY": 271,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 21,
+      "part": 2,
+      "cell": 5
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 278,
+        "width": 362,
+        "height": 274
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 201,
+      "pivotY": 272,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 22,
+      "part": 2,
+      "cell": 6
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 278,
+        "width": 362,
+        "height": 274
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 205.5,
+      "pivotY": 271,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 23,
+      "part": 2,
+      "cell": 7
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 552,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 179.5,
+      "pivotY": 266,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 24,
+      "part": 2,
+      "cell": 8
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 552,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 206,
+      "pivotY": 264,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 25,
+      "part": 2,
+      "cell": 9
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 552,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 210,
+      "pivotY": 266,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 26,
+      "part": 2,
+      "cell": 10
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 552,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 201,
+      "pivotY": 265,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 27,
+      "part": 2,
+      "cell": 11
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 819,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 182,
+      "pivotY": 266,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 28,
+      "part": 2,
+      "cell": 12
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 819,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 196,
+      "pivotY": 266,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 29,
+      "part": 2,
+      "cell": 13
+    },
+    {
+      "source": "inspect2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 819,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 0.9056603773584906,
+      "mode": "feet",
+      "pivotX": 197,
+      "pivotY": 266,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 30,
+      "part": 2,
+      "cell": 14
+    },
+    {
+      "index": 31,
+      "canonical": true
+    }
+  ],
+  "generation": "Built-in image_gen; true drawn poses and alpha; mechanical extraction, landmark registration and atlas packing only",
+  "endpointContract": "First and last PNGs byte-identical to v4 cow-to-horse47"
+}

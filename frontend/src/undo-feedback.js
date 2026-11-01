@@ -6,7 +6,7 @@ export function createUndoFeedback({ escapeHtml, icon, accountVersion = () => 0,
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]));
   const undoIcon = icon?.('undo') || '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 4-5 5 5 5M3 9h10a7 7 0 0 1 0 14" transform="translate(0 -2)"/></svg>';
   const root = () => doc.querySelector('#toast');
-  let active = null, timer, deadline = 0, remaining = 7000, storyActive = false;
+  let active = null, timer, deadline = 0, remaining = 7000, storyActive = false, actionActive = false;
   function stop() { clearTimeout(timer); timer = null; }
   function pause() {
     if (deadline) remaining = Math.max(0, deadline - Date.now());
@@ -15,7 +15,7 @@ export function createUndoFeedback({ escapeHtml, icon, accountVersion = () => 0,
   }
   function paused() {
     const el = root();
-    return storyActive || doc.visibilityState === 'hidden' || Boolean(el &&
+    return storyActive || actionActive || doc.visibilityState === 'hidden' || Boolean(el &&
       (el.matches?.(':hover') || (doc.activeElement && el.contains?.(doc.activeElement))));
   }
   function arm() {
@@ -29,6 +29,10 @@ export function createUndoFeedback({ escapeHtml, icon, accountVersion = () => 0,
   function setStoryActive(value) {
     storyActive = Boolean(value);
     if (storyActive) pause(); else arm();
+  }
+  function setActionActive(value) {
+    actionActive = Boolean(value);
+    if (actionActive) pause(); else arm();
   }
   function detach() {
     const el = root();
@@ -90,5 +94,5 @@ export function createUndoFeedback({ escapeHtml, icon, accountVersion = () => 0,
   }
   doc.addEventListener('visibilitychange', () => doc.visibilityState === 'hidden' ? pause() : arm());
   globalThis.window?.addEventListener('resize', relocate);
-  return { show, clear, detach, relocate, setStoryActive };
+  return { show, clear, detach, relocate, setStoryActive, setActionActive };
 }

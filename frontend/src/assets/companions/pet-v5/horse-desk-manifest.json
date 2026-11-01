@@ -1,0 +1,992 @@
+{
+  "version": 5,
+  "name": "horse-desk",
+  "columns": 4,
+  "rows": 4,
+  "frameWidth": 512,
+  "frameHeight": 384,
+  "frames": 48,
+  "exports": [
+    "horse-desk-1.webp",
+    "horse-desk-2.webp",
+    "horse-desk-3.webp"
+  ],
+  "durations": [
+    140,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    130,
+    150,
+    110,
+    110,
+    110,
+    110,
+    140,
+    110,
+    110,
+    110,
+    110,
+    180,
+    220,
+    110,
+    160,
+    110,
+    110,
+    110,
+    110,
+    110,
+    150,
+    110,
+    110,
+    110,
+    130,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    130,
+    110,
+    110,
+    110,
+    110,
+    160
+  ],
+  "totalDuration": 5760,
+  "beats": {
+    "entry": [
+      0,
+      11
+    ],
+    "loop": [
+      12,
+      31
+    ],
+    "exit": [
+      32,
+      47
+    ],
+    "writing": [
+      12,
+      19
+    ],
+    "coffeeSip": [
+      20,
+      26
+    ],
+    "resumeWriting": [
+      27,
+      31
+    ],
+    "takeList": [
+      35,
+      36
+    ],
+    "pushDeskOut": [
+      37,
+      42
+    ],
+    "rest": [
+      43,
+      47
+    ]
+  },
+  "canonical": "pet-v4/cow-to-horse-3.webp#frame=15",
+  "anchor": {
+    "footX": 244.5,
+    "footY": 337,
+    "headX": 251,
+    "visibleHeight": 235
+  },
+  "scales": [
+    1.0572687224669604,
+    0.9860343049957823,
+    0.9756549965221425
+  ],
+  "tableTarget": {
+    "x": 224.56828193832598,
+    "y": 337,
+    "mode": "table"
+  },
+  "frameMap": [
+    {
+      "index": 0,
+      "canonical": true
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 0,
+        "width": 362,
+        "height": 271
+      },
+      "scale": 1.0572687224669604,
+      "mode": "head",
+      "pivotX": 170,
+      "pivotY": 250,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 1,
+      "part": 1,
+      "cell": 1
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 0,
+        "width": 362,
+        "height": 271
+      },
+      "scale": 1.0572687224669604,
+      "mode": "head",
+      "pivotX": 182,
+      "pivotY": 249,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 2,
+      "part": 1,
+      "cell": 2
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 0,
+        "width": 362,
+        "height": 271
+      },
+      "scale": 1.0572687224669604,
+      "mode": "head",
+      "pivotX": 214.5,
+      "pivotY": 252,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 3,
+      "part": 1,
+      "cell": 3
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 271,
+        "width": 362,
+        "height": 284
+      },
+      "scale": 1.0572687224669604,
+      "mode": "head",
+      "pivotX": 284,
+      "pivotY": 251,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 4,
+      "part": 1,
+      "cell": 4
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 271,
+        "width": 362,
+        "height": 284
+      },
+      "scale": 1.0572687224669604,
+      "mode": "head",
+      "pivotX": 268.5,
+      "pivotY": 254,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 5,
+      "part": 1,
+      "cell": 5
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 271,
+        "width": 362,
+        "height": 284
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 177,
+      "pivotY": 263,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 6,
+      "part": 1,
+      "cell": 6
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 271,
+        "width": 362,
+        "height": 284
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 180,
+      "pivotY": 263,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 7,
+      "part": 1,
+      "cell": 7
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 555,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 191.5,
+      "pivotY": 249,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 8,
+      "part": 1,
+      "cell": 8
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 555,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 187,
+      "pivotY": 249,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 9,
+      "part": 1,
+      "cell": 9
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 555,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 190,
+      "pivotY": 248,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 10,
+      "part": 1,
+      "cell": 10
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 555,
+        "width": 362,
+        "height": 267
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 174.5,
+      "pivotY": 250,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 11,
+      "part": 1,
+      "cell": 11
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 822,
+        "width": 362,
+        "height": 264
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 188,
+      "pivotY": 244,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 12,
+      "part": 1,
+      "cell": 12
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 822,
+        "width": 362,
+        "height": 264
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 184,
+      "pivotY": 245,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 13,
+      "part": 1,
+      "cell": 13
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 822,
+        "width": 362,
+        "height": 264
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 175.5,
+      "pivotY": 246,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 14,
+      "part": 1,
+      "cell": 14
+    },
+    {
+      "source": "desk1.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 822,
+        "width": 362,
+        "height": 264
+      },
+      "scale": 1.0572687224669604,
+      "mode": "table",
+      "pivotX": 177.5,
+      "pivotY": 245,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 15,
+      "part": 1,
+      "cell": 15
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "width": 362,
+        "height": 290
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 202.5,
+      "pivotY": 280,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 16,
+      "part": 2,
+      "cell": 0
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 0,
+        "width": 362,
+        "height": 290
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 198.5,
+      "pivotY": 280,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 1,
+      "index": 17,
+      "part": 2,
+      "cell": 1
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 0,
+        "width": 362,
+        "height": 290
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 187.5,
+      "pivotY": 280,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 18,
+      "part": 2,
+      "cell": 2
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 0,
+        "width": 362,
+        "height": 290
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 186,
+      "pivotY": 280,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 19,
+      "part": 2,
+      "cell": 3
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 290,
+        "width": 362,
+        "height": 282
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 204,
+      "pivotY": 272,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 20,
+      "part": 2,
+      "cell": 4
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 290,
+        "width": 362,
+        "height": 282
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 197.5,
+      "pivotY": 272,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 1,
+      "index": 21,
+      "part": 2,
+      "cell": 5
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 290,
+        "width": 362,
+        "height": 282
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 187.5,
+      "pivotY": 272,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 22,
+      "part": 2,
+      "cell": 6
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 290,
+        "width": 362,
+        "height": 282
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 182.5,
+      "pivotY": 272,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 23,
+      "part": 2,
+      "cell": 7
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 572,
+        "width": 362,
+        "height": 271
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 205,
+      "pivotY": 263,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 24,
+      "part": 2,
+      "cell": 8
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 572,
+        "width": 362,
+        "height": 271
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 193.5,
+      "pivotY": 263,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 1,
+      "index": 25,
+      "part": 2,
+      "cell": 9
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 572,
+        "width": 362,
+        "height": 271
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 186.5,
+      "pivotY": 263,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 26,
+      "part": 2,
+      "cell": 10
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 572,
+        "width": 362,
+        "height": 271
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 184.5,
+      "pivotY": 263,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 27,
+      "part": 2,
+      "cell": 11
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 843,
+        "width": 362,
+        "height": 243
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 202,
+      "pivotY": 229,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 28,
+      "part": 2,
+      "cell": 12
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 843,
+        "width": 362,
+        "height": 243
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 196,
+      "pivotY": 229,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 29,
+      "part": 2,
+      "cell": 13
+    },
+    {
+      "source": "desk2edit.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 843,
+        "width": 362,
+        "height": 243
+      },
+      "scale": 0.9860343049957823,
+      "mode": "table",
+      "pivotX": 187,
+      "pivotY": 229,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 30,
+      "part": 2,
+      "cell": 14
+    },
+    {
+      "index": 31,
+      "reusedFrame": 12,
+      "reason": "Byte-identical continuous working loop anchor"
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 0,
+        "width": 362,
+        "height": 292
+      },
+      "scale": 0.9756549965221425,
+      "mode": "table",
+      "pivotX": 198,
+      "pivotY": 282,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 32,
+      "part": 3,
+      "cell": 0
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 0,
+        "width": 362,
+        "height": 292
+      },
+      "scale": 0.9756549965221425,
+      "mode": "table",
+      "pivotX": 197.5,
+      "pivotY": 282,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 33,
+      "part": 3,
+      "cell": 1
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 0,
+        "width": 362,
+        "height": 292
+      },
+      "scale": 0.9756549965221425,
+      "mode": "table",
+      "pivotX": 192.5,
+      "pivotY": 282,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 34,
+      "part": 3,
+      "cell": 2
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 0,
+        "width": 362,
+        "height": 292
+      },
+      "scale": 0.9756549965221425,
+      "mode": "table",
+      "pivotX": 188.5,
+      "pivotY": 282,
+      "targetX": 224.56828193832598,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 35,
+      "part": 3,
+      "cell": 3
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 292,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9756549965221425,
+      "mode": "head",
+      "pivotX": 239,
+      "pivotY": 265,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 36,
+      "part": 3,
+      "cell": 4
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 292,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9756549965221425,
+      "mode": "head",
+      "pivotX": 233.5,
+      "pivotY": 265,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 37,
+      "part": 3,
+      "cell": 5
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 292,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9756549965221425,
+      "mode": "head",
+      "pivotX": 231.5,
+      "pivotY": 262,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 38,
+      "part": 3,
+      "cell": 6
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 292,
+        "width": 362,
+        "height": 278
+      },
+      "scale": 0.9756549965221425,
+      "mode": "head",
+      "pivotX": 229,
+      "pivotY": 263,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 39,
+      "part": 3,
+      "cell": 7
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 570,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9756549965221425,
+      "mode": "head",
+      "pivotX": 235.5,
+      "pivotY": 255,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 40,
+      "part": 3,
+      "cell": 8
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 570,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9756549965221425,
+      "mode": "head",
+      "pivotX": 232,
+      "pivotY": 254,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 41,
+      "part": 3,
+      "cell": 9
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 570,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9756549965221425,
+      "mode": "head",
+      "pivotX": 227,
+      "pivotY": 255,
+      "targetX": 251,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 42,
+      "part": 3,
+      "cell": 10
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 1086,
+        "y": 570,
+        "width": 362,
+        "height": 265
+      },
+      "scale": 0.9795918367346939,
+      "mode": "feet",
+      "pivotX": 219.5,
+      "pivotY": 256,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 43,
+      "part": 3,
+      "cell": 11
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 0,
+        "y": 835,
+        "width": 362,
+        "height": 251
+      },
+      "scale": 1.0389610389610389,
+      "mode": "feet",
+      "pivotX": 223,
+      "pivotY": 239,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 44,
+      "part": 3,
+      "cell": 12
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 362,
+        "y": 835,
+        "width": 362,
+        "height": 251
+      },
+      "scale": 1.0572687224669604,
+      "mode": "feet",
+      "pivotX": 226.5,
+      "pivotY": 239,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 45,
+      "part": 3,
+      "cell": 13
+    },
+    {
+      "source": "desk3.png",
+      "sourceRect": {
+        "x": 724,
+        "y": 835,
+        "width": 362,
+        "height": 251
+      },
+      "scale": 1.0526315789473684,
+      "mode": "feet",
+      "pivotX": 214.5,
+      "pivotY": 239,
+      "targetX": 244.5,
+      "targetY": 337,
+      "removedBorderFragments": 0,
+      "index": 46,
+      "part": 3,
+      "cell": 14
+    },
+    {
+      "index": 47,
+      "canonical": true
+    }
+  ],
+  "generation": "Built-in image_gen; true drawn poses and alpha; mechanical extraction, landmark registration and atlas packing only",
+  "endpointContract": "First and last PNGs byte-identical to v4 cow-to-horse47"
+}

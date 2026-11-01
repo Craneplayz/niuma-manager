@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { motionFrames, storyFrames, framePosition, fitDock, snapEdge, createMotionTimeline } from "../src/companion-motion.js";
+import { motionFrames, storyFrames, gestureFrames, idleFrames, createGestureBag, framePosition, fitDock, snapEdge, createMotionTimeline } from "../src/companion-motion.js";
 
 test("completion uses sixteen consecutive authored cells and lifecycle gestures stay finite", () => {
   assert.deepEqual(motionFrames.celebrate.map(([cell]) => cell), Array.from({ length: 16 }, (_, i) => i));
@@ -68,6 +68,46 @@ test("both policy stories contain all 48 authored frames across three atlases an
     const duration = sequence.reduce((total, [, ms]) => total + ms, 0);
     assert.ok(duration >= 5000 && duration <= 7000);
     assert.deepEqual([...new Set(sequence.map(([frame]) => Math.floor(frame / 16)))], [0, 1, 2]);
-    for (const [, ms] of sequence) assert.ok(ms >= 100 && ms <= 250);
+    for (const [, ms] of sequence) assert.ok(ms >= 40 && ms <= 200);
+  }
+});
+
+
+test("the task list flies to the cow promptly without cutting the authored story", () => {
+  assert.equal(storyFrames["cow-to-horse"].filter(([frame]) => frame >= 3 && frame <= 7).reduce((sum, [, ms]) => sum + ms, 0), 225);
+  assert.equal(storyFrames["cow-to-horse"].length, 48);
+});
+
+test("actor shuffle bags cover each choice and never repeat across refills", () => {
+  for (const random of [() => 0, () => .99999, () => NaN, () => -3, () => 7]) {
+    const bag = createGestureBag(random), seen = { cow: [], horse: [] };
+    for (let i = 0; i < 30; i++) for (const actor of ["cow", "horse"]) seen[actor].push(bag.next(actor));
+    for (const values of Object.values(seen)) {
+      for (let i = 1; i < values.length; i++) assert.notEqual(values[i], values[i - 1]);
+      for (let i = 0; i < values.length; i += 2) assert.equal(new Set(values.slice(i, i + 2)).size, 2);
+    }
+    assert.ok(seen.cow.every(id => id.startsWith("cow-")));
+    assert.ok(seen.horse.every(id => id.startsWith("horse-")));
+    bag.reset(); assert.ok(bag.next("cow").startsWith("cow-"));
+  }
+});
+
+test("new full gestures run every frame from standing start to standing endpoint", () => {
+  for (const [id, frames] of Object.entries(gestureFrames)) {
+    const count = id === "cow-cake" ? 48 : 32;
+    assert.deepEqual(frames.map(([frame]) => frame), Array.from({ length: count }, (_, i) => i));
+    const ms = frames.reduce((total, [, duration]) => total + duration, 0);
+    assert.ok(ms >= 2800 && ms <= 4800);
+  }
+  assert.equal(gestureFrames["cow-dance"].reduce((sum, [, duration]) => sum + duration, 0), 2960);
+});
+
+test("idle ranges have separate entry, closed loop and a complete safe exit", () => {
+  for (const [id, data] of Object.entries(idleFrames)) {
+    const entryEnd = id === "cow-rest" ? 7 : 11, loopEnd = id === "cow-rest" ? 15 : 31, end = id === "cow-rest" ? 31 : 47;
+    assert.deepEqual(data.entry.map(([frame]) => frame), Array.from({ length: entryEnd + 1 }, (_, i) => i));
+    assert.deepEqual(data.loop.map(([frame]) => frame), Array.from({ length: loopEnd - entryEnd }, (_, i) => entryEnd + 1 + i));
+    assert.deepEqual(data.wake.map(([frame]) => frame), Array.from({ length: end - loopEnd }, (_, i) => loopEnd + 1 + i));
+    assert.ok(data.loop.reduce((sum, [, duration]) => sum + duration, 0) <= 3500);
   }
 });

@@ -115,6 +115,10 @@ const sidebarCompanion = createSidebarCompanion({
     completionCompanion.setStoryActive(active);
     undoFeedback.setStoryActive(active);
   },
+  onActionChange: active => {
+    completionCompanion.setActionActive(active);
+    undoFeedback.setActionActive(active);
+  },
 });
 const undoFeedback = createUndoFeedback({
   escapeHtml: esc, icon, accountVersion,

@@ -73,3 +73,18 @@ test('a full story preserves the time to undo after watching it', t => {
   t.mock.timers.tick(1);
   assert.equal(f.classes.has('undo-toast'), false);
 });
+
+test('wake and foreground actions preserve undo time across a following policy movie', t => {
+  const f = fixture(t);
+  f.undo.show({ undo() {} });
+  t.mock.timers.tick(5000);
+  f.undo.setActionActive(true);
+  t.mock.timers.tick(1500);
+  f.undo.setStoryActive(true);
+  f.undo.setActionActive(false);
+  t.mock.timers.tick(6000);
+  assert.equal(f.classes.has('undo-toast'), true);
+  f.undo.setStoryActive(false);
+  t.mock.timers.tick(1999); assert.equal(f.classes.has('undo-toast'), true);
+  t.mock.timers.tick(1); assert.equal(f.classes.has('undo-toast'), false);
+});

@@ -45,12 +45,12 @@ export function createCompletionCompanion({ accountVersion = () => 0,
   onPreferences = () => {}, getCharacter = () => 'cow' } = {}) {
   const doc = document;
   let preferences = readCompanionPreferences(), active = null, timer, storyActive = false;
-  let remainingTime = 7000, deadline = 0;
+  let remainingTime = 7000, deadline = 0, actionActive = false;
   const indices = new Map();
   function stop() { clearTimeout(timer); }
   function paused() {
     const pet = doc.querySelector('#sidebar-companion');
-    return storyActive || doc.visibilityState === 'hidden' || Boolean(pet &&
+    return storyActive || actionActive || doc.visibilityState === 'hidden' || Boolean(pet &&
       (pet.matches?.(':hover') || (doc.activeElement && pet.contains?.(doc.activeElement))));
   }
   function pause() {
@@ -70,6 +70,10 @@ export function createCompletionCompanion({ accountVersion = () => 0,
   function setStoryActive(value) {
     storyActive = Boolean(value);
     if (storyActive) pause(); else resume();
+  }
+  function setActionActive(value) {
+    actionActive = Boolean(value);
+    if (actionActive) pause(); else resume();
   }
   function show({ remaining = 1, epoch = accountVersion() } = {}) {
     if (!preferences.enabled || !canShow() || epoch !== accountVersion()) return false;
@@ -133,5 +137,5 @@ export function createCompletionCompanion({ accountVersion = () => 0,
       if (input) input.checked = preferences[setting];
     }
   });
-  return { show, dismiss, reset, preferenceMarkup, change, refreshCharacter, setStoryActive };
+  return { show, dismiss, reset, preferenceMarkup, change, refreshCharacter, setStoryActive, setActionActive };
 }

@@ -279,14 +279,14 @@ test("passing pointers do not change the pet and hover only reveals its caption"
   const after = await mascot(page).boundingBox();
   expect(after.x).toBe(before.x); expect(after.y).toBe(before.y);
   await button(page).click();
-  await expect(mascot(page)).toHaveAttribute("data-action", "wave");
+  await expect(mascot(page)).toHaveAttribute("data-action", /cow-(dance|cake)/);
   const cells = new Set();
   for (let i = 0; i < 16; i++) {
-    cells.add(await mascot(page).getAttribute("data-frame"));
+    cells.add(await mascot(page).getAttribute("data-scene-frame"));
     await page.waitForTimeout(85);
   }
   expect(cells.size).toBeGreaterThanOrEqual(10);
-  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false", { timeout: 8000 });
   clean(state);
 });
 
@@ -350,14 +350,63 @@ test("the fixed pet hides during task details and navigation overlays, then retu
   clean(state);
 });
 
+test("a saved completion in task details plays exactly once when closed within seven seconds", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-10-29T04:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-10-29T04:00:00.001Z"));
+  let enter, release;
+  const entered = new Promise(resolve => { enter = resolve; });
+  const waiting = new Promise(resolve => { release = resolve; });
+  const state = await workspace(page, { clockInstalled: true, tasks: [task("one"), task("two")], onWrite: async () => { enter(); await waiting; } });
+  await page.locator('[data-task-open="one"]').click();
+  const drawer = page.locator("#task-drawer");
+  await drawer.getByRole("button", { name: "完成任务", exact: true }).click();
+  await entered;
+  await expect(mascot(page)).toHaveAttribute("data-completion", "false");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+  release();
+  await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("completed");
+  await expect(mascot(page)).toHaveAttribute("data-completion", "true");
+  await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "completion");
+  await expect(mascot(page)).not.toBeVisible();
+  await page.clock.runFor(3000);
+  await drawer.getByRole("button", { name: "关闭任务详情", exact: true }).click();
+  await expect(mascot(page)).toBeVisible();
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "1");
+  await expect(mascot(page)).toHaveAttribute("data-phase", "gesture");
+  await page.clock.runFor(6000);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "1");
+  expect(state.writes).toHaveLength(1);
+  clean(state);
+});
 
-async function isolatedPet(page, actor = "cow", { ready = true } = {}) {
-  await page.route("**/pet-runtime-harness", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><link rel="stylesheet" href="/src/styles.css"><link rel="stylesheet" href="/src/sidebar-companion.css"></head><body><aside id="sidebar" style="width:240px;height:100vh"><nav class="task-nav"></nav><div id="sidebar-companion-slot"></div><div class="sidebar-bottom" style="position:fixed;bottom:16px;height:60px"></div></aside></body></html>` }));
+test("a task-details completion expires after seven seconds without a late gesture on close", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-10-29T04:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-10-29T04:00:00.001Z"));
+  const state = await workspace(page, { clockInstalled: true, tasks: [task("one"), task("two")] });
+  await page.locator('[data-task-open="one"]').click();
+  const drawer = page.locator("#task-drawer");
+  await drawer.getByRole("button", { name: "完成任务", exact: true }).click();
+  await expect.poll(() => state.tasks().find(item => item.id === "one").status).toBe("completed");
+  await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "completion");
+  await page.clock.runFor(7100);
+  await expect(mascot(page)).toHaveAttribute("data-completion", "false");
+  await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "");
+  await drawer.getByRole("button", { name: "关闭任务详情", exact: true }).click();
+  await page.clock.runFor(6000);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+  clean(state);
+});
+
+
+async function isolatedPet(page, actor = "cow", { ready = true, idleAfterMs = 90000, randomValue = .99999 } = {}) {
+  await page.route("**/pet-runtime-harness", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/src/styles.css"><link rel="stylesheet" href="/src/sidebar-companion.css"></head><body><aside id="sidebar" style="width:240px;height:100vh"><nav class="task-nav"></nav><div id="sidebar-companion-slot"></div><div class="sidebar-bottom" style="position:fixed;bottom:16px;height:60px"></div></aside></body></html>` }));
   await page.goto("/pet-runtime-harness");
-  await page.evaluate(async ({ actor, ready }) => {
+  await page.evaluate(async ({ actor, ready, idleAfterMs, randomValue }) => {
     const { createSidebarCompanion } = await import("/src/sidebar-companion.js");
-    window.petAllowed = true; window.storyEvents = [];
-    window.pet = createSidebarCompanion({ canInteract: () => window.petAllowed, onStoryChange: active => window.storyEvents.push(active) });
+    window.petAllowed = true; window.petShown = true; window.storyEvents = []; window.actionEvents = []; window.gestureEvents = [];
+    window.pet = createSidebarCompanion({ canInteract: () => window.petAllowed, canShow: () => window.petShown, idleAfterMs, random: () => randomValue, onStoryChange: active => window.storyEvents.push(active), onActionChange: active => window.actionEvents.push(active), onGestureChange: event => window.gestureEvents.push(event) });
     window.setPetPolicy = (actor, ready = true, extra = {}) => window.pet.update({ key: actor === "horse" ? "overdue-low" : "steady", character: actor,
       pose: actor === "horse" ? "checklist" : "arrive", overdue: actor === "horse" ? 1 : 0, message: actor === "horse" ? "还有 1 项逾期，一起看看。" : "都处理好了，歇一会儿吧。", ready, ...extra });
     window.setPetPolicy(actor, ready);
@@ -367,7 +416,7 @@ async function isolatedPet(page, actor = "cow", { ready = true } = {}) {
       const pet = document.querySelector("#sidebar-companion");
       if (pet.dataset.storyActive === "true") window.storyTrace.push(`${pet.dataset.story}:${pet.dataset.storyFrame}`);
     }).observe(document.querySelector("#sidebar-companion"), { attributes: true, attributeFilter: ["data-story-frame"] });
-  }, { actor, ready });
+  }, { actor, ready, idleAfterMs, randomValue });
   await expect(mascot(page)).toHaveAttribute("data-sprite-ready", "true");
 }
 async function setPolicy(page, actor) {
@@ -493,6 +542,46 @@ test("reduced motion, disabling, hiding and account reset cancel to the correct 
   await expect(mascot(page)).toHaveAttribute("data-playing", "false");
 });
 
+test("a delayed reduced-motion release preserves a newly started story and completion gesture", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused media-query delivery race regression.");
+  await page.addInitScript(() => {
+    const matchMedia = window.matchMedia.bind(window);
+    window.runtimeMotionQueries = [];
+    window.matchMedia = query => {
+      const result = matchMedia(query);
+      if (query === "(prefers-reduced-motion: reduce)") window.runtimeMotionQueries.push(result);
+      return result;
+    };
+  });
+  await pausedPet(page);
+  await setPolicy(page, "horse");
+  await expect(mascot(page)).toHaveAttribute("data-story-active", "true");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await storySettled(page, "horse");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await setPolicy(page, "cow");
+  await expect(mascot(page)).toHaveAttribute("data-story-active", "true");
+  const release = () => {
+    for (const query of window.runtimeMotionQueries) query.dispatchEvent(new MediaQueryListEvent("change", { matches: false, media: query.media }));
+  };
+  await page.evaluate(release);
+  await page.clock.runFor(400);
+  await expect(mascot(page)).toHaveAttribute("data-story-active", "true");
+  await expect(mascot(page)).toHaveAttribute("data-story-count", "2");
+  await page.clock.runFor(6000);
+  await storySettled(page, "cow");
+  await page.evaluate(() => window.pet.showCompletion({ message: { line: "完成后的新动作", mode: "ordinary" }, replay: true }));
+  await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-dance");
+  await page.evaluate(release);
+  await page.clock.runFor(400);
+  await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-dance");
+  await expect(mascot(page)).toHaveAttribute("data-phase", "gesture");
+  await page.clock.runFor(3500);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  expect(await page.evaluate(() => window.gestureEvents)).toEqual([{ id: "cow-dance", phase: "start" }, { id: "cow-dance", phase: "end" }]);
+  callbackBalance(await page.evaluate(() => window.actionEvents));
+});
+
 test("dragging during a film settles to the latest policy and never resurrects an outgoing actor", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "Focused explicit-drag regression.");
   await isolatedPet(page);
@@ -538,7 +627,7 @@ test("record both complete overdue policy stories with every authored beat", asy
 
 test("a missing narrative atlas falls back to the correct static actor without showing a partial film", async ({ page }, info) => {
   test.skip(info.project.name !== "desktop", "Focused asset failure regression.");
-  await page.route("**/pet-v4/cow-to-horse-2.webp", route => route.fulfill({ status: 404, body: "synthetic missing frame sheet" }));
+  await page.route("**/pet-v5/cow-to-horse-2.webp", route => route.fulfill({ status: 404, body: "synthetic missing frame sheet" }));
   await isolatedPet(page);
   await setPolicy(page, "horse");
   await expect(mascot(page)).toHaveAttribute("data-character", "horse");
@@ -627,3 +716,334 @@ test("story frames stay unobstructed while keyboard focus and an open options me
   await button(page).focus();
   await expect(options).toBeVisible();
 });
+
+async function pausedPet(page, actor = "cow", options = {}) {
+  await page.clock.install({ time: new Date("2026-11-01T04:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-01T04:00:00.001Z"));
+  await isolatedPet(page, actor, options);
+}
+async function idleLoop(page, actor = "cow") {
+  await page.clock.runFor(90000);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "idle-entry");
+  await expect(mascot(page)).toHaveAttribute("data-scene-active", "true");
+  await page.clock.runFor(actor === "cow" ? 950 : 1370);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "idle-loop");
+  await expect(mascot(page)).toHaveAttribute("data-action-active", "false");
+}
+function callbackBalance(events) {
+  let active = false;
+  for (const next of events) { expect(next).not.toBe(active); active = next; }
+  expect(active).toBe(false);
+}
+
+for (const gate of ["petAllowed", "petShown"]) {
+  test(`${gate} temporarily hides only the latest unstarted completion and never replays a started action`, async ({ page }, info) => {
+    test.skip(info.project.name !== "desktop", "Focused temporary availability regression.");
+    await pausedPet(page);
+    await page.evaluate(gate => {
+      window[gate] = false; window.pet.reposition();
+      window.pet.showCompletion({ message: "较早的完成", replay: true });
+      window.pet.showCompletion({ message: "更新的完成", replay: true });
+      window.pet.showCompletion({ message: "最新的合并回应", count: 3, replay: false });
+    }, gate);
+    await expect(mascot(page)).not.toBeVisible();
+    await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "completion");
+    await expect(mascot(page)).toHaveAttribute("data-action-active", "false");
+    await page.clock.runFor(3000);
+    await page.evaluate(gate => { window[gate] = true; window.pet.reposition(); }, gate);
+    await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-dance");
+    await expect(speech(page)).toHaveText("最新的合并回应");
+    await page.clock.runFor(3500);
+    await expect(mascot(page)).toHaveAttribute("data-gesture-count", "1");
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    await page.evaluate(() => window.pet.showCompletion({ message: "已经开始的完成", replay: true }));
+    await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-cake");
+    await page.clock.runFor(500);
+    await page.evaluate(gate => { window[gate] = false; window.pet.reposition(); }, gate);
+    await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "");
+    await page.evaluate(gate => { window[gate] = true; window.pet.reposition(); }, gate);
+    await page.clock.runFor(6000);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    await expect(mascot(page)).toHaveAttribute("data-gesture-count", "2");
+    expect(await page.evaluate(() => window.gestureEvents)).toEqual([
+      { id: "cow-dance", phase: "start" }, { id: "cow-dance", phase: "end" },
+      { id: "cow-cake", phase: "start" }, { id: "cow-cake", phase: "cancel" },
+    ]);
+    callbackBalance(await page.evaluate(() => window.actionEvents));
+  });
+}
+
+for (const cancellation of ["expiry", "disabled", "animation-off", "reset", "reduced-motion"]) {
+  test(`${cancellation} drops a temporarily hidden completion instead of replaying it later`, async ({ page }, info) => {
+    test.skip(info.project.name !== "desktop", "Focused deferred-completion cancellation regression.");
+    await pausedPet(page);
+    await page.evaluate(() => {
+      window.petShown = false; window.pet.reposition();
+      window.pet.showCompletion({ message: "等待显示的完成", replay: true });
+    });
+    await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "completion");
+    if (cancellation === "reduced-motion") {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "");
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+    } else await page.evaluate(cancellation => {
+      if (cancellation === "expiry") window.pet.endCompletion();
+      if (cancellation === "disabled") { window.pet.preferences({ enabled: false }); window.pet.preferences({ enabled: true }); }
+      if (cancellation === "animation-off") { window.pet.preferences({ animated: false }); window.pet.preferences({ animated: true }); }
+      if (cancellation === "reset") { window.pet.reset(); window.setPetPolicy("cow"); }
+    }, cancellation);
+    await page.evaluate(() => { window.petShown = true; window.pet.reposition(); });
+    await page.clock.runFor(6000);
+    await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "");
+    await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    expect(await page.evaluate(() => window.gestureEvents)).toEqual([]);
+    callbackBalance(await page.evaluate(() => window.actionEvents));
+  });
+}
+
+test("temporarily hiding a completion before its atlas loads retains its one intent without stale playback", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused unloaded completion suspension regression.");
+  let release;
+  const waiting = new Promise(resolve => { release = resolve; });
+  await page.route("**/pet-v5/cow-dance-1.webp", async route => {
+    const response = await route.fetch();
+    await waiting;
+    await route.fulfill({ response });
+  });
+  await pausedPet(page);
+  await page.evaluate(() => window.pet.showCompletion({ message: "素材加载中的完成", replay: true }));
+  await expect(mascot(page)).toHaveAttribute("data-phase", "gesture");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+  await page.evaluate(() => { window.petShown = false; window.pet.reposition(); });
+  await expect(mascot(page)).toHaveAttribute("data-pending-gesture", "completion");
+  release();
+  await page.clock.runFor(3000);
+  await expect(mascot(page)).toHaveAttribute("data-scene-active", "false");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+  await page.evaluate(() => { window.petShown = true; window.pet.reposition(); });
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "1");
+  await page.clock.runFor(5000);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "1");
+  callbackBalance(await page.evaluate(() => window.actionEvents));
+});
+
+for (const actor of ["cow", "horse"]) {
+  test(`${actor} enters idle after 90 seconds, ignores passing pointers, and click wakes without another gesture`, async ({ page }, info) => {
+    test.skip(info.project.name !== "desktop", "Detailed idle arbitration is shared by all responsive views.");
+    await pausedPet(page, actor);
+    await page.clock.runFor(89999);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    await page.clock.runFor(1);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "idle-entry");
+    await expect(mascot(page)).toHaveAttribute("data-scene-active", "true");
+    await page.clock.runFor(actor === "cow" ? 950 : 1370);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "idle-loop");
+    const b = await button(page).boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.clock.runFor(500);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "idle-loop");
+    await expect(mascot(page)).toHaveAttribute("data-action-active", "false");
+    await button(page).click();
+    await expect(mascot(page)).toHaveAttribute("data-action-active", "true");
+    await page.clock.runFor(6000);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+    expect(await page.evaluate(() => window.gestureEvents)).toEqual([]);
+    callbackBalance(await page.evaluate(() => window.actionEvents));
+  });
+}
+
+test("completion waits for the sleeping loop's safe end and wake, and merged updates produce only one action", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused completion versus wake race regression.");
+  await pausedPet(page, "cow", { randomValue: .99999 });
+  await idleLoop(page);
+  await page.evaluate(() => {
+    window.sceneTrace = [];
+    new MutationObserver(() => {
+      const n = document.querySelector("#sidebar-companion"); window.sceneTrace.push(`${n.dataset.sceneId}:${n.dataset.sceneFrame}`);
+    }).observe(document.querySelector("#sidebar-companion"), { attributes: true, attributeFilter: ["data-scene-frame"] });
+    window.pet.showCompletion({ message: { line: "最新完成回应", mode: "ordinary" }, replay: true });
+    window.pet.showCompletion({ message: { line: "连续两项的最新回应", mode: "batch" }, count: 2, replay: false });
+  });
+  await page.clock.runFor(5000);
+  await expect(mascot(page)).toHaveAttribute("data-action", "cow-dance");
+  await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-dance");
+  await page.clock.runFor(4000);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "1");
+  await expect(speech(page)).toHaveText("连续两项的最新回应");
+  const trace = await page.evaluate(() => window.sceneTrace);
+  expect(trace.indexOf("cow-rest:15")).toBeLessThan(trace.indexOf("cow-rest:31"));
+  expect(trace.indexOf("cow-rest:31")).toBeLessThan(trace.indexOf("cow-dance:0"));
+  expect(await page.evaluate(() => window.gestureEvents)).toEqual([{ id: "cow-dance", phase: "start" }, { id: "cow-dance", phase: "end" }]);
+  callbackBalance(await page.evaluate(() => window.actionEvents));
+});
+
+test("a new completion cannot cut an action and queues only the latest once, with a different next choice", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused shuffle and latest-intent regression.");
+  await pausedPet(page, "cow", { randomValue: .99999 });
+  await page.evaluate(() => window.pet.showCompletion({ message: { line: "第一项", mode: "ordinary" }, replay: true }));
+  await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-dance");
+  await page.clock.runFor(1000);
+  await page.evaluate(() => {
+    window.pet.showCompletion({ message: { line: "第二项", mode: "ordinary" }, replay: true });
+    window.pet.showCompletion({ message: { line: "最后一次完成", mode: "batch" }, count: 3, replay: true });
+  });
+  await expect(mascot(page)).toHaveAttribute("data-action", "cow-dance");
+  await page.clock.runFor(2100);
+  await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-cake");
+  await expect(speech(page)).toHaveText("真不错又做完了一项，来块儿蛋糕吧~");
+  await page.clock.runFor(5000);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "2");
+  await expect(speech(page)).toHaveText("最后一次完成");
+  expect(await page.evaluate(() => window.gestureEvents.filter(event => event.phase === "start").map(event => event.id))).toEqual(["cow-dance", "cow-cake"]);
+  callbackBalance(await page.evaluate(() => window.actionEvents));
+});
+
+test("overdue handoff has priority after wake and before the single pending completion", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused wake→neutral→story→gesture arbitration.");
+  await pausedPet(page, "cow", { randomValue: .99999 });
+  await idleLoop(page);
+  await page.evaluate(() => {
+    window.setPetPolicy("horse");
+    window.pet.showCompletion({ message: { line: "完成后还要看逾期", mode: "ordinary" }, replay: true });
+  });
+  await page.clock.runFor(5000);
+  await expect(mascot(page)).toHaveAttribute("data-story-active", "true");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+  await page.clock.runFor(6500);
+  await expect(mascot(page)).toHaveAttribute("data-action", "horse-inspect");
+  await expect(mascot(page)).toHaveAttribute("data-scene-id", "horse-inspect");
+  await page.clock.runFor(4500);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-character", "horse");
+  await expect(mascot(page)).toHaveAttribute("data-story-count", "1");
+  await expect(mascot(page)).toHaveAttribute("data-gesture-count", "1");
+  expect(await page.evaluate(() => window.storyEvents)).toEqual([true, false]);
+  callbackBalance(await page.evaluate(() => window.actionEvents));
+});
+
+test("hiding cancels foreground or idle loops, balances callbacks, and leaves no stale performance after reset", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "Focused cancellation and background-loop regression.");
+  await pausedPet(page, "cow", { randomValue: 0 });
+  await page.evaluate(() => window.pet.showCompletion({ message: { line: "完成", mode: "ordinary" }, replay: true }));
+  await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-cake");
+  await page.clock.runFor(1000);
+  await page.evaluate(() => {
+    window.syntheticVisibility = "hidden";
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => window.syntheticVisibility });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  await expect(mascot(page)).toHaveAttribute("data-action-active", "false");
+  const frame = await mascot(page).getAttribute("data-frame");
+  await page.clock.runFor(180000);
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  await expect(mascot(page)).toHaveAttribute("data-frame", frame);
+  expect(await page.evaluate(() => window.gestureEvents)).toEqual([{ id: "cow-cake", phase: "start" }, { id: "cow-cake", phase: "cancel" }]);
+  callbackBalance(await page.evaluate(() => window.actionEvents));
+  await page.evaluate(() => {
+    window.syntheticVisibility = "visible"; document.dispatchEvent(new Event("visibilitychange"));
+    window.pet.reset(); window.setPetPolicy("horse");
+  });
+  await idleLoop(page, "horse");
+  await page.evaluate(() => window.pet.preferences({ animated: false }));
+  await page.clock.runFor(180000);
+  await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+  await expect(mascot(page)).toHaveAttribute("data-playing", "false");
+  await expect(mascot(page)).toHaveAttribute("data-character", "horse");
+  callbackBalance(await page.evaluate(() => window.actionEvents));
+});
+
+for (const actor of ["cow", "horse"]) {
+  test(`${actor} v5 idle loop and wake fit the real target size without moving the dock`, async ({ page }, info) => {
+    await pausedPet(page, actor);
+    const before = await mascot(page).boundingBox();
+    await idleLoop(page, actor);
+    await page.clock.runFor(actor === "cow" ? 600 : 1100);
+    await expect(mascot(page)).toHaveAttribute("data-scene-id", actor === "cow" ? "cow-rest" : "horse-desk");
+    expect(await mascot(page).boundingBox()).toEqual(before);
+    await page.screenshot({ path: info.outputPath(`${actor}-v5-idle-${info.project.name}.png`) });
+    await button(page).click();
+    await page.clock.runFor(6000);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    expect(await mascot(page).boundingBox()).toEqual(before);
+    await expect(mascot(page)).toHaveAttribute("data-gesture-count", "0");
+    await page.screenshot({ path: info.outputPath(`${actor}-v5-wake-settled-${info.project.name}.png`) });
+    callbackBalance(await page.evaluate(() => window.actionEvents));
+  });
+
+  test(`${actor} v5 action keeps its dock and caption anchor fixed at this viewport`, async ({ page }, info) => {
+    await pausedPet(page, actor, { randomValue: actor === "cow" ? 0 : .99999 });
+    const before = await mascot(page).boundingBox();
+    await page.evaluate(() => window.pet.showCompletion({ message: { line: "新的完成回应", mode: "ordinary" }, replay: true }));
+    await expect(mascot(page)).toHaveAttribute("data-scene-active", "true");
+    await page.clock.runFor(1800);
+    await page.screenshot({ path: info.outputPath(`${actor}-v5-action-middle-${info.project.name}.png`) });
+    expect(await mascot(page).boundingBox()).toEqual(before);
+    await page.clock.runFor(5000);
+    await expect(mascot(page)).toHaveAttribute("data-phase", "steady");
+    expect(await mascot(page).boundingBox()).toEqual(before);
+    await page.screenshot({ path: info.outputPath(`${actor}-v5-action-settled-${info.project.name}.png`) });
+    callbackBalance(await page.evaluate(() => window.actionEvents));
+  });
+}
+
+for (const actor of ["cow", "horse"]) {
+  test(`record ${actor} v5 full actions, idle and safe wake at actual display size`, async ({ browser }, info) => {
+    test.skip(info.project.name !== "desktop", "One real-time proof recording per actor.");
+    test.setTimeout(45000);
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, timezoneId: "Asia/Shanghai",
+      baseURL: info.project.use.baseURL || "http://127.0.0.1:18763", recordVideo: { dir: info.outputPath("recording"), size: { width: 1440, height: 900 } } });
+    const page = await context.newPage();
+    const finish = () => expect(mascot(page)).toHaveAttribute("data-phase", "steady", { timeout: 10000 });
+    const complete = line => page.evaluate(line => window.pet.showCompletion({ message: { line, mode: "ordinary" }, replay: true }), line);
+    const enterIdle = async () => {
+      await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
+      await page.clock.runFor(90000);
+      await expect(mascot(page)).toHaveAttribute("data-scene-active", "true");
+      await page.clock.resume();
+      await expect(mascot(page)).toHaveAttribute("data-phase", "idle-loop");
+      await page.waitForTimeout(actor === "cow" ? 650 : 1000);
+    };
+    try {
+      await pausedPet(page, actor, { randomValue: .99999 });
+      await page.mouse.move(800, 100);
+      await page.clock.resume();
+      await complete(actor === "cow" ? "完成啦，和牛牛庆祝一下。" : "这项做好了，马马替你检查清单。");
+      await expect(mascot(page)).toHaveAttribute("data-scene-id", actor === "cow" ? "cow-dance" : "horse-inspect");
+      await finish();
+      if (actor === "cow") {
+        await complete("再完成一项，休息一下吧。");
+        await expect(mascot(page)).toHaveAttribute("data-scene-id", "cow-cake");
+        await expect(speech(page)).toHaveText("真不错又做完了一项，来块儿蛋糕吧~");
+        await finish();
+      }
+      await page.evaluate(() => window.pet.endCompletion());
+      await enterIdle();
+      await page.screenshot({ path: info.outputPath(`${actor}-v5-recorded-idle.png`) });
+      if (actor === "cow") {
+        await button(page).click();
+        await finish();
+        await expect(mascot(page)).toHaveAttribute("data-gesture-count", "2");
+        await page.mouse.move(800, 100);
+        await enterIdle();
+      }
+      await complete(actor === "cow" ? "睡醒再庆祝，刚刚的任务完成啦。" : "先收好清单和桌子，再回应刚刚的完成。");
+      await expect(mascot(page)).toHaveAttribute("data-action-active", "true");
+      await expect(mascot(page)).toHaveAttribute("data-phase", "wake", { timeout: 5000 });
+      await expect(mascot(page)).toHaveAttribute("data-phase", "gesture", { timeout: 6000 });
+      await finish();
+      await expect(mascot(page)).toHaveAttribute("data-gesture-count", actor === "cow" ? "3" : "2");
+      callbackBalance(await page.evaluate(() => window.actionEvents));
+      await page.waitForTimeout(500);
+    } finally {
+      await context.close();
+      const path = await page.video()?.path();
+      if (path) await info.attach(`${actor}-v5-actions-idle-wake`, { path, contentType: "video/webm" });
+    }
+  });
+}

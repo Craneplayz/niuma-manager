@@ -178,3 +178,18 @@ test('a full handover movie does not consume the completion caption reading time
   t.mock.timers.tick(6999); assert.equal(f.dismissed(), 0);
   t.mock.timers.tick(1); assert.equal(f.dismissed(), 1);
 });
+
+test('wake and completion actions can hand off to a policy movie without briefly consuming reading time', t => {
+  const f = controllerFixture(t);
+  f.controller.show({ remaining: 2, epoch: 1 });
+  t.mock.timers.tick(5000);
+  f.controller.setActionActive(true);
+  t.mock.timers.tick(1500);
+  f.controller.setStoryActive(true);
+  f.controller.setActionActive(false);
+  t.mock.timers.tick(6000);
+  assert.equal(f.dismissed(), 0);
+  f.controller.setStoryActive(false);
+  t.mock.timers.tick(1999); assert.equal(f.dismissed(), 0);
+  t.mock.timers.tick(1); assert.equal(f.dismissed(), 1);
+});

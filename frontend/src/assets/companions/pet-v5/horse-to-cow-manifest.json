@@ -1,0 +1,428 @@
+{
+  "version": 5,
+  "id": "horse-to-cow",
+  "frameWidth": 512,
+  "frameHeight": 384,
+  "columns": 4,
+  "rows": 4,
+  "frameCount": 48,
+  "durations": [
+    110,
+    70,
+    70,
+    70,
+    90,
+    90,
+    90,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    110,
+    100,
+    100,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    120,
+    130,
+    130,
+    130,
+    130,
+    130,
+    130,
+    130,
+    110,
+    110,
+    110,
+    110,
+    130
+  ],
+  "totalDuration": 5200,
+  "frameMap": [
+    {
+      "frame": 0,
+      "canonical": true
+    },
+    {
+      "frame": 1,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 2,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 3,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 4,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 5,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 6,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 7,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 8,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 9,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 10,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 11,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 12,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 13,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 14,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 15,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 16,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 17,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 18,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 19,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 20,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 21,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 22,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 23,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 24,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 25,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 26,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 27,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 28,
+      "horseX": 256,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 29,
+      "horseX": 246,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 30,
+      "horseX": 214,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 31,
+      "horseX": 171,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 32,
+      "horseX": 123,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 33,
+      "horseX": 70,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 34,
+      "horseX": 12,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 35,
+      "horseX": -65,
+      "cowX": 108,
+      "horseBaseline": 340,
+      "cowFloorBaseline": 340,
+      "method": "independent role and hole registration; no whole-scene normalization"
+    },
+    {
+      "frame": 36,
+      "source": "climb-refinement/frames/36.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 37,
+      "source": "climb-refinement/frames/37.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 38,
+      "source": "climb-refinement/frames/38.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 39,
+      "source": "climb-refinement/frames/39.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 40,
+      "source": "climb-refinement/frames/40.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 41,
+      "source": "climb-refinement/frames/41.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 42,
+      "source": "climb-refinement/frames/42.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 43,
+      "source": "climb-refinement/frames/43.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 44,
+      "source": "climb-refinement/frames/44.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 45,
+      "source": "climb-refinement/frames/45.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 46,
+      "source": "climb-refinement/frames/46.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": false
+    },
+    {
+      "frame": 47,
+      "source": "climb-refinement/frames/47.png",
+      "method": "fixed hole and independently registered full-body exit; biped-only final steps",
+      "canonical": true
+    }
+  ],
+  "horseStandingCenter": 256,
+  "groundOpeningCenter": 108,
+  "floorBaseline": 340,
+  "joinedSourceCellsExcluded": [
+    17,
+    21,
+    25,
+    27
+  ],
+  "canonicalEndpoints": "v4 horse47 / cow00"
+}

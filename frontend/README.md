@@ -4,7 +4,7 @@
 
 界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，左下角常驻伙伴根据已保存任务切换形象，支持悬停、聚焦和轻点对话，折叠栏与矮窗口使用紧凑尺寸。课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
 
-手动完成任务保存成功后由左下角伙伴播放真实动作帧，话语位于脚下；支持悬停读话语、点击回应与拖动靠边，当前角色只按有无逾期决定，完成不换人；只在有无逾期变化时播放完整接班剧情，连续完成合并；撤回统一放在右下角圆按钮，账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马伙伴](docs/mascots.md)。
+手动完成任务保存成功后由左下角伙伴播放真实动作帧，话语位于脚下；支持悬停读话语、点击回应与拖动靠边，当前角色只按有无逾期决定，完成不换人；随机完成动作避免连续重复，90秒闲置后进入睡眠或伏案循环，点击或完成先完整唤醒；有无逾期变化播放完整接班剧情，连续完成合并；撤回统一放在右下角圆按钮，账号内可关闭伙伴或小动画，动作素材和角色语气见 [牛马伙伴](docs/mascots.md)。
 
 ## 功能与数据
 
@@ -69,11 +69,12 @@ frontend/
 │   ├── completion-companion.js 完成伙伴文案、连续合并、反馈时限与本地偏好
 │   ├── completion-companion.css 撤回圆按钮、操作说明与伙伴设置样式
 │   ├── undo-feedback.js       统一撤回入口、时限暂停、账号与弹窗保护
+│   ├── companion-story.js    接班节奏、快速投射与连续入退场
 │   ├── companion-motion.js    角色连续动作帧、可取消时间线与停靠边界
 │   ├── sidebar-companion-state.js 已保存任务的侧栏角色、情绪与真实数量文案
 │   ├── sidebar-companion.js  常驻精灵帧、完成反馈衔接、点击与拖动靠边交互
 │   ├── sidebar-companion.css 角落角色、脚下话语、紧凑形态与选项样式
-│   ├── assets/companions/    牛马原姿势、pet-v3/轻回应、pet-v4/完整接班场景及完成文案
+│   ├── assets/companions/    牛马原姿势、pet-v3/备用、pet-v4/历史、pet-v5/动作与待机及完成文案
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
@@ -136,11 +137,15 @@ frontend/
     │   ├── pet-v3-desktop.png    旧版连续动作参考
     │   ├── pet-v3-mobile.png     旧版手机伙伴参考
     │   ├── pet-v3-horse.png      旧版小马完成反馈
-    │   ├── pet-v4-desktop.png   当前桌面完成反馈与撤回
-    │   ├── pet-v4-mobile.png    当前手机伙伴与脚下话语
+    │   ├── pet-v4-desktop.png   旧版桌面完成反馈与撤回
+    │   ├── pet-v4-mobile.png    旧版手机伙伴与脚下话语
     │   ├── pet-v4-horse.png     有逾期时的持清单小马
     │   ├── pet-v4-cow-to-horse.png  清单撞击后的接班场景
-    │   ├── pet-v4-horse-to-cow.png  举牌、纸面打勾的接班场景
+    │   ├── pet-v4-horse-to-cow.png  旧版举牌接班场景
+    │   ├── pet-v5-desktop.png   当前桌面完成反馈
+    │   ├── pet-v5-mobile.png    当前手机完整动作
+    │   ├── pet-v5-sleep.png     小牛睡眠循环
+    │   ├── pet-v5-desk.png      小马伏案循环
     │   ├── pet-v2-desktop.png    旧版桌面伙伴与圆形撤回
     │   ├── pet-v2-mobile.png     旧版手机伙伴与脚下话语
     │   ├── pet-v2-horse.png      旧版小马连续完成反馈
