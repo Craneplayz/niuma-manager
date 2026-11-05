@@ -17,6 +17,11 @@ let canonicalTasks = [],
   failed = false,
   pendingChanges = [];
 let canonicalCandidates = new Map();
+let canonicalTimetable = { value: [], version: 0 };
+export const readStoredTimetable = () => clone(canonicalTimetable);
+export function acceptStoredTimetable(value) {
+  if (value.version >= canonicalTimetable.version) canonicalTimetable = clone(value);
+}
 const clone = (value) => structuredClone(value);
 let accountEpoch = 0, editRevision = 0, retrying = null;
 let staging = Promise.resolve(), journalLoaded = null, order = 0, taskGeneration = 0;
@@ -37,6 +42,7 @@ function resetAccount() {
   session.user = null;
   canonicalTasks = [];
   canonicalCandidates = new Map();
+  canonicalTimetable = { value: [], version: 0 };
   taskVersion = 0;
   taskGeneration = 0;
   latest = null;
@@ -304,6 +310,7 @@ async function loadSession(discardPending = false) {
         continue;
       }
       session.user = result.user;
+      acceptStoredTimetable(next.timetable || { value: [], version: 0 });
       if ((next.tasks?.version || 0) >= taskVersion) {
         canonicalTasks = clone(next.tasks?.value || []);
         taskVersion = next.tasks?.version || 0;

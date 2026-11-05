@@ -1,0 +1,10 @@
+{
+  "value": [{
+    "id": "0123456789abcdef01234567", "firstMonday": "2026-09-07", "lastDate": "2026-09-27",
+    "meetings": [
+      {"id": "0123456789abcdef0123", "title": "示例原理(Ⅰ)", "location": "示例楼101", "notes": "", "weekday": 1, "startPeriod": 1, "endPeriod": 2, "parity": "all", "startTime": "08:00", "endTime": "09:50", "examNote": "考试方式另行通知", "exam": null},
+      {"id": "abcdef0123456789abcd", "title": "示例实验", "location": "", "notes": "地点另行通知", "weekday": 2, "startPeriod": 10, "endPeriod": 11, "parity": "even", "startTime": "18:40", "endTime": "20:30", "examNote": "考试方式：论文", "exam": null}
+    ]
+  }],
+  "version": 1
+}
