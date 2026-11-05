@@ -1,0 +1,764 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "directory": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "submission-operations/0.1"
+        },
+        "source_account_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "record_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              },
+              "course_or_project": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "record_id",
+              "label",
+              "course_or_project"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "contract_version",
+        "source_account_id",
+        "records",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
+    "detail": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "submission-operations/0.1"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "course_or_project": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observation": {
+          "type": "object",
+          "properties": {
+            "contract_version": {
+              "const": "submission-policy/0.1"
+            },
+            "snapshot": {
+              "type": "object",
+              "properties": {
+                "source_account_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$"
+                },
+                "input_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "course_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$"
+                },
+                "content_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$"
+                },
+                "snapshot_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 160,
+                  "pattern": "^[A-Za-z0-9_.:-]+$"
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "observed_at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "maxLength": 40
+                },
+                "state": {
+                  "enum": [
+                    "submitted",
+                    "active",
+                    "unknown"
+                  ]
+                },
+                "basis": {
+                  "enum": [
+                    "review_submission_history_title",
+                    "active_assignment_page",
+                    "unknown"
+                  ]
+                }
+              },
+              "required": [
+                "source_account_id",
+                "input_id",
+                "course_id",
+                "content_id",
+                "snapshot_id",
+                "sequence",
+                "observed_at",
+                "state",
+                "basis"
+              ],
+              "additionalProperties": false
+            },
+            "control_revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "review_pending": {
+              "type": "boolean"
+            },
+            "scope": {
+              "enum": [
+                "submission_only",
+                "mixed",
+                "unknown"
+              ]
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "action_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "candidate",
+                      "task"
+                    ]
+                  },
+                  "relation": {
+                    "enum": [
+                      "assignment_submission",
+                      "other",
+                      "unknown"
+                    ]
+                  },
+                  "link_basis": {
+                    "enum": [
+                      "server_exact",
+                      "user_confirmed",
+                      "unresolved"
+                    ]
+                  },
+                  "decision": {
+                    "enum": [
+                      "pending",
+                      "confirmed",
+                      "edited",
+                      "completed",
+                      "ignored",
+                      "deleted"
+                    ]
+                  },
+                  "completion_origin": {
+                    "enum": [
+                      null,
+                      "manual",
+                      "source_submission"
+                    ]
+                  },
+                  "source_completion_paused": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "action_id",
+                  "kind",
+                  "relation",
+                  "link_basis",
+                  "decision",
+                  "completion_origin",
+                  "source_completion_paused"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "contract_version",
+            "snapshot",
+            "control_revision",
+            "review_pending",
+            "scope",
+            "actions"
+          ],
+          "additionalProperties": false,
+          "$schema": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "action_labels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "action_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+              }
+            },
+            "required": [
+              "action_id",
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "contract_version",
+        "record_id",
+        "label",
+        "course_or_project",
+        "observation",
+        "action_labels"
+      ],
+      "additionalProperties": false
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "contract_version": {
+              "const": "submission-operations/0.1"
+            },
+            "operation_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "record_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "expected_snapshot_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "expected_control_revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "kind": {
+              "enum": [
+                "reopen_actions",
+                "resume_source_completion",
+                "resolve_source_review"
+              ]
+            },
+            "action_ids": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              },
+              "maxItems": 100,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "contract_version",
+            "operation_id",
+            "record_id",
+            "expected_snapshot_id",
+            "expected_control_revision",
+            "kind",
+            "action_ids"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "contract_version": {
+              "const": "submission-operations/0.1"
+            },
+            "operation_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "record_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "expected_snapshot_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "expected_control_revision": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "kind": {
+              "const": "associate_actions"
+            },
+            "scope": {
+              "enum": [
+                "submission_only",
+                "mixed",
+                "unknown"
+              ]
+            },
+            "links": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "action_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "relation": {
+                    "enum": [
+                      "assignment_submission",
+                      "other",
+                      "unknown"
+                    ]
+                  }
+                },
+                "required": [
+                  "action_id",
+                  "relation"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "contract_version",
+            "operation_id",
+            "record_id",
+            "expected_snapshot_id",
+            "expected_control_revision",
+            "kind",
+            "scope",
+            "links"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "receipt": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "submission-operations/0.1"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "applied_control_revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "record": {
+          "type": "object",
+          "properties": {
+            "contract_version": {
+              "const": "submission-operations/0.1"
+            },
+            "record_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "course_or_project": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "observation": {
+              "type": "object",
+              "properties": {
+                "contract_version": {
+                  "const": "submission-policy/0.1"
+                },
+                "snapshot": {
+                  "type": "object",
+                  "properties": {
+                    "source_account_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160,
+                      "pattern": "^[A-Za-z0-9_.:-]+$"
+                    },
+                    "input_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "course_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160,
+                      "pattern": "^[A-Za-z0-9_.:-]+$"
+                    },
+                    "content_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160,
+                      "pattern": "^[A-Za-z0-9_.:-]+$"
+                    },
+                    "snapshot_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160,
+                      "pattern": "^[A-Za-z0-9_.:-]+$"
+                    },
+                    "sequence": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "maxLength": 40
+                    },
+                    "state": {
+                      "enum": [
+                        "submitted",
+                        "active",
+                        "unknown"
+                      ]
+                    },
+                    "basis": {
+                      "enum": [
+                        "review_submission_history_title",
+                        "active_assignment_page",
+                        "unknown"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "source_account_id",
+                    "input_id",
+                    "course_id",
+                    "content_id",
+                    "snapshot_id",
+                    "sequence",
+                    "observed_at",
+                    "state",
+                    "basis"
+                  ],
+                  "additionalProperties": false
+                },
+                "control_revision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "review_pending": {
+                  "type": "boolean"
+                },
+                "scope": {
+                  "enum": [
+                    "submission_only",
+                    "mixed",
+                    "unknown"
+                  ]
+                },
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "action_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160,
+                        "pattern": "^[A-Za-z0-9_.:-]+$"
+                      },
+                      "kind": {
+                        "enum": [
+                          "candidate",
+                          "task"
+                        ]
+                      },
+                      "relation": {
+                        "enum": [
+                          "assignment_submission",
+                          "other",
+                          "unknown"
+                        ]
+                      },
+                      "link_basis": {
+                        "enum": [
+                          "server_exact",
+                          "user_confirmed",
+                          "unresolved"
+                        ]
+                      },
+                      "decision": {
+                        "enum": [
+                          "pending",
+                          "confirmed",
+                          "edited",
+                          "completed",
+                          "ignored",
+                          "deleted"
+                        ]
+                      },
+                      "completion_origin": {
+                        "enum": [
+                          null,
+                          "manual",
+                          "source_submission"
+                        ]
+                      },
+                      "source_completion_paused": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "action_id",
+                      "kind",
+                      "relation",
+                      "link_basis",
+                      "decision",
+                      "completion_origin",
+                      "source_completion_paused"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 100
+                }
+              },
+              "required": [
+                "contract_version",
+                "snapshot",
+                "control_revision",
+                "review_pending",
+                "scope",
+                "actions"
+              ],
+              "additionalProperties": false,
+              "$schema": "https://json-schema.org/draft/2020-12/schema"
+            },
+            "action_labels": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "action_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                },
+                "required": [
+                  "action_id",
+                  "label"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "contract_version",
+            "record_id",
+            "label",
+            "course_or_project",
+            "observation",
+            "action_labels"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "contract_version",
+        "operation_id",
+        "record_id",
+        "applied_control_revision",
+        "record"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "submission-operations/0.1"
+        },
+        "code": {
+          "enum": [
+            "unauthorized",
+            "invalid_request",
+            "not_found",
+            "conflict",
+            "unavailable"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      },
+      "required": [
+        "contract_version",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/directory"
+    },
+    {
+      "$ref": "#/$defs/detail"
+    },
+    {
+      "$ref": "#/$defs/operation"
+    },
+    {
+      "$ref": "#/$defs/receipt"
+    },
+    {
+      "$ref": "#/$defs/error"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:niuma:contracts:request:0.3",
+  "title": "Source to recognition request v0.3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "request_id",
+    "records"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "0.3"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "\\S"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:niuma:contracts:common:0.3#/$defs/record"
+      },
+      "minItems": 1,
+      "maxItems": 20
+    }
+  }
+}

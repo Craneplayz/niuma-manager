@@ -1,0 +1,670 @@
+{
+  "cases": [
+    {
+      "name": "associate-mixed-without-completing",
+      "record": {
+        "contract_version": "submission-operations/0.1",
+        "record_id": "record:assignment2",
+        "label": "第二次作业及课堂准备",
+        "course_or_project": "计算机系统导论",
+        "observation": {
+          "contract_version": "submission-policy/0.1",
+          "snapshot": {
+            "source_account_id": "source:teaching",
+            "input_id": "教学网/计算机系统/作业 2",
+            "course_id": "_course_1",
+            "content_id": "_assignment_2",
+            "snapshot_id": "snapshot:8",
+            "sequence": 8,
+            "observed_at": "2026-10-09T12:00:00+08:00",
+            "state": "submitted",
+            "basis": "review_submission_history_title"
+          },
+          "control_revision": 7,
+          "review_pending": false,
+          "scope": "unknown",
+          "actions": [
+            {
+              "action_id": "task:submit",
+              "kind": "task",
+              "relation": "unknown",
+              "link_basis": "unresolved",
+              "decision": "confirmed",
+              "completion_origin": null,
+              "source_completion_paused": false
+            },
+            {
+              "action_id": "task:prepare",
+              "kind": "task",
+              "relation": "other",
+              "link_basis": "server_exact",
+              "decision": "edited",
+              "completion_origin": null,
+              "source_completion_paused": false
+            }
+          ]
+        },
+        "action_labels": [
+          {
+            "action_id": "task:submit",
+            "label": "提交第二次作业"
+          },
+          {
+            "action_id": "task:prepare",
+            "label": "准备下次讨论"
+          }
+        ]
+      },
+      "operation": {
+        "contract_version": "submission-operations/0.1",
+        "operation_id": "operation:associate_actions",
+        "record_id": "record:assignment2",
+        "expected_snapshot_id": "snapshot:8",
+        "expected_control_revision": 7,
+        "kind": "associate_actions",
+        "scope": "mixed",
+        "links": [
+          {
+            "action_id": "task:submit",
+            "relation": "assignment_submission"
+          },
+          {
+            "action_id": "task:prepare",
+            "relation": "other"
+          }
+        ]
+      },
+      "expected_observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:teaching",
+          "input_id": "教学网/计算机系统/作业 2",
+          "course_id": "_course_1",
+          "content_id": "_assignment_2",
+          "snapshot_id": "snapshot:8",
+          "sequence": 8,
+          "observed_at": "2026-10-09T12:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "control_revision": 8,
+        "review_pending": false,
+        "scope": "mixed",
+        "actions": [
+          {
+            "action_id": "task:submit",
+            "kind": "task",
+            "relation": "assignment_submission",
+            "link_basis": "user_confirmed",
+            "decision": "confirmed",
+            "completion_origin": null,
+            "source_completion_paused": false
+          },
+          {
+            "action_id": "task:prepare",
+            "kind": "task",
+            "relation": "other",
+            "link_basis": "server_exact",
+            "decision": "edited",
+            "completion_origin": null,
+            "source_completion_paused": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "reopen-source-completed",
+      "record": {
+        "contract_version": "submission-operations/0.1",
+        "record_id": "record:assignment2",
+        "label": "第二次作业及课堂准备",
+        "course_or_project": "计算机系统导论",
+        "observation": {
+          "contract_version": "submission-policy/0.1",
+          "snapshot": {
+            "source_account_id": "source:teaching",
+            "input_id": "教学网/计算机系统/作业 2",
+            "course_id": "_course_1",
+            "content_id": "_assignment_2",
+            "snapshot_id": "snapshot:8",
+            "sequence": 8,
+            "observed_at": "2026-10-09T12:00:00+08:00",
+            "state": "submitted",
+            "basis": "review_submission_history_title"
+          },
+          "control_revision": 7,
+          "review_pending": false,
+          "scope": "mixed",
+          "actions": [
+            {
+              "action_id": "task:submit",
+              "kind": "task",
+              "relation": "assignment_submission",
+              "link_basis": "user_confirmed",
+              "decision": "completed",
+              "completion_origin": "source_submission",
+              "source_completion_paused": false
+            },
+            {
+              "action_id": "task:prepare",
+              "kind": "task",
+              "relation": "other",
+              "link_basis": "server_exact",
+              "decision": "edited",
+              "completion_origin": null,
+              "source_completion_paused": false
+            }
+          ]
+        },
+        "action_labels": [
+          {
+            "action_id": "task:submit",
+            "label": "提交第二次作业"
+          },
+          {
+            "action_id": "task:prepare",
+            "label": "准备下次讨论"
+          }
+        ]
+      },
+      "operation": {
+        "contract_version": "submission-operations/0.1",
+        "operation_id": "operation:reopen_actions",
+        "record_id": "record:assignment2",
+        "expected_snapshot_id": "snapshot:8",
+        "expected_control_revision": 7,
+        "kind": "reopen_actions",
+        "action_ids": [
+          "task:submit"
+        ]
+      },
+      "expected_observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:teaching",
+          "input_id": "教学网/计算机系统/作业 2",
+          "course_id": "_course_1",
+          "content_id": "_assignment_2",
+          "snapshot_id": "snapshot:8",
+          "sequence": 8,
+          "observed_at": "2026-10-09T12:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "control_revision": 8,
+        "review_pending": false,
+        "scope": "mixed",
+        "actions": [
+          {
+            "action_id": "task:submit",
+            "kind": "task",
+            "relation": "assignment_submission",
+            "link_basis": "user_confirmed",
+            "decision": "confirmed",
+            "completion_origin": null,
+            "source_completion_paused": true
+          },
+          {
+            "action_id": "task:prepare",
+            "kind": "task",
+            "relation": "other",
+            "link_basis": "server_exact",
+            "decision": "edited",
+            "completion_origin": null,
+            "source_completion_paused": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "resume-does-not-resolve-review",
+      "record": {
+        "contract_version": "submission-operations/0.1",
+        "record_id": "record:assignment2",
+        "label": "第二次作业及课堂准备",
+        "course_or_project": "计算机系统导论",
+        "observation": {
+          "contract_version": "submission-policy/0.1",
+          "snapshot": {
+            "source_account_id": "source:teaching",
+            "input_id": "教学网/计算机系统/作业 2",
+            "course_id": "_course_1",
+            "content_id": "_assignment_2",
+            "snapshot_id": "snapshot:8",
+            "sequence": 8,
+            "observed_at": "2026-10-09T12:00:00+08:00",
+            "state": "submitted",
+            "basis": "review_submission_history_title"
+          },
+          "control_revision": 7,
+          "review_pending": true,
+          "scope": "mixed",
+          "actions": [
+            {
+              "action_id": "task:submit",
+              "kind": "task",
+              "relation": "assignment_submission",
+              "link_basis": "user_confirmed",
+              "decision": "confirmed",
+              "completion_origin": null,
+              "source_completion_paused": true
+            },
+            {
+              "action_id": "task:prepare",
+              "kind": "task",
+              "relation": "other",
+              "link_basis": "server_exact",
+              "decision": "edited",
+              "completion_origin": null,
+              "source_completion_paused": false
+            }
+          ]
+        },
+        "action_labels": [
+          {
+            "action_id": "task:submit",
+            "label": "提交第二次作业"
+          },
+          {
+            "action_id": "task:prepare",
+            "label": "准备下次讨论"
+          }
+        ]
+      },
+      "operation": {
+        "contract_version": "submission-operations/0.1",
+        "operation_id": "operation:resume_source_completion",
+        "record_id": "record:assignment2",
+        "expected_snapshot_id": "snapshot:8",
+        "expected_control_revision": 7,
+        "kind": "resume_source_completion",
+        "action_ids": [
+          "task:submit"
+        ]
+      },
+      "expected_observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:teaching",
+          "input_id": "教学网/计算机系统/作业 2",
+          "course_id": "_course_1",
+          "content_id": "_assignment_2",
+          "snapshot_id": "snapshot:8",
+          "sequence": 8,
+          "observed_at": "2026-10-09T12:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "control_revision": 8,
+        "review_pending": true,
+        "scope": "mixed",
+        "actions": [
+          {
+            "action_id": "task:submit",
+            "kind": "task",
+            "relation": "assignment_submission",
+            "link_basis": "user_confirmed",
+            "decision": "confirmed",
+            "completion_origin": null,
+            "source_completion_paused": false
+          },
+          {
+            "action_id": "task:prepare",
+            "kind": "task",
+            "relation": "other",
+            "link_basis": "server_exact",
+            "decision": "edited",
+            "completion_origin": null,
+            "source_completion_paused": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve-does-not-resume-completion",
+      "record": {
+        "contract_version": "submission-operations/0.1",
+        "record_id": "record:assignment2",
+        "label": "第二次作业及课堂准备",
+        "course_or_project": "计算机系统导论",
+        "observation": {
+          "contract_version": "submission-policy/0.1",
+          "snapshot": {
+            "source_account_id": "source:teaching",
+            "input_id": "教学网/计算机系统/作业 2",
+            "course_id": "_course_1",
+            "content_id": "_assignment_2",
+            "snapshot_id": "snapshot:8",
+            "sequence": 8,
+            "observed_at": "2026-10-09T12:00:00+08:00",
+            "state": "submitted",
+            "basis": "review_submission_history_title"
+          },
+          "control_revision": 7,
+          "review_pending": true,
+          "scope": "mixed",
+          "actions": [
+            {
+              "action_id": "task:submit",
+              "kind": "task",
+              "relation": "assignment_submission",
+              "link_basis": "user_confirmed",
+              "decision": "confirmed",
+              "completion_origin": null,
+              "source_completion_paused": true
+            },
+            {
+              "action_id": "task:prepare",
+              "kind": "task",
+              "relation": "other",
+              "link_basis": "server_exact",
+              "decision": "edited",
+              "completion_origin": null,
+              "source_completion_paused": false
+            }
+          ]
+        },
+        "action_labels": [
+          {
+            "action_id": "task:submit",
+            "label": "提交第二次作业"
+          },
+          {
+            "action_id": "task:prepare",
+            "label": "准备下次讨论"
+          }
+        ]
+      },
+      "operation": {
+        "contract_version": "submission-operations/0.1",
+        "operation_id": "operation:resolve_source_review",
+        "record_id": "record:assignment2",
+        "expected_snapshot_id": "snapshot:8",
+        "expected_control_revision": 7,
+        "kind": "resolve_source_review",
+        "action_ids": []
+      },
+      "expected_observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:teaching",
+          "input_id": "教学网/计算机系统/作业 2",
+          "course_id": "_course_1",
+          "content_id": "_assignment_2",
+          "snapshot_id": "snapshot:8",
+          "sequence": 8,
+          "observed_at": "2026-10-09T12:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "control_revision": 8,
+        "review_pending": false,
+        "scope": "mixed",
+        "actions": [
+          {
+            "action_id": "task:submit",
+            "kind": "task",
+            "relation": "assignment_submission",
+            "link_basis": "user_confirmed",
+            "decision": "confirmed",
+            "completion_origin": null,
+            "source_completion_paused": true
+          },
+          {
+            "action_id": "task:prepare",
+            "kind": "task",
+            "relation": "other",
+            "link_basis": "server_exact",
+            "decision": "edited",
+            "completion_origin": null,
+            "source_completion_paused": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "first-record-explicit-whole-source-confirmation",
+      "record": {
+        "contract_version": "submission-operations/0.1",
+        "record_id": "record:assignment2",
+        "label": "第二次作业及课堂准备",
+        "course_or_project": null,
+        "observation": {
+          "contract_version": "submission-policy/0.1",
+          "snapshot": {
+            "source_account_id": "source:teaching",
+            "input_id": "教学网/计算机系统/作业 2",
+            "course_id": "_course_1",
+            "content_id": "_assignment_2",
+            "snapshot_id": "snapshot:8",
+            "sequence": 8,
+            "observed_at": "2026-10-09T12:00:00+08:00",
+            "state": "submitted",
+            "basis": "review_submission_history_title"
+          },
+          "control_revision": 7,
+          "review_pending": false,
+          "scope": "unknown",
+          "actions": []
+        },
+        "action_labels": []
+      },
+      "operation": {
+        "contract_version": "submission-operations/0.1",
+        "operation_id": "operation:associate_actions",
+        "record_id": "record:assignment2",
+        "expected_snapshot_id": "snapshot:8",
+        "expected_control_revision": 7,
+        "kind": "associate_actions",
+        "scope": "submission_only",
+        "links": []
+      },
+      "expected_observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:teaching",
+          "input_id": "教学网/计算机系统/作业 2",
+          "course_id": "_course_1",
+          "content_id": "_assignment_2",
+          "snapshot_id": "snapshot:8",
+          "sequence": 8,
+          "observed_at": "2026-10-09T12:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "control_revision": 8,
+        "review_pending": false,
+        "scope": "submission_only",
+        "actions": []
+      }
+    },
+    {
+      "name": "association-can-retain-unknown",
+      "record": {
+        "contract_version": "submission-operations/0.1",
+        "record_id": "record:assignment2",
+        "label": "第二次作业及课堂准备",
+        "course_or_project": "计算机系统导论",
+        "observation": {
+          "contract_version": "submission-policy/0.1",
+          "snapshot": {
+            "source_account_id": "source:teaching",
+            "input_id": "教学网/计算机系统/作业 2",
+            "course_id": "_course_1",
+            "content_id": "_assignment_2",
+            "snapshot_id": "snapshot:8",
+            "sequence": 8,
+            "observed_at": "2026-10-09T12:00:00+08:00",
+            "state": "submitted",
+            "basis": "review_submission_history_title"
+          },
+          "control_revision": 7,
+          "review_pending": false,
+          "scope": "unknown",
+          "actions": [
+            {
+              "action_id": "task:submit",
+              "kind": "task",
+              "relation": "unknown",
+              "link_basis": "unresolved",
+              "decision": "confirmed",
+              "completion_origin": null,
+              "source_completion_paused": false
+            },
+            {
+              "action_id": "task:prepare",
+              "kind": "task",
+              "relation": "other",
+              "link_basis": "server_exact",
+              "decision": "edited",
+              "completion_origin": null,
+              "source_completion_paused": false
+            }
+          ]
+        },
+        "action_labels": [
+          {
+            "action_id": "task:submit",
+            "label": "提交第二次作业"
+          },
+          {
+            "action_id": "task:prepare",
+            "label": "准备下次讨论"
+          }
+        ]
+      },
+      "operation": {
+        "contract_version": "submission-operations/0.1",
+        "operation_id": "operation:associate_actions",
+        "record_id": "record:assignment2",
+        "expected_snapshot_id": "snapshot:8",
+        "expected_control_revision": 7,
+        "kind": "associate_actions",
+        "scope": "unknown",
+        "links": [
+          {
+            "action_id": "task:submit",
+            "relation": "unknown"
+          },
+          {
+            "action_id": "task:prepare",
+            "relation": "other"
+          }
+        ]
+      },
+      "expected_observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:teaching",
+          "input_id": "教学网/计算机系统/作业 2",
+          "course_id": "_course_1",
+          "content_id": "_assignment_2",
+          "snapshot_id": "snapshot:8",
+          "sequence": 8,
+          "observed_at": "2026-10-09T12:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "control_revision": 8,
+        "review_pending": false,
+        "scope": "unknown",
+        "actions": [
+          {
+            "action_id": "task:submit",
+            "kind": "task",
+            "relation": "unknown",
+            "link_basis": "unresolved",
+            "decision": "confirmed",
+            "completion_origin": null,
+            "source_completion_paused": false
+          },
+          {
+            "action_id": "task:prepare",
+            "kind": "task",
+            "relation": "other",
+            "link_basis": "server_exact",
+            "decision": "edited",
+            "completion_origin": null,
+            "source_completion_paused": false
+          }
+        ]
+      }
+    }
+  ],
+  "directory": {
+    "contract_version": "submission-operations/0.1",
+    "source_account_id": "source:teaching",
+    "records": [
+      {
+        "record_id": "record:assignment2",
+        "label": "第二次作业及课堂准备",
+        "course_or_project": "计算机系统导论"
+      }
+    ],
+    "next_cursor": null
+  },
+  "receipt": {
+    "contract_version": "submission-operations/0.1",
+    "operation_id": "operation:associate_actions",
+    "record_id": "record:assignment2",
+    "applied_control_revision": 8,
+    "record": {
+      "contract_version": "submission-operations/0.1",
+      "record_id": "record:assignment2",
+      "label": "第二次作业及课堂准备",
+      "course_or_project": "计算机系统导论",
+      "observation": {
+        "contract_version": "submission-policy/0.1",
+        "snapshot": {
+          "source_account_id": "source:teaching",
+          "input_id": "教学网/计算机系统/作业 2",
+          "course_id": "_course_1",
+          "content_id": "_assignment_2",
+          "snapshot_id": "snapshot:8",
+          "sequence": 8,
+          "observed_at": "2026-10-09T12:00:00+08:00",
+          "state": "submitted",
+          "basis": "review_submission_history_title"
+        },
+        "control_revision": 8,
+        "review_pending": false,
+        "scope": "mixed",
+        "actions": [
+          {
+            "action_id": "task:submit",
+            "kind": "task",
+            "relation": "assignment_submission",
+            "link_basis": "user_confirmed",
+            "decision": "confirmed",
+            "completion_origin": null,
+            "source_completion_paused": false
+          },
+          {
+            "action_id": "task:prepare",
+            "kind": "task",
+            "relation": "other",
+            "link_basis": "server_exact",
+            "decision": "edited",
+            "completion_origin": null,
+            "source_completion_paused": false
+          }
+        ]
+      },
+      "action_labels": [
+        {
+          "action_id": "task:submit",
+          "label": "提交第二次作业"
+        },
+        {
+          "action_id": "task:prepare",
+          "label": "准备下次讨论"
+        }
+      ]
+    }
+  },
+  "error": {
+    "contract_version": "submission-operations/0.1",
+    "code": "conflict",
+    "message": "来源或控制状态已经变化，请刷新后重新确认。"
+  }
+}

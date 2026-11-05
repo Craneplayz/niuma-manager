@@ -1,0 +1,4 @@
+-r media_requirements.txt
+reportlab>=4.5,<5
+pypdf>=6.19,<7
+python-docx>=1.2,<2

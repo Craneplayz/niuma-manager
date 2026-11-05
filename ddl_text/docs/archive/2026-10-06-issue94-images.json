@@ -1,0 +1,845 @@
+{
+  "tested_at": "2026-10-06T10:29:32.985818+00:00",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "scope": "Generated PNG smoke tests; not private data, recall evaluation or UI integration.",
+  "results": [
+    {
+      "case": "exact-and-asap",
+      "synthetic_image_text": "Task M7P2\nSubmit the circuit review by 2026.10.08 16:25.\nPlease finish as soon as possible.",
+      "image_sha256": "1155433f70294434b5eec901c89fd6c3495337c78f1ca9de40c4bc0e85c89831",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-exact-and-asap",
+        "records": [
+          {
+            "input_id": "synthetic:media:exact-and-asap",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "Synthetic course group",
+            "source_item_id": "message-002",
+            "course_or_project": "Synthetic circuits",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "exact-and-asap.png",
+                "mime_type": "image/png",
+                "size_bytes": 13452,
+                "sha256": "1155433f70294434b5eec901c89fd6c3495337c78f1ca9de40c4bc0e85c89831",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01T20:00:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [{\"title\": \"提交电路综述（Task M7P2）\", \"description\": \"按图片要求提交电路综述（circuit review），任务编号 M7P2；截止时间为 2026.10.08 16:25，并提示尽快完成。\", \"prerequisites\": [], \"course_or_project\": \"Synthetic circuits\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-08T16:25:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"2026.10.08 16:25\", \"basis\": \"图片明确写出 \", \"alternatives\": []}, \"review_reasons\": [], \"evidence\": [{\"input_id\": \"synthetic:media:exact-and-asap\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"Task M7P2\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:media:exact-and-asap\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"Submit the circuit review by 2026.10.08 16:25.\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"description\", \"deadline\", \"course_or_project\"]}, {\"input_id\": \"synthetic:media:exact-and-asap\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"Please finish as soon as possible.\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"description\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-exact-and-asap",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:media:exact-and-asap",
+            "status": "success",
+            "task_ids": [
+              "media:4b51c5e6c396807d9f443462:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "提交电路综述（Task M7P2）",
+            "description": "按图片要求提交电路综述（circuit review），任务编号 M7P2；截止时间为 2026.10.08 16:25，并提示尽快完成。",
+            "prerequisites": [],
+            "course_or_project": "Synthetic circuits",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-08T16:25:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026.10.08 16:25",
+              "basis": "图片明确写出 ",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:media:exact-and-asap",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Task M7P2",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:exact-and-asap",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Submit the circuit review by 2026.10.08 16:25.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "description",
+                  "deadline",
+                  "course_or_project"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:exact-and-asap",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Please finish as soon as possible.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "description"
+                ]
+              }
+            ],
+            "candidate_id": "media:4b51c5e6c396807d9f443462:1",
+            "input_id": "synthetic:media:exact-and-asap",
+            "sources": [
+              {
+                "input_id": "synthetic:media:exact-and-asap",
+                "platform": "wechat",
+                "url": null,
+                "label": "Synthetic course group",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "elapsed_seconds": 6.34,
+      "passed": true
+    },
+    {
+      "case": "yearless-date",
+      "synthetic_image_text": "Homework N8Q3\nComplete questions 1-5.\nDue October 9.",
+      "image_sha256": "3f4f9f992d19884e69b791d27df4f45ea366640e74898755398297e9094b8626",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-yearless-date",
+        "records": [
+          {
+            "input_id": "synthetic:media:yearless-date",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "Synthetic course group",
+            "source_item_id": "message-002",
+            "course_or_project": "Synthetic circuits",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "yearless-date.png",
+                "mime_type": "image/png",
+                "size_bytes": 12355,
+                "sha256": "3f4f9f992d19884e69b791d27df4f45ea366640e74898755398297e9094b8626",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01T20:00:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [{\"title\": \"Complete Homework N8Q3 questions 1-5\", \"description\": \"Homework N8Q3: Complete questions 1-5. Due October 9.\", \"prerequisites\": [], \"course_or_project\": \"Synthetic circuits\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-09\", \"precision\": \"date\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"October 9\", \"basis\": \"图片原文仅写“Due October 9.”，省略年份；按该图片自身可信原始发布时间 2026-10-01 取最近合理年份，归一化为 2026-10-09（仅日期，不补 23:59）。\", \"alternatives\": []}, \"review_reasons\": [\"图片日期“October 9”省略年份，年份依据图片 original_published_at（2026-10-01）推断为 2026\"], \"evidence\": [{\"input_id\": \"synthetic:media:yearless-date\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"Homework N8Q3\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\"]}, {\"input_id\": \"synthetic:media:yearless-date\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"Complete questions 1-5.\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:media:yearless-date\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"Due October 9.\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"deadline\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-yearless-date",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:media:yearless-date",
+            "status": "success",
+            "task_ids": [
+              "media:34c9b503d912839223b6ae54:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "Complete Homework N8Q3 questions 1-5",
+            "description": "Homework N8Q3: Complete questions 1-5. Due October 9.",
+            "prerequisites": [],
+            "course_or_project": "Synthetic circuits",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-09",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "October 9",
+              "basis": "图片原文仅写“Due October 9.”，省略年份；按该图片自身可信原始发布时间 2026-10-01 取最近合理年份，归一化为 2026-10-09（仅日期，不补 23:59）。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片日期“October 9”省略年份，年份依据图片 original_published_at（2026-10-01）推断为 2026",
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Homework N8Q3",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Complete questions 1-5.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Due October 9.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:34c9b503d912839223b6ae54:1",
+            "input_id": "synthetic:media:yearless-date",
+            "sources": [
+              {
+                "input_id": "synthetic:media:yearless-date",
+                "platform": "wechat",
+                "url": null,
+                "label": "Synthetic course group",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "elapsed_seconds": 8.47,
+      "passed": true
+    },
+    {
+      "case": "no-deadline",
+      "synthetic_image_text": "Homework P3R5\nComplete exercises 1-3.\nNo deadline has been specified.",
+      "image_sha256": "b59f74e0829d557a1eef600e2680955b05704457c29f5db846b02b8760155498",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-no-deadline",
+        "records": [
+          {
+            "input_id": "synthetic:media:no-deadline",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "Synthetic course group",
+            "source_item_id": "message-002",
+            "course_or_project": "Synthetic circuits",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "no-deadline.png",
+                "mime_type": "image/png",
+                "size_bytes": 12525,
+                "sha256": "b59f74e0829d557a1eef600e2680955b05704457c29f5db846b02b8760155498",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01T20:00:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\":[{\"title\":\"完成 Homework P3R5 练习 1-3\",\"description\":\"作业 P3R5：完成练习 1-3；图片明确表示未指定截止时间，故无法确定 deadline。\",\"prerequisites\":[],\"course_or_project\":\"Synthetic circuits\",\"course_basis\":\"provided\",\"notice_type\":\"create\",\"target_reference\":null,\"deadline\":{\"value\":null,\"precision\":\"unknown\",\"timezone\":null,\"kind\":\"unknown\",\"status\":\"not_provided\",\"raw\":null,\"basis\":\"图片直接写明 “No deadline has been specified.”，作业本身未给出任何日期或时间；来源无可用于推断的截止信息。\",\"alternatives\":[]},\"review_reasons\":[],\"evidence\":[{\"input_id\":\"synthetic:media:no-deadline\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Homework P3R5\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\"]},{\"input_id\":\"synthetic:media:no-deadline\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Complete exercises 1-3.\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\"]},{\"input_id\":\"synthetic:media:no-deadline\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"No deadline has been specified.\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"deadline\"]}]}],\"image_quality\":[{\"asset_id\":\"asset-001\",\"quality\":\"normal\",\"quality_notes\":[]}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-no-deadline",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:media:no-deadline",
+            "status": "success",
+            "task_ids": [
+              "media:6517bf12320779382de4ecce:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "完成 Homework P3R5 练习 1-3",
+            "description": "作业 P3R5：完成练习 1-3；图片明确表示未指定截止时间，故无法确定 deadline。",
+            "prerequisites": [],
+            "course_or_project": "Synthetic circuits",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": null,
+              "kind": "unknown",
+              "status": "not_provided",
+              "raw": null,
+              "basis": "图片直接写明 “No deadline has been specified.”，作业本身未给出任何日期或时间；来源无可用于推断的截止信息。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:media:no-deadline",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Homework P3R5",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:no-deadline",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Complete exercises 1-3.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:no-deadline",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "No deadline has been specified.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:6517bf12320779382de4ecce:1",
+            "input_id": "synthetic:media:no-deadline",
+            "sources": [
+              {
+                "input_id": "synthetic:media:no-deadline",
+                "platform": "wechat",
+                "url": null,
+                "label": "Synthetic course group",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "elapsed_seconds": 6.5,
+      "passed": true
+    },
+    {
+      "case": "no-action",
+      "synthetic_image_text": "Reference information\nThe library opened in 2001.\nThis is historical background only.",
+      "image_sha256": "934532dc0e21536b8c51fc8f00705ba8afcd15b44ea844a0a9ee9977efefe886",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-no-action",
+        "records": [
+          {
+            "input_id": "synthetic:media:no-action",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "Synthetic course group",
+            "source_item_id": "message-002",
+            "course_or_project": "Synthetic circuits",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "no-action.png",
+                "mime_type": "image/png",
+                "size_bytes": 12608,
+                "sha256": "934532dc0e21536b8c51fc8f00705ba8afcd15b44ea844a0a9ee9977efefe886",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01T20:00:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-no-action",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "synthetic:media:no-action",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [],
+        "errors": []
+      },
+      "elapsed_seconds": 2.17,
+      "passed": true
+    },
+    {
+      "case": "two-images",
+      "synthetic_image_text": [
+        "Homework R9T1\nSubmit one experiment summary.\nRequirements: review experiments 1 and 2.",
+        "Deadline for Homework R9T1\nSubmit the experiment summary by October 10, 2026 at 18:00."
+      ],
+      "image_sha256": "bf0134721d22107bd667ec58062766c0c9671caf933901266f22428386b265da",
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-two-images",
+        "records": [
+          {
+            "input_id": "synthetic:media:two-images",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "Synthetic course group",
+            "source_item_id": "message-002",
+            "course_or_project": "Synthetic circuits",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "two-images.png",
+                "mime_type": "image/png",
+                "size_bytes": 13924,
+                "sha256": "bf0134721d22107bd667ec58062766c0c9671caf933901266f22428386b265da",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01T20:00:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              },
+              {
+                "asset_id": "asset-002",
+                "file_name": "two-images-2.png",
+                "mime_type": "image/png",
+                "size_bytes": 13312,
+                "sha256": "3f428508b59eeeb5402c713a87f4ade22f9f20be667bce18a0a103fb2897f8c2",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01T20:00:00+08:00",
+                  "precision": "datetime",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_002_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\":[{\"title\":\"Homework R9T1：提交一份实验总结\",\"description\":\"作业 R9T1 要求提交一份 experiment summary，需复习实验 1 和实验 2 的内容；提交截止时间为 2026 年 10 月 10 日 18:00。\",\"prerequisites\":[\"review experiments 1 and 2\"],\"course_or_project\":\"Synthetic circuits\",\"course_basis\":\"provided\",\"notice_type\":\"create\",\"target_reference\":null,\"deadline\":{\"value\":\"2026-10-10T18:00:00+08:00\",\"precision\":\"datetime\",\"timezone\":\"Asia/Shanghai\",\"kind\":\"deadline\",\"status\":\"explicit\",\"raw\":\"October 10, 2026 at 18:00\",\"basis\":\"图片 asset-002 明确写出作业 R9T1 的提交截止时间为 October 10, 2026 at 18:00；图片原始发布时间为 2026-10-01，消息发布时间同为 2026-10-01，年份无需推断。\",\"alternatives\":[]},\"review_reasons\":[],\"evidence\":[{\"input_id\":\"synthetic:media:two-images\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Homework R9T1\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\"]},{\"input_id\":\"synthetic:media:two-images\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Submit one experiment summary.\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\"]},{\"input_id\":\"synthetic:media:two-images\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"Requirements: review experiments 1 and 2.\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"description\",\"prerequisites\"]},{\"input_id\":\"synthetic:media:two-images\",\"field\":\"attachment_file\",\"asset_id\":\"asset-002\",\"quote\":\"Submit the experiment summary by October 10, 2026 at 18:00.\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\",\"deadline\"]}]}],\"image_quality\":[{\"asset_id\":\"asset-001\",\"quality\":\"normal\",\"quality_notes\":[]},{\"asset_id\":\"asset-002\",\"quality\":\"normal\",\"quality_notes\":[]}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-media-smoke-two-images",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:media:two-images",
+            "status": "success",
+            "task_ids": [
+              "media:ed47c7710d1f44d836525662:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              },
+              {
+                "asset_id": "asset-002",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "Homework R9T1：提交一份实验总结",
+            "description": "作业 R9T1 要求提交一份 experiment summary，需复习实验 1 和实验 2 的内容；提交截止时间为 2026 年 10 月 10 日 18:00。",
+            "prerequisites": [
+              "review experiments 1 and 2"
+            ],
+            "course_or_project": "Synthetic circuits",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-10T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "October 10, 2026 at 18:00",
+              "basis": "图片 asset-002 明确写出作业 R9T1 的提交截止时间为 October 10, 2026 at 18:00；图片原始发布时间为 2026-10-01，消息发布时间同为 2026-10-01，年份无需推断。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:media:two-images",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Homework R9T1",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:two-images",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Submit one experiment summary.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:two-images",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "Requirements: review experiments 1 and 2.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "description",
+                  "prerequisites"
+                ]
+              },
+              {
+                "input_id": "synthetic:media:two-images",
+                "field": "attachment_file",
+                "asset_id": "asset-002",
+                "quote": "Submit the experiment summary by October 10, 2026 at 18:00.",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:ed47c7710d1f44d836525662:1",
+            "input_id": "synthetic:media:two-images",
+            "sources": [
+              {
+                "input_id": "synthetic:media:two-images",
+                "platform": "wechat",
+                "url": null,
+                "label": "Synthetic course group",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "elapsed_seconds": 7.99,
+      "passed": true
+    }
+  ]
+}

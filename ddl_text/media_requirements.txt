@@ -1,0 +1,6 @@
+# Optional v0.3.1 image/PDF/DOCX runtime, including core text dependencies.
+-r text_requirements.txt
+-r ../contracts/requirements-dev.txt
+Pillow>=12.3,<13
+pypdfium2>=5.14,<6
+defusedxml>=0.7.1,<0.8

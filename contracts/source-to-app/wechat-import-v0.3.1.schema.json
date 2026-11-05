@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:niuma:contracts:wechat-import:0.3.1",
+  "title": "WeChat import acknowledgements and job states v0.3.1",
+  "$defs": {
+    "ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "job_id",
+        "request_id",
+        "status"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "0.3.1"
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "partial_failed",
+            "failed"
+          ]
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "job_id",
+        "request_id",
+        "status",
+        "progress",
+        "result"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "0.3.1"
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "partial_failed",
+            "failed"
+          ]
+        },
+        "progress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total_records",
+            "finished_records",
+            "failed_records"
+          ],
+          "properties": {
+            "total_records": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "finished_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            },
+            "failed_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20
+            }
+          }
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "urn:niuma:contracts:result:0.3.1"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "queued",
+                  "running"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "result": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "result": {
+                "$ref": "urn:niuma:contracts:result:0.3.1"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "retryable"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "unauthorized",
+                "forbidden",
+                "not_found",
+                "request_conflict",
+                "invalid_request",
+                "unsupported_version",
+                "limit_exceeded",
+                "queue_busy",
+                "invalid_job_state",
+                "asset_metadata_mismatch"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S",
+              "maxLength": 1024
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retry_id"
+      ],
+      "properties": {
+        "retry_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        }
+      }
+    },
+    "asset_ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "file_ref",
+        "file_name",
+        "mime_type",
+        "size_bytes",
+        "sha256"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "0.3.1"
+        },
+        "file_ref": {
+          "$ref": "urn:niuma:contracts:common:0.3.1#/$defs/file_ref"
+        },
+        "file_name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!\\.\\.?$)(?!.*[ .]$)[^<>:\"/\\\\|?*\\x00-\\x1f\\x7f-\\x9f]+$",
+          "maxLength": 255
+        },
+        "mime_type": {
+          "enum": [
+            "image/jpeg",
+            "image/png",
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          ],
+          "maxLength": 128
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20971520
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

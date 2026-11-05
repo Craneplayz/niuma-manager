@@ -100,6 +100,48 @@ class IncrementalRecognitionTests(unittest.TestCase):
         self.assertEqual(len(self.captured), 1)
         self.assertEqual(self.sync()['requests'], [])
 
+    def test_successful_recognition_with_unapplied_auto_task_resumes_without_model_call(self):
+        request = self.sync()['requests'][0]
+        result = copy.deepcopy(FIXTURE['expected'])
+        result.update(request_id=request['request_id'], status='success',
+                      record_results=result['record_results'][:1], tasks=result['tasks'][:1], errors=[])
+        for source in result['tasks'][0]['sources']:
+            source['platform'] = 'teaching_web'
+        saved = self.recognize(request, result)
+        item = saved[0]['items'][0]
+        # The page closed after recognition succeeded but before task creation.
+        self.db.close()
+        self.connect()
+        resumed = self.sync()['requests']
+        self.assertIn(request, resumed)
+        self.recognize(request)
+        self.assertEqual(self.captured, [])
+        self.assertEqual(self.output[0]['items'][0]['id'], item['id'])
+        self.db.execute('CREATE TABLE workspace(user_id TEXT,name TEXT,value TEXT,version INTEGER,PRIMARY KEY(user_id,name))')
+        self.db.commit()
+        def reply(status, value):
+            self.assertEqual(status, 200)
+            self.db.commit()
+        handler = SimpleNamespace(command='POST', reply=reply)
+        body = dict(action='create', auto_apply=True, version=item['version'])
+        for _ in range(2):
+            recognition.route(handler, self.db, 'owner', '/api/recognition/candidates/'+item['id']+'/resolve', body, app.ApiError)
+            tasks = json.loads(self.db.execute('SELECT value FROM workspace WHERE user_id="owner" AND name="tasks"').fetchone()['value'])
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(tasks[0]['recognitionHistory'][0]['storageId'], item['id'])
+            self.assertNotIn(request, self.sync()['requests'])
+        for state, version in [('applied', 2), ('ignored', 2), ('pending', 3)]:
+            self.db.execute('UPDATE recognition_candidates SET state=?,version=? WHERE id=?',
+                            (state, version, item['id']))
+            self.db.commit()
+            self.assertNotIn(request, self.sync()['requests'])
+        candidate = copy.deepcopy(item['candidate'])
+        candidate.update(needs_review=True, review_reasons=['需要核对原文'])
+        self.db.execute('UPDATE recognition_candidates SET state="pending",version=1,candidate=? WHERE id=?',
+                        (json.dumps(candidate), item['id']))
+        self.db.commit()
+        self.assertNotIn(request, self.sync()['requests'])
+
     def test_user_and_campus_account_isolation_and_abandoned_sync(self):
         first = self.sync()['requests']
         self.assertEqual(self.sync()['requests'], first)  # Fetching does not imply recognition success.

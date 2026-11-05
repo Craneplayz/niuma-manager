@@ -1,0 +1,933 @@
+{
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "const": "0.4"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "policy_version": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^teaching-policy-v1:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "enum": [
+        "success",
+        "partial_success",
+        "no_tasks",
+        "failed"
+      ]
+    },
+    "record_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "input_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "course_or_project": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "label",
+              "url",
+              "course_or_project"
+            ],
+            "additionalProperties": false
+          },
+          "attempted": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "no_tasks",
+              "incomplete",
+              "failed"
+            ]
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 0,
+                  "maxLength": 4096
+                },
+                "notice_type": {
+                  "enum": [
+                    "create",
+                    "update",
+                    "postpone",
+                    "cancel",
+                    "uncertain"
+                  ]
+                },
+                "target": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/quote"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "relevance": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "enum": [
+                        "current",
+                        "ongoing",
+                        "historical",
+                        "uncertain"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "evidence": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/quote"
+                      },
+                      "maxItems": 20
+                    }
+                  },
+                  "required": [
+                    "state",
+                    "reason",
+                    "evidence"
+                  ],
+                  "additionalProperties": false
+                },
+                "pair": {
+                  "type": "object",
+                  "required": [
+                    "contract_version",
+                    "record",
+                    "assessment"
+                  ],
+                  "properties": {
+                    "contract_version": {
+                      "const": "0.4-draft.1"
+                    },
+                    "record": {
+                      "type": "object",
+                      "required": [
+                        "input_id",
+                        "source_item_id",
+                        "course_id",
+                        "snapshot_id",
+                        "platform",
+                        "text",
+                        "body_status",
+                        "source_metadata_text",
+                        "references",
+                        "published_at",
+                        "collected_at",
+                        "timezone",
+                        "course_term"
+                      ],
+                      "properties": {
+                        "input_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "source_item_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "course_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "snapshot_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "platform": {
+                          "const": "teaching_web"
+                        },
+                        "text": {
+                          "type": "string",
+                          "maxLength": 100000
+                        },
+                        "body_status": {
+                          "enum": [
+                            "complete",
+                            "partial",
+                            "summary",
+                            "missing"
+                          ]
+                        },
+                        "source_metadata_text": {
+                          "type": "string",
+                          "maxLength": 4096
+                        },
+                        "references": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/reference"
+                          },
+                          "maxItems": 50
+                        },
+                        "published_at": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/publication"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "collected_at": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "timezone": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "course_term": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/$defs/term"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "assessment": {
+                      "type": "object",
+                      "required": [
+                        "candidate_id",
+                        "input_id",
+                        "action",
+                        "deadline",
+                        "unread_relations",
+                        "other_review_reasons"
+                      ],
+                      "properties": {
+                        "candidate_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "input_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256,
+                          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                        },
+                        "action": {
+                          "type": "object",
+                          "required": [
+                            "state",
+                            "evidence"
+                          ],
+                          "properties": {
+                            "state": {
+                              "enum": [
+                                "supported",
+                                "uncertain"
+                              ]
+                            },
+                            "evidence": {
+                              "type": "array",
+                              "items": {
+                                "$ref": "#/$defs/quote"
+                              },
+                              "maxItems": 20
+                            }
+                          },
+                          "additionalProperties": false
+                        },
+                        "deadline": {
+                          "$ref": "#/$defs/deadline"
+                        },
+                        "unread_relations": {
+                          "type": "array",
+                          "description": "Model assessments, not automatic exemptions. review_codes requires body-only supplementary relation evidence, body evidence for action and any known deadline, and no task-field dependency on that incomplete reference. Insufficient support retains review without discarding the assessment.",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "ref_id",
+                              "role",
+                              "evidence"
+                            ],
+                            "properties": {
+                              "ref_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 256,
+                                "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                              },
+                              "role": {
+                                "enum": [
+                                  "supplementary",
+                                  "required",
+                                  "unknown"
+                                ]
+                              },
+                              "evidence": {
+                                "type": "array",
+                                "items": {
+                                  "$ref": "#/$defs/quote"
+                                },
+                                "maxItems": 20
+                              }
+                            },
+                            "additionalProperties": false
+                          },
+                          "maxItems": 50
+                        },
+                        "other_review_reasons": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512,
+                            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                          },
+                          "maxItems": 20
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "recommendation": {
+                  "enum": [
+                    "task",
+                    "candidate",
+                    "filtered"
+                  ]
+                },
+                "review_codes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "maxItems": 100
+                },
+                "review_reasons": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "maxItems": 100
+                },
+                "filter_reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "content_type": {
+                  "enum": [
+                    "task",
+                    "notice"
+                  ]
+                },
+                "submission_relation": {
+                  "enum": [
+                    "assignment_submission",
+                    "other",
+                    "unknown"
+                  ]
+                }
+              },
+              "required": [
+                "title",
+                "description",
+                "notice_type",
+                "target",
+                "relevance",
+                "pair",
+                "recommendation",
+                "review_codes",
+                "review_reasons",
+                "filter_reason"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 50
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "maxItems": 20
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "agent_timeout",
+                      "agent_unavailable",
+                      "invalid_agent_output",
+                      "limit_exceeded"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  },
+                  "diagnostic": {
+                    "$ref": "#/$defs/recognition_diagnostic"
+                  },
+                  "failure": {
+                    "$ref": "#/$defs/recognition_failure"
+                  },
+                  "diagnostic_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{24}$"
+                  },
+                  "diagnostics": {
+                    "type": "string",
+                    "maxLength": 65536
+                  }
+                },
+                "required": [
+                  "code",
+                  "message",
+                  "retryable"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "empty_decision": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "no_tasks",
+                      "incomplete"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/quote"
+                    },
+                    "maxItems": 20
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason",
+                  "evidence"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "input_id",
+          "snapshot_id",
+          "source",
+          "attempted",
+          "status",
+          "decisions",
+          "warnings",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 20
+    },
+    "classification_mode": {
+      "const": "model-v1"
+    }
+  },
+  "required": [
+    "contract_version",
+    "request_id",
+    "policy_version",
+    "status",
+    "record_results"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "quote": {
+      "type": "object",
+      "required": [
+        "part_id",
+        "quote"
+      ],
+      "properties": {
+        "part_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
+      },
+      "additionalProperties": false
+    },
+    "reference": {
+      "type": "object",
+      "required": [
+        "ref_id",
+        "kind",
+        "label",
+        "read_state",
+        "text"
+      ],
+      "properties": {
+        "ref_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "kind": {
+          "enum": [
+            "attachment",
+            "content_image",
+            "linked_detail"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "read_state": {
+          "enum": [
+            "complete",
+            "unread",
+            "partial",
+            "failed",
+            "unsupported"
+          ]
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 100000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "term": {
+      "type": "object",
+      "required": [
+        "term_id",
+        "starts_on",
+        "ends_on",
+        "applies_to",
+        "evidence"
+      ],
+      "properties": {
+        "term_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "starts_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "ends_on": {
+          "type": "string",
+          "format": "date"
+        },
+        "applies_to": {
+          "enum": [
+            "current_assignment",
+            "course_material",
+            "unknown"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quote"
+          },
+          "maxItems": 10
+        }
+      },
+      "additionalProperties": false
+    },
+    "publication": {
+      "type": "object",
+      "required": [
+        "value",
+        "basis"
+      ],
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ]
+        },
+        "basis": {
+          "enum": [
+            "source",
+            "unverified"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "deadline": {
+      "type": "object",
+      "required": [
+        "value",
+        "precision",
+        "derivation",
+        "anchor",
+        "evidence"
+      ],
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "precision": {
+          "enum": [
+            "date",
+            "datetime",
+            "unknown"
+          ]
+        },
+        "derivation": {
+          "enum": [
+            "absolute",
+            "missing_year",
+            "relative",
+            "offset",
+            "unresolved",
+            "not_provided"
+          ]
+        },
+        "anchor": {
+          "enum": [
+            null,
+            "published_at",
+            "collected_at",
+            "course_term"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/quote"
+          },
+          "maxItems": 20
+        }
+      },
+      "additionalProperties": false
+    },
+    "recognition_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "category",
+        "stage"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "enum": [
+            "recognition_dependency",
+            "invalid_input",
+            "unsupported_version",
+            "input_limit",
+            "source_incomplete",
+            "source_changed",
+            "collection_dependency",
+            "collection_failed",
+            "attachment_unavailable",
+            "attachment_unsupported",
+            "attachment_unreadable",
+            "attachment_schema",
+            "content_uncertain",
+            "content_incomplete",
+            "model_configuration",
+            "model_rate_limited",
+            "model_timeout",
+            "model_unavailable",
+            "provider_response",
+            "output_truncated",
+            "draft_json",
+            "draft_schema",
+            "draft_evidence",
+            "draft_semantics",
+            "result_contract",
+            "save_failed",
+            "internal_error",
+            "recognition_rules",
+            "model_busy",
+            "worker_terminated",
+            "worker_timeout"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "attachment",
+            "configuration",
+            "content",
+            "evidence",
+            "input",
+            "internal",
+            "output",
+            "service",
+            "source",
+            "storage",
+            "timeout"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "collect",
+            "model",
+            "parse",
+            "prepare",
+            "read",
+            "runtime",
+            "save",
+            "validate"
+          ]
+        }
+      }
+    },
+    "recognition_diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_path",
+        "rule"
+      ],
+      "properties": {
+        "schema_path": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9_$/]*$"
+        },
+        "rule": {
+          "type": "string",
+          "enum": [
+            "type",
+            "enum",
+            "const",
+            "required",
+            "additionalProperties",
+            "maxLength",
+            "minLength",
+            "maxItems",
+            "minItems",
+            "format",
+            "pattern",
+            "anyOf",
+            "allOf",
+            "oneOf",
+            "maximum",
+            "minimum"
+          ]
+        },
+        "instance_path": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9_$/]*$"
+        },
+        "missing_fields": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z_]+$"
+          }
+        },
+        "expected_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
+          ]
+        },
+        "actual_type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null",
+            "unknown"
+          ]
+        }
+      }
+    }
+  }
+}

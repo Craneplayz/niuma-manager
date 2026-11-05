@@ -1,0 +1,86 @@
+{
+  "operation": {
+    "id": "0123456789abcdef0123456789abcdef",
+    "owner": "synthetic-account",
+    "intent": {
+      "kind": "status",
+      "id": "task-a",
+      "workspaceGeneration": 0,
+      "expected": {
+        "status": "todo",
+        "completedAt": ""
+      },
+      "next": {
+        "status": "done",
+        "completedAt": "2026-10-22"
+      }
+    }
+  },
+  "acknowledgement": {
+    "version": 2,
+    "operationId": "0123456789abcdef0123456789abcdef"
+  },
+  "reconcile": {
+    "owner": "synthetic-account",
+    "operations": []
+  },
+  "reconciled": {
+    "applied": [],
+    "tasks": {
+      "value": [],
+      "version": 0
+    },
+    "generation": 0,
+    "candidates": []
+  },
+  "reviewOperation": {
+    "id": "review-operation-0123456789",
+    "owner": "synthetic-account",
+    "intent": {
+      "kind": "review",
+      "candidateId": "candidate-a",
+      "action": "create",
+      "expectedCandidateVersion": 1,
+      "workspaceGeneration": 0,
+      "newTaskId": "stable-task-0123456789",
+      "createdAt": "2026-10-23T01:00:00+00:00",
+      "complete": true,
+      "completedAt": "2026-10-23",
+      "draft": {
+        "title": "合成任务",
+        "description": "合成说明",
+        "course": null,
+        "content_type": "task",
+        "due": null
+      }
+    }
+  },
+  "reviewAcknowledgement": {
+    "operationId": "review-operation-0123456789",
+    "replayed": false,
+    "tasks": {
+      "value": [
+        {
+          "id": "stable-task-0123456789",
+          "title": "合成任务",
+          "description": "合成说明",
+          "status": "completed",
+          "completedAt": "2026-10-23",
+          "due": null,
+          "plans": [],
+          "subtasks": []
+        }
+      ],
+      "version": 1
+    },
+    "candidates": [
+      {
+        "id": "candidate-a",
+        "state": "applied",
+        "version": 2,
+        "taskId": "stable-task-0123456789"
+      }
+    ],
+    "generation": 0
+  }
+}

@@ -1,0 +1,3895 @@
+[
+  {
+    "name": "plain-text-explicit-with-urgency",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "plain-text-explicit-with-urgency",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "请于2026.10.05 9:00前提交课程内容回顾，请大家尽快完成。",
+          "text_quality": "complete",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": []
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "plain-text-explicit-with-urgency",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": []
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交课程内容回顾",
+          "description": "提交课程内容回顾",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-05T09:00:00+08:00",
+            "precision": "datetime",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026.10.05 9:00",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": false,
+          "review_reasons": [],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "text",
+              "quote": "请于2026.10.05 9:00前提交课程内容回顾，请大家尽快完成。",
+              "supports": [
+                "title",
+                "deadline"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "native-pdf-multiple-tasks-date-only",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "native-pdf-multiple-tasks-date-only",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "请于2026年10月6日提交实验报告。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                },
+                {
+                  "block_id": "block-002",
+                  "text": "请于2026年10月8日09:00提交项目总结。",
+                  "locator": {
+                    "page": 2,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "native-pdf-multiple-tasks-date-only",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1",
+            "wechat:message:002:task-2"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 2,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交实验报告",
+          "description": "提交实验报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-06",
+            "precision": "date",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026年10月6日",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": false,
+          "review_reasons": [],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "请于2026年10月6日提交实验报告。",
+              "supports": [
+                "title",
+                "deadline"
+              ]
+            }
+          ]
+        },
+        {
+          "candidate_id": "wechat:message:002:task-2",
+          "input_id": "wechat:message:002",
+          "title": "提交项目总结",
+          "description": "提交项目总结",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-08T09:00:00+08:00",
+            "precision": "datetime",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026年10月8日09:00",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": false,
+          "review_reasons": [],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-002",
+              "quote": "请于2026年10月8日09:00提交项目总结。",
+              "supports": [
+                "title",
+                "deadline"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "docx-native-and-embedded-image-no-deadline",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "docx-native-and-embedded-image-no-deadline",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "安装.docx",
+              "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "请安装课程所需的软件并检查运行环境。",
+                  "locator": {
+                    "page": null,
+                    "paragraph": 3,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                },
+                {
+                  "block_id": "block-002",
+                  "text": "课程软件安装示意图。",
+                  "locator": {
+                    "page": null,
+                    "paragraph": 5,
+                    "bbox": null
+                  },
+                  "method": "ocr",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "docx-native-and-embedded-image-no-deadline",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 2,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "安装课程软件",
+          "description": "安装课程软件",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "not_provided",
+            "raw": null,
+            "basis": "已完整读取，原文未提供截止日期。",
+            "alternatives": []
+          },
+          "needs_review": false,
+          "review_reasons": [],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "请安装课程所需的软件并检查运行环境。",
+              "supports": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "information-and-genuinely-blank-no-tasks",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "information-and-genuinely-blank-no-tasks",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "本次课程介绍了操作系统的发展历史。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": []
+            },
+            {
+              "asset_id": "asset-002",
+              "file_name": "空白页.jpg",
+              "mime_type": "image/jpeg",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "information-and-genuinely-blank-no-tasks",
+      "status": "no_tasks",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "no_tasks",
+          "task_ids": [],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 1,
+              "uncertain_block_ids": []
+            },
+            {
+              "asset_id": "asset-002",
+              "status": "complete",
+              "block_count": 0,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": []
+    }
+  },
+  {
+    "name": "partial-pdf-missing-deadline-page",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "partial-pdf-missing-deadline-page",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "partial",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "第2页"
+                ],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "请提交实验报告，截止日期见末页。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": [
+                {
+                  "stage": "extract",
+                  "code": "ocr_failed",
+                  "message": "第2页未识别成功。",
+                  "retryable": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "partial-pdf-missing-deadline-page",
+      "status": "partial_success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "partial_success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [
+            "有未完成处理的内容，不能视为无任务。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "partial",
+              "block_count": 1,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交实验报告",
+          "description": "提交实验报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "unknown",
+            "raw": null,
+            "basis": "证据不足，请查看原消息或附件。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "截止日期所在页尚未读取。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "请提交实验报告，截止日期见末页。",
+              "supports": [
+                "title"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "extract",
+          "code": "ocr_failed",
+          "message": "附件未能完整解析。",
+          "retryable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "uncertain-ocr-review-required",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "uncertain-ocr-review-required",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "模糊作业.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "请于10月?日提交作业。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": [
+                      0.1,
+                      0.2,
+                      0.9,
+                      0.4
+                    ]
+                  },
+                  "method": "ocr",
+                  "quality": "uncertain",
+                  "quality_notes": [
+                    "日期数字模糊。"
+                  ]
+                }
+              ],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "uncertain-ocr-review-required",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": true
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 1,
+              "uncertain_block_ids": [
+                "block-001"
+              ]
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交作业",
+          "description": "提交作业",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "unknown",
+            "raw": "10月?日",
+            "basis": "证据不足，请查看原消息或附件。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "日期数字不清晰。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "请于10月?日提交作业。",
+              "supports": [
+                "title",
+                "deadline"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "missing-asset-is-failure",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "missing-asset-is-failure",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "未下载.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": null,
+              "sha256": null,
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "failed",
+              "extractor_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "整个附件"
+                ],
+                "truncated": false
+              },
+              "blocks": [],
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "asset_missing",
+                  "message": "本地附件未下载。",
+                  "retryable": true
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "missing-asset-is-failure",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "有未完成处理的内容，不能视为无任务。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "failed",
+              "block_count": 0,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "asset_missing",
+          "message": "附件未能完整解析。",
+          "retryable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported-file-is-failure",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "unsupported-file-is-failure",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "资料.zip",
+              "mime_type": "application/zip",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "unsupported",
+              "extractor_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "整个附件"
+                ],
+                "truncated": false
+              },
+              "blocks": [],
+              "errors": [
+                {
+                  "stage": "extract",
+                  "code": "unsupported_type",
+                  "message": "本版不支持 ZIP。",
+                  "retryable": false
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "unsupported-file-is-failure",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "有未完成处理的内容，不能视为无任务。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "unsupported",
+              "block_count": 0,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "extract",
+          "code": "unsupported_type",
+          "message": "附件未能完整解析。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "forwarded-unknown-original-year",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "forwarded-unknown-original-year",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "转发通知.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "forwarded",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "请于10月5日提交旧版课程报告。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "ocr",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "forwarded-unknown-original-year",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 1,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交课程报告",
+          "description": "提交课程报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "unknown",
+            "raw": "10月5日",
+            "basis": "证据不足，请查看原消息或附件。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "转发内容的原始年份不明，需确认是否仍适用。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "请于10月5日提交旧版课程报告。",
+              "supports": [
+                "title",
+                "deadline"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "recognition-timeout-preserves-first-task",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "recognition-timeout-preserves-first-task",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "请于2026年10月5日提交实验报告。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                },
+                {
+                  "block_id": "block-002",
+                  "text": "附加任务说明。",
+                  "locator": {
+                    "page": 5,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "recognition-timeout-preserves-first-task",
+      "status": "partial_success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "partial_success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [
+            "有未完成处理的内容，不能视为无任务。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 2,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交实验报告",
+          "description": "提交实验报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-05",
+            "precision": "date",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026年10月5日",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "部分内容识别超时，仍有待处理的内容。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "请于2026年10月5日提交实验报告。",
+              "supports": [
+                "title",
+                "deadline"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": null,
+          "block_id": null,
+          "stage": "recognize",
+          "code": "agent_timeout",
+          "message": "部分识别单元超时。",
+          "retryable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "distant-blocks-share-one-deadline",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "distant-blocks-share-one-deadline",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "提交课程报告，截止日期见第8页。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                },
+                {
+                  "block_id": "block-008",
+                  "text": "课程报告截止日期：2026年10月9日。",
+                  "locator": {
+                    "page": 8,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "native",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "distant-blocks-share-one-deadline",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 2,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交课程报告",
+          "description": "提交课程报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-09",
+            "precision": "date",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026年10月9日",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": false,
+          "review_reasons": [],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "提交课程报告，截止日期见第8页。",
+              "supports": [
+                "title"
+              ]
+            },
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-008",
+              "quote": "课程报告截止日期：2026年10月9日。",
+              "supports": [
+                "deadline"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "preextracted-image-with-context",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业说明.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "complete",
+              "extractor_version": "synthetic-parser/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "blocks": [
+                {
+                  "block_id": "block-001",
+                  "text": "实验报告：回顾实验1和实验2，说明实验过程与结论，以PDF格式提交。",
+                  "locator": {
+                    "page": 1,
+                    "paragraph": null,
+                    "bbox": null
+                  },
+                  "method": "ocr",
+                  "quality": "normal",
+                  "quality_notes": []
+                }
+              ],
+              "errors": []
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "status": "complete",
+              "block_count": 1,
+              "uncertain_block_ids": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交实验报告",
+          "description": "实验报告：回顾实验1和实验2，说明实验过程与结论，以PDF格式提交。",
+          "prerequisites": [],
+          "course_or_project": "计算机系统导论",
+          "course_basis": "provided",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-05T09:00:00+08:00",
+            "precision": "datetime",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "10月5日09:00前",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": false,
+          "review_reasons": [],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            },
+            {
+              "input_id": "wechat:message:001",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": null
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:001",
+              "field": "text",
+              "quote": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "supports": [
+                "title",
+                "deadline"
+              ]
+            },
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment",
+              "asset_id": "asset-001",
+              "block_id": "block-001",
+              "quote": "实验报告：回顾实验1和实验2，说明实验过程与结论，以PDF格式提交。",
+              "supports": [
+                "description"
+              ]
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "file-native-pdf-multiple-tasks-date-only",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "native-pdf-multiple-tasks-date-only",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "native-pdf-multiple-tasks-date-only",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1",
+            "wechat:message:002:task-2"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "complete",
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "coverage_basis": "adapter_confirmed",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交实验报告",
+          "description": "提交实验报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-06",
+            "precision": "date",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026年10月6日",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "附件引文和定位由模型报告，尚未经原文核对，请确认。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "请于2026年10月6日提交实验报告。",
+              "supports": [
+                "title",
+                "deadline"
+              ],
+              "locator": {
+                "page": 1,
+                "paragraph": null,
+                "bbox": null
+              },
+              "verification": "model_reported"
+            }
+          ]
+        },
+        {
+          "candidate_id": "wechat:message:002:task-2",
+          "input_id": "wechat:message:002",
+          "title": "提交项目总结",
+          "description": "提交项目总结",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-08T09:00:00+08:00",
+            "precision": "datetime",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026年10月8日09:00",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "附件引文和定位由模型报告，尚未经原文核对，请确认。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "请于2026年10月8日09:00提交项目总结。",
+              "supports": [
+                "title",
+                "deadline"
+              ],
+              "locator": {
+                "page": 2,
+                "paragraph": null,
+                "bbox": null
+              },
+              "verification": "model_reported"
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "file-docx-native-and-embedded-image-no-deadline",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "docx-native-and-embedded-image-no-deadline",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "安装.docx",
+              "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "docx-native-and-embedded-image-no-deadline",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "complete",
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "coverage_basis": "adapter_confirmed",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "安装课程软件",
+          "description": "安装课程软件",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "not_provided",
+            "raw": null,
+            "basis": "已完整读取，原文未提供截止日期。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "附件引文和定位由模型报告，尚未经原文核对，请确认。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "请安装课程所需的软件并检查运行环境。",
+              "supports": [
+                "title"
+              ],
+              "locator": {
+                "page": null,
+                "paragraph": 3,
+                "bbox": null
+              },
+              "verification": "model_reported"
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "file-partial-pdf-missing-deadline-page",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "partial-pdf-missing-deadline-page",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "partial-pdf-missing-deadline-page",
+      "status": "partial_success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "partial_success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [
+            "有未完成处理的内容，不能视为无任务。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "partial",
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "第2页"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交实验报告",
+          "description": "提交实验报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "unknown",
+            "raw": null,
+            "basis": "证据不足，请查看原消息或附件。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "截止日期所在页尚未读取。",
+            "附件引文和定位由模型报告，尚未经原文核对，请确认。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "请提交实验报告，截止日期见末页。",
+              "supports": [
+                "title"
+              ],
+              "locator": {
+                "page": 1,
+                "paragraph": null,
+                "bbox": null
+              },
+              "verification": "model_reported"
+            }
+          ]
+        }
+      ],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "read",
+          "code": "ocr_failed",
+          "message": "附件未能完整解析。",
+          "retryable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "file-uncertain-content-review-required",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "uncertain-ocr-review-required",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "模糊作业.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "uncertain-ocr-review-required",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": true
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "complete",
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "coverage_basis": "adapter_confirmed",
+              "quality": "uncertain",
+              "quality_notes": [
+                "日期数字模糊。"
+              ]
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交作业",
+          "description": "提交作业",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "unknown",
+            "raw": "10月?日",
+            "basis": "证据不足，请查看原消息或附件。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "日期数字不清晰。",
+            "附件引文和定位由模型报告，尚未经原文核对，请确认。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "请于10月?日提交作业。",
+              "supports": [
+                "title",
+                "deadline"
+              ],
+              "locator": {
+                "page": 1,
+                "paragraph": null,
+                "bbox": [
+                  0.1,
+                  0.2,
+                  0.9,
+                  0.4
+                ]
+              },
+              "verification": "model_reported"
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "file-forwarded-unknown-original-year",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "forwarded-unknown-original-year",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "转发通知.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "forwarded",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "forwarded-unknown-original-year",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "complete",
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "coverage_basis": "adapter_confirmed",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交课程报告",
+          "description": "提交课程报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": null,
+            "precision": "unknown",
+            "timezone": "Asia/Shanghai",
+            "kind": "unknown",
+            "status": "unknown",
+            "raw": "10月5日",
+            "basis": "证据不足，请查看原消息或附件。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "转发内容的原始年份不明，需确认是否仍适用。",
+            "附件引文和定位由模型报告，尚未经原文核对，请确认。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "请于10月5日提交旧版课程报告。",
+              "supports": [
+                "title",
+                "deadline"
+              ],
+              "locator": {
+                "page": 1,
+                "paragraph": null,
+                "bbox": null
+              },
+              "verification": "model_reported"
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "file-distant-blocks-share-one-deadline",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "distant-blocks-share-one-deadline",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业.pdf",
+              "mime_type": "application/pdf",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "original",
+              "original_published_at": {
+                "value": "2026-10-01T20:01:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "distant-blocks-share-one-deadline",
+      "status": "success",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "success",
+          "task_ids": [
+            "wechat:message:002:task-1"
+          ],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "complete",
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "coverage_basis": "adapter_confirmed",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "candidate_id": "wechat:message:002:task-1",
+          "input_id": "wechat:message:002",
+          "title": "提交课程报告",
+          "description": "提交课程报告",
+          "prerequisites": [],
+          "course_or_project": null,
+          "course_basis": "unknown",
+          "notice_type": "create",
+          "target_reference": null,
+          "deadline": {
+            "value": "2026-10-09",
+            "precision": "date",
+            "timezone": "Asia/Shanghai",
+            "kind": "deadline",
+            "status": "explicit",
+            "raw": "2026年10月9日",
+            "basis": "按原文截止日期；仅省略年份时以可信原始发布时间补年。",
+            "alternatives": []
+          },
+          "needs_review": true,
+          "review_reasons": [
+            "附件引文和定位由模型报告，尚未经原文核对，请确认。"
+          ],
+          "sources": [
+            {
+              "input_id": "wechat:message:002",
+              "platform": "wechat",
+              "url": null,
+              "label": "合成课程群",
+              "source_item_id": "message-002"
+            }
+          ],
+          "evidence": [
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "提交课程报告，截止日期见第8页。",
+              "supports": [
+                "title"
+              ],
+              "locator": {
+                "page": 1,
+                "paragraph": null,
+                "bbox": null
+              },
+              "verification": "model_reported"
+            },
+            {
+              "input_id": "wechat:message:002",
+              "field": "attachment_file",
+              "asset_id": "asset-001",
+              "quote": "课程报告截止日期：2026年10月9日。",
+              "supports": [
+                "deadline"
+              ],
+              "locator": {
+                "page": 8,
+                "paragraph": null,
+                "bbox": null
+              },
+              "verification": "model_reported"
+            }
+          ]
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "name": "file-reference-unavailable",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业说明.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "failed",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "read",
+          "code": "file_ref_unavailable",
+          "message": "附件已过期，请重新上传。",
+          "retryable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "file-reader-unsupported",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "课程作业.docx",
+              "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "read",
+          "code": "reader_unsupported",
+          "message": "当前文件读取适配器尚不支持此格式。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "file-upload-failed",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "作业说明.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "failed",
+              "errors": [
+                {
+                  "stage": "upload",
+                  "code": "upload_failed",
+                  "message": "上传未完成。",
+                  "retryable": true
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "failed",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "upload",
+          "code": "upload_failed",
+          "message": "上传未完成。",
+          "retryable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "file-information-no-tasks",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "课程背景介绍.png",
+              "mime_type": "image/png",
+              "size_bytes": 12345,
+              "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:synthetic_asset_001_001"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "no_tasks",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "no_tasks",
+          "task_ids": [],
+          "warnings": [],
+          "coverage": {
+            "complete": true,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "complete",
+              "reader_version": "synthetic-file-reader/1",
+              "coverage": {
+                "complete": true,
+                "unread_locations": [],
+                "truncated": false
+              },
+              "coverage_basis": "adapter_confirmed",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": []
+    }
+  },
+  {
+    "name": "unsupported-gif",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "unsupported.gif",
+              "mime_type": "image/gif",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "unsupported",
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "unsupported_type",
+                  "message": "本版本不支持此内容类型。",
+                  "retryable": false
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "unsupported_type",
+          "message": "本版本不支持此内容类型。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported-webp",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "unsupported.webp",
+              "mime_type": "image/webp",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "unsupported",
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "unsupported_type",
+                  "message": "本版本不支持此内容类型。",
+                  "retryable": false
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "unsupported_type",
+          "message": "本版本不支持此内容类型。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported-mp3",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "unsupported.mp3",
+              "mime_type": "audio/mpeg",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "unsupported",
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "unsupported_type",
+                  "message": "本版本不支持此内容类型。",
+                  "retryable": false
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "unsupported_type",
+          "message": "本版本不支持此内容类型。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported-mp4",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "unsupported.mp4",
+              "mime_type": "video/mp4",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "unsupported",
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "unsupported_type",
+                  "message": "本版本不支持此内容类型。",
+                  "retryable": false
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "unsupported_type",
+          "message": "本版本不支持此内容类型。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported-pptx",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "unsupported.pptx",
+              "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "unsupported",
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "unsupported_type",
+                  "message": "本版本不支持此内容类型。",
+                  "retryable": false
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "unsupported_type",
+          "message": "本版本不支持此内容类型。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported-xlsx",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "unsupported.xlsx",
+              "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "unsupported",
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "unsupported_type",
+                  "message": "本版本不支持此内容类型。",
+                  "retryable": false
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "unsupported_type",
+          "message": "本版本不支持此内容类型。",
+          "retryable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported-zip",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "records": [
+        {
+          "input_id": "wechat:message:002",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "wechat",
+          "published_at": {
+            "value": "2026-10-01T20:01:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-10-01T20:05:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成课程群",
+          "source_item_id": "message-002",
+          "course_or_project": "计算机系统导论",
+          "context": [
+            {
+              "input_id": "wechat:message:001",
+              "text": "附件是本周作业，请于10月5日09:00前提交实验报告。",
+              "published_at": {
+                "value": "2026-10-01T20:00:00+08:00",
+                "precision": "datetime",
+                "basis": "source"
+              },
+              "timezone": "Asia/Shanghai",
+              "platform": "wechat",
+              "source_url": null,
+              "source_label": "合成课程群"
+            }
+          ],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "file_name": "unsupported.zip",
+              "mime_type": "application/zip",
+              "size_bytes": 12345,
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "unsupported",
+              "errors": [
+                {
+                  "stage": "collect",
+                  "code": "unsupported_type",
+                  "message": "本版本不支持此内容类型。",
+                  "retryable": false
+                }
+              ],
+              "content_mode": "file",
+              "file_ref": null
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "contract_version": "0.3.1",
+      "request_id": "wechat-attachment-example-001",
+      "status": "failed",
+      "record_results": [
+        {
+          "input_id": "wechat:message:002",
+          "status": "failed",
+          "task_ids": [],
+          "warnings": [
+            "附件读取失败。"
+          ],
+          "coverage": {
+            "complete": false,
+            "uncertain": false
+          },
+          "attachments": [
+            {
+              "asset_id": "asset-001",
+              "content_mode": "file",
+              "status": "unsupported",
+              "reader_version": null,
+              "coverage": {
+                "complete": false,
+                "unread_locations": [
+                  "entire asset"
+                ],
+                "truncated": false
+              },
+              "coverage_basis": "unverified",
+              "quality": "normal",
+              "quality_notes": []
+            }
+          ]
+        }
+      ],
+      "tasks": [],
+      "errors": [
+        {
+          "input_id": "wechat:message:002",
+          "asset_id": "asset-001",
+          "block_id": null,
+          "stage": "collect",
+          "code": "unsupported_type",
+          "message": "本版本不支持此内容类型。",
+          "retryable": false
+        }
+      ]
+    }
+  }
+]

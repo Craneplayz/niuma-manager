@@ -1,0 +1,429 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:niuma:task-decomposition:0.1",
+  "$defs": {
+    "proposalRequest": {
+      "type": "object",
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "conversation": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "user",
+                  "assistant"
+                ]
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              }
+            },
+            "required": [
+              "role",
+              "content"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "taskId"
+      ],
+      "additionalProperties": false
+    },
+    "proposalResponse": {
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "const": "0.1"
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "needs_clarification",
+            "ready_to_plan",
+            "no_split"
+          ]
+        },
+        "assessment": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "complexity": {
+              "enum": [
+                "uncertain",
+                "multi_step",
+                "atomic"
+              ]
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "known_facts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "source": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "text",
+                  "source"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "assumptions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "missing_information": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "summary",
+            "complexity",
+            "confidence",
+            "known_facts",
+            "assumptions",
+            "missing_information"
+          ],
+          "additionalProperties": false
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prompt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1
+              },
+              "answer_options": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "prompt",
+              "why",
+              "answer_options"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "plan": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "goal": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "strategy": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "subtasks": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "title": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "duration_minutes": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "depends_on": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "scheduled_start": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "scheduled_end": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "source_basis": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "assumption": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title",
+                      "outcome",
+                      "duration_minutes",
+                      "depends_on",
+                      "scheduled_start",
+                      "scheduled_end",
+                      "source_basis",
+                      "assumption"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "goal",
+                "strategy",
+                "warnings",
+                "subtasks"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "contract_version",
+        "taskId",
+        "status",
+        "assessment",
+        "questions",
+        "plan"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "needs_clarification"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "assessment": {
+                "properties": {
+                  "complexity": {
+                    "const": "uncertain"
+                  }
+                }
+              },
+              "questions": {
+                "minItems": 1,
+                "maxItems": 3
+              },
+              "plan": {
+                "type": "null"
+              }
+            },
+            "not": {
+              "required": [
+                "requestId"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "ready_to_plan"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "assessment": {
+                "properties": {
+                  "complexity": {
+                    "const": "multi_step"
+                  }
+                }
+              },
+              "questions": {
+                "maxItems": 0
+              },
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "subtasks": {
+                    "minItems": 2
+                  }
+                }
+              }
+            },
+            "required": [
+              "requestId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "no_split"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "assessment": {
+                "properties": {
+                  "complexity": {
+                    "const": "atomic"
+                  }
+                }
+              },
+              "questions": {
+                "maxItems": 0
+              },
+              "plan": {
+                "type": "object",
+                "properties": {
+                  "subtasks": {
+                    "minItems": 1,
+                    "maxItems": 1
+                  }
+                }
+              }
+            },
+            "not": {
+              "required": [
+                "requestId"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "applyRequest": {
+      "type": "object",
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "requestId",
+        "taskId"
+      ],
+      "additionalProperties": false
+    },
+    "applyResponse": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "value",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "errorResponse": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

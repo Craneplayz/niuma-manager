@@ -1,0 +1,105 @@
+{
+  "tested_at": "2026-10-01",
+  "purpose": "Capability probe only; not v0.3 integration or recall evaluation.",
+  "provider": "qiniu",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "inputs": {
+    "synthetic": [
+      "PNG 1500x330, Arial 32px, black on white",
+      "One-page image-only PDF rendered from that image",
+      "Minimal DOCX with the same three paragraphs"
+    ],
+    "content": [
+      "Synthetic course task - K7Q4",
+      "Submit the circuit review by 2026-10-08 16:25.",
+      "Include experiments 1 and 2."
+    ],
+    "official_public_pdf": "https://aitoken-public.qnaigc.com/test/transformer.pdf"
+  },
+  "calls": 7,
+  "results": [
+    {
+      "case": "png-data-uri",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "input": "synthetic",
+      "http_status": 200,
+      "finish_reason": "stop",
+      "output": "{\"marker\":\"K7Q4\",\"task\":\"Submit the circuit review\",\"deadline\":\"2026-10-08 16:25\",\"scope\":\"Include experiments 1 and 2\"}",
+      "passed": true,
+      "usage": {
+        "prompt_tokens": 353,
+        "completion_tokens": 208,
+        "total_tokens": 561,
+        "prompt_tokens_details": {},
+        "completion_tokens_details": {
+          "reasoning_tokens": 167
+        }
+      },
+      "elapsed_seconds": 2.64
+    },
+    {
+      "case": "pdf-data-uri",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "input": "synthetic",
+      "http_status": 400,
+      "passed": false,
+      "error": "provider_rejected_request",
+      "elapsed_seconds": 0.47
+    },
+    {
+      "case": "docx-data-uri",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "input": "synthetic",
+      "http_status": 400,
+      "passed": false,
+      "error": "provider_rejected_request",
+      "elapsed_seconds": 0.47
+    },
+    {
+      "case": "pdf-official-https-url",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "input": "official-public-sample",
+      "http_status": 400,
+      "passed": false,
+      "diagnostic": {
+        "code": "request_body_invalid",
+        "message": "messages[0].content[1]: unsupported content part type \"pdf\"; use type \"file\" with file.file_id or file.file_data"
+      },
+      "error": "provider_rejected_request",
+      "elapsed_seconds": 0.2
+    },
+    {
+      "case": "pdf-file-data",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "input": "synthetic",
+      "http_status": 400,
+      "passed": false,
+      "diagnostic": {
+        "code": null,
+        "message": ".messages[0]: file must have a file_id or file_data (type: invalid_request_error)"
+      },
+      "error": "provider_rejected_request",
+      "elapsed_seconds": 1.0
+    },
+    {
+      "case": "docx-file-data",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "input": "synthetic",
+      "http_status": 400,
+      "passed": false,
+      "diagnostic": {
+        "code": null,
+        "message": ".messages[0]: file must have a file_id or file_data (type: invalid_request_error)"
+      },
+      "error": "provider_rejected_request",
+      "elapsed_seconds": 1.5
+    }
+  ],
+  "limits": [
+    "No private files or secrets were sent or saved.",
+    "Image data URI passed once; general accuracy is not measured.",
+    "file_url and file.file_data document requests returned HTTP 400; support is unverified, not proven impossible.",
+    "Public PDF URL was called twice to retrieve a diagnostic; only the second result is retained.",
+    "No upload/reader/v0.3 application runtime is implemented by this contract PR."
+  ]
+}

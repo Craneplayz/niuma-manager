@@ -1,0 +1,835 @@
+{
+  "tested_at": "2026-10-06T11:59:46.162656+00:00",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "scope": "Generated Chinese images only; no private screenshots, not a recall benchmark.",
+  "results": [
+    {
+      "case": "zh-explicit-asap",
+      "synthetic_text": [
+        "合成课程通知 A17",
+        "请于2026.10.08 16:25前提交课程回顾。",
+        "请大家尽快完成，计入平时成绩。"
+      ],
+      "degraded": false,
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-explicit-asap",
+        "records": [
+          {
+            "input_id": "synthetic:zh-explicit-asap",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "zh-explicit-asap.png",
+                "mime_type": "image/png",
+                "size_bytes": 23301,
+                "sha256": "fb96fc411301883878466171d0c7141d1de9b7ff1c6909c5434b5752dbeb45ce",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\":[{\"title\":\"提交课程回顾（合成课程通知 A17）\",\"description\":\"根据图片中的课程通知，请于 2026年10月8日 16:25 前提交课程回顾，并尽快完成，该任务计入平时成绩。\",\"prerequisites\":[],\"course_or_project\":\"合成测试课程\",\"course_basis\":\"provided\",\"notice_type\":\"create\",\"target_reference\":null,\"deadline\":{\"value\":\"2026-10-08T16:25:00+08:00\",\"precision\":\"datetime\",\"timezone\":\"Asia/Shanghai\",\"kind\":\"deadline\",\"status\":\"explicit\",\"raw\":\"2026.10.08 16:25\",\"basis\":\"图片原文明确写出提交截止时间“请于2026.10.08 16:25前提交课程回顾”，按来源时区 Asia/Shanghai 归一化。\",\"alternatives\":[]},\"review_reasons\":[],\"evidence\":[{\"input_id\":\"synthetic:zh-explicit-asap\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"请于2026.10.08 16:25前提交课程回顾。\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\",\"deadline\"]},{\"input_id\":\"synthetic:zh-explicit-asap\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"请大家尽快完成，计入平时成绩。\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"description\"]}]}],\"image_quality\":[{\"asset_id\":\"asset-001\",\"quality\":\"normal\",\"quality_notes\":[]}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-explicit-asap",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:zh-explicit-asap",
+            "status": "success",
+            "task_ids": [
+              "media:26ca13643a2cdd12056137d9:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "提交课程回顾（合成课程通知 A17）",
+            "description": "根据图片中的课程通知，请于 2026年10月8日 16:25 前提交课程回顾，并尽快完成，该任务计入平时成绩。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-08T16:25:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026.10.08 16:25",
+              "basis": "图片原文明确写出提交截止时间“请于2026.10.08 16:25前提交课程回顾”，按来源时区 Asia/Shanghai 归一化。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:zh-explicit-asap",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请于2026.10.08 16:25前提交课程回顾。",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              },
+              {
+                "input_id": "synthetic:zh-explicit-asap",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "请大家尽快完成，计入平时成绩。",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "description"
+                ]
+              }
+            ],
+            "candidate_id": "media:26ca13643a2cdd12056137d9:1",
+            "input_id": "synthetic:zh-explicit-asap",
+            "sources": [
+              {
+                "input_id": "synthetic:zh-explicit-asap",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "passed": true,
+      "elapsed_seconds": 5.7,
+      "image_sha256": "fb96fc411301883878466171d0c7141d1de9b7ff1c6909c5434b5752dbeb45ce"
+    },
+    {
+      "case": "zh-yearless",
+      "synthetic_text": [
+        "合成课程作业 B23",
+        "完成第1至5题，10月9日前提交。"
+      ],
+      "degraded": false,
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-yearless",
+        "records": [
+          {
+            "input_id": "synthetic:zh-yearless",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "zh-yearless.png",
+                "mime_type": "image/png",
+                "size_bytes": 15085,
+                "sha256": "378f0a30305b213b1467ee9b1ed775f8c4ba356b444887b189df0c481440ad61",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [{\"title\": \"合成课程作业 B23：完成第1至5题\", \"description\": \"图片通知要求完成合成课程作业 B23 的第1至5题，并于10月9日前提交。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-09\", \"precision\": \"date\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月9日\", \"basis\": \"图片原文仅写“10月9日”未写年份；该图片原始发布日期为 2026-10-01，据此补全最近合理年份，得到 2026-10-09，仅保留日期精度。\", \"alternatives\": []}, \"review_reasons\": [], \"evidence\": [{\"input_id\": \"synthetic:zh-yearless\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"合成课程作业 B23\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\"]}, {\"input_id\": \"synthetic:zh-yearless\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"完成第1至5题，10月9日前提交。\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\", \"deadline\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-yearless",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:zh-yearless",
+            "status": "success",
+            "task_ids": [
+              "media:098088a6332a6d26266db238:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "合成课程作业 B23：完成第1至5题",
+            "description": "图片通知要求完成合成课程作业 B23 的第1至5题，并于10月9日前提交。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-09",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月9日",
+              "basis": "图片原文仅写“10月9日”未写年份；该图片原始发布日期为 2026-10-01，据此补全最近合理年份，得到 2026-10-09，仅保留日期精度。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:zh-yearless",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "合成课程作业 B23",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:zh-yearless",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "完成第1至5题，10月9日前提交。",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:098088a6332a6d26266db238:1",
+            "input_id": "synthetic:zh-yearless",
+            "sources": [
+              {
+                "input_id": "synthetic:zh-yearless",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "passed": true,
+      "elapsed_seconds": 8.64,
+      "image_sha256": "378f0a30305b213b1467ee9b1ed775f8c4ba356b444887b189df0c481440ad61"
+    },
+    {
+      "case": "zh-multiple",
+      "synthetic_text": [
+        "合成课程任务 C31",
+        "任务一：10月10日18:00前提交实验报告。",
+        "任务二：10月12日前填写课程反馈问卷。"
+      ],
+      "degraded": false,
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-multiple",
+        "records": [
+          {
+            "input_id": "synthetic:zh-multiple",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "zh-multiple.png",
+                "mime_type": "image/png",
+                "size_bytes": 24800,
+                "sha256": "637ba089d84b4732638c45094f9af88de38c3a5496e97b8c9a68a98eb32a67f4",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [{\"title\": \"提交实验报告（合成课程任务 C31·任务一）\", \"description\": \"图片任务一：10月10日18:00前提交实验报告。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-10T18:00:00+08:00\", \"precision\": \"datetime\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月10日18:00前\", \"basis\": \"图片写“10月10日18:00前提交实验报告”，未写年份；图片原始发布时间为2026-10-01，据此补足年份为2026年。\", \"alternatives\": []}, \"review_reasons\": [{\"code\": \"year_completion\", \"message\": \"图片仅写“10月10日18:00前”，省略年份；依据该图片原始发布时间2026-10-01补为2026年。\"}], \"evidence\": [{\"input_id\": \"synthetic:zh-multiple\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"任务一：10月10日18:00前提交实验报告。\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\", \"deadline\"]}]}, {\"title\": \"填写课程反馈问卷（合成课程任务 C31·任务二）\", \"description\": \"图片任务二：10月12日前填写课程反馈问卷。\", \"prerequisites\": [], \"course_or_project\": \"合成测试课程\", \"course_basis\": \"provided\", \"notice_type\": \"create\", \"target_reference\": null, \"deadline\": {\"value\": \"2026-10-12\", \"precision\": \"date\", \"timezone\": \"Asia/Shanghai\", \"kind\": \"deadline\", \"status\": \"explicit\", \"raw\": \"10月12日前\", \"basis\": \"图片写“10月12日前填写课程反馈问卷”，未写年份；图片原始发布时间为2026-10-01，据此补足年份为2026年，仅到日期，不补具体时刻。\", \"alternatives\": []}, \"review_reasons\": [{\"code\": \"year_completion\", \"message\": \"图片仅写“10月12日前”，省略年份；依据该图片原始发布时间2026-10-01补为2026年。\"}], \"evidence\": [{\"input_id\": \"synthetic:zh-multiple\", \"field\": \"attachment_file\", \"asset_id\": \"asset-001\", \"quote\": \"任务二：10月12日前填写课程反馈问卷。\", \"locator\": {\"page\": null, \"paragraph\": null, \"bbox\": null}, \"verification\": \"model_reported\", \"supports\": [\"title\", \"description\", \"deadline\"]}]}], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"normal\", \"quality_notes\": []}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-multiple",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:zh-multiple",
+            "status": "success",
+            "task_ids": [
+              "media:93506058a5ff0ab1c5ed4d44:1",
+              "media:93506058a5ff0ab1c5ed4d44:2"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "提交实验报告（合成课程任务 C31·任务一）",
+            "description": "图片任务一：10月10日18:00前提交实验报告。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-10T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月10日18:00前",
+              "basis": "图片写“10月10日18:00前提交实验报告”，未写年份；图片原始发布时间为2026-10-01，据此补足年份为2026年。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:zh-multiple",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "任务一：10月10日18:00前提交实验报告。",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:93506058a5ff0ab1c5ed4d44:1",
+            "input_id": "synthetic:zh-multiple",
+            "sources": [
+              {
+                "input_id": "synthetic:zh-multiple",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          },
+          {
+            "title": "填写课程反馈问卷（合成课程任务 C31·任务二）",
+            "description": "图片任务二：10月12日前填写课程反馈问卷。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-12",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月12日前",
+              "basis": "图片写“10月12日前填写课程反馈问卷”，未写年份；图片原始发布时间为2026-10-01，据此补足年份为2026年，仅到日期，不补具体时刻。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:zh-multiple",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "任务二：10月12日前填写课程反馈问卷。",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:93506058a5ff0ab1c5ed4d44:2",
+            "input_id": "synthetic:zh-multiple",
+            "sources": [
+              {
+                "input_id": "synthetic:zh-multiple",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "passed": true,
+      "elapsed_seconds": 14.98,
+      "image_sha256": "637ba089d84b4732638c45094f9af88de38c3a5496e97b8c9a68a98eb32a67f4"
+    },
+    {
+      "case": "zh-long",
+      "synthetic_text": [
+        "合成课程讲义 D42",
+        "背景资料 1：介绍课程概念，仅供查阅。",
+        "背景资料 2：介绍课程概念，仅供查阅。",
+        "背景资料 3：介绍课程概念，仅供查阅。",
+        "背景资料 4：介绍课程概念，仅供查阅。",
+        "背景资料 5：介绍课程概念，仅供查阅。",
+        "背景资料 6：介绍课程概念，仅供查阅。",
+        "背景资料 7：介绍课程概念，仅供查阅。",
+        "背景资料 8：介绍课程概念，仅供查阅。",
+        "背景资料 9：介绍课程概念，仅供查阅。",
+        "背景资料 10：介绍课程概念，仅供查阅。",
+        "背景资料 11：介绍课程概念，仅供查阅。",
+        "背景资料 12：介绍课程概念，仅供查阅。",
+        "背景资料 13：介绍课程概念，仅供查阅。",
+        "背景资料 14：介绍课程概念，仅供查阅。",
+        "背景资料 15：介绍课程概念，仅供查阅。",
+        "背景资料 16：介绍课程概念，仅供查阅。",
+        "背景资料 17：介绍课程概念，仅供查阅。",
+        "背景资料 18：介绍课程概念，仅供查阅。",
+        "背景资料 19：介绍课程概念，仅供查阅。",
+        "背景资料 20：介绍课程概念，仅供查阅。",
+        "背景资料 21：介绍课程概念，仅供查阅。",
+        "背景资料 22：介绍课程概念，仅供查阅。",
+        "背景资料 23：介绍课程概念，仅供查阅。",
+        "背景资料 24：介绍课程概念，仅供查阅。",
+        "背景资料 25：介绍课程概念，仅供查阅。",
+        "背景资料 26：介绍课程概念，仅供查阅。",
+        "背景资料 27：介绍课程概念，仅供查阅。",
+        "背景资料 28：介绍课程概念，仅供查阅。",
+        "背景资料 29：介绍课程概念，仅供查阅。",
+        "背景资料 30：介绍课程概念，仅供查阅。",
+        "背景资料 31：介绍课程概念，仅供查阅。",
+        "背景资料 32：介绍课程概念，仅供查阅。",
+        "背景资料 33：介绍课程概念，仅供查阅。",
+        "背景资料 34：介绍课程概念，仅供查阅。",
+        "背景资料 35：介绍课程概念，仅供查阅。",
+        "背景资料 36：介绍课程概念，仅供查阅。",
+        "背景资料 37：介绍课程概念，仅供查阅。",
+        "背景资料 38：介绍课程概念，仅供查阅。",
+        "背景资料 39：介绍课程概念，仅供查阅。",
+        "背景资料 40：介绍课程概念，仅供查阅。",
+        "背景资料 41：介绍课程概念，仅供查阅。",
+        "背景资料 42：介绍课程概念，仅供查阅。",
+        "本周作业通知",
+        "提交一份课程内容回顾，10月13日18:00前完成。"
+      ],
+      "degraded": false,
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-long",
+        "records": [
+          {
+            "input_id": "synthetic:zh-long",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "zh-long.png",
+                "mime_type": "image/png",
+                "size_bytes": 507377,
+                "sha256": "ffd915052c924f3042aec5d767fee65748e23badd8264a78e54fe42410116aaf",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\":[{\"title\":\"提交一份课程内容回顾\",\"description\":\"按图片中“本周作业通知”要求，提交一份课程内容回顾，需在10月13日18:00前完成。\",\"prerequisites\":[],\"course_or_project\":\"合成测试课程\",\"course_basis\":\"provided\",\"notice_type\":\"create\",\"target_reference\":null,\"deadline\":{\"value\":\"2026-10-13T18:00:00+08:00\",\"precision\":\"datetime\",\"timezone\":\"Asia/Shanghai\",\"kind\":\"deadline\",\"status\":\"explicit\",\"raw\":\"10月13日18:00前\",\"basis\":\"图片原文“10月13日18:00前完成”省略年份；图片原始发布时间为2026-10-01，据此补全为2026年，时刻18:00保留。\",\"alternatives\":[]},\"review_reasons\":[],\"evidence\":[{\"input_id\":\"synthetic:zh-long\",\"field\":\"attachment_file\",\"asset_id\":\"asset-001\",\"quote\":\"本周作业通知 提交一份课程内容回顾，10月13日18:00前完成。\",\"locator\":{\"page\":null,\"paragraph\":null,\"bbox\":null},\"verification\":\"model_reported\",\"supports\":[\"title\",\"description\",\"deadline\"]}]}],\"image_quality\":[{\"asset_id\":\"asset-001\",\"quality\":\"normal\",\"quality_notes\":[]}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-long",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:zh-long",
+            "status": "success",
+            "task_ids": [
+              "media:60066a4feda745adb30898db:1"
+            ],
+            "warnings": [],
+            "coverage": {
+              "complete": true,
+              "uncertain": false
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "normal",
+                "quality_notes": []
+              }
+            ]
+          }
+        ],
+        "tasks": [
+          {
+            "title": "提交一份课程内容回顾",
+            "description": "按图片中“本周作业通知”要求，提交一份课程内容回顾，需在10月13日18:00前完成。",
+            "prerequisites": [],
+            "course_or_project": "合成测试课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-13T18:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "10月13日18:00前",
+              "basis": "图片原文“10月13日18:00前完成”省略年份；图片原始发布时间为2026-10-01，据此补全为2026年，时刻18:00保留。",
+              "alternatives": []
+            },
+            "review_reasons": [
+              "图片引文由模型读取，尚未经原文逐字核对，请确认。"
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:zh-long",
+                "field": "attachment_file",
+                "asset_id": "asset-001",
+                "quote": "本周作业通知 提交一份课程内容回顾，10月13日18:00前完成。",
+                "locator": {
+                  "page": null,
+                  "paragraph": null,
+                  "bbox": null
+                },
+                "verification": "model_reported",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ],
+            "candidate_id": "media:60066a4feda745adb30898db:1",
+            "input_id": "synthetic:zh-long",
+            "sources": [
+              {
+                "input_id": "synthetic:zh-long",
+                "platform": "wechat",
+                "url": null,
+                "label": "合成课程群",
+                "source_item_id": "message-002"
+              }
+            ],
+            "needs_review": true
+          }
+        ],
+        "errors": []
+      },
+      "passed": true,
+      "elapsed_seconds": 7.89,
+      "image_sha256": "ffd915052c924f3042aec5d767fee65748e23badd8264a78e54fe42410116aaf"
+    },
+    {
+      "case": "zh-blurry",
+      "synthetic_text": [
+        "合成作业 E56",
+        "10月14日17:00前提交读书报告。"
+      ],
+      "degraded": true,
+      "request": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-blurry",
+        "records": [
+          {
+            "input_id": "synthetic:zh-blurry",
+            "text": "",
+            "text_quality": "missing",
+            "platform": "wechat",
+            "published_at": {
+              "value": "2026-10-01T20:01:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T20:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成课程群",
+            "source_item_id": "message-002",
+            "course_or_project": "合成测试课程",
+            "context": [],
+            "upstream_hints": null,
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "file_name": "zh-blurry.png",
+                "mime_type": "image/png",
+                "size_bytes": 10199,
+                "sha256": "aecbb53568d92fce72b3f3541575e28356f5556033e1ac56333091df016c2fbc",
+                "origin": "original",
+                "original_published_at": {
+                  "value": "2026-10-01",
+                  "precision": "date",
+                  "basis": "source"
+                },
+                "status": "available",
+                "errors": [],
+                "content_mode": "file",
+                "file_ref": "asset:synthetic_asset_001_001"
+              }
+            ]
+          }
+        ]
+      },
+      "raw_draft": "{\"tasks\": [], \"image_quality\": [{\"asset_id\": \"asset-001\", \"quality\": \"uncertain\", \"quality_notes\": [\"图片严重模糊（整体失焦），两行文字均无法辨认，无法确认其中是否包含作业要求、行动指令或截止时间；未读取到任何可引用的文字内容。\"]}]}",
+      "result": {
+        "contract_version": "0.3.1",
+        "request_id": "synthetic-chinese-zh-blurry",
+        "status": "failed",
+        "record_results": [
+          {
+            "input_id": "synthetic:zh-blurry",
+            "status": "failed",
+            "task_ids": [],
+            "warnings": [
+              "部分读取或识别失败，请核对剩余内容。"
+            ],
+            "coverage": {
+              "complete": false,
+              "uncertain": true
+            },
+            "attachments": [
+              {
+                "asset_id": "asset-001",
+                "content_mode": "file",
+                "status": "complete",
+                "reader_version": "niuma-static-image/1",
+                "coverage_basis": "adapter_confirmed",
+                "coverage": {
+                  "complete": true,
+                  "unread_locations": [],
+                  "truncated": false
+                },
+                "quality": "uncertain",
+                "quality_notes": [
+                  "图片严重模糊（整体失焦），两行文字均无法辨认，无法确认其中是否包含作业要求、行动指令或截止时间；未读取到任何可引用的文字内容。"
+                ]
+              }
+            ]
+          }
+        ],
+        "tasks": [],
+        "errors": [
+          {
+            "input_id": "synthetic:zh-blurry",
+            "asset_id": null,
+            "block_id": null,
+            "stage": "recognize",
+            "code": "low_content_quality",
+            "message": "图片质量不足以确定是否包含任务，请查看原件。",
+            "retryable": false
+          }
+        ]
+      },
+      "passed": true,
+      "elapsed_seconds": 7.34,
+      "image_sha256": "aecbb53568d92fce72b3f3541575e28356f5556033e1ac56333091df016c2fbc"
+    }
+  ]
+}

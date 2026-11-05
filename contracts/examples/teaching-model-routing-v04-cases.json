@@ -1,0 +1,1076 @@
+{
+  "synthetic_only": true,
+  "description": "Eight synthetic native-pipeline responses from the configured model; not a recall benchmark or production-data test.",
+  "cases": [
+    {
+      "name": "explicit-urgency",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:explicit-urgency",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:explicit-urgency",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。",
+              "body_status": "complete",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-09-25T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:explicit-urgency",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:explicit-urgency",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "提交课程内容回顾",
+                "description": "撰写并提交一份课程内容回顾，范围涵盖目前学过的全部内容（包括当次课），按比例计入总评。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知要求在当前学期完成并提交课程回顾，截止时间尚未到达。",
+                  "evidence": [
+                    {
+                      "part_id": "body",
+                      "quote": "请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:routing:explicit-urgency",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。",
+                    "body_status": "complete",
+                    "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-09-25T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-09-29T09:00:00+08:00",
+                      "precision": "datetime",
+                      "derivation": "absolute",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请于2026.9.29 9:00前交一份课程内容回顾，内容范围为目前学过的全部内容（包括当次课），请大家尽快完成，会按比例计入总评。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:routing:explicit-urgency",
+                    "candidate_id": "teaching-draft:270d87117907a9265ab24701"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "task",
+        "value": "2026-09-29T09:00:00+08:00"
+      },
+      "elapsed_seconds": 2.33
+    },
+    {
+      "name": "partial-clear-deadline",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:partial-clear-deadline",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:partial-clear-deadline",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "MOOC平台第五、六、七章作业已发布，请完成，截止时间为2026-11-17 23:30。",
+              "body_status": "partial",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-09T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:partial-clear-deadline",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:partial-clear-deadline",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成MOOC平台第五、六、七章作业",
+                "description": "在MOOC平台完成第五、六、七章已发布的作业，并于2026-11-17 23:30前提交。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "当前为2026秋季学期，作业截止时间尚未到达。",
+                  "evidence": [
+                    {
+                      "part_id": "source_metadata",
+                      "quote": "当前课程：算法导论，2026秋季学期。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:routing:partial-clear-deadline",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "MOOC平台第五、六、七章作业已发布，请完成，截止时间为2026-11-17 23:30。",
+                    "body_status": "partial",
+                    "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-09T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "MOOC平台第五、六、七章作业已发布，请完成，截止时间为2026-11-17 23:30。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-11-17T23:30:00+08:00",
+                      "precision": "datetime",
+                      "derivation": "absolute",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "MOOC平台第五、六、七章作业已发布，请完成，截止时间为2026-11-17 23:30。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:routing:partial-clear-deadline",
+                    "candidate_id": "teaching-draft:73a11f3cde7419eb3d98e441"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "task",
+        "value": "2026-11-17T23:30:00+08:00"
+      },
+      "elapsed_seconds": 3.7
+    },
+    {
+      "name": "yearless-no-publication",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:yearless-no-publication",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:yearless-no-publication",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请完成Assignment 2并通过邮件提交。本次作业deadline为10.23。",
+              "body_status": "complete",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-09T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:yearless-no-publication",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:yearless-no-publication",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成并邮件提交 Assignment 2",
+                "description": "完成 Assignment 2，并通过邮件提交。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "课程为2026秋季学期，作业在当学期内布置且未显示已完成。",
+                  "evidence": [
+                    {
+                      "part_id": "body",
+                      "quote": "请完成Assignment 2并通过邮件提交。本次作业deadline为10.23。"
+                    },
+                    {
+                      "part_id": "source_metadata",
+                      "quote": "当前课程：算法导论，2026秋季学期。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:routing:yearless-no-publication",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请完成Assignment 2并通过邮件提交。本次作业deadline为10.23。",
+                    "body_status": "complete",
+                    "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-09T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请完成Assignment 2并通过邮件提交。本次作业deadline为10.23。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-23",
+                      "precision": "date",
+                      "derivation": "missing_year",
+                      "anchor": "course_term",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请完成Assignment 2并通过邮件提交。本次作业deadline为10.23。"
+                        },
+                        {
+                          "part_id": "source_metadata",
+                          "quote": "当前课程：算法导论，2026秋季学期。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:routing:yearless-no-publication",
+                    "candidate_id": "teaching-draft:e3a0a2718a76408d8abe81f7"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "task",
+        "value": "2026-10-23"
+      },
+      "elapsed_seconds": 2.16
+    },
+    {
+      "name": "supplementary-unread",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:supplementary-unread",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:supplementary-unread",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请于2026年10月23日前交实验报告，未读附件只是可选参考资料，不改变要求。",
+              "body_status": "partial",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [
+                {
+                  "ref_id": "extra",
+                  "kind": "attachment",
+                  "label": "参考资料.pdf",
+                  "read_state": "unread",
+                  "text": null
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-09T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:supplementary-unread",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:supplementary-unread",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "提交实验报告",
+                "description": "在2026年10月23日前提交实验报告。未读附件为可选参考资料，不影响要求。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知面向当前学期，要求提交实验报告且已明确截止日期。",
+                  "evidence": [
+                    {
+                      "part_id": "body",
+                      "quote": "请于2026年10月23日前交实验报告，未读附件只是可选参考资料，不改变要求。"
+                    },
+                    {
+                      "part_id": "source_metadata",
+                      "quote": "当前课程：算法导论，2026秋季学期。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:routing:supplementary-unread",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请于2026年10月23日前交实验报告，未读附件只是可选参考资料，不改变要求。",
+                    "body_status": "partial",
+                    "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+                    "references": [
+                      {
+                        "ref_id": "extra",
+                        "kind": "attachment",
+                        "label": "参考资料.pdf",
+                        "read_state": "unread",
+                        "text": null
+                      }
+                    ],
+                    "published_at": null,
+                    "collected_at": "2026-10-09T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请于2026年10月23日前交实验报告，未读附件只是可选参考资料，不改变要求。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-23",
+                      "precision": "date",
+                      "derivation": "absolute",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请于2026年10月23日前交实验报告，未读附件只是可选参考资料，不改变要求。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [
+                      {
+                        "ref_id": "extra",
+                        "role": "supplementary",
+                        "evidence": [
+                          {
+                            "part_id": "body",
+                            "quote": "请于2026年10月23日前交实验报告，未读附件只是可选参考资料，不改变要求。"
+                          }
+                        ]
+                      }
+                    ],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:routing:supplementary-unread",
+                    "candidate_id": "teaching-draft:8cde0f27821ce41e9e7caf2c"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "task",
+        "value": "2026-10-23"
+      },
+      "elapsed_seconds": 2.39
+    },
+    {
+      "name": "required-date-unread",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:required-date-unread",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:required-date-unread",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。",
+              "body_status": "complete",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [
+                {
+                  "ref_id": "extra",
+                  "kind": "attachment",
+                  "label": "截止更正.pdf",
+                  "read_state": "unread",
+                  "text": null
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-09T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:required-date-unread",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:required-date-unread",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "提交实验报告（截止日期需核实）",
+                "description": "按通知提交实验报告，最终提交日期以未读取的附件《截止更正.pdf》为准。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知面向当前学期课程，要求在附件更正日期前提交实验报告。",
+                  "evidence": [
+                    {
+                      "part_id": "body",
+                      "quote": "请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。"
+                    },
+                    {
+                      "part_id": "source_metadata",
+                      "quote": "当前课程：算法导论，2026秋季学期。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:routing:required-date-unread",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。",
+                    "body_status": "complete",
+                    "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+                    "references": [
+                      {
+                        "ref_id": "extra",
+                        "kind": "attachment",
+                        "label": "截止更正.pdf",
+                        "read_state": "unread",
+                        "text": null
+                      }
+                    ],
+                    "published_at": null,
+                    "collected_at": "2026-10-09T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "unresolved",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [
+                      {
+                        "ref_id": "extra",
+                        "role": "required",
+                        "evidence": [
+                          {
+                            "part_id": "body",
+                            "quote": "请提交实验报告。最终提交日期见附件《截止更正.pdf》，以附件为准。"
+                          }
+                        ]
+                      }
+                    ],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:routing:required-date-unread",
+                    "candidate_id": "teaching-draft:2c3db6259d3d0d617c65301a"
+                  }
+                },
+                "recommendation": "candidate",
+                "review_codes": [
+                  "model_review"
+                ],
+                "review_reasons": [
+                  "正文明确最终提交日期以附件为准，但附件《截止更正.pdf》尚未读取，缺少确定截止时间。"
+                ],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "candidate",
+        "value": null
+      },
+      "elapsed_seconds": 2.75
+    },
+    {
+      "name": "expired-partial",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:expired-partial",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:expired-partial",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请完成Assignment 1并邮件提交，本次作业deadline为9.29。",
+              "body_status": "partial",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-09T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:expired-partial",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:expired-partial",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成 Assignment 1 并邮件提交（算法导论）",
+                "description": "完成 Assignment 1 并通过邮件提交。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "historical",
+                  "reason": "作业截止 9.29，采集日为 2026-10-09，已过截止且无补交要求。",
+                  "evidence": [
+                    {
+                      "part_id": "body",
+                      "quote": "请完成Assignment 1并邮件提交，本次作业deadline为9.29。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:routing:expired-partial",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请完成Assignment 1并邮件提交，本次作业deadline为9.29。",
+                    "body_status": "partial",
+                    "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-09T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请完成Assignment 1并邮件提交，本次作业deadline为9.29。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-09-29",
+                      "precision": "date",
+                      "derivation": "missing_year",
+                      "anchor": "collected_at",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请完成Assignment 1并邮件提交，本次作业deadline为9.29。"
+                        },
+                        {
+                          "part_id": "source_metadata",
+                          "quote": "当前课程：算法导论，2026秋季学期。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:routing:expired-partial",
+                    "candidate_id": "teaching-draft:803236d167973f27b0d9d32b"
+                  }
+                },
+                "recommendation": "filtered",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": "邮件提交截止 2026-09-29，采集时已过期，正文未要求补交或继续完成。"
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "filtered",
+        "value": "2026-09-29"
+      },
+      "elapsed_seconds": 3.19
+    },
+    {
+      "name": "non-action-partial",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:non-action-partial",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:non-action-partial",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "10月9日上午课程因故暂停一次。",
+              "body_status": "partial",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-09T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:non-action-partial",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:non-action-partial",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "no_tasks",
+            "decisions": [],
+            "warnings": [
+              "正文仅说明10月9日上午停课一次，没有需要用户执行的行动或期限。"
+            ],
+            "error": null,
+            "empty_decision": {
+              "status": "no_tasks",
+              "reason": "正文仅说明10月9日上午停课一次，没有需要用户执行的行动或期限。",
+              "evidence": [
+                {
+                  "part_id": "body",
+                  "quote": "10月9日上午课程因故暂停一次。"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "no_tasks",
+        "value": null
+      },
+      "elapsed_seconds": 1.55
+    },
+    {
+      "name": "no-deadline-with-reference",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "smoke:no-deadline-with-reference",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:routing:no-deadline-with-reference",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。",
+              "body_status": "complete",
+              "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+              "references": [
+                {
+                  "ref_id": "extra",
+                  "kind": "attachment",
+                  "label": "参考资料.pdf",
+                  "read_state": "unread",
+                  "text": null
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-09T12:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "classification_mode": "model-v1",
+        "request_id": "smoke:no-deadline-with-reference",
+        "policy_version": "teaching-policy-v1:d29762753daf50f132630ce943483ae77129aea47183d02bea5974fe119a9233",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:routing:no-deadline-with-reference",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成教学网通知",
+              "url": null,
+              "course_or_project": "算法导论"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "阅读下一章作为课前准备",
+                "description": "阅读下一章，作为课前准备；无完成期限。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "课前准备为当前课程要求的活动，未规定完成期限。",
+                  "evidence": [
+                    {
+                      "part_id": "body",
+                      "quote": "请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。"
+                    },
+                    {
+                      "part_id": "source_metadata",
+                      "quote": "当前课程：算法导论，2026秋季学期。"
+                    }
+                  ]
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:routing:no-deadline-with-reference",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。",
+                    "body_status": "complete",
+                    "source_metadata_text": "当前课程：算法导论，2026秋季学期。",
+                    "references": [
+                      {
+                        "ref_id": "extra",
+                        "kind": "attachment",
+                        "label": "参考资料.pdf",
+                        "read_state": "unread",
+                        "text": null
+                      }
+                    ],
+                    "published_at": null,
+                    "collected_at": "2026-10-09T12:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。"
+                        }
+                      ]
+                    },
+                    "unread_relations": [
+                      {
+                        "ref_id": "extra",
+                        "role": "supplementary",
+                        "evidence": [
+                          {
+                            "part_id": "body",
+                            "quote": "请阅读下一章作为课前准备，不设完成期限。附件是可选参考资料。"
+                          }
+                        ]
+                      }
+                    ],
+                    "other_review_reasons": [],
+                    "input_id": "synthetic:routing:no-deadline-with-reference",
+                    "candidate_id": "teaching-draft:f3b4cba8c3b2e23c088272c9"
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null,
+            "empty_decision": null
+          }
+        ]
+      },
+      "expected_classification": {
+        "recommendation": "task",
+        "value": null
+      },
+      "elapsed_seconds": 2.45
+    }
+  ]
+}

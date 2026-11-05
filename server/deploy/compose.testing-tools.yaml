@@ -1,0 +1,8 @@
+# Only manage_environment development/test adds this source-only overlay.
+services:
+  api:
+    volumes:
+      - type: bind
+        source: ../environment_tools
+        target: /app/server/environment_tools
+        read_only: true

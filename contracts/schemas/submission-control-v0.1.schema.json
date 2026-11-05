@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "const": "submission-policy/0.1"
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "expected_snapshot_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "expected_control_revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "kind": {
+      "enum": [
+        "reopen_actions",
+        "resume_source_completion",
+        "resolve_source_review"
+      ]
+    },
+    "action_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 160,
+        "pattern": "^[A-Za-z0-9_.:-]+$"
+      },
+      "uniqueItems": true,
+      "maxItems": 100
+    }
+  },
+  "required": [
+    "contract_version",
+    "operation_id",
+    "expected_snapshot_id",
+    "expected_control_revision",
+    "kind",
+    "action_ids"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

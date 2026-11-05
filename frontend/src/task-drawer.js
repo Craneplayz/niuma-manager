@@ -1,0 +1,26 @@
+import { sourceLink } from "./task-evidence.js";
+import { isNotice, taskEditSnapshot } from "./task-model.js";
+
+export function renderTaskDrawer({
+  task,
+  editing = false,
+  escapeHtml: esc,
+  icon,
+  deadlineLabel,
+}) {
+  const notice = isNotice(task);
+  const kind = notice ? "通知" : "任务";
+  const dateLabel = notice ? "关键日期" : "截止日期";
+  const pending = Boolean(task.reviewCandidateId);
+  const header = `<header class="drawer-header"><span>${editing ? "编辑" : ""}${kind}${editing ? "" : "详情"}</span><button type="button" class="icon-button" data-action="drawer-close" aria-label="关闭${kind}详情">${icon("close")}</button></header>`;
+  if (editing)
+    return `${header}<form id="task-edit-form" data-id="${esc(task.id || "")}" ${pending ? `data-review-version="${esc(task.reviewVersion)}"` : ''} data-task-edit-snapshot="${esc(taskEditSnapshot(task))}"><div class="drawer-body"><h2 id="drawer-heading">${task.id ? `编辑${kind}` : "添加任务"}</h2>${pending ? '<p class="field-hint">保存修改后将自动移除待核对标记。</p>' : ''}<label class="field">${kind}名称<input name="title" value="${esc(task.title || "")}" required maxlength="200" autofocus></label><label class="field">内容类型<select name="content_type"><option value="task" ${task.content_type !== "notice" ? "selected" : ""}>任务</option><option value="notice" ${task.content_type === "notice" ? "selected" : ""}>通知</option></select></label><label class="field">课程<input name="course" value="${esc(task.course || "")}" maxlength="100" list="course-options" placeholder="可不填写"></label><div class="field-pair"><label class="field">${dateLabel}<input name="due" type="date" value="${esc(task.due || "")}"></label><label class="field">具体时刻<input name="dueTime" type="time" value="${esc(task.dueTime || "")}"></label></div><p class="field-hint">只知道日期时，可以不填写时刻。</p><label class="field">说明<textarea name="notes" rows="5" maxlength="4000" placeholder="可不填写">${esc(task.notes || "")}</textarea></label><div class="error" id="task-edit-error"></div></div><footer class="drawer-footer"><button type="button" class="btn quiet" data-action="drawer-cancel">取消</button><button type="submit" class="btn primary">保存${kind}</button></footer></form>`;
+  const dateValue = task.reviewDateLabel || (notice && !task.due ? "未注明时间" : deadlineLabel(task));
+  const state = notice
+    ? `<div><span>类型</span><strong>通知</strong></div><div><span>状态</span><strong>${task.status === "done" ? "已阅读" : "未阅读"}</strong></div>`
+    : `<div><span>状态</span><strong>${task.status === "done" ? "已完成" : "未完成"}</strong></div>`;
+  const complete = notice
+    ? `<label class="notice-read-control"><input type="checkbox" data-notice-read="${esc(task.id)}" ${task.status === "done" ? "checked" : ""}>已阅读</label>`
+    : `<button type="button" class="btn primary" data-task-complete="${esc(task.id)}">${icon("check")}${task.status === "done" ? "重新打开" : "完成任务"}</button>`;
+  return `${header}<div class="drawer-body"><h2 id="drawer-heading">${pending ? '<span class="review-label">待核对</span>' : ''}${esc(task.title)}</h2><div class="drawer-properties"><div><span>${notice ? "关键时间" : "截止"}</span><strong>${esc(dateValue)}</strong></div>${task.course ? `<div><span>课程</span><strong>${esc(task.course)}</strong></div>` : ""}<div><span>来源</span><strong>${esc(task.source || "手动添加")}</strong></div>${state}</div><div id="task-action-error"></div>${task.notes ? `<section class="drawer-notes"><h3>说明</h3><p>${esc(task.notes)}</p></section>` : ""}${sourceLink(task.sourceUrl || task.url)}<section class="drawer-evidence"><h3>原文</h3><div id="task-evidence"><p class="status-note">正在读取…</p></div></section></div><footer class="drawer-footer">${pending ? `<button type="button" class="btn quiet" data-import-ignore="${esc(task.reviewCandidateId)}">忽略</button>` : `<button type="button" class="icon-button" data-action="drawer-trash" aria-label="移入回收站">${icon("trash")}</button>`}<button type="button" class="btn quiet" data-action="drawer-edit">编辑</button>${complete}</footer>`;
+}

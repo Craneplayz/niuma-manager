@@ -5,14 +5,42 @@ import os
 import subprocess
 import tempfile
 import secrets
+from server import operations
 from pathlib import Path
 
 from text_contract import validate_request
+from recognition import has_unapplied_auto_tasks
+import teaching
+import teaching_assets
+from contracts.teaching_capture import check_capture
+from contracts.collection_failure import parse_failure, VERSION as FAILURE_VERSION
 
 CRAWLER = Path(__file__).resolve().parent.parent / 'crawler'
 
 
+def collection_exception(ApiError, status, stage, code='operation_failed'):
+    """Closed receipt and action guidance; never expose subprocess stderr."""
+    messages = {
+        'credentials': '教学网凭据无法读取；请重新保存连接，仍失败时联系维护人员。',
+        'browser': '教学网采集运行环境不可用；请联系维护人员检查 Node、浏览器及依赖。',
+        'login': '教学网登录未完成；请先确认学校网站可登录，再检查连接或重新保存凭据。',
+        'navigation': '教学网页面获取失败；请稍后重新获取来源，仍失败时检查学校网站连接。',
+        'export': '教学网采集结果未通过格式校验；请联系维护人员，不需要重试模型。',
+        'collection': '教学网采集未完成；请稍后重新获取来源，已保存结果不受影响。',
+    }
+    receipt = parse_failure(json.dumps(dict(contract_version=FAILURE_VERSION, stage=stage, code=code)))
+    if receipt is None:
+        stage, code = 'collection', 'operation_failed'
+        receipt = dict(contract_version=FAILURE_VERSION, stage=stage, code=code)
+    exc = ApiError(status, messages[stage])
+    exc.code = 'collection_failed'
+    exc.collection_failure = receipt
+    exc.retryable = stage in ('navigation', 'collection') or code == 'timeout'
+    return exc
+
+
 def initialize(db):
+    teaching.initialize(db)
     db.execute('CREATE TABLE IF NOT EXISTS source_credentials(user_id TEXT PRIMARY KEY, username TEXT NOT NULL, secret BLOB NOT NULL)')
     db.execute('''CREATE TABLE IF NOT EXISTS source_versions(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
@@ -45,9 +73,10 @@ def incremental_requests(db, uid, username, requests):
                 request = dict(contract_version='0.2', request_id='teaching_web:sync:' + secrets.token_hex(16), records=[record])
                 db.execute('INSERT INTO source_versions VALUES(?,?,?,?,?) ON CONFLICT(user_id,account,input_id) DO UPDATE SET digest=excluded.digest,request=excluded.request',
                            (uid, account, record['input_id'], digest, json.dumps(request)))
-            stored = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',
+            stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                                 (uid, request['request_id'])).fetchone()
-            if stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks'):
+            if (stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks')
+                    and not has_unapplied_auto_tasks(db, uid, request, stored['demo'])):
                 skipped += 1
             else:
                 pending.append(request)
@@ -79,7 +108,8 @@ def cipher(key_path, ApiError, create=False):
 def route(handler, db, uid, path, body, ApiError, key_path):
     if path == '/api/sources/credentials' and handler.command == 'GET':
         row = db.execute('SELECT username FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
-        handler.reply(200, {'configured': bool(row), 'username': row['username'] if row else None})
+        handler.reply(200, {'configured': bool(row), 'username': row['username'] if row else None,
+                            'source_account_id':teaching.account(row['username']) if row else None})
         return True
     if path == '/api/sources/credentials' and handler.command == 'POST':
         username, password = body.get('username'), body.get('password')
@@ -88,10 +118,13 @@ def route(handler, db, uid, path, body, ApiError, key_path):
                 or '\n' in username or '\r' in username or '\n' in password or '\r' in password):
             raise ApiError(400, '请填写有效的教学网账号和密码')
         encrypted = cipher(key_path, ApiError, create=True).encrypt(password.encode())
+        previous = db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+        if previous and previous['username'] != username.strip(): teaching_assets.clear(db,uid)
         db.execute('INSERT INTO source_credentials VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,secret=excluded.secret', (uid, username.strip(), encrypted))
         handler.reply(200, {'configured': True, 'username': username.strip()})
         return True
     if path == '/api/sources/credentials/remove' and handler.command == 'POST':
+        teaching_assets.clear(db,uid)
         db.execute('DELETE FROM source_credentials WHERE user_id=?', (uid,))
         handler.reply(200, {'configured': False, 'username': None})
         return True
@@ -99,6 +132,20 @@ def route(handler, db, uid, path, body, ApiError, key_path):
         return False
     if body.get('sources') != ['teaching_web']:
         raise ApiError(400, '当前仅支持同步教学网；微信请使用会话文件导入')
+    handler.reply(200, collect(db, uid, ApiError, key_path))
+    return True
+
+
+def collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
+    with operations.span('collection'):
+        result=_collect(db,uid,ApiError,key_path,guard=guard,input_ids=input_ids)
+    if result['summary'].get('skipped'):operations.emit('outcome',code='cache_hit',quantity=result['summary']['skipped'])
+    return result
+
+
+def _collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
+    """Collect outside a write transaction, then validate ownership before saving."""
+    if guard: guard(db)
     row = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?', (uid,)).fetchone()
     if not row:
         raise ApiError(400, '请先在同步信息中保存教学网账号和密码')
@@ -108,28 +155,74 @@ def route(handler, db, uid, path, body, ApiError, key_path):
     except (InvalidToken, UnicodeDecodeError):
         raise ApiError(503, '无法解密教学网凭据；请重新保存账号和密码')
     if not (CRAWLER / 'node_modules' / 'tsx').exists() and not (CRAWLER / 'node_modules' / '.bin' / 'tsx').exists():
-        raise ApiError(503, '教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install')
+        exc = collection_exception(ApiError, 503, 'browser')
+        exc.message = '教学网采集依赖未安装；请先在 crawler/ 执行 pnpm install'
+        raise exc
     try:
         with tempfile.TemporaryDirectory(prefix='niuma-course-sync-') as folder:
+            attachment_dir = Path(folder) / 'attachments'
+            attachment_dir.mkdir(mode=0o700)
             secret = Path(folder) / 'secret'
             with os.fdopen(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w', encoding='utf-8') as file:
                 file.write(row['username'] + '\n' + password)
             result = subprocess.run(
-                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=recognition'],
-                cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret)},
+                ['node', '--import', 'tsx', 'src/pku-homework-cli.ts', '--format=teaching-capture', '--observe-downloads'],
+                cwd=CRAWLER, env={**os.environ, 'PKU_SECRET_PATH': str(secret), 'PKU_ATTACHMENT_DIR': str(attachment_dir)},
                 capture_output=True, text=True, encoding='utf-8', timeout=300, check=False,
             )
-    except (OSError, subprocess.TimeoutExpired):
-        raise ApiError(503, '教学网采集无法启动或超时；请检查 Node、浏览器及校园网连接')
-    if result.returncode:
-        raise ApiError(502, '教学网采集失败；请检查账号、密码、浏览器及校园网连接')
-    try:
-        requests = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-        if len(requests) > 20 or any(len(json.dumps(item, ensure_ascii=False).encode()) > 1900000 for item in requests):
-            raise ValueError()
-        for item in requests:
-            validate_request(item)
-    except (ValueError, TypeError, KeyError):
-        raise ApiError(502, '教学网采集结果不符合 v0.2 协议或批次数量限制')
-    handler.reply(200, incremental_requests(db, uid, row['username'], requests))
-    return True
+            operations.producer_stderr(getattr(result,'stderr',''))
+            if result.returncode:
+                stderr=getattr(result,'stderr','')
+                # Download observations can exceed the old whole-stderr bound.
+                # Parse only closed failure receipts from the bounded final lines.
+                failure=next((value for line in reversed(stderr.splitlines()[-16:])
+                              if (value:=parse_failure(line))),None) if isinstance(stderr,str) else None
+                if failure:
+                    raise collection_exception(ApiError, 502, failure['stage'], failure['code'])
+                raise ApiError(502, '教学网采集失败；请检查账号、密码、浏览器及校园网连接')
+            try:
+                requests = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+                if len(requests) > 1000 or any(len(json.dumps(item, ensure_ascii=False).encode()) > 1900000 for item in requests): raise ValueError()
+                for item in requests:
+                    if item.get('contract_version')=='teaching-capture/0.1': check_capture(item)
+                    else: teaching.check_request(item)
+                if input_ids is not None:
+                    selected = []
+                    for item in requests:
+                        payload = item['request'] if item.get('contract_version') == 'teaching-capture/0.1' else item
+                        payload['records'] = [entry for entry in payload['records'] if entry['record']['input_id'] in input_ids]
+                        if payload['records']: selected.append(item)
+                    requests = selected
+                assets = teaching_assets.read_capture(attachment_dir,requests,**({'input_ids':input_ids} if input_ids is not None else {}))
+            except Exception:
+                raise collection_exception(ApiError, 502, 'export') from None
+    except subprocess.TimeoutExpired:
+        raise collection_exception(ApiError, 503, 'collection', 'timeout') from None
+    except OSError:
+        raise collection_exception(ApiError, 503, 'browser') from None
+    if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
+    if guard: guard(db)
+    current = db.execute('SELECT username,secret FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
+    if not current or dict(current)!=dict(row):
+        raise ApiError(409, '教学网账号在采集期间发生变化，请重新同步')
+    before = task_snapshot(db, uid)
+    try: response = teaching.register(db, uid, row['username'], requests, assets=assets)
+    except ValueError:
+        raise ApiError(413, '教学网附件超过账号存储限制，或附件无效；请清理来源后重新同步') from None
+    response['updated_tasks'] = task_updates(before, task_snapshot(db, uid))
+    return response
+
+
+def task_snapshot(db, uid):
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace'").fetchone(): return {}
+    row = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (uid,)).fetchone()
+    return {task['id']: task for task in json.loads(row['value'])} if row else {}
+
+
+def task_updates(before, after):
+    # Compare inside collection's write transaction, excluding concurrent user edits and source-only metadata.
+    fields = ('title', 'description', 'course', 'due', 'status', 'completedAt', 'recycleBin', 'content_type')
+    return [dict(task_id=identity, label=str(task.get('title', '任务'))[:200], course=task.get('course'),
+                 changed_fields=[field for field in fields if task.get(field) != before[identity].get(field)])
+            for identity, task in after.items() if identity in before and
+            any(task.get(field) != before[identity].get(field) for field in fields)]

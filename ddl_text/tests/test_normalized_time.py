@@ -31,7 +31,8 @@ class NormalizedTimeTests(unittest.TestCase):
 
     def test_invalid_standard_value_remains_reviewable(self):
         for value in ("2026-02-30", "2026-13-01", "2026-10-11T24:00:00+08:00",
-                      "2026-10-11T23:59:60+08:00", "2026-10-11T23:59:00", "tomorrow", "20261011"):
+                      "2026-10-11T23:59:60+08:00", "2026-10-11T12:00:00+08:60",
+                      "2026-10-11T24:00:00Z", "2026-10-11T23:59:00", "tomorrow", "20261011"):
             with self.subTest(value=value):
                 result = validate_time(proposal("时间原文", value), record())
                 self.assertEqual((result["value"], result["status"]), (None, "unknown"))
