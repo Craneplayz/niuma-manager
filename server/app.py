@@ -30,6 +30,7 @@ import runtime_environment
 import usage
 import error_reports
 import account_avatar
+import timetable
 import email_verification
 import ipaddress
 from server import model_queue
@@ -382,6 +383,7 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE token=?',(token,))
                 return self.reply(200,{},session_cookie('',0,True))
             if usage.route(self,db,uid,path,body,ApiError): return
+            if timetable.route(self,db,uid,path,body,ApiError): return
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
             if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
@@ -528,6 +530,8 @@ class Handler(BaseHTTPRequestHandler):
                 replace_plans={t['id']:[p['id'] for p in t['plans'] if datetime.fromisoformat(p['startAt'])>now] for t in pending if replan and t.get('due')}
                 existing=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']
                           if p['id'] not in replace_plans.get(t['id'],[]) and (t['status']!='completed' or datetime.fromisoformat(p['startAt'])<=now)]
+                timetable_version=timetable.read(db,uid)['version']
+                existing.extend(timetable.occupied(db,uid))
                 pending=[dict(t,plans=[p for p in t['plans'] if p['id'] not in replace_plans.get(t['id'],[])]) for t in pending]
                 payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=now.isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=existing,availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
@@ -544,6 +548,8 @@ class Handler(BaseHTTPRequestHandler):
                 result['requestId']=payload['requestId']
                 replace_plans={tid:ids for tid,ids in replace_plans.items() if ids and tid in scheduled}
                 result['replannedTaskIds']=list(replace_plans)
+                if timetable_version!=timetable.read(db,uid)['version']: raise ApiError(409,'课表已变化，请重新规划')
+                result['timetableVersion']=timetable_version
                 db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(dict(result,replacePlanIds=replace_plans))))
                 return self.reply(200,result)
             if path=='/api/planning/apply' and self.command=='POST':
@@ -556,6 +562,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.usage_tasks=json.loads(row['value'])
                 tasks=json.loads(row['value'])
                 result=json.loads(proposal['result'])
+                if result.get('timetableVersion',0)!=timetable.read(db,uid)['version']: raise ApiError(409,'课表已变化，请重新规划')
+                timetable.assert_no_conflicts(result['blocks'],db,uid,ApiError)
                 for task in tasks:
                     if any(plan['id'] in result.get('replacePlanIds',{}).get(task['id'],[]) and datetime.fromisoformat(plan['startAt'])<=datetime.now(TZ) for plan in task['plans']): raise ApiError(409,'原安排已经开始，请重新生成提案')
                 for task in tasks:

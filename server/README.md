@@ -4,6 +4,8 @@ server/
 ├── test_course_context.py     课程/学期隔离、取段、预算、标题、周次与增量回归。
 ├── test_course_context_http.py HTTP证据、自动入库、人工决定和迟到结果回归。
 ├── run_course_context_smoke.py 真实合成DOCX、真实模型、HTTP入库及重复同步验收。
+├── timetable.py             教务XLS课表解析、账号保存、单双周展开与排程占用。
+├── test_timetable.py        合成二进制XLS、真实HTTP/SQLite及课程排程冲突回归。
 ├── task_operations.py        当前账号任务写入回执、幂等恢复与测试清空代次。
 ├── test_review_operations.py  候选稳定任务身份、混合队列、回执及目标冲突的真实 HTTP/SQLite 回归。
 ├── test_task_operations.py   真实 HTTP/SQLite 的回执丢失、原子性、账号及契约回归。
@@ -104,6 +106,8 @@ server/
 ├── docs/archive/2026-10-01-issue69-direct-planning.json  Windows 无独立识别/规划服务的合成实测。
 └── data/                     本地 SQLite 数据目录，不提交数据库文件。
 ```
+
+课表导入使用 [课表契约](../contracts/timetable/README.md)，原文件仅处理时读取，确认的课程保存在本人 SQLite 工作区；安装 `requirements.txt`，课表回归另安装 `requirements-test.txt` 后执行 `PYTHONPATH=.:server python -m unittest server.test_timetable`。
 
 ## 后台同步容量
 

@@ -17,6 +17,8 @@ import {
   restoreStoredTasks,
   accountVersion,
   setStoredTaskDeadline,
+  readStoredTimetable,
+  acceptStoredTimetable,
 } from "./team-store.js";
 import { icon } from "./icons.js";
 import { avatarContent } from "./account-avatar.js";
@@ -33,6 +35,7 @@ import {
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
 import { renderCalendar } from "./calendar.js";
+import { createTimetableUI } from "./timetable.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -216,6 +219,7 @@ const host = {
 };
 const imports = createImportUI(host),
   account = createAccountUI(host);
+const timetable = createTimetableUI(host, { api, session, accountVersion, readStoredTimetable, acceptStoredTimetable });
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 function draggableTask(id) {
@@ -449,7 +453,7 @@ function taskResults() {
   if (taskView() === "list")
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
-  return `${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
+  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -1260,6 +1264,7 @@ window.addEventListener("niuma:account-reset", () => {
   state = readStore();
   busyTasks.clear();
   imports.reset();
+  timetable.reset();
   drawer.close();
   drawerId = null;
   ui.query = "";
