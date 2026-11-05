@@ -1,5 +1,7 @@
 ```text
 server/
+├── timetable.py             教务XLS课表解析、账号保存、单双周展开与排程占用。
+├── test_timetable.py        合成二进制XLS、真实HTTP/SQLite及课程排程冲突回归。
 ├── task_operations.py        当前账号任务写入回执、幂等恢复与测试清空代次。
 ├── test_review_operations.py  候选稳定任务身份、混合队列、回执及目标冲突的真实 HTTP/SQLite 回归。
 ├── test_task_operations.py   真实 HTTP/SQLite 的回执丢失、原子性、账号及契约回归。
@@ -133,6 +135,9 @@ server/
 ```
 
 邮件导入并发由环境私有 `server/deploy/environments/<环境>/config.json` 的 `email_concurrency` 控制，省略时按 `2` 处理，可设为整数 `1` 至 `4`。统一环境入口将 profile 值传给本机 API 和 Compose API 的 `NIUMA_EMAIL_CONCURRENCY`，不会读取终端中同名设置。邮件作业队列最多运行 8 个 worker，邮件与其他入口仍共用最多 20 个模型调用名额；作业排队、模型排队、生成、校验和整段识别耗时各自描述不同但可能重叠的阶段，不能相加成总工作量。受限原因码和聚合诊断只向授权管理员提供并保留 90 天，不记录邮件正文、标题、身份或凭据。成功结果使用缓存；停止作业阻止后续项目启动，撤销/移除邮箱连接会阻止后续处理，在途远端请求可能完成。见[邮件导入约定](../contracts/docs/email-import.md)。
+
+课表导入使用 [课表契约](../contracts/timetable/README.md)，原文件仅处理时读取，确认的课程保存在本人 SQLite 工作区；安装 `requirements.txt`，课表回归另安装 `requirements-test.txt` 后执行 `PYTHONPATH=.:server python -m unittest server.test_timetable`。
+
 ## 后台同步容量
 
 教学网后台同步最多执行4轮、额外排队20轮，每账号最多一轮；复用有界FIFO等待器，排队最长180秒，停止或凭据失效会退出等待，超时可重试且不调用采集器；每轮记录仍最多4并发，模型总池仍为20并发。
