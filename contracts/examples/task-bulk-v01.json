@@ -1,0 +1,211 @@
+{
+  "request": [
+    {
+      "version": 1,
+      "operation": {
+        "id": "bulk-operation-0001",
+        "owner": "synthetic-account",
+        "intent": {
+          "kind": "bulk",
+          "action": "deadline",
+          "workspaceGeneration": 0,
+          "tasks": [
+            {
+              "id": "ordinary-a",
+              "expected": {
+                "title": "合成任务",
+                "notes": "合成说明",
+                "course": "",
+                "content_type": "task",
+                "due": "",
+                "dueTime": "",
+                "status": "todo",
+                "completedAt": ""
+              }
+            }
+          ],
+          "candidates": [
+            {
+              "id": "candidate-a",
+              "version": 1,
+              "taskId": "stable-new-task-001",
+              "expected": {
+                "title": "合成待核对通知",
+                "notes": "合成说明",
+                "course": "",
+                "content_type": "notice",
+                "due": "",
+                "dueTime": "",
+                "status": "todo",
+                "completedAt": ""
+              }
+            }
+          ],
+          "date": "2026-10-30"
+        }
+      }
+    },
+    {
+      "version": 2,
+      "operation": {
+        "id": "bulk-undo-operation-001",
+        "owner": "synthetic-account",
+        "intent": {
+          "kind": "bulk",
+          "action": "undo",
+          "undoOf": "bulk-operation-0001",
+          "workspaceGeneration": 0
+        }
+      }
+    }
+  ],
+  "response": [
+    {
+      "version": 2,
+      "value": [
+        {
+          "id": "ordinary-a",
+          "title": "合成任务",
+          "description": "合成说明",
+          "course": null,
+          "content_type": "task",
+          "due": {
+            "date": "2026-10-30",
+            "precision": "date"
+          },
+          "status": "not_started",
+          "plans": [],
+          "subtasks": []
+        }
+      ],
+      "operationId": "bulk-operation-0001",
+      "undo": {
+        "kind": "bulk",
+        "action": "undo",
+        "undoOf": "bulk-operation-0001",
+        "workspaceGeneration": 0
+      },
+      "batches": [],
+      "candidates": [],
+      "generation": 0
+    }
+  ],
+  "intent": [
+    {
+      "kind": "bulk",
+      "action": "complete",
+      "workspaceGeneration": 0,
+      "tasks": [
+        {
+          "id": "ordinary-a",
+          "expected": {
+            "title": "合成任务",
+            "notes": "合成说明",
+            "course": "",
+            "content_type": "task",
+            "due": "",
+            "dueTime": "",
+            "status": "todo",
+            "completedAt": ""
+          }
+        }
+      ],
+      "candidates": [
+        {
+          "id": "candidate-a",
+          "version": 1,
+          "taskId": "stable-new-task-001",
+          "expected": {
+            "title": "合成待核对通知",
+            "notes": "合成说明",
+            "course": "",
+            "content_type": "notice",
+            "due": "",
+            "dueTime": "",
+            "status": "todo",
+            "completedAt": ""
+          }
+        }
+      ],
+      "date": "2026-10-30",
+      "completedAt": "2026-10-24"
+    },
+    {
+      "kind": "bulk",
+      "action": "trash",
+      "workspaceGeneration": 0,
+      "tasks": [
+        {
+          "id": "ordinary-a",
+          "expected": {
+            "title": "合成任务",
+            "notes": "合成说明",
+            "course": "",
+            "content_type": "task",
+            "due": "",
+            "dueTime": "",
+            "status": "todo",
+            "completedAt": ""
+          }
+        }
+      ],
+      "candidates": [
+        {
+          "id": "candidate-a",
+          "version": 1,
+          "taskId": "stable-new-task-001",
+          "expected": {
+            "title": "合成待核对通知",
+            "notes": "合成说明",
+            "course": "",
+            "content_type": "notice",
+            "due": "",
+            "dueTime": "",
+            "status": "todo",
+            "completedAt": ""
+          }
+        }
+      ],
+      "date": "2026-10-30",
+      "deletedAt": "2026-10-24T02:00:00Z"
+    },
+    {
+      "kind": "bulk",
+      "action": "deadline",
+      "workspaceGeneration": 0,
+      "tasks": [
+        {
+          "id": "ordinary-a",
+          "expected": {
+            "title": "合成任务",
+            "notes": "合成说明",
+            "course": "",
+            "content_type": "task",
+            "due": "",
+            "dueTime": "",
+            "status": "todo",
+            "completedAt": ""
+          }
+        }
+      ],
+      "candidates": [
+        {
+          "id": "candidate-a",
+          "version": 1,
+          "taskId": "stable-new-task-001",
+          "expected": {
+            "title": "合成待核对通知",
+            "notes": "合成说明",
+            "course": "",
+            "content_type": "notice",
+            "due": "",
+            "dueTime": "",
+            "status": "todo",
+            "completedAt": ""
+          }
+        }
+      ],
+      "date": ""
+    }
+  ]
+}

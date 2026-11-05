@@ -10,6 +10,7 @@ import {
   acceptStoredCandidates,
   readStoredCandidates,
   resolveStoredCandidate,
+  pendingBulkTaskIds,
 } from "./team-store.js";
 import { newId } from "./id.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -278,7 +279,7 @@ export function createImportUI(host) {
   });
   // Background teaching runs own their start/stop controls, not the whole import page.
   const blocked = () => loading || busy;
-  const reviewBlocked = id => blocked() || session.sync === 'error' || Boolean(id && stagingReviews.has(id));
+  const reviewBlocked = id => blocked() || session.sync === 'error' || Boolean(id && (stagingReviews.has(id) || pendingBulkTaskIds().has('review:' + id)));
   const credentialsBlocked = () => blocked() || credentialsLoading || stopping || sourceSync.isBusy() || schedule.isBusy();
   const allowed = () => {
     if (demo()) {
@@ -334,6 +335,30 @@ export function createImportUI(host) {
     if (host.onReviewStore) host.onReviewStore();
     else refresh();
   });
+  globalThis.window?.addEventListener('niuma:bulk-saved', event => {
+    if (Array.isArray(event.detail?.batches)) {
+      acceptBatches(event.detail.batches);
+      refresh();
+    } else if (event.detail) {
+      void refreshTaskReviews().catch(() => {});
+    }
+  });
+  async function refreshTaskReviews() {
+    if (!session.user || session.changing || demo()) return;
+    const stamp = current(), expectedRevision = ++batchesRevision;
+    taskReviewsLoading = true;
+    taskReviewsError = '';
+    try {
+      const next = await api('/api/recognition/batches');
+      if (!valid(stamp)) throw new Error('账号已切换，请重新操作');
+      if (expectedRevision === batchesRevision) acceptBatches(next);
+    } catch (error) {
+      if (valid(stamp)) taskReviewsError = error;
+      throw error;
+    } finally {
+      if (valid(stamp)) { taskReviewsLoading = false; taskReviewsSettled = true; refresh(); }
+    }
+  }
   function loadTaskReviews() {
     if (batchesRead) return batchesRead;
     if (busy || !session.user || session.changing || demo()) return Promise.resolve();
@@ -390,6 +415,7 @@ export function createImportUI(host) {
     : taskReviewsError
       ? `<div class="task-review-load-error"><p>待核对任务尚未读取，当前列表和数量可能不完整。</p>${userErrorMarkup(taskReviewsError, 'import_review')}<button type="button" class="btn quiet" data-import-action="refresh-task-reviews">重试读取待核对</button></div>` : '';
   async function resolveCandidate(item, body, stamp, options) {
+    if (pendingBulkTaskIds().has('review:' + item.id)) throw new Error('此候选正在批量保存，请稍后操作');
     const result = await api('/api/recognition/candidates/' + encodeURIComponent(item.id) + '/resolve', body, 'POST', options);
     if (!valid(stamp)) return false;
     acceptBatches(result.batches);
@@ -1132,7 +1158,7 @@ export function createImportUI(host) {
     notice = "";
     return true;
   }
-  return { render, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
+  return { render, click, submit, input, reset, load, loadTaskReviews, refreshTaskReviews, taskReviewsStatus, confirmTask,
     taskReviewsReady: () => taskReviewsSettled,
     reviewEvidence: id => evidence(itemById(id)),
     getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: reviewBlocked,

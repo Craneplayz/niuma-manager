@@ -31,7 +31,8 @@
                 "deadline",
                 "trash",
                 "restore",
-                "review"
+                "review",
+                "bulk"
               ]
             },
             "workspaceGeneration": {
@@ -50,6 +51,18 @@
               },
               "then": {
                 "$ref": "#/$defs/reviewIntent"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "bulk"
+                  }
+                }
+              },
+              "then": {
+                "$ref": "#/$defs/bulkIntent"
               }
             }
           ]
@@ -240,6 +253,405 @@
           }
         }
       ]
+    },
+    "bulkIntent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "bulk"
+            },
+            "workspaceGeneration": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "action": {
+              "enum": [
+                "complete",
+                "reopen",
+                "deadline",
+                "trash",
+                "restore"
+              ]
+            },
+            "tasks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "expected": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 20000
+                      },
+                      "notes": {
+                        "type": "string",
+                        "maxLength": 100000
+                      },
+                      "course": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "content_type": {
+                        "enum": [
+                          "task",
+                          "notice"
+                        ]
+                      },
+                      "due": {
+                        "anyOf": [
+                          {
+                            "const": ""
+                          },
+                          {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        ]
+                      },
+                      "dueTime": {
+                        "type": "string",
+                        "pattern": "^(?:|(?:[01]\\d|2[0-3]):[0-5]\\d)$"
+                      },
+                      "status": {
+                        "enum": [
+                          "todo",
+                          "doing",
+                          "done"
+                        ]
+                      },
+                      "completedAt": {
+                        "anyOf": [
+                          {
+                            "const": ""
+                          },
+                          {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "notes",
+                      "course",
+                      "content_type",
+                      "due",
+                      "dueTime",
+                      "status",
+                      "completedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "expected"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 500
+            },
+            "candidates": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "taskId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{16,100}$"
+                  },
+                  "expected": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 20000
+                      },
+                      "notes": {
+                        "type": "string",
+                        "maxLength": 100000
+                      },
+                      "course": {
+                        "type": "string",
+                        "maxLength": 20000
+                      },
+                      "content_type": {
+                        "enum": [
+                          "task",
+                          "notice"
+                        ]
+                      },
+                      "due": {
+                        "anyOf": [
+                          {
+                            "const": ""
+                          },
+                          {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        ]
+                      },
+                      "dueTime": {
+                        "type": "string",
+                        "pattern": "^(?:|(?:[01]\\d|2[0-3]):[0-5]\\d)$"
+                      },
+                      "status": {
+                        "enum": [
+                          "todo",
+                          "doing",
+                          "done"
+                        ]
+                      },
+                      "completedAt": {
+                        "anyOf": [
+                          {
+                            "const": ""
+                          },
+                          {
+                            "type": "string",
+                            "format": "date",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "notes",
+                      "course",
+                      "content_type",
+                      "due",
+                      "dueTime",
+                      "status",
+                      "completedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "id",
+                  "version",
+                  "taskId",
+                  "expected"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 500
+            },
+            "date": {
+              "anyOf": [
+                {
+                  "const": ""
+                },
+                {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                }
+              ]
+            },
+            "completedAt": {
+              "type": "string",
+              "format": "date",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "deletedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "kind",
+            "action",
+            "workspaceGeneration",
+            "tasks",
+            "candidates"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "bulk"
+            },
+            "workspaceGeneration": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "action": {
+              "const": "undo"
+            },
+            "undoOf": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,100}$"
+            }
+          },
+          "required": [
+            "kind",
+            "workspaceGeneration",
+            "action",
+            "undoOf"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "bulkUndo": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "bulk"
+        },
+        "workspaceGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "action": {
+          "const": "undo"
+        },
+        "undoOf": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        }
+      },
+      "required": [
+        "kind",
+        "workspaceGeneration",
+        "action",
+        "undoOf"
+      ],
+      "additionalProperties": false
+    },
+    "bulkResult": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        },
+        "undo": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/bulkUndo"
+            }
+          ]
+        }
+      },
+      "required": [
+        "operationId",
+        "undo"
+      ],
+      "additionalProperties": false
+    },
+    "reconciled": {
+      "type": "object",
+      "properties": {
+        "applied": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{16,100}$"
+          }
+        },
+        "tasks": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "value",
+            "version"
+          ],
+          "additionalProperties": false
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "pending",
+                  "applied",
+                  "ignored",
+                  "missing"
+                ]
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "taskId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "version"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bulkResults": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bulkResult"
+          }
+        }
+      },
+      "required": [
+        "applied",
+        "tasks",
+        "candidates",
+        "generation"
+      ],
+      "additionalProperties": false
     }
   },
   "oneOf": [
@@ -248,6 +660,9 @@
     },
     {
       "$ref": "#/$defs/reconcile"
+    },
+    {
+      "$ref": "#/$defs/reconciled"
     }
   ]
 }

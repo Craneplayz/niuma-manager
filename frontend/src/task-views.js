@@ -6,6 +6,7 @@ import {
   sortTasks,
   todayKey,
 } from "./task-model.js";
+import { isBulkSelectable, renderBulkCheckbox } from './task-bulk-ui.js';
 
 const escape = (value) =>
   String(value ?? "").replace(
@@ -26,10 +27,13 @@ export function renderTaskRow(
     compact = false,
     dateDraggable = false,
     reviewBusy = false,
+    bulk = null,
   } = {},
 ) {
   const pending = Boolean(task.reviewCandidateId), reviewId = escapeHtml(task.reviewCandidateId);
-  const title = escapeHtml(task.title), disabled = pending && reviewBusy ? 'disabled' : '';
+  const reviewIsBusy = id => typeof reviewBusy === 'function' ? reviewBusy(id) : reviewBusy;
+  const pendingBusy = pending && (reviewIsBusy(task.reviewCandidateId) || bulk?.isBusy?.(task.id));
+  const title = escapeHtml(task.title), disabled = pendingBusy ? 'disabled' : '';
   const notice = isNotice(task);
   const done = task.status === "done";
   const overdue = !pending && !done && Boolean(shiftDay(task.due, 0)) && task.due < today;
@@ -47,10 +51,12 @@ export function renderTaskRow(
     : done ? "恢复任务：" : "完成任务：";
   const drag = dateDraggable && !pending
     ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看${notice ? "通知" : "任务"}，拖到日历日期${shiftDay(task.due, 0) ? "更改" : "设置"}${notice ? "关键日期" : "截止日期"}"` : "";
-  const marker = pending && task.reviewChange
+  const marker = bulk?.active && isBulkSelectable(task)
+    ? renderBulkCheckbox(task, { selected: bulk.selected, escapeHtml, disabled: bulk.busy || bulk.isBusy?.(task.id) || pendingBusy })
+    : pending && task.reviewChange
     ? `<button type="button" class="task-complete task-review-marker" data-import-review="${reviewId}" aria-label="核对：${title}" ${disabled}><span>${icon('info')}</span></button>`
     : `<button type="button" class="task-complete" data-task-complete="${escapeHtml(task.id)}" aria-label="${action}${title}" ${notice && !pending ? `role="checkbox" aria-checked="${done}"` : `aria-pressed="${done}"`} ${disabled}><span class="task-complete-mark">${done ? icon("check") : ""}</span></button>`;
-  const changes = (task.reviewChanges || []).map(change => `<div class="task-review-change"><button type="button" data-import-review="${escapeHtml(change.id)}" ${reviewBusy ? 'disabled' : ''}><span class="review-label">待核对变更</span>${escapeHtml(({ update: '更新内容', postpone: change.proposedDate ? `拟改为 ${change.proposedDate}` : '调整截止日期', cancel: '建议取消任务' })[change.action])}</button><button type="button" class="task-review-ignore" data-import-ignore="${escapeHtml(change.id)}" aria-label="忽略变更：${escapeHtml(change.title)}" ${reviewBusy ? 'disabled' : ''}>忽略</button></div>`).join('');
+  const changes = (task.reviewChanges || []).map(change => `<div class="task-review-change"><button type="button" data-import-review="${escapeHtml(change.id)}" ${reviewIsBusy(change.id) || bulk?.isBusy?.(task.id) ? 'disabled' : ''}><span class="review-label">待核对变更</span>${escapeHtml(({ update: '更新内容', postpone: change.proposedDate ? `拟改为 ${change.proposedDate}` : '调整截止日期', cancel: '建议取消任务' })[change.action])}</button><button type="button" class="task-review-ignore" data-import-ignore="${escapeHtml(change.id)}" aria-label="忽略变更：${escapeHtml(change.title)}" ${reviewIsBusy(change.id) || bulk?.isBusy?.(task.id) ? 'disabled' : ''}>忽略</button></div>`).join('');
   const deadline = due ? `<span class="task-deadline${pending && task.reviewDateLabel ? ' is-unconfirmed' : ''}">${escapeHtml(due)}</span>` : '';
   const trailing = pending
     ? `<div class="task-review-actions">${deadline}<button type="button" class="task-review-ignore" data-import-ignore="${reviewId}" aria-label="忽略：${title}" ${disabled}>忽略</button></div>`
@@ -58,15 +64,15 @@ export function renderTaskRow(
   const identity = pending ? `data-review-id="${reviewId}"` : `data-task-id="${escapeHtml(task.id)}"`;
   const open = pending && task.reviewChange ? `data-import-review="${reviewId}"` : `data-task-open="${escapeHtml(task.id)}"`;
   const label = pending ? `<span class="review-label">${task.reviewChange ? '待核对变更' : '待核对'}</span>` : '';
-  return `<article class="task-row${pending ? ' is-pending-review' : notice ? " is-notice" : ""}${!pending && compact ? " is-compact" : ""}${done ? notice ? " is-read" : " is-completed" : ""}${overdue ? " is-overdue" : ""}" ${identity}>${marker}<button type="button" class="task-open" ${open}${drag} ${disabled}><span class="task-title">${label}${notice ? '<span class="notice-label">通知</span>' : ""}${title}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${trailing}</article>`;
+  return `<article class="task-row${pending ? ' is-pending-review' : notice ? " is-notice" : ""}${!pending && compact ? " is-compact" : ""}${done ? notice ? " is-read" : " is-completed" : ""}${overdue ? " is-overdue" : ""}${bulk?.selected.has(task.id) ? ' is-bulk-selected' : ''}" ${identity}>${marker}<button type="button" class="task-open" ${open}${drag} ${disabled}><span class="task-title">${label}${notice ? '<span class="notice-label">通知</span>' : ""}${title}</span>${meta.length ? `<span class="task-meta">${meta.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</span>` : ""}</button>${trailing}</article>`;
 }
 
 export function renderTaskList(
   tasks,
-  { escapeHtml = escape, icon = noIcon, today = todayKey(), emptyLabel = "没有符合条件的任务", reviewBusy = false } = {},
+  { escapeHtml = escape, icon = noIcon, today = todayKey(), emptyLabel = "没有符合条件的任务", reviewBusy = false, bulk = null } = {},
 ) {
   if (!tasks.length) return `<p class="task-empty">${escapeHtml(emptyLabel)}</p>`;
-  const options = { escapeHtml, icon, today, reviewBusy };
+  const options = { escapeHtml, icon, today, reviewBusy, bulk };
   if (tasks.every(isNotice) || tasks.every((task) => task.status === "done"))
     return `<div class="task-list">${sortTasks(tasks)
       .map((task) => renderTaskRow(task, options))

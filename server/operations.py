@@ -247,7 +247,7 @@ def operation(path,method):
         return 'auth.'+suffix.replace('-','_') if suffix in ('login','register','logout','me','email-code','verify-email','reset-password','password','profile') else 'auth.other'
     for prefix,name in (('/api/sources/sync-runs','sync'),('/api/sources/sync','sync'),('/api/recognition/','recognition'),
                         ('/api/planning/','planning'),('/api/decomposition/','decomposition'),('/api/materials/','materials'),
-                        ('/api/workspace','workspace'),('/api/data/','workspace'),('/api/sources/','sources')):
+                        ('/api/workspace','workspace'),('/api/data/','workspace'),('/api/tasks/','workspace'),('/api/sources/','sources')):
         if path.startswith(prefix):return name+'.'+method.lower()
     return None
 

@@ -87,12 +87,17 @@ def identity(operation, uid, ApiError):
     if not isinstance(operation['id'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{16,100}', operation['id']):
         raise ApiError(400, '任务保存操作编号无效')
     intent = operation['intent']
-    if not isinstance(intent, dict) or intent.get('kind') not in ('save', 'status', 'deadline', 'trash', 'restore', 'review'):
+    if not isinstance(intent, dict) or intent.get('kind') not in ('save', 'status', 'deadline', 'trash', 'restore', 'review', 'bulk'):
         raise ApiError(400, '任务保存操作类型无效')
     if type(intent.get('workspaceGeneration', 0)) is not int or intent.get('workspaceGeneration', 0) < 0:
         raise ApiError(400, '任务保存代次无效')
     if intent['kind'] == 'review':
         validate_review(intent, ApiError)
+    if intent['kind'] == 'bulk':
+        from contracts.task_bulk import check
+        from jsonschema import ValidationError
+        try: check('intent', intent)
+        except (ValueError, TypeError, ValidationError): raise ApiError(400, '批量操作格式不正确') from None
     encoded = json.dumps(intent, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
     if len(encoded.encode()) > 100000:
         raise ApiError(400, '单条待保存操作过大')
@@ -143,6 +148,15 @@ def workspace(db, uid):
 
 def candidate_states(db, uid, operations, tasks):
     ids = dict.fromkeys(operation['intent']['candidateId'] for operation in operations if operation['intent']['kind'] == 'review')
+    for operation in operations:
+        intent = operation['intent']
+        if intent['kind'] != 'bulk': continue
+        if intent['action'] == 'undo':
+            row = db.execute('SELECT inverse FROM task_bulk_undo WHERE user_id=? AND operation_id=?', (uid, intent['undoOf'])).fetchone()
+            if row:
+                for entry in json.loads(row['inverse'])['candidates']: ids[entry['id']] = None
+        else:
+            for entry in intent['candidates']: ids[entry['id']] = None
     task_ids = {event.get('storageId'): task['id'] for task in tasks
                 for event in task.get('recognitionHistory', []) if isinstance(event, dict)}
     result = []
@@ -160,6 +174,20 @@ def snapshot(db, uid, operations):
     return dict(tasks=tasks, candidates=candidate_states(db, uid, operations, tasks['value']), generation=generation(db, uid))
 
 
+def bulk_results(db, uid, operations, applied):
+    current_generation = generation(db, uid)
+    applied = set(applied)
+    result = []
+    for operation in operations:
+        intent = operation['intent']
+        if intent['kind'] != 'bulk' or operation['id'] not in applied: continue
+        row = db.execute('SELECT generation FROM task_bulk_undo WHERE user_id=? AND operation_id=?', (uid, operation['id'])).fetchone()
+        undo = (dict(kind='bulk', action='undo', undoOf=operation['id'], workspaceGeneration=current_generation)
+                if intent['action'] != 'undo' and row and row['generation'] == current_generation else None)
+        result.append(dict(operationId=operation['id'], undo=undo))
+    return result
+
+
 def reconcile(handler, db, uid, body, ApiError):
     if set(body) != {'owner', 'operations'}:
         raise ApiError(400, '待恢复操作请求格式不正确')
@@ -171,4 +199,5 @@ def reconcile(handler, db, uid, body, ApiError):
     # One read transaction pairs receipts with task and candidate versions.
     db.execute('BEGIN')
     applied = [operation['id'] for operation in operations if acknowledged(db, uid, operation, ApiError)]
-    return handler.reply(200, dict(applied=applied, **snapshot(db, uid, operations)))
+    return handler.reply(200, dict(applied=applied, bulkResults=bulk_results(db, uid, operations, applied),
+                                 **snapshot(db, uid, operations)))
