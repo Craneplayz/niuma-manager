@@ -177,28 +177,6 @@ def after_commit(db,stage,**fields):
     if isinstance(db,TimedConnection):db.observed_after_commit(stage,**fields)
 
 
-class ObservedCompletion:
-    """Picklable callable; ChatClient stays its exact trusted class in the runner."""
-    def __init__(self,key,context):self.key,self.context=key,context
-
-    def __call__(self,*args,**kwargs):
-        from ddl_text.chat_client import ChatClient
-        observations=[]
-        started=time.monotonic()
-        failure=None
-        try:
-            return ChatClient(self.key,call_observer=lambda event:observations.append(event) if not observations else None).complete_json(*args,**kwargs)
-        except Exception as error:
-            failure=classify(error)
-            raise
-        finally:
-            # The callback only appends one event in this process. Persist after it
-            # returns, including in a disposable child; never rely on a parent list.
-            with scope(**self.context):
-                if observations:producer(observations[0])
-                else:emit('model_call',(time.monotonic()-started)*1000,result='failed' if failure else 'ok',code=failure or 'ok')
-
-
 def producer(event):
     """Accept only the shared closed schema; never retain arbitrary stderr fields."""
     context=_context.get()
@@ -231,11 +209,18 @@ def producer_stderr(value):
         producer(event)
 
 
+class ObservedCall:
+    """Picklable producer sink; leave ChatClient's response metrics intact."""
+    def __init__(self, context): self.context = context
+    def __call__(self, event):
+        with scope(**self.context): producer(event)
+
+
 def observe_chat(client):
     context=captured()
     if context:
         from ddl_text.chat_client import ChatClient
-        if type(client) is ChatClient:client.complete_json=ObservedCompletion(client._key,context)
+        if type(client) is ChatClient: client._call_observer=ObservedCall(context)
     return client
 
 

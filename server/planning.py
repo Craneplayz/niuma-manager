@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
+from server import model_queue
 from server import operations
 from ddl_text.codex_client import live_options
 from task_planning import planning_harness
@@ -69,8 +70,16 @@ def plan(request, ApiError):
         except (OSError, ValueError, TypeError, KeyError):
             raise ApiError(503, '规划配置不可用，请检查当前环境的模型配置文件或环境变量中的七牛模型配置与密钥') from None
         try:
+            _, receipt, delay = model_queue.provider_reservation(options, request,
+                instructions=planning_harness.INSTRUCTIONS)
+        except ValueError:
+            raise ApiError(503, '模型配额设置不足，请管理员检查配置') from None
+        if delay:
+            raise ApiError(503, '模型配额暂时不足，请稍后重试')
+        try:
             with operations.span('model_call','planning.harness'):
-                return planning_harness.generate(request, options)
+                return planning_harness.generate(request, options,
+                    response_observer=model_queue.provider_observer(options, receipt))
         except Exception:
             raise ApiError(502, '规划模型不可用、超时或返回无效结果，请稍后重试；任务未修改') from None
     finally:

@@ -170,7 +170,7 @@ class PlanningRuntimeTests(unittest.TestCase):
     def test_full_queue_is_shared_across_accounts_and_transports(self):
         other = self.new_client(self.id()+'-other')
         entered, release = threading.Event(), threading.Event()
-        def blocked(*args):
+        def blocked(*args, **kwargs):
             entered.set()
             if not release.wait(5):
                 raise AssertionError('test did not release planning')

@@ -5,7 +5,7 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;
 const incidents = new Map();
 let errorIdentities = new WeakMap();
 const normalized = new WeakSet();
-const actions = new Set(["tasks_load", "tasks_save", "tasks_delete", "tasks_restore", "text_import", "teaching_sync", "import_review", "notice_reprocessing", "task_evidence", "account", "feedback", "general"]);
+const actions = new Set(["tasks_load", "tasks_save", "tasks_delete", "tasks_restore", "text_import", "teaching_sync", "email_sync", "import_review", "notice_reprocessing", "task_evidence", "account", "feedback", "general"]);
 
 export function describeUserError(error, action = "general") {
   if (error && typeof error === "object" && normalized.has(error)) return error;
@@ -73,8 +73,8 @@ export function describeUserError(error, action = "general") {
     return report("conflict", /当前草稿仍保留/.test(text) ? "内容已更新，请取消编辑后重新打开。当前草稿仍保留。" : "内容已更新，请重新读取后再操作。");
   if (code === "credential_dependency" || /凭据加密依赖.*未安装/.test(text))
     return report("credential_dependency", "暂时无法保存教学网连接，需要维护人员处理。请反馈此问题。");
-  if (code === "credential_storage" || /凭据加密密钥|无法解密教学网凭据/.test(text))
-    return report("credential_storage", "无法读取教学网连接信息，请重新保存账号和密码。如仍失败，请提交问题反馈。");
+  if (code === "credential_storage" || /凭据加密密钥|无法解密(?:教学网|邮箱)凭据/.test(text))
+    return report("credential_storage", /邮箱/.test(text) ? "无法读取邮箱连接信息，请重新保存账号和密码。如仍失败，请提交问题反馈。" : "无法读取教学网连接信息，请重新保存账号和密码。如仍失败，请提交问题反馈。");
   if (code === "crawler_dependency" || /教学网采集依赖.*未安装|(?:crawler|tsx).*(?:未安装|not found|cannot find)|cannot find.*(?:tsx|playwright)/i.test(text))
     return report("crawler_dependency", "暂时无法从教学网获取通知，需要维护人员处理。可通过粘贴通知内容导入。");
   if (code === "teaching_model_configuration" || /教学网识别配置不可用/.test(text))
@@ -93,6 +93,14 @@ export function describeUserError(error, action = "general") {
     return report("teaching_connection", "无法连接教学网，请核对账号和密码后重试。如仍失败，请提交问题反馈。");
   if (code === "crawler_runtime" || /教学网采集无法启动或超时/.test(text))
     return report("crawler_runtime", "教学网通知获取失败，请稍后重试。");
+  if (/请填写有效的北大邮箱地址|首发仅支持 @stu\.pku\.edu\.cn|请填写有效的邮箱登录账号|请填写邮箱客户端专用密码|请先保存北大邮箱客户端凭据/.test(text))
+    return report("validation", text);
+  if (/邮箱登录失败/.test(text))
+    return report("email_credentials", "邮箱登录失败。请核对邮箱登录账号，并确认使用的是客户端专用密码。");
+  if (/连接北大邮箱超时|暂时无法连接北大邮箱/.test(text))
+    return report("email_connection", "暂时无法连接北大邮箱，请确认网络正常后重试。");
+  if (/无法只读打开邮箱收件箱|无法读取收件箱邮件列表|邮箱未返回有效/.test(text))
+    return report("email_connection", "暂时无法读取收件箱，请重新预览；仍失败时可反馈此问题。");
   if (code === "service_version" || /尚未提供.*接口|接口不存在|版本不匹配|服务版本不支持|采集记录格式暂不受支持/.test(text) || error?.status === 404)
     return report("service_version", "当前功能暂时不可用，请刷新页面后重试。如仍失败，请提交问题反馈。");
   if (["model_connection", "agent_timeout", "agent_unavailable"].includes(code) || /识别服务.*(?:不可用|无法连接|连接失败)|识别.*超时/.test(text))

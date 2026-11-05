@@ -301,7 +301,7 @@ def validate_model_draft(draft: Any, request: dict[str, Any] | None = None) -> d
     return draft
 
 
-def generate_decomposition(request: dict[str, Any], options: dict[str, str]) -> dict[str, Any]:
+def generate_decomposition(request: dict[str, Any], options: dict[str, str], response_observer=None) -> dict[str, Any]:
     """Call the configured model and validate its internal planning draft."""
     validate_request(request)
     settings = Settings(
@@ -311,7 +311,7 @@ def generate_decomposition(request: dict[str, Any], options: dict[str, str]) -> 
         timeout_seconds=20,
         max_retries=0,
     )
-    raw = ChatClient(options["key"]).complete_json(
+    raw = ChatClient(options["key"], response_observer=response_observer).complete_json(
         load_instructions(), json.dumps(request, ensure_ascii=False), settings
     )
     return validate_model_draft(json.loads(raw), request)

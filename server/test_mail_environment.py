@@ -110,7 +110,7 @@ assert not mail_delivery.configured({})
             if ready:
                 self.write_mail(folder)
             output = io.StringIO()
-            with patch.object(manager, 'read_config', return_value=(folder, manager.defaults('test'))), redirect_stdout(output):
+            with patch.object(manager, 'read_config', return_value=(folder, manager.defaults('test'), {})), redirect_stdout(output):
                 self.assertEqual(manager.main(['check', 'test']), 0)
             status = json.loads(output.getvalue())
             self.assertIs(status['mail_configured'], ready)
@@ -129,7 +129,8 @@ assert not mail_delivery.configured({})
                     patch.object(manager.mail_budget, 'Path', PureWindowsPath):
                 command = manager.compose_command(name, folder, manager.defaults(name))
             self.assertEqual(command[-2:], ['-f', str(manager.DEPLOY / 'compose.mail-budget.yaml')])
-            self.assertIn('/mail-budget/quota.sqlite3', (folder / '.env.mail.compose').read_text())
+            self.assertIn('NIUMA_MAIL_BUDGET_FILE=${NIUMA_MAIL_NIUMA_MAIL_BUDGET_FILE}', (folder / '.env.mail.compose').read_text())
+            self.assertEqual(manager.compose_environment(name,folder,manager.defaults(name))['NIUMA_MAIL_NIUMA_MAIL_BUDGET_FILE'],'/mail-budget/quota.sqlite3')
         override = (manager.DEPLOY / 'compose.mail-budget.yaml').read_text()
         self.assertIn('external: true', override)
         self.assertNotIn('/data', override)
@@ -157,7 +158,9 @@ assert not mail_delivery.configured({})
                     inherited = dict(os.environ, NIUMA_MAIL_PASSWORD='synthetic-shell-production-secret',
                                      NIUMA_MAIL_FROM='production@mail.example.com', UNRELATED='wrong-shell-value')
                     with patch.dict(os.environ, inherited, clear=True):
-                        process = subprocess.run(command + ['config', '--format', 'json'], env=manager.clean_environment(),
+                        environment = manager.clean_environment()
+                        environment.update(manager.compose_environment(name,folder,config))
+                        process = subprocess.run(command + ['config', '--format', 'json'], env=environment,
                                                  capture_output=True, text=True, encoding='utf-8', check=True, timeout=30)
                     resolved = json.loads(process.stdout.replace('$$', '$'))
                     native = manager.local_environment(name, folder, config) if name != 'production' and transport == 'http' else None

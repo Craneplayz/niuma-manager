@@ -61,15 +61,20 @@ def event(stage, **fields):
 
 
 @contextmanager
-def capture(db, uid, request_id):
+def capture(db, uid, request_id, *, skip_exceptions=()):
     """Yield an attempt that callers can persist again after a business rollback."""
     started = time.monotonic()
     attempt = dict(attempt_id=secrets.token_hex(12),request_id=request_id,revision=revision(),
                    environment=environment(),started_at=datetime.now(timezone.utc).isoformat(),events=[])
     token = _active.set(attempt)
     raised = None
+    skipped = False
     try:
         with trace.scope(event): yield attempt
+    except skip_exceptions:
+        # Operational cancellation/defer is not a recognition attempt failure.
+        skipped = True
+        raise
     except Exception as error:
         raised = error
         error._recognition_attempt = attempt
@@ -95,7 +100,7 @@ def capture(db, uid, request_id):
             del attempt['events'][1]
             attempt['omitted_events'] = attempt.get('omitted_events',0)+1
         _active.reset(token)
-        saved = persist(db, uid, attempt)
+        saved = False if skipped else persist(db, uid, attempt)
         if raised is not None and detailed():
             raised._recognition_failure['diagnostics'] = json.dumps(dict(attempt,
                 persistence='saved' if saved else 'unavailable'), ensure_ascii=False, indent=2)

@@ -125,7 +125,7 @@ class TestAccountEnvironmentTests(unittest.TestCase):
             create.assert_not_called()
 
     def test_account_command_dispatches_defaults_and_reserved_address_validation_precedes_password(self):
-        with patch.object(manager, 'read_config', return_value=(self.folder, self.config)), \
+        with patch.object(manager, 'read_config', return_value=(self.folder, self.config, {})), \
                 patch.object(manager, 'create_test_account', return_value=0) as create:
             self.assertEqual(manager.main(['test-account', 'test', '--container', '--generate-password']), 0)
         create.assert_called_once_with('test', self.folder, self.config, email=None, display_name=None,

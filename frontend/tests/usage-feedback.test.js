@@ -24,7 +24,7 @@ test('visit is claimed once per account and uses no task/account contents',async
 test('separate admin entry does not import ordinary task UI or store',async()=>{
  const admin=await readFile(new URL('../src/admin-usage.js',import.meta.url),'utf8');
  const app=await readFile(new URL('../src/app.js',import.meta.url),'utf8');
- assert.doesNotMatch(admin,/team-store|task\.title|email.*data\./);
+ assert.doesNotMatch(admin,/team-store|task\.title|data\.(?:tasks|emails|emailBodies|emailMessages)\b/);
  assert.doesNotMatch(app,/admin\.html|admin-usage/);
  assert.match(admin,/escape\(f\.message/);
 });

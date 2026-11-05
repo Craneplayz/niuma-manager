@@ -44,6 +44,7 @@ import { updateDOM, isComposing } from "./dom-update.js";
 import { demoWorkspace } from "./demo.js";
 import { createImportUI } from "./import-ui.js";
 import { createAccountUI } from "./account-ui.js";
+import { createConnectionReturnHint } from "./connection-return-hint.js";
 import { readNavigation, navigationURL } from "./navigation.js";
 import { feedbackBox } from "./usage-feedback.js";
 import { describeEnvironment } from "./environment-badge.js";
@@ -174,6 +175,38 @@ const host = {
   openDialog,
   closeDialog,
   isDialogOpen: selector => dialog.open && Boolean(dialog.querySelector(selector)),
+  renderEmailSettings: () => imports.renderEmailSettings(),
+  loadEmailSettings: () => imports.loadEmailSettings(),
+  openAccountSettings: section => account.open(section),
+  refreshAccountSettings: section => account.refresh(section),
+  setEmailPreviewBusy(busy, { fetching = false } = {}) {
+    const button = document.querySelector('[data-import-action="email-preview"]');
+    if (!button) return false;
+    button.setAttribute("aria-busy", String(busy && fetching));
+    button.setAttribute("aria-disabled", String(busy && fetching));
+    document.querySelector('[data-email-page-size-trigger]')?.setAttribute("aria-disabled", String(busy));
+    return true;
+  },
+  focusEmailSettings() {
+    const heading = dialog.querySelector('[data-email-settings-dialog] h2');
+    if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll:true }); }
+  },
+  focusEmailPageSize() {
+    if (document.activeElement === document.body) document.querySelector('[data-email-page-size-trigger]')?.focus({ preventScroll:true });
+  },
+  focusEmailSort() {
+    if (document.activeElement === document.body) document.querySelector("[data-email-sort-trigger]")?.focus({ preventScroll: true });
+  },
+  focusAccountSection(section) {
+    if (section !== "pku-email") return;
+    const target = dialog.querySelector('[data-account-section="pku-email"]');
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({
+      block: "start",
+      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    });
+  },
   refresh,
   openTask(id) {
     if (state.tasks.some(task => task.id === id && !task.recycleBin)) openTask(id);
@@ -219,6 +252,13 @@ const host = {
 };
 const imports = createImportUI(host),
   account = createAccountUI(host);
+const connectionReturnHint = createConnectionReturnHint({
+  getAccountVersion: accountVersion,
+  isActiveAccount: () => Boolean(session.user && !session.changing && !demo),
+  isDialogOpen: () => dialog.open,
+  notify: toast,
+  openAccount: section => account.open(section),
+});
 const timetable = createTimetableUI(host, { api, session, accountVersion, readStoredTimetable, acceptStoredTimetable });
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
@@ -264,11 +304,12 @@ function remember() {
     );
   } catch {}
 }
-function toast(message, undo) {
+function toast(message, undo, { actionLabel = "撤销", durationMs } = {}) {
+  connectionReturnHint.recordToast(message, undo);
   const epoch = accountVersion();
   clearTimeout(toastTimer);
   const el = document.querySelector("#toast");
-  el.innerHTML = `<span>${esc(message)}</span>${undo ? '<button type="button" id="toast-undo">撤销</button>' : ""}`;
+  el.innerHTML = `<span>${esc(message)}</span>${undo ? `<button type="button" id="toast-undo">${esc(actionLabel)}</button>` : ""}`;
   el.classList.add("visible");
   if (undo)
     el.querySelector("button").onclick = async () => {
@@ -282,10 +323,11 @@ function toast(message, undo) {
     };
   toastTimer = setTimeout(
     () => el.classList.remove("visible"),
-    undo ? 7000 : 4000,
+    durationMs ?? (undo ? 7000 : 4000),
   );
 }
 function toastError(error, action = "general") {
+  connectionReturnHint.recordToast("", true);
   if (dialog.open) {
     let target = dialog.querySelector("[data-dialog-operation-error]");
     if (!target) {
@@ -317,7 +359,10 @@ function openDialog(html) {
   if (!dialog.open) dialog.showModal();
 }
 function closeDialog() {
+  if (!dialog.open) return;
+  const section = dialog.querySelector("[data-connection-settings]")?.dataset.connectionSettings;
   dialog.close();
+  if (section) connectionReturnHint.closed(section);
 }
 dialog.addEventListener("close", () => {
   if (!dialog.open) account.closed?.();
@@ -507,6 +552,7 @@ function focusToken(el) {
       "calendarMode",
       "calendarPane",
       "accountAction",
+      "importAction",
     ].includes(key),
   );
   return key ? { key, value: el.dataset[key] } : null;
@@ -967,6 +1013,12 @@ window.addEventListener("scroll", hideSidebarTooltip, true);
 window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
   imports.cancelRecoveryNavigation();
+  if (e.target.closest("[data-email-stop-toggle]")) {
+    // Tooltip triggers live inside the selectable mail label; clicking them
+    // must not activate the label's checkbox.
+    e.preventDefault();
+    return;
+  }
   const button = e.target.closest("button");
   if (!button) return;
   if (button.dataset.errorFeedback) {
@@ -1244,6 +1296,10 @@ for (const modal of [dialog, drawer]) {
     if (dismiss) modal === drawer ? closeDrawer() : closeDialog();
   });
 }
+dialog.addEventListener("cancel", (e) => {
+  e.preventDefault();
+  closeDialog();
+});
 drawer.addEventListener("cancel", (e) => {
   e.preventDefault();
   closeDrawer();

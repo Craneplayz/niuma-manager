@@ -1,6 +1,7 @@
 """Generation shape only; exact evidence and business rules remain in compiler."""
 
 from .time_validation import normalized_time_schema
+from .content_types import content_type_schema
 
 def _object(properties):
     return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
@@ -30,8 +31,12 @@ def draft_schema(record, *, historical=False):
             "reason": text, "evidence": {"type": "array", "items": reference},
         }),
     })
+    if record.get("platform") == "email" and record.get("contract_version") == "0.2":
+        task["properties"]["content_type"] = content_type_schema()
+        task["required"].append("content_type")
     schema = _object({"tasks": {"type": "array", "items": task}})
     if historical:
+        if 'content_type' in task['required']: task['required'].remove('content_type')
         task['required'].remove('relevance')
     spans = record.get('evidence_catalog')
     if spans is not None:

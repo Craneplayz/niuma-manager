@@ -100,6 +100,8 @@ def catalogue(db, uid, cursor):
         consumed+=1
         request = json.loads(row['request'])
         record = teaching.request_view(request)['records'][0] if row['kind']=='teaching' else request['records'][0]
+        if record.get('platform') == 'email':
+            continue  # Email results are terminal caches; retry errors via email jobs.
         stored = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request['request_id'])).fetchone()
         status = 'unknown'
         if stored:
@@ -159,6 +161,8 @@ def start(db, uid, body, ApiError):
         if not row:
             raise ApiError(404, '来源记录不存在')
         request = json.loads(row['request'])
+        if any(r.get('platform') == 'email' for r in request['records']):
+            raise ApiError(400, '邮件结果复用缓存；失败项请通过邮箱导入重试')
         if source['kind']=='teaching': teaching.resolve_snapshot(db,uid,request['request_id'],ApiError)
         old_batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request['request_id'])).fetchone()
         previous = bool(old_batch and json.loads(old_batch['result'])['status'] in ('success','no_tasks'))
@@ -187,6 +191,8 @@ def still_current(db, uid, item, ApiError):
 
 
 def recognize_saved(request, native, ApiError, *, attachments=None):
+    if not native and any(r.get('platform') == 'email' for r in request.get('records', [])):
+        raise ApiError(400, '邮件结果复用缓存；失败项请通过邮箱导入重试')
     if not native:
         result=validate_result(request,recognition.recognize(request,ApiError))
         return result,getattr(recognition._EXECUTION,'policy',None)

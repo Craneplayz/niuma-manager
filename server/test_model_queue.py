@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -237,6 +238,40 @@ assert recognition._ACTIVE is planning._ACTIVE is task_decomposition._ACTIVE is 
         self.assertTrue(queue.acquire())
         self.assertIsNone(queue.failure)
         queue.release()
+
+
+    def test_background_ticket_retains_fifo_without_holding_worker(self):
+        queue = model_queue.ModelQueue(limit=1)
+        self.assertTrue(queue.acquire())
+        self.assertFalse(queue.acquire_background(('email',)))
+        entered = threading.Event()
+        def interactive():
+            self.assertTrue(queue.acquire())
+            entered.set(); queue.release()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(interactive)
+            self.queued(queue,2)
+            queue.release()
+            self.assertFalse(entered.is_set())
+            self.assertTrue(queue.acquire_background(('email',)))
+            queue.release()
+            future.result(timeout=3)
+        self.assertTrue(entered.is_set())
+        self.assertFalse(queue.background)
+
+    def test_background_cancellation_and_expiry_unblock_interactive_waiters(self):
+        queue = model_queue.ModelQueue(limit=1,wait=.05)
+        self.assertTrue(queue.acquire())
+        self.assertFalse(queue.acquire_background(('job','email')))
+        queue.cancel_background(('job',))
+        self.assertFalse(queue.waiters)
+        self.assertFalse(queue.background)
+        self.assertFalse(queue.acquire_background(('other','email')))
+        queue.release()
+        time.sleep(.06)
+        self.assertTrue(queue.acquire(blocking=False))
+        queue.release()
+        self.assertFalse(queue.background)
 
 
 if __name__=='__main__':unittest.main()

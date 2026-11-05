@@ -14,7 +14,7 @@ test("legacy links use preferences, while explicit list/month links override the
 });
 
 test("unknown navigation values and impossible dates fall back safely", () => {
-  const navigation = read("page=admin&scope=anything&view=bad&mode=bad&pane=bad&importSource=email&anchor=2026-02-30&date=<script>");
+  const navigation = read("page=admin&scope=anything&view=bad&mode=bad&pane=bad&importSource=unsupported&anchor=2026-02-30&date=<script>");
   assert.deepEqual(navigation, {
     page: "tasks", scope: "all", view: "calendar", mode: "week", pane: "day",
     importSource: "text", anchor: "2026-10-18", selectedDate: "2026-10-18",
