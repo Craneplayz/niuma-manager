@@ -1,5 +1,7 @@
 # 模块交接契约
 
+课表上传、学期与单双周展开、账号保存及规划固定占用见 [课表导入](timetable/README.md)。
+
 待核对任务通过普通完成和编辑操作确认的接口约定见 [待核对任务用户操作](docs/review-task-actions.md)，包含可选 `complete`、原子保存及重试规则。
 
 账号头像上传、恢复默认、用户返回字段及图片边界见 [账号头像](docs/account-avatar.md)。
@@ -11,6 +13,7 @@ contracts/
 ├── schemas/task-bulk-v0.1.schema.json # 可独立校验的批量操作 Schema
 ├── examples/task-bulk-v01.json     # 混合任务、无日期、清空日期与撤销共享样例
 ├── tests/test_task_bulk.py         # 批量契约、恢复 Schema 对齐和非法选择回归
+├── timetable/                      # XLS课表接口、共享Schema与合成样例
 ├── docs/task-writes-v0.1.md         # 浏览器恢复、回执、账号隔离及缓存清理约定
 ├── schemas/task-writes-v0.1.schema.json # 单条操作身份与恢复请求 Schema
 ├── examples/task-writes-v01.json    # 生产方与消费方共用的保存和回执样例
