@@ -1,6 +1,8 @@
 # 牛马管理器前端
 
-当前网页围绕两件事组织：导入通知，以及查询和处理任务。全部任务标题右侧的双段开关切换清单与日历，不再单设标签栏；导入与任务共用最大宽度 1450px 的页面容器，统一移除顶部浅色辅助标注及独立占位行。桌面标题与日期位于同一行，“添加任务”在日期左侧，二者整体靠右；手机将导航、操作与日期置于首行，正式标题与视图切换置于次行。860px 阅读区左对齐，日历使用较宽区域。临近截止与已完成固定使用清单；账号入口固定在侧栏底部。当前界面规格见 [设计说明](docs/design.md)，模块边界见 [维护指南](docs/maintenance.md)。
+当前网页围绕两件事组织：导入通知，以及查询和处理任务。全部任务标题右侧的双段开关切换清单与日历，不再单设标签栏；导入与任务共用最大宽度 1450px 的页面容器，统一移除顶部浅色辅助标注及独立占位行。桌面标题与日期位于同一行，“添加任务”在日期左侧，二者整体靠右；手机将导航、操作与日期置于首行，正式标题与视图切换置于次行。清单和日历使用页面可用宽度，导入正文使用左对齐的 860px 阅读区。临近截止与已完成固定使用清单；账号入口固定在侧栏底部。当前界面规格见 [设计说明](docs/design.md)，模块边界见 [维护指南](docs/maintenance.md)。
+
+界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，底部小幅探头保留为牛马点缀，并在折叠栏、手机和矮窗口中隐藏。
 
 ## 功能与数据
 
@@ -43,13 +45,16 @@ frontend/
 ├── CONTRIBUTIONS.md          历史贡献与当前设计来源
 ├── index.html                应用、通用弹窗和任务抽屉
 ├── admin.html                独立管理员入口
-├── favicon.svg
+├── favicon.svg              嵌入确认品牌图的主站与后台标签页图标
 ├── package.json / package-lock.json
 ├── playwright.config.js      隔离浏览器显示与反馈交互检查
 ├── vite.config.ts            开发端口与同源 API 代理
 ├── src/
 │   ├── timetable.js          课表上传预览、确认保存、单双周课程及删除管理
 │   ├── task-journal.js       IndexedDB 加密操作暂存、事务边界与按账号清理
+│   ├── assets/
+│   │   ├── brand-logo.webp   主站与后台共用的扫描牛品牌图标
+│   │   └── mascot-peek.png   侧栏底部透明牛马探头点缀
 │   ├── app.js                页面组织、筛选、日历导航和任务交互
 │   ├── navigation.js         网址导航状态、日期与参数校验
 │   ├── page-layout.js        共用标题、导航、控件、操作与日期区域渲染器
@@ -81,8 +86,10 @@ frontend/
 │   ├── environment-badge.js  服务环境和版本描述，不生成额外页面浮层
 │   ├── icons.js              共用 SVG 图标
 │   ├── id.js                 浏览器兼容的随机任务 ID
+│   ├── theme.css             普通应用与独立后台共用的颜色、圆角和页面尺寸
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
+│   ├── browser/brand-theme.spec.js 白底主题、主站与后台共用标识及三视口截图
 │   ├── timetable.test.js     共享样例、学期边界、单双周和日历显示
 │   ├── browser/timetable.spec.js 真实XLS/HTTP/SQLite的三视口导入、刷新、去重及账号隔离
 │   ├── online-store.test.js  普通 HTTP 在线队列、回执重试、账号及存储边界
@@ -138,6 +145,10 @@ frontend/
     │   ├── task-save-queue-desktop.png 保存期间编辑其他任务的桌面示例
     │   ├── task-save-queue-mobile.png 390px 下保存期间保留编辑草稿
     │   ├── task-save-queue-compact.png 320px 下保存期间保留编辑草稿
+    │   ├── cartoon-a-task-list.png 纯白卡通 A 主题的桌面任务清单
+    │   ├── cartoon-a-calendar.png A 主题的完整月历与当日面板
+    │   ├── cartoon-a-import.png  A 主题的文本导入与核对区
+    │   ├── cartoon-a-mobile.png  A 主题的手机任务清单
     │   ├── test-account-reset.png 测试账号面板的清空入口
     │   ├── test-account-reset-mobile.png 手机清空确认弹窗
     │   ├── 2026-10-20-admin-operations-desktop.png 合成运行监控桌面验收
