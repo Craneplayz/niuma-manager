@@ -1,3 +1,4 @@
+@import "./course-identity.css";
 :root {
   font-family:
     Inter,
@@ -615,7 +616,18 @@ button .icon {
   color: #999fa5;
 }
 .course-filter {
+  position: relative;
   margin-left: auto;
+}
+.course-filter > .course-dot {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.course-filter.has-course select {
+  padding-left: 23px;
 }
 .course-filter select {
   border: 0;
@@ -1033,9 +1045,16 @@ dialog p {
   font-size: 13px;
   line-height: 1.6;
 }
-.drawer-properties span {
-  color: #a0a8af;
+.drawer-properties > div > span:not(.course-badge) {
+  color: var(--muted);
   min-width: 32px;
+}
+.drawer-properties .course-badge {
+  max-width: min(100%, 240px);
+}
+.drawer-properties .course-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .drawer-properties strong {
   font-weight: 500;
@@ -1991,3 +2010,5 @@ dialog p {
   .material-job-heading { align-items:flex-start; gap:12px; }
   .material-job-heading .status-note { max-width:70px; }
 }
+
+.candidate-course { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
