@@ -194,6 +194,9 @@ export function readStoredCandidates(items) {
   const states = projectOperations(false).candidates;
   return items.map(item => ({ ...item, ...(states.get(item.id) || {}) }));
 }
+export function readSavedTasks() {
+  return viewOf(canonicalTasks).tasks;
+}
 export function readProjectedStore() {
   return viewOf(projectOperations(false).tasks);
 }

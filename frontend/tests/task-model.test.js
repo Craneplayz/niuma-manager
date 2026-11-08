@@ -276,6 +276,32 @@ test("task and day renderers use string ids, expose completion, and keep complet
   assert.doesNotMatch(undated, /data-task-open="today-early"/);
 });
 
+test("day panels show all due content and actual completion records without colour-priority controls", () => {
+  const day = "2026-10-29", now = new Date(`${day}T12:00:00`);
+  const record = (id, fields = {}) => ({ id, title: id, status: "todo", due: day, ...fields });
+  const records = [
+    record("later", { dueTime: "15:00" }),
+    record("done-on-other-day", { status: "done", completedAt: "2026-10-28" }),
+    record("read-note", { content_type: "notice", status: "done", dueTime: "10:00" }),
+    record("date-only"),
+    record("late", { dueTime: "09:00" }),
+    record("done-today", { status: "done", completedAt: day, due: "2026-11-12", dueTime: "18:00" }),
+    record("unknown-completion-day", { status: "done" }),
+  ];
+  const html = renderDayPanel({ tasks: records, activityTasks: records, selectedDate: day, today: day, now, allowDateDrag: true });
+  const due = html.match(/<section class="day-panel-due"[\s\S]*?<\/section>/)?.[0] || "";
+  const completed = html.match(/<section class="day-panel-completed"[\s\S]*?<\/section>/)?.[0] || "";
+  const rowIds = markup => [...markup.matchAll(/data-task-id="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(rowIds(due), ["late", "later", "date-only", "read-note"]);
+  assert.deepEqual(rowIds(completed), ["done-today"]);
+  assert.match(html, /待完成 2 项，已完成 1 项，已逾期 1 项/);
+  assert.match(due.match(/<article[^>]*data-task-id="late"/)?.[0] || "", /is-overdue/);
+  assert.doesNotMatch(due.match(/<article[^>]*data-task-id="later"/)?.[0] || "", /is-overdue/);
+  assert.doesNotMatch(due.match(/<article[^>]*data-task-id="date-only"/)?.[0] || "", /is-overdue/);
+  assert.doesNotMatch(completed, /data-calendar-drag-task|18:00/);
+  assert.doesNotMatch(html, /calendar-priority|data-calendar-priority|优先显示|data-activity-group/);
+});
+
 test("near and completed scopes include notices while all tasks remains task-only", () => {
   const mixed = [
     { id: "undated-task", title: "加群", status: "todo", due: "" },
