@@ -89,6 +89,7 @@ frontend/
 │   ├── theme.css             普通应用与独立后台共用的颜色、圆角和页面尺寸
 │   └── styles.css            应用布局、导航、抽屉和表单
 ├── tests/
+│   ├── browser/brand-theme.spec.js 白底主题、主站与后台共用标识及三视口截图
 │   ├── timetable.test.js     共享样例、学期边界、单双周和日历显示
 │   ├── browser/timetable.spec.js 真实XLS/HTTP/SQLite的三视口导入、刷新、去重及账号隔离
 │   ├── online-store.test.js  普通 HTTP 在线队列、回执重试、账号及存储边界
