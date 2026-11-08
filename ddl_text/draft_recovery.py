@@ -4,7 +4,7 @@ from dataclasses import replace
 from .adapters import AgentError
 from . import diagnostics
 
-REPAIRABLE = frozenset(('draft_json', 'draft_schema', 'draft_evidence', 'draft_semantics'))
+REPAIRABLE = frozenset(('draft_json', 'draft_schema', 'draft_evidence', 'draft_semantics', 'primary_source_evidence'))
 
 
 def recover(call, compile_result, settings):

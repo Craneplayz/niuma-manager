@@ -33,6 +33,8 @@ def validate_pair(pair, *, model_routing=False):
             "pair exceeds draft budget")
     Draft202012Validator(SCHEMA, format_checker=FormatChecker()).validate(pair)
     record, assessment = pair["record"], pair["assessment"]
+    from .course_context import validate_context
+    validate_context(record)
     require(record["input_id"] == assessment["input_id"], "candidate belongs to another record")
     zone = ZoneInfo(record["timezone"])
     refs = {ref["ref_id"]: ref for ref in record["references"]}
@@ -79,6 +81,9 @@ def validate_pair(pair, *, model_routing=False):
             require(stamp.utcoffset() == stamp.astimezone(zone).utcoffset(), "deadline offset disagrees with timezone")
         if d["derivation"] == "absolute":
             require(d["anchor"] is None, "absolute date must not borrow an anchor")
+        elif d['derivation']=='course_rule':
+            require(d['anchor']=='course_term' and record['course_term'] is not None,
+                    'course rule needs a captured semester and quoted rule')
         elif d["derivation"] in {"relative", "offset"}:
             require(d["anchor"] == "published_at", "relative dates require publication anchor")
         else:

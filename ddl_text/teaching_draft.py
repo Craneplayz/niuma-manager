@@ -14,6 +14,7 @@ from .adapters import AgentError, OUTPUT_DIAGNOSTICS
 from .extraction import MAX_DRAFT_BYTES, _object
 from .runner import run_attempt
 from .teaching_semantics import normalize_time, TIME_ROLES, SUBMISSION_RELATIONS
+from . import course_facts
 
 
 SKILL = Path(__file__).resolve().parent / 'skills/teaching-task-extraction/SKILL.md'
@@ -82,6 +83,7 @@ def teaching_draft_schema(record=None, *, indexed=False):
     task['properties']['time_role'] = dict(enum=TIME_ROLES, description='先区分时间用途；布置/发布/参考日期不填入 deadline。')
     task['properties']['submission_relation'] = dict(enum=SUBMISSION_RELATIONS,
         description='此行动是否就是本来源布置的作业提交义务（包含完成作业题）；独立阅读/入群/展示等为 other；不能确定为 unknown。不判断用户是否已提交。')
+    task['properties'].update(course_facts.schemas(quote))
     schema = _object_schema(dict(tasks=dict(type='array', items=task, maxItems=50)))
     schema['properties']['empty_decision'] = dict(anyOf=[dict(type='null'), _object_schema(dict(
         status=dict(enum=['no_tasks', 'incomplete']), reason=dict(type='string', minLength=1, maxLength=512),
@@ -141,7 +143,20 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
         envelope = json.loads(raw, object_pairs_hook=_object,
                               parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite')))
         stage = 'draft_schema'
-        Draft202012Validator(teaching_draft_schema(record, indexed=indexed), format_checker=FormatChecker()).validate(envelope)
+        schema = teaching_draft_schema(record, indexed=indexed)
+        # Presentation hints are optional, unlike action/date/identity proof.
+        # Discard only this field, before expanding indexed evidence; retain the
+        # original task and run every core schema/evidence check unchanged.
+        facts_schema = dict(schema['properties']['tasks']['items']['properties']['title_facts'],
+                            **{'$defs': schema['$defs']})
+        tasks = envelope.get('tasks') if isinstance(envelope, dict) else None
+        for draft in tasks if isinstance(tasks, list) else []:
+            if isinstance(draft, dict) and draft.get('title_facts') is not None:
+                try:
+                    Draft202012Validator(facts_schema).validate(draft['title_facts'])
+                except ValidationError:
+                    discard_title_facts(draft, 'schema')
+        Draft202012Validator(schema, format_checker=FormatChecker()).validate(envelope)
         if indexed:
             catalog = evidence_catalog(record)
             def expand(value):
@@ -168,9 +183,20 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             content_type = draft.get('content_type', 'task')
             _quotes(record, assessment['action']['evidence'])
             _quotes(record, assessment['deadline']['evidence'], allow_metadata=True)
+            if draft.get('calendar_rule'): _quotes(record,draft['calendar_rule']['evidence'])
+            course_facts.check_primary_action(draft,record)
+            try:
+                if draft.get('title_facts'): _quotes(record,draft['title_facts']['evidence'])
+                rendered_title=course_facts.title(draft)
+            except (AgentError, ValueError):
+                discard_title_facts(draft, 'evidence')
+                rendered_title=draft['title']
             for relation in assessment['unread_relations']:
                 _quotes(record, relation['evidence'])
             time_needs_review = normalize_time(draft, record)
+            calendar_review=course_facts.calendar(draft,record) if draft.get('time_role') in ('deadline','event') else None
+            if assessment['deadline']['derivation']=='course_rule' and not draft.get('calendar_rule'):
+                raise ValueError('course_rule requires calendar_rule facts')
             pair = _pair(record, assessment, index)
             validate_pair(pair, model_routing=True)
             route, reason = draft['recommendation'], draft['reason'].strip()
@@ -181,6 +207,7 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 route, reason = 'candidate', reason or '变更通知需关联现有条目后处理。'
             if time_needs_review and route == 'task':
                 route, reason = 'candidate', '日期与作业标题日期相同，但用途尚未明确；请核对是否为截止要求。'
+            if calendar_review and route != 'filtered': route,reason='candidate',calendar_review
             if route != 'task' and not reason:
                 raise ValueError('candidate/filtered classification needs a reason')
             if route == 'task':
@@ -199,12 +226,14 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                 route, filtered = 'candidate', None
                 codes.append('source_unverified')
                 reasons.append(REASONS['source_unverified'])
-            decisions.append(dict(title=draft['title'], description=draft['description'],
+            decisions.append(dict(title=rendered_title, description=draft['description'],
                 content_type=content_type,
                 notice_type=draft['notice_type'], target=deepcopy(draft['target']),
                 relevance=deepcopy(relevance), pair=pair, recommendation=route,
                 review_codes=codes, review_reasons=reasons,
                 filter_reason=filtered))
+            for name in ('title_facts','calendar_rule','time_role'):
+                if name in draft: decisions[-1][name]=deepcopy(draft[name])
             relation = draft.get('submission_relation', 'unknown')
             if relation == 'assignment_submission' and (content_type != 'task' or draft['notice_type'] != 'create'):
                 raise ValueError('only a newly described assignment action can have a submission relationship')
@@ -217,6 +246,7 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             _quotes(record, empty['evidence'])
             if empty['status'] == 'no_tasks' and not empty['evidence']:
                 raise ValueError('no_tasks needs captured evidence')
+            course_facts.check_primary_empty(empty,record)
             if not source_verified:
                 empty = dict(empty, status='incomplete', reason=REASONS['source_unverified'])
         return dict(decisions=decisions, empty_decision=empty)
@@ -236,9 +266,16 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
                             line=getattr(error,'lineno',None), column=getattr(error,'colno',None))
         if not isinstance(error, (ValueError, RecursionError)):
             raise AgentError('agent_unavailable', False, 'internal_error') from None
-        failure = AgentError('invalid_agent_output', True, stage)
+        failure = AgentError('invalid_agent_output', True,
+            'primary_source_evidence' if isinstance(error, course_facts.PrimaryEvidenceError) else stage)
         failure.model_feedback = str(error)[:512] if isinstance(error, ValueError) else stage
         raise failure from None
+
+
+def discard_title_facts(draft, reason):
+    from . import diagnostics
+    draft['title_facts'] = None
+    diagnostics.emit('presentation', status='fallback', code='title_facts', diagnostic=reason)
 
 
 def compile_teaching_draft(raw, record, *, source_verified=False, indexed=False):
@@ -256,6 +293,12 @@ class TeachingDraftAdapter:
     source_verified: bool = False
 
     def extract(self, record, settings, attempt):
+        if settings.mode == 'real' and record.get('course_context', {}).get('documents'):
+            from .course_refinement import source_first
+            return source_first(self, record, settings, attempt)
+        return self.extract_primary(record, settings, attempt)
+
+    def extract_primary(self, record, settings, attempt, *, supporting_context_pending=False):
         if settings.mode != 'real':
             payload = json.dumps(dict(record=record, source_verified_by_caller=self.source_verified), ensure_ascii=False)
             raw = self.client.complete_json(teaching_instructions(record), payload, settings)
@@ -267,8 +310,15 @@ class TeachingDraftAdapter:
         metadata.pop('text'); metadata.pop('source_metadata_text')
         for ref in metadata['references']: ref.pop('text')
         payload = json.dumps(dict(record_metadata=metadata, evidence_catalog=evidence_catalog(record),
-                                  source_verified_by_caller=self.source_verified), ensure_ascii=False)
+                                  source_verified_by_caller=self.source_verified,
+                                  supporting_context_pending=supporting_context_pending), ensure_ascii=False)
         instructions = teaching_instructions(record, indexed=True)
+        if supporting_context_pending:
+            instructions += '''
+本调用是主来源行动发现阶段，不是最终全资料分类。课程旁证已由服务器准备，将在下一步补充；本步不接收它们的正文，不能据此认定旁证不存在。
+只要当前正文或自身附件已明确要求提交、完成、安装、准备、阅读等行动，就输出该行动。尚缺截止日期、适用范围或补充规则时保留任务草稿并 candidate，日期按 not_provided/unresolved 处理，不能因此返回 tasks=[] 或 empty_decision=incomplete。
+没有时间要求不等于没有行动。只有当前来源本身确实没有行动/重要告知才 no_tasks；只有行动内容本身不可取得、无法判断是否存在行动时才 incomplete。不要补造行动。日期和规则疑点会由下一步处理。
+'''
         from .draft_recovery import recover
         def call(current, feedback):
             data = dict(json.loads(payload), **(feedback or {}))

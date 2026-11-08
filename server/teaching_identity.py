@@ -71,3 +71,58 @@ def protect_source_changes(db, uid, request_id, cards):
                 card['needs_review'] = True
                 card['review_reasons'] = list(dict.fromkeys(card['review_reasons'] + [CHANGED_SOURCE_REVIEW]))
     return cards
+
+
+def reuse_unchanged_result(db, uid, request_id, result):
+    """Reuse processing only when the latest verified source result is equal.
+
+    Ignore retrieval context and per-attempt candidate IDs, NOT evidence,
+    deadlines, decisions, titles, descriptions, or primary attachment text.
+    Compare a multiset so model output order is never a cross-version identity.
+    No task/candidate state is mutated, including manual/deleted/ignored work.
+    """
+    prior = db.execute('''SELECT b.result FROM recognition_batches b
+        WHERE b.user_id=? AND b.request_id<>? AND EXISTS (
+          SELECT 1 FROM teaching_submission_requests current
+          JOIN teaching_submission_requests old ON old.user_id=current.user_id
+            AND old.account=current.account AND old.input_id=current.input_id
+          WHERE current.user_id=b.user_id AND current.request_id=? AND old.request_id=b.request_id)
+        ORDER BY b.rowid DESC LIMIT 1''', (uid, request_id, request_id)).fetchone()
+    if not prior or result.get('status') not in ('success', 'no_tasks'): return False
+    old = json.loads(prior[0])
+    if old.get('status') not in ('success', 'no_tasks'): return False
+
+    def proof(value):
+        rows = []
+        for raw in value['record_results']:
+            row = deepcopy(raw)
+            decisions = row.pop('decisions')
+            normalized = []
+            for d in decisions:
+                record = d['pair']['record']
+                record.pop('course_context', None)
+                record['references'] = [r for r in record['references'] if r['kind'] != 'course_context']
+                d['pair']['assessment'].pop('candidate_id', None)
+                normalized.append(canonical(d))
+            row['decisions'] = [json.loads(d) for d in sorted(normalized)]
+            rows.append(canonical(row))
+        return sorted(rows)
+    return proof(old) == proof(result)
+
+
+def supersede_unhandled(db, uid, request_id, snapshot_id):
+    """A context-only revision replaces untouched proposals of the same capture."""
+    import submission_runtime as controls
+    rows=db.execute('''SELECT c.*,b.request AS old_request FROM teaching_submission_requests current
+        JOIN teaching_submission_requests old ON old.user_id=current.user_id
+            AND old.account=current.account AND old.input_id=current.input_id
+        JOIN recognition_candidates c ON c.user_id=old.user_id AND c.request_id=old.request_id
+        JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
+        WHERE current.user_id=? AND current.request_id=? AND old.request_id<>current.request_id
+            AND c.state='pending' AND c.version=1 AND c.resolution IS NULL''',(uid,request_id)).fetchall()
+    protected=controls.manually_controlled_candidates(db,uid,rows)
+    for row in rows:
+        original=json.loads(row['old_request'])
+        same=any(e.get('record',{}).get('snapshot_id')==snapshot_id for e in original.get('records',[]))
+        if same and row['id'] not in protected:
+            db.execute("DELETE FROM recognition_candidates WHERE id=? AND user_id=? AND state='pending' AND version=1 AND resolution IS NULL",(row['id'],uid))

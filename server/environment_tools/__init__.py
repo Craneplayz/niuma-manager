@@ -68,6 +68,7 @@ OWNER_TABLES = (
     'recognition_batches', 'recognition_import_records', 'recognition_record_policies', 'text_import_jobs',
     'recognition_attempt_diagnostics', 'source_versions', 'teaching_sources',
     'teaching_asset_refs', 'teaching_asset_files', 'teaching_asset_inputs',
+    'teaching_course_index', 'teaching_context_dependencies',
     'teaching_submission_recoveries', 'teaching_submission_requests', 'teaching_submission_sources',
     'submission_controls', 'submission_operations', 'submission_events',
     'source_sync_operations', 'source_sync_quiet_runs', 'source_sync_checks', 'source_sync_runs',
