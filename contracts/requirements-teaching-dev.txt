@@ -1,0 +1,4 @@
+# Policy checks; opt-in teaching runtime explicitly includes this dependency set.
+jsonschema>=4.18,<5
+rfc3339-validator>=0.1.4,<1
+tzdata>=2024.1

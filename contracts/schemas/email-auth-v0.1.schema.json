@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Email registration, verification and password recovery v0.1",
+  "description": "Each named request or response is available under $defs. All references are local to this document. Request extensions are ignored by the API; response schemas reject accidental private fields.",
+  "anyOf": [
+    {"$ref": "#/$defs/emailCodeRequest"},
+    {"$ref": "#/$defs/registerRequest"},
+    {"$ref": "#/$defs/verifyEmailRequest"},
+    {"$ref": "#/$defs/resetPasswordRequest"},
+    {"$ref": "#/$defs/resetPasswordResponse"},
+    {"$ref": "#/$defs/challengeResponse"},
+    {"$ref": "#/$defs/publicUser"},
+    {"$ref": "#/$defs/userResponse"},
+    {"$ref": "#/$defs/errorResponse"}
+  ],
+  "$defs": {
+    "code": {"type": "string", "pattern": "^[0-9]{6}$", "minLength": 6, "maxLength": 6},
+    "challengeId": {"type": "string", "minLength": 1, "maxLength": 100},
+    "emailInput": {
+      "type": "string", "minLength": 3, "maxLength": 254,
+      "pattern": "^\\s*[^\\s@]+@[^\\s@]+\\s*$",
+      "description": "The API additionally validates mailbox syntax and IDNA domain labels after trimming and lowercasing. Unicode domain names are supported."
+    },
+    "emailCodeRegistrationRequest": {
+      "type": "object",
+      "required": ["purpose", "email"],
+      "properties": {
+        "purpose": {"const": "register"},
+        "email": {"$ref": "#/$defs/emailInput"}
+      },
+      "additionalProperties": true
+    },
+    "emailCodeVerificationRequest": {
+      "type": "object",
+      "required": ["purpose"],
+      "properties": {"purpose": {"const": "verify_email"}},
+      "additionalProperties": true,
+      "description": "Requires a session. The recipient is the logged-in account's email; any email field supplied by the client is ignored."
+    },
+    "emailCodePasswordResetRequest": {
+      "type": "object",
+      "required": ["purpose", "email"],
+      "properties": {
+        "purpose": {"const": "reset_password"},
+        "email": {"$ref": "#/$defs/emailInput"}
+      },
+      "additionalProperties": true,
+      "description": "Unauthenticated password recovery. Eligible and ineligible addresses receive the same challenge response without revealing whether an account exists."
+    },
+    "emailCodeRequest": {
+      "oneOf": [
+        {"$ref": "#/$defs/emailCodeRegistrationRequest"},
+        {"$ref": "#/$defs/emailCodeVerificationRequest"},
+        {"$ref": "#/$defs/emailCodePasswordResetRequest"}
+      ]
+    },
+    "registerRequest": {
+      "type": "object",
+      "required": ["name", "email", "password", "challengeId", "code"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 40, "pattern": "\\S"},
+        "email": {"$ref": "#/$defs/emailInput"},
+        "password": {"type": "string", "minLength": 8, "maxLength": 128},
+        "challengeId": {"$ref": "#/$defs/challengeId"},
+        "code": {"$ref": "#/$defs/code"}
+      },
+      "additionalProperties": true
+    },
+    "verifyEmailRequest": {
+      "type": "object",
+      "required": ["challengeId", "code"],
+      "properties": {
+        "challengeId": {"$ref": "#/$defs/challengeId"},
+        "code": {"$ref": "#/$defs/code"}
+      },
+      "additionalProperties": true
+    },
+    "resetPasswordRequest": {
+      "type": "object",
+      "required": ["email", "challengeId", "code", "newPassword"],
+      "properties": {
+        "email": {"$ref": "#/$defs/emailInput"},
+        "challengeId": {"$ref": "#/$defs/challengeId"},
+        "code": {"$ref": "#/$defs/code"},
+        "newPassword": {"type": "string", "minLength": 8, "maxLength": 128}
+      },
+      "additionalProperties": true,
+      "description": "POST /api/auth/reset-password. The email, challenge and one-time code must match the reset_password purpose. Success changes the password without logging in."
+    },
+    "resetPasswordResponse": {
+      "type": "object",
+      "required": ["reset"],
+      "properties": {"reset": {"const": true}},
+      "additionalProperties": false,
+      "description": "HTTP 200 after a successful password reset. No session, user, credentials or verification code are returned."
+    },
+    "challengeResponse": {
+      "type": "object",
+      "required": ["challengeId", "retryAfter", "expiresIn"],
+      "properties": {
+        "challengeId": {"$ref": "#/$defs/challengeId"},
+        "retryAfter": {"const": 60},
+        "expiresIn": {"const": 600}
+      },
+      "additionalProperties": false
+    },
+    "publicUser": {
+      "type": "object",
+      "required": ["id", "name", "email", "emailVerified"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1, "maxLength": 40},
+        "email": {
+          "type": "string", "minLength": 3, "maxLength": 254,
+          "description": "New accounts use canonical IDNA addresses. Legacy account addresses are preserved."
+        },
+        "emailVerified": {"type": "boolean"},
+        "avatar": {
+          "anyOf": [
+            {"type": "null"},
+            {"type": "string", "maxLength": 524288, "pattern": "^data:image/png;base64,[A-Za-z0-9+/]+=*$"}
+          ],
+          "description": "Optional account-owned PNG avatar; null or omitted uses the display-name initial."
+        }
+      },
+      "additionalProperties": false
+    },
+    "userResponse": {
+      "type": "object",
+      "required": ["user"],
+      "properties": {"user": {"$ref": "#/$defs/publicUser"}},
+      "additionalProperties": false
+    },
+    "verifiedUserResponse": {
+      "allOf": [
+        {"$ref": "#/$defs/userResponse"},
+        {"properties": {"user": {"properties": {"emailVerified": {"const": true}}}}}
+      ]
+    },
+    "emailError": {
+      "type": "object",
+      "required": ["error", "code"],
+      "properties": {
+        "error": {"type": "string", "minLength": 1},
+        "code": {
+          "enum": ["email_invalid", "email_code_invalid", "email_code_expired", "email_registered", "email_already_verified", "email_code_rate_limited", "email_not_configured", "email_send_failed"]
+        },
+        "retryAfter": {"type": "integer", "minimum": 1}
+      },
+      "if": {"properties": {"code": {"const": "email_code_rate_limited"}}, "required": ["code"]},
+      "then": {"required": ["retryAfter"]},
+      "else": {"not": {"required": ["retryAfter"]}},
+      "additionalProperties": false
+    },
+    "legacyAuthError": {
+      "type": "object",
+      "required": ["error"],
+      "properties": {"error": {"type": "string", "minLength": 1}},
+      "additionalProperties": false,
+      "description": "Existing authentication, registration and password validation errors may omit a machine code; invalid new passwords return HTTP 400."
+    },
+    "errorResponse": {
+      "oneOf": [
+        {"$ref": "#/$defs/emailError"},
+        {"$ref": "#/$defs/legacyAuthError"}
+      ]
+    }
+  }
+}

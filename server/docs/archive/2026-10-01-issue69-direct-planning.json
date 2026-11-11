@@ -1,0 +1,220 @@
+{
+  "platform": "win32",
+  "backend_entry": "server/app.py",
+  "backend_cwd": "frontend",
+  "configuration": "checkout root .env",
+  "text_harness_url_set": false,
+  "harness_url_set": false,
+  "standalone_recognition_started": false,
+  "standalone_planning_started": false,
+  "private_data_used": false,
+  "model_calls_expected": 2,
+  "checks": {
+    "direct_recognition_and_deadline": true,
+    "direct_planning_with_real_estimate": true,
+    "preview_preserves_task_and_deadline": true,
+    "explicit_apply_and_deadline_preserved": true,
+    "duplicate_apply_rejected": true
+  },
+  "model": "deepseek/deepseek-v4.1-flash",
+  "recognition_request": {
+    "contract_version": "0.2",
+    "request_id": "issue69:phase2:synthetic",
+    "records": [
+      {
+        "text_quality": "complete",
+        "platform": "unknown",
+        "published_at": {
+          "value": "2026-10-01T18:25:56+08:00",
+          "precision": "datetime",
+          "basis": "source"
+        },
+        "collected_at": "2026-10-01T18:25:56+08:00",
+        "timezone": "Asia/Shanghai",
+        "timezone_basis": "source",
+        "source_url": null,
+        "source_label": "合成接口测试",
+        "source_item_id": null,
+        "course_or_project": null,
+        "context": [],
+        "upstream_hints": null,
+        "input_id": "synthetic:report",
+        "text": "请于2026-10-08 18:00前提交一份三页的课程内容回顾，整理已学知识。请尽快完成，这是合成接口测试。"
+      }
+    ]
+  },
+  "recognition_seconds": 5.67,
+  "recognition_result": {
+    "contract_version": "0.2",
+    "request_id": "issue69:phase2:synthetic",
+    "status": "success",
+    "record_results": [
+      {
+        "input_id": "synthetic:report",
+        "status": "success",
+        "task_ids": [
+          "synthetic:report:candidate:1"
+        ],
+        "warnings": []
+      }
+    ],
+    "tasks": [
+      {
+        "candidate_id": "synthetic:report:candidate:1",
+        "input_id": "synthetic:report",
+        "title": "提交课程内容回顾",
+        "description": "提交一份三页的课程内容回顾，整理已学知识。",
+        "prerequisites": [],
+        "course_or_project": null,
+        "course_basis": "unknown",
+        "notice_type": "create",
+        "target_reference": null,
+        "deadline": {
+          "value": "2026-10-08T18:00:00+08:00",
+          "precision": "datetime",
+          "timezone": "Asia/Shanghai",
+          "kind": "deadline",
+          "status": "explicit",
+          "raw": "2026-10-08 18:00",
+          "basis": "按原文明确时间归一化。",
+          "alternatives": []
+        },
+        "needs_review": false,
+        "review_reasons": [],
+        "sources": [
+          {
+            "input_id": "synthetic:report",
+            "platform": "unknown",
+            "url": null,
+            "label": "合成接口测试",
+            "source_item_id": null
+          }
+        ],
+        "evidence": [
+          {
+            "input_id": "synthetic:report",
+            "field": "text",
+            "quote": "请于2026-10-08 18:00前提交一份三页的课程内容回顾，整理已学知识。",
+            "supports": [
+              "title",
+              "description"
+            ]
+          },
+          {
+            "input_id": "synthetic:report",
+            "field": "text",
+            "quote": "2026-10-08 18:00",
+            "supports": [
+              "deadline"
+            ]
+          }
+        ]
+      }
+    ],
+    "errors": []
+  },
+  "planning_seconds": 5.94,
+  "planning_proposal": {
+    "estimates": {
+      "a259eaa426cddd1e3af6a5a84c65285f": 120
+    },
+    "blocks": [
+      {
+        "taskId": "a259eaa426cddd1e3af6a5a84c65285f",
+        "title": "提交课程内容回顾",
+        "startAt": "2026-10-02T10:00:00+08:00",
+        "endAt": "2026-10-02T11:00:00+08:00"
+      },
+      {
+        "taskId": "a259eaa426cddd1e3af6a5a84c65285f",
+        "title": "提交课程内容回顾",
+        "startAt": "2026-10-02T11:00:00+08:00",
+        "endAt": "2026-10-02T12:00:00+08:00"
+      }
+    ],
+    "warnings": [],
+    "requestId": "e0933b29de2bbc096db4c43ecf2b5838"
+  },
+  "tasks_before_preview": {
+    "value": [
+      {
+        "id": "a259eaa426cddd1e3af6a5a84c65285f",
+        "title": "提交课程内容回顾",
+        "description": "提交一份三页的课程内容回顾，整理已学知识。",
+        "due": {
+          "date": "2026-10-08",
+          "precision": "datetime",
+          "time": "18:00"
+        },
+        "category": "个人事务",
+        "course": null,
+        "priority": "medium",
+        "status": "not_started",
+        "source": "合成接口测试",
+        "subtasks": [],
+        "plans": [],
+        "createdAt": "2026-10-01T10:26:01.724058+00:00",
+        "sourceRequirements": [],
+        "recognitionHistory": [
+          {
+            "storageId": "182776894884c9a546ddc74097fac0ab",
+            "requestId": "issue69:phase2:synthetic",
+            "candidateId": "synthetic:report:candidate:1",
+            "action": "create"
+          }
+        ]
+      }
+    ],
+    "version": 1
+  },
+  "tasks_after_apply": {
+    "value": [
+      {
+        "id": "a259eaa426cddd1e3af6a5a84c65285f",
+        "title": "提交课程内容回顾",
+        "description": "提交一份三页的课程内容回顾，整理已学知识。",
+        "due": {
+          "date": "2026-10-08",
+          "precision": "datetime",
+          "time": "18:00"
+        },
+        "category": "个人事务",
+        "course": null,
+        "priority": "medium",
+        "status": "not_started",
+        "source": "合成接口测试",
+        "subtasks": [],
+        "plans": [
+          {
+            "id": "88444043d19f27df7f1647216585b2c4",
+            "title": "提交课程内容回顾",
+            "startAt": "2026-10-02T10:00:00+08:00",
+            "endAt": "2026-10-02T11:00:00+08:00",
+            "origin": "ai"
+          },
+          {
+            "id": "fca0944445d75e5a4135d5c99b192d3e",
+            "title": "提交课程内容回顾",
+            "startAt": "2026-10-02T11:00:00+08:00",
+            "endAt": "2026-10-02T12:00:00+08:00",
+            "origin": "ai"
+          }
+        ],
+        "createdAt": "2026-10-01T10:26:01.724058+00:00",
+        "sourceRequirements": [],
+        "recognitionHistory": [
+          {
+            "storageId": "182776894884c9a546ddc74097fac0ab",
+            "requestId": "issue69:phase2:synthetic",
+            "candidateId": "synthetic:report:candidate:1",
+            "action": "create"
+          }
+        ]
+      }
+    ],
+    "version": 2
+  },
+  "passed": true,
+  "tested_base_commit": "26fdd63a1b6a5dd7c1eaf0de8127fee8675ea6f5",
+  "tested_worktree": "dhjx1234/refactor/69-inprocess-planning (pre-commit changes)"
+}

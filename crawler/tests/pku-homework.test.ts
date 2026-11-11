@@ -1,9 +1,62 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
-import { buildHomeworkScrapeResult, currentAcademicTerm, extractHomeworkRecords, filterUpcomingHomeworks, parseHomeworkDeadline, type HomeworkRecord } from "../src/pku-homework.js";
+import { buildHomeworkScrapeResult, currentAcademicTerm, extractHomeworkRecords, filterUpcomingHomeworks, parseHomeworkDeadline, planCourseCollection, selectSourceTarget, validateSourceTarget, type HomeworkRecord } from "../src/pku-homework.js";
 
 const asOf = DateTime.fromISO("2026-09-22T13:46:00+08:00");
 const context = { course: "Synthetic course", section: "课程作业", sourceUrl: "https://example.test/course", asOf };
+const section = (text: string, id: string) => ({ text, href: `https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?content_id=${id}` });
+
+describe("single-source diagnosis scope", () => {
+  const target = { url: "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1_1",
+    itemId: "_2_1", course: "Synthetic", section: "教学内容" };
+  const html = '<ul id="content_listContainer"><li id="_2_1"><div class="item"><h3>Assessment</h3></div><div class="details">See Assessment.pdf</div></li><li id="_3_1"><div class="item"><h3>Other notice</h3></div><div class="details"><a href="https://example.test/private.pdf">Do not read</a></div></li></ul>';
+  it("selects only the requested item before reading any attachments", () => {
+    const sources = selectSourceTarget(html, target, asOf.toISO()!);
+    expect(sources.map(s => s.source_item_id)).toEqual(["_2_1"]);
+    expect(JSON.stringify(sources)).not.toContain("private.pdf");
+    expect(() => selectSourceTarget(html, { ...target, itemId: "_9_1" }, asOf.toISO()!)).toThrow("missing or ambiguous");
+  });
+  it.each(["https://evil.test/webapps/blackboard/content/listContent.jsp?course_id=_1_1",
+    "https://user@course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1_1",
+    "https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1_1&method=delete",
+    "https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=_1_1"])("rejects non-list/private target %s", url => {
+    expect(() => validateSourceTarget(url, target.itemId)).toThrow();
+  });
+});
+
+describe("course section collection scope", () => {
+  const anchors = [
+    section("课程作业", "course-homework"),
+    section("作业", "homework"),
+    section("Assignments", "assignments"),
+    section("Homework", "english-homework"),
+    section("教学内容", "materials"),
+    section("教学大纲", "syllabus"),
+  ];
+
+  it("opens only Chinese and English assignment sections by default", () => {
+    const plan = planCourseCollection("Synthetic course", anchors);
+    expect(plan.collectAnnouncements).toBe(false);
+    expect(plan.sections.map((item) => item.text)).toEqual(["课程作业", "作业", "Assignments", "Homework"]);
+    expect(plan.warnings).toEqual([]);
+  });
+
+  it("restores announcements and every content section with all-sections", () => {
+    const plan = planCourseCollection("Synthetic course", anchors, true);
+    expect(plan.collectAnnouncements).toBe(true);
+    expect(plan.sections).toEqual(anchors);
+  });
+
+  it("warns with the course name when no assignment section exists", () => {
+    const plan = planCourseCollection("Synthetic course without homework", anchors.slice(-2));
+    expect(plan.sections).toEqual([]);
+    expect(plan.warnings).toEqual(['No assignment section was found for course "Synthetic course without homework".']);
+    const result = buildHomeworkScrapeResult([], {
+      asOf, term: null, coursesChecked: 1, sectionsChecked: 0, coverageWarnings: plan.warnings,
+    });
+    expect(result.coverage_warnings).toContain(plan.warnings[0]);
+  });
+});
 
 describe("homework record boundaries", () => {
   it("keeps adjacent assignments and their deadlines separate", () => {

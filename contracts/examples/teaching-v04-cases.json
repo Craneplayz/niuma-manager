@@ -1,0 +1,851 @@
+{
+  "cases": [
+    {
+      "name": "date-only",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:date-only",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:date-only",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成第二次作业",
+                "description": "按通知完成练习。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:homework-2",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-06T11:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+                    "input_id": "synthetic:homework-2",
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "第二次作业：完成练习1至3"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-23",
+                      "precision": "date",
+                      "derivation": "absolute",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "2026年10月23日截止"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": []
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "supplement",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:supplement",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [
+                {
+                  "ref_id": "extra",
+                  "kind": "attachment",
+                  "label": "补充练习.pdf",
+                  "read_state": "unread",
+                  "text": null
+                }
+              ],
+              "published_at": null,
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:supplement",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成第二次作业",
+                "description": "按通知完成练习。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:homework-2",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [
+                      {
+                        "ref_id": "extra",
+                        "kind": "attachment",
+                        "label": "补充练习.pdf",
+                        "read_state": "unread",
+                        "text": null
+                      }
+                    ],
+                    "published_at": null,
+                    "collected_at": "2026-10-06T11:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+                    "input_id": "synthetic:homework-2",
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "第二次作业：完成练习1至3"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-23",
+                      "precision": "date",
+                      "derivation": "absolute",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "2026年10月23日截止"
+                        }
+                      ]
+                    },
+                    "unread_relations": [
+                      {
+                        "ref_id": "extra",
+                        "role": "supplementary",
+                        "evidence": [
+                          {
+                            "part_id": "body",
+                            "quote": "附加练习仅供参考。"
+                          }
+                        ]
+                      }
+                    ],
+                    "other_review_reasons": []
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "term-year",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:term-year",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "第二次作业：完成练习1至3，10月23日截止。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": {
+                "term_id": "2026-fall",
+                "starts_on": "2026-09-01",
+                "ends_on": "2027-01-31",
+                "applies_to": "current_assignment",
+                "evidence": [
+                  {
+                    "part_id": "source_metadata",
+                    "quote": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。"
+                  }
+                ]
+              }
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:term-year",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成第二次作业",
+                "description": "按通知完成练习。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:homework-2",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "第二次作业：完成练习1至3，10月23日截止。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-06T11:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": {
+                      "term_id": "2026-fall",
+                      "starts_on": "2026-09-01",
+                      "ends_on": "2027-01-31",
+                      "applies_to": "current_assignment",
+                      "evidence": [
+                        {
+                          "part_id": "source_metadata",
+                          "quote": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。"
+                        }
+                      ]
+                    }
+                  },
+                  "assessment": {
+                    "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+                    "input_id": "synthetic:homework-2",
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "第二次作业：完成练习1至3"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-23",
+                      "precision": "date",
+                      "derivation": "missing_year",
+                      "anchor": "course_term",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "10月23日截止"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": []
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown-year",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:unknown-year",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "第二次作业：完成练习1至3，10月23日截止。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:unknown-year",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成第二次作业",
+                "description": "按通知完成练习。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:homework-2",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "第二次作业：完成练习1至3，10月23日截止。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-06T11:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+                    "input_id": "synthetic:homework-2",
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "第二次作业：完成练习1至3"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-23",
+                      "precision": "date",
+                      "derivation": "missing_year",
+                      "anchor": "collected_at",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "10月23日截止"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": []
+                  }
+                },
+                "recommendation": "candidate",
+                "review_codes": [
+                  "original_age_unknown"
+                ],
+                "review_reasons": [
+                  "缺少可信发布时间或适用学期，通知新旧待核实。"
+                ],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "no-deadline",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:no-deadline",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "请完成课程练习。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:no-deadline",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成第二次作业",
+                "description": "按通知完成练习。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:homework-2",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "请完成课程练习。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-06T11:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+                    "input_id": "synthetic:homework-2",
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "请完成课程练习。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": []
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": []
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "no-action",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:no-action",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "本页介绍课程背景，无须提交或完成任何内容。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": null
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:no-action",
+        "policy_version": null,
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": null
+            },
+            "attempted": true,
+            "status": "no_tasks",
+            "decisions": [],
+            "warnings": [],
+            "error": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "two-tasks",
+      "verified": true,
+      "request": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:two-tasks",
+        "records": [
+          {
+            "record": {
+              "input_id": "synthetic:homework-2",
+              "source_item_id": "synthetic-assignment-2",
+              "course_id": "synthetic-course-1",
+              "snapshot_id": "synthetic-capture-1",
+              "platform": "teaching_web",
+              "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。另请完成本次课程复习，不设截止日期。",
+              "body_status": "complete",
+              "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+              "references": [],
+              "published_at": null,
+              "collected_at": "2026-10-06T11:00:00+08:00",
+              "timezone": "Asia/Shanghai",
+              "course_term": null
+            },
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "contract_version": "0.4",
+        "request_id": "synthetic:two-tasks",
+        "policy_version": null,
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:homework-2",
+            "snapshot_id": "synthetic-capture-1",
+            "source": {
+              "label": "合成课程通知",
+              "url": null,
+              "course_or_project": "测试课程"
+            },
+            "attempted": true,
+            "status": "success",
+            "decisions": [
+              {
+                "title": "完成第二次作业",
+                "description": "按通知完成练习。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:homework-2",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。另请完成本次课程复习，不设截止日期。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-06T11:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "candidate_id": "teaching-draft:1e72fd0ee755e016bea3e7c7",
+                    "input_id": "synthetic:homework-2",
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "第二次作业：完成练习1至3"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": "2026-10-23",
+                      "precision": "date",
+                      "derivation": "absolute",
+                      "anchor": null,
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "2026年10月23日截止"
+                        }
+                      ]
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": []
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              },
+              {
+                "title": "复习同次课程",
+                "description": "完成本次课程复习。",
+                "notice_type": "create",
+                "target": null,
+                "relevance": {
+                  "state": "current",
+                  "reason": "通知中的行动要求。",
+                  "evidence": []
+                },
+                "pair": {
+                  "contract_version": "0.4-draft.1",
+                  "record": {
+                    "input_id": "synthetic:homework-2",
+                    "source_item_id": "synthetic-assignment-2",
+                    "course_id": "synthetic-course-1",
+                    "snapshot_id": "synthetic-capture-1",
+                    "platform": "teaching_web",
+                    "text": "第二次作业：完成练习1至3，2026年10月23日截止。附加练习仅供参考。另请完成本次课程复习，不设截止日期。",
+                    "body_status": "complete",
+                    "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
+                    "references": [],
+                    "published_at": null,
+                    "collected_at": "2026-10-06T11:00:00+08:00",
+                    "timezone": "Asia/Shanghai",
+                    "course_term": null
+                  },
+                  "assessment": {
+                    "candidate_id": "teaching-draft:11b64aa033ed286346401cf3",
+                    "input_id": "synthetic:homework-2",
+                    "action": {
+                      "state": "supported",
+                      "evidence": [
+                        {
+                          "part_id": "body",
+                          "quote": "另请完成本次课程复习，不设截止日期。"
+                        }
+                      ]
+                    },
+                    "deadline": {
+                      "value": null,
+                      "precision": "unknown",
+                      "derivation": "not_provided",
+                      "anchor": null,
+                      "evidence": []
+                    },
+                    "unread_relations": [],
+                    "other_review_reasons": []
+                  }
+                },
+                "recommendation": "task",
+                "review_codes": [],
+                "review_reasons": [],
+                "filter_reason": null
+              }
+            ],
+            "warnings": [],
+            "error": null
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -6,6 +6,24 @@ const contentItem = (id: string, title: string, body: string, href = "") => `<li
 const page = (items: string) => `<nav><h3>课程作业</h3></nav><ul id="content_listContainer">${items}</ul>`;
 
 describe("complete course source collection", () => {
+  const announcement = (body: string) => `<ul id="announcementList"><li id="n1"><h3>作业已发布</h3><div class="details"><p>发布时间：2026-09-25</p><div class="vtbegenerated">${body}</div></div><div class="announcementInfo">发帖者：老师</div></li></ul>`;
+  it("reads teacher text inside Blackboard's announcementForm but removes controls", () => {
+    const html = `<form id="announcementForm"><input name="private" value="PRIVATE_VALUE">${announcement('<p>请按时完成作业。</p><input value="PRIVATE_VALUE"><button>删除</button><a href="/extra.pdf">参考资料.pdf</a>')}</form>`;
+    const [record] = extractCourseSourcesFromHtml(html, context);
+    expect(record.body).toBe('请按时完成作业。\n参考资料.pdf');
+    expect(record.references.map(ref => ref.url)).toEqual(['https://example.test/extra.pdf']);
+    expect(record.published_at.value).toBe('2026-09-25');
+    expect(JSON.stringify(record)).not.toMatch(/PRIVATE_VALUE|发帖者|删除/);
+  });
+  it.each(['<form id="unrelated">', '<form id="announcementForm"><div>'])("does not exempt arbitrary outer forms: %s", wrapper => {
+    const [record] = extractCourseSourcesFromHtml(`${wrapper}${announcement('<p>必须保持被排除。</p>')}`, context);
+    expect(record.body).toBe('');
+    expect(record.text_quality).toBe('summary');
+  });
+  it("keeps a native title-only announcement incomplete", () => {
+    const [record] = extractCourseSourcesFromHtml(`<form id="announcementForm">${announcement('')}</form>`, context);
+    expect(record.text_quality).toBe('summary');
+  });
   it("preserves non-homework announcements and teaching materials without task decisions", () => {
     const html = `<ul id="announcementList"><li id="n1"><h3>加群通知</h3><div class="details"><p>发布时间: 2026年9月25日 星期五 下午01时30分45秒 CST</p><div class="vtbegenerated"><p>请加入课程群。</p><p>提前阅读教材。</p></div></div><div class="announcementInfo">发帖者：老师</div></li></ul>${page(contentItem("m1", "第一讲课件", "<p>本讲内容简介</p>"))}`;
     const records = extractCourseSourcesFromHtml(html, context);
@@ -65,4 +83,68 @@ describe("source metadata fidelity", () => {
     expect(cleanSourceUrl("https://user:pass@example.test/a?course_id=c1&token=x&session=y#token=z")).toBe("https://example.test/a?course_id=c1");
     expect(cleanSourceUrl("javascript:alert(1)")).toBeNull();
   });
+});
+
+describe("substantive references versus page chrome", () => {
+  const body = "请在2026年12月31日18点前提交报告。";
+  it.each([
+    '<img src="/images/ci/icons/cmlink_generic.gif" alt="" srcset="/deadline.png 1x, /deadline2.png 2x">',
+    '<picture><source media="(min-width: 800px)" srcset="/deadline.png 800w, /deadline2.png 1600w"><img src="/images/ci/icons/cmlink_generic.gif" alt=""></picture>',
+    '<img srcset="/deadline.png 1x, /deadline2.png 2x">',
+  ])("retains responsive substantive candidates behind a missing/decorative fallback: %s", (image) => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("responsive", "作业", `<p>${body}</p>${image}`)), context);
+    expect(record.text_quality).toBe("partial");
+    expect(record.references.map((ref) => ref.url)).toEqual(["https://example.test/deadline.png", "https://example.test/deadline2.png"]);
+    expect(record.references.every((ref) => ref.kind === "image" && !ref.content_read)).toBe(true);
+  });
+  it("preserves commas in image URLs and never exports data-URI candidates", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("commas", "作业", `<p>${body}</p><img srcset="data:image/png;base64,SYNTHETIC_BYTES 1x, /deadline,large.png 2x, /deadline.png 3x">`)), context);
+    expect(record.references.map((ref) => ref.url)).toEqual(["", "https://example.test/deadline,large.png", "https://example.test/deadline.png"]);
+    expect(JSON.stringify(record)).not.toContain("SYNTHETIC_BYTES");
+    expect(record.text_quality).toBe("partial");
+  });
+  it("deduplicates fallback candidates and ignores responsive decorative-only assets", () => {
+    const records = extractCourseSourcesFromHtml(page(contentItem("real", "作业", `<p>${body}</p><img src="/deadline.png" srcset="/deadline.png 1x, /deadline.png 2x">`) + contentItem("icons", "作业", `<p>${body}</p><picture><source srcset="/images/ci/ng/cal_year_event.gif 2x"><img src="/images/ci/icons/cmlink_generic.gif" srcset="/images/ci/icons/cmlink_generic.gif 1x" alt=""></picture>`)), context);
+    expect(records[0].references).toHaveLength(1);
+    expect(records[0].text_quality).toBe("partial");
+    expect(records[1].references).toEqual([]);
+    expect(records[1].text_quality).toBe("complete");
+  });
+  it("keeps responsive image-only content as a summary with unread references", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("only-image", "作业", '<picture><source srcset="/deadline.png 1x"><img alt=""></picture>')), context);
+    expect(record.text_quality).toBe("summary");
+    expect(record.references[0]).toMatchObject({ kind: "image", content_read: false, read_status: "unread" });
+  });
+  it("ignores known empty-alt UI icons and navigation", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("icon", "作业", `<p>${body}<img src="/images/ci/icons/cmlink_generic.gif" alt=""><img src="/images/ci/icons/cmlink_generic.gif" alt="文件"><img src="/images/ci/ng/cal_year_event.gif" alt="单击获得更多选项"></p><nav><a href="/menu">菜单</a></nav><a href="#top">回顶部</a>`)), context);
+    expect(record.text_quality).toBe("complete");
+    expect(record.references).toEqual([]);
+    expect(record.body).not.toContain("菜单");
+  });
+  it("keeps source identity stable when a dynamic close-menu control appears", () => {
+    const plain = extractCourseSourcesFromHtml(page(contentItem("stable", "作业", `<p>${body}</p><a href="/hw.pdf">作业.pdf</a>`)), context)[0];
+    const control = '<div class="cmdiv"><a href="/menu"><img src="/images/ci/ng/close.gif" alt="关闭菜单"></a></div><img src="/images/ci/ng/close.gif" alt="关闭菜单">';
+    const toggled = extractCourseSourcesFromHtml(page(contentItem("stable", "作业", `<p>${body}</p><a href="/hw.pdf">作业.pdf</a>${control}`)), context)[0];
+    expect(toggled).toEqual(plain);
+    const [real] = extractCourseSourcesFromHtml(page(contentItem("real", "作业", '<img src="/course/tutorial.png" alt="关闭菜单">')), context);
+    expect(real.references).toHaveLength(1);
+  });
+  it.each(["补充附件", "期限见附件"])("keeps an unread %s partial", (label) => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("attachment", "作业", `<p>${body}</p><a href="/hw.pdf">${label}</a>`)), context);
+    expect(record.text_quality).toBe("partial");
+    expect(record.references[0].read_status).toBe("unread");
+  });
+  it("retains meaningful UI-path images and unknown platform images and ordinary images with empty alt", () => {
+    const [record] = extractCourseSourcesFromHtml(page(contentItem("img", "作业", `<p>${body}</p><img src="/images/ci/notice.png" alt="截止时间截图"><img src="/actual.png" alt=""><img src="/images/ci/custom.png" alt="">`)), context);
+    expect(record.references).toHaveLength(3);
+    expect(record.references.every((ref) => ref.kind === "image" && ref.reason === "image_not_read")).toBe(true);
+    expect(record.text_quality).toBe("partial");
+  });
+});
+
+it("keeps embedded/non-http images as unread without exporting their data", () => {
+  const [record] = extractCourseSourcesFromHtml(page(contentItem("inline", "作业", '<p>请按图中期限提交。</p><img src="data:image/png;base64,private-data">')), context);
+  expect(record.text_quality).toBe("partial");
+  expect(record.references[0]).toMatchObject({ kind: "image", url: "", content_read: false });
+  expect(JSON.stringify(record)).not.toContain("private-data");
 });

@@ -1,0 +1,7 @@
+[
+  {"contract_version":"producer-observation/0.1","stage":"attachment_download","duration_ms":125.5,"result_code":"ok"},
+  {"contract_version":"producer-observation/0.1","stage":"attachment_download","duration_ms":15000,"result_code":"download_failed"},
+  {"contract_version":"producer-observation/0.1","stage":"model_call","duration_ms":600,"result_code":"ok","input_tokens":11,"output_tokens":7,"total_tokens":18},
+  {"contract_version":"producer-observation/0.1","stage":"model_call","duration_ms":400,"result_code":"ok","input_tokens":null,"output_tokens":null,"total_tokens":null},
+  {"contract_version":"producer-observation/0.1","stage":"model_call","duration_ms":50,"result_code":"rate_limited","input_tokens":null,"output_tokens":null,"total_tokens":null}
+]

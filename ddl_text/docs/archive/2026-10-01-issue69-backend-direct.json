@@ -1,0 +1,179 @@
+{
+  "platform": "win32",
+  "backend_cwd": "frontend",
+  "backend_entry": "server/app.py",
+  "text_harness_url_set": false,
+  "configuration": "checkout root .env",
+  "private_data_used": false,
+  "results": [
+    {
+      "name": "deadline",
+      "elapsed_seconds": 6.38,
+      "replay_seconds": 0.016,
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "issue69:deadline",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-10-01T15:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T15:01:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成接口测试",
+            "source_item_id": null,
+            "course_or_project": null,
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:deadline",
+            "text": "请于2026年10月9日9:00前交一份课程内容回顾，内容范围为目前学过的全部内容，请大家尽快完成，会按比例计入总评。"
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "issue69:deadline",
+        "status": "success",
+        "record_results": [
+          {
+            "input_id": "synthetic:deadline",
+            "status": "success",
+            "task_ids": [
+              "synthetic:deadline:candidate:1"
+            ],
+            "warnings": []
+          }
+        ],
+        "tasks": [
+          {
+            "candidate_id": "synthetic:deadline:candidate:1",
+            "input_id": "synthetic:deadline",
+            "title": "提交课程内容回顾",
+            "description": "提交一份课程内容回顾，内容范围为目前学过的全部内容，会按比例计入总评。",
+            "prerequisites": [],
+            "course_or_project": null,
+            "course_basis": "unknown",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-09T09:00:00+08:00",
+              "precision": "datetime",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "2026年10月9日9:00前",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:deadline",
+                "platform": "teaching_web",
+                "url": null,
+                "label": "合成接口测试",
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:deadline",
+                "field": "text",
+                "quote": "请于2026年10月9日9:00前交一份课程内容回顾，内容范围为目前学过的全部内容，请大家尽快完成，会按比例计入总评。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:deadline",
+                "field": "text",
+                "quote": "2026年10月9日9:00前",
+                "supports": [
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": []
+      },
+      "checks": {
+        "valid_status": true,
+        "no_errors": true,
+        "deadline": true,
+        "idempotent": true,
+        "no_implicit_task_write": true
+      },
+      "passed": true
+    },
+    {
+      "name": "no-task",
+      "elapsed_seconds": 1.81,
+      "replay_seconds": 0.032,
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "issue69:no-task",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-10-01T15:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-10-01T15:01:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": "合成接口测试",
+            "source_item_id": null,
+            "course_or_project": null,
+            "context": [],
+            "upstream_hints": null,
+            "input_id": "synthetic:no-task",
+            "text": "本周课程介绍了计算机系统的发展历史。以上内容仅供阅读，无需提交材料，也没有其他待办事项。"
+          }
+        ]
+      },
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "issue69:no-task",
+        "status": "no_tasks",
+        "record_results": [
+          {
+            "input_id": "synthetic:no-task",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": [
+              "no_action: 未识别到需要执行的行动或变更。"
+            ]
+          }
+        ],
+        "tasks": [],
+        "errors": []
+      },
+      "checks": {
+        "valid_status": true,
+        "no_errors": true,
+        "idempotent": true,
+        "no_implicit_task_write": true
+      },
+      "passed": true
+    }
+  ],
+  "date": "2026-10-01",
+  "base_commit": "53a64727417e9697e8229bf2a34d0ae75a74764b",
+  "provider": "qiniu",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "python_version": "3.9.12",
+  "independent_recall_evaluation": false
+}

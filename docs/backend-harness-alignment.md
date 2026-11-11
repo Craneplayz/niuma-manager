@@ -1,6 +1,6 @@
 # 牛马管理器：前端 / 后端 / 模型 Harness 对齐说明
 
-文档版本 2.2 · 2026-09-25。本文件是本项目唯一的协作协议基线，统一包含文本识别 v0.2、业务确认 API 和规划 2.0。已按项目负责人授权完成规则取舍及本地实现，不代表外部识别/规划服务已经部署。
+文档版本 2.2 · 2026-09-25。本文件保留文本识别 v0.2、业务确认 API 和规划 2.0 的对齐说明；模块数据交接以 [contracts](../contracts/README.md) 为准。新增微信图片/文件交接见 [v0.3.1 规约](../contracts/docs/text-attachments-v0.3.1.md)，当前仅定义契约，应用接入另由 #94–#97 实现，不改变下文的 v0.2 字段。v0.3.1 收紧输入边界并强制文件模型引用待审核，消费方需显式迁移，不能沿用 v0.3 自动入库规则。
 
 顺序固定为：授权来源 → 文本识别候选 → 用户核对/事务确认 → 正式任务 → 用户点击开始规划 → 模型估时与安排 → 预览确认。识别和规划的版本号、请求 ID、服务地址分别管理。
 
@@ -8,7 +8,7 @@
 
 - 前端：注册/登录/退出、任务与候选结果、可用时段、持久化“无需规划”选择、个性化用时反馈、规划预览与确认。
 - 本地后端：Python 3.9+ 标准库 HTTP API + SQLite，所有读取/写入由 Cookie 会话确认用户。前端不提交 userId，不持久化业务数据。
-- 本地规划 Harness：`server/planning_harness.py` 通过七牛 Chat Completions 接口生成规划 2.0 提案；必须提供自己的 `QINIU_API_KEY`，不提供默认 1 小时或规则估时的假模型。未配置 HARNESS_URL 返回 503。模型质量仍需真实账号测试；服务端会拒绝违规时段。
+- 本地规划 Harness：`task_planning/planning_harness.py` 通过七牛 Chat Completions 接口生成规划 2.0 提案；必须提供自己的 `QINIU_API_KEY`，不提供默认 1 小时或规则估时的假模型。未配置 HARNESS_URL 返回 503。模型质量仍需真实账号测试；服务端会拒绝违规时段。
 - v0.2 文本识别提交、批次与记录级状态、证据/来源/日期依据展示、新增/更新/延期/取消/忽略审核、候选事务确认和幂等检查均已实现。本地“加载协议演示”明确为人工样例，不调用模型。
 - 真实文本识别由 TEXT_HARNESS_URL 提供，真实规划由 HARNESS_URL 提供，缺少对应配置返回 503。真实邮箱/教学网/微信采集仍未接入；来源刷新入口只引导至文本识别页，不伪造同步结果。
 - 前端以潘勇圳的页面与交互为主；快速收集和浏览器语音输入都进入同一个 v0.2 识别审核流程。没有真实识别服务时不会用本地规则冒充模型结果。
@@ -139,7 +139,7 @@ Record 字段：
 | input_id | 非空字符串，主 records 内唯一；本地 ID 带命名空间，不冒充平台 ID |
 | text | 字符串，保留实际段落和日期原文 |
 | text_quality | complete / partial / summary / missing，不由模型提升完整度 |
-| platform | teaching_web / wechat / email / web / unknown，由调用方提供 |
+| platform | teaching_web / wechat / email / web / manual，由调用方提供；**manual = 用户在对话框手动输入**，识别结果必须经用户确认，不得自动入库。`unknown` 已停用：新代码不得再送；校验器暂时仍接受以兼容旧数据，一律按 manual 处理（须用户确认） |
 | published_at | {value,precision,basis}，见下 |
 | collected_at | 带偏移日期时间或 null，只用于追踪，不能代替发布时间 |
 | timezone | 时区名称或 null |
@@ -157,7 +157,7 @@ basis=source/upstream_unverified/unknown，未知值的 basis=unknown。人为�
 只有 source 级别发布时间才能无假设换算相对日期；上游未经核实的基准至多用于 inferred，并标待核实。
 可信日期可支持“明天”；“24 小时后”必须有可信精确时刻。
 
-Context={input_id,text,published_at,timezone,platform,source_url,source_label}。platform 未知显式 unknown。
+Context={input_id,text,published_at,timezone,platform,source_url,source_label}。手动输入的 platform 为 manual；旧 unknown 仅为兼容读取。
 context.input_id 不能与任意主记录 ID 冲突。同一上下文被多条记录复用时 ID 和内容须一致；同 ID 不同内容使请求 failed。
 context 内 ID 也不得重复。候选证据仅可引用触发记录自身及其 context，不能任意引用别的用户或别的记录内容。
 
@@ -220,7 +220,7 @@ evidence={input_id,field,quote,supports}：
 - partial/summary 文本和任何影响行动理解的推断需 needs_review=true，并说明限制；普通非课程任务无归属不自动待核实。
 - 不强求上游字段推断成正文证据：课程 provided 可直接追溯输入 course_or_project；相对日期换算同时核对 published_at 和 timezone 的可信度。
 
-所有候选，即便 needs_review=false，也要经用户确认才能进入正式任务。这一布尔值不是自动执行授权。
+needs_review=false 不是单独的自动执行授权：手动输入、演示、变更和来源新旧不明仍须用户确认；仅真实外部来源的无疑点新增行动可按第 6 节的 auto_apply 条件自动入库。
 
 ## 5. 时间语义
 
@@ -243,7 +243,7 @@ deadline 固定字段：{value,precision,timezone,kind,status,raw,basis,alternat
 2. not_provided：已提供的完整正文没有针对该行动的时间要求，value=null、precision=unknown、kind=unknown、raw=null、alternatives=[]；无需仅因缺期限设置 needs_review。部分正文遗漏时间则用 unknown。
 3. explicit 表示明确的截止语义和可确定时间；inferred 需核实。reference 一律 inferred，绝不自动进入真实 DDL。
 4. “明天 18 点前交”只有在可信发布时间和明确时区下才可无假设换算；采集日不充当基准。“24 小时后”不能只凭发布日期。
-5. 仅有“周五”“尽快”且缺少唯一解释时用 unknown；同一任务的纯催促语不覆盖明确截止，真正矛盾的日期仍保留冲突。“本周五”在可信基准下可解析。缺年份的“9 月 30 日”按原消息可信发布时间选择最近的相邻年份；缺发布时间时可用该消息采集时间补年。只有省略年份、且月日及截止语义明确并通过最近有效日期规则校验时，按已确定截止输出 explicit，不单独触发 needs_review；raw 与 basis 保留原话和补年依据，explicit 不表示原文逐字包含年份。无可用基准、年份冲突、非法日期或其他独立疑点仍需核实，reference 仍为 inferred。采集时间不能代替发布时间换算“明天”。此项只取消补年的核实标记，不自动保存任务；例见 contracts/text-to-app/text-year-inference-output.json。
+5. 仅有“周五”“尽快”且缺少唯一解释时用 unknown；同一任务的纯催促语不覆盖明确截止，真正矛盾的日期仍保留冲突。“本周五”在可信基准下可解析。缺年份的“9 月 30 日”按原消息可信发布时间选择最近的相邻年份；缺发布时间时可用该消息采集时间补年。只有省略年份、且月日及截止语义明确并通过最近有效日期规则校验时，按已确定截止输出 explicit，不单独触发 needs_review；raw 与 basis 保留原话和补年依据，explicit 不表示原文逐字包含年份。无可用基准、年份冲突、非法日期或其他独立疑点仍需核实，reference 仍为 inferred。采集时间不能代替发布时间换算“明天”。模型不自行保存任务，是否自动入库由消费者按来源及候选状态判断；例见 contracts/text-to-app/text-year-inference-output.json。
 6. “明晚开会，请提前加群”的会议时间可以作为 reference，不能当作明确加群 DDL。只有活动时间、没有行动要求的输入可 no_tasks。
 7. 原文有本地时刻但无时区，不能输出伪造偏移的 datetime；保留 raw，提示核实。date 精度不补 23:59，过期不等于已完成。
 8. 同一行动相互冲突的日期使用 conflict；不同义务各自的日期不是冲突，应分开输出事项。
@@ -335,12 +335,14 @@ action=create/update/postpone/cancel/ignore。
 - create 必须不带 target_id；update/postpone/cancel 必须选择属于当前账号的目标任务。禁止按标题自动匹配。
 - action 必须与 notice_type 一致；uncertain 需用户明确选择操作。ignore 只改变候选状态，不写任务，不要求目标或 tasks_version。
 - 除 ignore 外 reviewed 必须 true，前端默认不勾选。检查的是整个 tasks 集合版本，任何任务变化都要求刷新后重新核对，宁可保守冲突也不覆盖。
+- 仅非演示且已接入的教学网、微信来源（teaching_web/wechat）的 create 且 needs_review=false、review_reasons=[] 时可提交 auto_apply=true；截止时间只能是 explicit+deadline 或 not_provided，后者存 due=null 并留在工作台补日期；手动 manual 与旧 unknown、inferred、reference、冲突和变更不得自动入库，email/web 暂未接入自动入库。
+- auto_apply=true 由后端重复校验来源与字段，不要求 reviewed/tasks_version；只处理本次新识别结果，不在刷新旧批次时追溯自动入库。
 - create 保存确认后的 title/description/due，draft.course 可明确修改课程归属或设为 null；省略时使用候选归属。sourceRequirements 来自原文 prerequisites，subtasks/plans 初始化为空；不默认估时。
 - update 只更新用户确认的 title/description/due 以及显式提交的 draft.course；有新的非空 prerequisites 时更新 sourceRequirements，否则保留原要求。显示旧值和新值，由用户明确核对。
 - postpone 仅修改 DDL，必须有明确新日期；不改标题、说明、原文要求和计划。日期变化不自动重排已有计划。
 - cancel 设置 status=cancelled，不物理删除任务/历史计划；日历和今日安排不显示，规划时不占用可用时间。可在任务“已取消”筛选查看。
 - 参考时间、模糊时间或无期限均不自动填 DDL。更新已有任务时默认保留其已确认 DDL，用户可明确清空或修改。
-- 仅 explicit+deadline 可以预填，但仍需确认。datetime 按真实瞬时转换到北京时间，date-only 原样保留；源时间含非零秒/毫秒时不预填，避免静默丢失精度，用户核对到分钟后填写。
+- 人工确认时仅 explicit+deadline 可以预填日期和时刻；自动入库的 datetime 仅接受整分钟并按真实瞬时转换到北京时间，非零秒数留待核对；date-only 原样保留，不补造 23:59。
 - 同一个确认请求完全相同地重试返回 200，不再写任务；候选已处理后换操作/目标/内容返回 409。识别候选原文、完整结果和确认请求留在数据库。
 - 前端不会把模型 candidate_id 当数据库任务 ID；确认成功才刷新任务清单，随后由用户单独开始规划。
 

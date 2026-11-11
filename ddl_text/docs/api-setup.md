@@ -19,7 +19,7 @@ DDL_ENDPOINT=https://api.qnaigc.com/v1
 | 密钥变量 | `QINIU_API_KEY` | `DEEPSEEK_API_KEY` |
 | `DDL_MODEL` | `deepseek/deepseek-v4.1-flash` | 按服务支持情况配置 |
 | `DDL_ENDPOINT` | `https://api.qnaigc.com/v1` | 按服务支持情况配置 |
-| 依赖 | Python 标准库 | 另需 Codex，可用 `DDL_CODEX_BIN` 指定 |
+| 依赖 | `python -m pip install -r ddl_text/text_requirements.txt` | 同样安装文本依赖，另需 Codex，可用 `DDL_CODEX_BIN` 指定 |
 
 供应商、模型与地址须配套；七牛地址止于 `/v1`。未设置 `DDL_PROVIDER` 的旧配置默认 DeepSeek，此兼容行为不证明其模型和协议可用。
 

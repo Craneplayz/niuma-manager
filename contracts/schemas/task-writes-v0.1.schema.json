@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "operation": {
+      "type": "object",
+      "required": [
+        "id",
+        "owner",
+        "intent"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intent": {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "save",
+                "status",
+                "deadline",
+                "trash",
+                "restore",
+                "review"
+              ]
+            },
+            "workspaceGeneration": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "review"
+                  }
+                }
+              },
+              "then": {
+                "$ref": "#/$defs/reviewIntent"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "reconcile": {
+      "type": "object",
+      "required": [
+        "owner",
+        "operations"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        }
+      }
+    },
+    "reviewIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "candidateId",
+        "action",
+        "expectedCandidateVersion"
+      ],
+      "properties": {
+        "kind": {
+          "const": "review"
+        },
+        "candidateId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "action": {
+          "enum": [
+            "create",
+            "update",
+            "postpone",
+            "cancel",
+            "ignore",
+            "reopen"
+          ]
+        },
+        "expectedCandidateVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "workspaceGeneration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "draft": {
+          "type": "object"
+        },
+        "targetId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "expectedTarget": {
+          "type": "object",
+          "required": [
+            "title",
+            "description",
+            "course",
+            "content_type",
+            "due",
+            "status",
+            "completedAt"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "title": {},
+            "description": {},
+            "course": {},
+            "content_type": {},
+            "due": {},
+            "status": {},
+            "completedAt": {}
+          }
+        },
+        "newTaskId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{16,100}$"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "completedAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "previewSource": {
+          "type": "string",
+          "maxLength": 200
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "create",
+                  "update",
+                  "postpone"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "draft"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "enum": [
+                  "update",
+                  "postpone",
+                  "cancel"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "targetId",
+              "expectedTarget"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "create"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "newTaskId"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "complete"
+            ],
+            "properties": {
+              "complete": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "completedAt"
+            ],
+            "properties": {
+              "action": {
+                "const": "create"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/operation"
+    },
+    {
+      "$ref": "#/$defs/reconcile"
+    }
+  ]
+}

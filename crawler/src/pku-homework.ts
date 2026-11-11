@@ -5,6 +5,9 @@ import { DateTime } from "luxon";
 import { chromium, type Browser, type Page } from "playwright";
 import { DEFAULT_TIMEZONE, parseEventTime } from "./core/time.js";
 import { enrichAssignmentSources } from "./pku-assignment.js";
+import { authenticatedAttachmentReader, enrichSourceAttachments } from "./pku-attachments.js";
+import type { DownloadObserver } from "./producer-observation.js";
+import { CollectionFailure, collectionStage } from "./collection-failure.js";
 
 const PKU_ORIGIN = "https://course.pku.edu.cn";
 const PKU_LOGIN_URL = `${PKU_ORIGIN}/webapps/bb-sso-BBLEARN/login.html`;
@@ -42,20 +45,33 @@ export interface HomeworkScrapeResult {
 }
 
 export interface ScrapeOptions {
+  downloadObserver?: DownloadObserver;
   secretPath?: string;
   term?: string | null;
   asOf?: DateTime;
   executablePath?: string;
+  allSections?: boolean;
+  teachingSections?: boolean;
+  /** Read-only diagnosis of one saved source, without traversing other courses. */
+  targetSource?: { url: string; itemId: string; course: string; section: string };
 }
 
-interface AnchorInfo {
+export interface AnchorInfo {
   text: string;
   href: string;
 }
 
+export interface CourseCollectionPlan {
+  collectAnnouncements: boolean;
+  sections: AnchorInfo[];
+  warnings: string[];
+}
+
 interface CourseLink {
+  entryText: string;
   name: string;
   href: string;
+  termLabel?: string;
 }
 
 /**
@@ -91,57 +107,113 @@ export function filterUpcomingHomeworks(records: HomeworkRecord[], asOf: DateTim
 }
 
 export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<HomeworkScrapeResult> {
+  if (options.targetSource) validateSourceTarget(options.targetSource.url, options.targetSource.itemId);
   const asOf = (options.asOf ?? DateTime.now()).setZone(DEFAULT_TIMEZONE);
   const term = options.term === undefined ? currentAcademicTerm(asOf) : options.term;
-  const credentials = await readCredentials(options.secretPath ?? process.env.PKU_SECRET_PATH ?? "secret");
-  const browser = await launchBrowser(options.executablePath ?? process.env.PLAYWRIGHT_EXECUTABLE_PATH);
-  const context = await browser.newContext({ locale: "zh-CN", timezoneId: DEFAULT_TIMEZONE });
-  const page = await context.newPage();
+  const credentials = await collectionStage("credentials", () => readCredentials(options.secretPath ?? process.env.PKU_SECRET_PATH ?? "secret"));
+  const browser = await collectionStage("browser", () => launchBrowser(options.executablePath ?? process.env.PLAYWRIGHT_EXECUTABLE_PATH));
 
   try {
-    await login(page, credentials.username, credentials.password);
+    const context = await collectionStage("browser", () => browser.newContext({ locale: "zh-CN", timezoneId: DEFAULT_TIMEZONE }));
+    const page = await collectionStage("browser", () => context.newPage());
+    await collectionStage("login", () => login(page, credentials.username, credentials.password));
+    if (options.targetSource) {
+      const target = options.targetSource;
+      await navigateCoursePage(page, target.url);
+      const selected = selectSourceTarget(await page.content(), target, asOf.toISO()!);
+      const detailed = await enrichAssignmentSources(page, selected);
+      const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
+      return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
+        asOf, term: null, coursesChecked: 1, sectionsChecked: 1, sourceRecords,
+        scopeWarning: "Only the requested source item and its references were inspected.",
+      });
+    }
     await navigateCoursePage(page, PKU_PORTAL_URL);
     await page.waitForTimeout(2_000);
 
     const courses = discoverCourses(await collectAnchors(page), term);
     const sources: CourseSourceRecord[] = [];
+    const coverageWarnings: string[] = [];
     let sectionsChecked = 0;
 
     for (const course of courses) {
       await navigateCoursePage(page, course.href);
       await page.waitForTimeout(700);
       const coursePageUrl = page.url();
-      sources.push(...extractCourseSourcesFromHtml(await page.content(), {
-        course: course.name,
-        section: "课程通知",
-        sourceUrl: coursePageUrl,
-        collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
-      }));
+      const firstSource = sources.length;
+      const plan = planCourseCollection(course.name, await collectAnchors(page), options.allSections ?? false, options.teachingSections ?? false);
+      coverageWarnings.push(...plan.warnings);
+      if (plan.collectAnnouncements) {
+        const landingSources = extractCourseSourcesFromHtml(await page.content(), {
+          course: course.name,
+          courseEntry: { text: course.entryText, url: course.href },
+          section: "课程通知",
+          sourceUrl: coursePageUrl,
+          collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
+        });
+        sources.push(...(options.teachingSections ? landingSources.filter(source => source.kind === "announcement") : landingSources));
+      }
 
-      const sections = discoverSections(await collectAnchors(page));
-      for (const section of sections) {
+      for (const section of plan.sections) {
         sectionsChecked += 1;
         await navigateCoursePage(page, section.href, 30_000);
         await page.waitForTimeout(500);
         sources.push(...extractCourseSourcesFromHtml(await page.content(), {
           course: course.name,
+          courseEntry: { text: course.entryText, url: course.href },
           section: section.text,
           sourceUrl: page.url(),
           collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
         }));
       }
+      for (const source of sources.slice(firstSource)) source.course_term_label = course.termLabel;
     }
 
-    const sourceRecords = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
-    return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), { asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords });
+    const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
+    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
+    return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
+      asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
+      allSections: options.allSections ?? false, coverageWarnings,
+    });
   } finally {
     await closeBrowser(browser);
   }
 }
 
+export function validateSourceTarget(value: string, itemId: string): void {
+  const url = new URL(value);
+  if (url.origin !== PKU_ORIGIN || url.username || url.password || !/^_\d+_\d+$/.test(itemId)
+    || !/^_\d+_\d+$/.test(url.searchParams.get("course_id") ?? "")
+    || (url.pathname.endsWith("/announcement") && url.searchParams.get("method") !== "search")
+    || !/^\/webapps\/blackboard\/(?:execute\/announcement|content\/listContent(?:Editable)?\.jsp)$/i.test(url.pathname)) {
+    throw new Error("target source must be a PKU course announcement/content page and an exact item ID");
+  }
+}
+
+export function selectSourceTarget(html: string, target: NonNullable<ScrapeOptions["targetSource"]>, collectedAt: string): CourseSourceRecord[] {
+  validateSourceTarget(target.url, target.itemId);
+  const selected = extractCourseSourcesFromHtml(html, {
+    course: target.course, section: target.section, sourceUrl: target.url, collectedAt,
+  }).filter(source => source.source_item_id === target.itemId);
+  if (selected.length !== 1) throw new Error("requested source item was missing or ambiguous; no other sources were read");
+  return selected;
+}
+
 /** Source records are the primary output; legacy homework fields remain for compatibility. */
-export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: { asOf: DateTime; term: string | null; coursesChecked: number; sectionsChecked: number; sourceRecords?: CourseSourceRecord[] }): HomeworkScrapeResult {
+export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: {
+  asOf: DateTime;
+  term: string | null;
+  coursesChecked: number;
+  sectionsChecked: number;
+  sourceRecords?: CourseSourceRecord[];
+  allSections?: boolean;
+  coverageWarnings?: string[];
+  scopeWarning?: string;
+}): HomeworkScrapeResult {
   const deduplicated = deduplicateRecords(records);
+  const scopeWarning = context.scopeWarning ?? (context.allSections
+    ? "Course landing pages, linked content lists and native assignment details were inspected when available; nested folders and other detail pages were not read. Only same-origin teacher PDF/UTF-8 text attachments are supported; unread references retain their status."
+    : "Only assignment sections and native assignment details were inspected; course announcements, other sections and nested folders were not read. Only same-origin teacher PDF/UTF-8 text attachments are supported; unread references retain their status.");
   return {
     checked_at: context.asOf.toISO({ suppressMilliseconds: true })!,
     timezone: DEFAULT_TIMEZONE,
@@ -153,7 +225,7 @@ export function buildHomeworkScrapeResult(records: HomeworkRecord[], context: { 
     undated_records: deduplicated.filter((record) => record.status === "no_deadline").length,
     source_records: context.sourceRecords ?? [],
     source_records_found: context.sourceRecords?.length ?? 0,
-    coverage_warnings: ["Course landing pages, linked content lists and native assignment details were inspected when available; nested folders, other detail pages and attachment contents were not read."],
+    coverage_warnings: [...new Set([scopeWarning, ...(context.coverageWarnings ?? [])])],
     records: deduplicated,
     upcoming: filterUpcomingHomeworks(deduplicated, context.asOf),
   };
@@ -228,12 +300,12 @@ export function extractHomeworkRecords(text: string, context: { course: string; 
 
 /** An error page or expired login must not masquerade as a successful empty course. */
 export async function navigateCoursePage(page: Pick<Page, "goto" | "url" | "locator">, url: string, timeout = 45_000): Promise<void> {
-  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout });
-  if (!response || !response.ok()) throw new Error(`course page request failed (HTTP ${response?.status() ?? "unknown"})`);
+  const response = await collectionStage("navigation", () => page.goto(url, { waitUntil: "domcontentloaded", timeout }));
+  if (!response || !response.ok()) throw new CollectionFailure("navigation", "http_error", `course page request failed (HTTP ${response?.status() ?? "unknown"})`);
   const destination = new URL(page.url());
   if (destination.origin !== PKU_ORIGIN || !/^\/webapps\/(?:portal|blackboard|announcement)\//i.test(destination.pathname)
     || await page.locator('input[type="password"]').count()) {
-    throw new Error("course page left the authenticated area; login may have expired");
+    throw new CollectionFailure("navigation", "session_expired", "course page left the authenticated area; login may have expired");
   }
 }
 
@@ -288,19 +360,36 @@ function discoverCourses(anchors: AnchorInfo[], term: string | null): CourseLink
     if (url.origin !== PKU_ORIGIN || !url.pathname.endsWith("/launcher") || !url.searchParams.has("id") || !url.searchParams.has("url")) continue;
     if (term && !anchor.text.includes(term)) continue;
     const name = anchor.text.replace(/^[^:]+:\s*/, "");
-    if (name && !courses.has(anchor.href)) courses.set(anchor.href, { name, href: anchor.href });
+    if (name && !courses.has(anchor.href)) courses.set(anchor.href, { name, href: anchor.href, entryText: anchor.text, termLabel: anchor.text.match(/\d{2}(?:\d{2})?-\d{2}(?:\d{2})?学年第[12]学期/)?.[0] });
   }
   return [...courses.values()];
 }
 
-function discoverSections(anchors: AnchorInfo[]): AnchorInfo[] {
+function discoverSections(anchors: AnchorInfo[], includeAnnouncements = false): AnchorInfo[] {
   const sections = new Map<string, AnchorInfo>();
   for (const anchor of anchors) {
     const url = new URL(anchor.href, PKU_ORIGIN);
-    if (url.origin !== PKU_ORIGIN || !SECTION_PATH_PATTERN.test(url.pathname)) continue;
+    const announcement = includeAnnouncements && /通知|公告|\bannouncements?\b/i.test(anchor.text)
+      && /\/webapps\/(?:blackboard|announcement)\/execute\/announcement$/i.test(url.pathname);
+    if (url.origin !== PKU_ORIGIN || !(SECTION_PATH_PATTERN.test(url.pathname) || announcement)) continue;
     if (!sections.has(anchor.href)) sections.set(anchor.href, anchor);
   }
   return [...sections.values()];
+}
+
+function isAssignmentSection(text: string): boolean {
+  return /作业|\bassignments?\b|\bhomework\b/i.test(text);
+}
+
+/** Decide which pages a course crawl may open before any section navigation occurs. */
+export function planCourseCollection(courseName: string, anchors: AnchorInfo[], allSections = false, teachingSections = false): CourseCollectionPlan {
+  const available = discoverSections(anchors, teachingSections);
+  const assignments = available.filter((section) => isAssignmentSection(section.text));
+  return {
+    collectAnnouncements: allSections || teachingSections,
+    sections: allSections ? available : teachingSections ? available.filter((section) => isAssignmentSection(section.text) || /教学内容|课程通知|公告|\bannouncements?\b|\bcourse content\b/i.test(section.text)) : assignments,
+    warnings: assignments.length ? [] : [`No assignment section was found for course "${courseName}".`],
+  };
 }
 
 function containsExplicitDate(value: string): boolean {

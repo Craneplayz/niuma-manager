@@ -79,7 +79,7 @@ def normalize_record(record, version="0.1"):
             result[key] = deepcopy(record[key])
     require(nonempty(result.get("text")) and len(result["text"]) <= 200000)
     require(result["text_quality"] in {"complete", "partial", "summary"})
-    require(result["platform"] in {"teaching_web", "wechat", "email", "web", "unknown"})
+    require(result["platform"] in {"teaching_web", "wechat", "email", "web", "manual", "unknown"})
     check_publication(result["published_at"])
     require(result["collected_at"] is None or valid_time(result["collected_at"], "datetime"))
     require(nullable_text(result["timezone"]))

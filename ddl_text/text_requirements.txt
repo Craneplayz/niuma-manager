@@ -1,0 +1,3 @@
+# Core text draft validation; media readers remain optional.
+jsonschema>=4.23,<5
+tzdata>=2024.1; sys_platform == "win32"

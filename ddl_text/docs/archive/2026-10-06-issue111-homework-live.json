@@ -1,0 +1,937 @@
+{
+  "synthetic_only": true,
+  "started_at": "2026-10-06T04:18:19.772688+00:00",
+  "provider": "qiniu",
+  "model": "deepseek/deepseek-v4.1-flash",
+  "timeout_seconds": 90,
+  "max_retries": 0,
+  "git_commit": "9ee8224365945d2494ea3887d81fc6ea24d5dfb0",
+  "instructions_sha256": "c6d8a6beb74077763ed19c7244b2629cb86c7d40ce0f6e1e2dc42555c39da53a",
+  "scope": "Fixed smoke cases, not an independent accuracy benchmark",
+  "cases": [
+    {
+      "name": "homework-file",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-file",
+        "records": [
+          {
+            "text_quality": "partial",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-file",
+            "text": "第六讲作业题\n已附加文件：第六讲作业题.pdf（文件未读取）",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "needs_review": true,
+          "status": "unknown"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成第六讲作业\",\"description\":\"完成第六讲作业题；同名作业文件已附加但未读取。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:f3:homework-file\",\"quote\":\"第六讲作业题\"},{\"input_id\":\"synthetic:f3:homework-file\",\"quote\":\"已附加文件：第六讲作业题.pdf（文件未读取）\"}],\"times\":[],\"review_reasons\":[\"作业附件未读取，具体题目要求与截止日期尚缺，可能包含在附件中。\"],\"relevance\":{\"state\":\"current\",\"reason\":\"课程作业栏目发布第六讲作业题并附作业文件，属于当前作业行动。\",\"evidence\":[{\"input_id\":\"synthetic:f3:homework-file\",\"quote\":\"第六讲作业题\"}]}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-file",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:homework-file:candidate:1",
+            "input_id": "synthetic:f3:homework-file",
+            "title": "完成第六讲作业",
+            "description": "完成第六讲作业题；同名作业文件已附加但未读取。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "unknown",
+              "raw": null,
+              "basis": "原文未给出可确定的完成日期。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "作业附件未读取，具体题目要求与截止日期尚缺，可能包含在附件中。",
+              "原文未给出可确定的完成日期。",
+              "正文不完整，行动要求或日期可能缺失。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:homework-file",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:homework-file",
+                "field": "text",
+                "quote": "第六讲作业题",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:homework-file",
+                "field": "text",
+                "quote": "已附加文件：第六讲作业题.pdf（文件未读取）",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-file",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:homework-file:candidate:1"
+            ],
+            "warnings": [
+              "仅基于已提供的部分正文或摘要识别"
+            ]
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "status": "unknown",
+          "needs_review": true
+        }
+      ],
+      "elapsed_seconds": 5.34
+    },
+    {
+      "name": "homework-submit",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-submit",
+        "records": [
+          {
+            "text_quality": "partial",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-submit",
+            "text": "第二章书面作业\n已附加文件：第二章练习.pdf（文件未读取）\n请提交 PDF，可以是电子版或纸质版拍照转 PDF。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "needs_review": true,
+          "status": "unknown"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"提交第二章书面作业\",\"description\":\"提交第二章书面作业，需提交 PDF，可以是电子版或纸质版拍照转 PDF。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:f3:homework-submit\",\"quote\":\"第二章书面作业\"},{\"input_id\":\"synthetic:f3:homework-submit\",\"quote\":\"请提交 PDF，可以是电子版或纸质版拍照转 PDF。\"}],\"times\":[],\"review_reasons\":[],\"relevance\":{\"state\":\"current\",\"reason\":\"课程作业栏目当前布置的第二章书面作业提交要求，未见结束或取消语义。\",\"evidence\":[]}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-submit",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:homework-submit:candidate:1",
+            "input_id": "synthetic:f3:homework-submit",
+            "title": "提交第二章书面作业",
+            "description": "提交第二章书面作业，需提交 PDF，可以是电子版或纸质版拍照转 PDF。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "unknown",
+              "raw": null,
+              "basis": "原文未给出可确定的完成日期。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "原文未给出可确定的完成日期。",
+              "正文不完整，行动要求或日期可能缺失。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:homework-submit",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:homework-submit",
+                "field": "text",
+                "quote": "第二章书面作业",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:homework-submit",
+                "field": "text",
+                "quote": "请提交 PDF，可以是电子版或纸质版拍照转 PDF。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-submit",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:homework-submit:candidate:1"
+            ],
+            "warnings": [
+              "仅基于已提供的部分正文或摘要识别"
+            ]
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "status": "unknown",
+          "needs_review": true
+        }
+      ],
+      "elapsed_seconds": 6.75
+    },
+    {
+      "name": "homework-dated",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-dated",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-dated",
+            "text": "第二周作业\n内容：课后练习1至3题。截止2026年10月8日。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-08",
+          "needs_review": false,
+          "status": "explicit"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成第二周作业\",\"description\":\"完成第二周作业：课后练习1至3题。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:f3:homework-dated\",\"quote\":\"第二周作业\"},{\"input_id\":\"synthetic:f3:homework-dated\",\"quote\":\"内容：课后练习1至3题。\"},{\"input_id\":\"synthetic:f3:homework-dated\",\"quote\":\"截止2026年10月8日。\"}],\"times\":[{\"input_id\":\"synthetic:f3:homework-dated\",\"quote\":\"截止2026年10月8日。\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-08\",\"precision\":\"date\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文明确写出截止日期2026年10月8日。\"}}],\"review_reasons\":[],\"relevance\":{\"state\":\"current\",\"reason\":\"课程作业栏目的当前作业，有明确截止日期。\",\"evidence\":[{\"input_id\":\"synthetic:f3:homework-dated\",\"quote\":\"第二周作业\"}]}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-dated",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:homework-dated:candidate:1",
+            "input_id": "synthetic:f3:homework-dated",
+            "title": "完成第二周作业",
+            "description": "完成第二周作业：课后练习1至3题。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-08",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "截止2026年10月8日。",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:homework-dated",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:homework-dated",
+                "field": "text",
+                "quote": "第二周作业",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:homework-dated",
+                "field": "text",
+                "quote": "内容：课后练习1至3题。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:homework-dated",
+                "field": "text",
+                "quote": "截止2026年10月8日。",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-dated",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:homework-dated:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-08",
+          "status": "explicit",
+          "needs_review": false
+        }
+      ],
+      "elapsed_seconds": 9.62
+    },
+    {
+      "name": "homework-answers",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-answers",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-answers",
+            "text": "第六讲作业参考答案，仅供复习，不是新布置的作业。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [],
+      "expected_alternatives": [],
+      "route": "information",
+      "passed": true,
+      "model_draft": "{\"tasks\": []}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-answers",
+        "status": "no_tasks",
+        "tasks": [],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-answers",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": [
+              "no_action: 未识别到需要执行的行动或变更。"
+            ]
+          }
+        ]
+      },
+      "actual": [],
+      "elapsed_seconds": 1.95
+    },
+    {
+      "name": "homework-materials",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-materials",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "教学内容",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-materials",
+            "text": "参考讲义与往年题展示，本页面只作资料存档。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [],
+      "expected_alternatives": [],
+      "route": "information",
+      "passed": true,
+      "model_draft": "{\"tasks\": []}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-materials",
+        "status": "no_tasks",
+        "tasks": [],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-materials",
+            "status": "no_tasks",
+            "task_ids": [],
+            "warnings": [
+              "no_action: 未识别到需要执行的行动或变更。"
+            ]
+          }
+        ]
+      },
+      "actual": [],
+      "elapsed_seconds": 1.62
+    },
+    {
+      "name": "homework-optional",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-optional",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-optional",
+            "text": "有兴趣可做拓展练习，不计入课程要求。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "needs_review": true,
+          "status": "not_provided"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"完成拓展练习\", \"description\": \"原文说明有兴趣可做拓展练习，不计入课程要求，属于可选的额外练习行动。\", \"prerequisites\": [], \"notice_type\": \"create\", \"target\": null, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:f3:homework-optional\", \"quote\": \"有兴趣可做拓展练习，不计入课程要求。\"}], \"times\": [], \"review_reasons\": [\"该拓展练习为可选行动且明确不计入课程要求，原文未说明适用对象及用户参与意向，需核实是否参与。\"], \"relevance\": {\"state\": \"uncertain\", \"reason\": \"原文为自愿性的拓展练习，参与意向未知，保留具体适用性疑点。\", \"evidence\": [{\"input_id\": \"synthetic:f3:homework-optional\", \"quote\": \"有兴趣可做拓展练习，不计入课程要求。\"}]}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-optional",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:homework-optional:candidate:1",
+            "input_id": "synthetic:f3:homework-optional",
+            "title": "完成拓展练习",
+            "description": "原文说明有兴趣可做拓展练习，不计入课程要求，属于可选的额外练习行动。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "not_provided",
+              "raw": null,
+              "basis": "完整正文未提供该行动的时间要求。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "该拓展练习为可选行动且明确不计入课程要求，原文未说明适用对象及用户参与意向，需核实是否参与。",
+              "原文为自愿性的拓展练习，参与意向未知，保留具体适用性疑点。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:homework-optional",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:homework-optional",
+                "field": "text",
+                "quote": "有兴趣可做拓展练习，不计入课程要求。",
+                "supports": [
+                  "title",
+                  "description"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-optional",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:homework-optional:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": null,
+          "status": "not_provided",
+          "needs_review": true
+        }
+      ],
+      "elapsed_seconds": 3.69
+    },
+    {
+      "name": "homework-cancel",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-cancel",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-cancel",
+            "text": "第二周作业取消，不再要求完成。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "cancel",
+          "value": null,
+          "needs_review": true,
+          "status": "not_provided"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\": [{\"title\": \"第二周作业取消\", \"description\": \"通知第二周作业取消，不再要求完成，保留供核对原有作业任务。\", \"prerequisites\": [], \"notice_type\": \"cancel\", \"target\": {\"input_id\": \"synthetic:f3:homework-cancel\", \"quote\": \"第二周作业\"}, \"course\": null, \"evidence\": [{\"input_id\": \"synthetic:f3:homework-cancel\", \"quote\": \"第二周作业取消，不再要求完成。\"}], \"times\": [], \"review_reasons\": [], \"relevance\": {\"state\": \"current\", \"reason\": \"当前发布的取消通知，需保留供用户核对原作业任务。\", \"evidence\": []}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-cancel",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:homework-cancel:candidate:1",
+            "input_id": "synthetic:f3:homework-cancel",
+            "title": "第二周作业取消",
+            "description": "通知第二周作业取消，不再要求完成，保留供核对原有作业任务。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "cancel",
+            "target_reference": "第二周作业",
+            "deadline": {
+              "value": null,
+              "precision": "unknown",
+              "timezone": "Asia/Shanghai",
+              "kind": "unknown",
+              "status": "not_provided",
+              "raw": null,
+              "basis": "完整正文未提供该行动的时间要求。",
+              "alternatives": []
+            },
+            "needs_review": true,
+            "review_reasons": [
+              "变更通知需核对现有任务后处理。"
+            ],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:homework-cancel",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:homework-cancel",
+                "field": "text",
+                "quote": "第二周作业取消，不再要求完成。",
+                "supports": [
+                  "title",
+                  "description",
+                  "notice_type"
+                ]
+              },
+              {
+                "input_id": "synthetic:f3:homework-cancel",
+                "field": "text",
+                "quote": "第二周作业",
+                "supports": [
+                  "target_reference"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-cancel",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:homework-cancel:candidate:1"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "cancel",
+          "value": null,
+          "status": "not_provided",
+          "needs_review": true
+        }
+      ],
+      "elapsed_seconds": 6.16
+    },
+    {
+      "name": "homework-multiple",
+      "request": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-multiple",
+        "records": [
+          {
+            "text_quality": "complete",
+            "platform": "teaching_web",
+            "published_at": {
+              "value": "2026-09-30T10:00:00+08:00",
+              "precision": "datetime",
+              "basis": "source"
+            },
+            "collected_at": "2026-09-30T10:05:00+08:00",
+            "timezone": "Asia/Shanghai",
+            "timezone_basis": "source",
+            "source_url": null,
+            "source_label": null,
+            "source_item_id": null,
+            "course_or_project": "合成分类课程",
+            "context": [],
+            "upstream_hints": {
+              "section": "课程作业",
+              "source_kind": "content"
+            },
+            "input_id": "synthetic:f3:homework-multiple",
+            "text": "第二周作业：课后练习1至3题，2026年10月8日截止。\n课程反馈问卷：2026年10月9日前填写。",
+            "contract_version": "0.2"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-08",
+          "needs_review": false,
+          "status": "explicit"
+        },
+        {
+          "notice_type": "create",
+          "value": "2026-10-09",
+          "needs_review": false,
+          "status": "explicit"
+        }
+      ],
+      "expected_alternatives": [],
+      "route": "tasks",
+      "passed": true,
+      "model_draft": "{\"tasks\":[{\"title\":\"完成第二周作业（课后练习1至3题）\",\"description\":\"完成并提交第二周作业，内容为课后练习1至3题。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:f3:homework-multiple\",\"quote\":\"第二周作业：课后练习1至3题，2026年10月8日截止。\"}],\"times\":[{\"input_id\":\"synthetic:f3:homework-multiple\",\"quote\":\"第二周作业：课后练习1至3题，2026年10月8日截止。\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-08\",\"precision\":\"date\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文明确写出2026年10月8日截止。\"}}],\"review_reasons\":[],\"relevance\":{\"state\":\"current\",\"reason\":\"当前发布的第二周作业提交要求。\",\"evidence\":[]}},{\"title\":\"填写课程反馈问卷\",\"description\":\"在截止时间前填写课程反馈问卷。\",\"prerequisites\":[],\"notice_type\":\"create\",\"target\":null,\"course\":null,\"evidence\":[{\"input_id\":\"synthetic:f3:homework-multiple\",\"quote\":\"课程反馈问卷：2026年10月9日前填写。\"}],\"times\":[{\"input_id\":\"synthetic:f3:homework-multiple\",\"quote\":\"课程反馈问卷：2026年10月9日前填写。\",\"kind\":\"deadline\",\"normalized\":{\"value\":\"2026-10-09\",\"precision\":\"date\",\"derivation\":\"absolute\",\"anchor\":null,\"basis\":\"原文明确写出2026年10月9日前填写。\"}}],\"review_reasons\":[],\"relevance\":{\"state\":\"current\",\"reason\":\"当前发布的课程反馈问卷填写要求。\",\"evidence\":[]}}]}",
+      "result": {
+        "contract_version": "0.2",
+        "request_id": "f3:homework-multiple",
+        "status": "success",
+        "tasks": [
+          {
+            "candidate_id": "synthetic:f3:homework-multiple:candidate:1",
+            "input_id": "synthetic:f3:homework-multiple",
+            "title": "完成第二周作业（课后练习1至3题）",
+            "description": "完成并提交第二周作业，内容为课后练习1至3题。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-08",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "第二周作业：课后练习1至3题，2026年10月8日截止。",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:homework-multiple",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:homework-multiple",
+                "field": "text",
+                "quote": "第二周作业：课后练习1至3题，2026年10月8日截止。",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ]
+          },
+          {
+            "candidate_id": "synthetic:f3:homework-multiple:candidate:2",
+            "input_id": "synthetic:f3:homework-multiple",
+            "title": "填写课程反馈问卷",
+            "description": "在截止时间前填写课程反馈问卷。",
+            "prerequisites": [],
+            "course_or_project": "合成分类课程",
+            "course_basis": "provided",
+            "notice_type": "create",
+            "target_reference": null,
+            "deadline": {
+              "value": "2026-10-09",
+              "precision": "date",
+              "timezone": "Asia/Shanghai",
+              "kind": "deadline",
+              "status": "explicit",
+              "raw": "课程反馈问卷：2026年10月9日前填写。",
+              "basis": "按原文明确时间归一化。",
+              "alternatives": []
+            },
+            "needs_review": false,
+            "review_reasons": [],
+            "sources": [
+              {
+                "input_id": "synthetic:f3:homework-multiple",
+                "platform": "teaching_web",
+                "url": null,
+                "label": null,
+                "source_item_id": null
+              }
+            ],
+            "evidence": [
+              {
+                "input_id": "synthetic:f3:homework-multiple",
+                "field": "text",
+                "quote": "课程反馈问卷：2026年10月9日前填写。",
+                "supports": [
+                  "title",
+                  "description",
+                  "deadline"
+                ]
+              }
+            ]
+          }
+        ],
+        "errors": [],
+        "record_results": [
+          {
+            "input_id": "synthetic:f3:homework-multiple",
+            "status": "success",
+            "task_ids": [
+              "synthetic:f3:homework-multiple:candidate:1",
+              "synthetic:f3:homework-multiple:candidate:2"
+            ],
+            "warnings": []
+          }
+        ]
+      },
+      "actual": [
+        {
+          "notice_type": "create",
+          "value": "2026-10-08",
+          "status": "explicit",
+          "needs_review": false
+        },
+        {
+          "notice_type": "create",
+          "value": "2026-10-09",
+          "status": "explicit",
+          "needs_review": false
+        }
+      ],
+      "elapsed_seconds": 4.92
+    }
+  ]
+}
