@@ -1,0 +1,11 @@
+{
+  "unit": "原始模型草案中的明确必要动作；允许多个动作合并在一个收尾步骤；未知项目仅考察澄清，不编造参考步骤",
+  "cases": {
+    "M2-atomic": [["打印", "print"]],
+    "M2-progress": [["讨论", "discussion"], ["格式", "format"], ["提交", "submit"]],
+    "M2-clear": [["观点", "outline"], ["撰写", "write", "draft"], ["校对", "proofread"], ["提交", "submit"]],
+    "M2-rename": [["打印", "print"]],
+    "M2-partial": [["格式", "format"], ["上传", "提交", "upload", "submit"]]
+  },
+  "note": "评分细化只补充原句明确的动作，不改变固定输入、原始expected状态或模型输出；自动词项匹配经逐步产物复核，仅作本轮内容覆盖检查。"
+}

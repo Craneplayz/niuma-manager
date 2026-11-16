@@ -1,0 +1,76 @@
+```text
+model_evaluation/
+├── README.md                   用例定义、指标判定与服务器复现命令。
+├── __init__.py                 独立评测包，不接入应用服务。
+├── runner.py                   选择用例、调用现有适配器、记录指纹并断点续跑。
+├── summarize.py                从完整回执矩阵离线重算识别、拆解、估时及用量指标。
+├── score_decomposition.py      分开统计原始草案与通过接口校验的明确动作覆盖。
+└── fixtures/                   固定合成输入、评分标签和图片，不含私人教学网材料。
+    ├── cases.json              12条文字识别、6条拆解、6条估时。
+    ├── vision-cases.json       4条图片识别与日期边界。
+    ├── decomposition-rubric.json 原文明确动作的辅助匹配词，不是通用拆解答案。
+    └── images/                 date6、date9、nodate、negative四张合成PNG。
+```
+
+# 模型选择评测方法
+
+保留课程汇报原版的28条固定用例；用现有模型适配器分别比较文字识别、图片识别、任务拆解与任务工时估计，不增加网页入口或修改业务模块。
+
+## 输入与判定
+
+| 模块 | 输入与覆盖 | 单独报告的指标 |
+| --- | --- | --- |
+| M1文字识别（12条） | 明确/相对日期、活动与截止日期、无日期、多任务、负例 | 接口成功数；任务对象P/R/F1；任务/非任务及数量判定；完整日期值与精度；日期角色；是否凭空增加提交动作 |
+| M1图片识别（4条） | 6/9日期辨认、无日期、无任务图片 | 接口成功数；任务数量；完整日期值与精度 |
+| M2任务拆解（6条） | 原子任务、明确步骤、用户明确剩余工作、信息不足、改名对照 | 接口有效；有步骤的可用计划；结构化信息不足状态；原始/有效动作覆盖；无空闲时间依据的排程 |
+| M3任务估时（6条） | 明确分钟数、用户明确进度、改名与无关文字干扰 | 任务ID完整；正有限数值分钟；明确分钟数一致性；改名/噪声不变性；进度对照 |
+
+任务对象通过`expected.terms`一对一配对：TP为配对数，FP为未配对输出数，FN为未配对参考任务数；P=TP/(TP+FP)，R=TP/(TP+FN)，F1=2TP/(2TP+FP+FN)，分母为零时保留未知。再对照`expected.targets`检查日期值和精度；关键词匹配只辅助配对，须人工核对动作、对象和来源含义，不以高F1掩盖动作改写或日期错误。负例调用失败不计识别正确，所有错误回执保留在分母。
+
+M2的“11个必要动作”来自5个**明确给定动作**的用例（包括打印任务的改名对照），每例允许一个步骤覆盖多个动作；它检验保留用户已知要求，不代表未知作业都应按这些步骤拆解。用户明确进度/剩余工作只出现在相应合成输入，不推定教学网通知含有个人进度。未知项目没有参考步骤，不计算动作召回。
+
+M2使用现有契约的`needs_clarification`等结构化状态表达信息不足；它可供程序处理，但不等于已有可用计划，也不证明当前网页提供文字追问入口。`strict_original_state_correct`保留原用例的状态预期，须与`usable_plan`、`structured_missing_info`分开解读；标题和产物非空仅是字段检查，不能直接称为“可执行”或“无需实质修改”。关键词覆盖后仍需人工复核遗漏、虚构要求和步骤产物。
+
+M3估计的是**用户任务剩余工作分钟数**，不是模型运行耗时；优先检查输出可由系统解析、任务ID无遗漏和估时为正有限数值，再检查输入明确的时长约束。只有带参考分钟数的输入计算`explicit_correct`；尚无用户真实完成时长标签，不报告真实估时误差。`progress_pair`保留对照值，不自动把长短关系判为准确。
+
+`seconds`记录适配器端到端耗时，`observations`记录实际请求、用量及修复调用；不把用例数当成请求数。45/20秒是单次请求配置，修复流程可能产生额外请求，不等于整例总耗时硬上限；需要业务总时限时另设明确阈值并报告端到端完成情况。
+
+## 服务器执行
+
+在已有服务器隔离容器内运行，源码只读挂载到`/app`，结果写到独立私有目录`/results`；使用已安装`ddl_text`、`task_planning`核心依赖的验收镜像，不挂载业务数据库、不启动应用服务。
+
+先校验输入和指纹，双模型共56个执行单元；此步骤无需密钥且不调用模型：
+
+```bash
+export PYTHONPATH=/app
+python -m server.model_evaluation.runner \
+  --model deepseek/deepseek-v4.1-flash --model qwen/qwen3.7-flash \
+  --source-version <当前被测提交SHA> --out /results/new-run --dry-run
+```
+
+检查计划后去掉`--dry-run`才产生调用；`QINIU_API_KEY`由私有env-file注入，不能写入命令、镜像或仓库。`DDL_ENDPOINT`默认`https://api.qnaigc.com/v1`，只接收无内嵌凭据的HTTPS地址。比较同一服务商下的明确模型ID，固定thinking=disabled、max_tokens=8192、温度为供应商默认；文字/图片请求45秒、拆解/估时请求20秒，网络重试0次，适配器自身结构修复保持原行为。
+
+- `--module decomposition`或`--case-id M1-roles`筛选，可重复；自定义`--cases`须按需显式传`--vision-cases`，图片路径相对文字用例目录。
+- `manifest.json`记录所选用例/图片/工具/模型源码哈希、提交标签、端点和配置；输入或参数变化须新建结果目录，不混合不同实验。
+- 每个结果目录只由一个进程运行；相同指纹的完整成功/失败回执均跳过，纯重算无需密钥。
+- 中断仅留下调用日志时拒绝自动重发；先存档并检查用量，再另建目录重试，不能假定中断未计费。
+- 每例包含输入与expected；新增回归应独立加例，不能回改原标签使结果变好。历史原版的逐字段日期标签是在执行后补齐，模型输入未变，不宣称它们是预注册标签。
+- 模型别名由供应商维护；记录请求ID和时间，不宣称获得未公开的底层权重版本。
+
+## 离线评分与回归
+
+输出文件放在回执目录**外面**，评分不调用模型；有manifest时按所选矩阵核对，无manifest的历史目录按完整固定集核对，缺少或重复回执直接报错。
+
+```bash
+python -m server.model_evaluation.summarize \
+  --evidence server/model_evaluation/fixtures \
+  --results /results/new-run --out /results/summary.json
+python -m server.model_evaluation.score_decomposition \
+  --evidence server/model_evaluation/fixtures \
+  --report /results/summary.json --out /results/decomposition-content.json
+python -m unittest server.test_model_evaluation -v
+```
+
+回归使用替身验证选择、无密钥预检、断点恢复、指纹变化、重复计费保护、失败分母、无效估时和结构化信息不足；它证明评测器行为，不替代真实模型质量结果。真实模型的接口/内容失败应逐例保留，按模块交接修复；已发现的拆解契约问题由[#222](https://github.com/Craneplayz/niuma-manager/issues/222)跟踪。
+
+结果和原始调用日志仅留在服务器私有目录；确需共享的汇总先检查不含个人材料，再按项目约定放入`server/docs/archive/`。本目录只含合成夹具，未提交私人教学网原文或本机演示产物。

@@ -1,5 +1,7 @@
 ```text
 server/
+├── model_evaluation/         固定合成用例、模型调用与离线评分工具，详见其README。
+├── test_model_evaluation.py  选择、恢复、计费保护、失败分母与评分边界回归。
 ├── course_context.py          同账号课程资料索引、受限检索、按需附件读取及依赖更新。
 ├── test_course_context.py     课程/学期隔离、取段、预算、标题、周次与增量回归。
 ├── test_course_context_http.py HTTP证据、自动入库、人工决定和迟到结果回归。
