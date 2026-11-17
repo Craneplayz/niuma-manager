@@ -1002,8 +1002,10 @@ dialog:has([data-timetable-panel]) { width: min(760px, calc(100vw - 32px)); }
   .calendar-month .calendar-class { display: none; }
 }
 
-@container calendar-day (max-height: 60px) {
-  .calendar-month .calendar-day-course-dots {
-    display: none;
+@media (min-width: 701px) {
+  @container calendar-day (max-height: 60px) {
+    .calendar-month .calendar-day-course-dots {
+      display: none;
+    }
   }
 }
