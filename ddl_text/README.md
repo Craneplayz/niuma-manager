@@ -1,5 +1,9 @@
 # 文本识别模块
 
+教学网[课程上下文与事实](../contracts/docs/course-context-v0.1.md)由服务器按当前账号、课程和学期选取原文；模型只引用已取得资料，程序统一批次标题并计算有基准的教学周日期，保留规则适用性核对。真实模型和完整DOCX到HTTP验收命令见该接口说明。
+
+有课程旁证时，真实模型先仅依据本条正文和自身附件识别行动，再按冻结的行动清单补充日期和规则；第二步不得新增行动或判为历史任务，两步共享原有时间预算。旁证补充失败保留已验证的当前行动并提示核对。
+
 文本、教学网和文件入口使用统一错误目录与一次有界草稿纠错，见 [错误约定](../contracts/docs/recognition-errors.md)；文本按原文句段生成证据编号，长句按词和日期边界切成最多 768 字的重叠片段，模型只选择引用，服务端还原原文并校验日期。图片证据仍标记为模型读取，不能视为已核实的文字证据。
 
 教学网 v0.4 识别结果区分 `content_type=task/notice`；任务和通知均可携带有依据的日期，类型不由日期决定，规则见 `skills/teaching-task-extraction/SKILL.md`。旧文本/微信入口暂保持原契约与默认 task。
@@ -16,6 +20,12 @@
 
 ```text
 ddl_text/
+├── course_facts.py        # 引文支持的标题渲染与教学周日期计算
+├── course_refinement.py   # 本条行动独立识别后，以固定行动槽位补充旁证日期与规则
+├── tests/test_course_refinement.py # 真实模式两阶段调用、纠错、冻结行动与旁证失败回退的模拟边界回归
+├── tests/run_course_context_smoke.py # 跨文件、远期安排和标题系列的真实模型合成验收
+├── tests/test_course_context_boundaries.py # 当前来源证据、过滤与空结果的生产消费一致性回归
+├── tests/test_course_title_style.py # 中英文明确批次的统一显示及题号、年份不误伤回归
 ├── README.md             # 模块用途、运行和检查入口
 ├── __init__.py           # Python 包入口
 ├── __main__.py           # CLI 参数、输入文件和输出
@@ -132,7 +142,7 @@ ddl_text/
 
 接收预处理文本及上下文，输出带来源证据、日期状态及错误信息的 JSON 候选。HTTP 使用 v0.2，CLI 兼容 v0.1/v0.2，默认 JSON，可选 `--format text`。F1 手动输入仍需用户确认；F3 外部来源按下表分类，由账户后端决定入库，文本模块不负责采集、定时同步或写入正式任务。
 
-教学网 [model-v1 分类](docs/teaching-draft.md) 在同次模型调用中输出 task/candidate/filtered；程序只做格式、证据和来源等技术校验，正文 partial、未读补充资料和正常补年不再强制审核。下文 F3 旧规则只用于 v0.2，微信 v0.3.1 规则不变。
+教学网 [model-v1 分类](docs/teaching-draft.md) 由模型输出 task/candidate/filtered；存在课程旁证时按前述两阶段执行，程序校验格式、证据和来源，正文 partial、未读补充资料和正常补年不再强制审核。下文 F3 旧规则只用于 v0.2，微信 v0.3.1 规则不变。
 
 新增可选 [v0.3.1 附件识别入口](docs/image-input.md)：支持静态 JPG/PNG、普通 PDF 可见页面、DOCX 正文/表格/内嵌图片和已有文字块，正式 HTTP/CLI 路由仍为旧版本；后端需接账号受限的文件读取器后使用，文件证据依正式契约保留待审核。
 

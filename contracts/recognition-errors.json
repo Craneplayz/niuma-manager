@@ -22,6 +22,7 @@
   "draft_json": {"category":"output","stage":"parse","message":"模型结果不是完整有效的数据对象。","action":"请重试；若反复失败，请反馈本次识别记录。"},
   "draft_schema": {"category":"output","stage":"validate","message":"模型结果缺少必要字段，或字段格式不正确。","action":"请重试；若反复失败，请反馈本次识别记录。"},
   "draft_evidence": {"category":"evidence","stage":"validate","message":"模型引用无法在提供的原文或已读取内容中找到，结果未采纳。","action":"请重试或核对原文后手动添加。"},
+  "primary_source_evidence": {"category":"evidence","stage":"validate","message":"模型只引用了其他资料，缺少当前条目要求该行动的证据。","action":"该结果未收录，以免重复导入其他作业。请重试；反复发生时请反馈本次诊断编号。"},
   "draft_semantics": {"category":"content","stage":"validate","message":"模型结果中的日期、任务或来源关系相互矛盾。","action":"请核对原文后重试或手动添加。"},
   "result_contract": {"category":"output","stage":"validate","message":"识别结果未通过最终一致性校验，未保存不可信内容。","action":"请反馈本次识别记录。"},
   "save_failed": {"category":"storage","stage":"save","message":"识别结果尚未确认保存成功。","action":"请先刷新结果，再决定是否重试，避免重复操作。"},

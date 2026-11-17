@@ -4,11 +4,47 @@ import unittest
 import json
 import sqlite3
 from contextlib import closing
-from teaching_identity import source_digest, upgrade_pending_candidates, CHANGED_SOURCE_REVIEW
+from teaching_identity import source_digest, upgrade_pending_candidates, reuse_unchanged_result, CHANGED_SOURCE_REVIEW
 from ddl_text.tests.test_teaching_pipeline import example
 
 
 class SourceIdentityTests(unittest.TestCase):
+    def test_result_reuse_ignores_only_attempt_identity_context_and_decision_order(self):
+        from ddl_text.tests.test_course_context_boundaries import sample, compile_result, result_envelope
+        request,task,_,_=sample()
+        original=result_envelope(request,compile_result(request,dict(tasks=[task,dict(task,title='另一项独立行动')])))
+        with closing(sqlite3.connect(':memory:')) as db:
+            db.executescript('''CREATE TABLE recognition_batches(user_id TEXT,request_id TEXT,result TEXT);
+                CREATE TABLE teaching_submission_requests(user_id TEXT,account TEXT,request_id TEXT,input_id TEXT);''')
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?)',('u','old',json.dumps(original)))
+            for rid in ('old','new'):db.execute('INSERT INTO teaching_submission_requests VALUES(?,?,?,?)',('u','a',rid,'source'))
+            result=deepcopy(original);result['request_id']='new'
+            decisions=result['record_results'][0]['decisions'];decisions.reverse()
+            for d in decisions:
+                d['pair']['assessment']['candidate_id']='new:'+d['title']
+                d['pair']['record']['course_context']['revision']='new-retrieval'
+                d['pair']['record']['references'][0]['text']+=' More optional material'
+            self.assertTrue(reuse_unchanged_result(db,'u','new',result))
+            for field in ('title','description','deadline','evidence','primary','count','snapshot','filter'):
+                changed=deepcopy(result);decision=changed['record_results'][0]['decisions'][0]
+                if field in ('title','description'):decision[field]+=' changed'
+                elif field=='deadline':decision['pair']['assessment']['deadline']['value']='2026-12-21'
+                elif field=='evidence':decision['pair']['assessment']['action']['evidence'][0]['quote']+=' changed'
+                elif field=='primary':decision['pair']['record']['text']+=' changed'
+                elif field=='count':changed['record_results'][0]['decisions'].pop()
+                elif field=='snapshot':changed['record_results'][0]['snapshot_id']='changed'
+                elif field=='filter':decision['filter_reason']='New reason'
+                with self.subTest(field=field):self.assertFalse(reuse_unchanged_result(db,'u','new',changed))
+            for field,value in [('account','b'),('input_id','different'),('user_id','v')]:
+                db.execute('UPDATE teaching_submission_requests SET '+field+'=? WHERE request_id=?',(value,'new'))
+                self.assertFalse(reuse_unchanged_result(db,'u','new',result))
+                db.execute('UPDATE teaching_submission_requests SET user_id=?,account=?,input_id=? WHERE request_id=?',('u','a','source','new'))
+            # Equality is against the most recent result, not any old matching
+            # result: a changed/latest attempt must not be silently discarded.
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?)',('u','intervening',json.dumps(changed)))
+            db.execute('INSERT INTO teaching_submission_requests VALUES(?,?,?,?)',('u','a','intervening','source'))
+            self.assertFalse(reuse_unchanged_result(db,'u','new',result))
+
     def test_legacy_guard_upgrade_scopes_lineage_and_preserves_user_decisions(self):
         with closing(sqlite3.connect(':memory:')) as db:
             db.executescript('''CREATE TABLE recognition_candidates(id TEXT,user_id TEXT,request_id TEXT,
