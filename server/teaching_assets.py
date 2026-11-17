@@ -163,6 +163,20 @@ def load(db, uid, account, request_id):
         WHERE r.user_id=? AND r.account=? AND r.request_id=?''',(uid,account,request_id))]
 
 
+def load_cached(db, uid, account, request_id, version):
+    """Read verified complete cache text without loading original file blobs."""
+    cached={}
+    for ref_id,result in db.execute('''SELECT r.ref_id,f.result FROM teaching_asset_refs r
+        JOIN teaching_asset_files f USING(user_id,account,sha256,mime_type)
+        WHERE r.user_id=? AND r.account=? AND r.request_id=? AND f.cache_version=?''',
+        (uid,account,request_id,version)):
+        if result:
+            value=json.loads(result)
+            if value.get('read_state')=='complete' and value.get('text'):
+                cached[ref_id]=dict(read_state='complete',text=value['text'])
+    return cached
+
+
 def save_read_cache(db, uid, asset, version, result):
     """Compare and write under the caller's write transaction, never a stale load."""
     key=(uid,asset['account'],asset['sha256'],asset['mime_type'])
@@ -185,7 +199,7 @@ def save_read_cache(db, uid, asset, version, result):
         (version,json.dumps(result),*key))
 
 
-def enrich(request, assets, client, settings, save_cache, *, guard=None):
+def enrich(request, assets, client, settings, save_cache, *, guard=None, read_deadline=None):
     """Mutate the execution copy only; captured source/digest remain immutable."""
     version = cache_version(settings)
     records = request['records']
@@ -227,12 +241,15 @@ def enrich(request, assets, client, settings, save_cache, *, guard=None):
                 reductions_left=2
                 while True:
                     if guard: guard()
+                    if read_deadline is not None and time.monotonic() >= read_deadline:
+                        raise AgentError('agent_timeout',True)
                     resume = dict(checkpoint=checkpoint, save_checkpoint=save_checkpoint,
                                   single_pdf_batch=True, pdf_batch_pages=batch_pages) if a['mime_type']=='application/pdf' else {}
                     try:
                         with operations.span('attachment_read'):
                             result = read_attachment(a['data'],metadata,client,settings,
-                                                     expires=time.monotonic()+75,guard=guard,diagnostic_event=diagnostics.event,**resume)
+                                                     expires=min(time.monotonic()+75,read_deadline) if read_deadline is not None else time.monotonic()+75,
+                                                     guard=guard,diagnostic_event=diagnostics.event,**resume)
                     except AgentError as error:
                         # At most two smaller attempts, retaining validated pages.
                         # A one-page timeout or provider outage still exits.

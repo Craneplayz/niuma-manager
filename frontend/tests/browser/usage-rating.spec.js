@@ -10,6 +10,7 @@ async function openRating(page, { failRatingOnce = false, failFeedbackOnce = fal
     else if (path === '/api/workspace') value = { tasks: { version: 1, value: [] } };
     else if (path === '/api/usage/guest-visit') value = {};
     else if (path === '/api/usage/visit') value = { offerRating: true };
+    else if (path === '/api/usage/guest-visit') value = { saved: true };
     else if (path === '/api/recognition/batches') value = [];
     else if (path === '/api/usage/feedback') {
       const body = request.postDataJSON();
