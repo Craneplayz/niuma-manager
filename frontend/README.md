@@ -5,6 +5,7 @@
 界面采用纯白背景、珊瑚桃色主操作、深棕按钮文字、细描边与 12px 圆润控件，普通应用和独立后台共用 `src/theme.css`；侧栏品牌区、后台顶栏与后台登录使用同一扫描牛图标，底部小幅探头保留为牛马点缀，并在折叠栏、手机和矮窗口中隐藏。
 
 课程使用固定色与小课程签，清单、当日面板、详情和已选课程筛选保持一致，月周日历复用同色圆点与课程简称。
+月周日历每格只用一种底色：逾期亮红优先于待办亮蓝，其次为完成亮绿；透明度按该类别数量固定分档，点击日期显示当天全部内容，今天有明确时刻的任务到期后自动更新底色。
 
 ## 功能与数据
 
@@ -81,6 +82,7 @@ frontend/
 │   ├── task-model.js         日期、筛选、排序与截止分组
 │   ├── task-views.js         任务行、分组清单和当日面板
 │   ├── calendar.js           周一开头的月历与周截止日程
+│   ├── calendar-activity.js  按截止日、时刻和完成日汇总，并决定单色底与数量档位
 │   ├── calendar-drag.js      任务拖放分配日期与改期、日期高亮和手势区分
 │   ├── calendar.css          日历、任务清单和当日面板样式
 │   ├── task-drawer.js        任务详情及新增、编辑表单
@@ -104,6 +106,8 @@ frontend/
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
 │   ├── browser/render-latency.spec.js 日历独立读取、后台输入保持与原文复用
 │   ├── browser/import-latency.spec.js 导入读取隔离与下一段草稿保护
+│   ├── calendar-activity.test.js 日期归属、明确时刻到期、单色优先级与独立数量档位
+│   ├── browser/calendar-activity.spec.js 单色优先级、完整日期点击、月周一致与到时更新
 │   ├── navigation.test.js    导航恢复、旧链接兼容、参数校验与隐私边界
 │   ├── calendar-drag.test.js 点击、拖放、取消与触屏边界
 │   ├── user-errors.test.js   用户提示、点击提交、重试、去重及账号重置
@@ -158,6 +162,9 @@ frontend/
     │   ├── task-save-queue-desktop.png 保存期间编辑其他任务的桌面示例
     │   ├── task-save-queue-mobile.png 390px 下保存期间保留编辑草稿
     │   ├── task-save-queue-compact.png 320px 下保存期间保留编辑草稿
+    │   ├── calendar-status-desktop.png 单色月历与当天全部任务
+    │   ├── calendar-status-mobile.png 手机单色日历与当日任务
+    │   ├── calendar-status-week.png 周视图沿用单色与日期点击
     │   ├── cartoon-a-task-list.png 纯白卡通 A 主题的桌面任务清单
     │   ├── cartoon-a-calendar.png A 主题的完整月历与当日面板
     │   ├── cartoon-a-import.png  A 主题的文本导入与核对区
