@@ -291,6 +291,9 @@ class TeachingIntegrationTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.old_db=app.DB
+        # Claim the fresh directory before creating crawler fixtures, so the
+        # same integration fixture also works with managed test environments.
+        app.runtime_environment.validate_storage(Path(self.tmp.name)/'test.sqlite3')
         # Crawler execution is mocked below; its availability check must not
         # depend on a developer's node_modules (the server CI does not install it).
         crawler=Path(self.tmp.name)/'crawler'
