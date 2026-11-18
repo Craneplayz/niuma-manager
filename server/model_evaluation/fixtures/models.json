@@ -1,0 +1,735 @@
+[
+  {
+    "family": "DeepSeek",
+    "id": "deepseek/deepseek-v4.1-flash",
+    "name": "DeepSeek-V4.1-Flash",
+    "endpoint": "https://api.qnaigc.com/v1",
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "thinking": null,
+    "thinking_note": "按供应商默认/不可关闭，单列设置",
+    "input_yuan_per_token_max": 2e-06,
+    "output_yuan_per_token_max": 8e-06,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output_peak": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.008,
+            "unit_price_usd": 0.00115942,
+            "name": "输出（高峰）"
+          },
+          "output_offpeak": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.004,
+            "unit_price_usd": 0.00057971,
+            "name": "输出（空闲）"
+          },
+          "cache_peak": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 4e-05,
+            "unit_price_usd": 5.8e-06,
+            "name": "缓存输入（高峰）"
+          },
+          "cache_offpeak": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 2e-05,
+            "unit_price_usd": 2.9e-06,
+            "name": "缓存输入（空闲）"
+          },
+          "ncache_peak": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.002,
+            "unit_price_usd": 0.00028986,
+            "name": "非缓存输入（高峰）"
+          },
+          "ncache_offpeak": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.001,
+            "unit_price_usd": 0.00014493,
+            "name": "非缓存输入（空闲）"
+          },
+          "web_search_req": {
+            "unit_name": "time",
+            "unit_size": 1,
+            "unit_price": 0.005,
+            "unit_price_usd": 0.00072464,
+            "name": "联网搜索数"
+          }
+        },
+        "item_order": [
+          "output_peak",
+          "output_offpeak",
+          "cache_peak",
+          "cache_offpeak",
+          "ncache_peak",
+          "ncache_offpeak",
+          "web_search_req"
+        ]
+      }
+    ],
+    "pricing_source": "https://api.qnaigc.com/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  },
+  {
+    "family": "Qwen",
+    "id": "qwen/qwen3.7-flash",
+    "name": "Qwen3.7 Flash",
+    "endpoint": "https://api.qnaigc.com/v1",
+    "modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "thinking": null,
+    "thinking_note": "按供应商默认/不可关闭，单列设置",
+    "input_yuan_per_token_max": 1.2e-06,
+    "output_yuan_per_token_max": 4.8e-06,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          32000
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0008,
+            "unit_price_usd": 0.00011594,
+            "name": "输出"
+          },
+          "cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 4e-05,
+            "unit_price_usd": 5.8e-06,
+            "name": "缓存输入"
+          },
+          "ex_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 2e-05,
+            "unit_price_usd": 2.9e-06,
+            "name": "显式缓存输入"
+          },
+          "c_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00025,
+            "unit_price_usd": 3.623e-05,
+            "name": "缓存创建"
+          },
+          "ncache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0002,
+            "unit_price_usd": 2.899e-05,
+            "name": "非缓存输入"
+          }
+        },
+        "item_order": [
+          "ncache",
+          "cache",
+          "ex_cache",
+          "output",
+          "c_cache"
+        ]
+      },
+      {
+        "input_range": [
+          32000,
+          256000
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0024,
+            "unit_price_usd": 0.00034783,
+            "name": "输出"
+          },
+          "cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00012,
+            "unit_price_usd": 1.739e-05,
+            "name": "缓存输入"
+          },
+          "ex_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 6e-05,
+            "unit_price_usd": 8.7e-06,
+            "name": "显式缓存输入"
+          },
+          "c_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00075,
+            "unit_price_usd": 0.0001087,
+            "name": "缓存创建"
+          },
+          "ncache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0006,
+            "unit_price_usd": 8.696e-05,
+            "name": "非缓存输入"
+          }
+        },
+        "item_order": [
+          "output",
+          "cache",
+          "c_cache",
+          "ncache",
+          "ex_cache"
+        ]
+      },
+      {
+        "input_range": [
+          256000,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0048,
+            "unit_price_usd": 0.00069565,
+            "name": "输出"
+          },
+          "cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00024,
+            "unit_price_usd": 3.478e-05,
+            "name": "缓存输入"
+          },
+          "ex_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00012,
+            "unit_price_usd": 1.739e-05,
+            "name": "显式缓存输入"
+          },
+          "c_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0015,
+            "unit_price_usd": 0.00021739,
+            "name": "缓存创建"
+          },
+          "ncache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0012,
+            "unit_price_usd": 0.00017391,
+            "name": "非缓存输入"
+          }
+        },
+        "item_order": [
+          "output",
+          "cache",
+          "ex_cache",
+          "c_cache",
+          "ncache"
+        ]
+      }
+    ],
+    "pricing_source": "https://api.qnaigc.com/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  },
+  {
+    "family": "Kimi",
+    "id": "moonshotai/kimi-k2.6",
+    "name": "Kimi-K2.6",
+    "endpoint": "https://api.qnaigc.com/v1",
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "thinking": null,
+    "thinking_note": "按供应商默认/不可关闭，单列设置",
+    "input_yuan_per_token_max": 6.5e-06,
+    "output_yuan_per_token_max": 2.7e-05,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "input": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0065,
+            "unit_price_usd": 0.00094203,
+            "name": "输入"
+          },
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.027,
+            "unit_price_usd": 0.00391304,
+            "name": "输出"
+          }
+        }
+      }
+    ],
+    "pricing_source": "https://api.qnaigc.com/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  },
+  {
+    "family": "GLM",
+    "id": "z-ai/glm-5.3-flash",
+    "name": "GLM-5.3-Flash",
+    "endpoint": "https://api.qnaigc.com/v1",
+    "modalities": [
+      "text",
+      "image",
+      "video",
+      "file"
+    ],
+    "thinking": null,
+    "thinking_note": "按供应商默认/不可关闭，单列设置",
+    "input_yuan_per_token_max": 8.000000000000001e-07,
+    "output_yuan_per_token_max": 2.8e-06,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0028,
+            "unit_price_usd": 0.0004058,
+            "name": "输出"
+          },
+          "cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00023,
+            "unit_price_usd": 3.333e-05,
+            "name": "缓存输入"
+          },
+          "ncache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0008,
+            "unit_price_usd": 0.00011594,
+            "name": "非缓存输入"
+          }
+        },
+        "item_order": [
+          "ncache",
+          "cache",
+          "output"
+        ]
+      }
+    ],
+    "pricing_source": "https://api.qnaigc.com/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  },
+  {
+    "family": "Doubao",
+    "id": "bytedance/doubao-seed-2-1-lite",
+    "name": "Doubao-Seed-2.1-lite",
+    "endpoint": "https://api.qnaigc.com/v1",
+    "modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "thinking": null,
+    "thinking_note": "按供应商默认/不可关闭，单列设置",
+    "input_yuan_per_token_max": 8.000000000000001e-07,
+    "output_yuan_per_token_max": 2.7e-06,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0027,
+            "unit_price_usd": 0.0003913,
+            "name": "输出"
+          },
+          "cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00016,
+            "unit_price_usd": 2.319e-05,
+            "name": "缓存输入"
+          },
+          "ncache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0008,
+            "unit_price_usd": 0.00011594,
+            "name": "非缓存输入"
+          },
+          "web_search_req": {
+            "unit_name": "time",
+            "unit_size": 1,
+            "unit_price": 0.004,
+            "unit_price_usd": 0.00057971,
+            "name": "联网搜索数"
+          },
+          "a_input": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.012,
+            "unit_price_usd": 0.00173913,
+            "name": "音频输入"
+          }
+        },
+        "item_order": [
+          "ncache",
+          "cache",
+          "a_input",
+          "output",
+          "web_search_req"
+        ]
+      }
+    ],
+    "pricing_source": "https://api.qnaigc.com/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  },
+  {
+    "family": "GPT",
+    "id": "openai/gpt-5.4-mini",
+    "name": "GPT-5.4-Mini",
+    "endpoint": "https://api.modelink.ai/v1",
+    "modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "thinking": "disabled",
+    "thinking_note": "显式关闭",
+    "input_yuan_per_token_max": 5.175e-06,
+    "output_yuan_per_token_max": 3.105e-05,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "input": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.005175,
+            "unit_price_usd": 0.00075,
+            "name": "输入"
+          },
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.03105,
+            "unit_price_usd": 0.0045,
+            "name": "输出"
+          },
+          "web_search_req": {
+            "unit_name": "time",
+            "unit_size": 1,
+            "unit_price": 0.069,
+            "unit_price_usd": 0.01,
+            "name": "联网搜索数"
+          }
+        }
+      }
+    ],
+    "pricing_source": "https://api.modelink.ai/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  },
+  {
+    "family": "Claude",
+    "id": "claude-4.6-sonnet",
+    "name": "Claude-4.6-Sonnet",
+    "endpoint": "https://api.modelink.ai/v1",
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "thinking": "disabled",
+    "thinking_note": "显式关闭",
+    "input_yuan_per_token_max": 2.07e-05,
+    "output_yuan_per_token_max": 0.0001035,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          200000
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.1035,
+            "unit_price_usd": 0.015,
+            "name": "输出"
+          },
+          "cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00207,
+            "unit_price_usd": 0.0003,
+            "name": "缓存输入"
+          },
+          "c_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.025875,
+            "unit_price_usd": 0.00375,
+            "name": "缓存创建"
+          },
+          "c_1h_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0414,
+            "unit_price_usd": 0.006,
+            "name": "1h缓存创建"
+          },
+          "ncache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0207,
+            "unit_price_usd": 0.003,
+            "name": "非缓存输入"
+          },
+          "web_search_req": {
+            "unit_name": "time",
+            "unit_size": 1,
+            "unit_price": 0.069,
+            "unit_price_usd": 0.01,
+            "name": "联网搜索数"
+          }
+        }
+      },
+      {
+        "input_range": [
+          200000,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.1035,
+            "unit_price_usd": 0.015,
+            "name": "输出"
+          },
+          "cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00207,
+            "unit_price_usd": 0.0003,
+            "name": "缓存输入"
+          },
+          "c_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.025875,
+            "unit_price_usd": 0.00375,
+            "name": "缓存创建"
+          },
+          "c_1h_cache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0414,
+            "unit_price_usd": 0.006,
+            "name": "1h缓存创建"
+          },
+          "ncache": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.0207,
+            "unit_price_usd": 0.003,
+            "name": "非缓存输入"
+          },
+          "web_search_req": {
+            "unit_name": "time",
+            "unit_size": 1,
+            "unit_price": 0.069,
+            "unit_price_usd": 0.01,
+            "name": "联网搜索数"
+          }
+        }
+      }
+    ],
+    "pricing_source": "https://api.modelink.ai/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  },
+  {
+    "family": "Gemini",
+    "id": "google/gemini-3.1-flash-lite",
+    "name": "Gemini-3.1-Flash-Lite",
+    "endpoint": "https://api.modelink.ai/v1",
+    "modalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "file"
+    ],
+    "thinking": null,
+    "thinking_note": "按供应商默认/不可关闭，单列设置",
+    "input_yuan_per_token_max": 1.725e-06,
+    "output_yuan_per_token_max": 1.035e-05,
+    "pricing_rules": [
+      {
+        "input_range": [
+          0,
+          99999999
+        ],
+        "output_range": [
+          0,
+          99999999
+        ],
+        "input_item_type": "",
+        "output_item_type": "",
+        "details": {},
+        "details_v2": {
+          "output": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.01035,
+            "unit_price_usd": 0.0015,
+            "name": "输出"
+          },
+          "web_search_req": {
+            "unit_name": "time",
+            "unit_size": 1,
+            "unit_price": 0.0966,
+            "unit_price_usd": 0.014,
+            "name": "联网搜索数"
+          },
+          "a_input": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.00345,
+            "unit_price_usd": 0.0005,
+            "name": "音频输入"
+          },
+          "t_input": {
+            "unit_name": "token",
+            "unit_size": 1000,
+            "unit_price": 0.001725,
+            "unit_price_usd": 0.00025,
+            "name": "文本输入"
+          }
+        }
+      }
+    ],
+    "pricing_source": "https://api.modelink.ai/v1/market/models",
+    "pricing_checked_at": "2026-11-16",
+    "catalog_sha256": "925c40a4d3a4ec586247ec832291967176e49745f6d156e4ad72cdd66b60855e",
+    "max_output_tokens": 4096
+  }
+]

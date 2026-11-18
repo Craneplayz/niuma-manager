@@ -82,7 +82,7 @@ def load_cases(path, vision=None):
         identifiers.add(case['id'])
         if case['module'] == 'vision':
             image_path(case, path.parent).read_bytes()
-        required = 'record' if case['module'] == 'recognition' else 'request'
+        required = 'record' if case['module'] == 'recognition' and case.get('input_contract') != '0.4' else 'request'
         if not isinstance(case.get(required), dict):
             raise ValueError(f"{case['id']} requires {required}")
     return cases
@@ -100,7 +100,7 @@ def build_manifest(cases, models, base, source_version, endpoint):
     images = {case['id']: hashlib.sha256(image_path(case, base).read_bytes()).hexdigest()
               for case in cases if case['module'] == 'vision'}
     tools = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-             for path in Path(__file__).parent.glob('*.py')}
+             for path in Path(__file__).parent.glob('*.py') if not path.name.startswith('.')}
     manifest = dict(source_version=source_version, source_hash=digest(sources), sources=sources,
                     tool_hashes=tools, cases_hash=digest(cases),
                     case_ids=[case['id'] for case in cases],
@@ -125,17 +125,26 @@ def run(case, model, out, base, run_id, endpoint):
             raise ValueError('cached receipt is incomplete or has a different identity')
         return cached
     trace = out / identity
-    if any(trace.with_suffix(suffix).exists() for suffix in ('.calls.jsonl', '.raw.jsonl')):
+    if any(trace.with_suffix(suffix).exists() for suffix in ('.calls.jsonl', '.raw.jsonl', '.inflight.json')):
         raise ValueError('incomplete call traces exist; archive them before retrying or use a new output directory')
     key = os.environ['QINIU_API_KEY']
     options = dict(key=key, endpoint=endpoint, model=model)
     client = lambda credential: RecordedClient(credential, trace)
+    write_json(trace.with_suffix('.inflight.json'), expected)
     started = time.monotonic()
     record = dict(expected, status='error')
     try:
         settings = Settings(mode='real', model=model, endpoint=endpoint, timeout_seconds=45,
                             max_retries=0, thinking_mode='disabled')
-        if case['module'] == 'recognition':
+        if case.get('input_contract') == '0.4':
+            from ddl_text import teaching_pipeline
+            from contracts.teaching_io import snapshot_digest
+            provider = client(key)
+            trusted = [snapshot_digest(entry) for entry in case['request']['records']]
+            with patch.object(teaching_pipeline, 'ChatClient', type(provider)):
+                result = teaching_pipeline.process_teaching_request(case['request'], client=provider, settings=settings,
+                    verified_snapshot_digests=trusted, budget_seconds=90)
+        elif case['module'] == 'recognition':
             source = normalize_record(case['record'])
             result = ExtractionAdapter(client(key)).extract(source, settings, 0)
             result = validate_tasks(result, source)
@@ -155,7 +164,7 @@ def run(case, model, out, base, run_id, endpoint):
         else:
             with patch.object(planning_harness, 'ChatClient', client):
                 result = planning_harness.generate(case['request'], options)
-        failed = case['module'] == 'vision' and result['status'] not in ('success', 'no_tasks')
+        failed = (case['module'] == 'vision' or case.get('input_contract') == '0.4') and result['status'] not in ('success', 'no_tasks')
         record.update(status='error' if failed else 'ok', output=result)
     except Exception as error:
         # Keep classification, never serialize an exception containing credentials or a URL.
@@ -164,6 +173,7 @@ def run(case, model, out, base, run_id, endpoint):
                   observations=read_lines(trace.with_suffix('.calls.jsonl')),
                   raw_outputs=read_lines(trace.with_suffix('.raw.jsonl')))
     write_json(target, record)
+    trace.with_suffix('.inflight.json').unlink(missing_ok=True)
     return record
 
 

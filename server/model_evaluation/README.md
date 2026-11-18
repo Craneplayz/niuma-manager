@@ -91,3 +91,19 @@ python -m unittest server.test_model_evaluation -v
 回归使用替身验证选择、无密钥预检、断点恢复、指纹变化、重复计费保护、失败分母、无效估时和结构化信息不足；它证明评测器行为，不替代真实模型质量结果。真实模型的接口/内容失败应逐例保留，按模块交接修复；已发现的拆解契约问题由[#222](https://github.com/Craneplayz/niuma-manager/issues/222)跟踪。
 
 结果和原始调用日志仅留在服务器私有目录；确需共享的汇总先检查不含个人材料，再按项目约定放入`server/docs/archive/`。本目录只含合成夹具，未提交私人教学网原文或本机演示产物。
+
+## 扩展多模型评测
+
+旧版 28 例回归与 [扩展评测](../docs/model-benchmark-design.md) 分开。扩展集包含合成边界例、已复核的教学网原件、以及带显式变换规则和参考答案的真实改写。原件及其改写须保存在私有目录。当前冻结版本有 220 例、102 个来源组；同源图片、改写、重复调用按组统计。
+
+在隔离服务器生成合成集，再组合已复核的私有原件：
+
+```bash
+python -m server.model_evaluation.build_suite --images --out /private/synthetic
+python -m server.model_evaluation.compose_suite --synthetic /private/synthetic \
+  --real-cases /private/reviewed-originals.json --out /private/suite
+```
+
+使用 `python -m server.model_evaluation.benchmark --help` 查看参数。先用 `--dry-run` 检查计划，正式运行前一次性确认完整测试矩阵及费用粗估。所有调用（含探测、失败及修复）共用同一个 `--ledger` 和预算上限；直接续跑同一工作目录时，完整回执不再调用，在途记录也不会自动重发。两次运行要放在同一个比较口径内，需核对数据、模型设置、超时及适配器版本。
+
+通过 `python -m server.model_evaluation.report --results /private/run --out /private/report.json --phase formal` 离线生成报告。用 `--additional-results` 合并同一数据集、适配器和设置的追加模型；重复回执或口径不一致会拒绝合并。以输出的报告 ID 作为文件名，发布到 `NIUMA_BENCHMARK_DIR` 指定的服务器目录（默认数据目录下的 `model-evaluations`），到管理后台的「模型评测」查看。运行清单、原始调用日志和样本目录不可直接发布。报告只保留真实样例的去身份场景、指标和调用用量；原文、预期字段值和原始回答不会进入管理员导出。打开页面不调用模型。

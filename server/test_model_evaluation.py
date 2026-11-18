@@ -100,6 +100,15 @@ class EvaluationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.run(case, 'm', self.out, self.fixtures, 'run', 'https://example.test')
 
+    def test_interruption_before_response_blocks_automatic_reissue(self):
+        case = next(c for c in self.cases if c['module'] == 'decomposition')
+        with patch.dict(os.environ, {'QINIU_API_KEY': 'synthetic'}), \
+                patch.object(runner.decomposition, 'generate_decomposition', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                runner.run(case, 'm', self.out, self.fixtures, 'run', 'https://example.test')
+        with self.assertRaises(ValueError):
+            runner.run(case, 'm', self.out, self.fixtures, 'run', 'https://example.test')
+
     def test_provider_exception_text_is_not_serialized(self):
         case = next(c for c in self.cases if c['module'] == 'decomposition')
         with patch.dict(os.environ, {'QINIU_API_KEY': 'synthetic'}), \
