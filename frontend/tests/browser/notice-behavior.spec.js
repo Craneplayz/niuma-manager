@@ -20,6 +20,7 @@ async function openApp(page, initialTasks) {
     } else if (path === "/api/version") value = { environment: "test", revision: "issue179", managed: true };
     else if (path === "/api/usage/guest-visit") value = {};
     else if (path === "/api/usage/visit") value = { offerRating: false };
+    else if (path === "/api/usage/guest-visit") value = { saved: true };
     else if (path === "/api/recognition/batches") value = [];
     else if (path === "/api/recognition/task-evidence") value = { evidence: [] };
     else throw new Error("Unmocked API: " + path);
