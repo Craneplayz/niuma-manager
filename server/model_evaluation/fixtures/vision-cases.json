@@ -1,0 +1,228 @@
+[
+  {
+    "id": "M1-image-date6",
+    "image": "images/date6.png",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "eval-image-date6",
+      "records": [
+        {
+          "input_id": "manual:date6",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "web",
+          "published_at": {
+            "value": "2026-11-01T10:00:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-11-12T10:00:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成上传材料",
+          "source_item_id": "date6",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-date6",
+              "file_name": "date6.png",
+              "mime_type": "image/png",
+              "size_bytes": 25001,
+              "sha256": "ff5fab58de3783525c98c9c150a7835b5afc7599d70e207ede1cc68e7720ea1b",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:eval_material_image_date6"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "count": 1,
+      "date": "2026-11-06",
+      "targets": [
+        {
+          "value": "2026-11-06T23:59:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-image-date9",
+    "image": "images/date9.png",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "eval-image-date9",
+      "records": [
+        {
+          "input_id": "manual:date9",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "web",
+          "published_at": {
+            "value": "2026-11-01T10:00:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-11-12T10:00:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成上传材料",
+          "source_item_id": "date9",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-date9",
+              "file_name": "date9.png",
+              "mime_type": "image/png",
+              "size_bytes": 24177,
+              "sha256": "c00d2bb0f4248a0c1a996c2f0d3375d039f55423ac3855a64753f064df8a6e36",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:eval_material_image_date9"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "count": 1,
+      "date": "2026-11-09",
+      "targets": [
+        {
+          "value": "2026-11-09T23:59:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-image-nodate",
+    "image": "images/nodate.png",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "eval-image-nodate",
+      "records": [
+        {
+          "input_id": "manual:nodate",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "web",
+          "published_at": {
+            "value": "2026-11-01T10:00:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-11-12T10:00:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成上传材料",
+          "source_item_id": "nodate",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-nodate",
+              "file_name": "nodate.png",
+              "mime_type": "image/png",
+              "size_bytes": 22852,
+              "sha256": "2ad14496d188a84602644ffee8b9d4ad4cfe7e8d2aed6206cdf014093de99061",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:eval_material_image_nodate"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "count": 1,
+      "date": null,
+      "targets": []
+    }
+  },
+  {
+    "id": "M1-image-negative",
+    "image": "images/negative.png",
+    "request": {
+      "contract_version": "0.3.1",
+      "request_id": "eval-image-negative",
+      "records": [
+        {
+          "input_id": "manual:negative",
+          "text": "",
+          "text_quality": "missing",
+          "platform": "web",
+          "published_at": {
+            "value": "2026-11-01T10:00:00+08:00",
+            "precision": "datetime",
+            "basis": "source"
+          },
+          "collected_at": "2026-11-12T10:00:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "timezone_basis": "source",
+          "source_url": null,
+          "source_label": "合成上传材料",
+          "source_item_id": "negative",
+          "course_or_project": null,
+          "context": [],
+          "upstream_hints": null,
+          "attachments": [
+            {
+              "asset_id": "asset-negative",
+              "file_name": "negative.png",
+              "mime_type": "image/png",
+              "size_bytes": 22374,
+              "sha256": "2326fe4d582312d36afdf48603a611fae185bc0525fccfec7b53a362a941188b",
+              "origin": "unknown",
+              "original_published_at": {
+                "value": null,
+                "precision": "unknown",
+                "basis": "unknown"
+              },
+              "status": "available",
+              "errors": [],
+              "content_mode": "file",
+              "file_ref": "asset:eval_material_image_negative"
+            }
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "count": 0,
+      "date": null,
+      "targets": []
+    }
+  }
+]

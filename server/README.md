@@ -1,5 +1,13 @@
 ```text
 server/
+├── model_evaluation/         分层合成与真实用例、预算受控运行及离线评分，详见其 README。
+├── model_evaluations.py      管理员会话下读取、筛选和导出已发布评测报告。
+├── test_benchmark_report.py  评分边界、同口径合并与隐私回归。
+├── test_model_benchmark.py   样本生成、模型接入与共享预算回归。
+├── test_model_evaluations_http.py 管理员报告鉴权、详情与导出回归。
+├── test_model_metrics.py     分项指标、分母、缺测和统计区间回归。
+├── test_real_cohort.py       教学网原版与显式改写样本构造回归。
+├── test_model_evaluation.py  选择、恢复、计费保护、失败分母与评分边界回归。
 ├── course_context.py          同账号课程资料索引、受限检索、按需附件读取及依赖更新。
 ├── test_course_context.py     课程/学期隔离、取段、预算、标题、周次与增量回归。
 ├── test_course_context_http.py HTTP证据、自动入库、人工决定和迟到结果回归。
