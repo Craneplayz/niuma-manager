@@ -850,17 +850,6 @@ body.is-calendar-dragging * {
       display: none;
     }
   }
-  @container calendar-day (min-height: 63px) and (max-height: 88px) {
-    .calendar-month .calendar-day-tasks {
-      display: block;
-    }
-    .calendar-month .calendar-date-button {
-      height: auto;
-      flex-direction: row;
-      justify-content: space-between;
-      gap: 0;
-    }
-  }
   @container calendar-day (max-width: 76px) {
     .calendar-month .calendar-day-course-dots {
       display: none;
@@ -982,6 +971,19 @@ body.is-calendar-dragging * {
   .calendar-month .calendar-day-tasks { display: none; }
   .calendar-month .calendar-day-mobile-count { display: none; }
   .calendar-month .calendar-date-button { height: 100%; }
+}
+/* In a compact desktop cell one header and the first deadline still fit together. */
+@media (min-width: 701px) and (pointer: fine) {
+  @container calendar-day (min-height: 63px) and (max-height: 88px) {
+    .calendar-month .calendar-day-tasks { display: block; }
+    .calendar-view.calendar-month .calendar-date-button {
+      height: auto;
+      min-height: 32px;
+      flex-direction: row;
+      justify-content: space-between;
+      gap: 0;
+    }
+  }
 }
 @media (max-width: 700px) {
   .calendar-activity-legend { gap: 4px; margin: -2px 0 12px; }
