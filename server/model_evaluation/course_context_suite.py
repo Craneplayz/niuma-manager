@@ -29,12 +29,30 @@ def build(out):
     return cases
 
 
-def score(expected, result):
+def refinement_status(result, recorded=None):
+    """Recover what historical output proves, without guessing from call counts."""
+    if recorded in ('completed', 'fallback', 'skipped'):
+        return recorded
+    if result.get('status') not in ('success', 'no_tasks'):
+        return 'unknown'
+    decisions = [d for row in result.get('record_results', []) for d in row.get('decisions', [])]
+    if any('当前来源已识别；课程参考资料未能完成核对，请确认日期和适用规则。' in d.get('review_reasons', []) for d in decisions):
+        return 'fallback'
+    if not any(d['recommendation'] != 'filtered' for d in decisions):
+        return 'skipped'
+    return 'unknown'
+
+
+def score(expected, result, refinement=None):
     """Count case outcomes; a rejected result is unevaluable, not safe abstention."""
-    counts = dict(correct=0, wrong=0, missed=0, safe=0, failed=0)
+    counts = dict(correct=0, wrong=0, missed=0, safe=0, failed=0, fallback=0, unverified=0)
     records = result.get('record_results', [])
     if result.get('status') not in ('success', 'no_tasks', 'partial_success') or len(records) != 1:
         counts['failed'] = 1
+        return counts
+    stage = refinement_status(result, refinement)
+    if stage == 'fallback':
+        counts['fallback'] = 1
         return counts
     decisions = [d for d in records[0].get('decisions', []) if d['recommendation'] != 'filtered']
     deadlines = [d['pair']['assessment']['deadline'] for d in decisions]
@@ -58,7 +76,7 @@ def score(expected, result):
     elif routes != expected['routes'] or ('types' in expected and [d.get('content_type') for d in decisions] != expected['types']):
         outcome = 'wrong'
     else:
-        outcome = 'safe'
+        outcome = 'safe' if stage in ('completed', 'skipped') else 'unverified'
     counts[outcome] = 1
     return counts
 

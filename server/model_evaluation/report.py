@@ -6,7 +6,7 @@ from datetime import datetime,timezone
 from pathlib import Path
 from .runner import digest,write_json
 from .metrics import aggregate
-from .course_context_suite import score as score_course_context
+from .course_context_suite import refinement_status, score as score_course_context
 
 
 def evaluate(case,receipt):
@@ -21,6 +21,11 @@ def evaluate(case,receipt):
             checks['deadline']=ok and any(d.get('value')==expected['deadline'] for d in deadlines)
             checks['deadline_role']=ok and any(decision.get('time_role')=='deadline' and deadline.get('value')==expected['deadline'] for decision,deadline in zip(decisions,deadlines))
         if expected.get('event'):checks['event_time']=ok and any(d.get('time_role')=='event' and d.get('pair',{}).get('assessment',{}).get('deadline',{}).get('value')==expected['event'] for d in decisions)
+        if expected.get('notice_change'):
+            active=[d for d in decisions if d.get('recommendation')!='filtered']
+            checks['reschedule_single']=ok and len(active)==1
+            checks['reschedule_type']=checks['reschedule_single'] and active[0].get('notice_type')=='postpone'
+            checks['reschedule_correct']=checks['reschedule_type'] and active[0].get('time_role')=='event' and active[0]['pair']['assessment']['deadline']['value']==expected['event']
         if expected.get('reading'):checks['reading_retained']=ok and '阅读'in decision_text
         if expected.get('no_action'):checks['negative_correct']=ok and not decisions
         if expected.get('no_fabricated_deadline'):checks['no_fabricated_deadline']=ok and all(d.get('value') is None for d in deadlines)
@@ -106,7 +111,9 @@ def publish(folder,target,phase="unspecified",additional=()):
                 origin=case.get('origin','synthetic'),scenario=case.get('scenario',case.get('slice','unknown')),difficulty=case.get('difficulty','standard'),
                 purpose=case.get('purpose',case.get('scenario',case.get('slice',''))),repeat_index=case.get('repeat_index',0),transformation=case.get('transformation'),pair_with=case.get('pair_with'),label_status=case.get('label_status','frozen_synthetic'),applicable=applicable,admitted=admitted,executed=executed,status=r.get('status','pending'if admitted else'not_selected_budget'),
                 executionStatus=original_status,businessStatus=(r.get('output')or{}).get('status')if isinstance(r.get('output'),dict)else None,checks=checks,tp=tp,fp=fp,fn=fn,seconds=r.get('seconds'),estimated_yuan=cost,**tokens,
-                course_context=score_course_context(case['expected'],r.get('output') or {}) if executed and case['expected'].get('course_context') else None,
+                detection_scored=case['module'] in ('recognition','vision') and case.get('input_contract')!='0.4' and not case['expected'].get('incomplete') and 'terms' in case['expected'],
+                course_context=score_course_context(case['expected'],r.get('output') or {},r.get('course_refinement')) if executed and case['expected'].get('course_context') else None,
+                context_stage=refinement_status(r.get('output') or {},r.get('course_refinement')) if executed and case['expected'].get('course_context') else None,
                 calls=len(calls),call_usage=[{k:c.get(k)for k in ('input_tokens','output_tokens','total_tokens','duration_ms','estimated_yuan','result_code','http_status','provider_request_id','usage_details')}for c in calls],error=r.get('code')or r.get('error'),
                 input=case.get('record',case.get('request'))if shareable else '真实课程材料：原文仅保留在私有评测目录',
                 expected=case['expected']if shareable else {'checks':list(checks)},output=r.get('output')if shareable else None))

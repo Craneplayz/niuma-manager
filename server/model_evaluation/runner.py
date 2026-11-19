@@ -137,13 +137,24 @@ def run(case, model, out, base, run_id, endpoint):
         settings = Settings(mode='real', model=model, endpoint=endpoint, timeout_seconds=45,
                             max_retries=0, thinking_mode='disabled')
         if case.get('input_contract') == '0.4':
-            from ddl_text import teaching_pipeline
+            from ddl_text import course_refinement, teaching_pipeline
             from contracts.teaching_io import snapshot_digest
             provider = client(key)
             trusted = [snapshot_digest(entry) for entry in case['request']['records']]
-            with patch.object(teaching_pipeline, 'ChatClient', type(provider)):
+            recover = course_refinement.recover
+            def track_refinement(*args, **kwargs):
+                record['course_refinement'] = 'attempted'
+                refined = recover(*args, **kwargs)
+                record['course_refinement'] = 'completed'
+                return refined
+
+            def observe(stage, **fields):
+                if stage == 'course_refinement' and fields.get('status') == 'fallback':
+                    record['course_refinement'] = 'fallback'
+
+            with patch.object(teaching_pipeline, 'ChatClient', type(provider)), patch.object(course_refinement, 'recover', track_refinement):
                 result = teaching_pipeline.process_teaching_request(case['request'], client=provider, settings=settings,
-                    verified_snapshot_digests=trusted, budget_seconds=90)
+                    verified_snapshot_digests=trusted, budget_seconds=90, diagnostic_event=observe)
         elif case['module'] == 'recognition':
             source = normalize_record(case['record'])
             result = ExtractionAdapter(client(key)).extract(source, settings, 0)

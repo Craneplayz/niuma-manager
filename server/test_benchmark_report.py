@@ -7,6 +7,25 @@ from server.model_evaluation.course_context_suite import build,score
 
 
 class ReportTests(unittest.TestCase):
+    def test_context_conflict_requires_completed_refinement(self):
+        expected={'count':1,'routes':['candidate']}
+        decision={'recommendation':'candidate','pair':{'assessment':{'deadline':{'value':None}}}}
+        result={'status':'success','record_results':[{'decisions':[decision]}]}
+        self.assertEqual(score(expected,result,'completed')['safe'],1)
+        self.assertEqual(score(expected,result,'fallback')['fallback'],1)
+        self.assertEqual(score(expected,result)['unverified'],1)
+        decision['review_reasons']=['当前来源已识别；课程参考资料未能完成核对，请确认日期和适用规则。']
+        self.assertEqual(score(expected,result)['fallback'],1)
+
+    def test_reschedule_requires_one_postponement_at_new_event_time(self):
+        expected={'event':'2026-11-02T15:10:00+08:00','notice_change':True}
+        decision={'notice_type':'postpone','time_role':'event','recommendation':'candidate',
+                  'pair':{'assessment':{'deadline':{'value':expected['event']}}}}
+        result={'status':'ok','output':{'record_results':[{'decisions':[decision]}]}}
+        self.assertTrue(evaluate(self.real(expected),result)[0]['reschedule_correct'])
+        result['output']['record_results'][0]['decisions'].append(decision.copy())
+        self.assertFalse(evaluate(self.real(expected),result)[0]['reschedule_correct'])
+
     def test_context_keeps_wrong_missing_and_safe_separate(self):
         with tempfile.TemporaryDirectory() as folder:
             cases=build(Path(folder))
