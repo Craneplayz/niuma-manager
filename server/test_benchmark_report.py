@@ -3,9 +3,28 @@ import tempfile
 import unittest
 from pathlib import Path
 from server.model_evaluation.report import evaluate,publish
+from server.model_evaluation.course_context_suite import build,score
 
 
 class ReportTests(unittest.TestCase):
+    def test_context_keeps_wrong_missing_and_safe_separate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cases=build(Path(folder))
+        self.assertEqual(len(cases),8)
+        self.assertTrue(all(case['request']['records'][0]['record']['course_context']['documents'] for case in cases))
+        positive=cases[0]['expected']
+        negative=cases[3]['expected']
+        deadline={'value':positive['dates'][0],'evidence':[{'part_id':'context:fixture'}]}
+        decision={'recommendation':'task','pair':{'assessment':{'deadline':deadline}}}
+        result={'status':'success','record_results':[{'decisions':[decision]}]}
+        self.assertEqual(score(positive,result)['correct'],1)
+        self.assertEqual(score(negative,result)['wrong'],1)
+        deadline['value']=None
+        self.assertEqual(score(positive,result)['missed'],1)
+        result['record_results'][0]['decisions']=[]
+        self.assertEqual(score(negative,result)['safe'],1)
+        self.assertEqual(score(negative,{'status':'failed'})['failed'],1)
+
     def real(self,expected):return dict(input_contract='0.4',module='recognition',expected=expected)
 
     def test_echoed_input_date_is_not_a_correct_extracted_date(self):

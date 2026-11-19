@@ -94,6 +94,8 @@ python -m unittest server.test_model_evaluation -v
 
 ## 扩展多模型评测
 
+课程旁证专项：用 `python -m server.model_evaluation.course_context_suite --out /private/context-suite` 生成 #213 的 8 个合成场景。六个已测模型使用这一独立矩阵（48 个执行单元；实际请求数取决于两阶段和纠错），按用例计补对、误补、漏补或漏任务、安全不补、技术失败。原 220 例没有课程旁证，#213 的 DeepSeek 8/8 仅作历史参考；专项按原预算审批后另跑。
+
 旧版 28 例回归与 [扩展评测](../docs/model-benchmark-design.md) 分开。扩展集包含合成边界例、已复核的教学网原件、以及带显式变换规则和参考答案的真实改写。原件及其改写须保存在私有目录。当前冻结版本有 220 例、102 个来源组；同源图片、改写、重复调用按组统计。
 
 在隔离服务器生成合成集，再组合已复核的私有原件：
