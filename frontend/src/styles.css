@@ -1,5 +1,6 @@
 @import "./theme.css";
 @import "./course-identity.css";
+@import "./quick-entry.css";
 .user-error { min-width: 0; color: var(--danger); font-size: 13px; line-height: 1.65; }
 .user-error-message { margin: 0; overflow-wrap: anywhere; }
 .test-error-diagnostics pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; font-size: .8rem; }
@@ -2064,3 +2065,24 @@ dialog p {
 }
 
 .candidate-course { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+
+
+.task-page .task-row[data-just-added] {
+  border-radius: var(--radius-small);
+  animation: added-task-highlight 5s ease-out both;
+}
+@keyframes added-task-highlight {
+  0%, 40% { background-color: var(--action-soft-active); }
+  100% { background-color: transparent; }
+}
+.quick-outside-result h3 {
+  color: var(--action-text);
+  font-size: 13px;
+  margin: 18px 0 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-page .task-row[data-just-added] {
+    animation: none;
+    background-color: var(--action-soft);
+  }
+}

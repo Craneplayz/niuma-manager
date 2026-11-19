@@ -147,7 +147,7 @@ test("combined query, course, source, and inclusive date filters preserve deadli
 
 test("grouping uses all six deadline buckets across a year boundary and sorting never mutates input", () => {
   const originalIds = ids(tasks);
-  const grouped = groupTasks(filterTasks(tasks, { today }), today);
+  const grouped = groupTasks(filterTasks(tasks, { today }), today, new Date(`${today}T00:00:00`));
   assert.deepEqual(
     grouped.map((group) => group.tone),
     ["overdue", "today", "tomorrow", "upcoming", "future", "undated"],
@@ -414,6 +414,26 @@ test("tasks and notices share overdue styling for valid unread dates and clear i
     for (const overrides of [{ status: "done" }, { due: today }, { due: "" }, { due: "2026-02-30" }])
       assert.doesNotMatch(row(overrides), /is-overdue/);
   }
+});
+
+test("list rows and groups move confirmed tasks at the deadline minute and keep date-only and unconfirmed items in today", () => {
+  const now = new Date(`${today}T12:00:00`);
+  const task = (id, props = {}) => ({ id, title: id, status: "todo", due: today, dueTime: "12:00", ...props });
+  const records = [
+    task("deadline"), task("later", { dueTime: "12:01" }), task("date-only", { dueTime: "" }),
+    task("notice", { content_type: "notice" }), task("review", { reviewCandidateId: "candidate" }),
+  ];
+  const groups = groupTasks(records, today, now);
+  assert.deepEqual(groups.map(group => group.tone), ["overdue", "today"]);
+  assert.deepEqual(ids(groups[0].tasks), ["deadline"]);
+  const mixed = renderTaskList(records, { today, now });
+  assert.match(mixed, /时间已过<span>1/);
+  assert.doesNotMatch(mixed, /早于今天/);
+  assert.match(mixed, /class="task-row is-overdue" data-task-id="deadline"/);
+  assert.equal(mixed.match(/is-overdue/g).length, 1);
+  assert.doesNotMatch(renderTaskList([task("finished", { status: "done" })], { today, now }), /is-overdue|已逾期/);
+  const earlier = renderTaskList(records, { today, now: new Date(`${today}T11:59:59`) });
+  assert.doesNotMatch(earlier, /时间已过|is-overdue/);
 });
 
 test("calendar and day panels put unread notices before read notices even when their key time is later", () => {

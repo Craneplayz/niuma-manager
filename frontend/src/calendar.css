@@ -645,6 +645,87 @@ body.is-calendar-dragging * {
   font-size: 12px;
 }
 
+.agenda-week, .btn.agenda-add-task {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  /* Let even a day with no tasks scroll up far enough to be read on its own. */
+  .is-calendar .calendar-layout > .day-panel {
+    min-height: calc(100svh - 12px);
+    margin-top: 0;
+    scroll-margin-top: 8px;
+  }
+  .agenda-week {
+    display: block;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .agenda-week-heading, .agenda-week-arrows {
+    display: flex;
+    align-items: center;
+  }
+  .agenda-week-heading { justify-content: space-between; }
+  .agenda-week-arrows .icon-button { width: 44px; }
+  .agenda-month {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .agenda-month .icon { width: 13px; transform: rotate(-90deg); }
+  .agenda-week-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    touch-action: pan-y;
+  }
+  .agenda-week-days > button {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 50px;
+    padding: 3px 0;
+    border: 0;
+    border-radius: var(--radius-small);
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .agenda-week-days > button > span {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .agenda-week-days > button[aria-pressed="true"] {
+    background: var(--action-soft);
+    color: var(--action-text);
+  }
+  .agenda-week-days > button[aria-pressed="true"] > span { color: inherit; }
+  .day-panel-heading:has(.agenda-add-task) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .btn.agenda-add-task {
+    display: inline-flex;
+    grid-column: 2;
+    grid-row: 1 / 3;
+    justify-self: end;
+    color: var(--action-text);
+  }
+}
+
 .task-row.is-compact {
   gap: 5px;
   padding: 2px 0;

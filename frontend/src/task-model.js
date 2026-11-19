@@ -21,18 +21,28 @@ function readDate(value) {
 }
 
 function dueOf(task) {
-  return readDate(task.due) ? task.due : "";
+  const date = typeof task.due === "string" ? task.due : task.due?.date;
+  return readDate(date) ? date : "";
 }
 
-function timeOf(task) {
-  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(task.dueTime || ""))
-    ? task.dueTime
-    : "";
+export function taskDueTime(task) {
+  const time = typeof task.dueTime === "string" ? task.dueTime
+    : task.due?.precision === "date" ? "" : task.due?.time;
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time || "") ? time : "";
 }
 
-export function todayKey() {
-  const now = new Date();
+export function todayKey(now = new Date()) {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+export function isTaskOverdue(task, today, now) {
+  if (isNotice(task) || task.reviewCandidateId || task.recycleBin ||
+      ["done", "completed", "cancelled"].includes(task.status)) return false;
+  const date = dueOf(task);
+  if (!date || date !== today) return Boolean(date && date < today);
+  const time = taskDueTime(task);
+  if (!time || !(now instanceof Date) || todayKey(now) !== today) return false;
+  return now.getHours() * 60 + now.getMinutes() >= Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 }
 
 export function shiftDay(date, days) {
@@ -51,7 +61,7 @@ export function sortTasks(tasks) {
       bDue = dueOf(b);
     if (aDue !== bDue) return !aDue ? 1 : !bDue ? -1 : aDue.localeCompare(bDue);
     return (
-      (timeOf(a) || "99:99").localeCompare(timeOf(b) || "99:99") ||
+      (taskDueTime(a) || "99:99").localeCompare(taskDueTime(b) || "99:99") ||
       String(a.id ?? "").localeCompare(String(b.id ?? ""), undefined, {
         numeric: true,
       })
@@ -109,7 +119,7 @@ export function filterTasks(
   return sortTasks(result);
 }
 
-export function groupTasks(tasks, today = todayKey()) {
+export function groupTasks(tasks, today = todayKey(), now = new Date()) {
   const day = readDate(today) ? today : todayKey();
   const tomorrow = shiftDay(day, 1),
     nearEnd = shiftDay(day, 7);
@@ -125,7 +135,7 @@ export function groupTasks(tasks, today = todayKey()) {
     const due = dueOf(task);
     const index = !due
       ? 5
-      : due < day
+      : due < day || isTaskOverdue(task, day, now)
         ? 0
         : due === day
           ? 1
@@ -150,5 +160,6 @@ export function deadlineLabel(task, today = todayKey()) {
       : due === shiftDay(day, 1)
         ? "明天"
         : `${year === day.slice(0, 4) ? "" : `${year} 年 `}${Number(month)} 月 ${Number(date)} 日`;
-  return `${label}${timeOf(task) ? ` ${timeOf(task)}` : ""}`;
+  const time = taskDueTime(task);
+  return `${label}${time ? ` ${time}` : ""}`;
 }
