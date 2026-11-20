@@ -72,6 +72,7 @@ frontend/
 │   ├── error-reports-view.js 管理员错误报告列表
 │   ├── usage-feedback.js     账号中的主动反馈与非阻塞评分
 │   ├── admin-usage.js        独立后台统计、日期筛选和反馈列表
+│   ├── admin-evaluations.js  管理员评测指标、模型对照、筛选与导出
 │   ├── traffic-view.js       后台游客、注册、回访卡片及每日明细
 │   ├── admin-operations.js   独立管理员运行监控、只读追踪和资源缺失适配
 │   ├── admin-usage.css       独立后台的桌面与手机样式
@@ -109,6 +110,8 @@ frontend/
 │   ├── browser/task-journal.spec.js  真实 HTTP/SQLite 与浏览器刷新、进程强制退出、回执丢失回归
 │   ├── app-date.test.js      跨日更新、草稿保留和拖放日期保存
 │   ├── browser/render-latency.spec.js 日历独立读取、后台输入保持与原文复用
+│   ├── admin-evaluations-browser.mjs 独立后台报告的多视口浏览器检查
+│   ├── admin-evaluations.test.js 评测指标汇总与 CSV 导出检查
 │   ├── browser/import-latency.spec.js 导入读取隔离与下一段草稿保护
 │   ├── calendar-activity.test.js 日期归属、明确时刻到期、单色优先级与独立数量档位
 │   ├── browser/calendar-activity.spec.js 单色优先级、完整日期点击、月周一致与到时更新

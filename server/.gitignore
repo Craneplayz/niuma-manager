@@ -3,3 +3,7 @@ deploy/environments/
 !deploy/.env.example
 !deploy/.env.ip.example
 !deploy/.env.model.example
+
+# Evaluation receipts and raw provider outputs stay private.
+model_evaluation/results*/
+model_evaluation/*.jsonl

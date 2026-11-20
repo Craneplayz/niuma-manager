@@ -14,3 +14,6 @@
 .login .admin-brand { margin-bottom: 20px; }
 #range > button:not(:disabled):hover, .login button:not(:disabled):hover { background: var(--action-hover); border-color: var(--action-hover); }
 #range > button:not(:disabled):active, .login button:not(:disabled):active { background: var(--action-active); border-color: var(--action-active); }
+.eval-controls{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}.eval-controls label{display:flex;flex-direction:column;gap:6px}.eval-controls select{max-width:300px;padding:8px;border:1px solid #ddd;border-radius:8px;background:#fff}.eval-cell{display:block;padding:8px;border-radius:6px;background:rgba(40,110,94,var(--eval-alpha))}#evaluations-panel svg{width:100%;height:auto}#evaluations-panel pre{max-width:600px;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-word}#evaluations-panel article{margin-bottom:20px}#evaluations-panel th{white-space:nowrap}@media(max-width:480px){.eval-controls label{width:100%}.eval-controls select{max-width:100%;width:100%}}
+
+.eval-token-row{display:grid;gap:6px;padding:10px 0;font-size:12px}.eval-token-track{height:16px;background:#eee;display:flex;border-radius:4px;overflow:hidden}.eval-token-track i{display:block;height:100%}
