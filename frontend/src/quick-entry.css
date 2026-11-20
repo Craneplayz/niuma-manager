@@ -156,3 +156,5 @@
   .quick-mirror { display: none; }
   #quick-text { color: CanvasText; }
 }
+
+.quick-original { white-space: pre-wrap; overflow-wrap: anywhere; }

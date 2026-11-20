@@ -37,6 +37,9 @@
             "workspaceGeneration": {
               "type": "integer",
               "minimum": 0
+            },
+            "quickRecognition": {
+              "$ref": "#/$defs/quickRecognition"
             }
           },
           "allOf": [
@@ -50,6 +53,45 @@
               },
               "then": {
                 "$ref": "#/$defs/reviewIntent"
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "quickRecognition"
+                ]
+              },
+              "then": {
+                "required": [
+                  "draft",
+                  "createdAt",
+                  "expected"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "save"
+                  },
+                  "expected": {
+                    "type": "null"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "draft": {
+                    "type": "object",
+                    "required": [
+                      "id"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      }
+                    }
+                  }
+                }
               }
             }
           ]
@@ -240,6 +282,43 @@
           }
         }
       ]
+    },
+    "quickRecognition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "text",
+        "timezone",
+        "referenceDay",
+        "protectedFields"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "referenceDay": {
+          "type": "string",
+          "format": "date"
+        },
+        "protectedFields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "title",
+              "course",
+              "due"
+            ]
+          }
+        }
+      }
     }
   },
   "oneOf": [

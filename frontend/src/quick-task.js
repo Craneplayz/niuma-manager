@@ -139,6 +139,7 @@ export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultC
   const source = String(input ?? "");
   const { masked, course, tag } = takeCourse(source, courses, defaultCourse);
   const tags = tag ? [tag] : [];
+  const explicitCourse = Boolean(tag);
   const task = { title: stripTokens(source, tags), due: shiftDay(defaultDate, 0), dueTime: "", course };
   // Normalize full-width digits one code unit at a time so highlight offsets stay valid.
   const searchable = masked
@@ -157,21 +158,21 @@ export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultC
       && !/^(?:点|儿|时间|资料|东西|想法|建议)/u.test(following);
   });
   const [date] = dates, [time] = times;
-  if (isUncertain(searchable, dates, times)) return { task: { ...task, due: "" }, spans: [] };
-  if (!date && !time) return { task, spans: [] };
+  if (isUncertain(searchable, dates, times)) return { task: { ...task, due: "" }, spans: [], explicitCourse };
+  if (!date && !time) return { task, spans: [], explicitCourse };
 
   today = shiftDay(today, 0);
   const due = date ? resolveDate(date.groups, today) : task.due || today;
   const shortPeriod = /晚$/u.test(date?.groups.relative || "") ? "晚上" : /早$/u.test(date?.groups.relative || "") ? "早上" : "";
   const dueTime = time ? resolveTime(time.groups, time.groups.period || shortPeriod) : "";
-  if (!due || (time && !dueTime)) return { task: { ...task, due: "" }, spans: [] };
+  if (!due || (time && !dueTime)) return { task: { ...task, due: "" }, spans: [], explicitCourse };
 
   const spans = mergedTimeSpans([date, time].filter(Boolean), source);
   // "明晚" resolves a date without an exact clock time. Keep the imprecise
   // part in the title rather than silently losing what the student wrote.
   const dateWords = shortPeriod && !time ? [] : spans.map(span => ({ ...span, deadline: true }));
   const title = stripTokens(source, [...tags, ...dateWords]);
-  return { task: { title, due, dueTime, course }, spans };
+  return { task: { title, due, dueTime, course }, spans, explicitCourse };
 }
 
 export function parseQuickTask(input, options) {

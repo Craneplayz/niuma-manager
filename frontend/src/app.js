@@ -4,6 +4,8 @@ import {
   readStore,
   readSavedTasks,
   readProjectedStore,
+  hasPendingQuickRecognition,
+  refreshQuickRecognition,
   taskWritesAreOnlineOnly,
   readCancelledTasks,
   initSession,
@@ -30,7 +32,7 @@ import {
   filterTasks,
   isNotice,
   taskEditSnapshot,
-  assertCurrentTaskEdit,
+  mergeTaskEdit,
   deadlineLabel,
 } from "./task-model.js";
 import { renderTaskList, renderTaskRow, renderDayPanel } from "./task-views.js";
@@ -233,6 +235,37 @@ const timetable = createTimetableUI(host, { api, session, accountVersion, readSt
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 let readQuickDraft = null, recentTaskId = "";
+let quickPollTimer, quickPollEpoch = null;
+function scheduleQuickPoll(delay = 500) {
+  if (demo || document.hidden || !hasPendingQuickRecognition() || quickPollTimer || quickPollEpoch !== null) return;
+  quickPollTimer = setTimeout(pollQuickRecognition, delay);
+}
+async function pollQuickRecognition() {
+  clearTimeout(quickPollTimer);
+  quickPollTimer = null;
+  if (quickPollEpoch !== null || demo || document.hidden || !hasPendingQuickRecognition()) return;
+  const epoch = accountVersion();
+  quickPollEpoch = epoch;
+  let delay = 1200;
+  try {
+    if (await refreshQuickRecognition() && epoch === accountVersion()) {
+      state = readProjectedStore();
+      render();
+      if (drawer.open && drawerId && !drawerEditing) {
+        if (editableTask(drawerId)) updateDrawer();
+        else closeDrawer();
+      }
+    }
+  } catch {
+    // Intermittent connectivity shouldn't prevent working with the locally saved task.
+    delay = 5000;
+  } finally {
+    if (quickPollEpoch === epoch) {
+      quickPollEpoch = null;
+      scheduleQuickPoll(delay);
+    }
+  }
+}
 function draggableTask(id) {
   if (taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
@@ -625,6 +658,7 @@ function render() {
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
+  scheduleQuickPoll();
 }
 function renderResults() {
   calendarDrag.cancel();
@@ -680,6 +714,7 @@ function openTask(id, editing = false, selectedDate = "") {
   }
   if (!drawer.open) drawer.showModal();
   if (quick) drawer.querySelector("#quick-text").focus();
+  if (id && !editing && editableTask(id)?.quickRecognition?.status === "pending") void pollQuickRecognition();
 }
 function updateDrawer() {
   syncCourseIdentity();
@@ -703,7 +738,7 @@ function updateDrawer() {
   renderedDrawer = identity;
   const actionError = drawer.querySelector("#task-action-error");
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
-  if (!reuse && !drawerEditing && task.id) {
+  if (!reuse && !drawerEditing && task.id && !task.quickRecognition?.text) {
     const evidence = drawer.querySelector("#task-evidence");
     if (task.reviewCandidateId || task.pendingReviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId || task.pendingReviewCandidateId);
     else if (demo)
@@ -1240,7 +1275,7 @@ document.addEventListener("submit", async (e) => {
     const existing = editableTask(form.dataset.id);
     if (form.dataset.id) {
       try {
-        assertCurrentTaskEdit(existing, form.dataset.taskEditSnapshot);
+        mergeTaskEdit(existing, form.dataset.taskEditSnapshot, values, form.hasAttribute("data-recognition-pending"));
       } catch (cause) {
         error.textContent = cause.message;
         return;
@@ -1291,7 +1326,10 @@ document.addEventListener("submit", async (e) => {
     const expected = existing ? form.dataset.taskEditSnapshot : undefined;
     form.dataset.savingId = draftId;
     busyTasks.add(draftId);
-    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
+    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected, {
+      quickRecognition: quick ? readQuickDraft.recognition() : undefined,
+      startedPending: !quick && form.hasAttribute("data-recognition-pending"),
+    });
     if (!await stageTaskSave(saving, draftId, epoch, form)) return;
     if (demo) {
       if (existing) Object.assign(existing, task);
@@ -1404,6 +1442,8 @@ drawer.addEventListener("cancel", (e) => {
   closeDrawer();
 });
 window.addEventListener("niuma:account-reset", () => {
+  clearTimeout(quickPollTimer);
+  quickPollTimer = quickPollEpoch = null;
   resetErrorFeedback();
   clearQuickEntry();
   recentTaskId = "";
@@ -1445,6 +1485,7 @@ window.addEventListener("popstate", () => {
   if (ui.page === "import") void imports.load();
 });
 window.addEventListener("niuma:sync", () => {
+  scheduleQuickPoll();
   const label = document.querySelector("#save-status");
   if (label) label.textContent = saveLabel();
   const alert = document.querySelector("#sync-alert");
@@ -1456,7 +1497,10 @@ matchMedia("(max-width: 700px)").addEventListener("change", () => {
   ui.mobileMenu = false;
   render();
 });
-document.addEventListener("visibilitychange", syncToday);
+document.addEventListener("visibilitychange", () => {
+  syncToday();
+  if (!document.hidden) void pollQuickRecognition();
+});
 window.addEventListener("focus", syncToday);
 window.addEventListener("pageshow", syncToday);
 syncNavigation("replace");

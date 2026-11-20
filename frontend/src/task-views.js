@@ -43,6 +43,7 @@ export function renderTaskRow(
     : isTaskOverdue(task, today, now);
   const meta = [...new Set([task.source, pending && task.reviewActionLabel].filter(value => value && value !== task.course))];
   if (!notice && task.status === "doing") meta.push("进行中");
+  if (task.quickRecognition?.status === "pending") meta.push("AI 识别中");
   const due = hideDeadline ? "" : pending ? task.reviewDateLabel || deadlineLabel(task, today) : compact
     ? /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(task.dueTime || "")
       ? task.dueTime

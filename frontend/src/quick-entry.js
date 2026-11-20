@@ -204,6 +204,14 @@ export function bindQuickEntry(form, options) {
     refresh();
   });
   refresh();
+  readDraft.recognition = () => {
+    const protectedFields = [];
+    if (dateOverride || (options.defaultDate && analysis.task.due === options.defaultDate))
+      protectedFields.push("due");
+    if (courseOverride !== null || analysis.explicitCourse || (options.defaultCourse && analysis.task.course === options.defaultCourse))
+      protectedFields.push("course");
+    return { text: input.value.trim(), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
+  };
   readDraft.refreshDay = refreshDay;
   return readDraft;
 }
