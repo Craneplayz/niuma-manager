@@ -44,8 +44,7 @@ server.serve_forever()
   // Forward browser requests to a real isolated API, retaining its receipts/cookies.
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url());
-    const response = await route.fetch({ url: backend + url.pathname + url.search });
-    await route.fulfill({ response });
+    await route.continue({ url: backend + url.pathname + url.search });
   });
   await page.goto('/?view=calendar&anchor=2026-09-07&date=2026-09-07');
   await expect(page.locator('.loading-state')).toHaveCount(0);
