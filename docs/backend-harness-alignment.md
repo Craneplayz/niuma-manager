@@ -17,7 +17,7 @@
 
 前端工程现位于 `frontend/`，npm 命令在该目录执行。潘勇圳的实现作为前端主版本，独有服务端功能经适配层接入；来源与改写见 [前端贡献说明](../frontend/CONTRIBUTIONS.md)。本次不改动文本识别 v0.2 或规划 2.0 的模型协议。
 
-新增账号工作区数据：`courses` 为 `{id,name,teacher,notes,url,color?}[]`（名称/编号唯一，HTTP(S) 无凭据链接）；`materials` 为参考版课程资料列表；`focus` 为 `{duration,remaining,running,endsAt,taskId}`（秒单位 duration/remaining，duration 为 1500 或 3000，endsAt 为 Unix 毫秒，taskId 可空）。沿用 `PUT /api/data/:name` 的版本校验，关联任务必须属于当前账号；无数据的旧账号使用空课程及默认暂停计时，无须迁移已有任务。
+新增账号工作区数据：`courses` 为 `{id,name,teacher,notes,url,color?}[]`（名称/编号唯一，HTTP(S) 无凭据链接）；`materials` 为参考版课程资料列表；`focus` 为 `{duration,remaining,running,endsAt,taskId}`（秒单位 duration/remaining，duration 为 1500 或 3000，endsAt 为 Unix 毫秒，taskId 可空）。考勤与成绩构成见[课程档案契约](../contracts/README.md)。沿用 `PUT /api/data/:name` 的版本校验，关联任务必须属于当前账号；无数据的旧账号使用空课程及默认暂停计时，无须迁移已有任务。
 
 计时只在开始、暂停、重置、选择任务或时长时保存，不每秒写数据库；界面按 endsAt 计算剩余秒数。多窗口不实时推送，冲突后可读取服务器最新计时。到时不自动生成完成反馈，避免将经过时间当成真实投入。课程名称与 Task.course 精确匹配，课程改名不批量改写任务。
 

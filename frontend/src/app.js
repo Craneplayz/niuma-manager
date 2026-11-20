@@ -20,6 +20,8 @@ import {
   restoreStoredTasks,
   accountVersion,
   setStoredTaskDeadline,
+  readCourses,
+  saveCourses,
   readStoredTimetable,
   acceptStoredTimetable,
 } from "./team-store.js";
@@ -39,6 +41,8 @@ import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
 import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
 import { createStudyPlanning, studySessions, studySessionMarkup, taskStepsMarkup } from "./study-planning.js";
+import { createCourseEditor, renderLearningPage } from "./course-workspace.js";
+import { renderToday } from "./today.js";
 import { createTimetableUI } from "./timetable.js";
 import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
@@ -183,9 +187,11 @@ const host = {
   openDialog,
   closeDialog,
   showStudyDay(day) {
+    const fromCalendar = ui.page === 'tasks' && ui.scope === 'all' && ui.view === 'calendar';
+    ui.page = 'tasks'; ui.scope = 'all'; ui.view = 'calendar';
     ui.anchor = ui.selectedDate = day;
     ui.pane = 'day';
-    syncNavigation('replace');
+    syncNavigation(fromCalendar ? 'replace' : 'push');
     render();
     showMobileDay();
   },
@@ -237,6 +243,7 @@ const imports = createImportUI(host),
   account = createAccountUI(host);
 const planning = createStudyPlanning(host, { api, flushStore, savePlanning, readAvailability, accountVersion, session });
 const timetable = createTimetableUI(host, { api, session, accountVersion, readStoredTimetable, acceptStoredTimetable });
+const courseEditor = createCourseEditor(host, { readCourses, saveCourses, accountVersion, select: name => { ui.learningCourse = name; } });
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 function draggableTask(id) {
@@ -256,6 +263,7 @@ function resetAccountUI() {
   clearUndo();
   busyTasks.clear();
   imports.reset();
+  ui.learningCourse = "";
   ui.query = "";
   ui.course = "";
   ui.source = "";
@@ -344,7 +352,16 @@ async function refresh() {
   state = await refreshStore();
   render();
 }
-const listItems = () => projectReviewTasks(state.tasks, imports.getReviewItems(), today);
+let paintedItems;
+function listItems() {
+  return paintedItems || projectReviewTasks(state.tasks, imports.getReviewItems(), today);
+}
+// A paint reads one consistent projection, even when several regions use the same tasks.
+function withTaskRows(paint) {
+  const previous = paintedItems;
+  paintedItems = previous || projectReviewTasks(state.tasks, imports.getReviewItems(), today);
+  try { return paint(); } finally { paintedItems = previous; }
+}
 const syncCourseIdentity = () => syncCourseColors([
   ...listItems().map((task) => task.course),
   ...(imports.getCourseNames?.() || []),
@@ -376,7 +393,7 @@ function sidebar() {
     done: filterTasks(state.tasks, { scope: "done", today }).length,
     notices: filterTasks(listItems(), { scope: "notices", today }).length,
   };
-  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器"><img class="brand-logo" src="${esc(brandLogo)}" width="36" height="32" alt="" aria-hidden="true" decoding="async"><span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
+  return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器"><img class="brand-logo" src="${esc(brandLogo)}" width="36" height="32" alt="" aria-hidden="true" decoding="async"><span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav">${[['today','今天','clock'],['courses','我的课程','book'],['planning','学习规划','plan']].map(([page,label,glyph]) => `<button type="button" class="nav-item ${ui.page === page ? 'active' : ''}" data-page="${page}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === page ? 'aria-current="page"' : ''}>${icon(glyph)}<span class="nav-text">${label}</span></button>`).join('')}<span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
     ["notices", "通知", "info"],
     ["near", "临近截止", "clock"],
@@ -501,7 +518,7 @@ function tasksPage() {
     ] || "全部任务";
   const heading = workspaceHeading({
     title: label,
-    count: headingCount(),
+    count: taskListLoading() ? "…" : headingCount(),
     countId: "result-count",
     controls: viewSwitch,
     actions: ui.scope === "notices" ? "" : `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
@@ -510,6 +527,15 @@ function tasksPage() {
   return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${view === "list" ? toolbar() : ""}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
     .map((c) => `<option value="${esc(c)}">`)
     .join("")}</datalist></section>`;
+}
+function workspacePage() {
+  if (ui.page === 'import') return `<section class="import-page">${imports.render()}</section>`;
+  if (ui.page === 'tasks') return tasksPage();
+  const common = { heading: workspaceHeading, today, esc, icon };
+  if (ui.page === 'today') return renderToday({ ...common, items: listItems(), classes: timetable.events(today, today),
+    sessions: studySessions(state.tasks), reviewStatus: imports.taskReviewsStatus(), reviewBusy: imports.isReviewBusy() });
+  return renderLearningPage({ ...common, tasks: ui.page === 'courses' ? listItems() : state.tasks, reviewBusy: imports.isReviewBusy(), signedIn: Boolean(session.user), selected: ui.learningCourse,
+    planningOnly: ui.page === 'planning', tables: readStoredTimetable().value, profiles: readCourses().value });
 }
 function syncAlert() {
   return loadError
@@ -556,7 +582,7 @@ function refreshToday() {
 }
 function syncToday() {
   if (document.visibilityState !== "hidden" && refreshToday()) {
-    if (ui.page === "tasks") render();
+    if (ui.page !== "import") render();
     else {
       // Keep the import form and any unsaved review draft intact.
       const label = document.querySelector(".main-date");
@@ -587,7 +613,8 @@ function scheduleCalendarActivity() {
   };
   calendarActivityTimer = setTimeout(update, Math.max(1, next - now.getTime() + 1));
 }
-function render() {
+function render() { return withTaskRows(renderWorkspace); }
+function renderWorkspace() {
   calendarDrag.cancel();
   refreshToday();
   syncCourseIdentity();
@@ -599,7 +626,7 @@ function render() {
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
   const epoch = accountVersion();
-  updateDOM(app, `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading || ui.page === "tasks" && taskView() === "list" && taskListLoading() ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`, { reset: renderedAccount !== epoch });
+  updateDOM(app, `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading ? `${workspaceHeading({ title: ({today:"今天", courses:"我的课程", planning:"学习规划"})[ui.page] || "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : workspacePage()}</div></main></div>`, { reset: renderedAccount !== epoch });
   renderedAccount = epoch;
   if (!focusId) restoreFocus(token);
   if (focusId) {
@@ -618,7 +645,8 @@ function render() {
   pruneErrorFeedback();
   scheduleCalendarActivity();
 }
-function renderResults() {
+function renderResults() { return withTaskRows(renderTaskResults); }
+function renderTaskResults() {
   calendarDrag.cancel();
   if (refreshToday()) return render();
   syncCourseIdentity();
@@ -628,7 +656,7 @@ function renderResults() {
   if (!results) return;
   updateDOM(results, taskResults());
   syncTaskControls();
-  document.querySelector("#result-count").textContent = headingCount();
+  document.querySelector("#result-count").textContent = taskListLoading() ? "…" : headingCount();
   if (restore && token) restoreFocus(token);
   scheduleCalendarActivity();
 }
@@ -776,6 +804,7 @@ async function saveStatus(id, next, expected) {
   const pending = Boolean(task.reviewCandidateId);
   let savedId = id, acknowledged = next;
   busyTasks.add(id);
+  syncTaskControls();
   if (pending) {
     render();
     if (drawer.open && drawerId === id) updateDrawer();
@@ -907,6 +936,7 @@ function calendarStep(direction) {
   renderResults();
 }
 const actions = {
+  "today-calendar": () => { ui.view = 'calendar'; ui.anchor = ui.selectedDate = today; ui.pane = 'day'; navigatePage('tasks', 'all'); },
   "error-dismiss": clearUndo,
   "sidebar-toggle": () => {
     const mobile = matchMedia("(max-width: 700px)").matches;
@@ -939,7 +969,8 @@ const actions = {
     render();
   },
   "filter-reset": () => {
-    ui.query = "";
+    ui.learningCourse = "";
+  ui.query = "";
     ui.course = "";
     ui.source = "";
     ui.dateFrom = "";
@@ -1026,6 +1057,10 @@ document.addEventListener("click", async (e) => {
   }
   hideSidebarTooltip();
   try {
+    if ('courseAdd' in button.dataset || 'courseEdit' in button.dataset) {
+      if (session.user) courseEditor.open(button.dataset.courseEdit || '', 'focusGrading' in button.dataset);
+      return;
+    }
     if (await planning.click(button)) return;
     if (button.dataset.action && actions[button.dataset.action]) {
       await actions[button.dataset.action]();
@@ -1118,7 +1153,8 @@ document.addEventListener("change", (e) => {
   if (imports.input?.(e)) return;
   const id = e.target.id,
     value = e.target.value;
-  if (id === "course-filter") ui.course = value;
+  if (id === "learning-course") ui.learningCourse = value;
+  else if (id === "course-filter") ui.course = value;
   else if (id === "source-filter") ui.source = value;
   else if (id === "date-from") ui.dateFrom = value;
   else if (id === "date-to") ui.dateTo = value;
@@ -1137,6 +1173,7 @@ document.addEventListener("toggle", (event) => {
 }, true);
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (e.target.matches('[data-course-form]')) { await courseEditor.submit(e.target); return; }
   if (planning.submit(e.target)) return;
   const form = e.target;
   if (form.id === "task-edit-form") {
@@ -1317,6 +1354,7 @@ window.addEventListener("niuma:account-reset", () => {
   planning.reset();
   drawer.close();
   drawerId = null;
+  ui.learningCourse = "";
   ui.query = "";
   ui.course = "";
   ui.source = "";

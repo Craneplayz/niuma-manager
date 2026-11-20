@@ -279,6 +279,18 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
             self.assertEqual(self.call(a,'/data/courses','PUT',dict(value=[dict(course,url=url)],version=1))[0],400)
         self.assertEqual(self.call(a,'/data/courses','PUT',dict(value=[course,dict(course,id='c2')],version=1))[0],400)
 
+    def test_course_grading_and_attendance(self):
+        client = self.client()
+        self.register(client, 'grading@test.local')
+        example = Path(__file__).resolve().parents[1] / 'contracts/examples/course-profile.json'
+        course = json.loads(example.read_text(encoding='utf-8'))
+        self.assertEqual(self.call(client, '/data/courses', 'PUT', dict(value=[course], version=0))[0], 200)
+        for weights in [[dict(label='超额', percent=101)], [dict(label='', percent=5)],
+                        [dict(label='小测', percent=True)], course['grading'] + [dict(label='期末', percent=65)]]:
+            self.assertEqual(self.call(client, '/data/courses', 'PUT',
+                                       dict(value=[dict(course, grading=weights)], version=1))[0], 400)
+        self.assertEqual(self.call(client, '/workspace')[1]['courses']['value'], [course])
+
     def test_focus_persistence_validation_and_owner(self):
         a,b=self.client(),self.client();self.register(a,'focus@test.local');self.register(b,'focus-other@test.local')
         timer=dict(duration=1500,remaining=1500,running=True,endsAt=app.time.time()*1000+1500000,taskId='')

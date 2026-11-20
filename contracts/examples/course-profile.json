@@ -1,0 +1,11 @@
+{
+  "id": "course-design",
+  "name": "课程设计",
+  "teacher": "陈老师",
+  "notes": "",
+  "url": "",
+  "attendance": "实验课签到",
+  "grading": [
+    { "label": "课程项目", "percent": 37.5 }
+  ]
+}

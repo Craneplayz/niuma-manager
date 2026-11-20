@@ -51,7 +51,7 @@ function activityTasks() {
   return tasks;
 }
 
-async function workspace(page, { tasks: initialTasks = activityTasks(), reviews = pendingReview(), url = "/", timers = false } = {}) {
+async function workspace(page, { tasks: initialTasks = activityTasks(), reviews = pendingReview(), url = "/?page=tasks", timers = false } = {}) {
   if (timers) await page.clock.install({ time: new Date("2026-10-29T04:00:00Z") });
   else await page.clock.setFixedTime(new Date("2026-10-29T04:00:00Z"));
   let tasks = structuredClone(initialTasks), version = 1, reads = 0;

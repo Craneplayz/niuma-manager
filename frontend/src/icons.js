@@ -1,4 +1,6 @@
 const paths = {
+  book: "M3 5q5-2 9 1 4-3 9-1v14q-5-2-9 1-4-3-9-1zM12 6v14",
+  plan: "M4 5h4v4H4zM12 7h8M4 15l2 2 4-5M12 16h8",
   sidebar: "M4 4h16v16H4zM9 4v16M6 8h.1M6 12h.1",
   filter: "M4 6h16M7 12h10M10 18h4",
   trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7",

@@ -470,6 +470,22 @@ class Handler(BaseHTTPRequestHandler):
                     for course in value:
                         if not isinstance(course,dict) or any(not isinstance(course.get(k),str) or len(course[k])>limit for k,limit in [('id',100),('name',120),('teacher',120),('notes',20000),('url',2000)]): raise ApiError(400,'课程格式不正确')
                         if not course['id'] or not course['name'].strip() or course['id'] in ids or course['name'].strip() in names: raise ApiError(400,'课程名称或编号为空或重复')
+                        attendance = course.get('attendance', '')
+                        if not isinstance(attendance, str) or len(attendance) > 2000:
+                            raise ApiError(400, '考勤要求最多 2000 字')
+                        grading = course.get('grading', [])
+                        if not isinstance(grading, list) or len(grading) > 30:
+                            raise ApiError(400, '评分项目最多 30 项')
+                        total = 0
+                        for item in grading:
+                            if not isinstance(item, dict) or not isinstance(item.get('label'), str) or not 0 < len(item['label'].strip()) <= 80:
+                                raise ApiError(400, '请填写评分项目名称')
+                            percent = item.get('percent')
+                            if type(percent) not in (int, float) or not 0 < percent <= 100 or round(percent, 2) != percent:
+                                raise ApiError(400, '占比应为 0 到 100 之间的正数，最多两位小数')
+                            total += round(percent * 100)
+                        if total > 10000:
+                            raise ApiError(400, '评分占比合计不能超过 100%')
                         try:
                             link=urlsplit(course['url'])
                             if course['url'] and (link.scheme not in ['http','https'] or not link.hostname or link.username or link.password): raise ValueError()

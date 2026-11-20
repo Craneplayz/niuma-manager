@@ -45,27 +45,31 @@ export function taskStepsMarkup(task, esc, enabled = true) {
   }).join('')}</section>`;
 }
 
+export function canSchedule(task) {
+  const steps = task.subtasks || [];
+  return task.status !== 'done' && !task.recycleBin && !isNotice(task) && task.due
+    && (!steps.length || steps.some(step => step?.status !== 'completed'));
+}
+
 export function createStudyPlanning(host, { api, flushStore, savePlanning, readAvailability, accountVersion, session }) {
   const esc = host.escapeHtml;
   const dialog = document.getElementById('dialog');
   const taskFor = id => host.getState().tasks.find(item => item.id === id);
-  const candidates = () => sortTasks(host.getState().tasks.filter(task => {
-    const steps = task.subtasks || [];
-    return task.status !== 'done' && !task.recycleBin && !isNotice(task) && task.due
-      && (!steps.length || steps.some(step => step?.status !== 'completed'));
-  }));
-  let active = null, requestController = null, stepBusy = false;
+  const candidates = course => sortTasks(host.getState().tasks.filter(task =>
+    canSchedule(task) && (!course || task.course?.trim() === course)));
+  let active = null, requestController = null;
+  const busyStepTasks = new Set();
+  window.addEventListener("niuma:account-reset", () => busyStepTasks.clear());
   const activePanel = panel => active === panel && panel.epoch === accountVersion() && dialog.open && !!dialog.querySelector('[data-study-panel]');
   function reset() {
     active = null;
     requestController?.abort();
     requestController = null;
-    stepBusy = false;
   }
 
   function availabilityForm(panel) {
     const { weekdays: days, startTime, endTime } = panel.availability;
-    const items = candidates();
+    const items = candidates(panel.course);
     return `<fieldset class="study-picks"><legend>选择任务</legend>${items.map(task => `<label><input type="checkbox" name="taskId" value="${esc(task.id)}" ${panel.selected.includes(task.id) ? 'checked' : ''}><span><strong>${esc(task.title)}</strong><small>${esc(deadlineLabel(task))}${task.plans?.length ? ' · 已有安排，选中可重排' : ''}</small></span></label>`).join('') || '<p class="status-note">给一项未完成的任务设置截止日期后，即可安排学习时间。</p>'}</fieldset>
       <fieldset class="study-window"><legend>本次可用时间 <small>北京时间</small></legend><div class="study-days">${weekdays.map(([id, label]) => `<label><input type="checkbox" name="weekday" value="${id}" ${days.includes(id) ? 'checked' : ''}><span aria-label="星期${label}">${label}</span></label>`).join('')}</div><div class="study-hours"><label class="field">从<input type="time" name="startTime" value="${esc(startTime)}" required></label><label class="field">至<input type="time" name="endTime" value="${esc(endTime)}" required></label></div></fieldset>
       <footer class="dialog-actions"><button class="btn primary" ${items.length ? '' : 'disabled'}>生成排程预览</button></footer>`;
@@ -112,13 +116,13 @@ export function createStudyPlanning(host, { api, flushStore, savePlanning, readA
     if (opening) host.openDialog(html);
     else if (activePanel(panel)) updateDOM(dialog, html);
   }
-  function open(kind, id) {
+  function open(kind, id, course) {
     if (!session.user) { host.toast('登录后可以使用 AI 规划'); return; }
     reset();
     const task = id && taskFor(id);
     if (kind === 'split' && (!task || isNotice(task) || task.status === 'done')) return;
-    const panel = { kind, id, epoch: accountVersion(), conversation: [], availability: readAvailability(),
-      selected: candidates().filter(t => !t.plans?.length && !t.planningExcluded).map(t => t.id) };
+    const panel = { kind, id, course, epoch: accountVersion(), conversation: [], availability: readAvailability(),
+      selected: candidates(course).filter(t => !t.plans?.length && !t.planningExcluded).map(t => t.id) };
     active = panel;
     display(panel, true);
   }
@@ -174,7 +178,7 @@ export function createStudyPlanning(host, { api, flushStore, savePlanning, readA
   }
 
   async function click(button) {
-    if (Object.hasOwn(button.dataset, 'studyOpen')) { open('schedule'); return true; }
+    if (Object.hasOwn(button.dataset, 'studyOpen')) { open('schedule', null, button.dataset.studyCourse); return true; }
     if (Object.hasOwn(button.dataset, 'studySplit')) { open('split', button.dataset.studySplit); return true; }
     const panel = active;
     if (!panel || !activePanel(panel)) return false;
@@ -197,21 +201,21 @@ export function createStudyPlanning(host, { api, flushStore, savePlanning, readA
     return true;
   }
   async function setStep(input) {
-    if (stepBusy || !session.user) { input.checked = !input.checked; return; }
     const epoch = accountVersion(), taskId = input.dataset.studyTask;
+    if (busyStepTasks.has(taskId) || !session.user) { input.checked = !input.checked; return; }
     const completed = input.checked;
     input.disabled = true;
-    stepBusy = true;
+    busyStepTasks.add(taskId);
     try {
       await savePlanning(version => api('/api/decomposition/steps/status', { taskId, stepId: input.dataset.studyStep,
-        status: completed ? 'completed' : 'pending', version }), () => input.isConnected);
+        status: completed ? 'completed' : 'pending', version }), () => epoch === accountVersion() && !!taskFor(taskId));
     } catch (error) {
       if (epoch === accountVersion()) {
         if (input.isConnected) { input.checked = !completed; input.disabled = false; }
         if (error.status === 409) await host.refresh().catch(() => {});
         host.toast(error.message);
       }
-    } finally { if (epoch === accountVersion()) stepBusy = false; }
+    } finally { if (epoch === accountVersion()) busyStepTasks.delete(taskId); }
   }
   function submit(form) {
     if (!active || !Object.hasOwn(form.dataset, 'studyForm')) return false;

@@ -25,6 +25,15 @@ export const readStoredTimetable = () => clone(canonicalTimetable);
 export function acceptStoredTimetable(value) {
   if (value.version >= canonicalTimetable.version) canonicalTimetable = clone(value);
 }
+let courses = { value: [], version: 0 };
+export const readCourses = () => clone(courses);
+export async function saveCourses(value, version) {
+  const epoch = accountVersion();
+  const result = await api('/api/data/courses', { value, version }, 'PUT');
+  if (epoch !== accountVersion()) throw new Error('账号已切换');
+  if (result.version !== version + 1) throw new Error('未能确认课程信息，请刷新后核对。');
+  if (result.version >= courses.version) courses = { value: clone(value), version: result.version };
+}
 const clone = (value) => structuredClone(value);
 let accountEpoch = 0, editRevision = 0, retrying = null;
 let staging = Promise.resolve(), journalLoaded = null, order = 0, taskGeneration = 0;
@@ -45,6 +54,7 @@ function resetAccount() {
   session.user = null;
   canonicalTasks = [];
   availability = defaultAvailability;
+  courses = { value: [], version: 0 };
   canonicalCandidates = new Map();
   canonicalTimetable = { value: [], version: 0 };
   taskVersion = 0;
@@ -195,7 +205,10 @@ export function acceptStoredCandidates(items, { authoritative = false } = {}) {
   }
 }
 export function readStoredCandidates(items) {
-  const states = projectOperations(false).candidates;
+  if (!items.length) return [];
+  const pendingReview = pendingChanges.some(change => change.durable && !change.acknowledged &&
+    change.epoch === accountEpoch && change.operation.intent.kind === 'review');
+  const states = pendingReview ? projectOperations(false).candidates : canonicalCandidates;
   return items.map(item => ({ ...item, ...(states.get(item.id) || {}) }));
 }
 export function readSavedTasks() {
@@ -318,6 +331,7 @@ async function loadSession(discardPending = false) {
       }
       session.user = result.user;
       availability = next.availability?.value || defaultAvailability;
+      if ((next.courses?.version || 0) >= courses.version) courses = next.courses || { value: [], version: 0 };
       acceptStoredTimetable(next.timetable || { value: [], version: 0 });
       if ((next.tasks?.version || 0) >= taskVersion) {
         canonicalTasks = clone(next.tasks?.value || []);
