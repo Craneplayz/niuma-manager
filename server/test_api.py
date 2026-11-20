@@ -15,6 +15,44 @@ import app
 from auth_test_support import registration_payload
 
 class ApiTests(unittest.TestCase):
+    def test_checking_a_step_uses_account_and_task_version(self):
+        client=self.client(); self.register(client, 'step-owner@test.local')
+        other=self.client(); self.register(other, 'step-other@test.local')
+        task=dict(id='assignment', title='分组作业', status='not_started', plans=[],
+                  subtasks=[dict(id='draft',title='完成初稿',status='pending',estimatedMinutes=15),
+                            dict(id='upload',title='提交初稿',status='pending',dependsOn=['draft'])])
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
+        path='/decomposition/steps/status'
+        body=dict(taskId='assignment',stepId='draft',status='completed',version=1)
+        self.assertEqual(self.call(other,path,'POST',dict(body,version=0))[0],404)
+        self.assertEqual(self.call(client,path,'POST',dict(body,stepId='upload'))[0],409)
+        status, response=self.call(client,path,'POST',body)
+        self.assertEqual(status,200)
+        self.assertEqual(response['value'][0]['subtasks'][0]['status'],'completed')
+        self.assertEqual(response['version'],2)
+        self.assertEqual(self.call(client,path,'POST',dict(body,status='pending'))[0],409)
+        self.assertEqual(self.call(client,path,'POST',dict(body,version=2))[1]['version'],2)
+        self.assertEqual(self.call(client,path,'POST',dict(body,version=2,stepId='upload'))[0],200)
+        self.assertEqual(self.call(client,path,'POST',dict(body,version=3,status='pending'))[0],409)
+        self.assertEqual(self.call(client,path,'POST',dict(body,version=3,status='pending',stepId='upload'))[0],200)
+        self.assertEqual(self.call(client,path,'POST',dict(body,version=4,status='pending'))[0],200)
+
+    def test_preview_availability_picks_requested_hours_without_changing_preferences(self):
+        client=self.client(); self.register(client, 'plan-evening@test.local')
+        due=(app.datetime.now(app.TZ)+app.timedelta(days=3)).date().isoformat()
+        task=dict(id='report',title='结课报告',status='not_started',plans=[],subtasks=[],due=dict(date=due,precision='date'))
+        self.assertEqual(self.call(client,'/data/tasks','PUT',dict(value=[task],version=0))[0],200)
+        available=dict(startTime='08:00',endTime='10:00',weekdays=list(range(7)))
+        path='/planning/proposals'
+        with patch.object(app.planning,'plan',side_effect=lambda payload,_: app.planning.planning_harness.build_proposal(payload,{'report':30})) as model:
+            self.assertEqual(self.call(client,path,'POST',dict(availability=dict(available,endTime='07:00')))[0],400)
+            status, preview=self.call(client,path,'POST',dict(availability=available))
+            self.assertEqual(status,200)
+            self.assertTrue(preview['blocks'])
+            self.assertEqual(model.call_args.args[0]['availability'], available)
+        self.assertNotEqual(self.call(client,'/workspace')[1].get('availability',{}).get('value'),available)
+        self.assertEqual(self.call(client,'/planning/apply','POST',dict(requestId=preview['requestId']))[0],200)
+
     def test_notice_type_round_trip_preserves_date_without_conversion(self):
         client=self.client();self.register(client,'notice-kind@test.local')
         task=dict(id='n',title='上课地点：理教408',content_type='notice',due=None,status='not_started',plans=[],subtasks=[])

@@ -1,5 +1,6 @@
 import { isNotice, sortTasks } from "./task-model.js";
 import { classMarkup } from "./timetable.js";
+import { studySessionMarkup } from "./study-planning.js";
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
 const DAY_MS = 86400000;
@@ -46,6 +47,7 @@ function fallbackEscape(value) {
 export function renderCalendar({
   tasks = [],
   classes = [],
+  sessions = [],
   anchorDate,
   mode = "month",
   selectedDate,
@@ -82,6 +84,8 @@ export function renderCalendar({
     const iso = isoDate(date);
     const members = byDate.get(iso) || [];
     const lessons = classes.filter(event => event.date === iso);
+    const study = sessions.filter(event => event.date === iso);
+    const contentCount = members.length + lessons.length + study.length;
     const isToday = iso === todayISO;
     const isSelected = iso === selectedISO;
     const isOtherMonth = !isWeek && date.getUTCMonth() !== anchor.getUTCMonth();
@@ -94,12 +98,12 @@ export function renderCalendar({
       .filter(Boolean)
       .join(" ");
     const unit = members.some(isNotice) ? "条内容" : "项任务";
-    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "暂无任务"}${lessons.length ? `，${lessons.length}节课程` : ""}`;
+    const label = `${accessibleDate(date)}${isToday ? "，今天" : ""}，${members.length ? `${members.length} ${unit}` : "暂无任务"}${lessons.length ? `，${lessons.length}节课程` : ""}${study.length ? `，${study.length} 段学习安排` : ""}`;
     const weekday = isWeek
       ? `<span class="calendar-day-weekday">星期${WEEKDAYS[index]}</span>`
       : "";
-    const mobileCount = members.length + lessons.length
-      ? `<span class="calendar-day-mobile-count">${members.length + lessons.length} 项</span>`
+    const mobileCount = contentCount
+      ? `<span class="calendar-day-mobile-count">${contentCount} 项</span>`
       : '<span class="calendar-day-mobile-count calendar-day-mobile-empty" aria-hidden="true">·</span>';
     const count =
       isWeek && members.length
@@ -108,16 +112,18 @@ export function renderCalendar({
     const visible = isWeek ? members : members.slice(0, 2);
     // Deadline summaries keep the first slot used by compact-cell visibility rules.
     const visibleLessons = isWeek ? lessons : lessons.slice(0, 2 - visible.length);
-    const hidden = members.length + lessons.length - visible.length - visibleLessons.length;
+    const visibleStudy = isWeek ? study : study.slice(0, 2 - visible.length - visibleLessons.length);
+    const studyPreviews = visibleStudy.map(event => studySessionMarkup(event, escapeHtml)).join('');
+    const hidden = contentCount - visible.length - visibleLessons.length - visibleStudy.length;
     const overflow =
       !isWeek && hidden > 0
-        ? `<button type="button" class="calendar-more" data-calendar-day="${iso}" aria-label="查看 ${accessibleDate(date)}的全部 ${members.length + lessons.length} ${lessons.length ? '项内容' : unit}">+${hidden} 项</button>`
+        ? `<button type="button" class="calendar-more" data-calendar-day="${iso}" aria-label="查看 ${accessibleDate(date)}的全部 ${contentCount} ${lessons.length || study.length ? '项内容' : unit}">+${hidden} 项</button>`
         : "";
     const taskPreviews = visible.map((task) => taskButton(task, date)).join('');
     const coursePreviews = visibleLessons.map(event => classMarkup(event, escapeHtml)).join('');
-    const previews = isWeek ? coursePreviews + taskPreviews : taskPreviews + coursePreviews;
+    const previews = isWeek ? coursePreviews + studyPreviews + taskPreviews : taskPreviews + coursePreviews + studyPreviews;
     const empty =
-      isWeek && !members.length && !lessons.length
+      isWeek && !contentCount
         ? '<p class="calendar-day-empty">无任务</p>'
         : "";
     return `<section class="${dayClasses}" data-calendar-drop-date="${iso}" role="listitem" aria-label="${escapeHtml(accessibleDate(date))}"><button type="button" class="calendar-date-button" data-calendar-day="${iso}" aria-label="${escapeHtml(label)}" aria-pressed="${isSelected}">${weekday}<span class="calendar-day-number"${isToday ? ' aria-current="date"' : ""}>${date.getUTCDate()}</span>${count}${!isWeek ? mobileCount : ""}</button><div class="calendar-day-tasks">${previews}${overflow}${empty}</div></section>`;

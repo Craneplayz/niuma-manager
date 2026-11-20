@@ -1,5 +1,6 @@
 """Account-scoped AI task decomposition preview and apply flow."""
 import json
+from collections import defaultdict, deque
 if __package__:
     from .runtime_environment import model_env_path
 else:
@@ -105,6 +106,44 @@ def generate(task, conversation, ApiError):
         _ACTIVE.release()
 
 
+def _apply_remaining(task, items):
+    """Replace pending work and keep completed steps, including their stable identifiers."""
+    completed = [dict(step) for step in task.get('subtasks', [])
+                 if isinstance(step, dict) and step.get('status') == 'completed']
+
+    def normalized(title):
+        return ' '.join(title.split()).casefold()
+
+    completed_by_title = defaultdict(deque)
+    retained = set()
+    for step in completed:
+        if isinstance(step.get('id'), str):
+            retained.add(step['id'])
+            if isinstance(step.get('title'), str):
+                completed_by_title[normalized(step['title'])].append(step['id'])
+    identifiers = {}
+    pending = []
+    for step in items:
+        matches = completed_by_title.get(normalized(step['title']))
+        if matches:
+            prior = matches.popleft()
+        else:
+            prior = secrets.token_hex(16)
+            pending.append(step)
+        identifiers[step['id']] = prior
+    # Old pending steps are being replaced, so edges pointing at them retire too.
+    for step in completed:
+        if isinstance(step.get('dependsOn'), list):
+            step['dependsOn'] = [dep for dep in step['dependsOn'] if dep in retained]
+    task['subtasks'] = completed + [{
+        'id': identifiers[step['id']], 'title': step['title'], 'status': 'pending',
+        'outcome': step['outcome'], 'estimatedMinutes': step['duration_minutes'],
+        'dependsOn': [identifiers[dep] for dep in step['depends_on']],
+        'sourceBasis': step['source_basis'], 'assumption': step['assumption'],
+    } for step in pending]
+    task['estimatedMinutes'] = sum(step['duration_minutes'] for step in pending)
+
+
 def route(handler, db, user_id, path, body, ApiError):
     if path == '/api/decomposition/proposals' and handler.command == 'POST':
         task_id = body.get('taskId')
@@ -114,12 +153,17 @@ def route(handler, db, user_id, path, body, ApiError):
         row = db.execute('SELECT value,version FROM workspace WHERE user_id=? AND name="tasks"', (user_id,)).fetchone()
         tasks = json.loads(row['value']) if row else []
         task = next((item for item in tasks if item.get('id') == task_id), None)
-        if not task:
+        if not task or task.get('recycleBin'):
             raise ApiError(404, '任务不存在')
+        if task.get('content_type') == 'notice':
+            raise ApiError(400, '请选择需要执行的任务')
         if task.get('status') in ['completed', 'cancelled']:
             raise ApiError(400, '已完成或已取消的任务无需拆解')
         result = generate(task, conversation, ApiError)
-        if result['status'] == 'ready_to_plan':
+        replaces_steps = result['status'] == 'no_split' and any(
+            not isinstance(step, dict) or step.get('status') != 'completed'
+            for step in task.get('subtasks', []))
+        if result['status'] == 'ready_to_plan' or replaces_steps:
             request_id = secrets.token_hex(16)
             db.execute('INSERT INTO decomposition_proposals VALUES(?,?,?,?,?,0)',
                        (request_id, user_id, task_id, row['version'], json.dumps(result)))
@@ -157,19 +201,7 @@ def route(handler, db, user_id, path, body, ApiError):
             raise ApiError(404, '任务不存在')
         result = json.loads(proposal['result'])
         validate_model_draft(result)
-        items = result['plan']['subtasks']
-        identifiers = {item['id']: secrets.token_hex(16) for item in items}
-        task['subtasks'] = [{
-            'id': identifiers[item['id']],
-            'title': item['title'],
-            'status': 'pending',
-            'outcome': item['outcome'],
-            'estimatedMinutes': item['duration_minutes'],
-            'dependsOn': [identifiers[value] for value in item['depends_on']],
-            'sourceBasis': item['source_basis'],
-            'assumption': item['assumption'],
-        } for item in items]
-        task['estimatedMinutes'] = sum(item['duration_minutes'] for item in items)
+        _apply_remaining(task, result['plan']['subtasks'])
         db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',
                    (json.dumps(tasks), user_id))
         db.execute('UPDATE decomposition_proposals SET applied=1 WHERE id=?', (request_id,))

@@ -107,7 +107,7 @@ def load_instructions() -> str:
     """Load the concise workflow and the draft contract used for every call."""
     skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
     schema = (SKILL_ROOT / "references" / "model-draft-schema.md").read_text(encoding="utf-8")
-    return skill + "\n\n# Required model draft contract\n\n" + schema
+    return skill + "\n\n" + schema
 
 
 def _allowed_sources(request: dict[str, Any] | None) -> set[str] | None:
@@ -301,17 +301,98 @@ def validate_model_draft(draft: Any, request: dict[str, Any] | None = None) -> d
     return draft
 
 
+def _model_context(request):
+    """Number source passages so the model can cite input without generating identifiers."""
+    passages = []
+    origins = []
+
+    def add(label, text, origin):
+        if text and text.strip():
+            origins.append(origin)
+            passages.append({"ref": len(origins), "label": label, "text": text.strip()})
+
+    task = request["task"]
+    for field, label in (("title", "任务"), ("description", "说明"), ("current_progress", "已有进度"),
+                         ("user_scope", "本人负责的部分"), ("deadline", "截止时间")):
+        add(label, task.get(field), "task")
+    for material in task.get("source_materials", []):
+        text = material["text"].strip()
+        for start in range(0, len(text), 1200):
+            add(material["name"], text[start:start + 1200], "source:" + material["id"])
+    dialogue = []
+    for index, turn in enumerate(request.get("conversation", [])):
+        if turn["role"] == "user":
+            add("用户补充", turn["content"], f"conversation:{index}")
+            dialogue.append({"role": "user", "ref": len(origins)})
+        else:
+            dialogue.append(turn)
+    return {"passages": passages, "dialogue": dialogue, "now": request["now"],
+            "timezone": request["timezone"], "preferences": request.get("preferences", {}),
+            "availability": request.get("availability", {})}, origins
+
+
+def _indices(values, size, field):
+    if not isinstance(values, list) or any(type(n) is not int or not 1 <= n <= size for n in values):
+        raise ValueError(f"{field} must reference existing one-based indices")
+    return list(dict.fromkeys(values))
+
+
+def _expand_draft(raw, request, passages, origins):
+    if not isinstance(raw, dict) or raw.get("status") not in STATUSES:
+        raise ValueError("invalid decomposition decision")
+    status = raw["status"]
+    summary = _require_text(raw.get("summary"), "summary")
+    assumptions = raw.get("assumptions", [])
+    evidence = _indices(raw.get("facts", []), len(origins), "facts")
+    questions = []
+    plan = None
+    if status == "needs_clarification":
+        if raw.get("steps") or not isinstance(raw.get("questions"), list):
+            raise ValueError("clarification requires questions only")
+        for i, q in enumerate(raw["questions"], 1):
+            if not isinstance(q, dict):
+                raise ValueError("invalid question")
+            questions.append({"id": f"q-{i}", "prompt": q.get("prompt"), "why": q.get("why"),
+                              "answer_options": q.get("options", [])})
+    else:
+        if raw.get("questions") or not isinstance(raw.get("steps"), list):
+            raise ValueError("a plan requires steps only")
+        subtasks = []
+        for i, step in enumerate(raw["steps"], 1):
+            if not isinstance(step, dict):
+                raise ValueError("invalid step")
+            refs = _indices(step.get("refs"), len(origins), "step.refs")
+            after = _indices(step.get("after", []), i - 1, "step.after")
+            evidence.extend(refs)
+            basis = list(dict.fromkeys(origins[n - 1] for n in refs))
+            assumed = step.get("assumed", False)
+            if type(assumed) is not bool or (assumed and not assumptions):
+                raise ValueError("assumed step requires an explicit assumption")
+            if assumed:
+                basis.append("assumption")
+            subtasks.append({"id": f"step-{i}", "title": step.get("title"), "outcome": step.get("outcome"),
+                             "duration_minutes": step.get("minutes"), "depends_on": [f"step-{n}" for n in after],
+                             "source_basis": basis, "assumption": assumed,
+                             "scheduled_start": step.get("start"), "scheduled_end": step.get("end")})
+        plan = {"goal": raw.get("goal", request["task"]["title"]), "strategy": raw.get("strategy", summary),
+                "warnings": raw.get("warnings", []), "subtasks": subtasks}
+
+    known = []
+    for n in dict.fromkeys(evidence):
+        passage = passages[n - 1]["text"]
+        known.append({"source": origins[n - 1], "text": passage if len(passage) <= 300 else passage[:299] + "…"})
+    assessment = {"summary": summary, "confidence": raw.get("confidence"),
+                  "complexity": {"needs_clarification": "uncertain", "ready_to_plan": "multi_step", "no_split": "atomic"}[status],
+                  "known_facts": known, "assumptions": assumptions,
+                  "missing_information": [q["prompt"] for q in questions]}
+    return validate_model_draft({"status": status, "assessment": assessment, "questions": questions, "plan": plan}, request)
+
+
 def generate_decomposition(request: dict[str, Any], options: dict[str, str]) -> dict[str, Any]:
-    """Call the configured model and validate its internal planning draft."""
+    """Ask only for semantic decisions; derive provenance and public IDs in code."""
     validate_request(request)
-    settings = Settings(
-        mode="real",
-        model=options["model"],
-        endpoint=options["endpoint"],
-        timeout_seconds=20,
-        max_retries=0,
-    )
-    raw = ChatClient(options["key"]).complete_json(
-        load_instructions(), json.dumps(request, ensure_ascii=False), settings
-    )
-    return validate_model_draft(json.loads(raw), request)
+    payload, origins = _model_context(request)
+    settings = Settings(mode="real", model=options["model"], endpoint=options["endpoint"], timeout_seconds=20,
+                        max_retries=0, thinking_mode="disabled" if options["model"].startswith("deepseek/") else None)
+    raw = ChatClient(options["key"]).complete_json(load_instructions(), json.dumps(payload, ensure_ascii=False), settings)
+    return _expand_draft(json.loads(raw), request, payload["passages"], origins)

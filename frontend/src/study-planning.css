@@ -1,0 +1,38 @@
+[data-study-panel], .study-steps { overflow-wrap: anywhere; }
+[data-study-panel] .field, .study-estimates { margin-block: 12px; }
+.study-task-name { margin: 0 0 16px; font-size: 18px; }
+.study-picks, .study-window { border: 0; padding: 0; margin: 18px 0; min-width: 0; }
+.study-picks legend, .study-window legend, .study-steps h3 { font-size: 14px; font-weight: 650; margin: 0; }
+.study-window small, .study-step small, [data-study-panel] small, .study-steps header small { color: var(--muted); font-weight: 450; }
+.study-picks { max-height: 38dvh; overflow: auto; }
+.study-picks label, .study-step { display: flex; gap: 10px; align-items: start; padding: 10px 0; }
+.study-picks input, .study-step input { flex-shrink: 0; margin-top: 3px; }
+.study-step span, .study-picks label span { min-width: 0; flex: 1; }
+.study-step strong, .study-picks strong, .study-step small, .study-picks small { display: block; }
+.study-step:has(:checked) strong { text-decoration: line-through; color: var(--muted); }
+.study-step strong, .study-picks strong, .study-proposed-steps strong { font-size: 14px; font-weight: 560; }
+.study-steps { padding: 20px 0; border-top: 1px solid var(--line); }
+.study-steps header, .study-estimates li, .study-proposed-day div, .study-hours { display: flex; gap: 10px; align-items: center; }
+.study-steps header { justify-content: space-between; }
+.study-days { display: flex; gap: 4px; margin-block: 8px 12px; }
+.study-days label { position: relative; flex: 1; text-align: center; }
+.study-days input { position: absolute; opacity: 0; }
+.study-days span { display: block; padding: 8px 2px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.study-days input:checked + span { background: var(--action-soft, #fff0e8); border-color: var(--action-text); }
+.study-days input:focus-visible + span { outline: 2px solid var(--action-text); }
+.study-hours .field { flex: 1; min-width: 0; }
+.study-estimates { list-style: none; padding: 0; }
+.study-estimates li { flex-wrap: wrap; justify-content: space-between; margin: 4px 0; font-size: 13px; }
+.study-estimates strong { font-weight: 550; }
+.study-summary, .study-wait { font-size: 14px; line-height: 1.6; }
+.study-proposed-steps { padding-left: 1.5em; }
+.study-proposed-steps li { margin: 14px 0; }
+.study-proposed-steps p, .study-proposed-day small { margin: 4px 0; color: var(--muted); font-size: 13px; }
+.study-proposed-steps li > small { margin-left: 4px; }
+.study-proposed-day h3 { margin: 18px 0 6px; font-size: 15px; }
+.study-proposed-day div { align-items: baseline; padding: 6px 0; }
+.study-proposed-day time, .study-session-time { flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.study-warnings { font-size: 13px; color: var(--action-text); padding-left: 1.5em; line-height: 1.65; }
+.calendar-task.study-session { color: #265b58; background: #e4f1ed; text-align: left; }
+.timetable-day .study-session { width: 100%; margin: 4px 0; padding: 8px; }
+.timetable-toolbar { gap: 8px; flex-wrap: wrap; }

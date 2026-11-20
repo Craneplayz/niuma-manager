@@ -12,6 +12,8 @@ import {
   saveStoredTask,
   setStoredTaskStatus,
   flushStore,
+  readAvailability,
+  savePlanning,
   retrySave,
   trashStoredTasks,
   restoreStoredTasks,
@@ -35,6 +37,7 @@ import {
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
 import { renderCalendar } from "./calendar.js";
+import { createStudyPlanning, studySessions, studySessionMarkup, taskStepsMarkup } from "./study-planning.js";
 import { createTimetableUI } from "./timetable.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
@@ -176,6 +179,13 @@ const host = {
   },
   openDialog,
   closeDialog,
+  showStudyDay(day) {
+    ui.anchor = ui.selectedDate = day;
+    ui.pane = 'day';
+    syncNavigation('replace');
+    render();
+    showMobileDay();
+  },
   isDialogOpen: selector => dialog.open && Boolean(dialog.querySelector(selector)),
   refresh,
   openTask(id) {
@@ -222,6 +232,7 @@ const host = {
 };
 const imports = createImportUI(host),
   account = createAccountUI(host);
+const planning = createStudyPlanning(host, { api, flushStore, savePlanning, readAvailability, accountVersion, session });
 const timetable = createTimetableUI(host, { api, session, accountVersion, readStoredTimetable, acceptStoredTimetable });
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
@@ -456,7 +467,10 @@ function taskResults() {
   if (taskView() === "list")
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
-  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
+  const sessions = studySessions(state.tasks);
+  const selectedSessions = sessions.filter(event => event.date === ui.selectedDate);
+  const studyDay = selectedSessions.length ? `<section class="timetable-day"><h3>学习安排</h3>${selectedSessions.map(event => studySessionMarkup(event, esc)).join('')}</section>` : '';
+  return `<div class="timetable-toolbar">${session.user ? '<button type="button" class="btn" data-study-open>AI 排程</button>' : ''}<button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, classes: timetable.events(), sessions, anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? studyDay + timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -633,6 +647,7 @@ function updateDrawer() {
     escapeHtml: esc,
     icon,
     deadlineLabel,
+    stepsMarkup: taskStepsMarkup(task, esc, Boolean(session.user) && !taskBusy(task.id)),
   }).replace('id="task-evidence"', `id="task-evidence"${reuse ? ' data-preserve-content' : ''}`), { reset: !reuse });
   renderedDrawer = identity;
   const actionError = drawer.querySelector("#task-action-error");
@@ -982,6 +997,7 @@ document.addEventListener("click", async (e) => {
   }
   hideSidebarTooltip();
   try {
+    if (await planning.click(button)) return;
     if (button.dataset.action && actions[button.dataset.action]) {
       await actions[button.dataset.action]();
       return;
@@ -1092,6 +1108,7 @@ document.addEventListener("toggle", (event) => {
 }, true);
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if (planning.submit(e.target)) return;
   const form = e.target;
   if (form.id === "task-edit-form") {
     if (!canChangeTask(form.dataset.id)) return;
@@ -1268,6 +1285,7 @@ window.addEventListener("niuma:account-reset", () => {
   busyTasks.clear();
   imports.reset();
   timetable.reset();
+  planning.reset();
   drawer.close();
   drawerId = null;
   ui.query = "";
@@ -1338,3 +1356,7 @@ api("/api/version")
     }
   })
   .catch(() => {});
+
+document.addEventListener('change', event => {
+  if (event.target.hasAttribute?.('data-study-step')) void planning.setStep(event.target);
+});

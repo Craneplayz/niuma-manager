@@ -42,6 +42,23 @@ class PlanningHarnessTest(unittest.TestCase):
             self.assertEqual(self.post(body), (200, proposal))
             model.assert_called_once_with(body, self.server.options)
 
+    def test_uses_only_unfinished_confirmed_step_durations(self):
+        request = {"requestedAt": "2026-10-01T18:00:00+08:00", "availability": {
+            "startTime": "19:00", "endTime": "22:00", "weekdays": list(range(7))},
+            "tasks": [{"id": "known", "subtasks": [
+                {"status": "completed", "estimatedMinutes": 50}, {"status": "pending", "estimatedMinutes": 15}]}]}
+        with patch.object(planning_harness.ChatClient, "complete_json") as call:
+            self.assertEqual(planning_harness.generate(request, {})["estimates"], {"known": 15})
+            call.assert_not_called()
+            request["tasks"].append({"id": "unknown"})
+            call.return_value = '{"estimates":{"unknown":25}}'
+            result = planning_harness.generate(request, self.server.options)
+            self.assertEqual(result["estimates"], {"known": 15, "unknown": 25})
+            self.assertEqual([t["id"] for t in json.loads(call.call_args.args[1])["tasks"]], ["unknown"])
+            call.return_value = '{"estimates":{"unknown":25,"known":100}}'
+            with self.assertRaises(ValueError):
+                planning_harness.generate(request, self.server.options)
+
     def test_model_failure_never_leaks_details(self):
         with patch.object(planning_harness, "generate", side_effect=RuntimeError("secret provider body")):
             status, response = self.post({"schemaVersion": "2.0", "tasks": []})

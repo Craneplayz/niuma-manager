@@ -42,7 +42,7 @@ workspace 数据名：tasks、candidates、availability、feedback、courses、m
 | POST /api/auth/logout | 撤销会话、清 Cookie |
 | GET /api/workspace | 当前账号的 {数据名:{value,version}} |
 | PUT /api/data/:name | {value,version}，乐观锁；版本不符 409，无权限 401 |
-| POST /api/planning/proposals | 空对象；服务端读取账号当前数据，调用 Harness，校验后持久化预览 |
+| POST /api/planning/proposals | 可按任务范围、重排选项和本次可用时间生成预览，字段见[业务排程契约](../contracts/task-planning/README.md) |
 | POST /api/planning/apply | {requestId}；校验所属账号及任务版本，事务追加计划、标记 applied，返回 tasks value/version |
 
 工作区保存先写数据库再更新前端。应用计划在同一事务中完成，旧任务版本、重复应用均 409。v0.2 候选确认也在同一事务更新任务和候选状态；完全相同的确认重试返回 200，不重复新增，变更操作则 409。旧 workspace.candidates 不冒充 v0.2，仅保留数据库历史；新前端只处理 v0.2 批次及候选。
@@ -70,9 +70,9 @@ HTTP POST，Content-Type: application/json；HARNESS_TOKEN 若配置则通过 Au
 }
 ```
 
-tasks 自动选择所有未完成、未取消、没有现有执行计划且 planningExcluded 不为 true 的任务。不允许客户端额外传其他用户任务。没有规划日期范围，没有手填预计工时；主任务旧 estimatedMinutes 不作为输入。weekdays 使用 JavaScript 0=周日。时区只在接口内部保留，不反复展示。
+tasks 从当前账号的待办中选取，跳过回收站、通知和已做完全部步骤的任务。默认规划新任务，重排可显式选择有截止日期的已安排任务。weekdays 沿用 JavaScript 的 0=周日。旧主任务的 estimatedMinutes 不能代替最新剩余工时。
 
-Harness 必须自行评估工时、规划跨度、合理分块和休息；所有无 DDL 任务也要评估，不得静默丢弃。安排不下时提供明确 warnings，不延后真实 DDL。未取消任务的已有安排视为不可重叠占用；无 endAt 的旧计划暂按 1 小时占用（正式数据应要求 endAt）。部分已安排任务的“剩余工作量再规划”尚不在本版范围。
+有完整步骤工时的任务使用未完成步骤的分钟数，其余任务由模型估时。程序计算时段，保留课表、考试和已锁定的学习时段，占用时间缺少 endAt 时按 1 小时处理。默认范围内无 DDL 的任务返回估时和提示。可用时间不足时返回缺口，保留真实 DDL。
 
 ## Harness 返回
 
@@ -90,7 +90,7 @@ Harness 必须自行评估工时、规划跨度、合理分块和休息；所有
 
 每个输入任务必须有正数分钟 estimates；blocks 可以为空，但要解释无法安排原因。后端补充 requestId。前端只展示模型评估，不允许修改为手填工时。
 
-服务端检查：任务归属、工时数值、起止有效性、可用星期/时段、不得安排过去、不得跨日或超过 DDL、不得与已有或新增安排冲突、每任务计划分钟不超过模型估时。不足工时自动补 warning。前端必须预览后确认，不可自动应用。前端 30 秒超时/取消，后端 Harness 25 秒超时；取消不代表远端推理一定终止，但未确认结果不会进入日历。
+服务端检查任务归属、工时、可用星期及起止时间。新增安排须在截止前、同一天的空闲时段内，并符合剩余工时。用户预览并确认后才写入日历。前端等待上限为 280 秒，包含后端共享队列的等待时间。外部 HTTP Harness 单次等待上限为 25 秒。
 
 模型输入中的来源正文/任务文字是不可信数据；Harness 系统指令必须隔离提示注入，不执行正文中的命令、不访问凭据、不直接写数据库、不改真实 DDL。
 

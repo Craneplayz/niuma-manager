@@ -66,6 +66,22 @@ class SchedulingTest(unittest.TestCase):
         self.assertTrue(any("Second：P" in warning and "60 分钟" in warning
                             for warning in proposal["warnings"]))
 
+    def test_plan_in_current_study_window_leaves_time_to_confirm(self):
+        body = request([task("now", "交报告", "2026-10-01", "22:00")],
+                       requested="2026-10-01T19:14:30+08:00")
+        proposal = build_proposal(body, {"now": 20})
+        self.assertEqual(proposal["blocks"][0]["startAt"], "2026-10-01T19:20:00+08:00")
+        self.assertEqual(self.minutes(proposal, "now"), 20)
+
+    def test_later_long_report_cannot_crowd_out_a_feasible_earlier_submission(self):
+        body = request([task("report", "项目报告", "2026-10-02", "21:00"),
+                        task("upload", "上传附件", "2026-10-01", "21:00")], end="21:00")
+        result = build_proposal(body, {"report": 190, "upload": 30})
+        self.assertEqual(result["warnings"], [])
+        self.assertEqual(self.minutes(result, "upload"), 30)
+        self.assertEqual(self.minutes(result, "report"), 190)
+        self.assertEqual(result["blocks"][0]["taskId"], "upload")
+
     def test_existing_plan_is_never_overlapped(self):
         existing = [{"id": "busy", "taskId": "other", "title": "Class",
                      "startAt": "2026-10-01T19:30:00+08:00",

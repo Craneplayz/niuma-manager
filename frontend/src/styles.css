@@ -1,3 +1,4 @@
+@import "./study-planning.css";
 @import "./theme.css";
 .user-error { min-width: 0; color: var(--danger); font-size: 13px; line-height: 1.65; }
 .user-error-message { margin: 0; overflow-wrap: anywhere; }

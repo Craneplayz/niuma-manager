@@ -115,10 +115,76 @@ class TaskDecompositionApiTests(unittest.TestCase):
         status, applied = self.call(client, '/decomposition/apply', dict(requestId=response['requestId'], taskId='project'))
         self.assertEqual(status, 200)
         updated = applied['value'][0]
-        self.assertEqual([item['title'] for item in updated['subtasks']], ['完成任务页', '制作演示文稿'])
+        self.assertEqual([item['title'] for item in updated['subtasks']], ['旧步骤', '完成任务页', '制作演示文稿'])
+        self.assertEqual(updated['subtasks'][0], task['subtasks'][0])
         self.assertEqual(updated['estimatedMinutes'], 120)
-        self.assertEqual(updated['subtasks'][1]['dependsOn'], [updated['subtasks'][0]['id']])
+        self.assertEqual(updated['subtasks'][2]['dependsOn'], [updated['subtasks'][1]['id']])
         self.assertEqual(self.call(client, '/decomposition/apply', dict(requestId=response['requestId'], taskId='project'))[0], 409)
+
+    def test_replanning_to_one_step_preserves_done_work_and_replaces_remaining_minutes(self):
+        client = self.client()
+        self.register(client, 'one-step-replan@test.local')
+        example = EXAMPLES['no_split_replan']
+        validate_contract('proposalRequest', example['request'])
+        validate_contract('proposalResponse', example['response'])
+        completed = dict(id='done', title='收集资料', status='completed', estimatedMinutes=40)
+        pending = dict(id='old-draft', title='修改草稿', status='pending', estimatedMinutes=60)
+        date = (app.datetime.now(app.TZ) + app.timedelta(days=2)).date().isoformat()
+        task = dict(id='report', title='提交报告', status='not_started', plans=[],
+                    due=dict(date=date, precision='date'), subtasks=[completed, pending])
+        self.assertEqual(self.save_task(client, task)[0], 200)
+        draft = {k: example['response'][k] for k in ('status', 'assessment', 'questions', 'plan')}
+        with patch.object(app.task_decomposition, 'generate', return_value=draft):
+            status, preview = self.call(client, '/decomposition/proposals', example['request'])
+        self.assertEqual(status, 200)
+        validate_contract('proposalResponse', preview)
+        confirm = dict(taskId=task['id'], requestId=preview['requestId'])
+        self.assertEqual(dict(preview, requestId=example['response']['requestId']), example['response'])
+        self.assertEqual(self.call(client, '/workspace', None, 'GET')[1]['tasks']['value'], [task])
+        status, applied = self.call(client, '/decomposition/apply', confirm)
+        self.assertEqual(status, 200)
+        updated = applied['value'][0]
+        done, remaining = updated['subtasks']
+        self.assertEqual(done, completed)
+        self.assertEqual((remaining['title'], remaining['status'], remaining['estimatedMinutes']),
+                         ('上传报告', 'pending', 5))
+        self.assertEqual(updated['estimatedMinutes'], 5)
+        self.assertEqual(self.call(client, '/decomposition/apply', confirm)[0], 409)
+        with patch.object(app.planning, 'live_options', side_effect=AssertionError('no model needed')):
+            status, schedule = self.call(client, '/planning/proposals', dict(taskIds=[task['id']],
+                availability=dict(startTime='19:00', endTime='22:00', weekdays=list(range(7)))))
+        self.assertEqual(status, 200)
+        self.assertEqual(schedule['estimates'], {'report': 5})
+        self.assertTrue(schedule['blocks'])
+        with patch.object(app.task_decomposition, 'generate', return_value=draft):
+            self.assertEqual(self.save_task(client, dict(updated, subtasks=[done]), applied['version'])[0], 200)
+            status, advice = self.call(client, '/decomposition/proposals', example['request'])
+        self.assertEqual(status, 200)
+        self.assertNotIn('requestId', advice)
+
+    def test_repeated_completed_step_maps_to_its_original_id_and_minutes(self):
+        task = dict(subtasks=[dict(id='done', title='绘制图表', status='completed', dependsOn=['retired'],
+                                   estimatedMinutes=35), dict(id='retired', title='输入数据', status='pending')])
+        ready = [step('first', '绘制图表', 35), step('last', '交图', 5, ['first'])]
+        app.task_decomposition._apply_remaining(task, ready)
+        self.assertEqual(len(task['subtasks']), 2)
+        completed, new = task['subtasks']
+        self.assertEqual((completed['id'], completed['status'], completed['dependsOn']), ('done', 'completed', []))
+        self.assertEqual(new['dependsOn'], ['done'])
+        self.assertEqual(task['estimatedMinutes'], 5)
+
+    def test_same_title_matches_each_completed_step_only_once(self):
+        task = dict(subtasks=[
+            dict(id='first', title='试讲', status='completed'),
+            dict(id='second', title='试讲', status='completed', dependsOn=['first']),
+        ])
+        draft = [step('a', '试讲', 5), step('b', '试讲', 5, ['a']),
+                 step('c', '试讲', 10, ['b'])]
+        app.task_decomposition._apply_remaining(task, draft)
+        first, second, remaining = task['subtasks']
+        self.assertEqual(second['dependsOn'], [first['id']])
+        self.assertEqual((remaining['status'], remaining['dependsOn']), ('pending', ['second']))
+        self.assertEqual(task['estimatedMinutes'], 10)
 
     def test_completed_tasks_bad_conversation_and_stale_preview_are_rejected(self):
         client = self.client()
@@ -131,6 +197,16 @@ class TaskDecompositionApiTests(unittest.TestCase):
 
         active = dict(completed, id='active', title='进行中的项目', status='not_started')
         self.assertEqual(self.save_task(client, active, 1)[0], 200)
+        ineligible = [dict(active, id='discarded', recycleBin={'at': '2026-10-01'}),
+                      dict(active, id='notice', content_type='notice')]
+        for item, expected in zip(ineligible, (404, 400)):
+            with self.subTest(task=item['id']):
+                other = self.client()
+                self.register(other, item['id']+'-decomposition@test.local')
+                self.assertEqual(self.save_task(other, item)[0], 200)
+                with patch.object(app.task_decomposition, 'generate') as model:
+                    self.assertEqual(self.call(other, '/decomposition/proposals', dict(taskId=item['id']))[0], expected)
+                    model.assert_not_called()
         ready = dict(status='ready_to_plan', assessment=assessment('multi_step'), questions=[],
                      plan=dict(goal='完成项目', strategy='分步执行', warnings=[],
                                subtasks=[step('one', '步骤一', 20), step('two', '步骤二', 20)]))

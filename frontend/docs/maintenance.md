@@ -52,7 +52,7 @@
 
 找回密码使用 `purpose=reset_password`，挑战同时绑定表单用途和邮箱，不能复用注册或补验证挑战。提交 `{email,challengeId,code,newPassword}` 成功后仅返回登录面板，不自动登录或改写已登录账号的工作区；邮箱资格不从发码响应推断。后台撤销所有旧会话，当前浏览器再次使用时由原鉴权流程处理过期状态。
 
-客户端工作区只有 `tasks` 与 `trash`；任务使用字符串 ID、`due: YYYY-MM-DD`、可选 `dueTime: HH:MM` 和 `status: todo | doing | done`。`team-store.js` 只缓存任务与其版本，保存只写任务，不保存 `courses` 或 `materials`；导入核对通过 `getTaskVersion()` 读取任务版本。账号昵称使用服务端的 `name` 字段。编辑表单保存前校验打开时的可编辑字段，目标被删除或内容已变化时保留草稿并提示重新核对；状态等独立变化不阻止编辑。日历只读取未完成任务的截止日期，不维护 `schedule`、学习时段日期转换、估时、子任务编辑或依赖关系恢复等旧界面适配，也不包含历史任务迁移。
+客户端工作区只有 `tasks` 与 `trash`；任务使用字符串 ID、`due: YYYY-MM-DD`、可选 `dueTime: HH:MM` 和 `status: todo | doing | done`。`team-store.js` 只缓存任务与其版本，保存只写任务，不保存 `courses` 或 `materials`；导入核对通过 `getTaskVersion()` 读取任务版本。账号昵称使用服务端的 `name` 字段。编辑表单保存前校验打开时的可编辑字段，目标被删除或内容已变化时保留草稿并提示重新核对；状态等独立变化不阻止编辑。日历读取任务截止日期、课表和已确认的学习时段。任务拆分与排程由 `study-planning.js` 调用对应接口，学生确认后通过 `savePlanning` 更新任务与版本。
 
 服务端任务 PUT 仍要求 `plans`、`subtasks` 为数组；新任务使用空数组，已有任务字段直接透传，不重新构造对应内容。来源证据通过 `task-evidence.js` 的接口读取；删除、撤销与恢复通过任务保存接口更新回收站标记。
 
