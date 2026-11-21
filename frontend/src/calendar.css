@@ -902,6 +902,17 @@ body.is-calendar-dragging * {
   .calendar-month .calendar-day-mobile-count { display: none; }
   .calendar-month .calendar-date-button { height: 100%; }
 }
+/* Keep the first deadline visible when the mouse layout has room for a single preview. */
+@media (min-width: 701px) and (pointer: fine) {
+  @container calendar-day (min-height: 58px) and (max-height: 88px) {
+    .calendar-view.calendar-month .calendar-date-button { height: 28px; min-height: 28px; flex-direction: row; }
+    .calendar-month .calendar-day-tasks { display: block; }
+    .calendar-month .calendar-day-tasks > :first-child { max-height: 24px; overflow: hidden; }
+    .calendar-month .calendar-day-tasks .calendar-task:first-child { display: flex; flex-direction: row; align-items: center; gap: 3px; }
+    .calendar-month .calendar-task:first-child .calendar-task-context { flex: none; }
+    .calendar-month .calendar-task:first-child .calendar-task-title { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+  }
+}
 @media (max-width: 700px) {
   .calendar-activity-legend { gap: 4px; margin: -2px 0 12px; }
   .calendar-activity-keys { gap: 12px; }

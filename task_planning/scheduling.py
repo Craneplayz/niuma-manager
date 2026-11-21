@@ -17,6 +17,27 @@ def _due_at(task, tz):
     return value.replace(tzinfo=tz)
 
 
+def minutes_to_schedule(task, requested, estimate):
+    """Credit only identifiable, locked study time still ahead of this task's deadline."""
+    deadline = _due_at(task, requested.tzinfo)
+    if not deadline:
+        return estimate
+    booked = []
+    for plan in task.get("plans", []):
+        if not plan.get("isLocked") or not plan.get("endAt"):
+            continue
+        start = max(requested, datetime.fromisoformat(plan["startAt"]))
+        end = min(deadline, datetime.fromisoformat(plan["endAt"]))
+        if start < end:
+            booked.append((start, end))
+    credited = 0
+    covered_until = requested
+    for start, end in sorted(booked):
+        credited += max(0, (end - max(start, covered_until)).total_seconds() / 60)
+        covered_until = max(covered_until, end)
+    return max(0, estimate - credited)
+
+
 def _clock(value):
     return time.fromisoformat(value)
 
@@ -48,13 +69,20 @@ def _free_windows(request, latest_due):
     start_clock, end_clock = _clock(availability["startTime"]), _clock(availability["endTime"])
     weekdays = set(availability["weekdays"])
     final_date = min(latest_due.date(), requested.date() + timedelta(days=MAX_HORIZON_DAYS))
+    # A proposal whose first block starts at the request timestamp is already
+    # expired by the time the student can review it. Use the next five-minute
+    # boundary with at least one minute for generating and confirming a preview.
+    earliest = (requested + timedelta(minutes=1)).replace(second=0, microsecond=0)
+    if earliest < requested + timedelta(minutes=1):
+        earliest += timedelta(minutes=1)
+    earliest += timedelta(minutes=(-earliest.minute) % 5)
     windows = []
     day = requested.date()
     while day <= final_date:
         if (day.weekday() + 1) % 7 in weekdays:
             start = datetime.combine(day, start_clock, requested.tzinfo)
             end = datetime.combine(day, end_clock, requested.tzinfo)
-            start = max(start, requested)
+            start = max(start, earliest)
             if start < end:
                 windows.append((start, end))
         day += timedelta(days=1)
@@ -98,6 +126,7 @@ def rank_tasks(request, estimates):
         due = due_values[index]
         if due is None:
             continue
+        estimate = minutes_to_schedule(task, requested, estimate)
         capacity = _minutes_before(windows, due)
         slack = capacity - estimate
         ranked.append({"task": task, "estimate": float(estimate), "due": due,
@@ -129,52 +158,66 @@ def _take(free, index, minutes):
     return start, finish
 
 
+def _allocate(ranked, windows, requested, *, prefer_study_days):
+    free = windows.copy()
+    blocks, shortfalls = [], {}
+    for item in ranked:
+        task = item["task"]
+        remaining = item["estimate"]
+        preferred = _preferred_start(item, requested) if prefer_study_days else requested
+        while remaining > 0.01:
+            # Choose the first window in the preferred period, otherwise the
+            # latest available study day before it. Occupied time was removed.
+            fallback = None
+            index = None
+            for i, (start, end) in enumerate(free):
+                if start >= item["due"]:
+                    break
+                fallback = i
+                if start >= preferred:
+                    index = i
+                    break
+            if index is None:
+                index = fallback
+            if index is None:
+                shortfalls[task["id"]] = remaining
+                break
+            start, end = free[index]
+            available = (min(end, item["due"]) - start).total_seconds() / 60
+            target = remaining / 2 if MAX_BLOCK_MINUTES < remaining <= 120 else min(MAX_BLOCK_MINUTES, remaining)
+            duration = min(target, available)
+            start, end = _take(free, index, duration)
+            blocks.append({"taskId": task["id"], "title": task.get("title") or task["id"],
+                           "startAt": start.isoformat(), "endAt": end.isoformat()})
+            remaining -= duration
+    return blocks, shortfalls
+
+
 def build_proposal(request, estimates):
     """Build a contract-compatible proposal without writing tasks or calendars."""
     requested = datetime.fromisoformat(request["requestedAt"])
     ranked, free = rank_tasks(request, estimates)
-    blocks, warnings = [], []
+    warnings = []
     due_ids = {item["task"]["id"] for item in ranked}
     for task in request.get("tasks", []):
         if task.get("id") not in due_ids:
             warnings.append(f"{task.get('title', task.get('id', '任务'))}：没有 DDL，未自动排程")
 
+    blocks, shortfalls = _allocate(ranked, free, requested, prefer_study_days=True)
+    if shortfalls and len(ranked) > 1:
+        # Filling a later assignment first can strand an earlier one even when
+        # there is enough time for both. Earliest-deadline order recovers that
+        # capacity without moving any class, exam, or previously booked block.
+        by_deadline = sorted(ranked, key=lambda item: item["due"])
+        alternative, missing = _allocate(by_deadline, free, requested, prefer_study_days=False)
+        if sum(missing.values()) < sum(shortfalls.values()):
+            blocks, shortfalls = alternative, missing
     for item in ranked:
-        remaining = item["estimate"]
-        preferred = _preferred_start(item, requested)
-        eligible = [i for i, (start, _) in enumerate(free) if preferred <= start < item["due"]]
-        fallback = [i for i, (start, _) in enumerate(free) if start < preferred and start < item["due"]]
-        order = eligible + list(reversed(fallback))
-        while remaining > 0 and order:
-            index = order.pop(0)
-            if index >= len(free):
-                continue
-            start, end = free[index]
-            if start >= item["due"]:
-                continue
-            available = (min(end, item["due"]) - start).total_seconds() / 60
-            if available <= 0:
-                continue
-            if MAX_BLOCK_MINUTES < remaining <= 120:
-                target = remaining / 2
-            else:
-                target = min(MAX_BLOCK_MINUTES, remaining)
-            duration = min(target, available)
-            block_start, block_end = _take(free, index, duration)
-            # Removing or shortening a free interval changes later indexes.
-            order = [i - 1 if block_end == end and i > index else i for i in order if i != index]
-            title = item["task"].get("title") or item["task"]["id"]
-            blocks.append({"taskId": item["task"]["id"], "title": title,
-                           "startAt": block_start.isoformat(), "endAt": block_end.isoformat()})
-            remaining -= duration
-            # Rebuild indexes because free was mutated and new space may remain at the same index.
-            eligible = [i for i, (left, _) in enumerate(free)
-                        if preferred <= left < item["due"]]
-            fallback = [i for i, (left, _) in enumerate(free)
-                        if left < preferred and left < item["due"]]
-            order = eligible + list(reversed(fallback))
-        if remaining > 0.01:
-            warnings.append(f"{item['task'].get('title', item['task']['id'])}：P{item['level']}，DDL 前尚缺 {math.ceil(remaining)} 分钟")
+        task = item["task"]
+        if item["estimate"] == 0:
+            warnings.append(f"{task.get('title', task['id'])}：已锁定的学习安排已覆盖预计工时")
+        elif task["id"] in shortfalls:
+            warnings.append(f"{task.get('title', task['id'])}：P{item['level']}，DDL 前尚缺 {math.ceil(shortfalls[task['id']])} 分钟")
 
     blocks.sort(key=lambda block: block["startAt"])
     parts = {}

@@ -46,7 +46,7 @@ async function openApp(page, { anonymous = false, workspaceFailure = false, fail
     else throw new Error("Unmocked API: " + path);
     await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
   });
-  await page.goto("/");
+  await page.goto("/?page=tasks");
   return reports;
 }
 
@@ -91,7 +91,7 @@ test("save failures keep the report control after the task view redraws", async 
 
 test("delete failures keep report and retry controls accessible after the drawer closes", async ({ page }) => {
   const reports = await openApp(page);
-  await page.getByRole("button", { name: "合成任务", exact: true }).click();
+  await page.locator('[data-task-open="task"]').click();
   const drawer = page.locator("#task-drawer");
   await drawer.getByRole("button", { name: "移入回收站" }).click();
   await expect(drawer).not.toBeVisible();

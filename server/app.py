@@ -24,6 +24,7 @@ import source_schedule
 import wechat_media
 import manual_materials
 import task_decomposition
+import task_steps
 import task_operations
 import reprocessing
 import runtime_environment
@@ -394,6 +395,8 @@ class Handler(BaseHTTPRequestHandler):
             if reprocessing.route(self,db,uid,path,body,ApiError): return
             if text_jobs.route(self,db,uid,path,body,ApiError,DB): return
             if recognition.route(self,db,uid,path,body,ApiError): return
+            if path == '/api/decomposition/steps/status' and self.command == 'POST':
+                return self.reply(200, task_steps.set_status(db, uid, body, ApiError))
             if task_decomposition.route(self,db,uid,path,body,ApiError): return
             if path=='/api/auth/me' and self.command=='GET': return self.reply(200,dict(user=user))
             if path=='/api/auth/logout' and self.command=='POST':
@@ -467,6 +470,22 @@ class Handler(BaseHTTPRequestHandler):
                     for course in value:
                         if not isinstance(course,dict) or any(not isinstance(course.get(k),str) or len(course[k])>limit for k,limit in [('id',100),('name',120),('teacher',120),('notes',20000),('url',2000)]): raise ApiError(400,'课程格式不正确')
                         if not course['id'] or not course['name'].strip() or course['id'] in ids or course['name'].strip() in names: raise ApiError(400,'课程名称或编号为空或重复')
+                        attendance = course.get('attendance', '')
+                        if not isinstance(attendance, str) or len(attendance) > 2000:
+                            raise ApiError(400, '考勤要求最多 2000 字')
+                        grading = course.get('grading', [])
+                        if not isinstance(grading, list) or len(grading) > 30:
+                            raise ApiError(400, '评分项目最多 30 项')
+                        total = 0
+                        for item in grading:
+                            if not isinstance(item, dict) or not isinstance(item.get('label'), str) or not 0 < len(item['label'].strip()) <= 80:
+                                raise ApiError(400, '请填写评分项目名称')
+                            percent = item.get('percent')
+                            if type(percent) not in (int, float) or not 0 < percent <= 100 or round(percent, 2) != percent:
+                                raise ApiError(400, '占比应为 0 到 100 之间的正数，最多两位小数')
+                            total += round(percent * 100)
+                        if total > 10000:
+                            raise ApiError(400, '评分占比合计不能超过 100%')
                         try:
                             link=urlsplit(course['url'])
                             if course['url'] and (link.scheme not in ['http','https'] or not link.hostname or link.username or link.password): raise ValueError()
@@ -490,11 +509,7 @@ class Handler(BaseHTTPRequestHandler):
                     completed={t['id'] for t in json.loads(taskrow['value'] if taskrow else '[]') if t['status']=='completed'}
                     if any(not isinstance(f,dict) or f.get('taskId') not in completed or not isinstance(f.get('actualMinutes'),(int,float)) or not 0<f['actualMinutes']<=100000 for f in value): raise ApiError(400,'只能记录已完成任务的有效用时')
                 if name=='availability':
-                    try:
-                        start=datetime.strptime(value['startTime'],'%H:%M')
-                        end=datetime.strptime(value['endTime'],'%H:%M')
-                        if start>=end or not value['weekdays'] or any(type(d)!=int or d not in range(7) for d in value['weekdays']): raise ValueError()
-                    except (ValueError,KeyError,TypeError): raise ApiError(400,'可用时间格式不正确')
+                    value = planning.validate_availability(value, ApiError)
                 db.execute('BEGIN IMMEDIATE')
                 operation=body.get('operation') if name=='tasks' else None
                 if operation is not None:
@@ -521,32 +536,34 @@ class Handler(BaseHTTPRequestHandler):
                 if task_ids is not None:
                     if not isinstance(task_ids,list) or not task_ids or any(not isinstance(item,str) for item in task_ids) or len(set(task_ids))!=len(task_ids): raise ApiError(400,'规划任务范围不正确')
                     if replan and any(not any(t['id']==tid and t['status'] not in ['completed','cancelled'] for t in tasks) for tid in task_ids): raise ApiError(400,'要重新规划的任务不存在或已经完成')
-                pending=[t for t in tasks if t.get('content_type','task')!='notice' and t['status'] not in ['completed','cancelled'] and
-                         (not t.get('planningExcluded') or replan and task_ids is not None) and (replan or not t['plans'])]
+                pending=[t for t in tasks if not t.get('recycleBin') and t.get('content_type','task')!='notice' and t['status'] not in ['completed','cancelled'] and
+                         not task_steps.all_completed(t) and (not t.get('planningExcluded') or replan and task_ids is not None) and (replan or not t['plans'])]
                 if task_ids is not None:
                     pending=[t for t in pending if t['id'] in task_ids and t.get('due')]
                 if not pending: raise ApiError(400,'没有需要规划的任务')
                 now=datetime.now(TZ)
-                replace_plans={t['id']:[p['id'] for p in t['plans'] if datetime.fromisoformat(p['startAt'])>now] for t in pending if replan and t.get('due')}
-                existing=[dict(p,taskId=t['id']) for t in tasks if t['status']!='cancelled' for p in t['plans']
+                replace_plans={t['id']:[p['id'] for p in t['plans'] if not p.get('isLocked') and datetime.fromisoformat(p['startAt'])>now] for t in pending if replan and t.get('due')}
+                existing=[dict(p,taskId=t['id']) for t in tasks if not t.get('recycleBin') and t['status']!='cancelled' for p in t['plans']
                           if p['id'] not in replace_plans.get(t['id'],[]) and (t['status']!='completed' or datetime.fromisoformat(p['startAt'])<=now)]
                 timetable_version=timetable.read(db,uid)['version']
                 existing.extend(timetable.occupied(db,uid))
                 pending=[dict(t,plans=[p for p in t['plans'] if p['id'] not in replace_plans.get(t['id'],[])]) for t in pending]
-                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=now.isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=existing,availability=json.loads(rows['availability']['value']) if 'availability' in rows else dict(startTime='19:00',endTime='22:00',weekdays=[1,2,3,4,5]),completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
+                availability = body.get('availability', json.loads(rows['availability']['value'])
+                                        if 'availability' in rows else dict(startTime='19:00', endTime='22:00', weekdays=[1,2,3,4,5]))
+                availability = planning.validate_availability(availability, ApiError)
+                payload=dict(schemaVersion='2.0',requestId=secrets.token_hex(16),requestedAt=now.isoformat(),timezone='Asia/Shanghai',tasks=pending,existingPlans=existing,availability=availability,completionHistory=json.loads(rows['feedback']['value']) if 'feedback' in rows else [])
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)
                 result=planning.plan(payload,ApiError)
                 try:
-                    scheduled={block['taskId'] for block in result.get('blocks',[])}
-                    payload['existingPlans'].extend(dict(plan,taskId=task['id']) for task in tasks if task['id'] not in scheduled for plan in task['plans'] if plan['id'] in replace_plans.get(task['id'],[]))
-                    validate_proposal(payload,result)
+                    candidates = [dict(p,taskId=t['id']) for t in tasks for p in t['plans']
+                                  if p['id'] in replace_plans.get(t['id'],[])]
+                    result,replace_plans=finalize_proposal(payload,result,candidates)
                 except (ValueError,KeyError,TypeError,AttributeError):
                     raise ApiError(502,'模型返回的规划格式不正确；任务未修改') from None
                 result['priorityOrder']=planning.priority_explanations(payload,result['estimates'])
                 result['requestId']=payload['requestId']
-                replace_plans={tid:ids for tid,ids in replace_plans.items() if ids and tid in scheduled}
                 result['replannedTaskIds']=list(replace_plans)
                 if timetable_version!=timetable.read(db,uid)['version']: raise ApiError(409,'课表已变化，请重新规划')
                 result['timetableVersion']=timetable_version
@@ -565,7 +582,13 @@ class Handler(BaseHTTPRequestHandler):
                 if result.get('timetableVersion',0)!=timetable.read(db,uid)['version']: raise ApiError(409,'课表已变化，请重新规划')
                 timetable.assert_no_conflicts(result['blocks'],db,uid,ApiError)
                 for task in tasks:
-                    if any(plan['id'] in result.get('replacePlanIds',{}).get(task['id'],[]) and datetime.fromisoformat(plan['startAt'])<=datetime.now(TZ) for plan in task['plans']): raise ApiError(409,'原安排已经开始，请重新生成提案')
+                    for plan in task['plans']:
+                        if plan['id'] not in result.get('replacePlanIds',{}).get(task['id'],[]):
+                            continue
+                        if plan.get('isLocked'):
+                            raise ApiError(409,'原安排已锁定，请重新规划')
+                        if datetime.fromisoformat(plan['startAt'])<=datetime.now(TZ):
+                            raise ApiError(409,'原安排已经开始，请重新生成提案')
                 for task in tasks:
                     task['plans']=[plan for plan in task['plans'] if plan['id'] not in result.get('replacePlanIds',{}).get(task['id'],[])]
                 for block in result['blocks']:
@@ -664,11 +687,42 @@ class Handler(BaseHTTPRequestHandler):
                 print(json.dumps(dict(event='http',request_id=context['request_id'],operation=operation,
                     status=self.ops_status,code=self.ops_code,duration_ms=round(elapsed,2),environment=runtime_environment.environment(),revision=runtime_environment.revision())),flush=True)
 
+def finalize_proposal(request, result, candidates):
+    """Keep existing bookings and return a preview the student can still confirm."""
+    scheduled = {block['taskId'] for block in result.get('blocks', [])}
+    request['existingPlans'].extend(p for p in candidates if p['taskId'] not in scheduled)
+    movable = [p for p in candidates if p['taskId'] in scheduled]
+    validate_proposal(request, result)
+    ready = datetime.now(TZ)
+    started = [p for p in movable if datetime.fromisoformat(p['startAt']) <= ready]
+    if started or any(datetime.fromisoformat(b['startAt']) < ready + timedelta(minutes=1) for b in result['blocks']):
+        request['requestedAt'] = ready.isoformat()
+        request['existingPlans'].extend(started)
+        movable = [p for p in movable if datetime.fromisoformat(p['startAt']) > ready]
+        # A task receiving no replacement keeps its old bookings. Each pass
+        # reserves any newly retained blocks, so later placements avoid them.
+        while True:
+            result = planning.build_proposal(request, result['estimates'])
+            scheduled = {b['taskId'] for b in result['blocks']}
+            retained = [p for p in movable if p['taskId'] not in scheduled]
+            if not retained:
+                break
+            request['existingPlans'].extend(retained)
+            movable = [p for p in movable if p['taskId'] in scheduled]
+        validate_proposal(request, result)
+    replace = {}
+    for plan in movable:
+        replace.setdefault(plan['taskId'], []).append(plan['id'])
+    return result, replace
+
+
 def validate_proposal(request,result):
     if not isinstance(result,dict) or not isinstance(result.get('blocks'),list) or not isinstance(result.get('warnings'),list) or not all(isinstance(w,str) for w in result['warnings']): raise ApiError(502,'模型返回格式不正确')
     tasks={t['id']:t for t in request['tasks']}
     estimates=result.get('estimates',{})
     if not isinstance(estimates,dict) or any(type(estimates.get(t)) not in (int,float) or not math.isfinite(estimates[t]) or not 0<estimates[t]<=100000 for t in tasks): raise ApiError(502,'模型未提供有效工时评估')
+    requested = datetime.fromisoformat(request['requestedAt'])
+    remaining = {tid: planning.minutes_to_schedule(task, requested, estimates[tid]) for tid, task in tasks.items()}
     occupied=[]
     for p in request['existingPlans']:
         start=datetime.fromisoformat(p['startAt'])
@@ -685,10 +739,10 @@ def validate_proposal(request,result):
         if due and end>datetime.fromisoformat(due['date']+'T'+(due.get('time') or '23:59:59')+'+08:00'): raise ApiError(502,'模型结果超过真实截止时间')
         if any(start<y and x<end for x,y in occupied): raise ApiError(502,'模型结果存在时间冲突')
         occupied.append((start,end)); totals[task['id']]+=(end-start).total_seconds()/60
-        if totals[task['id']]>estimates[task['id']]: raise ApiError(502,'计划超过模型评估工时')
+        if totals[task['id']]>remaining[task['id']]+1e-6: raise ApiError(502,'计划超过尚需安排的工时')
     for tid in tasks:
         title=tasks[tid]['title']
-        if totals[tid]<estimates[tid] and tasks[tid].get('due') and not any(w.startswith(title+'：') for w in result['warnings']):
+        if totals[tid]+1e-6<remaining[tid] and tasks[tid].get('due') and not any(w.startswith(title+'：') for w in result['warnings']):
             result['warnings'].append(title+'：未全部安排，请检查可用时间或截止时间')
 
 if __name__=='__main__':

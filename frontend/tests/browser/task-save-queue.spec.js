@@ -29,7 +29,7 @@ async function openApp(page, { firstStatus = 200 } = {}) {
     else throw new Error('Unexpected API ' + path);
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
   });
-  await page.goto('/');
+  await page.goto('/?page=tasks');
   await expect(page.locator('[data-task-id="a"]')).toBeVisible();
   return { writes, release, get tasks() { return tasks; }, get reads() { return reads; } };
 }

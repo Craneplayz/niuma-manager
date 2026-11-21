@@ -64,7 +64,7 @@ const row = (page, id) => page.locator(`[data-task-id="${id}"]`);
 async function open(page, context, user = 'alice') {
   await context.addCookies([{name: cookie, value: user, domain: '127.0.0.1', path: '/'}]);
   await page.route('**/api/**', route => route.continue({ url: api + new URL(route.request().url()).pathname }));
-  await page.goto('/'); await expect(page.locator('.task-title').first()).toBeVisible();
+  await page.goto('/?page=tasks'); await expect(page.locator('.task-title').first()).toBeVisible();
 }
 const workspace = async page => page.evaluate(async () => (await fetch('/api/workspace')).json());
 const pending = async page => page.evaluate(async () => {

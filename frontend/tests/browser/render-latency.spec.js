@@ -27,7 +27,7 @@ async function fixture(page, { calendar = false, holdReviews = false, holdJobs =
     else throw new Error('Unexpected API: ' + path);
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(value) });
   });
-  await page.goto(calendar ? '/?page=tasks&scope=all&view=calendar' : holdJobs ? '/?page=import' : '/');
+  await page.goto(calendar ? '/?page=tasks&scope=all&view=calendar' : holdJobs ? '/?page=import' : '/?page=tasks');
   return { releaseReviews, releaseJobs, reviewsStarted, jobsStarted, get evidenceReads() { return evidenceReads; }, get workspaceReads() { return workspaceReads; } };
 }
 

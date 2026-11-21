@@ -26,7 +26,7 @@ async function openApp(page, initialTasks) {
     else throw new Error("Unmocked API: " + path);
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
   });
-  await page.goto("/");
+  await page.goto("/?page=tasks");
   await expect(page.locator(".loading-state")).toHaveCount(0);
   return { writes };
 }

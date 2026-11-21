@@ -49,7 +49,7 @@ async function workspace(page) {
     else { unknown.push(path); return route.fulfill({ status: 404, json: { error: "Unknown synthetic API" } }); }
     await route.fulfill({ json: value });
   });
-  await page.goto("/");
+  await page.goto("/?page=tasks");
   await expect(page.locator(".loading-state")).toHaveCount(0);
   await expect(page.locator('[data-review-id="pending"]')).toBeVisible();
   return { add: course => { tasks.push(task("added", course)); version++; }, unknown, errors };

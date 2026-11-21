@@ -4,17 +4,21 @@ import { deadlineLabel, shiftDay } from './task-model.js';
 // View-only rows: candidate drafts never enter the task save payload.
 export function projectReviewTasks(tasks, items, today) {
   const rows = tasks.map(task => ({ ...task, reviewChanges: [] }));
+  if (!items.length) return rows;
+  const saved = new Map(rows.map(task => [task.id, task]));
+  const recognized = new Set();
+  for (const task of tasks) for (const event of task.recognitionHistory || []) recognized.add(event.storageId);
   const seen = new Set();
   for (const item of items) {
     if (!item?.id || seen.has(item.id) || item.state !== 'pending' || item.batch?.demo) continue;
     seen.add(item.id);
     const candidate = item.candidate;
-    if (!candidate || rows.some(task => task.recognitionHistory?.some(event => event.storageId === item.id))) continue;
+    if (!candidate || recognized.has(item.id)) continue;
     const change = ['update', 'postpone', 'cancel'].includes(candidate.notice_type);
     const date = candidateDue(candidate.deadline);
     // Only explicit task identity is sufficient to attach a change to a saved row.
-    const target = change && rows.find(task => task.id === candidate.target_reference && task.status !== 'done');
-    if (target) {
+    const target = change && saved.get(candidate.target_reference);
+    if (target && target.status !== 'done') {
       target.reviewChanges.push({ id: item.id, title: candidate.title, action: candidate.notice_type,
         proposedDate: date.date ? deadlineLabel({ due: date.date, dueTime: date.time }, today) : '' });
       continue;

@@ -33,7 +33,7 @@ async function openApp(page, { anonymous = false, onRequest } = {}) {
     else throw new Error("Unmocked API: " + path);
     await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(value) });
   });
-  await page.goto("/");
+  await page.goto("/?page=tasks");
   return calls;
 }
 async function openAccount(page) {

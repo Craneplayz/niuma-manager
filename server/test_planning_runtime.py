@@ -81,6 +81,71 @@ class PlanningRuntimeTests(unittest.TestCase):
     def propose(self, client=None):
         return self.call(client or self.client, '/planning/proposals', {})
 
+    def test_replan_keeps_locked_bookings_and_only_places_unbooked_work(self):
+        day = self.task['due']['date']
+        def booking(pid, start, end, origin, locked=True):
+            return dict(id=pid, title=pid, startAt=f'{day}T{start}:00+08:00',
+                        endAt=f'{day}T{end}:00+08:00', origin=origin, isLocked=locked)
+        locked = [booking('student', '19:00', '19:15', 'manual'),
+                  booking('accepted', '19:10', '19:20', 'ai')]
+        older = booking('movable', '20:30', '21:00', 'ai', False)
+        task = dict(self.task, plans=locked + [older],
+                    subtasks=[dict(id='step', status='pending', estimatedMinutes=60)])
+        other = dict(self.task, id='other', plans=[booking('meeting', '19:20', '19:30', 'manual')])
+        self.assertEqual(self.call(self.client, '/data/tasks', dict(value=[task, other], version=1), 'PUT')[0], 200)
+        with patch.object(planning, 'live_options', side_effect=AssertionError('confirmed step sent to model')):
+            status, result = self.call(self.client, '/planning/proposals', dict(taskIds=[task['id']], replan=True))
+        self.assertEqual(status, 200, result)
+        self.assertEqual(result['estimates'], {task['id']: 60})
+        self.assertEqual(result['priorityOrder'][0]['estimatedMinutes'], 40)
+        self.assertEqual(result['warnings'], [])
+        self.assertEqual([(b['startAt'], b['endAt']) for b in result['blocks']],
+                         [(f'{day}T19:30:00+08:00', f'{day}T20:10:00+08:00')])
+        self.assertEqual(self.call(self.client, '/workspace')[1]['tasks']['value'], [task, other])
+        status, applied = self.call(self.client, '/planning/apply', dict(requestId=result['requestId']))
+        self.assertEqual(status, 200, applied)
+        self.assertEqual(applied['value'][0]['plans'][:-1], locked)
+        self.assertEqual(applied['value'][1], other)
+
+    def test_all_steps_checked_filters_task_before_estimation(self):
+        finished = dict(self.task, subtasks=[dict(id='done', status='completed', estimatedMinutes=40)])
+        pending = dict(self.task, id='active', subtasks=[dict(id='work', status='pending', estimatedMinutes=15)])
+        self.assertEqual(self.call(self.client, '/data/tasks', dict(value=[finished, pending], version=1), 'PUT')[0], 200)
+        with patch.object(planning, 'live_options', side_effect=AssertionError('no estimation required')):
+            status, result = self.propose()
+            self.assertEqual(status, 200, result)
+            self.assertEqual(result['estimates'], {'active': 15})
+            self.assertEqual(self.call(self.client, '/planning/proposals',
+                                      dict(taskIds=[finished['id']], replan=True))[0], 400)
+
+    def test_delayed_model_preview_preserves_started_booking_and_is_confirmable(self):
+        day = self.task['due']['date']
+        started = app.datetime.fromisoformat(f'{day}T18:59:00+08:00')
+        ready = started + app.timedelta(minutes=6)
+        old = dict(id='previous', title='已经开始的安排', startAt=f'{day}T19:00:00+08:00',
+                   endAt=f'{day}T19:20:00+08:00', origin='manual')
+        task = dict(self.task, plans=[old])
+        self.assertEqual(self.call(self.client, '/data/tasks', dict(value=[task], version=1), 'PUT')[0], 200)
+        with patch.object(app, 'datetime', wraps=app.datetime) as clock, \
+                patch.object(planning, 'datetime', wraps=planning.datetime) as dispatch_clock, \
+                patch.dict(planning.os.environ, {'HARNESS_URL': 'http://synthetic.invalid/planning'}):
+            clock.now.return_value = dispatch_clock.now.return_value = started
+            def slow_model(req, timeout):
+                payload = json.loads(req.data)
+                preview = planning.build_proposal(payload, {task['id']: 30})
+                self.assertEqual(preview['blocks'][0]['startAt'], old['startAt'])
+                clock.now.return_value = ready
+                return io.BytesIO(json.dumps(preview).encode())
+            with patch.object(planning, 'urlopen', side_effect=slow_model) as model:
+                status, result = self.call(self.client, '/planning/proposals', dict(taskIds=[task['id']], replan=True))
+                model.assert_called_once()
+            self.assertEqual(status, 200, result)
+            self.assertEqual(result['replannedTaskIds'], [])
+            self.assertEqual(result['blocks'][0]['startAt'], old['endAt'])
+            status, applied = self.call(self.client, '/planning/apply', dict(requestId=result['requestId']))
+            self.assertEqual(status, 200, applied)
+            self.assertEqual(applied['value'][0]['plans'][0], old)
+
     def test_direct_generate_uses_root_env_and_preserves_preview_apply_isolation(self):
         for key in ENV_KEYS:
             planning.os.environ.pop(key, None)

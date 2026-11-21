@@ -151,6 +151,49 @@
       }
     }
   },
+  "no_split_replan": {
+    "request": {
+      "taskId": "report",
+      "conversation": [
+        {"role": "user", "content": "报告已经定稿，现在只剩上传。"}
+      ]
+    },
+    "response": {
+      "contract_version": "0.1",
+      "taskId": "report",
+      "status": "no_split",
+      "assessment": {
+        "summary": "报告已经定稿，只剩上传文件。",
+        "complexity": "atomic",
+        "confidence": 0.95,
+        "known_facts": [
+          {"text": "报告已经定稿，现在只剩上传。", "source": "conversation:0"}
+        ],
+        "assumptions": [],
+        "missing_information": []
+      },
+      "questions": [],
+      "plan": {
+        "goal": "提交课程报告",
+        "strategy": "上传已定稿的报告",
+        "warnings": [],
+        "subtasks": [
+          {
+            "id": "upload",
+            "title": "上传报告",
+            "outcome": "在课程平台看到提交成功提示",
+            "duration_minutes": 5,
+            "depends_on": [],
+            "scheduled_start": null,
+            "scheduled_end": null,
+            "source_basis": ["conversation:0"],
+            "assumption": false
+          }
+        ]
+      },
+      "requestId": "synthetic-remaining-upload"
+    }
+  },
   "apply": {
     "request": {
       "requestId": "synthetic-proposal",
@@ -199,6 +242,7 @@
       "version": 2
     }
   },
+  "stepStatusRequest": {"taskId": "project", "stepId": "verified-step-1", "status": "completed", "version": 2},
   "errors": [
     {
       "status": 409,
