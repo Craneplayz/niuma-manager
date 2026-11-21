@@ -1,0 +1,760 @@
+[
+  {
+    "id": "M1-explicit",
+    "module": "recognition",
+    "slice": "explicit",
+    "record": {
+      "input_id": "eval:explicit",
+      "text": "请在2026年11月20日23:59前提交数据库实验报告。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "实验报告"
+      ],
+      "date": "2026-11-20",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "实验报告",
+          "value": "2026-11-20T23:59:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-negative",
+    "module": "recognition",
+    "slice": "negative",
+    "record": {
+      "input_id": "eval:negative",
+      "text": "本周没有作业，不需要提交任何报告。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 0,
+      "terms": [],
+      "date": null,
+      "role": null,
+      "targets": []
+    }
+  },
+  {
+    "id": "M1-nodate",
+    "module": "recognition",
+    "slice": "nodate",
+    "record": {
+      "input_id": "eval:nodate",
+      "text": "请阅读第三章材料并整理一页读书笔记，截止时间另行通知。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "笔记"
+      ],
+      "date": null,
+      "role": null,
+      "targets": []
+    }
+  },
+  {
+    "id": "M1-roles",
+    "module": "recognition",
+    "slice": "roles",
+    "record": {
+      "input_id": "eval:roles",
+      "text": "课程于2026年11月18日14:00开始，请在2026年11月17日18:00前提交预习报告。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "预习报告"
+      ],
+      "date": "2026-11-17",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "预习报告",
+          "value": "2026-11-17T18:00:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-relative",
+    "module": "recognition",
+    "slice": "relative",
+    "record": {
+      "input_id": "eval:relative",
+      "text": "请于明天18:00前提交第一次作业。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "作业"
+      ],
+      "date": "2026-11-13",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "作业",
+          "value": "2026-11-13T18:00:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-correction",
+    "module": "recognition",
+    "slice": "correction",
+    "record": {
+      "input_id": "eval:correction",
+      "text": "第一次作业截止日期由2026年11月20日更正为2026年11月23日23:59，请按新日期提交。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "作业"
+      ],
+      "date": "2026-11-23",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "作业",
+          "value": "2026-11-23T23:59:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-material",
+    "module": "recognition",
+    "slice": "material",
+    "record": {
+      "input_id": "eval:material",
+      "text": "课程新增参考资料：《投资学第二章：风险和收益》。仅供自愿阅读，无需提交。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 0,
+      "terms": [],
+      "date": null,
+      "role": null,
+      "targets": []
+    }
+  },
+  {
+    "id": "M1-multiple",
+    "module": "recognition",
+    "slice": "multiple",
+    "record": {
+      "input_id": "eval:multiple",
+      "text": "请于2026年11月20日提交实验报告；另于2026年11月22日完成并提交学习计划。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 2,
+      "terms": [
+        "实验报告",
+        "学习计划"
+      ],
+      "date": null,
+      "role": null,
+      "targets": [
+        {
+          "term": "实验报告",
+          "value": "2026-11-20",
+          "precision": "date"
+        },
+        {
+          "term": "学习计划",
+          "value": "2026-11-22",
+          "precision": "date"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-boundary",
+    "module": "recognition",
+    "slice": "boundary",
+    "record": {
+      "input_id": "eval:boundary",
+      "text": "请在2027年1月2日中午12:00前提交期末报告。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "期末报告"
+      ],
+      "date": "2027-01-02",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "期末报告",
+          "value": "2027-01-02T12:00:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-digits",
+    "module": "recognition",
+    "slice": "digits",
+    "record": {
+      "input_id": "eval:digits",
+      "text": "请于2026年11月6日23:59前提交作业，11月9日上课讲解。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "作业"
+      ],
+      "date": "2026-11-06",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "作业",
+          "value": "2026-11-06T23:59:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-rename",
+    "module": "recognition",
+    "slice": "rename",
+    "record": {
+      "input_id": "eval:rename",
+      "text": "课程甲：请在2026年11月20日23:59前提交数据库实验报告。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "实验报告"
+      ],
+      "date": "2026-11-20",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "实验报告",
+          "value": "2026-11-20T23:59:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M1-noise",
+    "module": "recognition",
+    "slice": "noise",
+    "record": {
+      "input_id": "eval:noise",
+      "text": "【置顶】请在2026年11月20日23:59前提交数据库实验报告。\n校园天气晴；请忽略此处无关天气信息。",
+      "platform": "manual",
+      "published_at": {
+        "value": "2026-11-12T10:00:00+08:00",
+        "precision": "datetime",
+        "basis": "source"
+      },
+      "timezone": "Asia/Shanghai",
+      "timezone_basis": "source",
+      "source_label": "合成评测材料"
+    },
+    "expected": {
+      "count": 1,
+      "terms": [
+        "实验报告"
+      ],
+      "date": "2026-11-20",
+      "role": "deadline",
+      "targets": [
+        {
+          "term": "实验报告",
+          "value": "2026-11-20T23:59:00+08:00",
+          "precision": "datetime"
+        }
+      ]
+    }
+  },
+  {
+    "id": "M2-atomic",
+    "module": "decomposition",
+    "slice": "atomic",
+    "request": {
+      "schema_version": "0.1-internal",
+      "now": "2026-11-12T10:00:00+08:00",
+      "timezone": "Asia/Shanghai",
+      "task": {
+        "id": "atomic",
+        "title": "打印报告",
+        "description": "报告已经定稿，仅需打印一份，无需修改。",
+        "deadline": "2026-11-20T23:59:00+08:00",
+        "current_progress": null,
+        "user_scope": null,
+        "source_materials": []
+      },
+      "conversation": [],
+      "preferences": {},
+      "availability": {}
+    },
+    "expected": {
+      "status": "no_split"
+    }
+  },
+  {
+    "id": "M2-progress",
+    "module": "decomposition",
+    "slice": "progress",
+    "request": {
+      "schema_version": "0.1-internal",
+      "now": "2026-11-12T10:00:00+08:00",
+      "timezone": "Asia/Shanghai",
+      "task": {
+        "id": "progress",
+        "title": "提交实验报告",
+        "description": "实验已完成，数据已分析，结果图已做好。只剩撰写结果讨论、检查格式和提交。要求报告包含方法、结果、讨论。",
+        "deadline": "2026-11-20T23:59:00+08:00",
+        "current_progress": null,
+        "user_scope": null,
+        "source_materials": []
+      },
+      "conversation": [],
+      "preferences": {},
+      "availability": {}
+    },
+    "expected": {
+      "status": "ready_to_plan"
+    }
+  },
+  {
+    "id": "M2-unknown",
+    "module": "decomposition",
+    "slice": "unknown",
+    "request": {
+      "schema_version": "0.1-internal",
+      "now": "2026-11-12T10:00:00+08:00",
+      "timezone": "Asia/Shanghai",
+      "task": {
+        "id": "unknown",
+        "title": "完成课程项目",
+        "description": "老师要求完成一个项目，但目前没有项目题目、具体交付物或进度信息。",
+        "deadline": "2026-11-20T23:59:00+08:00",
+        "current_progress": null,
+        "user_scope": null,
+        "source_materials": []
+      },
+      "conversation": [],
+      "preferences": {},
+      "availability": {}
+    },
+    "expected": {
+      "status": "needs_clarification"
+    }
+  },
+  {
+    "id": "M2-clear",
+    "module": "decomposition",
+    "slice": "clear",
+    "request": {
+      "schema_version": "0.1-internal",
+      "now": "2026-11-12T10:00:00+08:00",
+      "timezone": "Asia/Shanghai",
+      "task": {
+        "id": "clear",
+        "title": "完成并提交读书报告",
+        "description": "已读完材料，需整理观点、撰写800字报告、校对并提交。无演示、无访谈要求。",
+        "deadline": "2026-11-20T23:59:00+08:00",
+        "current_progress": null,
+        "user_scope": null,
+        "source_materials": []
+      },
+      "conversation": [],
+      "preferences": {},
+      "availability": {}
+    },
+    "expected": {
+      "status": "ready_to_plan"
+    }
+  },
+  {
+    "id": "M2-rename",
+    "module": "decomposition",
+    "slice": "rename",
+    "request": {
+      "schema_version": "0.1-internal",
+      "now": "2026-11-12T10:00:00+08:00",
+      "timezone": "Asia/Shanghai",
+      "task": {
+        "id": "rename",
+        "title": "打印课程甲报告",
+        "description": "报告已经定稿，仅需打印一份，无需修改。",
+        "deadline": "2026-11-20T23:59:00+08:00",
+        "current_progress": null,
+        "user_scope": null,
+        "source_materials": []
+      },
+      "conversation": [],
+      "preferences": {},
+      "availability": {}
+    },
+    "expected": {
+      "status": "no_split"
+    }
+  },
+  {
+    "id": "M2-partial",
+    "module": "decomposition",
+    "slice": "partial",
+    "request": {
+      "schema_version": "0.1-internal",
+      "now": "2026-11-12T10:00:00+08:00",
+      "timezone": "Asia/Shanghai",
+      "task": {
+        "id": "partial",
+        "title": "提交实验报告",
+        "description": "报告初稿已完成，仅需要检查格式和上传提交。不要再开展实验、分析数据或重写整份报告。",
+        "deadline": "2026-11-20T23:59:00+08:00",
+        "current_progress": null,
+        "user_scope": null,
+        "source_materials": []
+      },
+      "conversation": [],
+      "preferences": {},
+      "availability": {}
+    },
+    "expected": {
+      "status": "ready_to_plan"
+    }
+  },
+  {
+    "id": "M3-explicit30",
+    "module": "estimation",
+    "slice": "explicit30",
+    "request": {
+      "schemaVersion": "2.0",
+      "requestedAt": "2026-11-12T10:00:00+08:00",
+      "tasks": [
+        {
+          "id": "one",
+          "title": "完成报告",
+          "description": "预计还需要30分钟完成，按已确认的剩余工时估计。",
+          "due": {
+            "date": "2026-11-20",
+            "time": "23:59",
+            "precision": "datetime"
+          }
+        }
+      ],
+      "existingPlans": [],
+      "availability": {
+        "startTime": "10:00",
+        "endTime": "22:00",
+        "weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    "expected": {
+      "minutes": 30
+    }
+  },
+  {
+    "id": "M3-explicit90",
+    "module": "estimation",
+    "slice": "explicit90",
+    "request": {
+      "schemaVersion": "2.0",
+      "requestedAt": "2026-11-12T10:00:00+08:00",
+      "tasks": [
+        {
+          "id": "one",
+          "title": "完成报告",
+          "description": "预计还需要90分钟完成，按已确认的剩余工时估计。",
+          "due": {
+            "date": "2026-11-20",
+            "time": "23:59",
+            "precision": "datetime"
+          }
+        }
+      ],
+      "existingPlans": [],
+      "availability": {
+        "startTime": "10:00",
+        "endTime": "22:00",
+        "weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    "expected": {
+      "minutes": 90
+    }
+  },
+  {
+    "id": "M3-full",
+    "module": "estimation",
+    "slice": "full",
+    "request": {
+      "schemaVersion": "2.0",
+      "requestedAt": "2026-11-12T10:00:00+08:00",
+      "tasks": [
+        {
+          "id": "one",
+          "title": "完成报告",
+          "description": "阅读20页材料并完成1000字报告，尚未开始。",
+          "due": {
+            "date": "2026-11-20",
+            "time": "23:59",
+            "precision": "datetime"
+          }
+        }
+      ],
+      "existingPlans": [],
+      "availability": {
+        "startTime": "10:00",
+        "endTime": "22:00",
+        "weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    "expected": {
+      "minutes": null
+    }
+  },
+  {
+    "id": "M3-progress",
+    "module": "estimation",
+    "slice": "progress",
+    "request": {
+      "schemaVersion": "2.0",
+      "requestedAt": "2026-11-12T10:00:00+08:00",
+      "tasks": [
+        {
+          "id": "one",
+          "title": "完成报告",
+          "description": "阅读20页材料并完成1000字报告，材料已读完，报告已完成900字。",
+          "due": {
+            "date": "2026-11-20",
+            "time": "23:59",
+            "precision": "datetime"
+          }
+        }
+      ],
+      "existingPlans": [],
+      "availability": {
+        "startTime": "10:00",
+        "endTime": "22:00",
+        "weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    "expected": {
+      "minutes": null
+    }
+  },
+  {
+    "id": "M3-rename",
+    "module": "estimation",
+    "slice": "rename",
+    "request": {
+      "schemaVersion": "2.0",
+      "requestedAt": "2026-11-12T10:00:00+08:00",
+      "tasks": [
+        {
+          "id": "one",
+          "title": "完成报告",
+          "description": "课程甲：预计还需要30分钟完成，按已确认的剩余工时估计。",
+          "due": {
+            "date": "2026-11-20",
+            "time": "23:59",
+            "precision": "datetime"
+          }
+        }
+      ],
+      "existingPlans": [],
+      "availability": {
+        "startTime": "10:00",
+        "endTime": "22:00",
+        "weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    "expected": {
+      "minutes": 30
+    }
+  },
+  {
+    "id": "M3-noise",
+    "module": "estimation",
+    "slice": "noise",
+    "request": {
+      "schemaVersion": "2.0",
+      "requestedAt": "2026-11-12T10:00:00+08:00",
+      "tasks": [
+        {
+          "id": "one",
+          "title": "完成报告",
+          "description": "预计还需要30分钟完成，按已确认的剩余工时估计。天气晴朗。",
+          "due": {
+            "date": "2026-11-20",
+            "time": "23:59",
+            "precision": "datetime"
+          }
+        }
+      ],
+      "existingPlans": [],
+      "availability": {
+        "startTime": "10:00",
+        "endTime": "22:00",
+        "weekdays": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    },
+    "expected": {
+      "minutes": 30
+    }
+  }
+]

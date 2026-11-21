@@ -176,6 +176,8 @@ def route(handler, db, uid, path, body, error):
         return handler.reply(200,dict(saved=True)) or True
     if path.startswith('/api/admin/'):
         if not admin(uid,db): raise error(403,'此账号没有后台访问权限')
+        from server import model_evaluations
+        if model_evaluations.route(handler,path,error):return True
         if path=='/api/admin/operations' and handler.command=='GET':
             from server import operations
             query=parse_qs(urlsplit(handler.path).query)

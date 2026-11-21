@@ -2,6 +2,7 @@ import {
   api,
   session,
   readStore,
+  readSavedTasks,
   readProjectedStore,
   taskWritesAreOnlineOnly,
   readCancelledTasks,
@@ -37,8 +38,9 @@ import {
 import { renderTaskList, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
 import { isBulkSelectable, selectedBulkTasks, recoveredBulkTasks, renderBulkToolbar, renderBulkCheckbox, renderBulkDeadlineForm } from './task-bulk-ui.js';
-import { renderCalendar } from "./calendar.js";
+import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
 import { createTimetableUI } from "./timetable.js";
+import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -50,6 +52,7 @@ import { createAccountUI } from "./account-ui.js";
 import { readNavigation, navigationURL } from "./navigation.js";
 import { feedbackBox } from "./usage-feedback.js";
 import { describeEnvironment } from "./environment-badge.js";
+import { renderCourseDot, syncCourseColors } from "./course-identity.js";
 import { userErrorMarkup, submitErrorFeedback, resetErrorFeedback, pruneErrorFeedback } from "./user-errors.js";
 
 const esc = (value) =>
@@ -68,7 +71,7 @@ const app = document.querySelector("#app"),
   drawer = document.querySelector("#task-drawer"),
   sidebarTooltip = document.querySelector("#sidebar-tooltip");
 const params = new URLSearchParams(location.search);
-let today = todayKey(), dayTimer;
+let today = todayKey(), dayTimer, calendarActivityTimer;
 const dateFormat = new Intl.DateTimeFormat("zh-CN", {
   month: "long", day: "numeric", weekday: "long",
 });
@@ -351,6 +354,12 @@ async function refresh() {
   render();
 }
 const listItems = () => projectReviewTasks(state.tasks, imports.getReviewItems(), today);
+const syncCourseIdentity = () => syncCourseColors([
+  ...listItems().map((task) => task.course),
+  ...(imports.getCourseNames?.() || []),
+], {
+  scope: demo ? "demo" : session.user?.id ? `account:${session.user.id}` : "anonymous",
+});
 const editableTask = id => state.tasks.find(task => task.id === id)
   || listItems().find(task => task.id === id && task.reviewCandidateId && !task.reviewChange);
 const filtered = () => filterTasks(listItems(), { ...ui, today });
@@ -445,7 +454,7 @@ function toolbar() {
   const mixed = ui.scope === "near" || ui.scope === "done";
   const searchLabel = ui.scope === "notices" ? "搜索通知" : mixed ? "搜索任务与通知" : "搜索任务";
   const dateLabel = ui.scope === "notices" ? "关键日期" : mixed ? "日期范围" : "截止日期";
-  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter"><span class="sr-only">课程筛选</span><select id="course-filter" aria-label="课程筛选"><option value="">全部课程</option>${courses()
+  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter${ui.course ? " has-course" : ""}"><span class="sr-only">课程筛选</span>${ui.course ? renderCourseDot(ui.course) : ""}<select id="course-filter" aria-label="课程筛选" title="${esc(ui.course || "全部课程")}"><option value="">全部课程</option>${courses()
     .map(
       (c) =>
         `<option ${ui.course === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`,
@@ -476,7 +485,8 @@ function taskResults() {
   if (taskView() === "list")
     return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: id => imports.isReviewBusy(id), bulk: { active: bulkMode, selected: bulkSelection, busy: bulkRunning, isBusy: taskBusy }, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   const items = calendarItems();
-  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today })}</div>`;
+  const now = new Date(), activityTasks = demo ? state.tasks : readSavedTasks();
+  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, now, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today, now })}</div>`;
 }
 function bulkControls(trash = false) {
   const visible = (trash ? state.trash : filtered()).filter(isBulkSelectable);
@@ -584,15 +594,32 @@ function syncToday() {
         label.textContent = dateLabel();
       }
     }
-  }
+  } else if (document.visibilityState !== "hidden" && ui.page === "tasks" && taskView() === "calendar") renderResults();
   clearTimeout(dayTimer);
   const now = new Date();
   dayTimer = setTimeout(syncToday,
     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now);
 }
+function scheduleCalendarActivity() {
+  clearTimeout(calendarActivityTimer);
+  if (loading || document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
+  const now = new Date();
+  const next = nextCalendarActivityChange(demo ? state.tasks : readSavedTasks(), { today, now });
+  if (next === null) return;
+  const update = () => {
+    if (document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
+    if (busyTasks.size || document.body.classList.contains?.("is-calendar-dragging")) {
+      calendarActivityTimer = setTimeout(update, 500);
+      return;
+    }
+    renderResults();
+  };
+  calendarActivityTimer = setTimeout(update, Math.max(1, next - now.getTime() + 1));
+}
 function render() {
   calendarDrag.cancel();
   refreshToday();
+  syncCourseIdentity();
   hideSidebarTooltip();
   imports.setVisible(ui.page === "import" && !demo && !loading);
   const focus = document.activeElement,
@@ -618,21 +645,22 @@ function render() {
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
+  scheduleCalendarActivity();
 }
 function renderResults() {
   calendarDrag.cancel();
   if (refreshToday()) return render();
-  const dayFocus = document.activeElement?.dataset.calendarDay;
+  syncCourseIdentity();
+  const token = focusToken(document.activeElement);
+  const restore = document.querySelector("#task-results")?.contains(document.activeElement);
   const results = document.querySelector("#task-results");
   if (!results) return;
   updateDOM(results, taskResults());
   repaintBulkControls();
   syncTaskControls();
   document.querySelector("#result-count").textContent = headingCount();
-  if (dayFocus)
-    document
-      .querySelector(`[data-calendar-day="${dayFocus}"]`)
-      ?.focus({ preventScroll: true });
+  if (restore && token) restoreFocus(token);
+  scheduleCalendarActivity();
 }
 function navigatePage(page, scope = ui.scope) {
   clearBulkSelection(true);
@@ -662,6 +690,7 @@ function openTask(id, editing = false) {
   if (!drawer.open) drawer.showModal();
 }
 function updateDrawer() {
+  syncCourseIdentity();
   const task = editableTask(drawerId) || {
     title: "",
     due: "",
@@ -1486,6 +1515,7 @@ window.addEventListener("niuma:sync", () => {
   if (alert) alert.innerHTML = syncAlert();
   syncTaskControls();
   repaintBulkControls();
+  if (session.sync === "saved" && !loading && ui.page === "tasks" && taskView() === "calendar") renderResults();
 });
 window.addEventListener('niuma:bulk-saved', event => {
   if (demo || !event.detail?.state) return;

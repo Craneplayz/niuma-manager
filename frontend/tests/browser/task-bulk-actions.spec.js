@@ -215,6 +215,35 @@ test('mixed completion confirms new candidates once, leaves attached changes pen
   await page.screenshot({ path: info.outputPath('bulk-confirmed-and-undone.png'), fullPage: true });
 });
 
+test('mixed batch receipts and undo retain course colors and update calendar activity', async ({ page, context }) => {
+  await open(page, context);
+  const tone = await row(page, 'a').locator('.course-badge').getAttribute('data-course-tone');
+  await expect(candidateRow(page).locator('.course-badge')).toHaveAttribute('data-course-tone', tone);
+  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await expect(row(page, 'a')).toHaveClass(/is-bulk-selected/);
+  await expect(row(page, 'a').locator('.course-badge')).toHaveAttribute('data-course-tone', tone);
+  await action(page, 'complete').click();
+  await expect(candidateRow(page)).toHaveCount(0);
+  const created = confirmedTask(await snapshot(page));
+  await page.locator('[data-view="calendar"]').click();
+  const today = page.locator('[data-calendar-drop-date="2026-10-20"]');
+  await expect(today).toHaveAttribute('data-activity-kind', 'done');
+  await expect(today).toHaveAttribute('data-activity-count', '2');
+  await today.locator('.calendar-date-button').click();
+  for (const id of ['a', created.id]) {
+    await expect(page.locator(`.day-panel-completed [data-task-id="${id}"] .course-badge`)).toHaveAttribute('data-course-tone', tone);
+  }
+  await page.locator('#toast-undo').click();
+  await expect(today).toHaveAttribute('data-activity-kind', 'pending');
+  await expect(today).toHaveAttribute('data-activity-count', '1');
+  await expect(page.locator('.day-panel-completed .task-row')).toHaveCount(0);
+  await page.locator('[data-view="list"]').click();
+  for (const id of ['a', created.id]) {
+    await expect(row(page, id).locator('.course-badge')).toHaveAttribute('data-course-tone', tone);
+  }
+  expect((await snapshot(page)).tasks.version).toBe(3);
+});
+
 test('mixed date changes preserve per-task times and can clear dates with an exact batch undo', async ({ page, context }) => {
   await open(page, context);
   await choose(page, 'a', 'review:' + users[0] + '-new');
