@@ -310,6 +310,32 @@ test("midnight updates deadline groups, near notices and open read details", asy
   assert.match(f.drawer.innerHTML, /<strong>今天<\/strong>/);
 });
 
+test("the task list moves into overdue at the exact deadline without navigation or a write", async t => {
+  const f = await fixture(t, { deadlineTime: "00:01" });
+  t.mock.timers.tick(1000);
+  assert.match(f.app.innerHTML, /今天截止/);
+  t.mock.timers.tick(59999);
+  assert.doesNotMatch(f.results.innerHTML, /is-overdue/);
+  t.mock.timers.tick(1);
+  assert.match(f.results.innerHTML, /已逾期<span>1/);
+  assert.match(f.results.innerHTML, /is-overdue" data-task-id="task"/);
+  assert.equal(f.writes.length, 0);
+});
+
+test("returning to the task list catches a deadline that passed in the background", async t => {
+  const f = await fixture(t, { deadlineTime: "00:01" });
+  t.mock.timers.tick(1000);
+  f.doc.visibilityState = "hidden";
+  await f.doc.emit("visibilitychange");
+  t.mock.timers.tick(61000);
+  assert.doesNotMatch(f.results.innerHTML, /is-overdue/);
+  f.doc.visibilityState = "visible";
+  await f.doc.emit("visibilitychange");
+  assert.match(f.results.innerHTML, /已逾期<span>1/);
+  assert.match(f.results.innerHTML, /is-overdue" data-task-id="task"/);
+  assert.equal(f.writes.length, 0);
+});
+
 test("an action after sleeping past midnight saves the actual completion and read day", async t => {
   const f = await fixture(t);
   t.mock.timers.setTime(new Date("2026-10-17T01:00:00").getTime());

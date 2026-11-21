@@ -36,6 +36,31 @@ function accessibleDate(date) {
   return `${date.getUTCFullYear()} 年 ${date.getUTCMonth() + 1} 月 ${date.getUTCDate()} 日，星期${WEEKDAYS[(date.getUTCDay() + 6) % 7]}`;
 }
 
+export function renderAgendaWeek(selectedDate, today, icon) {
+  const selected = readDate(selectedDate);
+  if (!selected) return "";
+  const month = `${selected.getUTCFullYear()} 年 ${selected.getUTCMonth() + 1} 月`;
+  const monday = mondayOf(selected);
+  const days = WEEKDAYS.map((weekday, index) => {
+    const date = addDays(monday, index);
+    const iso = isoDate(date);
+    const isToday = iso === today;
+    return `<button type="button" data-agenda-day="${iso}" aria-pressed="${iso === selectedDate}"
+      aria-label="${accessibleDate(date)}${isToday ? "，今天" : ""}"${isToday ? ' aria-current="date"' : ""}>
+      <span aria-hidden="true">${isToday ? "今" : weekday}</span><strong>${date.getUTCDate()}</strong></button>`;
+  });
+  return `<nav class="agenda-week" aria-label="当日议程选日">
+    <div class="agenda-week-heading">
+      <button type="button" class="agenda-month" data-action="agenda-month" aria-controls="calendar-grid" aria-label="展开 ${month}整月日历">${month}${icon("chevron")}</button>
+      <div class="agenda-week-arrows">
+        <button type="button" class="icon-button" data-action="agenda-prev-week" aria-label="查看上一周的同一天">${icon("chevron", "flip")}</button>
+        <button type="button" class="icon-button" data-action="agenda-next-week" aria-label="查看下一周的同一天">${icon("chevron")}</button>
+      </div>
+    </div>
+    <div class="agenda-week-days">${days.join("")}</div>
+  </nav>`;
+}
+
 function fallbackEscape(value) {
   return String(value ?? "").replace(
     /[&<>"']/g,

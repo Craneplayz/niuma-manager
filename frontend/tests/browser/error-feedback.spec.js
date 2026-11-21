@@ -91,7 +91,7 @@ test("save failures keep the report control after the task view redraws", async 
 
 test("delete failures keep report and retry controls accessible after the drawer closes", async ({ page }) => {
   const reports = await openApp(page);
-  await page.getByRole("button", { name: "合成任务", exact: true }).click();
+  await page.locator('[data-task-id="task"] .task-open').click();
   const drawer = page.locator("#task-drawer");
   await drawer.getByRole("button", { name: "移入回收站" }).click();
   await expect(drawer).not.toBeVisible();

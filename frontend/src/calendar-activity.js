@@ -1,20 +1,8 @@
-import { shiftDay, todayKey } from "./task-model.js";
+import { isTaskOverdue, shiftDay, taskDueTime, todayKey } from "./task-model.js";
 
 // Activity uses recorded business dates verbatim: never infer completion from due dates.
 function validDate(value) {
   return typeof value === "string" ? shiftDay(value, 0) : "";
-}
-
-function clockOnDay(now, day) {
-  if (!(now instanceof Date) || !Number.isFinite(now.getTime())) return null;
-  const local = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  return local === day ? now : null;
-}
-
-function dueTime(task) {
-  const time = typeof task.dueTime === "string" ? task.dueTime
-    : task.due?.precision === "date" ? "" : task.due?.time;
-  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time || "") ? time : "";
 }
 
 export function calendarActivityOf(task, { today = todayKey(), now = new Date() } = {}) {
@@ -24,10 +12,7 @@ export function calendarActivityOf(task, { today = todayKey(), now = new Date() 
   const done = task.status === "done" || task.status === "completed";
   const date = validDate(done ? task.completedAt : typeof task.due === "string" ? task.due : task.due?.date);
   if (!date) return null;
-  const clock = clockOnDay(now, day), time = dueTime(task);
-  const expiredToday = date === day && time && clock &&
-    clock.getHours() * 60 + clock.getMinutes() >= Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
-  return { date, kind: done ? "done" : date < day || expiredToday ? "overdue" : "pending" };
+  return { date, kind: done ? "done" : isTaskOverdue(task, day, now) ? "overdue" : "pending" };
 }
 
 /** One mutually exclusive entry per confirmed task: actual completion day or current due day. */
@@ -53,17 +38,17 @@ export function calendarDayTasks(tasks = [], date, { today = todayKey(), now = n
 
 /** The next timed deadline that can change today's surface without a page reload. */
 export function nextCalendarActivityChange(tasks = [], { today = todayKey(), now = new Date() } = {}) {
-  const day = validDate(today), clock = clockOnDay(now, day);
-  if (!clock) return null;
+  const day = validDate(today);
+  if (!day || !(now instanceof Date) || todayKey(now) !== day) return null;
   let next = Infinity;
   for (const task of Array.isArray(tasks) ? tasks : []) {
-    const activity = calendarActivityOf(task, { today: day, now: clock });
+    const activity = calendarActivityOf(task, { today: day, now });
     if (activity?.kind !== "pending" || activity.date !== day) continue;
-    const time = dueTime(task);
+    const time = taskDueTime(task);
     if (!time) continue;
     const deadline = new Date(`${day}T${time}:00`);
-    if (validDate(day) && deadline.getHours() === Number(time.slice(0, 2)) &&
-        deadline.getMinutes() === Number(time.slice(3)) && deadline.getTime() > clock.getTime())
+    if (deadline.getHours() === Number(time.slice(0, 2)) &&
+        deadline.getMinutes() === Number(time.slice(3)) && deadline.getTime() > now.getTime())
       next = Math.min(next, deadline.getTime());
   }
   return Number.isFinite(next) ? next : null;

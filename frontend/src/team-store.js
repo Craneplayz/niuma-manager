@@ -1,5 +1,5 @@
 // Maps the task UI to the account workspace API.
-import { todayKey as dayKey, shiftDay, assertCurrentTaskEdit } from "./task-model.js";
+import { todayKey as dayKey, shiftDay, mergeTaskEdit } from "./task-model.js";
 import { appendOperation, readOperations, removeOperations, clearJournal } from './task-journal.js';
 export const session = {
   user: null,
@@ -85,6 +85,7 @@ export async function api(path, body, method = "POST", options = {}) {
           : data.error || data.message || "请求失败",
       );
       error.status = response.status;
+      error.quickVersion = data.quickVersion;
       error.code = typeof data.error === "object" ? data.error?.code : data.code;
       error.failure = typeof data.error === "object" ? data.error?.failure : data.failure;
       error.diagnostic = typeof data.error === "object" ? data.error?.diagnostic : data.diagnostic;
@@ -197,6 +198,30 @@ export function readStoredCandidates(items) {
 export function readSavedTasks() {
   return viewOf(canonicalTasks).tasks;
 }
+function hasLocalTaskWrites() {
+  return Boolean(failed || latest || pendingChanges.length);
+}
+export function hasPendingQuickRecognition() {
+  return Boolean(session.user && !session.changing && !hasLocalTaskWrites() &&
+    canonicalTasks.some(task => task.quickRecognition?.status === 'pending' && !task.recycleBin && task.status !== 'cancelled'));
+}
+async function readQuickSnapshot() {
+  const owner = session.user?.id;
+  const snapshot = await api('/api/tasks/quick-recognition', undefined, 'GET', { timeoutMs: 8000 });
+  if (!owner || snapshot.owner !== owner || snapshot.generation !== taskGeneration ||
+      !Number.isInteger(snapshot.version) || !Array.isArray(snapshot.value))
+    throw new Error('账号或任务版本已变化，请重新读取');
+  return snapshot;
+}
+export async function refreshQuickRecognition() {
+  if (!hasPendingQuickRecognition()) return false;
+  const epoch = accountEpoch, revision = editRevision;
+  const snapshot = await readQuickSnapshot();
+  if (epoch !== accountEpoch || revision !== editRevision || hasLocalTaskWrites() || snapshot.version <= taskVersion) return false;
+  taskVersion = snapshot.version;
+  canonicalTasks = snapshot.value;
+  return true;
+}
 export function readProjectedStore() {
   return viewOf(projectOperations(false).tasks);
 }
@@ -270,7 +295,7 @@ function projectOperations(strict = true) {
         checkReviewCandidate(intent, candidates);
         tasks = applyReviewIntent(tasks, intent);
         candidates.set(intent.candidateId, nextCandidateState(intent));
-      } else tasks = transformIntent(intent)(tasks);
+      } else tasks = transformIntent(intent, true)(tasks);
     } catch (error) {
       if (strict) throw error;
       break;
@@ -501,10 +526,30 @@ function enqueueChange(change) {
     report("saving");
     try {
       const review = operation.intent.kind === 'review';
-      const result = review
-        ? await api('/api/recognition/candidates/' + encodeURIComponent(operation.intent.candidateId) + '/resolve',
+      const write = () => review
+        ? api('/api/recognition/candidates/' + encodeURIComponent(operation.intent.candidateId) + '/resolve',
           reviewBody(operation), 'POST')
-        : await api('/api/data/tasks', { value, version: taskVersion, operation: operationIdentity(operation) }, 'PUT');
+        : api('/api/data/tasks', { value, version: taskVersion, operation: operationIdentity(operation) }, 'PUT');
+      let result;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          result = await write();
+          break;
+        } catch (error) {
+          if (error.status !== 409 || error.code !== 'quick_recognition_changed' || attempt >= 3) throw error;
+          // The server verifies that only completed AI jobs advanced the workspace version.
+          // Reapply the original intent to their result; its durable identity stays unchanged.
+          const snapshot = await readQuickSnapshot();
+          if (epoch !== accountEpoch) throw new Error('账号已切换');
+          // The scoped 409 covered versions only up to the rejected write. Disallow a
+          // newer unrelated manual write arriving between that response and this read.
+          if (snapshot.version !== error.quickVersion) throw new Error('任务再次变化，请重试保存');
+          canonicalTasks = snapshot.value;
+          taskVersion = snapshot.version;
+          if (review) applyReviewIntent(clone(canonicalTasks), operation.intent);
+          else value = transformIntent(operation.intent)(clone(canonicalTasks));
+        }
+      }
       if (epoch !== accountEpoch) throw new Error("账号已切换");
       if (result.operationId !== operation.id) throw new Error('服务器未确认操作编号，请更新服务后重试；本地操作仍保留');
       if (review) {
@@ -515,7 +560,7 @@ function enqueueChange(change) {
         acceptStoredCandidates(result.candidates, { authoritative: true });
       } else {
         taskVersion = result.version;
-        canonicalTasks = clone(result.replayed ? result.value : value);
+        canonicalTasks = clone(result.value ?? value);
       }
       // Receipted changes are already in canonicalTasks while journal removal commits.
       change.acknowledged = true;
@@ -525,7 +570,7 @@ function enqueueChange(change) {
       if (result.replayed && pendingChanges.length) await reconcileChanges(epoch);
       session.conflict = false;
       report(latest || pendingChanges.length ? "saving" : "saved");
-      if (review || taskWritesAreOnlineOnly()) reviewChanged();
+      if (review || operation.intent.quickRecognition || result.value || taskWritesAreOnlineOnly()) reviewChanged();
       if (review) return { ...view(), taskId: operation.intent.newTaskId || operation.intent.targetId };
     } catch (error) {
       if (epoch === accountEpoch) {
@@ -649,28 +694,32 @@ export function resolveStoredCandidate(item, body) {
     return update;
   }
 }
-export function saveStoredTask(task, expected) {
+export function saveStoredTask(task, expected, { quickRecognition, startedPending = false } = {}) {
   const draft = Object.fromEntries(['id', 'title', 'notes', 'course', 'content_type', 'due', 'dueTime'].map(key => [key, task[key] ?? '']));
   draft.content_type ||= 'task';
-  return changeStoredTasks({ kind: 'save', draft, expected: expected ?? null, createdAt: new Date().toISOString() }, { reloadOnStale: true });
+  return changeStoredTasks({ kind: 'save', draft, expected: expected ?? null, createdAt: new Date().toISOString(),
+    ...(quickRecognition ? { quickRecognition } : {}), ...(startedPending ? { startedPending } : {}) }, { reloadOnStale: true });
 }
 export function setStoredTaskStatus(id, next, expected) {
   return changeStoredTasks({ kind: 'status', id, next, expected }, { reloadOnStale: true });
 }
-function transformIntent(intent) {
+function transformIntent(intent, optimistic = false) {
   const { kind, id, next, expected, draft, createdAt } = intent;
   if (kind === 'save') return tasks => {
     const index = tasks.findIndex(item => item.id === draft.id);
     const current = tasks[index];
+    let fields = draft;
     if (expected !== null) {
-      assertCurrentTaskEdit(current && !current.recycleBin && current.status !== "cancelled" ? toView(current) : null, expected);
+      fields = mergeTaskEdit(current && !current.recycleBin && current.status !== "cancelled" ? toView(current) : null,
+        expected, draft, intent.startedPending);
     } else if (current) throw new Error("任务已存在，请重新读取后核对");
     const previous = current || { createdAt };
     const next = toCanonical({
       ...(current ? toView(current) : { id: draft.id, status: "todo" }),
-      title: draft.title, notes: draft.notes, course: draft.course,
-      content_type: draft.content_type, due: draft.due, dueTime: draft.dueTime,
+      ...fields,
     }, previous);
+    if (optimistic && !current && intent.quickRecognition)
+      next.quickRecognition = { text: intent.quickRecognition.text, status: 'pending' };
     if (index < 0) tasks.push(next);
     else tasks[index] = next;
     return tasks;

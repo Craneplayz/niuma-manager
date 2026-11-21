@@ -4,6 +4,8 @@ import {
   readStore,
   readSavedTasks,
   readProjectedStore,
+  hasPendingQuickRecognition,
+  refreshQuickRecognition,
   taskWritesAreOnlineOnly,
   readCancelledTasks,
   initSession,
@@ -30,15 +32,16 @@ import {
   filterTasks,
   isNotice,
   taskEditSnapshot,
-  assertCurrentTaskEdit,
+  mergeTaskEdit,
   deadlineLabel,
 } from "./task-model.js";
-import { renderTaskList, renderDayPanel } from "./task-views.js";
+import { renderTaskList, renderTaskRow, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
 import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
 import { createTimetableUI } from "./timetable.js";
 import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
+import { renderQuickEntry, bindQuickEntry } from "./quick-entry.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
 import { loadTaskEvidence } from "./task-evidence.js";
@@ -68,7 +71,7 @@ const app = document.querySelector("#app"),
   drawer = document.querySelector("#task-drawer"),
   sidebarTooltip = document.querySelector("#sidebar-tooltip");
 const params = new URLSearchParams(location.search);
-let today = todayKey(), dayTimer, calendarActivityTimer;
+let today = todayKey(), dayTimer, deadlineTimer;
 const dateFormat = new Intl.DateTimeFormat("zh-CN", {
   month: "long", day: "numeric", weekday: "long",
 });
@@ -98,6 +101,7 @@ function canChangeTask(id) {
   return true;
 }
 function syncTaskControls() {
+  if (recentTaskId) document.querySelector(`.task-row[data-task-id="${CSS.escape(recentTaskId)}"]`)?.setAttribute("data-just-added", "");
   document.querySelectorAll("[data-task-complete]").forEach(button => {
     button.disabled = taskBusy(button.dataset.taskComplete) ||
       button.dataset.taskComplete.startsWith("review:") && imports.isReviewBusy(button.dataset.taskComplete.slice(7)) ||
@@ -118,7 +122,7 @@ function finishTask(id, epoch, repaint = false) {
 async function stageTaskSave(saving, id, epoch, form) {
   const fields = !demo && taskWritesAreOnlineOnly() && form
     ? [...form.querySelectorAll('input,textarea,select,button')]
-      .filter(field => field.dataset.action !== 'drawer-cancel')
+      .filter(field => !['drawer-cancel', 'drawer-close'].includes(field.dataset.action))
       .map(field => ({ field, disabled: field.disabled })) : [];
   for (const { field } of fields) field.disabled = true;
   try {
@@ -126,7 +130,9 @@ async function stageTaskSave(saving, id, epoch, form) {
     return epoch === accountVersion();
   } catch (error) {
     if (epoch === accountVersion()) {
-      toast(error.message);
+      const message = form?.isConnected && form.querySelector("#task-edit-error");
+      if (message) message.textContent = error.message;
+      else toast(error.message);
       finishTask(id, epoch);
     }
     return false;
@@ -228,6 +234,38 @@ const imports = createImportUI(host),
 const timetable = createTimetableUI(host, { api, session, accountVersion, readStoredTimetable, acceptStoredTimetable });
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
+let readQuickDraft = null, recentTaskId = "";
+let quickPollTimer, quickPollEpoch = null;
+function scheduleQuickPoll(delay = 500) {
+  if (demo || document.hidden || !hasPendingQuickRecognition() || quickPollTimer || quickPollEpoch !== null) return;
+  quickPollTimer = setTimeout(pollQuickRecognition, delay);
+}
+async function pollQuickRecognition() {
+  clearTimeout(quickPollTimer);
+  quickPollTimer = null;
+  if (quickPollEpoch !== null || demo || document.hidden || !hasPendingQuickRecognition()) return;
+  const epoch = accountVersion();
+  quickPollEpoch = epoch;
+  let delay = 1200;
+  try {
+    if (await refreshQuickRecognition() && epoch === accountVersion()) {
+      state = readProjectedStore();
+      render();
+      if (drawer.open && drawerId && !drawerEditing) {
+        if (editableTask(drawerId)) updateDrawer();
+        else closeDrawer();
+      }
+    }
+  } catch {
+    // Intermittent connectivity shouldn't prevent working with the locally saved task.
+    delay = 5000;
+  } finally {
+    if (quickPollEpoch === epoch) {
+      quickPollEpoch = null;
+      scheduleQuickPoll(delay);
+    }
+  }
+}
 function draggableTask(id) {
   if (taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
@@ -241,8 +279,16 @@ function clearUndo() {
   el.innerHTML = "";
   el.classList.remove("visible");
 }
+function clearQuickEntry() {
+  if (!readQuickDraft) return;
+  readQuickDraft = null;
+  drawer.replaceChildren();
+  drawer.classList.remove("is-quick-entry");
+}
 function resetAccountUI() {
   clearUndo();
+  clearQuickEntry();
+  recentTaskId = "";
   busyTasks.clear();
   imports.reset();
   ui.query = "";
@@ -462,11 +508,19 @@ function calendarTools() {
   return `<div class="calendar-tools"><div class="calendar-period"><h2>${monthLabel()}</h2><div class="calendar-arrows"><button type="button" class="icon-button" data-action="calendar-prev" aria-label="${ui.mode === "month" ? "上个月" : "上一周"}">${icon("chevron", "flip")}</button><button type="button" class="icon-button" data-action="calendar-next" aria-label="${ui.mode === "month" ? "下个月" : "下一周"}">${icon("chevron")}</button><button type="button" class="btn quiet" data-action="calendar-today">今天</button></div></div><div class="calendar-options"><label class="jump-control" title="跳转日期">${icon("calendar")}<span class="sr-only">跳转日期</span><input id="calendar-jump" type="date" value="${esc(ui.selectedDate)}" aria-label="跳转日期"></label><div class="segmented" aria-label="日历范围"><button type="button" data-calendar-mode="month" aria-pressed="${ui.mode === "month"}">月</button><button type="button" data-calendar-mode="week" aria-pressed="${ui.mode === "week"}">周</button></div></div></div>`;
 }
 function taskResults() {
-  if (taskView() === "list")
-    return `${imports.taskReviewsStatus()}${renderTaskList(filtered(), { escapeHtml: esc, icon, today, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
+  const now = new Date();
+  if (taskView() === "list") {
+    const tasks = filtered();
+    scheduleDeadlineRefresh(tasks, now);
+    const recent = recentTaskId && !tasks.some(task => task.id === recentTaskId)
+      ? state.tasks.find(task => task.id === recentTaskId && task.status !== "done" && !task.recycleBin) : null;
+    const outsideView = recent ? `<section class="quick-outside-result"><h3>刚添加 · 当前列表之外</h3>${renderTaskRow(recent, { escapeHtml: esc, icon, today, now })}</section>` : "";
+    return `${imports.taskReviewsStatus()}${outsideView}${renderTaskList(tasks, { escapeHtml: esc, icon, today, now, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
+  }
   const items = calendarItems();
-  const now = new Date(), activityTasks = demo ? state.tasks : readSavedTasks();
-  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap">${renderCalendar({ tasks: items, activityTasks, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, now, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today, now })}</div>`;
+  const activityTasks = demo ? state.tasks : readSavedTasks();
+  scheduleDeadlineRefresh(activityTasks, now);
+  return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap" id="calendar-grid">${renderCalendar({ tasks: items, activityTasks, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, now, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today, now })}</div>`;
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -517,6 +571,7 @@ function focusToken(el) {
       "page",
       "view",
       "calendarDay",
+      "agendaDay",
       "calendarMode",
       "calendarPane",
       "accountAction",
@@ -537,6 +592,7 @@ function refreshToday() {
   const next = todayKey();
   if (next === today) return false;
   today = next;
+  readQuickDraft?.refreshDay();
   if (drawer.open && !drawerEditing) updateDrawer();
   return true;
 }
@@ -551,29 +607,29 @@ function syncToday() {
         label.textContent = dateLabel();
       }
     }
-  } else if (document.visibilityState !== "hidden" && ui.page === "tasks" && taskView() === "calendar") renderResults();
+  } else if (document.visibilityState !== "hidden" && ui.page === "tasks") renderResults();
   clearTimeout(dayTimer);
   const now = new Date();
   dayTimer = setTimeout(syncToday,
     new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) - now);
 }
-function scheduleCalendarActivity() {
-  clearTimeout(calendarActivityTimer);
-  if (loading || document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
-  const now = new Date();
-  const next = nextCalendarActivityChange(demo ? state.tasks : readSavedTasks(), { today, now });
+function scheduleDeadlineRefresh(tasks, now) {
+  clearTimeout(deadlineTimer);
+  if (loading || document.visibilityState === "hidden") return;
+  const next = nextCalendarActivityChange(tasks, { today, now });
   if (next === null) return;
   const update = () => {
-    if (document.visibilityState === "hidden" || ui.page !== "tasks" || taskView() !== "calendar") return;
-    if (busyTasks.size || document.body.classList.contains?.("is-calendar-dragging")) {
-      calendarActivityTimer = setTimeout(update, 500);
+    if (document.visibilityState === "hidden" || ui.page !== "tasks") return;
+    if (taskView() === "calendar" && (busyTasks.size || document.body.classList.contains?.("is-calendar-dragging"))) {
+      deadlineTimer = setTimeout(update, 500);
       return;
     }
     renderResults();
   };
-  calendarActivityTimer = setTimeout(update, Math.max(1, next - now.getTime() + 1));
+  deadlineTimer = setTimeout(update, Math.max(1, next - Date.now()));
 }
 function render() {
+  clearTimeout(deadlineTimer);
   calendarDrag.cancel();
   refreshToday();
   syncCourseIdentity();
@@ -602,7 +658,7 @@ function render() {
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
-  scheduleCalendarActivity();
+  scheduleQuickPoll();
 }
 function renderResults() {
   calendarDrag.cancel();
@@ -616,10 +672,10 @@ function renderResults() {
   syncTaskControls();
   document.querySelector("#result-count").textContent = headingCount();
   if (restore && token) restoreFocus(token);
-  scheduleCalendarActivity();
 }
 function navigatePage(page, scope = ui.scope) {
   const fromMobileMenu = ui.mobileMenu;
+  recentTaskId = "";
   ui.page = page;
   ui.scope = scope;
   ui.mobileMenu = false;
@@ -633,7 +689,7 @@ function requireAccount() {
   account.click({ dataset: { accountAction: "open" } });
   return false;
 }
-function openTask(id, editing = false) {
+function openTask(id, editing = false, selectedDate = "") {
   hideSidebarTooltip();
   if (!requireAccount()) return;
   drawerVisit++;
@@ -641,8 +697,24 @@ function openTask(id, editing = false) {
   drawerId = id;
   drawerEditing = editing;
   drawerError = null;
-  updateDrawer();
+  const quick = !id && editing;
+  if (quick) {
+    drawer.classList.add("is-quick-entry");
+    drawer.innerHTML = renderQuickEntry({ icon });
+    const timetableCourses = readStoredTimetable().value.flatMap(table => table.meetings.map(meeting => meeting.title));
+    readQuickDraft = bindQuickEntry(drawer.querySelector("form"), {
+      today: todayKey(), getToday: todayKey, defaultDate: selectedDate,
+      defaultCourse: taskView() === "list" ? ui.course : "",
+      courses: [...new Set([...courses(), ...timetableCourses])],
+    });
+  } else {
+    drawer.classList.remove("is-quick-entry");
+    readQuickDraft = null;
+    updateDrawer();
+  }
   if (!drawer.open) drawer.showModal();
+  if (quick) drawer.querySelector("#quick-text").focus();
+  if (id && !editing && editableTask(id)?.quickRecognition?.status === "pending") void pollQuickRecognition();
 }
 function updateDrawer() {
   syncCourseIdentity();
@@ -666,7 +738,7 @@ function updateDrawer() {
   renderedDrawer = identity;
   const actionError = drawer.querySelector("#task-action-error");
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
-  if (!reuse && !drawerEditing && task.id) {
+  if (!reuse && !drawerEditing && task.id && !task.quickRecognition?.text) {
     const evidence = drawer.querySelector("#task-evidence");
     if (task.reviewCandidateId || task.pendingReviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId || task.pendingReviewCandidateId);
     else if (demo)
@@ -681,6 +753,7 @@ function updateDrawer() {
 function closeDrawer() {
   drawerVisit++;
   drawer.close();
+  clearQuickEntry();
   renderedDrawer = null;
   drawerId = null;
   drawerEditing = false;
@@ -867,14 +940,32 @@ async function restoreTask(id) {
     finishTask(id, epoch);
   }
 }
-function showMobileDay() {
-  if (matchMedia("(max-width: 700px)").matches)
-    document.querySelector(".day-panel")?.scrollIntoView({
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth",
-      block: "start",
-    });
+function showMobileDay(focusDate = false) {
+  if (!matchMedia("(max-width: 700px)").matches) return;
+  const panel = document.querySelector(".day-panel");
+  if (focusDate) panel?.querySelector('[data-agenda-day][aria-pressed="true"]')?.focus({ preventScroll: true });
+  panel?.scrollIntoView({
+    behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    block: "start",
+  });
+}
+function selectAgendaDay(date, focusDay = false) {
+  if (!shiftDay(date, 0)) return;
+  ui.selectedDate = date;
+  ui.anchor = date;
+  ui.pane = "day";
+  syncNavigation();
+  renderResults();
+  if (focusDay) document.querySelector(`[data-agenda-day="${date}"]`)?.focus({ preventScroll: true });
+}
+function showAgendaMonth() {
+  ui.mode = "month";
+  ui.anchor = ui.selectedDate;
+  remember();
+  syncNavigation();
+  renderResults();
+  document.querySelector('#calendar-grid .calendar-date-button[aria-pressed="true"]')?.focus({ preventScroll: true });
+  document.querySelector(".calendar-tools")?.scrollIntoView({ block: "start" });
 }
 function calendarStep(direction) {
   const d = new Date(ui.anchor + "T12:00:00");
@@ -904,7 +995,6 @@ const actions = {
     updateSidebarState();
     document.querySelector(mobile && !ui.mobileMenu ? "#sidebar-show" : "#sidebar-toggle").focus({ preventScroll: true });
   },
-  "task-new": () => openTask(null, true),
   "drawer-close": closeDrawer,
   "drawer-edit": () => {
     if (!canChangeTask(drawerId)) return;
@@ -924,6 +1014,7 @@ const actions = {
     render();
   },
   "filter-reset": () => {
+    recentTaskId = "";
     ui.query = "";
     ui.course = "";
     ui.source = "";
@@ -933,6 +1024,9 @@ const actions = {
   },
   "calendar-prev": () => calendarStep(-1),
   "calendar-next": () => calendarStep(1),
+  "agenda-prev-week": () => selectAgendaDay(shiftDay(ui.selectedDate, -7)),
+  "agenda-next-week": () => selectAgendaDay(shiftDay(ui.selectedDate, 7)),
+  "agenda-month": showAgendaMonth,
   "calendar-today": () => {
     ui.anchor = todayKey();
     ui.selectedDate = ui.anchor;
@@ -994,6 +1088,22 @@ document.addEventListener("pointerdown", () => {
   hideSidebarTooltip();
   imports.cancelRecoveryNavigation();
 });
+let agendaTouch;
+document.addEventListener("touchstart", event => {
+  const touch = event.touches[0];
+  agendaTouch = event.touches.length === 1 && event.target.closest?.(".agenda-week-days")
+    ? { x: touch.clientX, y: touch.clientY, date: ui.selectedDate } : null;
+}, { passive: true });
+document.addEventListener("touchcancel", () => { agendaTouch = null; });
+document.addEventListener("touchend", event => {
+  const start = agendaTouch;
+  agendaTouch = null;
+  if (!start || event.touches.length || start.date !== ui.selectedDate) return;
+  const touch = event.changedTouches[0], dx = touch.clientX - start.x, dy = touch.clientY - start.y;
+  if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 2) return;
+  event.preventDefault(); // Do not activate the button under the end of a swipe.
+  selectAgendaDay(shiftDay(start.date, dx < 0 ? 1 : -1), true);
+}, { passive: false });
 window.addEventListener("wheel", () => imports.cancelRecoveryNavigation(), { passive: true });
 window.addEventListener("scroll", hideSidebarTooltip, true);
 window.addEventListener("resize", hideSidebarTooltip);
@@ -1011,6 +1121,21 @@ document.addEventListener("click", async (e) => {
   }
   hideSidebarTooltip();
   try {
+    if (button.dataset.quickImport) {
+      const source = button.dataset.quickImport;
+      if (!drawer.open || !readQuickDraft || !imports.setSource(source)) return;
+      closeDrawer();
+      ui.importSource = source;
+      navigatePage("import");
+      void imports.load();
+      if (source === "text") document.querySelector("#import-text")?.focus();
+      return;
+    }
+    if (button.dataset.action === "task-new") {
+      const selected = button.dataset.quickDate || (taskView() === "calendar" && ui.pane === "day" ? ui.selectedDate : "");
+      openTask(null, true, selected);
+      return;
+    }
     if (button.dataset.action && actions[button.dataset.action]) {
       await actions[button.dataset.action]();
       return;
@@ -1042,6 +1167,7 @@ document.addEventListener("click", async (e) => {
     }
     if (button.dataset.view) {
       if (ui.scope !== "all") return;
+      recentTaskId = "";
       ui.view = button.dataset.view;
       remember();
       syncNavigation();
@@ -1056,12 +1182,16 @@ document.addEventListener("click", async (e) => {
       renderResults();
       return;
     }
+    if (button.dataset.agendaDay) {
+      selectAgendaDay(button.dataset.agendaDay);
+      return;
+    }
     if (button.dataset.calendarDay) {
       ui.selectedDate = button.dataset.calendarDay;
       ui.pane = "day";
       syncNavigation();
       renderResults();
-      showMobileDay();
+      showMobileDay(true);
       return;
     }
     if (button.dataset.calendarPane) {
@@ -1085,6 +1215,7 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("input", (e) => {
   imports.cancelRecoveryNavigation();
   if (e.target.id === "task-search") {
+    recentTaskId = "";
     ui.query = e.target.value;
     renderResults();
     return;
@@ -1102,6 +1233,7 @@ document.addEventListener("change", (e) => {
   if (imports.input?.(e)) return;
   const id = e.target.id,
     value = e.target.value;
+  if (["course-filter", "source-filter", "date-from", "date-to"].includes(id)) recentTaskId = "";
   if (id === "course-filter") ui.course = value;
   else if (id === "source-filter") ui.source = value;
   else if (id === "date-from") ui.dateFrom = value;
@@ -1122,12 +1254,18 @@ document.addEventListener("toggle", (event) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
-  if (form.id === "task-edit-form") {
-    if (!canChangeTask(form.dataset.id)) return;
-    const values = Object.fromEntries(new FormData(form)),
+  const quick = form.id === "quick-task-form";
+  if (quick || form.id === "task-edit-form") {
+    if (!canChangeTask(form.dataset.id || form.dataset.savingId)) return;
+    if (quick && (!readQuickDraft || !drawer.open)) return;
+    const values = quick ? readQuickDraft() : Object.fromEntries(new FormData(form)),
       error = form.querySelector("#task-edit-error");
     if (!values.title.trim()) {
       error.textContent = "请输入任务名称";
+      return;
+    }
+    if (values.title.trim().length > 200 || values.course.trim().length > 100) {
+      error.textContent = "任务名称最多 200 个字符，课程最多 100 个字符";
       return;
     }
     if (values.dueTime && !values.due) {
@@ -1137,14 +1275,14 @@ document.addEventListener("submit", async (e) => {
     const existing = editableTask(form.dataset.id);
     if (form.dataset.id) {
       try {
-        assertCurrentTaskEdit(existing, form.dataset.taskEditSnapshot);
+        mergeTaskEdit(existing, form.dataset.taskEditSnapshot, values, form.hasAttribute("data-recognition-pending"));
       } catch (cause) {
         error.textContent = cause.message;
         return;
       }
     }
     const epoch = accountVersion();
-    const draftId = form.dataset.id || newId();
+    const draftId = form.dataset.id || form.dataset.savingId || newId();
     const task = {
       ...(existing || { id: draftId, status: "todo", source: "手动添加" }),
       ...values, title: values.title.trim(), course: values.course.trim(),
@@ -1186,18 +1324,35 @@ document.addEventListener("submit", async (e) => {
       return;
     }
     const expected = existing ? form.dataset.taskEditSnapshot : undefined;
-    form.dataset.id = draftId;
+    form.dataset.savingId = draftId;
     busyTasks.add(draftId);
-    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
+    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected, {
+      quickRecognition: quick ? readQuickDraft.recognition() : undefined,
+      startedPending: !quick && form.hasAttribute("data-recognition-pending"),
+    });
     if (!await stageTaskSave(saving, draftId, epoch, form)) return;
     if (demo) {
       if (existing) Object.assign(existing, task);
       else state.tasks.push(task);
     } else state = readProjectedStore();
     const ownsDrawer = form.isConnected && drawer.open;
-    if (ownsDrawer) closeDrawer();
+    if (ownsDrawer) {
+      closeDrawer();
+      if (quick) {
+        recentTaskId = draftId;
+        if (taskView() === "calendar") {
+          if (task.due) ui.anchor = ui.selectedDate = task.due;
+          ui.pane = task.due ? "day" : "undated";
+          syncNavigation();
+        }
+      }
+    }
     render();
-    if (ownsDrawer) restoreFocus({ key: "taskOpen", value: draftId });
+    if (ownsDrawer && quick) {
+      const target = document.querySelector(`.task-row[data-task-id="${CSS.escape(draftId)}"] .task-open`);
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    } else if (ownsDrawer) restoreFocus({ key: "taskOpen", value: draftId });
     try {
       await saving;
       if (epoch === accountVersion()) toast(isNotice(task) ? "通知已保存" : "任务已保存");
@@ -1217,6 +1372,12 @@ document.addEventListener("submit", async (e) => {
 });
 document.addEventListener("keydown", (e) => {
   imports.cancelRecoveryNavigation();
+  if (e.target.dataset?.agendaDay && !e.altKey && !e.ctrlKey && !e.metaKey &&
+      (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+    e.preventDefault();
+    selectAgendaDay(shiftDay(e.target.dataset.agendaDay, e.key === "ArrowRight" ? 1 : -1), true);
+    return;
+  }
   if (e.key === "Escape") hideSidebarTooltip();
   const modalOpen = dialog.open || drawer.open;
   if (e.key === "Tab" && ui.mobileMenu && !modalOpen) {
@@ -1281,7 +1442,11 @@ drawer.addEventListener("cancel", (e) => {
   closeDrawer();
 });
 window.addEventListener("niuma:account-reset", () => {
+  clearTimeout(quickPollTimer);
+  quickPollTimer = quickPollEpoch = null;
   resetErrorFeedback();
+  clearQuickEntry();
+  recentTaskId = "";
   const authForm = dialog.querySelector("[data-account-form]");
   if (
     !(
@@ -1307,6 +1472,7 @@ window.addEventListener("niuma:account-reset", () => {
   render();
 });
 window.addEventListener("popstate", () => {
+  recentTaskId = "";
   Object.assign(ui, readNavigation(new URLSearchParams(location.search), { today: todayKey(), preferences }));
   ui.mobileMenu = false;
   imports.setSource(ui.importSource);
@@ -1319,6 +1485,7 @@ window.addEventListener("popstate", () => {
   if (ui.page === "import") void imports.load();
 });
 window.addEventListener("niuma:sync", () => {
+  scheduleQuickPoll();
   const label = document.querySelector("#save-status");
   if (label) label.textContent = saveLabel();
   const alert = document.querySelector("#sync-alert");
@@ -1330,7 +1497,10 @@ matchMedia("(max-width: 700px)").addEventListener("change", () => {
   ui.mobileMenu = false;
   render();
 });
-document.addEventListener("visibilitychange", syncToday);
+document.addEventListener("visibilitychange", () => {
+  syncToday();
+  if (!document.hidden) void pollQuickRecognition();
+});
 window.addEventListener("focus", syncToday);
 window.addEventListener("pageshow", syncToday);
 syncNavigation("replace");

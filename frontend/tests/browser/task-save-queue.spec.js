@@ -154,8 +154,8 @@ test('new tasks get stable unique identities while earlier operations are still 
     await expect.poll(() => f.writes.length).toBe(1);
     for (const title of ['排队添加一', '排队添加二']) {
       await page.locator('[data-action="task-new"]').click();
-      await drawer(page).getByLabel('任务名称', { exact: true }).fill(title);
-      await drawer(page).getByRole('button', { name: '保存任务', exact: true }).click();
+      await drawer(page).locator('#quick-text').fill(title);
+      await drawer(page).getByRole('button', { name: '添加', exact: true }).click();
       await expect(drawer(page)).not.toBeVisible();
       await expect(page.locator('.task-title').filter({ hasText: title })).toBeVisible();
     }
