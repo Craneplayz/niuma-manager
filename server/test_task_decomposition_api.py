@@ -186,6 +186,69 @@ class TaskDecompositionApiTests(unittest.TestCase):
         self.assertEqual((remaining['status'], remaining['dependsOn']), ('pending', ['second']))
         self.assertEqual(task['estimatedMinutes'], 10)
 
+    def test_same_title_with_different_outcome_keeps_remaining_work(self):
+        completed = dict(id='done', title='生成图表', outcome='第一组数据图表',
+                         status='completed', estimatedMinutes=35)
+        task = dict(subtasks=[completed])
+        draft = [dict(step('new-chart', '生成图表', 45), outcome='第二组数据图表')]
+        app.task_decomposition._apply_remaining(task, draft)
+        done, pending = task['subtasks']
+        self.assertEqual(done, completed)
+        self.assertNotEqual(pending['id'], done['id'])
+        self.assertEqual((pending['status'], pending['outcome'], pending['estimatedMinutes']),
+                         ('pending', '第二组数据图表', 45))
+        self.assertEqual(task['estimatedMinutes'], 45)
+
+    def test_same_title_reuses_matching_outcomes_once_without_consuming_other_matches(self):
+        completed = [dict(id='first', title='生成图表', outcome='第一组数据图表', status='completed'),
+                     dict(id='second', title='生成图表', outcome='第二组数据图表', status='completed')]
+        task = dict(subtasks=completed)
+        draft = [dict(step('b', '生成图表', 45), outcome='第二组数据图表'),
+                 dict(step('a', '生成图表', 35), outcome='第一组数据图表'),
+                 dict(step('extra', '生成图表', 45, ['b', 'a']), outcome='第二组数据图表')]
+        app.task_decomposition._apply_remaining(task, draft)
+        self.assertEqual(task['subtasks'][:2], completed)
+        remaining = task['subtasks'][2]
+        self.assertNotIn(remaining['id'], ['first', 'second'])
+        self.assertEqual((remaining['status'], remaining['dependsOn']), ('pending', ['second', 'first']))
+        self.assertEqual(task['estimatedMinutes'], 45)
+
+    def test_different_outcome_apply_persists_pending_dependency_and_planning_minutes(self):
+        client = self.client()
+        self.register(client, 'different-outcome@test.local')
+        completed = dict(id='done', title='生成图表', outcome='第一组数据图表',
+                         status='completed', estimatedMinutes=35)
+        date = (app.datetime.now(app.TZ) + app.timedelta(days=2)).date().isoformat()
+        task = dict(id='charts', title='比较两组数据', status='not_started', plans=[],
+                    due=dict(date=date, precision='date'), subtasks=[completed])
+        self.assertEqual(self.save_task(client, task)[0], 200)
+        draft = dict(status='ready_to_plan', assessment=assessment('multi_step'), questions=[],
+                     plan=dict(goal='比较图表', strategy='先绘制第二组图表再比较', warnings=[], subtasks=[
+                         dict(step('new-chart', '生成图表', 45), outcome='第二组数据图表'),
+                         step('compare', '比较图表', 5, ['new-chart'])]))
+        with patch.object(app.task_decomposition, 'generate', return_value=draft):
+            status, preview = self.call(client, '/decomposition/proposals', dict(taskId=task['id']))
+        self.assertEqual(status, 200)
+        self.assertEqual(self.call(client, '/workspace', None, 'GET')[1]['tasks']['value'], [task])
+        status, applied = self.call(client, '/decomposition/apply',
+                                    dict(taskId=task['id'], requestId=preview['requestId']))
+        self.assertEqual(status, 200)
+        updated = applied['value'][0]
+        done, pending, downstream = updated['subtasks']
+        self.assertEqual(done, completed)
+        self.assertEqual(len({done['id'], pending['id'], downstream['id']}), 3)
+        self.assertEqual((pending['status'], pending['outcome'], pending['estimatedMinutes']),
+                         ('pending', '第二组数据图表', 45))
+        self.assertEqual((downstream['status'], downstream['dependsOn']), ('pending', [pending['id']]))
+        self.assertEqual(updated['estimatedMinutes'], 50)
+        self.assertEqual(self.call(client, '/workspace', None, 'GET')[1]['tasks']['value'], [updated])
+        with patch.object(app.planning, 'live_options', side_effect=AssertionError('no model needed')):
+            status, schedule = self.call(client, '/planning/proposals', dict(taskIds=[task['id']],
+                availability=dict(startTime='19:00', endTime='22:00', weekdays=list(range(7)))))
+        self.assertEqual(status, 200)
+        self.assertEqual(schedule['estimates'], {'charts': 50})
+        self.assertTrue(schedule['blocks'])
+
     def test_completed_tasks_bad_conversation_and_stale_preview_are_rejected(self):
         client = self.client()
         self.register(client, 'decomposition-invalid@test.local')

@@ -1,6 +1,6 @@
 """Account-scoped AI task decomposition preview and apply flow."""
 import json
-from collections import defaultdict, deque
+from collections import defaultdict
 if __package__:
     from .runtime_environment import model_env_path
 else:
@@ -114,19 +114,28 @@ def _apply_remaining(task, items):
     def normalized(title):
         return ' '.join(title.split()).casefold()
 
-    completed_by_title = defaultdict(deque)
+    def outcome(step):
+        value = step.get('outcome')
+        return value.strip() if isinstance(value, str) else ''
+
+    completed_by_title = defaultdict(list)
     retained = set()
     for step in completed:
         if isinstance(step.get('id'), str):
             retained.add(step['id'])
             if isinstance(step.get('title'), str):
-                completed_by_title[normalized(step['title'])].append(step['id'])
+                completed_by_title[normalized(step['title'])].append(step)
     identifiers = {}
     pending = []
     for step in items:
-        matches = completed_by_title.get(normalized(step['title']))
-        if matches:
-            prior = matches.popleft()
+        matches = completed_by_title.get(normalized(step['title']), [])
+        new_outcome = outcome(step)
+        # Keep legacy title-only matching when either outcome is unknown.
+        match = next((prior for prior in matches if not new_outcome
+                      or not outcome(prior) or outcome(prior) == new_outcome), None)
+        if match is not None:
+            prior = match['id']
+            matches.remove(match)
         else:
             prior = secrets.token_hex(16)
             pending.append(step)
