@@ -37,6 +37,30 @@ class NormalizedTimeTests(unittest.TestCase):
                 result = validate_time(proposal("时间原文", value), record())
                 self.assertEqual((result["value"], result["status"]), (None, "unknown"))
 
+    def test_quick_deadline_window_and_day_end_agree(self):
+        r = record(platform="manual")
+        r["quick_reference"] = quick_reference(r)
+        for quote in ("请在**1月1日至1月5日**期间完成材料提交。", "1月5日24时通道关闭。",
+                      "最晚1月5日 24:00 截止。"):
+            for value in ("2027-01-05", "2027-01-05T24:00:00+08:00", "2027-01-06T00:00:00+08:00"):
+                with self.subTest(quote=quote, value=value):
+                    item = proposal(quote, value, derivation="missing_year", anchor="quick_reference")
+                    result = validate_time(item, r)
+                    self.assertEqual((result["value"], result["precision"], result["status"]),
+                                     ("2027-01-05", "date", "explicit"))
+                    self.assertEqual(result["raw"], quote)
+
+    def test_quick_day_end_requires_matching_deadline_evidence(self):
+        r = record(platform="manual")
+        r["quick_reference"] = quick_reference(r)
+        for quote, kind in (("1月5日24时举行活动。", "reference"), ("1月5日24时30分", "deadline"),
+                            ("1月4日24:00截止。", "deadline"), ("1月5日18:00截止。", "deadline"),
+                            ("1月1日至1月5日期间提交，最后一天18时截止。", "deadline")):
+            with self.subTest(quote=quote, kind=kind):
+                item = proposal(quote, "2027-01-05T24:00:00+08:00", kind=kind,
+                                derivation="missing_year", anchor="quick_reference")
+                self.assertIsNone(validate_time(item, r)["value"])
+
     def test_bad_shape_is_protocol_error(self):
         for change in ({"precision": []}, {"anchor": "server_now"}, {"value": 123}, {"basis": ""}, {"extra": 1}):
             item = proposal("原文", "2026-10-11")

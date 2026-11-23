@@ -1,9 +1,10 @@
-"""Validate model-normalized dates, without interpreting the quotation's format.
+"""Validate model-normalized dates against their source-local time context.
 
 Evidence membership is checked by extraction._reference. These checks establish
 structural consistency, not that a model understood a sentence correctly.
 """
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -82,11 +83,47 @@ def _nearest_year(day, anchor):
     return min(choices, key=lambda candidate: (abs((candidate - anchor).days), candidate < anchor))
 
 
+_CALENDAR_DAY = re.compile(r"(?<!\d)(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]")
+_DAY_END = re.compile(r"\s*24\s*(?:[:：]00(?:[:：]00)?|[时点](?:\s*0{1,2}\s*分)?)(?![\s\d:：]*\d)")
+
+
+def _inclusive_day(ref, message):
+    """Recognize equivalent end-of-day proposals for a single cited deadline."""
+    n = ref["normalized"]
+    if not message.get("quick_reference") or ref["kind"] != "deadline" or not n["value"]:
+        return n
+    # Limit the repair to day boundaries. A separately specified hour wins.
+    stamp = re.fullmatch(r"(\d{4}-\d\d-\d\d)T(24:00|00:00|23:59)(?::(\d\d))?(?:Z|[+-]\d\d:\d\d)?", n["value"])
+    if not stamp or (stamp[3] not in (None, "00") and (stamp[2], stamp[3]) != ("23:59", "59")):
+        return n
+    quote = ref["quote"].replace("**", "")
+    dates = list(_CALENDAR_DAY.finditer(quote))
+    if not dates:
+        return n
+    end = dates[-1]
+    tail = quote[end.end():]
+    window = (len(dates) == 2 and quote[dates[0].end():end.start()].strip() in ("至", "到", "—", "–", "-")
+              and re.match(r"\s*期间(?:内)?\s*(?:完成|办理|提交|申请|报名)", tail)
+              and not re.search(r"\d\s*(?:[:：点时]|分)", tail))
+    if not window and not (len(dates) == 1 and _DAY_END.match(tail)):
+        return n
+    if n["derivation"] not in ("absolute", "missing_year"):
+        return n
+    day = date.fromisoformat(stamp[1])
+    if stamp[2] == "00:00" and (day.month, day.day) != (int(end[2]), int(end[3])):
+        day -= timedelta(days=1)
+    if (day.month, day.day) != (int(end[2]), int(end[3])) or end[1] and day.year != int(end[1]):
+        return n
+    # Keep the existing year/anchor checks. Model variants then compare equal
+    # when separate evidence spans describe the window and the closing time.
+    return dict(n, value=day.isoformat(), precision="date")
+
+
 def validate_time(ref, message):
     """Keep the action reviewable when a well-shaped date proposal is invalid.
 
-    Missing fields/types remain protocol errors. No raw phrase is parsed here;
-    derivation and role are semantic judgments supplied by the model.
+    Missing fields/types remain protocol errors. Derivation and role are
+    semantic judgments supplied by the model.
     """
     require(ref["kind"] in {"deadline", "reference", "urgency"})
     n = ref["normalized"]
@@ -111,7 +148,7 @@ def validate_time(ref, message):
     if n["value"] is None or n["precision"] == "unknown":
         return unresolved("时间归一化缺少具体值或精度。")
     try:
-        # Only the standard output format is validated, never the source wording.
+        n = _inclusive_day(ref, message)
         time_value(n["value"], n["precision"])
         if n["precision"] == "datetime":
             if zone is None:
