@@ -86,11 +86,13 @@ async function open(page, context) {
   await page.goto('/?page=tasks&view=list');
   await page.locator('.add-task').click();
 }
-async function start(page) {
-  await page.locator('#quick-text').fill('本次有两项安排。请在2026年9月30日前提交需求报告。');
+async function start(page, label = '') {
+  await page.locator('#quick-text').fill(label + '本次有两项安排。请在2026年9月30日前提交需求报告。');
   const accepted = page.waitForResponse(response => response.url().endsWith('/api/recognition/text-jobs') && response.request().method()==='POST');
   await page.getByRole('button',{name:'加入',exact:true}).click();
-  return (await (await accepted).json()).jobs.find(job => ['queued','recognizing'].includes(job.state));
+  const receipt = await accepted;
+  expect(receipt.ok()).toBeTruthy();
+  return (await receipt.json()).jobs.find(job => job.request_id === receipt.request().postDataJSON().request_id);
 }
 async function finish(request, job, mode) {
   const response = await request.post(api+'/__test/finish',{data:{request_id:job.request_id,mode}});
@@ -117,4 +119,32 @@ test('task-page text import survives reload and retries into a single saved task
   await page.reload();
   await expect(task).toHaveCount(1);
   await expect(page.locator('.task-row.is-pending-review')).toHaveCount(0);
+});
+
+
+test('four consecutive notices can finish independently after refresh', async ({page,context,request}) => {
+  await open(page,context);
+  const jobs = [];
+  for (const label of ['A','B','C','D']) {
+    if (jobs.length) await page.locator('.add-task').click();
+    jobs.push(await start(page,label));
+    await expect(page.locator('#quick-task-form')).toHaveCount(0);
+  }
+  await page.reload();
+  const pending = page.getByText('正在识别，完成后将自动加入清单…');
+  await expect(pending).toHaveCount(4);
+  const states = async () => (await (await page.request.get(api+'/api/recognition/text-jobs')).json()).jobs;
+  await expect.poll(async () => (await states()).filter(item =>
+    jobs.some(job => job.request_id === item.request_id) && item.state === 'recognizing').length).toBe(4);
+  // A stays in progress while the three later notices reach the task list.
+  for (const job of jobs.slice(1)) await finish(request,job,'success');
+  await expect(pending).toHaveCount(1);
+  const savedIds = async () => (await (await page.request.get(api+'/api/tasks/quick-recognition')).json()).value
+    .flatMap(task => task.recognitionHistory || []).map(entry => entry.requestId)
+    .filter(id => jobs.some(job => job.request_id === id)).sort();
+  expect(await savedIds()).toEqual(jobs.slice(1).map(job => job.request_id).sort());
+  await finish(request,jobs[0],'success');
+  await expect(pending).toHaveCount(0);
+  await page.reload();
+  expect(await savedIds()).toEqual(jobs.map(job => job.request_id).sort());
 });
