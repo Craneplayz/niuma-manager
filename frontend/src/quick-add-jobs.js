@@ -29,11 +29,13 @@ export function createQuickAddJobs({ render, refreshTasks, escapeHtml, toast }) 
   async function check() {
     const account = owner;
     checking = true;
+    let textJobs;
     for (const job of [...jobs]) {
       if (account !== session.user?.id || !jobs.includes(job) || job.message) continue;
       try {
         const isFile = job.kind === "files";
-        const response = await api(isFile ? "/api/materials/imports/" + encodeURIComponent(job.id) : "/api/recognition/text-jobs");
+        const response = isFile ? await api("/api/materials/imports/" + encodeURIComponent(job.id))
+          : await (textJobs ??= api("/api/recognition/text-jobs"));
         if (account !== session.user?.id || !jobs.includes(job)) return;
         const receipt = isFile ? response : response.jobs.find(j => j.request_id === job.id);
         if (!receipt) throw new Error("暂时找不到这次识别记录");

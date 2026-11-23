@@ -290,7 +290,7 @@ npm run build
 
 历史贡献与来源见 [CONTRIBUTIONS.md](CONTRIBUTIONS.md)。
 
-任务页显示后台识别进度，失败可重试。接口见 [文本后台作业](../contracts/docs/text-import-jobs-v0.1.md)。
+可在任务页连续使用「＋」提交多条文本，逐条显示后台识别进度，失败可重试。接口见 [文本后台作业](../contracts/docs/text-import-jobs-v0.1.md)。
 
 旧版文本导入页的合成验证截图：[桌面识别中](docs/archive/2026-10-22-text-import-running-desktop.png)、[手机识别中](docs/archive/2026-10-22-text-import-running-mobile.png)、[识别完成与候选](docs/archive/2026-10-22-text-import-completed-desktop.png)；截图使用合成账号和模型结果，不代表真实模型准确率或服务器验收。
 

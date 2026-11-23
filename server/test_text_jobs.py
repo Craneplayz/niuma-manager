@@ -217,7 +217,9 @@ class TextJobsTests(unittest.TestCase):
                 PRIMARY KEY(user_id,request_id))''')
             db.execute('INSERT INTO text_import_jobs VALUES(?,?,?,?,?,?,?,?,?)',
                        ('A','old','fingerprint','{}','no_tasks',1,None,text_jobs.stamp(),text_jobs.stamp()))
+            db.execute("CREATE UNIQUE INDEX text_import_one_active ON text_import_jobs(user_id) WHERE state IN ('queued','recognizing')")
             text_jobs.initialize(db,recover=False)
+            self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='text_import_one_active'").fetchone())
             identity=db.execute('SELECT instance_id FROM text_import_jobs').fetchone()[0]
             self.assertEqual(len(identity),32)
             text_jobs.initialize(db,recover=False)
@@ -234,7 +236,7 @@ class TextJobsTests(unittest.TestCase):
             self.assertEqual(self.call('/recognition/batches')[1],[])
         self.assertEqual(self.calls,1)
 
-    def test_one_active_per_account_and_stop_while_waiting_never_calls_model(self):
+    def test_multiple_waiting_jobs_can_be_stopped_independently(self):
         # Exercise the actual shared model admission rather than an invented UI state.
         from server.model_queue import ModelQueue
         queue = ModelQueue(limit=1,wait=3)
@@ -243,10 +245,14 @@ class TextJobsTests(unittest.TestCase):
             self.call(body=self.request)
             self.assertEqual(self.job()['state'],'queued')
             other = copy.deepcopy(self.request); other['request_id'] = 'another'
-            self.assertEqual(self.call(body=other)[0],409)
-            self.action('stop'); text_jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.call(body=other)[0],200)
+            self.action('stop')
+            self.assertEqual({j['request_id']: j['state'] for j in self.call()[1]['jobs']},
+                             {self.request['request_id']: 'stopped', 'another': 'queued'})
+            self.assertEqual(self.call('/recognition/text-jobs/another/stop', {'attempt': 1})[0], 200)
+            text_jobs.wait_for_jobs(app.DB)
         queue.release()
-        self.assertEqual(self.job()['state'],'stopped')
+        self.assertTrue(all(j['state'] == 'stopped' for j in self.call()[1]['jobs']))
         self.assertEqual(self.call('/recognition/batches')[1],[])
 
     def test_receipt_disconnect_does_not_prevent_accepted_work(self):

@@ -46,8 +46,7 @@ def initialize(db, recover=True):
     for row in db.execute('SELECT user_id,request_id FROM text_import_jobs WHERE instance_id IS NULL').fetchall():
         db.execute('UPDATE text_import_jobs SET instance_id=? WHERE user_id=? AND request_id=?',
                    (secrets.token_hex(16),row['user_id'],row['request_id']))
-    db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS text_import_one_active
-        ON text_import_jobs(user_id) WHERE state IN ('queued','recognizing')''')
+    db.execute('DROP INDEX IF EXISTS text_import_one_active')
     if recover:
         db.execute("""UPDATE text_import_jobs SET state='interrupted',updated_at=?,error=?
             WHERE state IN ('queued','recognizing')""", (stamp(), json.dumps(dict(
@@ -78,9 +77,7 @@ def find(db, uid, rid, ApiError):
     return row
 
 
-def capacity(db, uid, ApiError):
-    if db.execute("SELECT 1 FROM text_import_jobs WHERE user_id=? AND state IN ('queued','recognizing')", (uid,)).fetchone():
-        raise ApiError(409, '已有文本正在识别，请等待完成或停止后再提交')
+def capacity(db, ApiError):
     if db.execute("SELECT COUNT(*) FROM text_import_jobs WHERE state IN ('queued','recognizing')").fetchone()[0] >= MAX_ACTIVE:
         raise ApiError(503, '文本识别排队已满，请稍后重试')
 
@@ -103,7 +100,7 @@ def create(db, uid, request, ApiError):
         return row
     previous = db.execute('SELECT fingerprint FROM recognition_batches WHERE user_id=? AND request_id=?', (uid,rid)).fetchone()
     if previous and previous['fingerprint'] != fingerprint: raise ApiError(409, '同一导入编号不能用于不同内容')
-    capacity(db, uid, ApiError)
+    capacity(db, ApiError)
     now = stamp()
     db.execute('INSERT INTO text_import_jobs VALUES(?,?,?,?,?,?,?,?,?,?)',
                (uid,rid,fingerprint,json.dumps(request),'queued',1,None,now,now,secrets.token_hex(16)))
@@ -216,7 +213,7 @@ def route(handler, db, uid, path, body, ApiError, database):
             if action == 'stop' and row['state'] in ACTIVE:
                 db.execute("UPDATE text_import_jobs SET state='stopped',error=NULL,updated_at=? WHERE user_id=? AND request_id=?", (stamp(),uid,rid))
             elif action == 'retry' and row['state'] in ('failed','partial_success','stopped','interrupted'):
-                capacity(db,uid,ApiError)
+                capacity(db,ApiError)
                 db.execute("UPDATE text_import_jobs SET state='queued',attempt=attempt+1,error=NULL,updated_at=? WHERE user_id=? AND request_id=?", (stamp(),uid,rid))
                 launch_row = find(db,uid,rid,ApiError)
     else:
