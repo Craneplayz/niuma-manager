@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import task_operations
 from text_jobs import connection
 
-FIELDS = ('title', 'course', 'due')
+FIELDS = ('title', 'course', 'due', 'description')
 MAX_WORKERS = 4
 _lock = threading.Lock()
 _workers = {}
@@ -35,9 +35,10 @@ def initialize(db, *, recover, resume_queued=True):
 
 def prepare(intent, task, ApiError):
     data = intent.get('quickRecognition')
-    if (not isinstance(data, dict) or set(data) != {'text','timezone','referenceDay','protectedFields'}
+    if (not isinstance(data, dict) or set(data) - {'localOnly'} != {'text','timezone','referenceDay','protectedFields'}
+            or type(data.get('localOnly', False)) is not bool
             or intent.get('kind') != 'save' or 'expected' not in intent or intent['expected'] is not None
-            or not isinstance(data['text'], str) or not data['text'].strip() or len(data['text']) > 400):
+            or not isinstance(data['text'], str) or not data['text'].strip() or len(data['text']) > 4000):
         raise ApiError(400, '一句话识别只能用于刚添加的任务')
     protected = data['protectedFields']
     if (not isinstance(protected, list) or any(field not in FIELDS for field in protected)
@@ -102,6 +103,7 @@ def before_write(db, uid, old, tasks, operation, ApiError):
         raise ApiError(400, '一句话识别需要有效的新任务编号')
     metadata_changed = False
     job_created = False
+    matched = False
     for task in tasks:
         original = previous.pop(task['id'], None)
         info = observe_edit(db, uid, original, task) if original else None
@@ -109,21 +111,24 @@ def before_write(db, uid, old, tasks, operation, ApiError):
             if original is not None:
                 raise ApiError(409, '只能在新任务保存时启动识别')
             request = prepare(intent, task, ApiError)
-            db.execute("""INSERT INTO quick_task_jobs(user_id,task_id,operation_id,state,request)
-                          VALUES(?,?,?,'queued',?)""",
-                       (uid, task['id'], operation['id'], json.dumps(request)))
-            info = dict(text=request['source']['text'], status='pending')
-            job_created = True
+            matched = True
+            local = intent['quickRecognition'].get('localOnly', False)
+            info = dict(text=request['source']['text'], status='done' if local else 'pending')
+            if not local:
+                db.execute("""INSERT INTO quick_task_jobs(user_id,task_id,operation_id,state,request)
+                              VALUES(?,?,?,'queued',?)""",
+                           (uid, task['id'], operation['id'], json.dumps(request)))
+                job_created = True
         if task.get('quickRecognition') != info:
             metadata_changed = True
         if info is None:
             task.pop('quickRecognition', None)
         else:
             task['quickRecognition'] = info
-    if quick_create and not job_created:
+    if quick_create and not matched:
         raise ApiError(400, '找不到要识别的新任务')
     forget(db, uid, previous)
-    return job_created, metadata_changed
+    return job_created, metadata_changed or matched
 
 
 def forget(db, uid, task_ids):

@@ -1,3 +1,4 @@
+import { summarizeQuickNotice } from "./quick-notice.js";
 import { shiftDay } from "./task-model.js";
 
 const weekday = "一二三四五六日";
@@ -75,7 +76,7 @@ function knownCourseIn(text, courses) {
 }
 
 function takeCourse(text, courses, defaultCourse) {
-  const tags = [...text.matchAll(/(?<![a-zA-Z0-9_#])[#＃](?<tag>[^\s#＃，,。；;：:、]+)[#＃]?|(?:^|(?<=[\s，,；;]))(?:课程|科目|分类)\s*[:：]\s*(?<field>[^\s，,。；;、]+)/gu)];
+  const tags = [...text.matchAll(/(?<![a-zA-Z0-9_#&])[#＃](?<tag>[^\s#＃，,。；;：:、]+)[#＃]?|(?:^|(?<=[\s，,；;]))(?:课程|科目|分类)\s*[:：]\s*(?<field>[^\s，,。；;、]+)/gu)];
   // Mask tags without shifting offsets. A punctuation marker also prevents one
   // time match from spanning a tag between its day part and its clock digits.
   let masked = text;
@@ -134,9 +135,43 @@ function mergedTimeSpans(tokens, source) {
   return spans;
 }
 
+// Only finish a local summary when all of its words fit one simple action.
+function summarizeAction(raw, source, spans) {
+  const title = raw.trim()
+    .replace(/[，,。\s]*(?:你)?(?:帮我|给我|替我)(?:记录|记)(?:一下|下来|上)?(?:吧)?[。！!\s]*$/u, "")
+    .replace(/^(?:请(?:各位|全体|所有)?(?:同学们?|同事们?|成员|老师们?)|(?:各位|全体)同学们?)[，,、\s]*(?:请)?/u, "")
+    .replace(/^(?:请务必|请大家|请于|请|务必|于(?=前往|到|在|参加|观看|提交|交|完成))\s*/u, "")
+    .replace(/^[，,\s]+|[。！!\s]+$/gu, "");
+  const exam = title.match(/^(?:有|要考|要参加|参加)?(?:一场)?([^，,。；;！？\s]{0,20}?)(考试|测验)$/u);
+  const simple = title.length > 0 && title.length <= 48 &&
+    !/[，,；;。！？!?]|(?:然后|并且|顺便|另行|分别|之后|之前|取消|无需|不用|不要|不必|如果|除非|改为|改到|待定|或者|还需|一下|结束后|结束前|会后|会前)|(?:并|及|再)(?:把|提交|观看|参加|领取|签到|将)/u.test(title);
+  const hasLimit = /截止|截至|最迟|不晚于|不迟于/u.test(source) ||
+    spans.some(({ end }) => /^\s*(?:之|以)?前(?!往|去|来|进)/u.test(source.slice(end)));
+  const visit = simple ? title.match(/^(?:前往|前去|到|在|去)\s*(?<place>[^，,。；;！？]{1,40}?)\s*(?<action>(?:观看|参加|出席|参观|旁听|听取|集合|签到|开会|上课|提交|领取|归还).*)$/u) : null;
+  const action = visit?.groups.action || (exam ? exam[1] + exam[2] : title);
+  const event = !hasLimit && (Boolean(exam) || /^(?:观看|参加|出席|参观|旁听|听取|集合|签到|开会|上(?:.{0,12})课|值班)/u.test(action));
+  const clear = simple && (event || /^(?:提交|交|领取|归还|还书|完成|写|整理|复习|阅读|购买|打印|准备|填写|发送|报名|买|取|背|订|发)/u.test(action));
+  const subject = exam?.[1].replace(/(?:期中|期末|随堂|闭卷|开卷|线上|线下)+$/u, "");
+  const course = subject && !/一场|期中|期末|补考|资格|等级|有|的|要/u.test(subject) ? subject : "";
+  return { title: action || raw, ...(course && simple ? { course } : {}), ...(visit ? { notes: '地点：' + visit.groups.place.trim() } : {}),
+    ...(event && simple ? { timeKind: 'event' } : {}), clear };
+}
+
 /** Spans index the original UTF-16 string, including whitespace and any tags. */
 export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultCourse = "", courses = [] } = {}) {
   const source = String(input ?? "");
+  const notice = summarizeQuickNotice(source, today);
+  if (notice) {
+    const course = knownCourseIn(notice.title, courses) || defaultCourse || notice.course;
+    return { task: { ...notice, course }, spans: [], explicitCourse: false, localOnly: true };
+  }
+  // A long or multi-sentence notice may contain several unrelated dates. Save
+  // a short, editable preview and let recognition read the complete original.
+  if (source.length > 180 || /[。！？][^。！？\s]/u.test(source.trim())) {
+    const first = source.trim().split(/[。！？\n]/u).find(Boolean) || source.trim();
+    return { task: { title: first.slice(0, 100), due: "", dueTime: "", course: defaultCourse },
+      spans: [], explicitCourse: false, localOnly: false };
+  }
   const { masked, course, tag } = takeCourse(source, courses, defaultCourse);
   const tags = tag ? [tag] : [];
   const explicitCourse = Boolean(tag);
@@ -159,7 +194,11 @@ export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultC
   });
   const [date] = dates, [time] = times;
   if (isUncertain(searchable, dates, times)) return { task: { ...task, due: "" }, spans: [], explicitCourse };
-  if (!date && !time) return { task, spans: [], explicitCourse };
+  if (!date && !time) {
+    const { clear, ...summary } = summarizeAction(task.title, source, []);
+    const unresolvedTime = /下周|本周|今晚|明早|稍后|一会|之前|以后|随后|课前|会前|结束后/u.test(source);
+    return { task: { ...task, ...summary, course: course || summary.course || "" }, spans: [], explicitCourse, localOnly: clear && !unresolvedTime };
+  }
 
   today = shiftDay(today, 0);
   const due = date ? resolveDate(date.groups, today) : task.due || today;
@@ -172,7 +211,12 @@ export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultC
   // part in the title rather than silently losing what the student wrote.
   const dateWords = shortPeriod && !time ? [] : spans.map(span => ({ ...span, deadline: true }));
   const title = stripTokens(source, [...tags, ...dateWords]);
-  return { task: { title, due, dueTime, course }, spans, explicitCourse };
+  const { clear, ...summary } = summarizeAction(title, source, spans);
+  const possibleEvent = /前往|观看|参加|出席|参观|旁听|开场|开演|集合|签到/u.test(source);
+  if (!clear && possibleEvent)
+    return { task: { ...task, due: "" }, spans: [], explicitCourse, localOnly: false };
+  const category = course || summary.course || (summary.timeKind === "event" && summary.notes ? "校园活动" : "");
+  return { task: { ...summary, due, dueTime, course: category }, spans, explicitCourse, localOnly: clear };
 }
 
 export function parseQuickTask(input, options) {

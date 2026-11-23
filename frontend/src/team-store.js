@@ -132,8 +132,9 @@ function toView(task) {
     source: task.source === "微信" && task.recognitionHistory?.some(
       entry => entry.action === "create" && entry.requestId?.startsWith("material:"),
     ) ? "图片与文件" : task.source,
-    due: task.due?.date || "",
-    dueTime: task.due?.time || "",
+    ...(Object.hasOwn(task, "eventAt") && !task.due ? { timeKind: "event" } : {}),
+    due: (task.due || task.eventAt)?.date || "",
+    dueTime: (task.due || task.eventAt)?.time || "",
     course: task.course || "",
     notes: task.description || "",
     status: status[task.status] || "todo",
@@ -154,7 +155,8 @@ function toCanonical(task, previous = {}) {
         ? task.completedAt ||
           (previous.status === "completed" ? previous.completedAt || "" : dayKey())
         : "",
-    due: task.due
+    ...(task.timeKind === "event" ? { due: null } : {}),
+    [task.timeKind === "event" ? "eventAt" : "due"]: task.due
       ? {
           date: task.due,
           precision: task.dueTime ? "datetime" : "date",
@@ -696,6 +698,7 @@ export function resolveStoredCandidate(item, body) {
 }
 export function saveStoredTask(task, expected, { quickRecognition, startedPending = false } = {}) {
   const draft = Object.fromEntries(['id', 'title', 'notes', 'course', 'content_type', 'due', 'dueTime'].map(key => [key, task[key] ?? '']));
+  if (task.timeKind === 'event') draft.timeKind = 'event';
   draft.content_type ||= 'task';
   return changeStoredTasks({ kind: 'save', draft, expected: expected ?? null, createdAt: new Date().toISOString(),
     ...(quickRecognition ? { quickRecognition } : {}), ...(startedPending ? { startedPending } : {}) }, { reloadOnStale: true });
@@ -719,7 +722,7 @@ function transformIntent(intent, optimistic = false) {
       ...fields,
     }, previous);
     if (optimistic && !current && intent.quickRecognition)
-      next.quickRecognition = { text: intent.quickRecognition.text, status: 'pending' };
+      next.quickRecognition = { text: intent.quickRecognition.text, status: intent.quickRecognition.localOnly ? 'done' : 'pending' };
     if (index < 0) tasks.push(next);
     else tasks[index] = next;
     return tasks;
@@ -735,11 +738,12 @@ function transformIntent(intent, optimistic = false) {
   };
   if (kind === 'deadline') return tasks => {
     const task = tasks.find((item) => item.id === id && !item.recycleBin && item.status !== "cancelled");
+    const field = task && Object.hasOwn(task, 'eventAt') && !task.due ? 'eventAt' : 'due';
     if (!task ||
-        (task.due?.date || "") !== expected.due ||
-        (task.due?.time || "") !== expected.dueTime)
+        (task[field]?.date || "") !== expected.due ||
+        (task[field]?.time || "") !== expected.dueTime)
       throw new Error("任务日期已变化，请重新核对");
-    task.due = next.due ? {
+    task[field] = next.due ? {
       date: next.due,
       precision: next.dueTime ? "datetime" : "date",
       ...(next.dueTime ? { time: next.dueTime } : {}),

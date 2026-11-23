@@ -7,9 +7,10 @@ export function renderQuickEntry({ icon }) {
     <label for="quick-text" class="sr-only">用一句话描述任务</label>
     <div class="quick-editor">
       <div class="quick-mirror" aria-hidden="true"><span></span></div>
-      <input id="quick-text" type="text" maxlength="400" required autofocus autocomplete="off" enterkeyhint="done"
-        placeholder="例如：明天早上8点上数算课" aria-describedby="task-edit-error">
+      <textarea id="quick-text" rows="1" maxlength="4000" required autofocus autocomplete="off" enterkeyhint="done"
+        placeholder="例如：明天早上8点上数算课" aria-describedby="task-edit-error"></textarea>
     </div>
+    <div id="quick-summary" hidden></div>
     <div class="quick-toolbar">
       <button type="button" id="quick-date-button" class="quick-property" aria-expanded="false" aria-controls="quick-date-panel">
         ${icon("calendar")}<span></span>
@@ -22,7 +23,7 @@ export function renderQuickEntry({ icon }) {
       <button type="submit" class="btn primary quick-submit">添加</button>
     </div>
     <div id="quick-date-panel" class="quick-fields" hidden>
-      <label class="field">截止日期<input id="quick-date" type="date"></label>
+      <label class="field"><span id="quick-date-label">截止日期</span><input id="quick-date" type="date"></label>
       <label class="field">具体时刻<input id="quick-time" type="time" step="60"></label>
       <button type="button" class="btn quiet quick-reset" data-reset="date" hidden>恢复自动识别</button>
     </div>
@@ -84,14 +85,19 @@ export function bindQuickEntry(form, options) {
   });
 
   function syncScroll() {
-    mirror.style.transform = `translateX(${-input.scrollLeft}px)`;
+    mirror.style.transform = `translateY(${-input.scrollTop}px)`;
   }
 
   function refresh() {
-    const { due, dueTime, course } = readDraft();
+    const { due, dueTime, course, title, timeKind } = readDraft();
+    const event = timeKind === "event";
+    const summary = form.querySelector("#quick-summary");
+    summary.hidden = !title || title === input.value.trim();
+    summary.textContent = title;
+    form.querySelector("#quick-date-label").textContent = event ? "活动日期" : "截止日期";
     const day = due ? deadlineLabel({ due }, referenceDay) : "日期";
     const when = dueTime ? `${day}，${dueTime}` : day;
-    dateButton.querySelector("span").textContent = when;
+    dateButton.querySelector("span").textContent = event && due ? `活动 · ${when}` : when;
     dateButton.setAttribute("aria-label", `调整日期：${due ? when : "无截止日期"}`);
     dateButton.title = due ? `${due} ${dueTime}`.trim() : "设置日期";
     dateButton.classList.toggle("has-value", Boolean(due));
@@ -109,6 +115,8 @@ export function bindQuickEntry(form, options) {
     if (timeInput.value !== dueTime) timeInput.value = dueTime;
     if (document.activeElement !== courseInput) courseInput.value = course;
     showTimeSpans(mirror, input.value, dateOverride ? [] : analysis.spans);
+    input.style.height = "auto";
+    input.style.height = Math.min(140, Math.max(46, input.scrollHeight)) + "px";
     syncScroll();
   }
 
@@ -151,6 +159,9 @@ export function bindQuickEntry(form, options) {
     if ((event.key === "Enter" || event.keyCode === 229) && (event.isComposing || event.keyCode === 229)) {
       confirmingComposition = true;
       setTimeout(() => { confirmingComposition = false; }, 0);
+    } else if (event.key === "Enter" && !event.shiftKey && !form.classList.contains("is-composing")) {
+      event.preventDefault();
+      form.requestSubmit();
     }
   });
   form.addEventListener("submit", event => {
@@ -210,7 +221,7 @@ export function bindQuickEntry(form, options) {
       protectedFields.push("due");
     if (courseOverride !== null || analysis.explicitCourse || (options.defaultCourse && analysis.task.course === options.defaultCourse))
       protectedFields.push("course");
-    return { text: input.value.trim(), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
+    return { ...(analysis.localOnly ? { localOnly: true } : {}), text: input.value.trim(), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
   };
   readDraft.refreshDay = refreshDay;
   return readDraft;

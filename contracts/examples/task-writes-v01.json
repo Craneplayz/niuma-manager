@@ -109,5 +109,32 @@
         ]
       }
     }
+  },
+  "localEventOperation": {
+    "id": "local-event-synthetic-01",
+    "owner": "synthetic-account",
+    "intent": {
+      "kind": "save",
+      "workspaceGeneration": 0,
+      "createdAt": "2026-11-18T08:00:00+08:00",
+      "expected": null,
+      "draft": {
+        "id": "synthetic-quick-01",
+        "title": "观看周年汇演",
+        "notes": "地点：报告厅",
+        "course": "",
+        "content_type": "task",
+        "due": "2026-11-19",
+        "dueTime": "10:00",
+        "timeKind": "event"
+      },
+      "quickRecognition": {
+        "text": "明天10点到报告厅观看周年汇演",
+        "timezone": "Asia/Shanghai",
+        "referenceDay": "2026-11-18",
+        "protectedFields": [],
+        "localOnly": true
+      }
+    }
   }
 }

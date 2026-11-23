@@ -72,10 +72,20 @@ class QuickTaskRecognitionTests(unittest.TestCase):
         task['evidence'].append(dict(field='text', quote='软工', supports=['course_or_project']))
         self.assertEqual(self.run_model(task)['course'], '软工')
         task['course_or_project'] = '其他课'
-        self.assertEqual(self.run_model(task), {})
+        self.assertEqual(self.run_model(task), dict(title='提交需求报告'))
         task['course_or_project'] = '软工'
         task['review_reasons'].append('两个日期相互矛盾')
-        self.assertEqual(self.run_model(task), {})
+        self.assertEqual(self.run_model(task), dict(title='提交需求报告', course='软工'))
+
+    def test_reference_time_does_not_block_a_grounded_title_or_keep_a_false_deadline(self):
+        candidate = copy.deepcopy(SAMPLE)
+        self.source['text'] = '明天10点在礼堂观看演出，入场请带学生证。'
+        self.baseline.update(title=self.source['text'], due=dict(date='2026-09-20', precision='date'))
+        candidate.update(title='观看演出', description='入场请带学生证', needs_review=True,
+                         review_reasons=['活动时间仅作参考。'])
+        candidate['deadline'].update(kind='reference', status='inferred', raw='明天10点')
+        candidate['evidence'][0].update(quote=self.source['text'], supports=['title','description','deadline'])
+        self.assertEqual(self.run_model(candidate), dict(title='观看演出', description='入场请带学生证', due=None))
 
     def test_invalid_evidence_and_service_failures_reach_worker(self):
         task = copy.deepcopy(SAMPLE)

@@ -783,7 +783,7 @@ async function dropTaskOnDate(id, date) {
   if (!task || !canChangeTask(id) || !shiftDay(date, 0) || task.due === date) return;
   const epoch = accountVersion(), previous = taskDate(task), applied = { due: date, dueTime: previous.dueTime };
   const verb = shiftDay(previous.due, 0) ? "更改" : "设置";
-  const dateLabel = isNotice(task) ? "关键日期" : "截止日期";
+  const dateLabel = isNotice(task) ? "关键日期" : task.timeKind === "event" ? "活动日期" : "截止日期";
   const origin = { anchor: ui.anchor, selectedDate: ui.selectedDate, mode: ui.mode, pane: ui.pane };
   busyTasks.add(id);
   render();
@@ -1326,6 +1326,7 @@ document.addEventListener("submit", async (e) => {
     const expected = existing ? form.dataset.taskEditSnapshot : undefined;
     form.dataset.savingId = draftId;
     busyTasks.add(draftId);
+    if (demo && quick) task.quickRecognition = { text: readQuickDraft.recognition().text, status: "done" };
     const saving = demo ? Promise.resolve() : saveStoredTask(task, expected, {
       quickRecognition: quick ? readQuickDraft.recognition() : undefined,
       startedPending: !quick && form.hasAttribute("data-recognition-pending"),

@@ -18,8 +18,8 @@ function check(input, task, tokens, overrides) {
 }
 
 test("a typed task and its highlighted time agree, including the screenshot example", () => {
-  check("明天早上8点上数算课", normal("上数算课", "2026-11-19", "08:00", "数算"), ["明天早上8点"]);
-  check("请在明天的早上8点上课", normal("上课", "2026-11-19", "08:00"), ["明天的早上8点"]);
+  check("明天早上8点上数算课", { ...normal("上数算课", "2026-11-19", "08:00", "数算"), timeKind: "event" }, ["明天早上8点"]);
+  check("请在明天的早上8点上课", { ...normal("上课", "2026-11-19", "08:00"), timeKind: "event" }, ["明天的早上8点"]);
   check("明晚8点前交实验报告", normal("交实验报告", "2026-11-19", "20:00"), ["明晚8点"]);
   check("11-20下午三点半还书", normal("还书", "2026-11-20", "15:30"), ["11-20下午三点半"]);
   check("下周三晚八点交第1-3题", normal("交第1-3题", "2026-11-25", "20:00"), ["下周三晚八点"]);
@@ -31,7 +31,7 @@ test("positions point into the unmodified input regardless of whitespace, emoji,
   check(input, normal("📎 整理文档", "2026-11-20", "20:05", "明天"), ["周五", "晚上８：０５"]);
   assert.equal(analyzeQuickTask(input, options).spans[0].start, input.indexOf("周五"));
   check("＃大学英语 明天检查作业", normal("检查作业", "2026-11-19", "", "大学英语"), ["明天"]);
-  check("早上8点上数算课 分类：课堂", normal("上数算课", "2026-11-18", "08:00", "课堂"), ["早上8点"]);
+  check("早上8点上数算课 分类：课堂", { ...normal("上数算课", "2026-11-18", "08:00", "课堂"), timeKind: "event" }, ["早上8点"]);
 });
 
 test("a date-only task stays date-only, a time respects the selected day, explicit dates override it", () => {
@@ -45,8 +45,8 @@ test("a date-only task stays date-only, a time respects the selected day, explic
 });
 
 test("calendar arithmetic handles week boundaries, leap years and an explicitly requested past day", () => {
-  check("下周一开会", normal("开会", "2027-01-04"), ["下周一"], { today: "2026-12-31" });
-  check("2月29日值班", normal("值班", "2028-02-29"), ["2月29日"], { today: "2028-02-28" });
+  check("下周一开会", { ...normal("开会", "2027-01-04"), timeKind: "event" }, ["下周一"], { today: "2026-12-31" });
+  check("2月29日值班", { ...normal("值班", "2028-02-29"), timeKind: "event" }, ["2月29日"], { today: "2028-02-28" });
   check("2025-11-17 09:00 整理笔记", normal("整理笔记", "2025-11-17", "09:00"), ["2025-11-17", "09:00"]);
   check("2026.11.20T17:00提交报告", normal("提交报告", "2026-11-20", "17:00"), ["2026.11.20T17:00"]);
   check("2月30日交论文", normal("2月30日交论文"), []);
@@ -66,4 +66,61 @@ test("known course detection keeps the user's title intact and avoids accidental
   check("复习计算机系统", normal("复习计算机系统", "", "", "计算机系统"), []);
   check("数算和大学英语作业", normal("数算和大学英语作业"), []);
   check("复习basics", normal("复习basics"), []);
+});
+
+test("attendance notices produce a reusable title, venue and event time without a model", () => {
+  for (const [source, title, place] of [
+    ["请各位同学于明天早晨10点前往百周年纪念讲堂观看学院周年汇演", "观看学院周年汇演", "百周年纪念讲堂"],
+    ["明天上午10点到理教 208 参加迎新说明会", "参加迎新说明会", "理教 208"],
+    ["请在图书馆参加读书会", "参加读书会", "图书馆"],
+  ]) {
+    const { task, localOnly } = analyzeQuickTask(source, options);
+    assert.equal(localOnly, true);
+    assert.equal(task.title, title);
+    assert.equal(task.notes, "地点：" + place);
+    assert.equal(task.timeKind, "event");
+    if (source.includes("10点")) assert.equal(task.dueTime, "10:00");
+  }
+  const delivery = analyzeQuickTask("请各位同学于明天早晨10点前提交报名表", options);
+  assert.equal(delivery.task.title, "提交报名表");
+  assert.equal(delivery.task.timeKind, undefined);
+  assert.equal(delivery.localOnly, true);
+  for (const source of ["明天或后天去讲堂参加彩排", "请明天10点前往讲堂观看演出，然后提交反馈"]) {
+    const parsed = analyzeQuickTask(source, options);
+    assert.ok(!parsed.localOnly);
+    assert.equal(parsed.task.due, "");
+  }
+});
+
+test("structured posters keep a time range and do not replace an explicit historical date", () => {
+  const text = "【校园读书会】译者见面会，开放报名！\\n活动时间：11 月 12 日（周四）14:00–17:30\\n活动地点：西馆 201\\n我已报名";
+  const options = { today: "2026-11-22" };
+  const { task, localOnly } = analyzeQuickTask(text, options);
+  assert.equal(localOnly, true);
+  assert.equal(task.due, "2026-11-12");
+  assert.equal(task.dueTime, "14:00");
+  assert.equal(task.title, "参加【校园读书会】译者见面会");
+  assert.match(task.notes, /西馆 201/);
+  assert.match(task.notes, /14:00–17:30/);
+  for (const ambiguous of [text.replace("周四", "周一"), text.replace("–17:30", " 或 17:30"), text.replace("我已报名", "我取消报名")])
+    assert.ok(!analyzeQuickTask(ambiguous, options).localOnly);
+});
+
+test("a rescheduled lecture, a prose invitation and a conditional service keep separate roles", () => {
+  const context = { today: "2026-11-22" };
+  const course = parseQuickTask("这周四（11.19）研讨课在原教室照常上课。原计划是安排交流会，因场地原因，改到12.3周四。", context);
+  assert.equal(course.due, "2026-12-03"); assert.match(course.notes, /2026-11-19 研讨课在原教室/);
+  assert.equal(course.title, "交流会");
+  const invite = parseQuickTask("新生交流会，11月18日（周三）19:30将于教学楼520举行。欢迎大家扫码入群，群内用于签到。", context);
+  assert.equal(invite.title, "新生交流会"); assert.match(invite.notes, /教学楼520/); assert.doesNotMatch(invite.notes, /已报名/);
+  const service = parseQuickTask("转发服务中心通知：符合条件的同学可免费领取材料，其他同学自费。领取时间：每周三下午均可。领取地点：一楼大厅。请携带校园卡。", context);
+  assert.equal(service.content_type, "notice"); assert.equal(service.due, "");
+  for (const fact of ["自费", "每周三下午", "一楼大厅", "校园卡"]) assert.ok(service.notes.includes(fact));
+});
+
+test("a spoken exam reminder keeps its course and half hour without the request to record it", () => {
+  const parsed = analyzeQuickTask("明天上午10点半有数算考试，你帮我记一下", { today: "2026-11-22" });
+  assert.equal(parsed.localOnly, true);
+  assert.deepEqual(parsed.task, { title: "数算考试", course: "数算", due: "2026-11-23", dueTime: "10:30", timeKind: "event" });
+  assert.equal(parseQuickTask("明天上午10点半有一场期末考试，帮我记录一下", options).course, "");
 });

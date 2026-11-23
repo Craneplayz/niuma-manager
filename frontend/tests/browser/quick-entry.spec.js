@@ -29,6 +29,7 @@ test('typed time is highlighted in place, saved once, and editable in the main l
   await expect(row.locator('.task-title')).toHaveText('上数算课');
   await expect(row.locator('.task-deadline')).toHaveText('明天 08:00');
   await expect(row.locator('.course-name')).toHaveText('数算');
+  await expect(row.locator("xpath=..")).toContainText("活动安排");
   await row.locator('.task-open').click();
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await expect(page.locator('#task-edit-form [name=due]')).toHaveValue('2026-11-19');

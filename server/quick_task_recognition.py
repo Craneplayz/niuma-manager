@@ -60,23 +60,30 @@ def recognize_quick_task(source, baseline):
     course = candidate['course_or_project']
     cited_course = course and len(course) <= 100 and any(
         'course_or_project' in item['supports'] and course in item['quote'] for item in candidate['evidence'])
-    # The v0.2 adapter marks even a verbatim course name as inferred. Accept
-    # that specific review reason only when the student's own words support it.
-    if candidate['needs_review'] and not (
-        cited_course and candidate['course_basis'] == 'inferred'
-        and candidate['review_reasons'] == ['课程归属来自正文或上下文推断，请核实。']
-    ):
-        return {}
-
+    deadline = candidate['deadline']
     patch = {}
     title = candidate['title'].strip()
-    if len(title) <= 180 and title != baseline['title']:
+    evidence = candidate['evidence']
+    # A questionable time or course does not invalidate a verbatim action.
+    quoted_title = any('title' in part['supports'] and title in part['quote'] for part in evidence)
+    if title and len(title) <= 180 and title != baseline['title'] and (not candidate['needs_review'] or quoted_title):
         patch['title'] = title
+
+    description = (candidate['description'] or '').strip()
+    if (description and description not in (source['text'].strip(), title, baseline.get('description'))
+            and not baseline.get('description') and len(description) <= 4000
+            and any('description' in part['supports'] for part in evidence)):
+        patch['description'] = description
+
     if cited_course and course != baseline.get('course'):
         patch['course'] = course
-    due = _explicit_due(candidate['deadline'], source['timezone'])
+
     previous_due = baseline.get('due')
-    loses_time = due and due['precision'] == 'date' and previous_due and previous_due['precision'] == 'datetime'
-    if due and due != previous_due and not loses_time:
-        patch['due'] = due
+    if deadline['kind'] == 'reference' and previous_due and deadline['raw'] and deadline['raw'] in source['text']:
+        patch['due'] = None
+    elif not candidate['needs_review'] or (cited_course and candidate['review_reasons'] == ['课程归属来自正文或上下文推断，请核实。']):
+        due = _explicit_due(deadline, source['timezone'])
+        loses_time = due and due['precision'] == 'date' and previous_due and previous_due['precision'] == 'datetime'
+        if due and due != previous_due and not loses_time:
+            patch['due'] = due
     return patch

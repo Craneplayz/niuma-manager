@@ -52,8 +52,8 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
     }
     const date = cell?.dataset.calendarDropDate;
     const label = date
-      ? `${gesture.notice ? "松开设为关键时间：" : "松开设为 "}${date.replace(/^(\d+)-(\d+)-(\d+)$/, (_, y, m, d) => `${y} 年 ${Number(m)} 月 ${Number(d)} 日`)}${gesture.dueTime ? ` ${gesture.dueTime}` : ""}${gesture.notice ? "" : "截止"}`
-      : `拖到日历日期设置${gesture.notice ? "关键日期" : "截止日期"} · Esc 取消`;
+      ? `${gesture.event ? "松开设为活动时间：" : gesture.notice ? "松开设为关键时间：" : "松开设为 "}${date.replace(/^(\d+)-(\d+)-(\d+)$/, (_, y, m, d) => `${y} 年 ${Number(m)} 月 ${Number(d)} 日`)}${gesture.dueTime ? ` ${gesture.dueTime}` : ""}${gesture.notice || gesture.event ? "" : "截止"}`
+      : `拖到日历日期设置${gesture.event ? "活动日期" : gesture.notice ? "关键日期" : "截止日期"} · Esc 取消`;
     if (gesture.label.textContent !== label) gesture.label.textContent = label;
     const previewRect = gesture.preview.getBoundingClientRect();
     const titleRect = gesture.previewTitle.getBoundingClientRect();
@@ -78,7 +78,7 @@ export function createCalendarDrag({ root, getTask, onDrop }) {
     const grab = (position, start, size) => onTitle && size
       ? (position - start) / size : .5;
     gesture = {
-      id, title: task.title, dueTime: task.dueTime, notice: isNotice(task), source, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
+      id, title: task.title, dueTime: task.dueTime, notice: isNotice(task), event: task.timeKind === "event", source, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
       grabX: grab(event.clientX, titleRect.left, titleRect.width),
       grabY: grab(event.clientY, titleRect.top, titleRect.height),
     };

@@ -113,6 +113,20 @@ class TaskOperationTests(unittest.TestCase):
                 self.fail('quick task worker did not finish')
             time.sleep(.015)
 
+    def test_local_summary_saves_original_without_scheduling_recognition(self):
+        source = '明早10点到报告厅参加说明会'
+        operation = self.quick_operation(text=source, localOnly=True)
+        task = dict(self.task, title='参加说明会', due=None, description='地点：报告厅',
+                    eventAt=dict(date='2026-11-20', precision='datetime', time='10:00'))
+        with patch('quick_task_jobs.wake') as wake:
+            for _ in range(2):
+                code, saved = self.write(operation=operation, tasks=[task])
+                self.assertEqual(code, 200)
+                self.assertEqual(saved['value'], [dict(task, quickRecognition=dict(text=source, status='done'))])
+            wake.assert_not_called()
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM quick_task_jobs').fetchone()[0], 0)
+
     def test_quick_create_receipt_worker_and_ai_only_conflict(self):
         operation = self.quick_operation()
         release, started = threading.Event(), threading.Event()

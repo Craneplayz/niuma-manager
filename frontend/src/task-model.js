@@ -20,10 +20,10 @@ export function mergeTaskEdit(task, snapshot, draft, startedPending) {
     return draft;
   }
   const previous = { ...task }, merged = { ...draft };
-  for (const key of ["title", "course", "due"]) {
+  for (const key of ["title", "course", "due", "description"]) {
     if (!Object.hasOwn(recognition.applied, key) || !Object.hasOwn(recognition.appliedFrom, key)) continue;
     const asView = value => key === "due"
-      ? { due: value?.date || "", dueTime: value?.time || "" } : { [key]: value || "" };
+      ? { due: value?.date || "", dueTime: value?.time || "" } : { [key === "description" ? "notes" : key]: value || "" };
     const after = asView(recognition.applied[key]), before = asView(recognition.appliedFrom[key]);
     const matches = (fields, values) => Object.keys(values).every(k => (fields[k] || "") === values[k]);
     if (!matches(task, after)) continue;
@@ -59,7 +59,7 @@ export function todayKey(now = new Date()) {
 }
 
 export function isTaskOverdue(task, today, now) {
-  if (isNotice(task) || task.reviewCandidateId || task.recycleBin ||
+  if (task.timeKind === "event" || isNotice(task) || task.reviewCandidateId || task.recycleBin ||
       ["done", "completed", "cancelled"].includes(task.status)) return false;
   const date = dueOf(task);
   if (!date || date !== today) return Boolean(date && date < today);
@@ -124,7 +124,7 @@ export function filterTasks(
     } else {
       if ((scope === "all" && notice) || (scope === "done" ? !done : done)) return false;
     }
-    if (scope === "near" && (!due || due > nearEnd)) return false;
+    if (scope === "near" && (task.timeKind === "event" || !due || due > nearEnd)) return false;
     if (course && task.course !== course) return false;
     if (source && (task.source || "手动添加") !== source)
       return false;
@@ -152,12 +152,13 @@ export function groupTasks(tasks, today = todayKey(), now = new Date()) {
     { label: "明天截止", tone: "tomorrow", tasks: [] },
     { label: "未来 7 天", tone: "upcoming", tasks: [] },
     { label: "之后截止", tone: "future", tasks: [] },
+    { label: "活动安排", tone: "events", tasks: [] },
     { label: "无截止日期", tone: "undated", tasks: [] },
   ];
   for (const task of sortTasks(tasks)) {
     const due = dueOf(task);
-    const index = !due
-      ? 5
+    const index = task.timeKind === "event" ? 5 : !due
+      ? 6
       : due < day || isTaskOverdue(task, day, now)
         ? 0
         : due === day
@@ -174,7 +175,7 @@ export function groupTasks(tasks, today = todayKey(), now = new Date()) {
 
 export function deadlineLabel(task, today = todayKey()) {
   const due = dueOf(task);
-  if (!due) return "无截止日期";
+  if (!due) return task.timeKind === "event" ? "未定活动时间" : "无截止日期";
   const day = readDate(today) ? today : todayKey();
   const [year, month, date] = due.split("-");
   const label =

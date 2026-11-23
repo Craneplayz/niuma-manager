@@ -296,7 +296,7 @@
         "text": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 400
+          "maxLength": 4000
         },
         "timezone": {
           "type": "string",
@@ -307,6 +307,7 @@
           "type": "string",
           "format": "date"
         },
+        "localOnly": { "type": "boolean" },
         "protectedFields": {
           "type": "array",
           "uniqueItems": true,
@@ -314,6 +315,7 @@
             "enum": [
               "title",
               "course",
+              "description",
               "due"
             ]
           }
