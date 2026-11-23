@@ -21,6 +21,35 @@ export function buildMaterialRequest(receipts, id = "material:" + newId(), now =
   }) };
 }
 
+export const materialAccept = ".png,.jpg,.jpeg,.pdf,.docx";
+export function newMaterialDraft() {
+  return { id: "material:" + newId(), receipts: [], request: null };
+}
+export async function submitMaterialFiles(files, draft, { limits, signal, valid, text = "" }) {
+  if (!limits?.asset_bytes) throw new Error("文件上传设置尚未就绪，请稍后重试");
+  if (!files.length || files.length > 20 || files.some(f => !f.size || f.size > limits.asset_bytes))
+    throw new Error("最多选择 20 个非空文件，每份最多 " + Math.floor(limits.asset_bytes / 1048576) + " MB");
+  if (text && files.length > 10) throw new Error("同一段文字最多搭配 10 个附件，请分批导入");
+  for (let i = draft.receipts.length; i < files.length; i++) {
+    if (!valid()) throw new Error("本次上传已结束");
+    const form = new FormData();
+    form.append("file", files[i]);
+    const receipt = await api(root + "assets", form, "POST", { formData: true, signal, timeoutMs: 45000 });
+    if (receipt.contract_version !== "manual-materials/0.1") throw new Error("文件服务版本不匹配");
+    draft.receipts.push(receipt);
+  }
+  if (!valid()) throw new Error("本次上传已结束");
+  if (!draft.request) {
+    const body = buildMaterialRequest(draft.receipts, draft.id);
+    if (text) {
+      const first = body.records[0];
+      body.records = [{ ...first, text, text_quality: "complete", attachments: body.records.flatMap(r => r.attachments) }];
+    }
+    draft.request = body;
+  }
+  await api(root + "imports", draft.request, "POST", { signal });
+}
+
 export function createMaterialsUI(host) {
   const esc = host.escapeHtml;
   let files = [], consent = false, limits = null, jobs = [], loading = false, busy = false, error = "", notice = "";
@@ -93,18 +122,8 @@ export function createMaterialsUI(host) {
       if (!valid(value)) return true;
       if (action === "upload") {
         if (!consent || !files.length) throw new Error("请选择文件，并同意上传和识别");
-        if (!limits) throw new Error("文件上传设置尚未就绪，请稍后重试");
-        if (files.length > 20 || files.some(f => !f.size || f.size > limits.asset_bytes)) throw new Error("最多选择 20 个非空文件，请检查单文件大小限制");
-        draft ??= { id: "material:" + newId(), receipts: [], request: null };
-        for (let i = draft.receipts.length; i < files.length; i++) {
-          const form = new FormData(); form.append("file", files[i]);
-          const receipt = await api(root + "assets", form, "POST", { formData: true, signal: controller.signal, timeoutMs: 45000 });
-          if (!valid(value)) return true;
-          if (receipt.contract_version !== "manual-materials/0.1") throw new Error("文件服务版本不匹配");
-          draft.receipts.push(receipt);
-        }
-        draft.request ??= buildMaterialRequest(draft.receipts, draft.id);
-        await api(root + "imports", draft.request, "POST", { signal: controller.signal });
+        draft ??= newMaterialDraft();
+        await submitMaterialFiles(files, draft, { limits, signal: controller.signal, valid: () => valid(value) });
         if (!valid(value)) return true;
         draft = null; files = []; consent = false; notice = "文件已提交，识别结果会显示在下方。";
       } else if (action === "retry") {
@@ -153,7 +172,7 @@ export function createMaterialsUI(host) {
     const pending = jobs.filter(job => active(job) || ["failed", "partial_failed"].includes(job.status));
     const finished = jobs.filter(job => !pending.includes(job));
     return `<section class="materials-panel"><h2 class="source-title">图片与文件</h2><p class="source-intro">从图片或文档中识别任务。</p>
-      <label class="material-picker" for="material-files"><input id="material-files" type="file" multiple accept=".png,.jpg,.jpeg,.pdf,.docx" ${busy ? "disabled" : ""}><strong>${files.length ? "重新选择文件" : "选择文件"}</strong><span>PNG、JPG、PDF、DOCX${limits?.asset_bytes ? ` · 每份最多 ${limits.asset_bytes / 1048576} MB` : ""}</span></label>
+      <label class="material-picker" for="material-files"><input id="material-files" type="file" multiple accept="${materialAccept}" ${busy ? "disabled" : ""}><strong>${files.length ? "重新选择文件" : "选择文件"}</strong><span>PNG、JPG、PDF、DOCX${limits?.asset_bytes ? ` · 每份最多 ${limits.asset_bytes / 1048576} MB` : ""}</span></label>
       ${files.length ? `<ul class="material-selection">${files.map((file, index) => `<li><div><strong>${esc(file.name)}</strong><span class="status-note">${sizeLabel(file.size)}</span></div><button class="icon-button" type="button" data-material-action="remove" data-index="${index}" aria-label="移除 ${esc(file.name)}" ${busy ? "disabled" : ""}>${host.icon?.("close") || "×"}</button></li>`).join("")}</ul>
       <label class="source-consent"><input id="material-consent" type="checkbox" ${consent ? "checked" : ""} ${busy ? "disabled" : ""}>同意上传所选文件，并用于任务识别。</label>` : ""}
       <div class="import-form-actions"><button class="btn primary" data-material-action="upload" ${busy || !files.length || !limits || !session.user || host.isDemo() ? "disabled" : ""}>${busy ? "正在提交…" : "识别任务"}</button>${jobs.length || error ? `<button class="btn quiet" data-material-action="refresh" ${loading || busy ? "disabled" : ""}>刷新状态</button>` : ""}</div>

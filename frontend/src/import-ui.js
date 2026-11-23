@@ -1133,7 +1133,17 @@ export function createImportUI(host) {
     notice = "";
     return true;
   }
-  return { render, click, submit, input, reset, load, loadTaskReviews, taskReviewsStatus, confirmTask,
+  async function startQuickNotice(body) {
+    if (!session.user || demo()) throw new Error("请登录后识别通知");
+    if (textJobs.isWriting() || (textJobs.isActive() && !textJobs.get(body.request_id)))
+      throw new Error("上一段通知正在识别，请稍后再提交");
+    const stamp = current();
+    if (!await textJobs.start(body) || !valid(stamp)) throw new Error("通知未提交，请重试");
+    text = body.records[0].text;
+    published = (body.records[0].published_at.value || "").replace(/\+08:00$/u, "");
+    request = { signature: JSON.stringify([text.trim(), published]), body };
+  }
+  return { render, click, submit, input, reset, load, startQuickNotice, loadTaskReviews, taskReviewsStatus, confirmTask,
     taskReviewsReady: () => taskReviewsSettled,
     reviewEvidence: id => evidence(itemById(id)),
     getReviewItems: () => allItems().filter(item => item.state === 'pending'), isReviewBusy: reviewBlocked,

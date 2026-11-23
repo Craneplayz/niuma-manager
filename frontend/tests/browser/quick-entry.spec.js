@@ -63,9 +63,14 @@ test('quick entry preserves filters and keeps an out-of-filter result accessible
   await expect(page.locator('.quick-outside-result .task-title')).toHaveText('周三或周五交资料');
   await expect(page.locator('.quick-outside-result .task-deadline')).toHaveText('无截止日期');
   await page.locator('.add-task').click();
-  await page.locator('#quick-more').click();
-  await page.locator('[data-quick-import="files"]').click();
-  await expect(page).toHaveURL(/importSource=files/);
+  const picker = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '添加图片或文件' }).click();
+  await (await picker).setFiles({ name: '海报.png', mimeType: 'image/png', buffer: Buffer.from('sample') });
+  await expect(page.locator('#quick-selected-files')).toContainText('海报.png');
+  await expect(page.locator('.quick-submit')).toHaveText('上传并识别');
+  await expect(page.getByRole('button', { name: '取消添加' })).toHaveCount(0);
+  await page.mouse.click(2, 2);
+  await expect(page.locator('#task-drawer')).not.toBeVisible();
 });
 
 test('a composer left open across midnight resolves tomorrow from the current day', async ({ page }) => {

@@ -1,4 +1,5 @@
 import { analyzeQuickTask } from "./quick-task.js";
+import { quickAttachmentButton, bindQuickImport } from "./quick-import.js";
 import { deadlineLabel } from "./task-model.js";
 
 export function renderQuickEntry({ icon }) {
@@ -8,18 +9,21 @@ export function renderQuickEntry({ icon }) {
     <div class="quick-editor">
       <div class="quick-mirror" aria-hidden="true"><span></span></div>
       <textarea id="quick-text" rows="1" maxlength="4000" required autofocus autocomplete="off" enterkeyhint="done"
-        placeholder="例如：明天早上8点上数算课" aria-describedby="task-edit-error"></textarea>
+        placeholder="写任务、粘贴通知，或拖入文件" aria-describedby="task-edit-error"></textarea>
     </div>
     <div id="quick-summary" hidden></div>
+    <ul id="quick-selected-files" hidden></ul>
+    <label id="quick-link-extra" class="field" hidden>暂时没读到链接正文。可以补充活动名称和时间，或添加截图。
+      <textarea id="quick-link-text" rows="2" maxlength="2000" placeholder="例如：周五晚七点参加读书会"></textarea>
+    </label>
     <div class="quick-toolbar">
+      ${quickAttachmentButton(icon)}
       <button type="button" id="quick-date-button" class="quick-property" aria-expanded="false" aria-controls="quick-date-panel">
         ${icon("calendar")}<span></span>
       </button>
       <button type="button" id="quick-course-button" class="quick-property" aria-expanded="false" aria-controls="quick-course-panel">
         ${icon("tasks")}<span></span>
       </button>
-      <button type="button" id="quick-more" class="quick-property" aria-label="更多添加方式" aria-expanded="false" aria-controls="quick-import-panel">更多</button>
-      <button type="button" class="icon-button quick-cancel" data-action="drawer-close" aria-label="取消添加" title="取消添加">${icon("close")}</button>
       <button type="submit" class="btn primary quick-submit">添加</button>
     </div>
     <div id="quick-date-panel" class="quick-fields" hidden>
@@ -32,9 +36,8 @@ export function renderQuickEntry({ icon }) {
       <datalist id="quick-course-options"></datalist>
       <button type="button" class="btn quiet quick-reset" data-reset="course" hidden>恢复自动识别</button>
     </div>
-    <div id="quick-import-panel" class="quick-imports" hidden>
-      <button type="button" class="btn quiet" data-quick-import="text">粘贴通知</button>
-      <button type="button" class="btn quiet" data-quick-import="files">导入截图或文件</button>
+    <div id="quick-publication-panel" class="quick-fields" hidden>
+      <label class="field">通知发布时间（北京时间，可选）<input id="quick-published" type="datetime-local" step="1"></label>
     </div>
     <div id="task-edit-error" class="error" role="alert"></div>
   </form>`;
@@ -60,8 +63,7 @@ export function bindQuickEntry(form, options) {
   const mirror = form.querySelector(".quick-mirror span");
   const dateButton = form.querySelector("#quick-date-button");
   const courseButton = form.querySelector("#quick-course-button");
-  const moreButton = form.querySelector("#quick-more");
-  const importPanel = form.querySelector("#quick-import-panel");
+  const imports = bindQuickImport(form, options, refresh);
   const dateInput = form.querySelector("#quick-date");
   const timeInput = form.querySelector("#quick-time");
   const courseInput = form.querySelector("#quick-course");
@@ -82,6 +84,7 @@ export function bindQuickEntry(form, options) {
     ...analysis.task,
     ...dateOverride,
     course: courseOverride ?? analysis.task.course,
+    ...(imports.link() ? { notes: [analysis.task.notes, "链接：" + imports.link()].filter(Boolean).join("\n") } : {}),
   });
 
   function syncScroll() {
@@ -97,18 +100,32 @@ export function bindQuickEntry(form, options) {
     form.querySelector("#quick-date-label").textContent = event ? "活动日期" : "截止日期";
     const day = due ? deadlineLabel({ due }, referenceDay) : "日期";
     const when = dueTime ? `${day}，${dueTime}` : day;
-    dateButton.querySelector("span").textContent = event && due ? `活动 · ${when}` : when;
-    dateButton.setAttribute("aria-label", `调整日期：${due ? when : "无截止日期"}`);
+    dateButton.querySelector("span").textContent = when;
+    dateButton.setAttribute("aria-label", `${event ? "调整活动时间" : "调整日期"}：${due ? when : "无截止日期"}`);
     dateButton.title = due ? `${due} ${dueTime}`.trim() : "设置日期";
     dateButton.classList.toggle("has-value", Boolean(due));
     courseButton.querySelector("span").textContent = course || "分类";
     courseButton.setAttribute("aria-label", `调整分类：${course || "未分类"}`);
     courseButton.title = course || "设置分类";
-    moreButton.hidden = Boolean(input.value.length);
-    if (moreButton.hidden) {
-      moreButton.setAttribute("aria-expanded", "false");
-      importPanel.hidden = true;
+    const mode = imports.mode(analysis.localOnly);
+    const submit = form.querySelector(".quick-submit");
+    if (!imports.isBusy()) submit.textContent = ({ files: "上传并识别", text: "识别通知", link: "读取链接" })[mode] || "添加";
+    summary.hidden ||= Boolean(mode);
+    courseButton.hidden = Boolean(mode);
+    dateButton.hidden = mode === "files" || mode === "link";
+    const panelId = mode === "text" ? "quick-publication-panel" : "quick-date-panel";
+    if (dateButton.getAttribute("aria-controls") !== panelId || dateButton.hidden) {
+      form.querySelector("#quick-publication-panel").hidden = true;
+      form.querySelector("#quick-date-panel").hidden = true;
+      dateButton.setAttribute("aria-expanded", "false");
     }
+    dateButton.setAttribute("aria-controls", panelId);
+    if (mode === "text") {
+      dateButton.querySelector("span").textContent = "通知时间";
+      dateButton.setAttribute("aria-label", "设置通知发布时间");
+      dateButton.title = "设置通知发布时间";
+    }
+    if (mode) { form.querySelector("#quick-course-panel").hidden = true; courseButton.setAttribute("aria-expanded", "false"); }
     dateReset.hidden = !dateOverride;
     courseReset.hidden = courseOverride === null;
     if (dateInput.value !== due) dateInput.value = due;
@@ -133,7 +150,7 @@ export function bindQuickEntry(form, options) {
 
   function parseInput() {
     refreshDay();
-    parsedText = input.value;
+    parsedText = imports.typedText();
     const next = analyze(parsedText);
     if (next.task.due !== analysis.task.due || next.task.dueTime !== analysis.task.dueTime) dateOverride = null;
     if (next.task.course !== analysis.task.course) courseOverride = null;
@@ -142,6 +159,7 @@ export function bindQuickEntry(form, options) {
     refresh();
   }
 
+  imports.supplement.addEventListener("input", parseInput);
   input.addEventListener("scroll", syncScroll);
   input.addEventListener("input", event => {
     if (!event.isComposing && !form.classList.contains("is-composing")) parseInput();
@@ -168,6 +186,10 @@ export function bindQuickEntry(form, options) {
     if (confirmingComposition || form.classList.contains("is-composing")) {
       event.preventDefault();
       event.stopPropagation();
+    } else if (imports.mode(analysis.localOnly)) {
+      event.preventDefault();
+      event.stopPropagation();
+      void imports.submit(imports.mode(analysis.localOnly));
     } else if (refreshDay()) {
       // A suspended tab may receive a click before its midnight timer runs.
       // Present the revised absolute day before the application saves it.
@@ -178,7 +200,7 @@ export function bindQuickEntry(form, options) {
     }
   });
 
-  const controls = [dateButton, courseButton, moreButton];
+  const controls = [dateButton, courseButton];
   for (const button of controls) {
     button.addEventListener("click", () => {
       const opening = button.getAttribute("aria-expanded") === "false";
@@ -221,8 +243,10 @@ export function bindQuickEntry(form, options) {
       protectedFields.push("due");
     if (courseOverride !== null || analysis.explicitCourse || (options.defaultCourse && analysis.task.course === options.defaultCourse))
       protectedFields.push("course");
-    return { ...(analysis.localOnly ? { localOnly: true } : {}), text: input.value.trim(), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
+    return { ...(analysis.localOnly ? { localOnly: true } : {}), text: [input.value.trim(), imports.link() && parsedText].filter(Boolean).join("\n"), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
   };
   readDraft.refreshDay = refreshDay;
+  readDraft.dispose = imports.dispose;
+  readDraft.isImporting = imports.isBusy;
   return readDraft;
 }

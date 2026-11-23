@@ -42,6 +42,7 @@ import { createTimetableUI } from "./timetable.js";
 import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderQuickEntry, bindQuickEntry } from "./quick-entry.js";
+import { submitMaterialFiles } from "./materials-ui.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
 import { loadTaskEvidence } from "./task-evidence.js";
@@ -281,6 +282,7 @@ function clearUndo() {
 }
 function clearQuickEntry() {
   if (!readQuickDraft) return;
+  readQuickDraft.dispose();
   readQuickDraft = null;
   drawer.replaceChildren();
   drawer.classList.remove("is-quick-entry");
@@ -703,6 +705,26 @@ function openTask(id, editing = false, selectedDate = "") {
     drawer.innerHTML = renderQuickEntry({ icon });
     const timetableCourses = readStoredTimetable().value.flatMap(table => table.meetings.map(meeting => meeting.title));
     readQuickDraft = bindQuickEntry(drawer.querySelector("form"), {
+      isDemo: demo,
+      submitNotice: imports.startQuickNotice,
+      async readLink(url, signal) {
+        if (!url.startsWith("https://")) return "";
+        return (await api("/api/quick/article", { url }, "POST", { signal, timeoutMs: 28000 })).text;
+      },
+      async submitFiles(files, draft, signal) {
+        const epoch = accountVersion();
+        const valid = () => !signal.aborted && epoch === accountVersion();
+        const { limits } = await api("/api/materials/limits", undefined, "GET", { signal });
+        await flushStore();
+        await submitMaterialFiles(files, draft, { limits, signal, valid, text: draft.text });
+      },
+      openResults(source) {
+        closeDrawer();
+        imports.setSource(source);
+        ui.importSource = source;
+        navigatePage("import");
+        void imports.load();
+      },
       today: todayKey(), getToday: todayKey, defaultDate: selectedDate,
       defaultCourse: taskView() === "list" ? ui.course : "",
       courses: [...new Set([...courses(), ...timetableCourses])],
@@ -751,6 +773,7 @@ function updateDrawer() {
     });
 }
 function closeDrawer() {
+  if (readQuickDraft?.isImporting()) return;
   drawerVisit++;
   drawer.close();
   clearQuickEntry();
@@ -1121,16 +1144,6 @@ document.addEventListener("click", async (e) => {
   }
   hideSidebarTooltip();
   try {
-    if (button.dataset.quickImport) {
-      const source = button.dataset.quickImport;
-      if (!drawer.open || !readQuickDraft || !imports.setSource(source)) return;
-      closeDrawer();
-      ui.importSource = source;
-      navigatePage("import");
-      void imports.load();
-      if (source === "text") document.querySelector("#import-text")?.focus();
-      return;
-    }
     if (button.dataset.action === "task-new") {
       const selected = button.dataset.quickDate || (taskView() === "calendar" && ui.pane === "day" ? ui.selectedDate : "");
       openTask(null, true, selected);

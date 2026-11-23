@@ -111,17 +111,12 @@
   background: var(--action-soft);
   color: var(--action-text);
 }
-.quick-toolbar .quick-cancel {
-  flex: none;
-  margin-left: auto;
-  color: var(--muted);
-}
 .quick-toolbar .quick-submit {
+  margin-left: auto;
   flex: none;
   min-width: 66px;
 }
-.quick-fields,
-.quick-imports {
+.quick-fields {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
@@ -153,7 +148,6 @@
     font-size: 13px;
   }
   .quick-toolbar { gap: 2px; }
-  .quick-toolbar .quick-cancel { width: 32px; }
   .quick-toolbar .quick-submit { min-width: 52px; padding-inline: 12px; }
 }
 @media (forced-colors: active) {
@@ -162,3 +156,12 @@
 }
 
 .quick-original { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+#quick-attach { flex: none; justify-content: center; min-width: 36px; }
+#quick-selected-files { list-style: none; padding: 0; margin: 8px 0 0; }
+#quick-selected-files li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#quick-selected-files li span { min-width: 0; overflow-wrap: anywhere; }
+#quick-link-extra { margin: 10px 0 0; }
+#task-drawer.is-file-drop { outline: 2px dashed var(--focus); outline-offset: -4px; background: var(--action-soft); }
+#quick-task-form [hidden] { display: none; }
+@media (max-width: 700px) { #quick-attach { min-width: 44px; } }
