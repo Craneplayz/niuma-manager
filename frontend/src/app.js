@@ -450,27 +450,36 @@ function saveLabel() {
     "已保存"
   );
 }
+function bulkToggle(active, trash = false) {
+  return `<button type="button" class="btn bulk-toggle ${active ? 'selected' : 'quiet'}" data-bulk-action="${active ? 'exit' : 'enter'}"${trash ? ' data-bulk-context="trash"' : ''} ${bulkRunning ? 'disabled' : ''}>${active ? '退出批量操作' : '批量操作'}</button>`;
+}
 function toolbar() {
   const mixed = ui.scope === "near" || ui.scope === "done";
   const searchLabel = ui.scope === "notices" ? "搜索通知" : mixed ? "搜索任务与通知" : "搜索任务";
   const dateLabel = ui.scope === "notices" ? "关键日期" : mixed ? "日期范围" : "截止日期";
-  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter${ui.course ? " has-course" : ""}"><span class="sr-only">课程筛选</span>${ui.course ? renderCourseDot(ui.course) : ""}<select id="course-filter" aria-label="课程筛选" title="${esc(ui.course || "全部课程")}"><option value="">全部课程</option>${courses()
+  return `<div class="query-toolbar"><div class="query-search"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label>${ui.query || ui.course || ui.source || ui.dateFrom || ui.dateTo ? '<button type="button" class="btn quiet reset-filters" data-action="filter-reset">清除</button>' : ""}</div><label class="course-filter filter-select${ui.course ? " has-course" : ""}"><span class="sr-only">课程筛选</span>${ui.course ? renderCourseDot(ui.course) : ""}<select id="course-filter" aria-label="课程筛选" title="${esc(ui.course || "全部课程")}"><option value="">全部课程</option>${courses()
     .map(
       (c) =>
         `<option ${ui.course === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`,
     )
     .join(
       "",
-    )}</select></label><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${ui.query || ui.course || ui.source || ui.dateFrom || ui.dateTo ? '<button type="button" class="btn quiet reset-filters" data-action="filter-reset">清除</button>' : ""}${!bulkMode ? '<button type="button" class="btn quiet bulk-enter" data-bulk-action="enter">批量操作</button>' : ''}</div>${
+    )}</select>${icon("chevron")}</label><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${bulkToggle(bulkMode)}</div>${
     ui.filterOpen
-      ? `<div id="advanced-filters" class="advanced-filters"><label class="field">来源<select id="source-filter"><option value="">全部来源</option>${sources()
+      ? `<div id="advanced-filters" class="advanced-filters"><div class="filter-field"><label for="source-filter">来源</label><span class="filter-select"><select id="source-filter"><option value="">全部来源</option>${sources()
           .map(
             (s) =>
               `<option ${ui.source === s ? "selected" : ""} value="${esc(s)}">${esc(s)}</option>`,
           )
           .join(
             "",
-          )}</select></label><label class="field">${dateLabel}，从<input id="date-from" type="date" value="${esc(ui.dateFrom)}"></label><label class="field">到<input id="date-to" type="date" value="${esc(ui.dateTo)}"></label></div>`
+          )}</select>${icon("chevron")}</span></div>
+        <fieldset class="filter-dates"><legend>${dateLabel}</legend><div class="filter-range">
+          <span class="filter-from" aria-hidden="true">从</span>
+          <input id="date-from" aria-label="${dateLabel}起始日期" type="date" value="${esc(ui.dateFrom)}">
+          <span aria-hidden="true">至</span>
+          <input id="date-to" aria-label="${dateLabel}结束日期" type="date" value="${esc(ui.dateTo)}">
+        </div></fieldset></div>`
       : ""
   }`;
 }
@@ -498,10 +507,9 @@ function bulkControls(trash = false) {
     trash, escapeHtml: esc });
 }
 function renderTrashDialog() {
-  const controls = trashBulkMode ? bulkControls(true)
-    : state.trash.length ? '<button type="button" class="btn quiet" data-bulk-action="enter" data-bulk-context="trash">批量操作</button>' : '';
+  const controls = trashBulkMode || state.trash.length ? bulkToggle(trashBulkMode, true) : '';
   const rows = state.trash.map(task => `<div class="trash-row">${trashBulkMode ? renderBulkCheckbox(task, { selected: trashBulkSelection, escapeHtml: esc, trash: true, disabled: bulkRunning || taskBusy(task.id) }) : ''}<span>${esc(task.title)}</span><button type="button" class="btn quiet" data-restore-task="${esc(task.id)}" ${taskBusy(task.id) ? 'disabled' : ''}>恢复</button></div>`).join('');
-  return `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon('close')}</button></header><div class="trash-bulk-controls">${controls}</div><div class="trash-list">${rows || '<p class="empty-state">回收站为空</p>'}</div>`;
+  return `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon('close')}</button></header><div class="trash-bulk-controls">${controls}${trashBulkMode ? bulkControls(true) : ''}</div><div class="trash-list">${rows || '<p class="empty-state">回收站为空</p>'}</div>`;
 }
 function repaintBulkControls() {
   const controls = document.querySelector('#bulk-controls');

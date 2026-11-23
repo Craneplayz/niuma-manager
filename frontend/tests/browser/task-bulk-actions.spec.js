@@ -141,6 +141,36 @@ async function changeDate(page, date) {
   await expect(form).not.toBeVisible();
 }
 
+test('filter fields align and the bulk toggle stays in place', async ({ page, context }, info) => {
+  await open(page, context);
+  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  const source = page.getByLabel('来源', { exact: true });
+  const from = page.getByLabel('截止日期起始日期');
+  const to = page.getByLabel('截止日期结束日期');
+  const [sourceBox, fromBox, toBox] = await Promise.all([source, from, to].map(field => field.boundingBox()));
+  expect(sourceBox.height).toBe(fromBox.height);
+  if (info.project.name === 'compact') expect(toBox.y).toBeGreaterThan(fromBox.y);
+  else expect(toBox.y).toBe(fromBox.y);
+  expect(toBox.height).toBe(fromBox.height);
+  await source.selectOption({ label: '教学网' });
+  await from.fill('2026-10-20');
+  await to.fill('2026-10-20');
+  await expect(row(page, 'a')).toBeVisible();
+  await expect(row(page, 'b')).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath('filter-range.png') });
+
+  const enterBox = await action(page, 'enter').boundingBox();
+  await action(page, 'enter').click();
+  await expect(action(page, 'exit')).toBeVisible();
+  expect(await action(page, 'exit').boundingBox()).toEqual(enterBox);
+  await expect(page.locator('#bulk-controls .bulk-toolbar')).toHaveCSS('border-top-width', '0px');
+  await action(page, 'exit').click();
+  expect(await action(page, 'enter').boundingBox()).toEqual(enterBox);
+  await expect(select(page, 'a')).toHaveCount(0);
+  await page.getByRole('button', { name: '清除', exact: true }).click();
+  await expect(row(page, 'b')).toBeVisible();
+});
+
 test('selection follows current filters, excludes attached changes, and viewing or cancelling preserves review state', async ({ page, context }, info) => {
   await open(page, context);
   await page.locator('#task-search').fill('同组');
