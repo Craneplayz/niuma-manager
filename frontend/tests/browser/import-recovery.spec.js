@@ -49,7 +49,6 @@ async function openHistory(page, runs, linked = null, { batches = [], tasks = []
   await page.goto("/");
   if (await page.locator("#sidebar-show").isVisible()) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
-  await page.getByRole("button", { name: "教学网", exact: true }).click();
   await page.locator("[data-source-sync-history] > summary").click();
   return writes;
 }

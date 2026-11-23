@@ -148,9 +148,10 @@ async function fixture(t, { undated = false, undatedNotice = false, failWrite = 
   return { app, dialog, drawer, results, topDate, doc, win, writes, click, drag, undo, entries, toast: elements.get("#toast") };
 }
 
-for (const source of ["text", "teaching", "files"]) test(`startup restores the ${source} import source after session loading`, async t => {
+for (const source of ["text", "teaching", "files"]) test(`opening the ${source} import URL loads the teaching panel`, async t => {
   const f = await fixture(t, { url: `http://synthetic.test/?page=import&importSource=${source}` });
-  assert.match(f.app.innerHTML, new RegExp(`data-import-source="${source}" aria-pressed="true"`));
+  assert.match(f.app.innerHTML, /class="teaching-source"/);
+  assert.doesNotMatch(f.app.innerHTML, /id="(?:import-text|material-files)"/);
   assert.equal(location.searchParams.get("page"), "import");
   assert.equal(f.entries.length, 1);
 });
@@ -167,23 +168,15 @@ test("startup restores the calendar range, selected date and undated pane", asyn
   assert.match(f.app.innerHTML, /data-calendar-pane="undated"[^>]*aria-pressed="true"/);
 });
 
-test("navigation writes history once per change and back/forward restores the import source", async t => {
+test("navigation writes history once per change and back/forward restores the import page", async t => {
   const f = await fixture(t);
   await f.click({ scope: "notices" });
   await f.click({ page: "import" });
-  await f.click({ importSource: "teaching" });
-  await new Promise(setImmediate);
-  assert.equal(location.searchParams.get("importSource"), "teaching");
   const count = f.entries.length;
-  await f.click({ importSource: "teaching" });
-  assert.equal(f.entries.length, count);
-  await history.go(-1);
-  assert.match(f.app.innerHTML, /data-import-source="text" aria-pressed="true"/);
   await history.go(-1);
   assert.match(f.app.innerHTML, /data-scope="notices"[^>]*aria-current="page"/);
   await history.go(1);
-  await history.go(1);
-  assert.match(f.app.innerHTML, /data-import-source="teaching" aria-pressed="true"/);
+  assert.match(f.app.innerHTML, /class="teaching-source"/);
   assert.equal(f.entries.length, count);
 });
 
@@ -209,13 +202,11 @@ test("calendar changes update the URL and back restores its previous month", asy
   assert.equal(location.searchParams.get("date"), "2026-10-15");
 });
 
-test("account reset keeps safe navigation while clearing the import draft", async t => {
+test("account reset on a legacy URL keeps the teaching panel", async t => {
   const f = await fixture(t, { url: "http://synthetic.test/?page=import&importSource=text" });
-  await f.doc.emit("input", { id: "import-text", value: "私有的未提交通知" });
   await f.win.emit("niuma:account-reset");
-  assert.match(f.app.innerHTML, /data-import-source="text" aria-pressed="true"/);
-  assert.doesNotMatch(f.app.innerHTML, /私有的未提交通知/);
-  assert.doesNotMatch(location.href, /私有|query|text=/);
+  assert.match(f.app.innerHTML, /class="teaching-source"/);
+  assert.equal(location.searchParams.has("importSource"), false);
 });
 
 for (const mode of ["month", "week"]) test(`${mode} calendar drag writes a date without a time, suppresses detail opening and undo restores undated`, async t => {

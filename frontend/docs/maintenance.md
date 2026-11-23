@@ -13,11 +13,11 @@
 | `calendar-activity.js` | 按截止日、明确时刻与完成日聚合，决定最高优先类别及其数量档位，并计算下一次变化时间 |
 | `calendar-drag.js` | 任务分配日期与改期的鼠标手势、日期落点预览和取消 |
 | `task-drawer.js` / `task-evidence.js` | 任务详情、编辑字段、原文与证据链接 |
-| `import-ui.js` | 文本通知、教学网连接与采集、候选确认和失败重试 |
+| `import-ui.js` | 教学网连接与采集、候选确认和失败重试 |
 | `import-evidence.js` | 候选摘录、完整原文、安全来源链接和失败来源身份 |
 | `import-result-status.js` | 从当前任务 / 回收站与候选映射历史状态，复用回收站图标 |
 | `source-schedule-ui.js` | 单次 / 定时统一启动、停止后保留频率、明确授权 |
-| `materials-ui.js` | 文件选择、持久作业、幂等重试与历史记录 |
+| `quick-import-data.js` | 快捷录入的文本请求、文件上传与回执复用 |
 | `source-sync-ui.js` | 后台同步、分类名称列表、有效结果历史、最近检查、停止与逐条 / 批量重试 |
 | `account-ui.js` | 登录、验证码注册、邮箱补验证、密码找回、退出、昵称、密码表单及教学网连接入口 |
 | `user-errors.js` | 用户错误分类、统一反馈控件、确认回执及同一问题重试 |

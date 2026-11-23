@@ -1,6 +1,5 @@
 import { newId } from "./id.js";
-import { materialAccept, newMaterialDraft } from "./materials-ui.js";
-import { buildTextImport } from "./import-ui.js";
+import { buildTextImport, materialAccept, newMaterialDraft } from "./quick-import-data.js";
 
 export function quickAttachmentButton(icon) {
   return `<button type="button" id="quick-attach" class="quick-property" aria-label="添加图片或文件" title="添加图片或文件，也可直接拖入">${icon("plus")}</button>

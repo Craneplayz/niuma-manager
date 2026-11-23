@@ -43,7 +43,7 @@ import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderQuickEntry, bindQuickEntry } from "./quick-entry.js";
 import { createQuickAddJobs } from "./quick-add-jobs.js";
-import { submitMaterialFiles } from "./materials-ui.js";
+import { submitMaterialFiles } from "./quick-import-data.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
 import { loadTaskEvidence } from "./task-evidence.js";
@@ -212,11 +212,6 @@ const host = {
   getCancelledTasks: () => demo ? [] : readCancelledTasks(),
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
-  getImportSource: () => ui.importSource,
-  onImportSourceChange(source) {
-    ui.importSource = source;
-    syncNavigation();
-  },
   feedbackBox: () => demo ? "" : feedbackBox(),
   setState(next) {
     state = next;
@@ -1503,7 +1498,6 @@ window.addEventListener("popstate", () => {
   recentTaskId = "";
   Object.assign(ui, readNavigation(new URLSearchParams(location.search), { today: todayKey(), preferences }));
   ui.mobileMenu = false;
-  imports.setSource(ui.importSource);
   imports.cancelRecoveryNavigation();
   imports.dismissRecoveryHighlight();
   closeDialog();

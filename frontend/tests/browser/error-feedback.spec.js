@@ -132,7 +132,6 @@ test("teaching failures offer user guidance and a report instead of maintenance 
   const reports = await openApp(page, { teachingFailure: true });
   if (await page.locator("#sidebar-show").isVisible()) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
-  await page.getByRole("button", { name: "教学网", exact: true }).click();
   await page.locator('[data-import-action="sync"]').click();
   const alert = page.getByRole("alert").filter({ hasText: "暂时无法整理教学网通知" });
   await expect(alert).toBeVisible();
@@ -150,7 +149,6 @@ test("recognition diagnosis reaches the browser and feedback keeps only its iden
     diagnostics:'{"stage":"validation","attempt":2,"escaped":"<script>PRIVATE-DETAIL</script>"}'}});
   if(await page.locator('#sidebar-show').isVisible()) await page.locator('#sidebar-show').click();
   await page.getByRole('button',{name:'导入内容',exact:true}).click();
-  await page.getByRole('button',{name:'教学网',exact:true}).click();
   await page.locator('[data-import-action="sync"]').click();
   const alert=page.getByRole('alert').filter({hasText:'prerequisites'});
   await expect(alert).toBeVisible();
@@ -167,7 +165,7 @@ test("recognition diagnosis reaches the browser and feedback keeps only its iden
 test("retrying the same import history row reports the new diagnosis and retains same-attempt feedback", async ({ page }) => {
   const firstId = 'a1'.repeat(12), nextId = 'b2'.repeat(12);
   const request = { contract_version: '0.2', request_id: 'synthetic:retry-feedback', records: [{
-    input_id: 'synthetic:input', platform: 'manual', text: '明天提交合成作业', source_label: '合成文本导入',
+    input_id: 'synthetic:input', platform: 'teaching_web', text: '明天提交合成作业', source_label: '教学网',
     collected_at: '2026-10-22T09:00:00+08:00', published_at: null, course_or_project: null, url: null,
   }] };
   const failedBatch = diagnostic_id => ({ request, importedAt: '2026-10-22T09:00:00+08:00', items: [],
