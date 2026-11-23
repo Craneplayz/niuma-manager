@@ -1,3 +1,4 @@
+import { knownCourseIn } from "./course-identity.js";
 import { api } from "./team-store.js";
 import { newId } from "./id.js";
 import { zonedParts } from "./candidate-data.js";
@@ -11,6 +12,7 @@ export function buildTextImport(
   published = shanghaiNow(),
   id = newId(),
   collectedAt = new Date().toISOString(),
+  courses = [],
 ) {
   text = String(text || "").trim();
   if (!text) throw new Error("请先粘贴通知内容");
@@ -57,7 +59,7 @@ export function buildTextImport(
         source_url: null,
         source_label: "文本导入",
         source_item_id: null,
-        course_or_project: null,
+        course_or_project: knownCourseIn(text, courses) || null,
         context: [],
         upstream_hints: null,
       },

@@ -90,11 +90,8 @@ _DAY_END = re.compile(r"\s*24\s*(?:[:：]00(?:[:：]00)?|[时点](?:\s*0{1,2}\s*
 def _inclusive_day(ref, message):
     """Recognize equivalent end-of-day proposals for a single cited deadline."""
     n = ref["normalized"]
-    if not message.get("quick_reference") or ref["kind"] != "deadline" or not n["value"]:
-        return n
-    # Limit the repair to day boundaries. A separately specified hour wins.
-    stamp = re.fullmatch(r"(\d{4}-\d\d-\d\d)T(24:00|00:00|23:59)(?::(\d\d))?(?:Z|[+-]\d\d:\d\d)?", n["value"])
-    if not stamp or (stamp[3] not in (None, "00") and (stamp[2], stamp[3]) != ("23:59", "59")):
+    anchor = message.get("quick_reference")
+    if not anchor or ref["kind"] != "deadline":
         return n
     quote = ref["quote"].replace("**", "")
     dates = list(_CALENDAR_DAY.finditer(quote))
@@ -105,18 +102,29 @@ def _inclusive_day(ref, message):
     window = (len(dates) == 2 and quote[dates[0].end():end.start()].strip() in ("至", "到", "—", "–", "-")
               and re.match(r"\s*期间(?:内)?\s*(?:完成|办理|提交|申请|报名)", tail)
               and not re.search(r"\d\s*(?:[:：点时]|分)", tail))
-    if not window and not (len(dates) == 1 and _DAY_END.match(tail)):
+    closing = _DAY_END.match(tail)
+    if not window and not (len(dates) == 1 and closing and
+                           (re.match(r"\s*[^，。；、\d]{0,12}(?:关闭|截止|截至|结束)", tail[closing.end():])
+                            or re.search(r"(?:截止|截至|最迟)(?:时间)?[为到：:\s]*$", quote[:end.start()]))):
         return n
-    if n["derivation"] not in ("absolute", "missing_year"):
+    # An explicit sub-day limit may come from a second part of the notice.
+    if window and n["precision"] == "datetime" and n["value"] and not re.search(
+            r"T(?:24:00|00:00|23:59)(?::(?:00|59))?(?:Z|[+-]\d\d:\d\d)?$", n["value"]):
         return n
-    day = date.fromisoformat(stamp[1])
-    if stamp[2] == "00:00" and (day.month, day.day) != (int(end[2]), int(end[3])):
-        day -= timedelta(days=1)
-    if (day.month, day.day) != (int(end[2]), int(end[3])) or end[1] and day.year != int(end[1]):
+    if re.search(r"原定|原计划|改为|延期|待定|另行通知|并非|取消|假设|去年|明年|次年", quote):
         return n
-    # Keep the existing year/anchor checks. Model variants then compare equal
-    # when separate evidence spans describe the window and the closing time.
-    return dict(n, value=day.isoformat(), precision="date")
+    year, month, day = end.groups()
+    if window and dates[0][1] and not year:
+        # A stated start year carries through the window, including Dec–Jan.
+        start = date(*map(int, dates[0].groups()))
+        year = start.year + ((int(month), int(day)) < (start.month, start.day))
+    if year:
+        last = date(int(year), int(month), int(day))
+        derivation, field = "absolute", None
+    else:
+        last = _nearest_year(date(2000, int(month), int(day)), date.fromisoformat(anchor["value"][:10]))
+        derivation, field = "missing_year", "quick_reference"
+    return dict(n, value=last.isoformat(), precision="date", derivation=derivation, anchor=field)
 
 
 def validate_time(ref, message):
@@ -141,6 +149,10 @@ def validate_time(ref, message):
     def unresolved(reason):
         return dict(result, basis=reason)
 
+    try:
+        n = _inclusive_day(ref, message)
+    except (ValueError, OverflowError):
+        return unresolved("原文中的办理日期无效。")
     if n["derivation"] == "unresolved" or ref["kind"] == "urgency":
         if n["value"] is not None or n["precision"] != "unknown" or n["anchor"] is not None:
             return unresolved("未确定的时间不能同时包含确定日期或计算基准。")
@@ -148,7 +160,6 @@ def validate_time(ref, message):
     if n["value"] is None or n["precision"] == "unknown":
         return unresolved("时间归一化缺少具体值或精度。")
     try:
-        n = _inclusive_day(ref, message)
         time_value(n["value"], n["precision"])
         if n["precision"] == "datetime":
             if zone is None:

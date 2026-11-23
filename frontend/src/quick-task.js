@@ -1,3 +1,4 @@
+import { knownCourseIn } from "./course-identity.js";
 import { summarizeQuickNotice } from "./quick-notice.js";
 import { shiftDay } from "./task-model.js";
 
@@ -55,24 +56,6 @@ function resolveTime(groups, period) {
     else if (period === "凌晨" && hour === 12) hour = 0;
   }
   return [hour, minute].map(part => String(part).padStart(2, "0")).join(":");
-}
-
-function knownCourseIn(text, courses) {
-  const names = [...new Set(courses.filter(name => typeof name === "string" && name.trim()))]
-    .sort((left, right) => right.length - left.length);
-  let match = "";
-  for (const name of names) {
-    const literal = name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-    const left = /^\w/u.test(name) ? "(?<![a-z0-9_])" : "";
-    const right = /\w$/u.test(name) ? "(?![a-z0-9_])" : "";
-    const pattern = new RegExp(left + literal + right, "iu");
-    if (!pattern.test(text)) continue;
-    // A course name can include the entire name of a shorter course.
-    if (match && !match.toLowerCase().includes(name.toLowerCase())) return "";
-    match ||= name;
-    text = text.replace(new RegExp(pattern, "giu"), "");
-  }
-  return match;
 }
 
 function takeCourse(text, courses, defaultCourse) {
@@ -162,7 +145,7 @@ export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultC
   const source = String(input ?? "");
   const notice = summarizeQuickNotice(source, today);
   if (notice) {
-    const course = notice.explicitCourse ? notice.course : knownCourseIn(notice.title, courses) || defaultCourse || notice.course;
+    const course = notice.explicitCourse ? (knownCourseIn(notice.course, courses) || notice.course) : knownCourseIn(notice.title, courses) || defaultCourse || notice.course;
     const { explicitCourse = false, ...task } = notice;
     return { task: { ...task, course }, spans: [], explicitCourse, localOnly: true };
   }

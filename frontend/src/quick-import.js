@@ -111,7 +111,7 @@ export function bindQuickImport(form, options, refresh) {
         const published = form.querySelector("#quick-published").value;
         const key = JSON.stringify([text, published, original]);
         if (!textBody || signature !== key) {
-          textBody = buildTextImport(text, published, "quick-add:" + newId()); signature = key;
+          textBody = buildTextImport(text, published, "quick-add:" + newId(), undefined, options.courses); signature = key;
           const link = url();
           if (link) textBody.records[0].source_url = link;
         }

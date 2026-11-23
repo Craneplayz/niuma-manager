@@ -148,3 +148,10 @@ test("an exam announcement with separate deliverables takes the multi-item route
   const { localOnly } = analyzeQuickTask(text, { today: "2026-12-26" });
   assert.ok(!localOnly);
 });
+
+test("typed and pasted assignments use the same course identity", () => {
+  const course = "数据结构与算法 (A)(26-27学年第1学期)";
+  const { task } = analyzeQuickTask("明天上午10点半有数算考试", {today: "2026-11-22", courses: [course]});
+  assert.equal(task.course, course);
+  assert.equal(task.dueTime, "10:30");
+});

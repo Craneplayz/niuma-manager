@@ -49,12 +49,16 @@ class NormalizedTimeTests(unittest.TestCase):
                     self.assertEqual((result["value"], result["precision"], result["status"]),
                                      ("2027-01-05", "date", "explicit"))
                     self.assertEqual(result["raw"], quote)
+            for value, derivation, anchor in ((None, "unresolved", None),
+                                               ("2027-01-05", "missing_year", "published_at")):
+                result = validate_time(proposal(quote, value, derivation=derivation, anchor=anchor), r)
+                self.assertEqual(result["value"], "2027-01-05")
 
     def test_quick_day_end_requires_matching_deadline_evidence(self):
         r = record(platform="manual")
         r["quick_reference"] = quick_reference(r)
         for quote, kind in (("1月5日24时举行活动。", "reference"), ("1月5日24时30分", "deadline"),
-                            ("1月4日24:00截止。", "deadline"), ("1月5日18:00截止。", "deadline"),
+                            ("1月5日24:00开放。", "deadline"), ("1月5日18:00截止。", "deadline"),
                             ("1月1日至1月5日期间提交，最后一天18时截止。", "deadline")):
             with self.subTest(quote=quote, kind=kind):
                 item = proposal(quote, "2027-01-05T24:00:00+08:00", kind=kind,

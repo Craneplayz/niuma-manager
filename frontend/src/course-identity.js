@@ -81,6 +81,48 @@ const shortNames = new Map([
   ["数据结构", "数构"],
 ]);
 
+const aliases = new Map([
+  ["数据结构与算法", ["数算", "DSA"]],
+  ["数据结构与算法分析", ["数算", "DSA"]],
+  ["高等数学", ["高数"]],
+  ["高等数学基础", ["高数"]],
+  ["大学物理", ["大物"]],
+  ["线性代数", [shortNames.get("线性代数")]],
+  ["数据结构", [shortNames.get("数据结构")]],
+  ["计算机系统导论", ["ICS"]],
+]);
+
+// A spelling can refer to more than one section. Keep every owner so an
+// abbreviation never selects whichever class happens to be listed first.
+export function knownCourseIn(text, courses = []) {
+  const spelling = value => normalized(value).replace(/\s*\(/gu, "(");
+  const terms = new Map();
+  for (const name of courses) {
+    if (typeof name !== "string" || !name.trim()) continue;
+    const full = spelling(name);
+    const section = full.replace(/\s*\(\d{2,4}[-–]\d{2,4}学年第[一二三四\d]+学期\)$/u, "").trim();
+    const base = section.replace(/\s*\((?:[a-z]|[一二三四上下]|\d+班)\)$/u, "").trim();
+    for (const term of [full, section, base, ...(aliases.get(base) || [])].filter(Boolean)) {
+      const key = normalized(term);
+      if (!terms.has(key)) terms.set(key, new Set());
+      terms.get(key).add(name);
+    }
+  }
+  let remaining = spelling(text);
+  const found = new Set();
+  for (const term of [...terms.keys()].sort((a, b) => b.length - a.length)) {
+    const literal = term.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    const left = /^\w/u.test(term) ? "(?<![a-z0-9_])" : "";
+    const right = /\w$/u.test(term) ? "(?![a-z0-9_])" : "";
+    const pattern = new RegExp(left + literal + right, "gu");
+    if (!pattern.test(remaining)) continue;
+    for (const name of terms.get(term)) found.add(name);
+    if (found.size > 1) return "";
+    remaining = remaining.replace(pattern, "\n");
+  }
+  return [...found][0] || "";
+}
+
 export function courseIdentity(name) {
   const label = labelOf(name);
   const key = keyOf(name);
