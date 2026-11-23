@@ -4,7 +4,7 @@
 
 - [请求根 Schema](../schemas/teaching-request-v0.4.schema.json) 与 [结果根 Schema](../schemas/teaching-result-v0.4.schema.json) 自包含，无外部 URN；以 `python -m contracts.build_teaching_v04 --check` 核对生成文件。
 - [7 组样例](../examples/teaching-v04-cases.json) 覆盖日精度、补充附件、学期补年、年份依据不足、无截止、纯资讯/空课程名和一条双任务；`verified` 是测试包装，不能送进请求。
-- 每个 decision 的 `pair` 保留 `0.4-draft.1` 字段结构；新结果用 `classification_mode=model-v1` 显式区分模型分类，旧结果沿用历史政策。新增兼容字段不改变采集请求；生产方和消费方须一起升级，新服务可读旧记录，旧服务不能消费新结果。
+- 每个 decision 的 `pair` 保留 `0.4-draft.1` 字段结构；新结果用 `classification_mode` 记录实际识别路径，旧结果沿用历史政策。生产方和消费方须一起升级，新服务可读旧记录，旧服务不能消费新结果。
 
 ## 输入
 
@@ -15,6 +15,12 @@
 `check_request` 除结构外还检查 input_id 唯一、资料/证据关系、时区和日期语义；已拼接的 v0.2 正文或 `upstream_hints` 不能直接转成完整正文、已读资料或可信学期。
 
 可信标志不在 JSON 中；后端先核对当前账号有权访问的受控快照，再把这些**完整 entry** 的 `snapshot_digest(entry)` 作为 `verified_snapshot_digests` 参数传给识别及消费校验；digest 覆盖原文、引用、快照、学期和展示来源，任何字段改变必须重新核验；hash 本身不是签名或授权，严禁对任意客户端输入直接赋予信任。
+
+受控采集可在每个 entry 中提供 `platform_item`，详见[采集信封](teaching-capture-v0.1.md)。该字段随完整 entry 参与快照摘要。旧记录可以省略。
+
+- `platform-v1` 用程序投影原生作业字段。纯作业无需模型名额。成绩明细中缺少详情证据的作业留待核对，明确已交的成绩行仅从本次待办中过滤。
+- `text-v0.2` 使用共享文本识别器，保留公告原发布时间、课程、来源标识和原文。单条公告可生成多项行动，相对日期保留推算依据；更新、延期、取消需核对其作用对象。
+- `model-v1` 继续处理附件、课程规则和复杂要求。旧记录没有平台字段时沿用原识别路径。共享文本结果无法完整投影其时间或证据时，同样走此路径。
 
 ## 输出与消费
 

@@ -29,6 +29,21 @@ class TeachingCaptureTests(unittest.TestCase):
             capture=self.capture();capture['assignment'][key]=value
             with self.subTest(key=key),self.assertRaises(ValueError):check_capture(capture)
 
+    def test_platform_facts_require_matching_detail_and_deadline_evidence(self):
+        fixture = Path(__file__).resolve().parents[1] / 'examples/teaching-platform-native.json'
+        capture = check_capture(json.loads(fixture.read_text()))
+        for change in ('detail', 'grade_state', 'deadline'):
+            changed = deepcopy(capture)
+            entry, = changed['request']['records']
+            if change == 'detail':
+                changed['assignment'] = None
+            elif change == 'grade_state':
+                entry['platform_item']['submitted'] = True
+            else:
+                entry['platform_item']['due'] = '2026-12-03'
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                check_capture(changed)
+
     def test_added_trust_fields_multi_record_and_invalid_dates_are_rejected(self):
         for mutation in ('trust','multi','date'):
             value=self.capture()

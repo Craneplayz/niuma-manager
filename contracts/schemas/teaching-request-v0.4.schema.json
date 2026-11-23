@@ -165,6 +165,50 @@
               "course_or_project"
             ],
             "additionalProperties": false
+          },
+          "platform_item": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "native_assignment",
+                  "gradebook_assignment",
+                  "announcement"
+                ]
+              },
+              "due": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "submitted": {
+                "type": "boolean"
+              },
+              "gradebook_id": {
+                "type": "string",
+                "pattern": "^_[0-9]+_[0-9]+$"
+              }
+            },
+            "required": [
+              "kind",
+              "due",
+              "submitted"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

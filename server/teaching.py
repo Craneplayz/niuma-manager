@@ -9,6 +9,7 @@ else:
 from pathlib import Path
 import secrets
 import teaching_submission as submission
+import teaching_platform
 import teaching_assets
 import teaching_identity
 from server.model_queue import WAIT_ERROR, disconnected
@@ -27,6 +28,7 @@ from ddl_text.teaching_pipeline import process_teaching_request, validate_teachi
 from ddl_text.teaching_policy import teaching_policy_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
+CLASSIFICATION_MODES = (CLASSIFICATION_MODE, 'platform-v1', 'text-v0.2')
 VIEW = 'teaching-workspace/0.1'
 RUN = 'teaching-run/0.1'
 SOURCE_INCOMPLETE = '来源待补全：已读部分未发现任务，但正文或附件未完整读取。重试识别不会补抓内容，请查看来源或补全后重新同步。'
@@ -84,6 +86,7 @@ def candidate_view(decision, entry, *, model_routing=False):
     context={d['ref_id']:d for d in r.get('course_context',{}).get('documents',[])}
     inferred = known and ((not model_routing and 'original_age_unknown' in codes)
                           or d['derivation'] == 'course_rule'
+                          or entry.get('platform_item', {}).get('kind') == 'announcement' and d['derivation'] in ('relative','offset','missing_year')
                           or any(q['part_id'] in context for q in d['evidence']))
     evidence = []; by_quote = {}
     sources=[dict(input_id=r['input_id'],platform=r['platform'],url=source['url'],label=source['label'],source_item_id=r['source_item_id'])]
@@ -115,7 +118,7 @@ def candidate_view(decision, entry, *, model_routing=False):
 
 def result_view(request, result):
     tasks, rows, errors = [], [], []
-    model_routing = result.get('classification_mode') == CLASSIFICATION_MODE
+    model_routing = result.get('classification_mode') in CLASSIFICATION_MODES
     for entry, row in zip(request['records'], result['record_results']):
         # Viewing a stored result must not reclassify it or change user decisions.
         decisions=row['decisions']
@@ -146,7 +149,10 @@ def register(db, uid, username, requests, *, assets=None):
         if captured_state:
             check_capture(batch)
             assignment = batch['assignment']; batch = batch['request']
-        else: check_request(batch)
+        else:
+            check_request(batch)
+            if any('platform_item' in entry for entry in batch['records']):
+                raise ValueError('platform facts require the authenticated capture envelope')
         for entry in batch['records']:
             entry = deepcopy(entry); r = entry['record']
             if 'course_context' in r or any(ref['kind']=='course_context' for ref in r['references']):
@@ -234,6 +240,21 @@ def resolve_snapshot(db, uid, request_id, ApiError):
 
 
 def recognize(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
+    route = teaching_platform.route(request['records'][0])
+    if route == 'platform':
+        return teaching_platform.assignment(request)
+    if route == 'text':
+        import recognition
+        text_request = teaching_platform.notice_request(request)
+        output = recognition.validate_result(text_request, recognition.recognize_admitted(text_request, ApiError))
+        if output['status'] == 'failed':
+            failure = next(iter(output['errors']), {})
+            error = ApiError(502, failure.get('message') or '文本通知识别未完成')
+            error.code = failure.get('code') or 'agent_unavailable'
+            raise error
+        shared = teaching_platform.notice_result(request, output, getattr(recognition._EXECUTION,'policy',None))
+        if shared is not None:
+            return shared
     try:
         options = live_options(model_env_path(ROOT))
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
@@ -308,7 +329,7 @@ def attachment_context(db, uid, request_id):
 
 def validate_current_result(request, result, policy, ApiError):
     try:
-        if result.get('classification_mode') != CLASSIFICATION_MODE: raise ValueError()
+        if result.get('classification_mode') not in CLASSIFICATION_MODES: raise ValueError()
         validate_teaching_result(request,result,verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
         if not policy or result['policy_version']!=policy['version']: raise ValueError()
     except Exception as cause:
@@ -331,7 +352,8 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     acct=account(cred['username'])
     context_revision=course_context.catalog_revision(db,uid,acct,captured['records'][0])
-    attachments = attachment_context(db,uid,request['request_id'])
+    platform_only = teaching_platform.route(captured['records'][0]) == 'platform'
+    attachments = {} if platform_only else attachment_context(db,uid,request['request_id'])
     context_selection=getattr(attachments.get('prepare_context'),'selected',None)
     if context_selection is None: context_selection=course_context.select(db,uid,acct,captured['records'][0])
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
@@ -341,7 +363,8 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     if previous:operations.emit('outcome',code='retry')
     if previous and needs_source_completion(json.loads(previous['result'])):
         raise ApiError(409,SOURCE_INCOMPLETE)
-    if not recognition._ACTIVE.acquire():
+    needs_slot = not platform_only
+    if needs_slot and not recognition._ACTIVE.acquire():
         with diagnostics.capture(db,uid,request['request_id']):
             error=ApiError(503,WAIT_ERROR)
             error.code,error.diagnostic='agent_unavailable','model_busy'
@@ -379,9 +402,10 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             else:
                 db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
             cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-            teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
+            used_files = teaching_assets.load(db,uid,acct,request['request_id']) if platform_only else attachments.get('files',[])
+            teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],used_files)
             course_context.remember(db,uid,acct,captured['records'][0],context_selection,
-                references=request['records'][0]['record']['references'],files=attachments.get('files',[]))
+                references=request['records'][0]['record']['references'],files=used_files)
             unchanged = teaching_identity.reuse_unchanged_result(db,uid,request['request_id'],result)
             if result['status'] in ('success','no_tasks') and not unchanged:
                 teaching_identity.supersede_unhandled(db,uid,request['request_id'],captured['records'][0]['record']['snapshot_id'])
@@ -389,7 +413,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             for card in cards:
                 db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                     (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
-            submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))
+            submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(used_files))
             for saved in db.execute("SELECT id,candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state='pending'",
                                     (uid,request['request_id'])).fetchall():
                 card = submission.decorate(db,uid,request['request_id'],json.loads(saved['candidate']))
@@ -404,4 +428,4 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
                 filtered=sum(decision.get('recommendation')=='filtered' for decision in row.get('decisions',[]))
                 if filtered:operations.after_commit(db,'outcome',code='filtered',quantity=filtered)
     finally:
-        recognition._ACTIVE.release()
+        if needs_slot: recognition._ACTIVE.release()

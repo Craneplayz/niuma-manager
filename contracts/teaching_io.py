@@ -70,11 +70,15 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
     trusted=verified_set(request,verified_snapshot_digests)
     require(result['request_id']==request['request_id'],'request identity mismatch')
     rows=result['record_results']
-    model_routing = result.get('classification_mode') == 'model-v1'
+    model_routing = result.get('classification_mode') in ('model-v1','platform-v1','text-v0.2')
     require(len(rows)==len(request['records']),'record count mismatch')
     candidates=set()
     for entry,row in zip(request['records'],rows):
         r=entry['record'];verified=snapshot_digest(entry) in trusted
+        mode = result.get('classification_mode')
+        if mode in ('platform-v1', 'text-v0.2'):
+            kinds = ('native_assignment', 'gradebook_assignment') if mode == 'platform-v1' else ('announcement',)
+            require(verified and entry.get('platform_item', {}).get('kind') in kinds, 'classification requires matching captured platform facts')
         require(row['input_id']==r['input_id'] and row['snapshot_id']==r['snapshot_id'],'record identity mismatch')
         require(row['source']==entry['source'],'source metadata changed')
         status=row['status'];decisions=row['decisions']

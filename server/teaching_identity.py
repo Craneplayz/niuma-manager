@@ -51,6 +51,28 @@ def source_digest(entry, assignment, files):
     return hashlib.sha256(canonical(material)).hexdigest()
 
 
+GRADEBOOK_REVIEW = '本课程已处理过可能对应的成绩明细条目，请核对后再加入。'
+
+
+def previous_gradebook_card(db, uid, request_id):
+    # The native detail and the gradebook row use different Blackboard IDs.
+    # A shared name can withhold auto-apply, but never authorizes a state change.
+    return db.execute('''SELECT 1 FROM teaching_submission_requests current
+        JOIN teaching_submission_sources native ON native.user_id=current.user_id
+          AND native.account=current.account AND native.input_id=current.input_id
+        JOIN recognition_batches cb ON cb.user_id=current.user_id AND cb.request_id=current.request_id
+        JOIN teaching_submission_requests old ON old.user_id=current.user_id AND old.account=current.account
+          AND old.input_id LIKE 'pku:gradebook:%'
+        JOIN recognition_batches ob ON ob.user_id=old.user_id AND ob.request_id=old.request_id
+        WHERE current.user_id=? AND current.request_id=?
+          AND json_extract(ob.request,'$.records[0].record.course_id')=json_extract(cb.request,'$.records[0].record.course_id')
+          AND (json_extract(ob.request,'$.records[0].source.label')=json_extract(cb.request,'$.records[0].source.label')
+               OR json_extract(ob.request,'$.records[0].record.source_item_id')=json_extract(cb.request,'$.records[0].platform_item.gradebook_id'))
+          AND EXISTS (SELECT 1 FROM recognition_candidates c WHERE c.user_id=old.user_id AND c.request_id=old.request_id
+                      AND (c.state!='pending' OR c.version>1 OR c.resolution IS NOT NULL))
+        LIMIT 1''', (uid, request_id)).fetchone()
+
+
 def protect_source_changes(db, uid, request_id, cards):
     """Do not use index-based model candidate IDs as cross-version task IDs.
 
@@ -64,12 +86,15 @@ def protect_source_changes(db, uid, request_id, cards):
         JOIN recognition_candidates c ON c.user_id=old.user_id AND c.request_id=old.request_id
         WHERE current.user_id=? AND current.request_id=? AND old.request_id<>current.request_id
         LIMIT 1''', (uid, request_id)).fetchone()
-    if previous:
+    reason = CHANGED_SOURCE_REVIEW if previous else None
+    if not reason and any(card['notice_type'] == 'create' for card in cards) and previous_gradebook_card(db, uid, request_id):
+        reason = GRADEBOOK_REVIEW
+    if reason:
         for card in cards:
             if card['notice_type'] == 'create':
                 card['notice_type'] = 'uncertain'
                 card['needs_review'] = True
-                card['review_reasons'] = list(dict.fromkeys(card['review_reasons'] + [CHANGED_SOURCE_REVIEW]))
+                card['review_reasons'] = list(dict.fromkeys(card['review_reasons'] + [reason]))
     return cards
 
 

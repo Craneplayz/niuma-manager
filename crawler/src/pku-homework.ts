@@ -1,8 +1,9 @@
 import { extractCourseSourcesFromHtml, deduplicateCourseSources, type CourseSourceRecord } from "./pku-source.js";
+import { addGradebookItems, gradebookItems } from "./pku-gradebook.js";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { DateTime } from "luxon";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser, type Locator, type Page } from "playwright";
 import { DEFAULT_TIMEZONE, parseEventTime } from "./core/time.js";
 import { enrichAssignmentSources } from "./pku-assignment.js";
 import { authenticatedAttachmentReader, enrichSourceAttachments } from "./pku-attachments.js";
@@ -131,7 +132,11 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     await navigateCoursePage(page, PKU_PORTAL_URL);
     await page.waitForTimeout(2_000);
 
-    const courses = discoverCourses(await collectAnchors(page), term);
+    // Blackboard separates current and archived enrolments. Prefer its own
+    // term selection, retaining the label filter for older portal layouts.
+    const currentModule = page.locator(".portlet").filter({has: page.getByRole("heading", {name:"当前学期课程", exact:true})});
+    const useCurrentModule = options.teachingSections && options.term === undefined && await currentModule.count() === 1;
+    const courses = discoverCourses(await collectAnchors(useCurrentModule ? currentModule : page), useCurrentModule ? null : term);
     const sources: CourseSourceRecord[] = [];
     const coverageWarnings: string[] = [];
     let sectionsChecked = 0;
@@ -166,6 +171,27 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
           collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
         }));
       }
+      if (options.teachingSections) {
+        const courseId = new URL(coursePageUrl).searchParams.get("course_id")
+          ?? course.href.match(/(?:key=|key%3D)(_\d+_\d+)/i)?.[1]
+          ?? new URL(course.href).searchParams.get("id");
+        if (courseId && /^_\d+_\d+$/.test(courseId)) {
+          const url = new URL("/webapps/bb-mygrades-BBLEARN/myGrades", PKU_ORIGIN);
+          url.searchParams.set("course_id", courseId);
+          url.searchParams.set("stream_name", "mygrades");
+          try {
+            const response = await context.request.get(url.href, {timeout: 15000, maxRedirects: 0});
+            try {
+              if (!response.ok()) throw new Error("gradebook unavailable");
+              const html = await response.text();
+              if (!html.includes("sortable_item_row")) coverageWarnings.push(course.name + "：成绩明细为空或未识别，已保留课程栏目。");
+              sources.push(...addGradebookItems(sources.slice(firstSource), gradebookItems(html, url), url, course.name, asOf.toISO()!));
+            } finally { await response.dispose(); }
+          } catch {
+            coverageWarnings.push(course.name + "：成绩明细不可用，已保留课程栏目。");
+          }
+        }
+      }
       for (const source of sources.slice(firstSource)) source.course_term_label = course.termLabel;
     }
 
@@ -174,6 +200,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
       asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
       allSections: options.allSections ?? false, coverageWarnings,
+      ...(options.teachingSections ? {scopeWarning: "Inspected course assignment, announcement and teaching-content sections, native assignment details and gradebook assignment rows when available. Nested folders are outside this scan."} : {}),
     });
   } finally {
     await closeBrowser(browser);
@@ -346,7 +373,7 @@ async function firstVisible(page: Page, selectors: string[]) {
   return null;
 }
 
-async function collectAnchors(page: Page): Promise<AnchorInfo[]> {
+async function collectAnchors(page: Page | Locator): Promise<AnchorInfo[]> {
   return page.locator("a").evaluateAll((elements) => elements.map((element) => ({
     text: (element.textContent ?? "").replace(/\s+/g, " ").trim(),
     href: (element as HTMLAnchorElement).href,
@@ -370,7 +397,8 @@ function discoverSections(anchors: AnchorInfo[], includeAnnouncements = false): 
   for (const anchor of anchors) {
     const url = new URL(anchor.href, PKU_ORIGIN);
     const announcement = includeAnnouncements && /通知|公告|\bannouncements?\b/i.test(anchor.text)
-      && /\/webapps\/(?:blackboard|announcement)\/execute\/announcement$/i.test(url.pathname);
+      && (/\/webapps\/(?:blackboard|announcement)\/execute\/announcement$/i.test(url.pathname)
+        || (url.pathname === "/webapps/blackboard/content/launchLink.jsp" && url.searchParams.get("tool_type") === "TOOL"));
     if (url.origin !== PKU_ORIGIN || !(SECTION_PATH_PATTERN.test(url.pathname) || announcement)) continue;
     if (!sections.has(anchor.href)) sections.set(anchor.href, anchor);
   }

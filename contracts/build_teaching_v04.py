@@ -32,6 +32,11 @@ def schemas():
     source = obj(dict(label=nullable(string(512, 1)), url=nullable(string(2048, 1)),
                       course_or_project=nullable(string(512, 1))))
     entry = obj(dict(record=deepcopy(POLICY['properties']['record']), source=source))
+    entry['properties']['platform_item'] = obj(dict(
+        kind=dict(enum=['native_assignment','gradebook_assignment','announcement']),
+        due=nullable(dict(anyOf=[dict(type='string', format='date'),dict(type='string', format='date-time')])),
+        submitted=dict(type='boolean')))
+    entry['properties']['platform_item']['properties']['gradebook_id'] = dict(type='string', pattern=r'^_[0-9]+_[0-9]+$')
     relevance = obj(dict(state=dict(enum=['current','ongoing','historical','uncertain']),
         reason=string(512,1), evidence=array({'$ref':'#/$defs/quote'},20)))
     decision = obj(dict(title=string(512,1), description=string(4096),
@@ -60,7 +65,7 @@ def schemas():
     policy = nullable(dict(type='string',pattern='^teaching-policy-v1:[0-9a-f]{64}$'))
     result = obj(dict(contract_version=dict(const='0.4'),request_id=ident,policy_version=policy,
         status=dict(enum=['success','partial_success','no_tasks','failed']),record_results=array(row,20)))
-    result['properties']['classification_mode'] = dict(const='model-v1')
+    result['properties']['classification_mode'] = dict(enum=['model-v1','platform-v1','text-v0.2'])
     request = obj(dict(contract_version=dict(const='0.4'),request_id=ident,records=array(entry,20)))
     outputs={name:dict(value, **{'$schema':POLICY['$schema'], '$defs':deepcopy(defs)})
              for name,value in [('request',request),('result',result)]}

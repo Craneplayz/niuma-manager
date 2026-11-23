@@ -190,12 +190,14 @@ def recognize_saved(request, native, ApiError, *, attachments=None):
     if not native:
         result=validate_result(request,recognition.recognize(request,ApiError))
         return result,getattr(recognition._EXECUTION,'policy',None)
-    if not recognition._ACTIVE.acquire(): raise ApiError(503,'模型队列暂不可用')
+    needs_slot = teaching.teaching_platform.route(request['records'][0]) != 'platform'
+    if needs_slot and not recognition._ACTIVE.acquire(): raise ApiError(503,'模型队列暂不可用')
     try:
         result,policy=teaching.recognize(request,ApiError,**(attachments or {}))
         teaching.validate_current_result(request,result,policy,ApiError)
         return result,policy
-    finally: recognition._ACTIVE.release()
+    finally:
+        if needs_slot: recognition._ACTIVE.release()
 
 
 def prior_candidates(db, uid, item, identity):
