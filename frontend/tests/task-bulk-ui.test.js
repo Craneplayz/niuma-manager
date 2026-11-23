@@ -30,10 +30,10 @@ test('mixed notices and tasks use explicit completion and reading language', () 
   assert.equal(bulkLabels([ordinary, candidate]).trash, '删除 / 忽略');
 });
 
-test('candidate selections expose conversion semantics and cannot be reopened', () => {
+test('candidate selections can be completed but cannot be reopened', () => {
   const html = toolbar([candidate, { ...ordinary, status: 'done' }]);
   assert.match(html, /data-bulk-action="reopen"[^>]*disabled/);
-  assert.match(html, /待核对内容完成或修改日期后转为普通任务/);
+  assert.doesNotMatch(html, /待核对内容完成或修改日期后转为普通任务/);
   assert.match(html, /data-bulk-action="complete"(?![^>]*disabled)/);
 });
 

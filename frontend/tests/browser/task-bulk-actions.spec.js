@@ -143,7 +143,11 @@ async function changeDate(page, date) {
 
 test('filter fields align and the bulk toggle stays in place', async ({ page, context }, info) => {
   await open(page, context);
-  await page.getByRole('button', { name: '筛选', exact: true }).click();
+  const toggle = page.getByRole('button', { name: '筛选', exact: true });
+  const firstRow = page.locator('.task-row').first();
+  const initialBox = await firstRow.boundingBox();
+  await toggle.click();
+  expect(await firstRow.boundingBox()).toEqual(initialBox);
   const source = page.getByLabel('来源', { exact: true });
   const from = page.getByLabel('截止日期起始日期');
   const to = page.getByLabel('截止日期结束日期');
@@ -159,6 +163,14 @@ test('filter fields align and the bulk toggle stays in place', async ({ page, co
   await expect(row(page, 'b')).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('filter-range.png') });
 
+  await page.keyboard.press('Escape');
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  await expect(from).toHaveValue('2026-10-20');
+  await page.locator('#task-search').click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(row(page, 'b')).toHaveCount(0);
   const enterBox = await action(page, 'enter').boundingBox();
   await action(page, 'enter').click();
   await expect(action(page, 'exit')).toBeVisible();

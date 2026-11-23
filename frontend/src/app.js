@@ -464,7 +464,7 @@ function toolbar() {
     )
     .join(
       "",
-    )}</select>${icon("chevron")}</label><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${bulkToggle(bulkMode)}</div>${
+    )}</select>${icon("chevron")}</label><div class="filter-disclosure"><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${
     ui.filterOpen
       ? `<div id="advanced-filters" class="advanced-filters"><div class="filter-field"><label for="source-filter">来源</label><span class="filter-select"><select id="source-filter"><option value="">全部来源</option>${sources()
           .map(
@@ -481,7 +481,7 @@ function toolbar() {
           <input id="date-to" aria-label="${dateLabel}结束日期" type="date" value="${esc(ui.dateTo)}">
         </div></fieldset></div>`
       : ""
-  }`;
+  }</div>${bulkToggle(bulkMode)}</div>`;
 }
 function monthLabel() {
   const d = new Date(ui.anchor + "T12:00:00");
@@ -1164,6 +1164,10 @@ window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
   imports.cancelRecoveryNavigation();
   const button = e.target.closest("button");
+  if (ui.filterOpen && !e.target.closest(".filter-disclosure")) {
+    ui.filterOpen = false;
+    render();
+  }
   if (!button) return;
   if (button.dataset.errorFeedback) {
     await submitErrorFeedback(button, {
@@ -1414,6 +1418,12 @@ document.addEventListener("keydown", (e) => {
   imports.cancelRecoveryNavigation();
   if (e.key === "Escape") hideSidebarTooltip();
   const modalOpen = dialog.open || drawer.open;
+  if (e.key === "Escape" && ui.filterOpen && !modalOpen && !ui.mobileMenu) {
+    ui.filterOpen = false;
+    render();
+    document.querySelector('[data-action="filter-toggle"]')?.focus({ preventScroll: true });
+    return;
+  }
   if (e.key === "Tab" && ui.mobileMenu && !modalOpen) {
     const focusable = [
       ...document.querySelectorAll(".sidebar a,.sidebar button"),
