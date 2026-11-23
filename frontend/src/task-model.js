@@ -122,7 +122,7 @@ export function filterTasks(
     } else if (scope === "calendar") {
       if (!notice && done) return false;
     } else {
-      if ((scope === "all" && notice) || (scope === "done" ? !done : done)) return false;
+      if ((scope === "all" && notice && !(task.timeKind === "event" && due)) || (scope === "done" ? !done : done)) return false;
     }
     if (scope === "near" && (task.timeKind === "event" || !due || due > nearEnd)) return false;
     if (course && task.course !== course) return false;

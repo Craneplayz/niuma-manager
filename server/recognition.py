@@ -397,7 +397,9 @@ def add_quick_results(db, uid, request, ApiError):
         record = records[candidate['input_id']]
         deadline = candidate['deadline']
         attendance = bool(re.search(r'参加|出席|观看|考试|考核|讲座|讲坛|沙龙', candidate['title']))
-        event = attendance and not re.search(r'报名|提交|申请|截止', candidate['title'] + (deadline.get('raw') or ''))
+        schedule_change = candidate['notice_type'] in ('postpone', 'update')
+        event = deadline['kind'] == 'reference' and (schedule_change or attendance and not re.search(
+            r'报名|提交|申请|截止', candidate['title'] + (deadline.get('raw') or '')))
         when = None
         if (deadline['status'] in ('explicit', 'inferred') and deadline['value']
                 and (deadline['kind'] == 'deadline' or event and deadline['kind'] == 'reference')):

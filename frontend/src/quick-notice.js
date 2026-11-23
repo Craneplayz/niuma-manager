@@ -115,5 +115,8 @@ function serviceNotice(text) {
 export function summarizeQuickNotice(source, today) {
   const text = source.replace(/&#(?:x20|32);|&nbsp;/giu, " ").replace(/\\(?=[~\n\r])/gu, "")
     .replace(/^\s*@(?:所有人|全体成员)\s*/u, "").trim();
+  // A single-event preview cannot own a separate assignment or several deadlines.
+  if (/(?:任务|作业)\s*[一二三四五六七八九十\d]+\s*[：:、]/u.test(text) ||
+      [...text.matchAll(/(?:截止|截至)\s*(?:时间|日期)?\s*[：:]/gu)].length > 1) return null;
   return examNotice(text, today) || changeOfDate(text, today) || poster(text, today) || serviceNotice(text);
 }

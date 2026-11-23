@@ -4,7 +4,7 @@ import unittest
 from copy import deepcopy
 
 from ddl_text.contracts import ContractError, normalize_record
-from ddl_text.time_validation import validate_time
+from ddl_text.time_validation import quick_reference, validate_time
 
 
 def proposal(quote, value=None, *, kind="deadline", derivation="absolute", anchor=None, basis="原文给出时间。"):
@@ -70,6 +70,22 @@ class NormalizedTimeTests(unittest.TestCase):
         self.assertIsNone(validate_time(item, r)["value"])
         item["normalized"]["anchor"] = "collected_at"
         self.assertIsNone(validate_time(item, r)["value"])
+
+    def test_manual_add_reference_uses_local_week_and_respects_a_selected_date(self):
+        r = record(platform="manual", collected_at="2026-12-27T20:30:00Z",
+                   published_at={"value": None, "precision": "unknown", "basis": "unknown"})
+        ref = quick_reference(r)
+        self.assertEqual(ref["week_start"], "2026-12-28")
+        self.assertEqual(ref["weeks"]["下周"][1], "2027-01-05")
+        item = proposal("下周二", "2027-01-05", derivation="relative", anchor="quick_reference")
+        self.assertIsNone(validate_time(item, r)["value"])
+        self.assertEqual(validate_time(item, dict(r, quick_reference=ref))["value"], "2027-01-05")
+        self.assertIsNone(quick_reference(dict(r, source_url="https://example.org/notice")))
+        self.assertIsNone(quick_reference(dict(r, platform="teaching_web")))
+        r["published_at"] = {"value": "2026-12-22", "precision": "date", "basis": "upstream_unverified"}
+        self.assertEqual(quick_reference(r)["week_start"], "2026-12-21")
+        unspecified = proposal("另行通知", derivation="unresolved")
+        self.assertIsNone(validate_time(unspecified, dict(r, quick_reference=ref))["value"])
 
     def test_hour_offset_requires_time_precision(self):
         item = proposal("再过一天半", "2027-01-01T22:00:00+08:00", derivation="offset", anchor="published_at")

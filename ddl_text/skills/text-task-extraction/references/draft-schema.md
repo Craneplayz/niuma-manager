@@ -49,7 +49,7 @@
 | value | `YYYY-MM-DD` 或 `YYYY-MM-DDTHH:mm:ss±HH:mm`；未知为 null；秒数不可丢失。 |
 | precision | date / datetime / unknown，与 value 一致；仅日期不补时刻。 |
 | derivation | absolute / relative / offset / missing_year / unresolved，含义见 skill。 |
-| anchor | absolute、unresolved 为 null；relative、offset 为 published_at；missing_year 优先 published_at、缺可信发布时间才可 collected_at。引用的基准属于该项 input_id，不另外填写时间。 |
+| anchor | absolute、unresolved 为 null；relative、offset 为 published_at；missing_year 优先 published_at、缺可信发布时间才可 collected_at。快捷录入另可使用该消息提供的 quick_reference。引用的基准属于该项 input_id，不另外填写时间。 |
 | basis | 非空的一句依据；unresolved 说明真正缺少的条件，不写长篇推演。 |
 
 unresolved 和 urgency 的 value=null、precision=unknown、anchor=null。日期无法确定也要保留其引文。程序从合法提案生成 status 和 timezone；不让模型自行填写这两个对外字段。来源时区之外的原文时区须换算到来源时区，不能只改偏移符号。

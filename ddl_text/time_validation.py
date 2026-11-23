@@ -4,7 +4,7 @@ Evidence membership is checked by extraction._reference. These checks establish
 structural consistency, not that a model understood a sentence correctly.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .contracts import nonempty, require
@@ -15,12 +15,12 @@ NORMALIZED_FIELDS = {"value", "precision", "derivation", "anchor", "basis"}
 DERIVATIONS = ("absolute", "relative", "offset", "missing_year", "unresolved")
 
 
-def normalized_time_schema():
+def normalized_time_schema(*, quick_entry=False):
     properties = {
         "value": {"type": ["string", "null"]},
         "precision": {"type": "string", "enum": ["date", "datetime", "unknown"]},
         "derivation": {"type": "string", "enum": list(DERIVATIONS)},
-        "anchor": {"type": ["string", "null"], "enum": [None, "published_at", "collected_at"]},
+        "anchor": {"type": ["string", "null"], "enum": [None, "published_at", "collected_at"] + (["quick_reference"] if quick_entry else [])},
         "basis": {"type": "string"},
     }
     return {"type": "object", "properties": properties,
@@ -45,6 +45,33 @@ def _publication(message, zone):
     return None
 
 
+def quick_reference(record):
+    """Account-scoped manual Add only; the original publication stays untouched."""
+    publication = record["published_at"]
+    if record["platform"] != "manual" or (record["source_url"] and not publication["value"]):
+        return None
+    value = publication["value"] or record.get("collected_at")
+    if not value or not record.get("timezone"):
+        return None
+    precision = publication["precision"] if publication["value"] else "datetime"
+    zone = _zone(record["timezone"])
+    if zone is None:
+        return None
+    try:
+        local = (date.fromisoformat(value) if precision == "date" else
+                 datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone))
+    except OverflowError:
+        return None
+    day = local.date() if isinstance(local, datetime) else local
+    monday = day - timedelta(days=day.weekday())
+    return dict(value=local.isoformat(), precision=precision,
+                origin="指定的通知时间" if publication["value"] else "加入清单的时间",
+                week_start=monday.isoformat(),
+                weeks={name: [date.fromordinal(ordinal).isoformat() if 1 <= ordinal <= date.max.toordinal() else None
+                              for ordinal in range(monday.toordinal() + offset, monday.toordinal() + offset + 7)]
+                       for name, offset in (("上周", -7), ("本周", 0), ("下周", 7))})
+
+
 def _nearest_year(day, anchor):
     choices = []
     for year in (anchor.year - 1, anchor.year, anchor.year + 1):
@@ -67,7 +94,7 @@ def validate_time(ref, message):
     require(n["value"] is None or isinstance(n["value"], str))
     require(n["precision"] in {"date", "datetime", "unknown"})
     require(n["derivation"] in DERIVATIONS)
-    require(n["anchor"] in (None, "published_at", "collected_at"))
+    require(n["anchor"] in (None, "published_at", "collected_at", "quick_reference"))
     require(nonempty(n["basis"]))
     zone = _zone(message.get("timezone"))
     result = {"value": None, "precision": "unknown", "timezone": zone.key if zone else None,
@@ -109,6 +136,14 @@ def validate_time(ref, message):
             if field is not None:
                 return unresolved("完整绝对日期不应依赖发布时间或采集时间。")
             basis = "按原文明确时间归一化。"
+        elif field == "quick_reference":
+            anchor = message.get("quick_reference")
+            if not anchor or (derivation == "offset" and anchor["precision"] != "datetime"):
+                return unresolved("此条原文没有可用的快捷录入日期基准。")
+            anchor_day = date.fromisoformat(anchor["value"][:10])
+            if derivation == "missing_year" and day != _nearest_year(day, anchor_day):
+                return unresolved("补全的年份不符合最近有效日期规则。")
+            basis = "按%s %s 换算。" % (anchor["origin"], anchor["value"])
         else:
             publication = _publication(message, zone)
             if derivation == "missing_year":

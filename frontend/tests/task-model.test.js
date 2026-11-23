@@ -459,3 +459,11 @@ test('task edits reject changed or removed records while allowing independent st
  }
  assert.throws(()=>assertCurrentTaskEdit(undefined,snapshot),/内容已变化/);
 });
+
+test("a dated schedule change is visible in the task list and notices", () => {
+  const event = { id: "rescheduled", status: "todo", content_type: "notice", timeKind: "event", due: today };
+  const info = { id: "info", status: "todo", content_type: "notice" };
+  assert.deepEqual(ids(filterTasks([info, event], { today })), [event.id]);
+  assert.deepEqual(ids(filterTasks([info, event], { scope: "notices", today })), [event.id, info.id]);
+  assert.deepEqual(ids(filterTasks([{ ...event, status: "done" }], { today })), []);
+});

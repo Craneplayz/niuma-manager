@@ -37,7 +37,7 @@ export function renderQuickEntry({ icon }) {
       <button type="button" class="btn quiet quick-reset" data-reset="course" hidden>恢复自动识别</button>
     </div>
     <div id="quick-publication-panel" class="quick-fields" hidden>
-      <label class="field">通知发布时间（北京时间，可选）<input id="quick-published" type="datetime-local" step="1"></label>
+      <label class="field">通知时间（北京时间，默认按加入时换算）<input id="quick-published" type="datetime-local" step="1"></label>
     </div>
     <div id="task-edit-error" class="error" role="alert"></div>
   </form>`;
@@ -123,7 +123,7 @@ export function bindQuickEntry(form, options) {
     if (mode === "text") {
       dateButton.querySelector("span").textContent = "通知时间";
       dateButton.setAttribute("aria-label", "设置通知发布时间");
-      dateButton.title = "设置通知发布时间";
+      dateButton.title = "相对日期默认按加入时的北京时间计算，可指定原通知时间";
     }
     if (mode) { form.querySelector("#quick-course-panel").hidden = true; courseButton.setAttribute("aria-expanded", "false"); }
     dateReset.hidden = !dateOverride;

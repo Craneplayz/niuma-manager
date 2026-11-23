@@ -23,7 +23,7 @@ def draft_schema(record, *, historical=False):
         "evidence": {"type": "array", "items": reference},
         "times": {"type": "array", "items": _object({"input_id": text, "quote": text,
                                                         "kind": {"type": "string", "enum": ["deadline", "reference", "urgency"]},
-                                                        "normalized": normalized_time_schema()})},
+                                                        "normalized": normalized_time_schema(quick_entry=bool(record.get("quick_reference")))})},
         "review_reasons": strings,
         "relevance": _object({
             "state": {"type": "string", "enum": ["current", "ongoing", "historical", "uncertain"]},

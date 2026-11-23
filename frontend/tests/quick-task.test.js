@@ -142,3 +142,9 @@ test("labelled exam uses the assessment date and keeps instructions and end time
     for (const fact of ["14:00–15:30", "理教 204 教室", "闭卷笔试", ...source.slice(7,10)]) assert.ok(task.notes.includes(fact));
   }
 });
+
+test("an exam announcement with separate deliverables takes the multi-item route", () => {
+  const text = "《离散数学》期末考试。\n考试时间：2027年1月8日 09:00–11:00\n作业一：提交证明题。\n作业二：提交实验报告。";
+  const { localOnly } = analyzeQuickTask(text, { today: "2026-12-26" });
+  assert.ok(!localOnly);
+});
