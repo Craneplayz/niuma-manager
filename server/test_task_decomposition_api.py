@@ -164,7 +164,8 @@ class TaskDecompositionApiTests(unittest.TestCase):
 
     def test_repeated_completed_step_maps_to_its_original_id_and_minutes(self):
         task = dict(subtasks=[dict(id='done', title='绘制图表', status='completed', dependsOn=['retired'],
-                                   estimatedMinutes=35), dict(id='retired', title='输入数据', status='pending')])
+                                   outcome='绘制图表可检查', estimatedMinutes=35),
+                             dict(id='retired', title='输入数据', status='pending')])
         ready = [step('first', '绘制图表', 35), step('last', '交图', 5, ['first'])]
         app.task_decomposition._apply_remaining(task, ready)
         self.assertEqual(len(task['subtasks']), 2)
@@ -175,8 +176,8 @@ class TaskDecompositionApiTests(unittest.TestCase):
 
     def test_same_title_matches_each_completed_step_only_once(self):
         task = dict(subtasks=[
-            dict(id='first', title='试讲', status='completed'),
-            dict(id='second', title='试讲', status='completed', dependsOn=['first']),
+            dict(id='first', title='试讲', outcome='试讲可检查', status='completed'),
+            dict(id='second', title='试讲', outcome='试讲可检查', status='completed', dependsOn=['first']),
         ])
         draft = [step('a', '试讲', 5), step('b', '试讲', 5, ['a']),
                  step('c', '试讲', 10, ['b'])]
@@ -199,6 +200,35 @@ class TaskDecompositionApiTests(unittest.TestCase):
                          ('pending', '第二组数据图表', 45))
         self.assertEqual(task['estimatedMinutes'], 45)
 
+    def test_unknown_completed_outcome_keeps_explicit_new_work(self):
+        for legacy_outcome in [{}, {'outcome': None}, {'outcome': ''}, {'outcome': '   '}]:
+            with self.subTest(legacy_outcome=legacy_outcome):
+                completed = dict(id='done', title='生成图表', status='completed',
+                                 estimatedMinutes=35, **legacy_outcome)
+                task = dict(subtasks=[completed])
+                app.task_decomposition._apply_remaining(task, [
+                    dict(step('new-chart', '生成图表', 45), outcome='第二组数据图表')])
+                self.assertEqual(task['subtasks'][0], completed)
+                self.assertEqual(len(task['subtasks']), 2)
+                pending = task['subtasks'][1]
+                self.assertNotEqual(pending['id'], completed['id'])
+                self.assertEqual((pending['status'], pending['outcome'], pending['estimatedMinutes']),
+                                 ('pending', '第二组数据图表', 45))
+                self.assertEqual(task['estimatedMinutes'], 45)
+
+    def test_draft_without_outcome_retains_legacy_title_matching(self):
+        for prior_outcome in [{}, {'outcome': '第一组数据图表'}]:
+            with self.subTest(prior_outcome=prior_outcome):
+                completed = dict(id='done', title='生成图表', status='completed', **prior_outcome)
+                task = dict(subtasks=[completed])
+                app.task_decomposition._apply_remaining(task, [
+                    dict(step('chart', '生成图表', 45), outcome=''),
+                    step('compare', '比较图表', 5, ['chart'])])
+                self.assertEqual(task['subtasks'][0], completed)
+                self.assertEqual(len(task['subtasks']), 2)
+                self.assertEqual(task['subtasks'][1]['dependsOn'], ['done'])
+                self.assertEqual(task['estimatedMinutes'], 5)
+
     def test_same_title_reuses_matching_outcomes_once_without_consuming_other_matches(self):
         completed = [dict(id='first', title='生成图表', outcome='第一组数据图表', status='completed'),
                      dict(id='second', title='生成图表', outcome='第二组数据图表', status='completed')]
@@ -214,10 +244,17 @@ class TaskDecompositionApiTests(unittest.TestCase):
         self.assertEqual(task['estimatedMinutes'], 45)
 
     def test_different_outcome_apply_persists_pending_dependency_and_planning_minutes(self):
+        self.check_new_outcome_apply_persists_pending_dependency_and_planning_minutes('第一组数据图表')
+
+    def test_unknown_outcome_apply_persists_pending_dependency_and_planning_minutes(self):
+        self.check_new_outcome_apply_persists_pending_dependency_and_planning_minutes(None)
+
+    def check_new_outcome_apply_persists_pending_dependency_and_planning_minutes(self, prior_outcome):
         client = self.client()
-        self.register(client, 'different-outcome@test.local')
-        completed = dict(id='done', title='生成图表', outcome='第一组数据图表',
-                         status='completed', estimatedMinutes=35)
+        self.register(client, ('different' if prior_outcome is not None else 'unknown') + '-outcome@test.local')
+        completed = dict(id='done', title='生成图表', status='completed', estimatedMinutes=35)
+        if prior_outcome is not None:
+            completed['outcome'] = prior_outcome
         date = (app.datetime.now(app.TZ) + app.timedelta(days=2)).date().isoformat()
         task = dict(id='charts', title='比较两组数据', status='not_started', plans=[],
                     due=dict(date=date, precision='date'), subtasks=[completed])
@@ -229,6 +266,7 @@ class TaskDecompositionApiTests(unittest.TestCase):
         with patch.object(app.task_decomposition, 'generate', return_value=draft):
             status, preview = self.call(client, '/decomposition/proposals', dict(taskId=task['id']))
         self.assertEqual(status, 200)
+        self.assertEqual(preview['plan'], draft['plan'])
         self.assertEqual(self.call(client, '/workspace', None, 'GET')[1]['tasks']['value'], [task])
         status, applied = self.call(client, '/decomposition/apply',
                                     dict(taskId=task['id'], requestId=preview['requestId']))
@@ -248,6 +286,9 @@ class TaskDecompositionApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(schedule['estimates'], {'charts': 50})
         self.assertTrue(schedule['blocks'])
+        self.assertEqual(sum((app.datetime.fromisoformat(block['endAt']) -
+                              app.datetime.fromisoformat(block['startAt'])).total_seconds() / 60
+                             for block in schedule['blocks']), 50)
 
     def test_completed_tasks_bad_conversation_and_stale_preview_are_rejected(self):
         client = self.client()

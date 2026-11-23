@@ -130,9 +130,9 @@ def _apply_remaining(task, items):
     for step in items:
         matches = completed_by_title.get(normalized(step['title']), [])
         new_outcome = outcome(step)
-        # Keep legacy title-only matching when either outcome is unknown.
+        # An unknown completed outcome cannot prove an explicit new deliverable is done.
         match = next((prior for prior in matches if not new_outcome
-                      or not outcome(prior) or outcome(prior) == new_outcome), None)
+                      or outcome(prior) == new_outcome), None)
         if match is not None:
             prior = match['id']
             matches.remove(match)
