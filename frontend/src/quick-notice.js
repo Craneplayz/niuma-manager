@@ -34,6 +34,23 @@ function field(text, label) {
   return text.match(new RegExp(label + "[：:]\\s*([^\\n。；;📅📍]+)", "u"))?.[1].trim() || "";
 }
 
+function examNotice(text, today) {
+  const labels = "(?:考核|考试)";
+  const when = field(text, labels + "时间");
+  if (!when || [...text.matchAll(/(?:考试|考核)时间[：:]/gu)].length !== 1 ||
+      /取消|延期|待定|另行通知/u.test(when)) return null;
+  const time = timedEvent(when, today);
+  const course = field(text, "课程名称") || text.match(/《([^》\n]+)》\s*(?:课程)?(?:期末|期中)?(?:考试|考核)/u)?.[1];
+  if (!time || !course || course.length > 80) return null;
+  const kind = text.match(/(?:期末|期中|结课|补考)(?:考核|考试)?/u)?.[0] || (text.includes("考核时间") ? "考核" : "考试");
+  const place = field(text, labels + "地点"), format = field(text, labels + "(?:形式|方式)");
+  const instructions = text.match(/(?:注意事项|考场要求)[：:]\s*([\s\S]+)/u)?.[1]
+    ?.split(/\n\s*(?:任课教师|通知人|[0-9]{4}\s*年)/u)[0].trim();
+  const notes = [place && "地点：" + place, time.range && "时段：" + time.range,
+    format && "形式：" + format, instructions].filter(Boolean).join("\n");
+  return { title: course + kind, course, explicitCourse: true, due: time.due, dueTime: time.dueTime, timeKind: "event", notes };
+}
+
 function poster(text, today) {
   let when = field(text, "(?:活动|会议|讲座|比赛)时间");
   let place = field(text, "(?:活动|会议|讲座|比赛)地点");
@@ -98,5 +115,5 @@ function serviceNotice(text) {
 export function summarizeQuickNotice(source, today) {
   const text = source.replace(/&#(?:x20|32);|&nbsp;/giu, " ").replace(/\\(?=[~\n\r])/gu, "")
     .replace(/^\s*@(?:所有人|全体成员)\s*/u, "").trim();
-  return changeOfDate(text, today) || poster(text, today) || serviceNotice(text);
+  return examNotice(text, today) || changeOfDate(text, today) || poster(text, today) || serviceNotice(text);
 }

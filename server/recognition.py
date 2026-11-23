@@ -386,7 +386,37 @@ def route(handler,db,uid,path,body,ApiError):
     raise ApiError(404,'识别接口不存在')
 
 
-def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None):
+def add_quick_results(db, uid, request, ApiError):
+    """Finish this explicit Add command inside the worker's result transaction."""
+    records = {r['input_id']: r for r in request['records']}
+    rows = db.execute("""SELECT id,version,candidate FROM recognition_candidates
+        WHERE user_id=? AND request_id=? AND state='pending' AND version=1""",
+        (uid, request['request_id'])).fetchall()
+    for row in rows:
+        candidate = json.loads(row['candidate'])
+        record = records[candidate['input_id']]
+        deadline = candidate['deadline']
+        attendance = bool(re.search(r'参加|出席|观看|考试|考核|讲座|讲坛|沙龙', candidate['title']))
+        event = attendance and not re.search(r'报名|提交|申请|截止', candidate['title'] + (deadline.get('raw') or ''))
+        when = None
+        if (deadline['status'] in ('explicit', 'inferred') and deadline['value']
+                and (deadline['kind'] == 'deadline' or event and deadline['kind'] == 'reference')):
+            if deadline['precision'] == 'date':
+                when = dict(date=deadline['value'], precision='date')
+            elif deadline['precision'] == 'datetime':
+                from zoneinfo import ZoneInfo
+                stamp = datetime.fromisoformat(deadline['value'].replace('Z', '+00:00')).astimezone(ZoneInfo(record['timezone']))
+                when = dict(date=stamp.date().isoformat(), time=stamp.strftime('%H:%M'), precision='datetime')
+        description = candidate['description'] or ''
+        if record.get('source_url'):
+            description = (description + '\n链接：' + record['source_url']).strip()
+        draft = dict(title=candidate['title'], description=description, course=candidate['course_or_project'], due=when,
+                     content_type='notice' if candidate['notice_type'] in ('cancel','postpone','update') else 'task')
+        resolve_candidate(db, uid, row['id'], dict(action='create', version=row['version'], draft=draft),
+                          ApiError, direct_add=True, event=event)
+
+
+def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=False, event=False):
     """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     import submission_runtime
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
@@ -424,11 +454,11 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None):
         if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
             raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
     if action!='ignore':
-        if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
-        if c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
+        if not auto and not direct_add and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
+        if not direct_add and c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
         taskrow=db.execute('SELECT * FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
         version=taskrow['version'] if taskrow else 0
-        if not auto and body.get('tasks_version')!=version:
+        if not auto and not direct_add and body.get('tasks_version')!=version:
             if intent:
                 import quick_task_jobs
                 quick_task_jobs.check_version(db,uid,body.get('tasks_version'),version,ApiError)
@@ -470,6 +500,10 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None):
                 platform=c['sources'][0]['platform']
                 source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
                 target=dict(id=intent['newTaskId'] if intent is not None else secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=intent.get('createdAt',datetime.now(timezone.utc).isoformat()) if intent is not None else datetime.now(timezone.utc).isoformat())
+                if direct_add:
+                    target['source'] = '一句话添加'
+                    if event and confirmed_due:
+                        target['eventAt'], target['due'] = confirmed_due, None
                 tasks.append(target)
                 target['course']=course
                 target['category']='课程作业' if course else '个人事务'

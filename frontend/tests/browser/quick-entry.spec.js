@@ -24,7 +24,7 @@ test('typed time is highlighted in place, saved once, and editable in the main l
   await page.screenshot({ path: info.outputPath('quick-entry.png') });
   await form.locator('#quick-course-button').click();
   await form.locator('#quick-course').fill('数算');
-  await form.getByRole('button', { name: '添加', exact: true }).click();
+  await form.getByRole('button', { name: '加入', exact: true }).click();
   const row = page.locator('.task-row[data-just-added]');
   await expect(row.locator('.task-title')).toHaveText('上数算课');
   await expect(row.locator('.task-deadline')).toHaveText('明天 08:00');
@@ -67,7 +67,7 @@ test('quick entry preserves filters and keeps an out-of-filter result accessible
   await page.getByRole('button', { name: '添加图片或文件' }).click();
   await (await picker).setFiles({ name: '海报.png', mimeType: 'image/png', buffer: Buffer.from('sample') });
   await expect(page.locator('#quick-selected-files')).toContainText('海报.png');
-  await expect(page.locator('.quick-submit')).toHaveText('上传并识别');
+  await expect(page.locator('.quick-submit')).toHaveText('加入');
   await expect(page.getByRole('button', { name: '取消添加' })).toHaveCount(0);
   await page.mouse.click(2, 2);
   await expect(page.locator('#task-drawer')).not.toBeVisible();

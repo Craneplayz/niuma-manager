@@ -144,6 +144,8 @@ def process(path, uid, rid, attempt, ApiError, *, instance_id):
                                                    before_save=guard,on_admitted=admitted)
             if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
             guard(db)
+            if rid.startswith('quick-add:'):
+                recognition.add_quick_results(db,uid,request,ApiError)
             error = result['errors'][0] if result.get('errors') else None
             db.execute('UPDATE text_import_jobs SET state=?,error=?,updated_at=? WHERE user_id=? AND request_id=?',
                        (result['status'],json.dumps(error) if error else None,stamp(),uid,rid))

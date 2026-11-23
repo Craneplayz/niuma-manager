@@ -19,6 +19,7 @@ async function workspace(page) {
       json = { jobs: [] };
       if (req.method() === "POST") {
         requests.push(req.postDataJSON());
+        json = { job_id: "job-synthetic" };
         if (rejected) { rejected = false; status = 503; json = { error: "请重试" }; }
       }
     }
@@ -42,11 +43,12 @@ test("drop anywhere in the dialog, retry the same upload and keep the typed note
   });
   await expect(page.locator("#quick-selected-files")).toContainText("讲座.png");
   expect(requests).toEqual([]);
-  await page.getByRole("button", { name: "上传并识别" }).click();
+  await page.getByRole("button", { name: "加入" }).click();
   await expect(page.locator("#task-edit-error")).not.toBeEmpty();
   await expect(page.locator("#quick-text")).toHaveValue("请记录讲座时间");
-  await page.getByRole("button", { name: "上传并识别" }).click();
-  await expect(page).toHaveURL(/importSource=files/);
+  await page.getByRole("button", { name: "加入" }).click();
+  await expect(page.locator("#quick-task-form")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/page=import/);
   expect(requests.length).toBe(3);
   expect(requests[0]).toBe("asset");
   expect(requests[1]).toEqual(requests[2]);
@@ -59,8 +61,9 @@ test("multi-action notice uses the batch importer and optional publication time"
   await page.locator("#quick-text").fill(text);
   await page.getByRole("button", { name: "设置通知发布时间" }).click();
   await page.locator("#quick-published").fill("2026-11-20T08:00");
-  await page.getByRole("button", { name: "识别通知" }).click();
-  await expect(page).toHaveURL(/importSource=text|page=import/);
+  await page.getByRole("button", { name: "加入" }).click();
+  await expect(page.locator("#quick-task-form")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/page=import/);
   expect(requests[0].records[0]).toMatchObject({ text, published_at: { value: "2026-11-20T08:00:00+08:00" } });
 });
 
@@ -74,7 +77,7 @@ test("a bare link is read on submit, and only an unreadable page asks for detail
   expect(reads).toEqual([link]);
   await page.locator("#quick-link-text").fill("明天上午10点半有数算考试，你帮我记一下");
   await expect(page.locator("#quick-summary")).toHaveText("数算考试");
-  await expect(page.locator(".quick-submit")).toHaveText("添加");
+  await expect(page.locator(".quick-submit")).toHaveText("加入");
 });
 
 test("a readable link goes straight to notice recognition with its source", async ({ page }) => {
@@ -85,4 +88,26 @@ test("a readable link goes straight to notice recognition with its source", asyn
   await page.getByRole("button", { name: "读取链接" }).click();
   await expect(page.locator("#quick-task-form")).toHaveCount(0);
   expect(requests[0].records[0]).toMatchObject({ text, source_url: link });
+});
+
+test("a submitted notice survives reload and appears as a saved task on the list", async ({ page }) => {
+  await workspace(page);
+  let requestId, finished = false;
+  await page.route("**/api/recognition/text-jobs", async route => {
+    if (route.request().method() === "POST") requestId = route.request().postDataJSON().request_id;
+    await route.fulfill({ json: { jobs: [{ request_id: requestId, state: finished ? "success" : "recognizing" }] } });
+  });
+  await page.route("**/api/workspace", route => route.fulfill({ json: {
+    tasks: { value: finished ? [{ id: "created", title: "访谈提纲", status: "not_started", recognitionHistory: [{requestId}] }] : [], version: finished ? 1 : 0 },
+    taskWriteOwner: "student", taskWriteGeneration: 0,
+  } }));
+  await page.locator("#quick-text").fill("下周一提交报名表；下周三前把访谈提纲发给组长。");
+  await page.locator(".quick-submit").click();
+  await expect(page.locator(".task-page")).toContainText("完成后将自动加入清单");
+  await page.reload();
+  await expect(page.locator(".task-page")).toContainText("完成后将自动加入清单");
+  finished = true;
+  await expect(page.locator('.task-row[data-task-id="created"]')).toContainText("访谈提纲");
+  await expect(page.locator(".task-row.is-pending-review")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/page=import/);
 });

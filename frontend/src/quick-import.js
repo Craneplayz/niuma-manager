@@ -1,3 +1,4 @@
+import { newId } from "./id.js";
 import { materialAccept, newMaterialDraft } from "./materials-ui.js";
 import { buildTextImport } from "./import-ui.js";
 
@@ -87,7 +88,7 @@ export function bindQuickImport(form, options, refresh) {
     for (const el of controls) el.disabled = true;
     const primary = form.querySelector(".quick-submit");
     primary.textContent = kind === "link" ? "读取中…" : "提交中…";
-    let accepted = false;
+    let receipt;
     try {
       let text = typedText();
       if (kind === "link") {
@@ -105,26 +106,25 @@ export function bindQuickImport(form, options, refresh) {
       }
       const original = [input.value.trim(), typedSupplement()].filter(Boolean).join("\n");
       if (kind === "files") {
-        if (!draft || draft.text !== original) draft = { ...newMaterialDraft(), text: original };
-        await options.submitFiles(files, draft, signal);
+        if (!draft || draft.text !== original) draft = { ...newMaterialDraft("quick-add:"), text: original };
+        receipt = await options.submitFiles(files, draft, signal);
       } else {
         const published = form.querySelector("#quick-published").value;
         const key = JSON.stringify([text, published, original]);
         if (!textBody || signature !== key) {
-          textBody = buildTextImport(text, published); signature = key;
+          textBody = buildTextImport(text, published, "quick-add:" + newId()); signature = key;
           const link = url();
           if (link) textBody.records[0].source_url = link;
         }
-        await options.submitNotice(textBody);
+        receipt = await options.submitNotice(textBody, signal);
       }
-      accepted = !signal.aborted;
     } catch (cause) { if (!signal.aborted) error.textContent = cause.message || "提交失败，请重试。"; }
     finally {
       busy = false; form.removeAttribute("aria-busy");
       if (!signal.aborted) {
         for (const el of controls) el.disabled = false;
         refresh();
-        if (accepted) options.openResults(kind);
+        if (receipt) options.added(receipt);
         else if (!extra.hidden) supplement.focus();
       }
     }

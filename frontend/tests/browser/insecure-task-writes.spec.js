@@ -158,7 +158,7 @@ test('ordinary HTTP supports task CRUD and restoration without local plaintext o
     await page.locator('[data-action="task-new"]').click();
     const drawer = page.locator('#task-drawer');
     await drawer.locator('#quick-text').fill(marker + '-new');
-    await drawer.getByRole('button', { name: '添加', exact: true }).click();
+    await drawer.getByRole('button', { name: '加入', exact: true }).click();
     await slowCreate.entered;
     const id = f.mutations[0].body.operation.intent.draft.id;
     await expect(drawer).toBeVisible();

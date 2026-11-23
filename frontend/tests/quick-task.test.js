@@ -124,3 +124,21 @@ test("a spoken exam reminder keeps its course and half hour without the request 
   assert.deepEqual(parsed.task, { title: "数算考试", course: "数算", due: "2026-11-23", dueTime: "10:30", timeKind: "event" });
   assert.equal(parseQuickTask("明天上午10点半有一场期末考试，帮我记录一下", options).course, "");
 });
+
+test("labelled exam uses the assessment date and keeps instructions and end time", () => {
+  const source = [
+    "各位同学：","现将《医学专业英语》课程期末考核相关安排通知如下，请大家知悉并按时参加。",
+    "考核时间：2026 年 12 月 10 日（星期四） 14:00–15:30","考核地点：理教 204 教室",
+    "考核形式：闭卷笔试","课程名称：医学专业英语","注意事项：",
+    "① 请携带学生证，提前 15 分钟到场；迟到超过 30 分钟不得入场。",
+    "② 禁止携带手机、资料、草稿纸等，按考场要求存放个人物品。",
+    "③ 答题使用黑色签字笔，遵守考场纪律，诚信应考。","任课教师","2026 年 11 月 23 日",
+  ];
+  for (const separator of ["\n", "\\\n"]) {
+    const { task, localOnly } = analyzeQuickTask(source.join(separator), {today:"2026-11-22", defaultCourse:"其他课程"});
+    assert.equal(localOnly, true);
+    assert.deepEqual([task.title, task.course, task.due, task.dueTime, task.timeKind],
+      ["医学专业英语期末考核", "医学专业英语", "2026-12-10", "14:00", "event"]);
+    for (const fact of ["14:00–15:30", "理教 204 教室", "闭卷笔试", ...source.slice(7,10)]) assert.ok(task.notes.includes(fact));
+  }
+});

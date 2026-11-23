@@ -711,9 +711,12 @@ def _process(db_path, job_id):
             with diagnostics.capture(db,row['user_id'],request['request_id']) as diagnostic_attempt:
                 attempt_errors = []
                 origin_job_id, content_key = job_id, None
+                direct_add = False
                 try:
                     assets = account_asset_loader(db_path, row['user_id'])
-                    content_key = _content_key(request)
+                    direct_add = request['request_id'].startswith('quick-add:') and db.execute(
+                        'SELECT 1 FROM manual_material_jobs WHERE job_id=?',(job_id,)).fetchone()
+                    content_key = None if direct_add else _content_key(request)
                     cached = db.execute('''SELECT j.* FROM wechat_content_cache c JOIN wechat_jobs j ON j.id=c.job_id
                         WHERE c.user_id=? AND c.content_key=? AND j.user_id=? AND j.status='succeeded' ''',
                         (row['user_id'],content_key,row['user_id'])).fetchone() if content_key and not previous else None
@@ -831,8 +834,12 @@ def _process(db_path, job_id):
                         status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[result['status']]
                     if status in ('succeeded', 'partial_failed'):
                         if origin_job_id == job_id:
-                            _apply_clear_tasks(db, row, result)
+                            if not direct_add:
+                                _apply_clear_tasks(db, row, result)
                             _store_candidates(db, row, result)
+                            if direct_add:
+                                from recognition import add_quick_results
+                                add_quick_results(db,row['user_id'],request,ValueError)
                         else:
                             db.execute('INSERT INTO wechat_job_origins VALUES(?,?)',(job_id,origin_job_id))
                             _store_candidates(db,row,result,origin_job_id)

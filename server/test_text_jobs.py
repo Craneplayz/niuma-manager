@@ -88,6 +88,21 @@ class TextJobsTests(unittest.TestCase):
         return self.call('/recognition/text-jobs/'+quote(self.request['request_id'],safe='')+'/'+action,
                          dict(attempt=attempt),uid)
 
+    def test_quick_add_persists_once_without_user_review(self):
+        self.request['request_id'] = 'quick-add:synthetic'
+        with patch.object(recognition, 'recognize', self.recognize):
+            self.release.set()
+            self.assertEqual(self.call(body=self.request)[0], 200)
+            text_jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.job()['state'], 'success')
+            self.assertEqual(self.call(body=self.request)[0], 200)
+        self.assertEqual(self.calls, 1)
+        task, = self.call('/tasks/quick-recognition')[1]['value']
+        self.assertEqual(task['source'], '一句话添加')
+        self.assertEqual(task['recognitionHistory'][0]['requestId'], self.request['request_id'])
+        self.assertEqual(self.call('/recognition/batches')[1][0]['items'][0]['state'], 'applied')
+        self.assertEqual(self.call('/tasks/quick-recognition', uid='B')[1]['value'], [])
+
     def test_acceptance_reload_duplicate_and_candidate_persistence(self):
         with patch.object(recognition,'recognize',self.recognize):
             status,envelope = self.call(body=self.request)

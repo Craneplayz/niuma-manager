@@ -24,7 +24,7 @@ export function renderQuickEntry({ icon }) {
       <button type="button" id="quick-course-button" class="quick-property" aria-expanded="false" aria-controls="quick-course-panel">
         ${icon("tasks")}<span></span>
       </button>
-      <button type="submit" class="btn primary quick-submit">添加</button>
+      <button type="submit" class="btn primary quick-submit">加入</button>
     </div>
     <div id="quick-date-panel" class="quick-fields" hidden>
       <label class="field"><span id="quick-date-label">截止日期</span><input id="quick-date" type="date"></label>
@@ -109,7 +109,7 @@ export function bindQuickEntry(form, options) {
     courseButton.title = course || "设置分类";
     const mode = imports.mode(analysis.localOnly);
     const submit = form.querySelector(".quick-submit");
-    if (!imports.isBusy()) submit.textContent = ({ files: "上传并识别", text: "识别通知", link: "读取链接" })[mode] || "添加";
+    if (!imports.isBusy()) submit.textContent = mode === "link" ? "读取链接" : "加入";
     summary.hidden ||= Boolean(mode);
     courseButton.hidden = Boolean(mode);
     dateButton.hidden = mode === "files" || mode === "link";
@@ -196,7 +196,7 @@ export function bindQuickEntry(form, options) {
       event.preventDefault();
       event.stopPropagation();
       const revisedDate = readDraft().due || "无截止日期";
-      error.textContent = `已跨日，当前截止日期为「${revisedDate}」。确认后再点添加。`;
+      error.textContent = `已跨日，当前截止日期为「${revisedDate}」。确认后再点加入。`;
     }
   });
 

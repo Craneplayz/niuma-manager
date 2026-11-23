@@ -22,8 +22,8 @@ export function buildMaterialRequest(receipts, id = "material:" + newId(), now =
 }
 
 export const materialAccept = ".png,.jpg,.jpeg,.pdf,.docx";
-export function newMaterialDraft() {
-  return { id: "material:" + newId(), receipts: [], request: null };
+export function newMaterialDraft(prefix = "material:") {
+  return { id: prefix + newId(), receipts: [], request: null };
 }
 export async function submitMaterialFiles(files, draft, { limits, signal, valid, text = "" }) {
   if (!limits?.asset_bytes) throw new Error("文件上传设置尚未就绪，请稍后重试");
@@ -47,7 +47,7 @@ export async function submitMaterialFiles(files, draft, { limits, signal, valid,
     }
     draft.request = body;
   }
-  await api(root + "imports", draft.request, "POST", { signal });
+  return api(root + "imports", draft.request, "POST", { signal });
 }
 
 export function createMaterialsUI(host) {

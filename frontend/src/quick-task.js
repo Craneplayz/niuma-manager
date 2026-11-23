@@ -162,8 +162,9 @@ export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultC
   const source = String(input ?? "");
   const notice = summarizeQuickNotice(source, today);
   if (notice) {
-    const course = knownCourseIn(notice.title, courses) || defaultCourse || notice.course;
-    return { task: { ...notice, course }, spans: [], explicitCourse: false, localOnly: true };
+    const course = notice.explicitCourse ? notice.course : knownCourseIn(notice.title, courses) || defaultCourse || notice.course;
+    const { explicitCourse = false, ...task } = notice;
+    return { task: { ...task, course }, spans: [], explicitCourse, localOnly: true };
   }
   // A long or multi-sentence notice may contain several unrelated dates. Save
   // a short, editable preview and let recognition read the complete original.

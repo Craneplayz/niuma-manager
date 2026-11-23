@@ -42,6 +42,7 @@ import { createTimetableUI } from "./timetable.js";
 import { nextCalendarActivityChange } from "./calendar-activity.js";
 import { createCalendarDrag } from "./calendar-drag.js";
 import { renderQuickEntry, bindQuickEntry } from "./quick-entry.js";
+import { createQuickAddJobs } from "./quick-add-jobs.js";
 import { submitMaterialFiles } from "./materials-ui.js";
 import { renderTaskDrawer } from "./task-drawer.js";
 import { renderPageHeading } from "./page-layout.js";
@@ -233,6 +234,15 @@ const host = {
 const imports = createImportUI(host),
   account = createAccountUI(host);
 const timetable = createTimetableUI(host, { api, session, accountVersion, readStoredTimetable, acceptStoredTimetable });
+const quickAdds = createQuickAddJobs({ render, toast, escapeHtml: esc, async refreshTasks(requestId) {
+  const epoch = accountVersion();
+  const next = await refreshStore();
+  if (epoch !== accountVersion()) return 0;
+  state = next;
+  const added = state.tasks.filter(t => t.recognitionHistory?.some(h => h.requestId === requestId));
+  if (added.length) recentTaskId = added[0].id;
+  return added.length;
+} });
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 let readQuickDraft = null, recentTaskId = "";
@@ -549,7 +559,7 @@ function tasksPage() {
     actions: ui.scope === "notices" ? "" : `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
     escapeHtml: esc,
   });
-  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${view === "list" ? toolbar() : ""}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${view === "list" ? toolbar() : ""}${quickAdds.markup()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
     .map((c) => `<option value="${esc(c)}">`)
     .join("")}</datalist></section>`;
 }
@@ -706,7 +716,11 @@ function openTask(id, editing = false, selectedDate = "") {
     const timetableCourses = readStoredTimetable().value.flatMap(table => table.meetings.map(meeting => meeting.title));
     readQuickDraft = bindQuickEntry(drawer.querySelector("form"), {
       isDemo: demo,
-      submitNotice: imports.startQuickNotice,
+      async submitNotice(body, signal) {
+        await flushStore();
+        await api("/api/recognition/text-jobs", body, "POST", { signal });
+        return { kind: "text", id: body.request_id, requestId: body.request_id };
+      },
       async readLink(url, signal) {
         if (!url.startsWith("https://")) return "";
         return (await api("/api/quick/article", { url }, "POST", { signal, timeoutMs: 28000 })).text;
@@ -716,14 +730,13 @@ function openTask(id, editing = false, selectedDate = "") {
         const valid = () => !signal.aborted && epoch === accountVersion();
         const { limits } = await api("/api/materials/limits", undefined, "GET", { signal });
         await flushStore();
-        await submitMaterialFiles(files, draft, { limits, signal, valid, text: draft.text });
+        const job = await submitMaterialFiles(files, draft, { limits, signal, valid, text: draft.text });
+        return { kind: "files", id: job.job_id, requestId: draft.id };
       },
-      openResults(source) {
+      added(job) {
+        quickAdds.track(job);
         closeDrawer();
-        imports.setSource(source);
-        ui.importSource = source;
-        navigatePage("import");
-        void imports.load();
+        render();
       },
       today: todayKey(), getToday: todayKey, defaultDate: selectedDate,
       defaultCourse: taskView() === "list" ? ui.course : "",
@@ -1134,6 +1147,7 @@ document.addEventListener("click", async (e) => {
   imports.cancelRecoveryNavigation();
   const button = e.target.closest("button");
   if (!button) return;
+  if (button.dataset.quickJob) return quickAdds.action(button);
   if (button.dataset.errorFeedback) {
     await submitErrorFeedback(button, {
       send: body => api("/api/error-reports", body, "POST", { timeoutMs: 10000 }),
