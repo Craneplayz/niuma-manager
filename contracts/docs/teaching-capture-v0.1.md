@@ -4,9 +4,9 @@
 
 可选的 `request.records[0].platform_item` 包含 `kind`、可空的 `due` 和 `submitted`。到期时间按平台精度记录为日期或带时区的时间，并在来源元数据保留证据。支持的 kind 如下。
 
-- `native_assignment` 要求同一课程、内容 ID 和处于 active 的原生详情。只有成绩行链接明确指向这个详情时，才可附带 `gradebook_id` 或补充到期时间。
+- `native_assignment` 要求同一课程、内容 ID 和处于 active 的原生详情。成绩行的原生详情链接或同课程内容接口的 `contentHandler.gradeColumnId` 可证明两种 ID 的对应关系。只有明确关联才可附带 `gradebook_id` 或补充到期时间。
 - `gradebook_assignment` 以课程和成绩簿 ID 识别。显式已提交仅过滤本条成绩明细。未评分、空状态和同名详情均不赋予完成已有任务的权限。
-- `listed_assignment` 表示列表条目链接到原生作业。详情缺失或到期字段有冲突时仍可按作业归类，提交状态和时间需另行核实。
+- `listed_assignment` 表示列表条目链接到原生作业。详情缺失或到期字段有冲突时仍可按作业归类，提交状态和时间需另行核实。已证实的成绩列 ID 仍可用于消除重复待核对项。
 - `announcement` 使用所属课程和公告原发布时间，`due` 为空，正文识别产生任务时间。
 
 submitted 的 basis 必须是 review_submission_history_title，active 对应 active_assignment_page，unknown 对应 unknown；普通栏目、正文中的“已提交”、PDF、模型判断不具备提交状态权限。缺少原生作业身份时输出 null，不猜测。

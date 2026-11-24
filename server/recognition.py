@@ -183,6 +183,15 @@ def batches(db,uid):
         elif request.get('contract_version') == '0.2':
             output['errors'] = [diagnostics.bind(db,uid,row['request_id'],e,attempt_id=row['attempt_id']) for e in output['errors']]
         result.append(dict(request=request,result=output,demo=bool(row['demo']),items=items,importId=metadata['import_id'] if metadata else row['request_id'],importedAt=metadata['created_at'] if metadata else None,importSource=metadata['source'] if metadata else None,sourceSyncManaged=row['request_id'] in sync_requests))
+    rechecks = [item for batch in result for item in batch['items']
+                if item['state']=='pending' and item['candidate'].get('notice_type')=='uncertain'
+                and batch['request'].get('contract_version')=='teaching-workspace/0.1']
+    if rechecks:
+        from teaching_identity import related_saved_tasks
+        related = related_saved_tasks(db, uid)
+        for item in rechecks:
+            if item['id'] in related:
+                item['sameSourceTaskId'] = related[item['id']]
     return result
 
 def due(value):

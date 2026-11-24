@@ -1,6 +1,7 @@
+import type { APIRequestContext } from "playwright";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { addGradebookItems, gradebookItems } from "../src/pku-gradebook.js";
+import { addGradebookItems, gradebookItems, resolveGradebookLinks } from "../src/pku-gradebook.js";
 import { toTeachingCaptures } from "../src/pku-teaching.js";
 import { extractCourseSourcesFromHtml } from "../src/pku-source.js";
 import { enrichAssignmentSource } from "../src/pku-assignment.js";
@@ -25,6 +26,25 @@ describe("teaching gradebook capture", () => {
       {kind:"gradebook_assignment", due:null, submitted:false},
       {kind:"gradebook_assignment", due:"2026-12-02T01:30:00+08:00", submitted:true}]);
     expect(JSON.stringify(captures)).not.toContain("PRIVATE_SCORE");
+  });
+  it("joins an unlinked grade row by its course content metadata even with different titles", async () => {
+    const listing = extractCourseSourcesFromHtml(`<ul id="content_listContainer"><li><div class="item" id="_3_1"><h3><a href="${detailUrl}">实验说明</a></h3></div><div class="details">提交报告</div></li></ul>`,
+      {course:"合成课", section:"课程作业", sourceUrl:contentUrl, collectedAt});
+    const rows = gradebookItems(gradeRow(5,"Lab 0","作业",0),gradeUrl);
+    const metadata = {id:"_3_1", contentHandler:{id:"resource/x-bb-assignment", gradeColumnId:"_5_1"}};
+    const calls: string[] = [];
+    const request = {get: async (url: string) => {
+      calls.push(url);
+      return {ok:()=>true, json:async()=>metadata, dispose:async()=>{}};
+    }} as Pick<APIRequestContext, "get">;
+    metadata.id="_4_1";
+    await resolveGradebookLinks(request, listing, rows, gradeUrl);
+    expect(rows[0].contentId).toBeNull();
+    metadata.id="_3_1";
+    await resolveGradebookLinks(request, listing, rows, gradeUrl);
+    expect(calls[0]).toBe("https://course.pku.edu.cn/learn/api/public/v1/courses/_1_1/contents/_3_1?fields=id%2CcontentHandler");
+    expect(addGradebookItems(listing,rows,gradeUrl,"合成课",collectedAt)).toEqual([]);
+    expect(listing[0].gradebook?.id).toBe("_5_1");
   });
   it("uses a detail's own facts when equal names do not prove equal IDs", () => {
     const listing = extractCourseSourcesFromHtml(`<ul id="content_listContainer"><li id="item"><div class="item" id="_3_1"><h3><a href="${detailUrl}">第四章作业</a></h3></div><div class="details">提交报告</div></li></ul>`,

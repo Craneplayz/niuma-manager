@@ -66,7 +66,7 @@ def _account_barrier(database, uid):
 OWNER_TABLES = (
     'proposals', 'decomposition_proposals', 'recognition_candidates',
     'recognition_batches', 'recognition_import_records', 'recognition_record_policies', 'text_import_jobs',
-    'recognition_attempt_diagnostics', 'source_versions', 'teaching_sources',
+    'recognition_attempt_diagnostics', 'source_versions', 'teaching_sources', 'teaching_gradebook_links',
     'teaching_asset_refs', 'teaching_asset_files', 'teaching_asset_inputs',
     'teaching_course_index', 'teaching_context_dependencies',
     'teaching_submission_recoveries', 'teaching_submission_requests', 'teaching_submission_sources',

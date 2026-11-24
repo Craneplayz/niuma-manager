@@ -96,7 +96,7 @@ def catalog(db, uid, account, scoped=None):
 
 def select(db, uid, account, entry, *, materials=None, receipts=None):
     from server.teaching_platform import route
-    if route(entry) == 'platform': return []
+    if route(entry) in ('platform','text'): return []
     scoped = contract.scope(entry['record'])
     if scoped is None: return []
     query = terms(searchable(entry)); selected = []
@@ -136,7 +136,7 @@ def catalog_revision(db, uid, account, entry):
     sources outside the selected top-K. Request IDs are execution identities.
     """
     from server.teaching_platform import route
-    if route(entry) == 'platform': return contract.revision([])
+    if route(entry) in ('platform','text'): return contract.revision([])
     scope = contract.scope(entry['record'])
     if scope is None: return contract.revision([])
     rows = db.execute('''SELECT s.input_id,s.digest,s.request FROM teaching_sources s

@@ -436,6 +436,27 @@ class TeachingIntegrationTests(unittest.TestCase):
                 card, = batch['items']
                 self.assertEqual(card['candidate']['content_type'], expected)
 
+    def test_new_column_identity_retires_existing_review_without_a_second_task(self):
+        fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'
+        native = json.loads(fixture.read_text())
+        grade = deepcopy(native)
+        grade['assignment'] = None
+        ge = grade['request']['records'][0]
+        ge['platform_item']['kind'] = 'gradebook_assignment'
+        ge['record'].update(input_id='pku:gradebook:old', source_item_id='_8_1')
+        ids = []
+        for record in [grade, native]:
+            view, = self.sync_native(record)['requests']
+            status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN,request_id=view['request_id']))
+            self.assertEqual(status, 200, batches)
+            ids.append(next(b for b in batches if b['request']['request_id']==view['request_id'])['items'][0]['id'])
+        self.assertEqual(self.call('/recognition/candidates/'+ids[1]+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        native['request']['records'][0]['platform_item']['gradebook_id'] = '_8_1'
+        for _ in range(2):
+            self.assertEqual(self.sync_native(native)['requests'], [])
+            self.assertEqual([i['id'] for b in self.call('/recognition/batches')[1] for i in b['items']], [ids[1]])
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']), 1)
+
     def test_gradebook_then_native_assignment_requires_review(self):
         import recognition
         native = self.native_capture('active')

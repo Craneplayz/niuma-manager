@@ -1,5 +1,5 @@
 import { extractCourseSourcesFromHtml, deduplicateCourseSources, type CourseSourceRecord } from "./pku-source.js";
-import { addGradebookItems, gradebookItems } from "./pku-gradebook.js";
+import { addGradebookItems, gradebookItems, resolveGradebookLinks } from "./pku-gradebook.js";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { DateTime } from "luxon";
@@ -185,7 +185,10 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
               if (!response.ok()) throw new Error("gradebook unavailable");
               const html = await response.text();
               if (!html.includes("sortable_item_row")) coverageWarnings.push(course.name + "：成绩明细为空或未识别，已保留课程栏目。");
-              sources.push(...addGradebookItems(sources.slice(firstSource), gradebookItems(html, url), url, course.name, asOf.toISO()!));
+              const listed = sources.slice(firstSource);
+              const items = gradebookItems(html, url);
+              await resolveGradebookLinks(context.request, listed, items, url);
+              sources.push(...addGradebookItems(listed, items, url, course.name, asOf.toISO()!));
             } finally { await response.dispose(); }
           } catch {
             coverageWarnings.push(course.name + "：成绩明细不可用，已保留课程栏目。");

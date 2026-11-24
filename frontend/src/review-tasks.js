@@ -19,6 +19,11 @@ export function projectReviewTasks(tasks, items, today) {
         proposedDate: date.date ? deadlineLabel({ due: date.date, dueTime: date.time }, today) : '' });
       continue;
     }
+    const sameSource = item.sameSourceTaskId && rows.find(task => task.id === item.sameSourceTaskId);
+    if (sameSource) {
+      sameSource.reviewChanges.push({ id: item.id, title: candidate.title, action: 'sourceReview' });
+      continue;
+    }
     const knownDate = candidate.deadline?.status === 'explicit' && Boolean(shiftDay(date.date, 0));
     const source = candidate.sources?.[0];
     const record = item.batch?.request?.records?.find(record => record.input_id === candidate.input_id);

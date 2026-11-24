@@ -70,6 +70,40 @@ def title(draft):
     return ' · '.join([head,*details])
 
 
+_ORDINAL = re.compile(r'第\s*[零〇一二两三四五六七八九十百0-9]+\s*[章讲周次]')
+_DATE = r'\d{4}[./-]\d{1,2}[./-]\d{1,2}'
+_NUMBERED_LAB = re.compile(rf'lab\s*#?\s*(\d{{1,3}})(?:\s*\[\s*{_DATE}\s*[-–—]\s*{_DATE}\s*\])?', re.I)
+
+
+def teaching_display_title(decision, entry, single):
+    """Render a list title without changing the teacher's label or the action identity."""
+    title = decision['title']
+    label = entry['source']['label'] or ''
+    kind = entry.get('platform_item', {}).get('kind')
+    notice = decision.get('content_type') == 'notice'
+    if notice:
+        # A single announcement uses its own heading. Multiple distinct events
+        # retain their individual titles and dates even when the heading is shared.
+        if (kind == 'announcement' and single and decision['notice_type'] == 'create'
+                and label.strip() not in ('', '公告', '通知', '课程通知', '课程公告')):
+            title = label
+        title = re.sub(r'^(?:通知|公告)\s*[·：:]\s*(?=\S)', '', title)
+        title = re.sub(r'^请(?:各位)?同学们?(?=加入|进入|进群)', '', title)
+        title = title.replace('微信课程群', '课程微信群')
+        title = re.sub(r'(?:进入|进)(?=课程微信群)', '加入', title)
+        title = re.sub(r'^关于(.+?)的(?:通知|公告)$', r'\1', title)
+        title = re.sub(r'(?<=测试)通知$|(?<=考试)通知$|(?<=调整)通知$|(?<=结果)通知$|(?<=安排)通知$', '', title)
+    elif kind in ('gradebook_assignment', 'native_assignment', 'listed_assignment') and single:
+        lab = _NUMBERED_LAB.fullmatch(label.strip())
+        if lab and (decision.get('submission_relation') != 'other' or re.match(r'实验|lab\b', title, re.I)):
+            return '实验 · 第' + str(int(lab[1])) + '次'
+        if re.fullmatch(_ORDINAL.pattern + r'作业', label.strip()) and decision.get('submission_relation') != 'other':
+            title = label
+    if notice or kind:
+        title = _ORDINAL.sub(lambda m: sequence_display(m[0]), title)
+    return title.strip() or decision['title']
+
+
 def calendar(draft,record):
     rule=draft.get('calendar_rule')
     if rule is None: return None

@@ -322,6 +322,7 @@ class CourseContextHTTPTests(unittest.TestCase):
         revised=self.run_record(next_rid)['items'][0]
         self.assertTrue(revised['candidate']['needs_review'])
         self.assertEqual(revised['candidate']['deadline']['value'],'2026-12-21')
+        self.assertEqual(revised['sameSourceTaskId'],saved[0]['id'])
         self.assertEqual(self.call('/recognition/candidates/'+revised['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
         saved=self.call('/workspace')[1]['tasks']['value']
         self.assertEqual(len(saved),1)

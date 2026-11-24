@@ -53,3 +53,14 @@ test('pending task rows escape content and expose ordinary completion and editin
   assert.match(html, /&lt;img/);
   assert.doesNotMatch(html, /data-calendar-drag-task|<script>|<img/);
 });
+
+
+test('context-only review stays reachable under its single saved task', () => {
+  const saved = { id: 't', title: '实验 · 第3次', status: 'todo' };
+  const review = { ...item('again', { notice_type: 'uncertain' }), sameSourceTaskId: 't' };
+  const rows = projectReviewTasks([saved], [review], today);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].reviewChanges[0].id, 'again');
+  assert.match(renderTaskRow(rows[0], { today }), /查看同一来源的复查结果/);
+  assert.equal(projectReviewTasks([], [review], today)[0].id, 'review:again');
+});

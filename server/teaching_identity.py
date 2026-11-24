@@ -33,8 +33,11 @@ def upgrade_pending_candidates(db):
             db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?', (json.dumps(card), cid))
 
 
-def source_digest(entry, assignment, files):
+def source_digest(entry, assignment, files, *, include_legacy_gradebook_id=False):
     stable = deepcopy(entry)
+    # A cross-reference alone does not change the facts to extract.
+    if not include_legacy_gradebook_id:
+        stable.get('platform_item', {}).pop('gradebook_id', None)
     record = stable['record']
     for key in ('collected_at', 'snapshot_id'):
         record.pop(key, None)
@@ -49,6 +52,45 @@ def source_digest(entry, assignment, files):
     record['references'].sort(key=lambda r: r['ref_id'])
     material = dict(entry=stable, assignment=assignment)
     return hashlib.sha256(canonical(material)).hexdigest()
+
+
+def initialize_gradebook(db):
+    db.execute("""CREATE TABLE IF NOT EXISTS teaching_gradebook_links(
+        user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
+        course_id TEXT NOT NULL, gradebook_id TEXT NOT NULL,
+        PRIMARY KEY(user_id,account,input_id))""")
+
+
+def record_gradebook_link(db, uid, account, entry):
+    column = entry.get('platform_item', {}).get('gradebook_id')
+    if column:
+        record = entry['record']
+        db.execute("""INSERT INTO teaching_gradebook_links VALUES(?,?,?,?,?)
+            ON CONFLICT(user_id,account,input_id) DO UPDATE SET
+            course_id=excluded.course_id, gradebook_id=excluded.gradebook_id""",
+            (uid, account, record['input_id'], record['course_id'], column))
+
+
+def retire_covered_gradebook(db, uid, account):
+    """A successful native result replaces only untouched provisional gradebook cards."""
+    import submission_runtime as controls
+    rows = db.execute("""SELECT c.id FROM recognition_candidates c
+        JOIN teaching_submission_requests g ON g.user_id=c.user_id AND g.request_id=c.request_id
+        JOIN recognition_batches gb ON gb.user_id=c.user_id AND gb.request_id=c.request_id
+        JOIN teaching_gradebook_links l ON l.user_id=g.user_id AND l.account=g.account
+          AND l.gradebook_id=json_extract(gb.request,'$.records[0].record.source_item_id')
+          AND l.course_id=json_extract(gb.request,'$.records[0].record.course_id')
+        JOIN teaching_sources n ON n.user_id=l.user_id AND n.account=l.account AND n.input_id=l.input_id
+        JOIN recognition_batches nb ON nb.user_id=n.user_id AND nb.request_id=n.request_id
+        WHERE c.user_id=? AND g.account=? AND c.state='pending' AND c.version=1 AND c.resolution IS NULL
+          AND json_extract(gb.request,'$.records[0].platform_item.kind')='gradebook_assignment'
+          AND json_extract(nb.result,'$.status') IN ('success','no_tasks')
+          AND NOT EXISTS (SELECT 1 FROM teaching_gradebook_links other
+            WHERE other.user_id=l.user_id AND other.account=l.account AND other.course_id=l.course_id
+              AND other.gradebook_id=l.gradebook_id AND other.input_id<>l.input_id)""", (uid, account)).fetchall()
+    protected = controls.manually_controlled_candidates(db, uid, rows)
+    db.executemany("DELETE FROM recognition_candidates WHERE user_id=? AND id=? AND state='pending' AND version=1 AND resolution IS NULL",
+                   [(uid, row['id']) for row in rows if row['id'] not in protected])
 
 
 GRADEBOOK_REVIEW = '本课程已处理过可能对应的成绩明细条目，请核对后再加入。'
@@ -67,7 +109,9 @@ def previous_gradebook_card(db, uid, request_id):
         WHERE current.user_id=? AND current.request_id=?
           AND json_extract(ob.request,'$.records[0].record.course_id')=json_extract(cb.request,'$.records[0].record.course_id')
           AND (json_extract(ob.request,'$.records[0].source.label')=json_extract(cb.request,'$.records[0].source.label')
-               OR json_extract(ob.request,'$.records[0].record.source_item_id')=json_extract(cb.request,'$.records[0].platform_item.gradebook_id'))
+               OR json_extract(ob.request,'$.records[0].record.source_item_id')=json_extract(cb.request,'$.records[0].platform_item.gradebook_id')
+               OR EXISTS (SELECT 1 FROM teaching_gradebook_links l WHERE l.user_id=current.user_id AND l.account=current.account
+                   AND l.input_id=current.input_id AND l.gradebook_id=json_extract(ob.request,'$.records[0].record.source_item_id')))
           AND EXISTS (SELECT 1 FROM recognition_candidates c WHERE c.user_id=old.user_id AND c.request_id=old.request_id
                       AND (c.state!='pending' OR c.version>1 OR c.resolution IS NOT NULL))
         LIMIT 1''', (uid, request_id)).fetchone()
@@ -96,6 +140,32 @@ def protect_source_changes(db, uid, request_id, cards):
                 card['needs_review'] = True
                 card['review_reasons'] = list(dict.fromkeys(card['review_reasons'] + [reason]))
     return cards
+
+
+def related_saved_tasks(db, uid):
+    """Group a context-only proposal under its source's one saved workspace row.
+
+    This is a presentation link, never authority to update or merge an action.
+    Join on the server's account-bound snapshot, not a model title or ordinal.
+    """
+    rows = db.execute("""WITH saved AS (
+        SELECT DISTINCT json_extract(t.value,'$.id') task_id, old.account,old.input_id,
+               json_extract(b.request,'$.records[0].record.snapshot_id') snapshot_id,old.request_id
+          FROM workspace w, json_each(w.value) t, json_each(t.value,'$.recognitionHistory') h
+          JOIN recognition_candidates c ON c.id=json_extract(h.value,'$.storageId') AND c.user_id=w.user_id AND c.state='applied'
+          JOIN teaching_submission_requests old ON old.user_id=c.user_id AND old.request_id=c.request_id
+          JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
+         WHERE w.user_id=? AND w.name='tasks' AND coalesce(json_type(t.value,'$.recycleBin'),'null') IN ('null','false')
+           AND coalesce(json_extract(t.value,'$.status'),'') NOT IN ('cancelled','completed','done')
+    ) SELECT c.id,min(s.task_id) FROM recognition_candidates c
+        JOIN teaching_submission_requests current ON current.user_id=c.user_id AND current.request_id=c.request_id
+        JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
+        JOIN saved s ON s.account=current.account AND s.input_id=current.input_id AND s.request_id<>current.request_id
+          AND s.snapshot_id=json_extract(b.request,'$.records[0].record.snapshot_id')
+        WHERE c.user_id=? AND c.state='pending' AND json_extract(c.candidate,'$.notice_type')='uncertain'
+          AND EXISTS (SELECT 1 FROM json_each(c.candidate,'$.review_reasons') WHERE value=?)
+        GROUP BY c.id HAVING count(DISTINCT s.task_id)=1""", (uid,uid,CHANGED_SOURCE_REVIEW))
+    return dict(rows)
 
 
 def reuse_unchanged_result(db, uid, request_id, result):

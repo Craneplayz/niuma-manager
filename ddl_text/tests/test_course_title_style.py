@@ -4,7 +4,7 @@ import unittest
 from copy import deepcopy
 
 from ddl_text.adapters import AgentError
-from ddl_text.course_facts import sequence_display, title
+from ddl_text.course_facts import sequence_display, teaching_display_title, title
 from ddl_text.teaching_draft import compile_teaching_response, evidence_catalog
 from ddl_text import diagnostics
 from ddl_text.tests.teaching_cases import model_task, policy_case
@@ -24,6 +24,16 @@ def sample(sequence='第四章',channel='书面',kind='assignment',subject='条�
 
 
 class CourseTitleStyleTests(unittest.TestCase):
+    def test_list_titles_use_source_heading_and_keep_separate_events(self):
+        entry = dict(source=dict(label='第二次阶段性测试通知'), platform_item=dict(kind='announcement'))
+        d = dict(title='考试 · 第二次阶段性测试 · 课程第二次阶段性测试', notice_type='create', content_type='notice')
+        self.assertEqual(teaching_display_title(d, entry, True), '第2次阶段性测试')
+        d['title'] = '通知 · 考前答疑'
+        self.assertEqual(teaching_display_title(d, entry, False), '考前答疑')
+        d['content_type'] = 'task'
+        entry.update(source=dict(label='Lab 3 [2026.10.01-2026.11.01]'), platform_item=dict(kind='native_assignment'))
+        self.assertEqual(teaching_display_title(d, entry, True), '实验 · 第3次')
+
     def test_equivalent_explicit_batches_have_one_display(self):
         cases={
             '第4章':('第四章','第4章','第 ４ 章','Chapter4','CHAPTER 04','Chapter #4'),

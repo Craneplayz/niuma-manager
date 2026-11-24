@@ -31,7 +31,9 @@ function platformItem(source: CourseSourceRecord) {
   const target = new URL(native.url);
   if (target.searchParams.get("content_id") !== source.source_item_id ||
       target.searchParams.get("course_id") !== new URL(source.source_url).searchParams.get("course_id")) return;
-  const listed = {kind: "listed_assignment", due: null, submitted: false} as const;
+  const gradeIdentity = source.gradebook?.contentId === source.source_item_id && source.gradebook
+    ? {gradebook_id: source.gradebook.id} : {};
+  const listed = {kind: "listed_assignment", due: null, submitted: false, ...gradeIdentity} as const;
   if (source.assignment?.state !== "active" || source.gradebook?.submitted ||
       !source.body_evidence?.included_reference_urls.includes(native.url)) return listed;
   const raw = source.assignment.due_raw;
@@ -39,7 +41,7 @@ function platformItem(source: CourseSourceRecord) {
   if (raw && !due) return listed;
   if (due && source.gradebook?.due && DateTime.fromISO(due).toMillis() !== DateTime.fromISO(source.gradebook.due).toMillis()) return listed;
   return {kind: "native_assignment", due: due ?? source.gradebook?.due ?? null, submitted: false,
-    ...(source.gradebook ? {gradebook_id: source.gradebook.id} : {})} as const;
+    ...gradeIdentity} as const;
 }
 
 /** A native v0.4 projection; successful detail text is already part of teacher_body. */

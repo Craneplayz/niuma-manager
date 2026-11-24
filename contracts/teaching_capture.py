@@ -22,7 +22,7 @@ def check_capture(value):
             if not assignment or assignment['state'] != 'active':
                 raise ValueError('native assignment requires its active detail page')
         elif kind == 'listed_assignment':
-            if item['due'] is not None or 'gradebook_id' in item:
+            if item['due'] is not None:
                 raise ValueError('listed assignment only identifies the source kind')
         elif assignment is not None or 'gradebook_id' in item:
             raise ValueError('unexpected native assignment binding')

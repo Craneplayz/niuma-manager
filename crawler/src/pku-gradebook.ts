@@ -1,5 +1,6 @@
 import { load } from "cheerio";
 import { DateTime } from "luxon";
+import type { APIRequestContext } from "playwright";
 import { sha256 } from "./core/utils.js";
 import { DEFAULT_TIMEZONE } from "./core/time.js";
 import { courseItemInputId, makeBodyEvidence, makeSourceReference, type CourseSourceRecord } from "./pku-source.js";
@@ -34,6 +35,41 @@ export function gradebookItems(html: string, url: URL): GradebookItem[] {
     items.push({id, title, due, contentId: targets.size === 1 ? [...targets][0] : null, submitted});
   }
   return items;
+}
+
+/** Resolve Blackboard's explicit content → grade column relation without requesting scores. */
+export async function resolveGradebookLinks(request: Pick<APIRequestContext, "get">,
+  sources: CourseSourceRecord[], items: GradebookItem[], url: URL) {
+  const courseId = url.searchParams.get("course_id");
+  if (!courseId || !/^_\d+_\d+$/.test(courseId)) return;
+  const missing = new Set(items.filter(item => !item.contentId).map(item => item.id));
+  if (!missing.size) return;
+  const known = new Set(items.map(item => item.contentId));
+  const ids = [...new Set(sources.filter(source => source.kind === "assignment"
+    && new URL(source.source_url).searchParams.get("course_id") === courseId)
+    .map(source => source.source_item_id).filter((id): id is string => !!id && /^_\d+_\d+$/.test(id) && !known.has(id)))];
+  const columns = new Map<string, string[]>();
+  for (let i = 0; i < ids.length; i += 4) {
+    await Promise.all(ids.slice(i, i + 4).map(async id => {
+      const endpoint = new URL(`/learn/api/public/v1/courses/${courseId}/contents/${id}`, url.origin);
+      endpoint.searchParams.set("fields", "id,contentHandler");
+      try {
+        const response = await request.get(endpoint.href, {timeout: 5000, maxRedirects: 0});
+        try {
+          if (!response.ok()) return;
+          const data = await response.json();
+          const column = data?.contentHandler?.gradeColumnId;
+          if (data?.id === id && data.contentHandler?.id === "resource/x-bb-assignment" && missing.has(column)) {
+            columns.set(column, [...(columns.get(column) ?? []), id]);
+          }
+        } finally { await response.dispose(); }
+      } catch { /* Keep the independently reviewable grade row when metadata is unavailable. */ }
+    }));
+  }
+  for (const item of items) {
+    const matches = columns.get(item.id);
+    if (!item.contentId && matches?.length === 1) item.contentId = matches[0];
+  }
 }
 
 export function addGradebookItems(sources: CourseSourceRecord[], items: GradebookItem[], url: URL, course: string, collectedAt: string) {

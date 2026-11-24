@@ -35,7 +35,7 @@ def route(entry):
     if re.search(r'(?:详见|参见|见|按照?|根据).{0,12}(?:附件|大纲|课件|此前通知|课程日历)', text):
         return 'teaching'
     if item['kind'] == 'announcement':
-        if not r['published_at'] or r['published_at']['basis'] != 'source':
+        if not r['published_at'] or r['published_at']['basis'] != 'source' or re.search(r'教学周|第[零一二两三四五六七八九十百0-9]+周|课程规则', text):
             return 'teaching'
         return 'text'
     if len(text) > 4096 or re.search(r'分阶段|分批提交|分别提交|另行提交|另交|另需|还需|还要|同时还|此外|in addition|also submit|延期|改期|取消|推迟|提前至|调整到|调整至', text, re.I):
