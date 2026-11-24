@@ -155,3 +155,23 @@ test("typed and pasted assignments use the same course identity", () => {
   assert.equal(task.course, course);
   assert.equal(task.dueTime, "10:30");
 });
+
+test("session qualifiers identify a single event and keep its local date", () => {
+  const examples = [
+    ["明天观看vct cn冠军赛，xlg对blg的那一场", "观看vct cn冠军赛（xlg对blg）", "2026-11-24", ""],
+    ["后天上午10点我想参加研讨会，李老师主讲的那场", "参加研讨会（李老师主讲）", "2026-11-25", "10:00"],
+    ["明天观看校际联赛，红队对阵蓝队", "观看校际联赛（红队对阵蓝队）", "2026-11-24", ""],
+    ["明天参加读书会，儿童专场", "参加读书会（儿童专场）", "2026-11-24", ""],
+  ];
+  for (const [text, title, due, dueTime] of examples) {
+    const parsed = analyzeQuickTask(text, { today: "2026-11-23" });
+    assert.equal(parsed.localOnly, true);
+    assert.deepEqual(parsed.task, { title, due, dueTime, course: "", timeKind: "event" });
+  }
+  for (const text of ["明天观看演出，然后提交反馈", "明天观看比赛，后天参加复盘",
+    "明天参加读书会，还要参加儿童专场", "观看比赛，明天播出的那一场", "观看比赛，昨天录的那一场，帮我记一下"]) {
+    const parsed = analyzeQuickTask(text, { today: "2026-11-23" });
+    assert.ok(!parsed.localOnly);
+    assert.equal(parsed.task.due, "");
+  }
+});

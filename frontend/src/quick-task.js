@@ -118,13 +118,32 @@ function mergedTimeSpans(tokens, source) {
   return spans;
 }
 
+const eventAction = /^(?:观看|参加|出席|参观|旁听|听取|集合|签到|开会|上(?:.{0,12})课|值班)/u;
+
+function compactEventTitle(title, source, spans) {
+  const parts = title.split(/[，,]/u).map(part => part.trim());
+  if (parts.length !== 2 || !eventAction.test(parts[0])) return title;
+  // A date in the qualifier may describe the selected session or recording.
+  // Only use this shortcut when the time belongs to the main action.
+  if (spans.some(span => /[，,]/u.test(source.slice(0, span.start)))) return title;
+  const [action, detail] = parts;
+  if (/^(?:还要|还得|再去|记得|别忘|改去|请|参加|观看|提交|另)/u.test(detail)) return title;
+  const session = detail.match(/^(.+?)的(?:那|这)一?(?:场|节|次)(?:比赛|演出|讲座|课)?$/u);
+  const matchup = /赛$/u.test(action) && /^(?:[a-z\d-]+|[\p{Script=Han}]+队)\s*(?:对阵|对战|对|vs\.?)\s*(?:[a-z\d-]+|[\p{Script=Han}]+队)$/iu.test(detail);
+  const namedSession = /^[\p{L}\d ·-]{1,20}专场$/u.test(detail);
+  if (!session && !matchup && !namedSession) return title;
+  return action + "（" + (session ? session[1].trim() : detail) + "）";
+}
+
 // Only finish a local summary when all of its words fit one simple action.
 function summarizeAction(raw, source, spans) {
-  const title = raw.trim()
+  const cleaned = raw.trim()
     .replace(/[，,。\s]*(?:你)?(?:帮我|给我|替我)(?:记录|记)(?:一下|下来|上)?(?:吧)?[。！!\s]*$/u, "")
     .replace(/^(?:请(?:各位|全体|所有)?(?:同学们?|同事们?|成员|老师们?)|(?:各位|全体)同学们?)[，,、\s]*(?:请)?/u, "")
     .replace(/^(?:请务必|请大家|请于|请|务必|于(?=前往|到|在|参加|观看|提交|交|完成))\s*/u, "")
-    .replace(/^[，,\s]+|[。！!\s]+$/gu, "");
+    .replace(/^[，,\s]+|[。！!\s]+$/gu, "")
+    .replace(/^(?:我(?:想|要|打算|计划))\s*(?=观看|参加|出席|参观|旁听)/u, "");
+  const title = compactEventTitle(cleaned, source, spans);
   const exam = title.match(/^(?:有|要考|要参加|参加)?(?:一场)?([^，,。；;！？\s]{0,20}?)(考试|测验)$/u);
   const simple = title.length > 0 && title.length <= 48 &&
     !/[，,；;。！？!?]|(?:然后|并且|顺便|另行|分别|之后|之前|取消|无需|不用|不要|不必|如果|除非|改为|改到|待定|或者|还需|一下|结束后|结束前|会后|会前)|(?:并|及|再)(?:把|提交|观看|参加|领取|签到|将)/u.test(title);
@@ -132,7 +151,7 @@ function summarizeAction(raw, source, spans) {
     spans.some(({ end }) => /^\s*(?:之|以)?前(?!往|去|来|进)/u.test(source.slice(end)));
   const visit = simple ? title.match(/^(?:前往|前去|到|在|去)\s*(?<place>[^，,。；;！？]{1,40}?)\s*(?<action>(?:观看|参加|出席|参观|旁听|听取|集合|签到|开会|上课|提交|领取|归还).*)$/u) : null;
   const action = visit?.groups.action || (exam ? exam[1] + exam[2] : title);
-  const event = !hasLimit && (Boolean(exam) || /^(?:观看|参加|出席|参观|旁听|听取|集合|签到|开会|上(?:.{0,12})课|值班)/u.test(action));
+  const event = !hasLimit && (Boolean(exam) || eventAction.test(action));
   const clear = simple && (event || /^(?:提交|交|领取|归还|还书|完成|写|整理|复习|阅读|购买|打印|准备|填写|发送|报名|买|取|背|订|发)/u.test(action));
   const subject = exam?.[1].replace(/(?:期中|期末|随堂|闭卷|开卷|线上|线下)+$/u, "");
   const course = subject && !/一场|期中|期末|补考|资格|等级|有|的|要/u.test(subject) ? subject : "";

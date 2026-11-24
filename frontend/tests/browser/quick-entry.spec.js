@@ -87,3 +87,20 @@ test('a composer left open across midnight resolves tomorrow from the current da
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await expect(page.locator('#task-edit-form [name=due]')).toHaveValue('2026-11-20');
 });
+
+test('a selected match shows tomorrow in preview and in the saved event', async ({ page }) => {
+  const text = '明天观看vct cn冠军赛，xlg对blg的那一场';
+  const title = '观看vct cn冠军赛（xlg对blg）';
+  await page.locator('.add-task').click();
+  await page.locator('#quick-text').fill(text);
+  await expect(page.locator('.quick-mirror mark')).toHaveText('明天');
+  await expect(page.locator('#quick-summary')).toHaveText(title);
+  await expect(page.locator('#quick-date-button')).toHaveAttribute('title', '2026-11-19');
+  await page.locator('.quick-submit').click();
+  const row = page.locator('.task-row[data-just-added]');
+  await expect(row.locator('.task-title')).toHaveText(title);
+  await expect(row.locator('.task-deadline')).toHaveText('明天');
+  await row.locator('.task-open').click();
+  await expect(page.locator('.drawer-properties')).toContainText('活动时间');
+  await expect(page.locator('.quick-original')).toHaveText(text);
+});
