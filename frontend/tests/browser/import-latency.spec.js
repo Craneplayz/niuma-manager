@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { syncRun } from '../sync-fixtures.js';
 
 const deferred = () => {
   let release, entered;
@@ -51,6 +52,36 @@ async function workspace(page, { holdCredentials = false, rejectCredentials = fa
 }
 
 const source = (page, name) => page.locator(`[data-import-source="${name}"]`);
+
+test('teaching recognition keeps its primary colors when the button becomes Stop', async ({ page }) => {
+  await workspace(page);
+  let active = false;
+  const run = syncRun({ id: 'color-test', state: 'crawling', states: [] });
+  await page.route('**/api/sources/sync-runs', async route => {
+    if (route.request().method() === 'POST') {
+      active = true;
+      await route.fulfill({ json: run });
+    } else {
+      await route.fulfill({ json: { contract_version: 'source-sync/0.1', runs: active ? [run] : [] } });
+    }
+  });
+  await source(page, 'teaching').click();
+  const start = page.getByRole('button', { name: '开始识别' });
+  await expect(start).toBeEnabled();
+  await page.mouse.move(0, 0);
+  const colors = await start.evaluate(el => {
+    const style = getComputedStyle(el);
+    return [style.backgroundColor, style.color, style.borderTopColor];
+  });
+  await start.click();
+  await page.mouse.move(0, 0);
+  const stop = page.getByRole('button', { name: '停止导入' });
+  await expect(stop).toBeEnabled();
+  await expect(stop.locator('.teaching-stop-icon')).toBeVisible();
+  await expect(stop).toHaveCSS('background-color', colors[0]);
+  await expect(stop).toHaveCSS('color', colors[1]);
+  await expect(stop).toHaveCSS('border-top-color', colors[2]);
+});
 
 test('text and file drafting stay usable while teaching credentials are slow', async ({ page }) => {
   const f = await workspace(page, { holdCredentials: true });

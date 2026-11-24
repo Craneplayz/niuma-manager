@@ -448,12 +448,12 @@ class TeachingIntegrationTests(unittest.TestCase):
         capture['assignment'] = None
         entry = capture['request']['records'][0]
         entry['platform_item'] = dict(kind='announcement', due=None, submitted=False)
-        entry['record'].update(text='明天提交报告。后天提交提纲。', published_at=dict(value='2026-10-01',basis='source'),
+        entry['record'].update(text='明天加入课程微信群。后天提交提纲。', published_at=dict(value='2026-10-01',basis='source'),
                                references=[], body_status='complete')
         def text_result(request, ApiError):
             r, = request['records']
             tasks = []
-            for cid, title, raw, due in [('one','提交报告','明天','2026-10-02'), ('two','提交提纲','后天','2026-10-03')]:
+            for cid, title, raw, due in [('one','加入课程微信群','明天','2026-10-02'), ('two','提交提纲','后天','2026-10-03')]:
                 tasks.append(dict(candidate_id=cid, input_id=r['input_id'], title=title, description=raw+title,
                     prerequisites=[], course_or_project=r['course_or_project'], course_basis='provided',
                     notice_type='create', target_reference=None, needs_review=True, review_reasons=['按原发布时间推算'],
@@ -471,7 +471,8 @@ class TeachingIntegrationTests(unittest.TestCase):
         shared.assert_called_once()
         cards = [item['candidate'] for item in batches[0]['items']]
         self.assertEqual({(c['title'],c['deadline']['value'],c['deadline']['status']) for c in cards},
-                         {('提交报告','2026-10-02','inferred'),('提交提纲','2026-10-03','inferred')})
+                         {('加入课程微信群','2026-10-02','inferred'),('提交提纲','2026-10-03','inferred')})
+        self.assertEqual({c['title']:c['content_type'] for c in cards}, {'加入课程微信群':'notice','提交提纲':'task'})
         self.assertTrue(all(c['needs_review'] for c in cards))
         self.assertEqual(self.sync_native(capture)['requests'], [])
 

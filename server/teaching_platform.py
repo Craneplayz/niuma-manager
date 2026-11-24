@@ -160,8 +160,9 @@ def notice_result(request, output, text_policy):
             return None
         if task['notice_type'] != 'create' or task['needs_review']:
             reasons = reasons or ['请核对通知及其对应的任务。']
+        notice = task['notice_type'] != 'create' or course_facts.course_chat_notice(task['title'], action)
         items.append(decision(entry, task['candidate_id'], task['title'], task['description'], action, due,
                               notice=task['notice_type'], target=dict(part_id='body',quote=target) if target else None,
-                              reasons=reasons, content_type='task' if task['notice_type']=='create' else 'notice'))
+                              reasons=reasons, content_type='notice' if notice else 'task'))
     manifest = policy('text-v0.2', text_policy)
     return result(request, 'text-v0.2', manifest['version'], items), manifest

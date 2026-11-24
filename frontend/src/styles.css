@@ -1760,9 +1760,6 @@ dialog p {
 .teaching-controls { max-width: 420px; min-width: 0; }
 .teaching-action-row { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .teaching-action-row .primary { min-width: 128px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-.btn.primary:has(.teaching-stop-icon) { background: var(--ink); border-color: var(--ink); color: #fff; }
-.btn.primary:has(.teaching-stop-icon):not(:disabled):hover { background: #43464d; border-color: #43464d; }
-.btn.primary:has(.teaching-stop-icon):not(:disabled):active { background: #25272b; border-color: #25272b; }
 .teaching-stop-icon { width: 9px; height: 9px; background: currentColor; border-radius: 1px; flex-shrink: 0; }
 .teaching-action-indicator { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex-shrink: 0; }
 .teaching-progress-outline { position: absolute; inset: 0; width: 100%; height: 100%; }

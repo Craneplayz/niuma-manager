@@ -58,8 +58,8 @@ def routing_cases():
     add('notice-event-time','2026年10月16日上午课程暂停一次。无需办理任何手续。','task')
     cases[-1]['expected']['content_type']='notice'
     add('task-join-group','请扫码加入课程微信群并填写分组表，本项不设完成期限。','task')
-    cases[-1]['expected']['content_type']='task'
-    add('mixed-notice-and-task','本学期上课地点为理教408。请扫码加入课程群，不设完成期限。','task')
+    cases[-1]['expected']['content_types']=['notice','task']
+    add('mixed-notice-and-task','本学期上课地点为理教408。请填写分组表，不设完成期限。','task')
     cases[-1]['expected']['content_types']=['notice','task']
     add('notice-deadline','选课结果公示至2026年10月20日18:00。','task','2026-10-20T18:00:00+08:00')
     cases[-1]['expected']['content_type']='notice'

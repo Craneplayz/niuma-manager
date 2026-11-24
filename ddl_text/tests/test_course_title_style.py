@@ -24,6 +24,20 @@ def sample(sequence='第四章',channel='书面',kind='assignment',subject='条�
 
 
 class CourseTitleStyleTests(unittest.TestCase):
+    def test_course_chat_notice_and_assignment_from_same_announcement(self):
+        record, group = sample()
+        text = '请加入课程微信群，课程安排将在群内公布。请在群内提交实验报告。'
+        record['text'] = text
+        group['title'] = '加入课程微信群'
+        group['assessment']['action']['evidence'] = [dict(part_id='body', quote='请加入课程微信群')]
+        group['title_facts'] = dict(kind='notice', channel='', sequence='', subject='课程微信群',
+                                    evidence=deepcopy(group['assessment']['action']['evidence']))
+        report = deepcopy(group)
+        report.update(title='在课程微信群提交实验报告', title_facts=None, submission_relation='assignment_submission')
+        report['assessment']['action']['evidence'] = [dict(part_id='body', quote='请在群内提交实验报告')]
+        decisions = compile_teaching_response(json.dumps(dict(tasks=[group, report])),record,source_verified=True)['decisions']
+        self.assertEqual([d['content_type'] for d in decisions], ['notice', 'task'])
+
     def test_equivalent_explicit_batches_have_one_display(self):
         cases={
             '第4章':('第四章','第4章','第 ４ 章','Chapter4','CHAPTER 04','Chapter #4'),

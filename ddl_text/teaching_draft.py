@@ -191,6 +191,9 @@ def compile_teaching_response(raw, record, *, source_verified=False, indexed=Fal
             except (AgentError, ValueError):
                 discard_title_facts(draft, 'evidence')
                 rendered_title=draft['title']
+            if (draft['notice_type'] == 'create' and draft.get('submission_relation') != 'assignment_submission'
+                    and course_facts.course_chat_notice(rendered_title, assessment['action']['evidence'])):
+                content_type = 'notice'
             for relation in assessment['unread_relations']:
                 _quotes(record, relation['evidence'])
             time_needs_review = normalize_time(draft, record)

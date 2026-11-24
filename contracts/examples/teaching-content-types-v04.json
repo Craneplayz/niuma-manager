@@ -465,7 +465,7 @@
               "course_id": "synthetic-course-1",
               "snapshot_id": "synthetic-capture-1",
               "platform": "teaching_web",
-              "text": "本学期上课地点为理教408。请扫码加入课程群，不设完成期限。",
+              "text": "本学期上课地点为理教408。请填写分组表，不设完成期限。",
               "body_status": "complete",
               "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
               "references": [],
@@ -519,8 +519,8 @@
             "reason": ""
           },
           {
-            "title": "加入课程群",
-            "description": "请扫码加入课程群，不设完成期限。",
+            "title": "填写分组表",
+            "description": "请填写分组表，不设完成期限。",
             "content_type": "task",
             "notice_type": "create",
             "target": null,
@@ -535,7 +535,7 @@
                 "evidence": [
                   {
                     "part_id": "body",
-                    "quote": "请扫码加入课程群，不设完成期限。"
+                    "quote": "请填写分组表，不设完成期限。"
                   }
                 ]
               },
@@ -591,7 +591,7 @@
                     "course_id": "synthetic-course-1",
                     "snapshot_id": "synthetic-capture-1",
                     "platform": "teaching_web",
-                    "text": "本学期上课地点为理教408。请扫码加入课程群，不设完成期限。",
+                    "text": "本学期上课地点为理教408。请填写分组表，不设完成期限。",
                     "body_status": "complete",
                     "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
                     "references": [],
@@ -629,8 +629,8 @@
                 "filter_reason": null
               },
               {
-                "title": "加入课程群",
-                "description": "请扫码加入课程群，不设完成期限。",
+                "title": "填写分组表",
+                "description": "请填写分组表，不设完成期限。",
                 "content_type": "task",
                 "notice_type": "create",
                 "target": null,
@@ -647,7 +647,7 @@
                     "course_id": "synthetic-course-1",
                     "snapshot_id": "synthetic-capture-1",
                     "platform": "teaching_web",
-                    "text": "本学期上课地点为理教408。请扫码加入课程群，不设完成期限。",
+                    "text": "本学期上课地点为理教408。请填写分组表，不设完成期限。",
                     "body_status": "complete",
                     "source_metadata_text": "2026秋季学期，2026-09-01至2027-01-31；当前布置的作业。",
                     "references": [],
@@ -662,7 +662,7 @@
                       "evidence": [
                         {
                           "part_id": "body",
-                          "quote": "请扫码加入课程群，不设完成期限。"
+                          "quote": "请填写分组表，不设完成期限。"
                         }
                       ]
                     },
