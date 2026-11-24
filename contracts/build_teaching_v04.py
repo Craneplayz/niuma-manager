@@ -33,7 +33,7 @@ def schemas():
                       course_or_project=nullable(string(512, 1))))
     entry = obj(dict(record=deepcopy(POLICY['properties']['record']), source=source))
     entry['properties']['platform_item'] = obj(dict(
-        kind=dict(enum=['native_assignment','gradebook_assignment','announcement']),
+        kind=dict(enum=['native_assignment','gradebook_assignment','listed_assignment','announcement']),
         due=nullable(dict(anyOf=[dict(type='string', format='date'),dict(type='string', format='date-time')])),
         submitted=dict(type='boolean')))
     entry['properties']['platform_item']['properties']['gradebook_id'] = dict(type='string', pattern=r'^_[0-9]+_[0-9]+$')

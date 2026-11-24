@@ -18,19 +18,6 @@ def compact(text):
     return re.sub(r'\s+','',unicodedata.normalize('NFKC',text)).casefold()
 
 
-# A course communication channel belongs in Notices. Match the individual
-# action, so a separate deliverable in the same announcement stays a task.
-_COURSE_CHAT = re.compile(
-    r'(?:通知[·:：])?(?:请)?(?:及时|尽快|提前)?(?:扫码)?(?:加入|进入|进|加)?(?:本门|本)?'
-    r'(?:(?:课程|班级|教学|课堂|小班|学习)(?:微信|qq|交流|通知)?|(?:微信|qq)(?:课程|班级|教学|课堂|小班)?)群'
-    r'(?:的?通知|提醒)?[。！!]?$'
-)
-
-
-def course_chat_notice(title, evidence):
-    return bool(_COURSE_CHAT.fullmatch(compact(title)) and any('群' in q['quote'] for q in evidence))
-
-
 def _sequence_number(value):
     """Read only unambiguous ordinary numerals below 1000, not dates/indices."""
     if re.fullmatch(r'[0-9]{1,3}',value): return int(value)

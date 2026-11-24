@@ -408,10 +408,33 @@ class TeachingIntegrationTests(unittest.TestCase):
         with patch.object(recognition,'recognize_admitted',side_effect=text_result):
             status, batches=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
         self.assertEqual(status,200,batches)
-        self.assertEqual(batches[0]['result']['status'],'no_tasks')
+        card, = batches[0]['items']
+        self.assertEqual(card['candidate']['content_type'], 'notice')
+        self.assertEqual(card['candidate']['title'], entry['source']['label'])
         self.assertEqual(seen[0]['published_at'],dict(value='2026-10-01',precision='date',basis='source'))
         self.assertEqual(seen[0]['source_item_id'],entry['record']['source_item_id'])
         self.assertEqual(seen[0]['course_or_project'],entry['source']['course_or_project'])
+
+    def test_source_type_survives_specialist_recognition(self):
+        for kind, model_type, expected in [('announcement', 'task', 'notice'), ('listed_assignment', 'notice', 'task')]:
+            with self.subTest(kind=kind):
+                capture = self.native_capture('unknown')
+                capture['assignment'] = None
+                entry, = capture['request']['records']
+                entry['platform_item'] = dict(kind=kind, due=None, submitted=False)
+                record = entry['record']
+                record['input_id'] += kind
+                draft = json.loads(next(iter(self.drafts.values())))
+                draft['tasks'][0]['content_type'] = model_type
+                self.drafts[record['input_id']] = json.dumps(draft)
+                self.assertEqual(teaching.teaching_platform.route(entry), 'teaching')
+                view, = self.sync_native(capture)['requests']
+                with patch.object(teaching, '_extract', side_effect=lambda req, err, **kw: self.model(req, err)):
+                    status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN, request_id=view['request_id']))
+                self.assertEqual(status, 200, batches)
+                batch = next(b for b in batches if b['request']['request_id'] == view['request_id'])
+                card, = batch['items']
+                self.assertEqual(card['candidate']['content_type'], expected)
 
     def test_gradebook_then_native_assignment_requires_review(self):
         import recognition
@@ -472,7 +495,7 @@ class TeachingIntegrationTests(unittest.TestCase):
         cards = [item['candidate'] for item in batches[0]['items']]
         self.assertEqual({(c['title'],c['deadline']['value'],c['deadline']['status']) for c in cards},
                          {('加入课程微信群','2026-10-02','inferred'),('提交提纲','2026-10-03','inferred')})
-        self.assertEqual({c['title']:c['content_type'] for c in cards}, {'加入课程微信群':'notice','提交提纲':'task'})
+        self.assertEqual({c['title']:c['content_type'] for c in cards}, {'加入课程微信群':'notice','提交提纲':'notice'})
         self.assertTrue(all(c['needs_review'] for c in cards))
         self.assertEqual(self.sync_native(capture)['requests'], [])
 

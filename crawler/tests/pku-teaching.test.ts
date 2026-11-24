@@ -32,6 +32,7 @@ describe("native teaching integration", () => {
     const html='<form id="announcementForm"><ul id="announcementList"><li id="notice"><h3>作业已发布，截止时间为2026-11-17 23:30</h3><div class="details"><div class="vtbegenerated"><p>请同学们按时完成。</p></div></div></li></ul></form>';
     const input=extractCourseSourcesFromHtml(html, {course:'测试课程',section:'课程通知',sourceUrl:'https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1',collectedAt:'2026-10-09T10:00:00+08:00'})[0];
     const record=toTeachingRequests([input])[0].records[0].record;
+    expect(toTeachingCaptures([input])[0].request.records[0].platform_item?.kind).toBe('announcement');
     expect(record.body_status).toBe('complete');
     expect(record.text).toContain('请同学们按时完成。');
     expect(record.text).toContain('2026-11-17 23:30');
@@ -42,12 +43,14 @@ describe("native teaching integration", () => {
     input.references.unshift({kind:'detail',label:'作业',url:'https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=_1&content_id=_1',content_read:false,read_status:'partial',reason:'submission_history_only',text:'Review Submission History'});
     const capture=toTeachingCaptures([input])[0];
     expect(capture.contract_version).toBe('teaching-capture/0.1');
+    expect(capture.request.records[0].platform_item).toEqual({kind:'listed_assignment',due:null,submitted:false});
     expect(capture.assignment).toEqual({course_id:'_1',content_id:'_1',state:'submitted',basis:'review_submission_history_title'});
     expect(capture.request.contract_version).toBe('0.4');
     expect(capture.request.records[0].record).not.toHaveProperty('assignment');
     for(const kind of ['announcement','content'] as const) expect(toTeachingCaptures([{...input,kind}])[0].assignment).toBeNull();
     input.references[0].url=input.references[0].url.replace('content_id=_1','content_id=_2');
     expect(toTeachingCaptures([input])[0].assignment).toBeNull();
+    expect(toTeachingCaptures([input])[0].request.records[0].platform_item).toBeUndefined();
   });
   it("never infers submitted from teacher text", () => {
     const input=source();input.body='已提交，请等待批改。';

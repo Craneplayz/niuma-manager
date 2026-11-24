@@ -26,16 +26,18 @@ function platformItem(source: CourseSourceRecord) {
   if (source.kind !== "assignment") return;
   if (source.input_id.startsWith("pku:gradebook:") && source.gradebook)
     return {kind: "gradebook_assignment", due: source.gradebook.due, submitted: source.gradebook.submitted} as const;
-  if (source.assignment?.state !== "active" || source.gradebook?.submitted) return;
   const native = source.references.find(ref => ref.kind === "detail" && isPkuAssignmentUrl(ref.url));
-  if (!native || !source.body_evidence?.included_reference_urls.includes(native.url)) return;
+  if (!native || !source.title.trim()) return;
   const target = new URL(native.url);
   if (target.searchParams.get("content_id") !== source.source_item_id ||
       target.searchParams.get("course_id") !== new URL(source.source_url).searchParams.get("course_id")) return;
+  const listed = {kind: "listed_assignment", due: null, submitted: false} as const;
+  if (source.assignment?.state !== "active" || source.gradebook?.submitted ||
+      !source.body_evidence?.included_reference_urls.includes(native.url)) return listed;
   const raw = source.assignment.due_raw;
   const due = parseSourcePublication(raw).value;
-  if (raw && !due) return;
-  if (due && source.gradebook?.due && DateTime.fromISO(due).toMillis() !== DateTime.fromISO(source.gradebook.due).toMillis()) return;
+  if (raw && !due) return listed;
+  if (due && source.gradebook?.due && DateTime.fromISO(due).toMillis() !== DateTime.fromISO(source.gradebook.due).toMillis()) return listed;
   return {kind: "native_assignment", due: due ?? source.gradebook?.due ?? null, submitted: false,
     ...(source.gradebook ? {gradebook_id: source.gradebook.id} : {})} as const;
 }

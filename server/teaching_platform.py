@@ -23,6 +23,8 @@ def route(entry):
     if not item:
         return 'teaching'
     r = entry['record']
+    if item['kind'] == 'listed_assignment':
+        return 'teaching'
     if item['kind'] == 'gradebook_assignment':
         return 'platform'
     text = r['text']
@@ -160,9 +162,32 @@ def notice_result(request, output, text_policy):
             return None
         if task['notice_type'] != 'create' or task['needs_review']:
             reasons = reasons or ['请核对通知及其对应的任务。']
-        notice = task['notice_type'] != 'create' or course_facts.course_chat_notice(task['title'], action)
         items.append(decision(entry, task['candidate_id'], task['title'], task['description'], action, due,
                               notice=task['notice_type'], target=dict(part_id='body',quote=target) if target else None,
-                              reasons=reasons, content_type='notice' if notice else 'task'))
+                              reasons=reasons, content_type='notice'))
     manifest = policy('text-v0.2', text_policy)
     return result(request, 'text-v0.2', manifest['version'], items), manifest
+
+
+def apply_source_type(entry, output):
+    """Fix the destination for a newly recognized authenticated source, before saving it."""
+    item = entry.get('platform_item')
+    if not item:
+        return
+    row, = output['record_results']
+    content_type = 'notice' if item['kind'] == 'announcement' else 'task'
+    for candidate in row['decisions']:
+        candidate['content_type'] = content_type
+    # An announcement without an action still belongs in the notice list.
+    if content_type == 'notice' and row['status'] == 'no_tasks':
+        record = entry['record']
+        text = record['text'].strip()
+        if not text:
+            return
+        label = entry['source']['label']
+        evidence = [dict(part_id='body', quote=text[:160])]
+        row['decisions'] = [decision(entry, 'platform-announcement', label,
+                                     text.removeprefix(label).strip()[:4096], evidence,
+                                     deadline(), content_type='notice')]
+        row.update(status='success', empty_decision=None)
+        output['status'] = 'success'

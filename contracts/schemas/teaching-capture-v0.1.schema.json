@@ -179,6 +179,7 @@
                     "enum": [
                       "native_assignment",
                       "gradebook_assignment",
+                      "listed_assignment",
                       "announcement"
                     ]
                   },

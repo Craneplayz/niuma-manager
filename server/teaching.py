@@ -239,7 +239,13 @@ def resolve_snapshot(db, uid, request_id, ApiError):
     return json.loads(row['request'])
 
 
-def recognize(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
+def recognize(request, ApiError, **attachments):
+    result, manifest = _extract(request, ApiError, **attachments)
+    teaching_platform.apply_source_type(request['records'][0], result)
+    return result, manifest
+
+
+def _extract(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
     route = teaching_platform.route(request['records'][0])
     if route == 'platform':
         return teaching_platform.assignment(request)

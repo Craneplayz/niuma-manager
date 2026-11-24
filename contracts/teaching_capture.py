@@ -21,6 +21,9 @@ def check_capture(value):
         if kind == 'native_assignment':
             if not assignment or assignment['state'] != 'active':
                 raise ValueError('native assignment requires its active detail page')
+        elif kind == 'listed_assignment':
+            if item['due'] is not None or 'gradebook_id' in item:
+                raise ValueError('listed assignment only identifies the source kind')
         elif assignment is not None or 'gradebook_id' in item:
             raise ValueError('unexpected native assignment binding')
         if kind != 'gradebook_assignment' and item['submitted']:
@@ -29,7 +32,7 @@ def check_capture(value):
             raise ValueError('unexpected announcement deadline')
         if item['due'] and item['due'] not in record['source_metadata_text']:
             raise ValueError('platform deadline missing from metadata')
-        if not entry['source']['label'] or (kind != 'announcement' and entry['source']['label'] not in record['text']):
+        if not entry['source']['label'] or (kind in ('native_assignment', 'gradebook_assignment') and entry['source']['label'] not in record['text']):
             raise ValueError('missing platform label')
     if assignment is not None:
         if (assignment['basis'] != BASES[assignment['state']] or assignment['course_id'] != record['course_id']
