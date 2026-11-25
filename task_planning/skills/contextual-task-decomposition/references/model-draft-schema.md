@@ -1,57 +1,7 @@
-# Model draft contract
+只输出一个 JSON 对象，使用下列字段名。三个状态都含 status、summary（简短说明剩余任务）、confidence（0–1）、facts（实际使用的 passages 编号，可为空）。假设存在时添加 assumptions 字符串数组。
 
-Return JSON only, with exactly this semantic shape:
+需要追问的形状为 `{"status":"needs_clarification","summary":"…","confidence":0.6,"facts":[1],"questions":[{"prompt":"…？","why":"回答将决定哪些步骤","options":["…","…"]}]}`。列 1–3 个问题。options 可省略。
 
-```json
-{
-  "status": "needs_clarification | ready_to_plan | no_split",
-  "assessment": {
-    "summary": "one concise description of the remaining work",
-    "complexity": "uncertain | multi_step | atomic",
-    "confidence": 0.0,
-    "known_facts": [{"text": "supported fact", "source": "task | conversation:0 | source:brief"}],
-    "assumptions": ["explicitly labeled assumption"],
-    "missing_information": ["fact that would still change the plan"]
-  },
-  "questions": [
-    {
-      "id": "stable-question-id",
-      "prompt": "one question",
-      "why": "how the answer changes the plan",
-      "answer_options": ["optional short choice"]
-    }
-  ],
-  "plan": null
-}
-```
+可执行的形状为 `{"status":"ready_to_plan","summary":"…","confidence":0.9,"facts":[1],"goal":"验收成果","strategy":"结合进度、为什么按这个顺序","steps":[{"title":"具体行动","outcome":"能检查的完成标准","minutes":30,"refs":[1],"after":[]},{"title":"下一步","outcome":"…","minutes":15,"refs":[1],"after":[1]}]}`。
 
-State invariants:
-
-- `needs_clarification`: complexity is `uncertain`, contains one to three questions, and `plan` is null.
-- `ready_to_plan`: complexity is `multi_step`, questions is empty, and plan contains at least two subtasks.
-- `no_split`: complexity is `atomic`, questions is empty, and plan contains exactly one subtask.
-
-A ready plan has this shape:
-
-```json
-{
-  "goal": "observable final outcome",
-  "strategy": "brief explanation tied to the supplied context",
-  "warnings": ["uncertainty or scheduling limitation"],
-  "subtasks": [
-    {
-      "id": "step-1",
-      "title": "action-oriented title",
-      "outcome": "observable completion criterion",
-      "duration_minutes": 30,
-      "depends_on": [],
-      "scheduled_start": "2026-10-01T19:00:00+08:00",
-      "scheduled_end": "2026-10-01T19:30:00+08:00",
-      "source_basis": ["task", "source:brief", "conversation:2", "assumption"],
-      "assumption": false
-    }
-  ]
-}
-```
-
-`source_basis` contains one or more exact references: `task`, `source:<id>`, `conversation:<zero-based-index>`, or `assumption`. Set `assumption=true` exactly when that list contains `assumption`. Use null for both scheduled fields when exact placement is unsupported. IDs must be unique; dependencies must reference IDs in the same plan and cannot reference the current subtask. Durations are positive whole minutes. Do not add prose outside the JSON object.
+no_split 同样返回 steps，但恰好 1 步。ready_to_plan 至少 2 步。after 引用本计划前面步骤序号（第一步为 1），空数组表示可独立开始。每个 refs 至少引用一个与该步骤相关的已给 passage。基于个人假设的步骤加 `assumed:true` 并写明 assumptions。可附 warnings 字符串数组。在明确要求给具体时段而且有可用时间窗时，步骤可选 start/end（带偏移的 ISO 日期时间，长度须等于 minutes）；其余情况省略。不要输出跟踪编号、来源路径、引文、复杂度或数据库字段，这些由程序生成。

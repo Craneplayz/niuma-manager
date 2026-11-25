@@ -70,6 +70,7 @@ server/
 ├── wechat_media.py           微信附件上传、账号凭证、异步导入与结果查询。
 ├── manual_materials.py       登录用户主动上传材料的隔离入口，不接受采集器凭证。
 ├── test_manual_materials.py  主动上传、加密拒绝、会话鉴权与旧作业隔离测试。
+├── task_steps.py              当前账号已确认步骤的进度更新、依赖和版本校验。
 ├── task_decomposition.py     AI 任务拆解、追问预览与确认写入接口。
 ├── source_sync.py            调用教学网采集并保存 v0.4 来源快照。
 ├── source_jobs.py            教学网后台同步、逐条持久进度、受控并发与自动入库。
@@ -251,7 +252,7 @@ PDF 证据只采用通过可见性校验的本地文字或视觉转录；超过�
 两种规划通道仍使用规划 2.0 和同一结果校验，预览只保存提案，用户确认后按账号与任务版本写日历；DDL、任务状态和已有计划不因生成预览而改变。
 `POST /api/planning/proposals` 可带 `taskIds` 限定本账号有 DDL、未完成且未安排的新增任务；无匹配任务返回 400，提案仍须通过 `/api/planning/apply` 确认。
 同一接口可带 `replan: true` 纳入已有安排的任务，格式见 [规划接口约定](../contracts/task-planning/README.md)；使用 `taskIds` 时只重新规划选中任务。共享规划 2.0 输入输出不变，服务端记录待替换的时段 ID，确认时原子替换有新时段的任务尚未开始的安排；无新时段、模型失败、取消预览或版本冲突保留原安排，等待期间原时段已经开始时拒绝应用。
-在 `frontend/` 运行 `npm test` 执行前端测试；业务 API 在仓库根运行 `python -m unittest discover -s server -p 'test_*.py' -q`；规划模块另运行 `python -m unittest discover -s task_planning/tests -t . -q`。旧规划 API 保留，当前新版界面不提供规划入口。
+在 `frontend/` 运行 `npm test` 执行前端测试。在仓库根运行 `python -m unittest discover -s server -p 'test_*.py' -q` 验证业务 API，运行 `python -m unittest discover -s task_planning/tests -t . -q` 验证规划模块。
 完整业务测试需 Python 3.10+，`npm test` 安装共享附件运行依赖，Windows/Linux CI 均实际执行图片读取测试。
 已完成任务的未来安排不占用新规划的可用时间，原计划保留在任务历史中；任务完成更新版本后拒绝应用此前生成的旧提案。
 直调识别保留 90 秒整批预算，HTTP 传输保持 95 秒；前端识别、规划和拆解最多等待 280 秒，包含最长 180 秒排队，代理 330 秒等待保持不变；独立 Harness 和模型供应商的并发/额度限制仍由对应服务决定。

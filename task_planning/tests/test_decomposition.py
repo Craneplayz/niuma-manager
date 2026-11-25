@@ -141,20 +141,41 @@ class DraftValidationTest(unittest.TestCase):
 class ModelAdapterTest(unittest.TestCase):
     def test_skill_requires_contextual_decisions_and_model_output_is_validated(self):
         body = request()
-        draft = {
-            "status": "needs_clarification",
-            "assessment": {**assessment("uncertain"), "missing_information": ["当前进度"]},
-            "questions": [{"id": "progress", "prompt": "目前完成到哪一步？", "why": "决定剩余步骤", "answer_options": []}],
-            "plan": None,
-        }
+        draft = {"status": "needs_clarification", "summary": "确定剩余交付", "confidence": 0.6, "facts": [1],
+                 "questions": [{"prompt": "目前完成到哪一步？", "why": "决定剩余步骤"}]}
         options = {"key": "test", "model": "test", "endpoint": "https://example.test/v1"}
         with patch.object(decomposition.ChatClient, "complete_json", return_value=json.dumps(draft, ensure_ascii=False)) as call:
-            self.assertEqual(decomposition.generate_decomposition(body, options), draft)
+            result = decomposition.generate_decomposition(body, options)
+        self.assertEqual(result["status"], "needs_clarification")
+        self.assertEqual(result["assessment"]["known_facts"], [{"text": body["task"]["title"], "source": "task"}])
+        self.assertEqual(result["questions"][0]["id"], "q-1")
         instructions, payload, settings = call.call_args.args
-        self.assertIn("Do not classify by title and select a fixed task template", instructions)
-        self.assertIn("one to three concise questions", instructions)
-        self.assertEqual(json.loads(payload), body)
+        self.assertIn("不要重复问已回答的问题", instructions)
+        self.assertEqual(json.loads(payload)["passages"][0]["text"], body["task"]["title"])
         self.assertEqual(settings.model, "test")
+
+    def test_compact_plan_binds_source_passages_and_real_prior_steps(self):
+        body = request(source_materials=[{"id": "long-private-id", "name": "教师说明", "text": "必须比较两组"}])
+        body["conversation"] = [{"role": "assistant", "content": "你负责什么？"}, {"role": "user", "content": "只负责绘图"}]
+        context, origins = decomposition._model_context(body)
+        material = origins.index("source:long-private-id") + 1
+        answer = origins.index("conversation:1") + 1
+        self.assertNotIn("conversation:0", origins)
+        raw = {"status": "ready_to_plan", "summary": "只准备结果图", "confidence": 0.9,
+               "steps": [{"title": "比较两组", "outcome": "对比表", "minutes": 15, "refs": [material]},
+                         {"title": "绘图", "outcome": "图已导出", "minutes": 10, "refs": [answer], "after": [1]}]}
+        result = decomposition._expand_draft(raw, body, context["passages"], origins)
+        first, second = result["plan"]["subtasks"]
+        self.assertEqual(first["source_basis"], ["source:long-private-id"])
+        self.assertEqual(second["depends_on"], [first["id"]])
+        self.assertEqual(result["assessment"]["known_facts"], [{"text": "必须比较两组", "source": "source:long-private-id"},
+                                                             {"text": "只负责绘图", "source": "conversation:1"}])
+        for field, invalid in [("refs", [answer + 1]), ("refs", [True]), ("after", [2])]:
+            with self.subTest(field=field, invalid=invalid):
+                raw["steps"][1][field] = invalid
+                with self.assertRaises(ValueError):
+                    decomposition._expand_draft(raw, body, context["passages"], origins)
+                raw["steps"][1].update(refs=[answer], after=[1])
 
     def test_model_cannot_invent_sources_or_schedule_without_availability(self):
         body = request()

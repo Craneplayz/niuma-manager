@@ -15,7 +15,7 @@ test("approved logo and white theme stay consistent across the workspace and adm
     return route.fulfill({ status: 500, json: { error: "Unexpected synthetic API" } });
   });
   const fits = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.goto("/?demo=1");
+  await page.goto("/?demo=1&page=tasks");
   await expect(page.locator(".task-row").first()).toBeVisible();
   const listBounds = await page.locator("#task-results").boundingBox();
   const logo = page.locator(".brand-logo");

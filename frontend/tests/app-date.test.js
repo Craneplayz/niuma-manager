@@ -50,7 +50,7 @@ class Element extends Surface {
 }
 
 let instance = 0;
-async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false, recycled = false, url = "http://synthetic.test/" } = {}) {
+async function fixture(t, { undated = false, undatedNotice = false, failWrite = false, deadlineTime = "", noticeTime = "", noticeRead = false, recycled = false, url = "http://synthetic.test/?page=tasks" } = {}) {
   const instanceId = ++instance;
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: new Date("2026-10-15T23:59:59") });
   const app = new Element("app"), dialog = new Element("dialog"), drawer = new Element("task-drawer");

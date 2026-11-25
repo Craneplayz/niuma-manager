@@ -40,7 +40,7 @@ export function createTimetableUI(host, { api, session, accountVersion, readStor
   let firstMonday = '', lastDate = '', term = null;
   const current = (epoch, serial) => epoch === accountVersion() && serial === generation;
   const visible = () => host.isDialogOpen('[data-timetable-panel]');
-  const classes = () => classEvents(readStoredTimetable().value, '0001-01-01', '9999-12-31');
+  const classes = (from = '0001-01-01', to = '9999-12-31') => classEvents(readStoredTimetable().value, from, to);
   function reset() {
     generation++;
     stored = { value: [], version: 0 };
@@ -125,7 +125,7 @@ export function createTimetableUI(host, { api, session, accountVersion, readStor
   document.addEventListener('change', change);
   document.addEventListener('submit', submit);
   return { reset, events: classes, day(date) {
-    const events = classes().filter(e => e.date === date);
+    const events = classes(date, date);
     return events.length ? `<section class="timetable-day" aria-label="当日课程"><h3>${events.some(e => e.kind === 'exam') ? '课程与考试' : '上课安排'}</h3>${events.map(e => classMarkup(e, esc, true)).join('')}</section>` : '';
   } };
 }

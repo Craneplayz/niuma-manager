@@ -1,5 +1,7 @@
 # 模块交接契约
 
+课程档案沿用当前登录账号的 `GET /api/workspace`（`courses: {value, version}`）与 `PUT /api/data/courses`（提交整组课程及读取时的版本，成功返回递增版本，版本过期返回 409）。保留原有 `id/name/teacher/notes/url` 和可选配色；新增可选 `attendance`（最多 2000 字）和 `grading`（最多 30 个评分项目）。每项含 1–80 字的 `label` 和数值 `percent`，占比为正、最多两位小数，合计不超过 100%。旧档案缺少这两项即视为空，学生可以只记录已知部分。参见[合成课程档案](examples/course-profile.json)。
+
 课表上传、学期与单双周展开、账号保存及规划固定占用见 [课表导入](timetable/README.md)。
 
 待核对任务通过普通完成和编辑操作确认的接口约定见 [待核对任务用户操作](docs/review-task-actions.md)，包含可选 `complete`、原子保存及重试规则。

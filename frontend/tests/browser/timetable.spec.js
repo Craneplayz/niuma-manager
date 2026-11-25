@@ -44,14 +44,15 @@ server.serve_forever()
   // Forward browser requests to a real isolated API, retaining its receipts/cookies.
   await page.route('**/api/**', async route => {
     const request = route.request(), url = new URL(request.url());
-    const response = await route.fetch({ url: backend + url.pathname + url.search });
-    await route.fulfill({ response });
+    await route.continue({ url: backend + url.pathname + url.search });
   });
   await page.goto('/?view=calendar&anchor=2026-09-07&date=2026-09-07');
   await expect(page.locator('.loading-state')).toHaveCount(0);
   await login(page, 'owner');
 });
-test.afterEach(async () => {
+test.afterEach(async ({ page }) => {
+  // In-flight forwarded reads still need the fixture server to finish their response.
+  await page.unrouteAll({ behavior: 'wait' });
   if (child && child.exitCode === null) { const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited; }
   if (folder) await fs.rm(folder, { recursive: true, force: true });
 });
@@ -161,29 +162,51 @@ test('late upload preview never crosses account changes or reopens a closed pane
   } finally { release(); }
 });
 
-test('a course cannot hide the first deadline in a compact six-row month', async ({ page }, info) => {
-  test.skip(info.project.name !== 'desktop', 'Mouse month summaries are desktop-only');
-  await page.setViewportSize({ width: 1280, height: 768 });
+test.describe('desktop month summaries', () => {
+  test.skip(({ isMobile }) => isMobile, 'Mouse month summaries are desktop-only');
+  test('a course cannot hide the first deadline in a compact six-row month', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 768 });
+    await preview(page);
+    await page.getByLabel('第一周的星期一').fill('2026-10-26');
+    await page.getByRole('button', { name: '确认导入 2 个上课时段' }).click();
+    await expect(page.locator('.timetable-saved article')).toHaveCount(1);
+    await page.getByRole('button', { name: '关闭课表' }).click();
+    const saved = await page.evaluate(async () => {
+      const workspace = await (await fetch('/api/workspace')).json();
+      const task = { id: 'synthetic-deadline', title: '合成截止任务', description: '', status: 'not_started',
+        due: { date: '2026-11-02', precision: 'date' }, plans: [], subtasks: [] };
+      return (await fetch('/api/data/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: workspace.tasks?.version || 0, value: [task] }) })).status;
+    });
+    expect(saved).toBe(200);
+    await page.reload();
+    await page.getByLabel('跳转日期', { exact: true }).fill('2026-11-02');
+    const cell = page.locator('[data-calendar-drop-date="2026-11-02"]');
+    await expect(cell.getByRole('button', { name: /合成截止任务/ })).toBeVisible();
+    await expect(page.locator('.timetable-day')).toContainText('示例原理(Ⅰ)');
+    await expect(cell.locator('.calendar-day-mobile-count')).toHaveText('2 项');
+    const bounds = await cell.evaluate(el => ({ cell: el.getBoundingClientRect().bottom,
+      task: el.querySelector('.calendar-task').getBoundingClientRect().bottom }));
+    expect(bounds.task).toBeLessThanOrEqual(bounds.cell);
+  });
+});
+
+test('a timetable-only course shows its meetings and keeps grading across a fresh login', async ({ page }) => {
   await preview(page);
-  await page.getByLabel('第一周的星期一').fill('2026-10-26');
   await page.getByRole('button', { name: '确认导入 2 个上课时段' }).click();
   await expect(page.locator('.timetable-saved article')).toHaveCount(1);
   await page.getByRole('button', { name: '关闭课表' }).click();
-  const saved = await page.evaluate(async () => {
-    const workspace = await (await fetch('/api/workspace')).json();
-    const task = { id: 'synthetic-deadline', title: '合成截止任务', description: '', status: 'not_started',
-      due: { date: '2026-11-02', precision: 'date' }, plans: [], subtasks: [] };
-    return (await fetch('/api/data/tasks', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version: workspace.tasks?.version || 0, value: [task] }) })).status;
-  });
-  expect(saved).toBe(200);
-  await page.reload();
-  await page.getByLabel('跳转日期', { exact: true }).fill('2026-11-02');
-  const cell = page.locator('[data-calendar-drop-date="2026-11-02"]');
-  await expect(cell.getByRole('button', { name: /合成截止任务/ })).toBeVisible();
-  await expect(page.locator('.timetable-day')).toContainText('示例原理(Ⅰ)');
-  await expect(cell.locator('.calendar-day-mobile-count')).toHaveText('2 项');
-  const bounds = await cell.evaluate(el => ({ cell: el.getBoundingClientRect().bottom,
-    task: el.querySelector('.calendar-task').getBoundingClientRect().bottom }));
-  expect(bounds.task).toBeLessThanOrEqual(bounds.cell);
+  if (await page.locator('#sidebar-show').isVisible()) await page.locator('#sidebar-show').click();
+  await page.getByRole('button', { name: '我的课程', exact: true }).click();
+  await page.getByLabel('切换课程').selectOption('示例原理(Ⅰ)');
+  await expect(page.locator('.course-facts')).toContainText('周一');
+  await page.getByRole('button', { name: '编辑成绩构成' }).click();
+  await page.getByLabel('成绩构成', { exact: true }).fill('课程报告 35%');
+  await page.getByRole('button', { name: '保存课程信息' }).click();
+  await expect(page.locator('.course-weights')).toContainText('35%');
+  await login(page, 'other');
+  await expect(page.locator('.course-weights')).toHaveCount(0);
+  await login(page, 'owner');
+  await page.getByLabel('切换课程').selectOption('示例原理(Ⅰ)');
+  await expect(page.locator('.course-weights')).toContainText('课程报告');
 });

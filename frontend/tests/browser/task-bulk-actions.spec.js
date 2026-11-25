@@ -111,7 +111,7 @@ async function open(page, context) {
   await page.clock.setFixedTime(new Date('2026-10-20T04:00:00Z'));
   await context.addCookies([{ name: cookie, value: users[0], domain: '127.0.0.1', path: '/' }]);
   await page.route('**/api/**', route => route.continue({ url: api + new URL(route.request().url()).pathname }));
-  await page.goto('/');
+  await page.goto('/?page=tasks');
   await expect(row(page, 'a')).toBeVisible();
   await expect(candidateRow(page)).toBeVisible();
 }
@@ -511,7 +511,7 @@ async function openPlain(page, context, baseURL) {
     await route.fulfill({ response: await route.fetch({ url: target,
       headers: { ...route.request().headers(), host: new URL(target).host } }) });
   });
-  await page.goto(plainOrigin + '/');
+  await page.goto(plainOrigin + '/?page=tasks');
   await expect(row(page, 'a')).toBeVisible();
   await expect(candidateRow(page)).toBeVisible();
   expect(await page.evaluate(() => ({ secure: isSecureContext, subtle: Boolean(crypto.subtle) })))

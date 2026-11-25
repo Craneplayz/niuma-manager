@@ -78,7 +78,7 @@ async function openWorkspace(page, { failIgnoreOnce = false, failReadOnce = fals
     else throw new Error('Unmocked API: ' + path);
     await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
   });
-  await page.goto('/');
+  await page.goto('/?page=tasks');
   return { writes, resolutions, releaseResolve, releaseRead, readStarted };
 }
 
@@ -96,14 +96,16 @@ async function navigate(page, name) {
   await page.getByRole('button', { name, exact: true }).click();
 }
 
-test('first task list waits for pending rows and publishes the complete count together', async ({ page }, info) => {
+test('saved tasks can be opened while review rows are still loading', async ({ page }, info) => {
   const f = await openWorkspace(page, { holdRead: true });
   try {
     await f.readStarted;
-    await expect(page.locator('main [role="status"]')).toHaveText('正在读取任务…');
-    await expect(page.locator('[data-task-id="target"]')).toHaveCount(0);
+    await expect(page.locator('main [role="status"]')).toHaveText('正在读取待核对任务…');
+    await page.locator('[data-task-open="target"]').click();
+    await expect(page.locator('#task-drawer')).toBeVisible();
+    await page.getByRole('button', { name: '关闭任务详情' }).click();
     await expect(page.locator('[data-scope="all"] .nav-count')).toHaveText('…');
-    await expect(page.locator('#result-count')).toHaveCount(0);
+    await expect(page.locator('#result-count')).toHaveText('…');
     await page.screenshot({ path: info.outputPath('complete-list-loading.png'), fullPage: true });
     f.releaseRead();
     await expect(page.locator('[data-task-id="target"]')).toBeVisible();

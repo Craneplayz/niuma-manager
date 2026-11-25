@@ -1,7 +1,7 @@
 import { shiftDay, todayKey } from "./task-model.js";
 
 const choices = {
-  page: ["tasks", "import"],
+  page: ["today", "courses", "planning", "tasks", "import"],
   scope: ["all", "notices", "near", "done"],
   view: ["list", "calendar"],
   mode: ["month", "week"],
@@ -13,8 +13,9 @@ const date = (value, fallback) => shiftDay(value, 0) || fallback;
 
 // Only navigation belongs in the URL; task filters and private drafts stay in memory.
 export function readNavigation(params, { today = todayKey(), preferences = {} } = {}) {
+  const taskLink = ["page", "view", "scope", "anchor", "date", "mode", "pane", "demo"].some(key => params.has(key));
   return {
-    page: choice("page", params.get("page"), "tasks"),
+    page: choice("page", params.get("page"), taskLink ? "tasks" : "today"),
     scope: choice("scope", params.get("scope"), "all"),
     view: choice("view", params.get("view"), choice("view", preferences?.view, "list")),
     mode: choice("mode", params.get("mode"), choice("mode", preferences?.mode, "month")),

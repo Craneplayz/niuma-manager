@@ -1,5 +1,6 @@
 {
   "defaultRequest": {},
+  "weekdayStudyRequest": {"taskIds": ["report"], "availability": {"startTime": "19:00", "endTime": "21:00", "weekdays": [1,2,3,4,5]}},
   "newTasksRequest": {"taskIds": ["new"]},
   "singleReplanRequest": {"taskIds": ["scheduled"], "replan": true},
   "scopedReplanRequest": {"taskIds": ["a", "b"], "replan": true},

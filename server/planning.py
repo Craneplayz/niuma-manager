@@ -19,9 +19,22 @@ from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import operations
 from ddl_text.codex_client import live_options
 from task_planning import planning_harness
-from task_planning.scheduling import rank_tasks
+from task_planning.scheduling import build_proposal, minutes_to_schedule, rank_tasks
 
 MAX_BYTES = 2_000_000
+
+
+def validate_availability(value, ApiError):
+    try:
+        start = datetime.strptime(value['startTime'], '%H:%M')
+        end = datetime.strptime(value['endTime'], '%H:%M')
+        days = value['weekdays']
+        if (start >= end or not isinstance(days, list) or not days
+                or any(type(day) is not int or day not in range(7) for day in days)):
+            raise ValueError()
+        return {**value, 'startTime': start.strftime('%H:%M'), 'endTime': end.strftime('%H:%M')}
+    except (TypeError, ValueError, KeyError):
+        raise ApiError(400, '可用时间格式不正确') from None
 
 
 def priority_explanations(request, estimates):
@@ -32,12 +45,16 @@ def priority_explanations(request, estimates):
                  availableMinutes=round(item['capacity']), estimatedMinutes=round(item['estimate']),
                  slackMinutes=round(item['slack']),
                  reason=(f"{labels[item['level']]}：截止前剩余可用约 {round(item['capacity'])} 分钟，"
-                         f"预计还需 {round(item['estimate'])} 分钟；同等风险时先看截止时间，再看任务优先级。"))
+                         f"还需安排 {round(item['estimate'])} 分钟；同等风险时先看截止时间，再看任务优先级。"))
             for index, item in enumerate(ranked, 1)]
 
 
 def plan(request, ApiError):
     """Shared model admission, with no implicit paid retries."""
+    confirmed = planning_harness.confirmed_estimates(request['tasks'])
+    if len(confirmed) == len(request['tasks']):
+        request['requestedAt'] = datetime.now(timezone(timedelta(hours=8))).isoformat()
+        return planning_harness.build_proposal(request, confirmed)
     if not _ACTIVE.acquire():
         raise ApiError(503, WAIT_ERROR)
     try:

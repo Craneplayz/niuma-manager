@@ -364,11 +364,6 @@
                   }
                 }
               }
-            },
-            "not": {
-              "required": [
-                "requestId"
-              ]
             }
           }
         }
@@ -424,6 +419,36 @@
         "error"
       ],
       "additionalProperties": false
+    },
+    "stepStatusRequest": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "stepId",
+        "status",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stepId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "completed"
+          ]
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   }
 }
