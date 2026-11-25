@@ -228,7 +228,7 @@ def compact(db, run):
                 older['revision'] += 1
                 db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(older), older['run_id']))
     for item in run['records']:
-        if 'review' not in item or item['state'] == 'succeeded':
+        if 'review' not in item:
             item['review_items'] = review_items(db, run['user_id'], item['request_id'])
             item['review'] = len(item['review_items'])
     run['records'] = [item for item in run['records'] if useful_record(item)]
@@ -570,23 +570,6 @@ def cancelled(path, uid, run_id, ApiError):
     return False
 
 
-def auto_apply(db, uid, request_id, ApiError):
-    batch = db.execute('SELECT request,demo FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
-    request = json.loads(batch['request'])
-    applied = set()
-    for item in db.execute('SELECT * FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1', (uid, request_id)).fetchall():
-        candidate = json.loads(item['candidate'])
-        if request.get('contract_version')=='0.4':
-            teaching.teaching_identity.protect_source_changes(db,uid,request_id,[candidate])
-            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(candidate),item['id']))
-        if not recognition.can_auto_apply(candidate, request, batch['demo']): continue
-        # Same submission/ownership/user-decision checks as the interactive endpoint.
-        if teaching.submission.review_reason(teaching.submission.for_request(db, uid, request_id)): continue
-        recognition.resolve_candidate(db, uid, item['id'], dict(action='create', auto_apply=True, version=1), ApiError)
-        applied.add(item['id'])
-    return added_items(db, uid, request_id, applied)
-
-
 def process_record(path, uid, run_id, request_id, ApiError, observation=None):
     with operations.scope(path,request_id=(observation or {}).get('request_id'),run_id=run_id,operation='sync.record'):
         _process_record(path,uid,run_id,request_id,ApiError)
@@ -609,7 +592,7 @@ def _process_record(path, uid, run_id, request_id, ApiError):
             next(r for r in run['records'] if r['request_id']==request_id)['state'] = 'running'
             save(db, run)
         with cancel_if(lambda: cancelled(path, uid, run_id, ApiError)), connection(path) as db:
-            teaching.run(db, uid, dict(contract_version=teaching.RUN, request_id=request_id), True, ApiError,
+            published = teaching.run(db, uid, dict(contract_version=teaching.RUN, request_id=request_id), True, ApiError,
                          guard=lambda current: guard(current, uid, run_id, ApiError), diagnostic_attempt=diagnostic_attempt)
             if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
             guard(db, uid, run_id, ApiError)
@@ -620,10 +603,9 @@ def _process_record(path, uid, run_id, request_id, ApiError):
             if teaching.needs_source_completion(result):
                 item.update(state='incomplete', error=error('source_incomplete', '来源尚未完整取得，请重新获取来源或查看原文。'))
             elif result['status'] in ('success', 'no_tasks'):
-                receipts = auto_apply(db, uid, request_id, ApiError)
-                review = review_items(db, uid, request_id)
+                receipts = added_items(db, uid, request_id, published or set())
                 item.update(state='succeeded', added=len(receipts), added_items=receipts,
-                            review=len(review), review_items=review, error=None)
+                            review=0, review_items=[], error=None)
             else:
                 failure = next((r.get('error') for r in result['record_results'] if r.get('error')), {})
                 item.update(state='failed', error=diagnostics.reference(db,uid,request_id,

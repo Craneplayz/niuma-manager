@@ -103,11 +103,19 @@ class ReprocessingTests(unittest.TestCase):
         self.assertEqual(self.saved(run)['records'][0]['decision_summary']['unresolved'],1)
         with app.connection() as db:
             candidates=db.execute('SELECT state,candidate FROM recognition_candidates WHERE user_id=?',(self.uid,)).fetchall()
-            self.assertEqual([r['state'] for r in candidates],['ignored','pending'])
+            self.assertEqual([r['state'] for r in candidates],['ignored','applied'])
             difference=json.loads(candidates[1]['candidate'])
             self.assertEqual(difference['notice_type'],'uncertain');self.assertTrue(difference['needs_review'])
             self.assertFalse(recognition.can_auto_apply(difference,self.request))
             self.assertEqual(db.execute('SELECT request FROM source_versions WHERE user_id=?',(self.uid,)).fetchone()[0],json.dumps(self.request))
+
+        with patch.object(recognition,'recognize',side_effect=lambda request,*_:self.result(request,tasks=True)):
+            self.start['operation_id'] += ':repeat'
+            second = self.launch()
+            self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+            self.assertEqual(self.saved(second)['state'], 'succeeded')
+        tasks = self.call(self.browser,'/workspace')[1]['tasks']['value']
+        self.assertEqual([task['content_type'] for task in tasks], ['notice'])
 
     def test_failure_preserves_previous_success(self):
         with app.connection() as db:

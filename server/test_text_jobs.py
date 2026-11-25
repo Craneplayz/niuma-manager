@@ -120,7 +120,7 @@ class TextJobsTests(unittest.TestCase):
         batches = self.call('/recognition/batches')[1]
         self.assertEqual(len(batches),1)
         self.assertEqual(len(batches[0]['items']),1)
-        self.assertEqual(batches[0]['items'][0]['state'],'pending')
+        self.assertEqual(batches[0]['items'][0]['state'],'applied')
         self.assertEqual(self.call(body=self.request)[0],200)
         text_jobs.wait_for_jobs(app.DB)
         self.assertEqual(self.calls,1)

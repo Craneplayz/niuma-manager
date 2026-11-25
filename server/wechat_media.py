@@ -640,43 +640,6 @@ def _failed_result(request, code='agent_unavailable', message='附件识别暂�
     return diagnostics.stamp(dict(contract_version='0.3.1', request_id=request['request_id'], status='failed', record_results=[], tasks=[], errors=[describe(dict(input_id=None, asset_id=None, block_id=None, stage='request', code=code, message=message, retryable=code=='agent_unavailable'),reason=diagnostic)]))
 
 
-def _apply_clear_tasks(db, row, result):
-    records = {item['input_id']: item for item in json.loads(row['request'])['records']}
-    outcomes = {item['input_id']: item for item in result['record_results']}
-    existing = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (row['user_id'],)).fetchone()
-    tasks = json.loads(existing['value']) if existing else []
-    changed = False
-    for candidate in result['tasks']:
-        record = records[candidate['input_id']]
-        outcome = outcomes[candidate['input_id']]
-        deadline = candidate['deadline']
-        storage_id = row['id'] + ':' + candidate['candidate_id']
-        if (record['platform'] != 'wechat' or outcome['status'] != 'success' or not outcome['coverage']['complete']
-                or outcome['coverage']['uncertain'] or candidate['notice_type'] != 'create' or candidate['needs_review']
-                or candidate['review_reasons'] or any(storage_id == h.get('storageId') for t in tasks for h in t.get('recognitionHistory', []))):
-            continue
-        if deadline['status'] == 'not_provided' and deadline['value'] is None:
-            due = None
-        elif deadline['kind'] == 'deadline' and deadline['status'] == 'explicit' and deadline['precision'] in ('date', 'datetime'):
-            if deadline['precision'] == 'date':
-                due = dict(date=deadline['value'], precision='date')
-            else:
-                stamp = datetime.fromisoformat(deadline['value'].replace('Z', '+00:00'))
-                if stamp.second or stamp.microsecond: continue
-                local = stamp.astimezone(timezone(timedelta(hours=8)))
-                due = dict(date=local.date().isoformat(), precision='datetime', time=local.strftime('%H:%M'))
-        else:
-            continue
-        tasks.append(dict(id=secrets.token_hex(16), title=candidate['title'], description=candidate['description'],
-                          category='课程作业' if candidate['course_or_project'] else '个人事务', course=candidate['course_or_project'],
-                          priority='medium', status='not_started', source='微信', due=due, subtasks=[], plans=[],
-                          createdAt=datetime.now(timezone.utc).isoformat(),
-                          recognitionHistory=[dict(storageId=storage_id, requestId=row['request_id'], candidateId=candidate['candidate_id'], action='create')]))
-        changed = True
-    if changed:
-        db.execute('INSERT INTO workspace(user_id,name,value,version) VALUES(?,?,?,1) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=workspace.version+1', (row['user_id'], 'tasks', json.dumps(tasks, ensure_ascii=False)))
-
-
 def _store_candidates(db, row, result, origin_job_id=None):
     request = json.loads(row['request'])
     task_row = db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"', (row['user_id'],)).fetchone()
@@ -711,12 +674,11 @@ def _process(db_path, job_id):
             with diagnostics.capture(db,row['user_id'],request['request_id']) as diagnostic_attempt:
                 attempt_errors = []
                 origin_job_id, content_key = job_id, None
-                direct_add = False
                 try:
                     assets = account_asset_loader(db_path, row['user_id'])
-                    direct_add = request['request_id'].startswith('quick-add:') and db.execute(
+                    manual = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='manual_material_jobs'").fetchone() and db.execute(
                         'SELECT 1 FROM manual_material_jobs WHERE job_id=?',(job_id,)).fetchone()
-                    content_key = None if direct_add else _content_key(request)
+                    content_key = None if manual else _content_key(request)
                     cached = db.execute('''SELECT j.* FROM wechat_content_cache c JOIN wechat_jobs j ON j.id=c.job_id
                         WHERE c.user_id=? AND c.content_key=? AND j.user_id=? AND j.status='succeeded' ''',
                         (row['user_id'],content_key,row['user_id'])).fetchone() if content_key and not previous else None
@@ -834,12 +796,9 @@ def _process(db_path, job_id):
                         status = {'success':'succeeded','no_tasks':'succeeded','partial_success':'partial_failed','failed':'failed'}[result['status']]
                     if status in ('succeeded', 'partial_failed'):
                         if origin_job_id == job_id:
-                            if not direct_add:
-                                _apply_clear_tasks(db, row, result)
+                            from recognition import publish_results
                             _store_candidates(db, row, result)
-                            if direct_add:
-                                from recognition import add_quick_results
-                                add_quick_results(db,row['user_id'],request,ValueError)
+                            publish_results(db, row['user_id'], request, ValueError, source='一句话添加' if manual else '微信')
                         else:
                             db.execute('INSERT INTO wechat_job_origins VALUES(?,?)',(job_id,origin_job_id))
                             _store_candidates(db,row,result,origin_job_id)

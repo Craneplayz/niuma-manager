@@ -217,7 +217,7 @@ check('returning to import unlocks controls for either read order with empty or 
     if (progressLast) await loading;
     else await new Promise(resolve => setImmediate(resolve));
     assert.match(html,/data-import-action="sync"[^>]*disabled/);
-    if (!progressLast) assert.match(html,/data-import-action="refresh"[^>]*disabled/);
+
     const reads = f.calls.filter(call => call.path === '/api/workspace').length;
     gate.release(); await loading; await new Promise(resolve => setImmediate(resolve));
     for (const control of ['data-import-action="sync"', 'data-import-action="refresh"'])
@@ -241,7 +241,7 @@ check('teaching start sends consent and operation identity while backend-applied
 check('manual and already-applied results use the backend result without browser eligibility decisions', async t => {
   const entry = teaching('unknown-year'), f = fixture({entries: [entry, teaching()], manualRequests: [entry.run.request_id]}), ui = await ready(f, t);await sync(ui);
   assert.equal(f.state.tasks.length, 1);assert.equal(f.batchFor('A', entry.run.request_id).items[0].state, 'pending');
-  assert.match(ui.render(), /data-import-review=/);noClientRecognition(f);
+  assert.doesNotMatch(ui.render(), /data-import-review=/);noClientRecognition(f);
 });
 
 check('normal history loading does not create unrelated teaching candidates', async t => {
@@ -294,7 +294,7 @@ check('retrying a failed background record sends only stored request identity an
   const failedRun = f.accounts.A.runs[0];assert.equal(f.state.tasks.length, 1);
   assert.doesNotMatch(ui.render(), new RegExp(`data-import-retry="${entry.run.request_id}"`));
   assert.doesNotMatch(ui.render(), /import-failure|历史导入 · 识别未完成/);
-  assert.doesNotMatch(ui.render().split('class="import-results"')[1], /已处理 ·|class="error"/);
+  assert.doesNotMatch(ui.render(), /已处理 ·|class="error"/);
   await ui.click({dataset: {sourceSyncAction: 'retry', sourceSyncRun: failedRun.run_id, sourceSyncRequest: entry.run.request_id}});
   const retry = f.calls.find(call => call.path.endsWith('/retry'));
   assert.deepEqual(retry.body.request_ids, [entry.run.request_id]);assert.equal(Object.hasOwn(retry.body, 'records'), false);
@@ -314,7 +314,7 @@ check('switching accounts prevents a late background-start response from display
   const ui = await ready(f, t), gate = f.pauseNext('start', true);t.after(gate.release);
   const running = sync(ui), active = await gate.entered;await f.login('B');gate.release();await running;await ui.load();await ui.loadSourceSync();
   assert.equal(active.signal.aborted, true);assert.equal(f.accounts.A.tasks.length, 2);assert.equal(f.accounts.B.tasks.length, 0);
-  assert.match(ui.render(), /B 合成私有任务/);assert.doesNotMatch(ui.render(), /A-campus|A 合成通知/);noClientRecognition(f);
+  assert.match(ui.render(), /B-campus/);assert.doesNotMatch(ui.render(), /A-campus|A 合成通知/);noClientRecognition(f);
 });
 
 check('an old run-list response cannot restore a previous account run or its import lock', async t => {

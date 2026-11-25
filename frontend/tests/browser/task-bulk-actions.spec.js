@@ -45,13 +45,18 @@ class Handler(app.Handler):
                     db.execute('INSERT INTO workspace VALUES(?,?,?,1)',(uid,'tasks',json.dumps(tasks)))
                     request=copy.deepcopy(fixture['request']);request['request_id']='bulk-source'
                     cards=[]
-                    for suffix,title,fields in [('new','同组 待核对新任务',{}),('change','任务 A 延期建议',dict(notice_type='postpone',target_reference='a')),('notice','待核对培训通知',dict(content_type='notice'))]:
+                    for suffix,title,fields in [('new','同组 导入的新任务',{}),('change','任务 A 延期建议',dict(notice_type='postpone',target_reference='a')),('notice','培训通知',dict(content_type='notice'))]:
                         candidate=copy.deepcopy(fixture['expected']['tasks'][0])
                         candidate.update(dict(candidate_id='bulk-'+suffix,title=title,description='合成说明',course_or_project='数据结构',needs_review=True,review_reasons=['请确认内容'],notice_type='create',content_type='task',deadline=dict(kind='deadline',status='explicit',precision='date',value='2026-10-21')),**fields)
                         cards.append(candidate)
                         db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(uid+'-'+suffix,uid,'bulk-source',json.dumps(candidate)))
                     result=copy.deepcopy(fixture['expected']);result['tasks']=cards
                     db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0)',(uid,'bulk-source','synthetic',json.dumps(request),json.dumps(result)))
+                    app.recognition.publish_results(db, uid, request, app.ApiError)
+                    stored=json.loads(db.execute("SELECT value FROM workspace WHERE user_id=? AND name='tasks'", (uid,)).fetchone()[0])
+                    for item in stored:
+                        if item.get('recognitionHistory'): item['id']='import-'+item['recognitionHistory'][0]['storageId']
+                    db.execute("UPDATE workspace SET value=?,version=1 WHERE user_id=? AND name='tasks'", (json.dumps(stored),uid))
             return self.reply(200,dict(users=users))
         if self.path=='/__test/arrival':
             uid=self.body()['owner']
@@ -60,6 +65,8 @@ class Handler(app.Handler):
                 candidate=json.loads(original['candidate']);candidate.update(candidate_id='bulk-arrival',title='新导入的待核对任务')
                 db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',(uid+'-arrival',uid,'bulk-source',json.dumps(candidate)))
                 import recognition
+                record=json.loads(db.execute("SELECT request FROM recognition_batches WHERE user_id=? AND request_id='bulk-source'",(uid,)).fetchone()[0])
+                recognition.publish_results(db, uid, record, app.ApiError)
                 batches=recognition.batches(db,uid)
             return self.reply(200,dict(batches=batches))
         return super().route()
@@ -104,7 +111,7 @@ test.beforeEach(async ({ request }) => {
 });
 
 const row = (page, id) => page.locator(`[data-task-id="${id}"]`);
-const candidateRow = (page, suffix = 'new') => page.locator(`[data-review-id="${users[0]}-${suffix}"]`);
+const importedRow = (page, suffix = 'new') => row(page, 'import-' + users[0] + '-' + suffix);
 const action = (page, name) => page.locator(`[data-bulk-action="${name}"]:visible`);
 const select = (page, id) => page.locator(`input[data-bulk-select="${id}"]`);
 async function open(page, context) {
@@ -113,7 +120,7 @@ async function open(page, context) {
   await page.route('**/api/**', route => route.continue({ url: api + new URL(route.request().url()).pathname }));
   await page.goto('/');
   await expect(row(page, 'a')).toBeVisible();
-  await expect(candidateRow(page)).toBeVisible();
+  await expect(importedRow(page)).toBeVisible();
 }
 async function navigate(page, name) {
   if (await page.locator('#sidebar-show').isVisible()) await page.locator('#sidebar-show').click();
@@ -140,6 +147,22 @@ async function changeDate(page, date) {
   await form.getByRole('button', { name: '应用日期', exact: true }).click();
   await expect(form).not.toBeVisible();
 }
+
+test('a postponement opens as a notice and leaves the original task intact until the user edits it', async ({page, context}) => {
+  await open(page, context);
+  const before = (await snapshot(page)).tasks.value.find(t => t.id === 'a');
+  await navigate(page, '通知');
+  await importedRow(page, 'change').locator('.task-open').click();
+  const drawer = page.locator('#task-drawer');
+  await expect(drawer.getByLabel('修改已有任务')).toHaveValue('');
+  await drawer.getByLabel('修改已有任务').selectOption('a');
+  await drawer.getByRole('button', {name:'打开编辑'}).click();
+  await expect(drawer.locator('#task-edit-form')).toHaveAttribute('data-id','a');
+  expect((await snapshot(page)).tasks.value.find(t => t.id === 'a')).toEqual(before);
+  await drawer.getByLabel('任务名称').fill('课后补交实验报告');
+  await drawer.getByRole('button', {name:'保存任务'}).click();
+  await expect.poll(async () => (await snapshot(page)).tasks.value.find(t => t.id === 'a').title).toBe('课后补交实验报告');
+});
 
 test('filter fields align and the bulk toggle stays in place', async ({ page, context }, info) => {
   await open(page, context);
@@ -183,21 +206,21 @@ test('filter fields align and the bulk toggle stays in place', async ({ page, co
   await expect(row(page, 'b')).toBeVisible();
 });
 
-test('selection follows current filters, excludes attached changes, and viewing or cancelling preserves review state', async ({ page, context }, info) => {
+test('selection follows current filters and viewing a result preserves its saved state', async ({ page, context }, info) => {
   await open(page, context);
   await page.locator('#task-search').fill('同组');
   await action(page, 'enter').click();
   await action(page, 'select-all').click();
   await expect(page.locator('input[data-bulk-select]:checked')).toHaveCount(3);
   await expect(select(page, 'c')).toHaveCount(0);
-  await expect(select(page, 'review:' + users[0] + '-change')).toHaveCount(0);
-  await expect(row(page, 'a')).toContainText('待核对变更');
+  await expect(select(page, 'import-' + users[0] + '-change')).toHaveCount(0);
+  await expect(row(page, 'a')).not.toContainText('待核对变更');
   await page.screenshot({ path: info.outputPath('bulk-mixed-selection.png'), fullPage: true });
   if (info.project.name !== 'desktop') {
-    await candidateRow(page).scrollIntoViewIfNeeded();
+    await importedRow(page).scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollTo(0, document.scrollingElement.scrollHeight));
     await expect.poll(async () => {
-      const last = await candidateRow(page).boundingBox();
+      const last = await importedRow(page).boundingBox();
       const toolbar = await page.locator('#bulk-controls .bulk-toolbar').boundingBox();
       return last && toolbar ? last.y + last.height <= toolbar.y + 1 : false;
     }, { message: 'The last candidate must scroll completely above the fixed bulk toolbar' }).toBe(true);
@@ -206,12 +229,12 @@ test('selection follows current filters, excludes attached changes, and viewing 
       expect(box.height).toBeGreaterThanOrEqual(44);
     }
   }
-  await candidateRow(page).locator('.task-open').click();
-  await expect(page.locator('#task-drawer')).toContainText('待核对');
+  await importedRow(page).locator('.task-open').click();
+  await expect(page.locator('#task-drawer')).not.toContainText('待核对');
   await page.locator('#task-drawer [data-action="drawer-close"]').click();
   await action(page, 'deadline').click();
   await page.locator('#dialog').getByRole('button', { name: '取消', exact: true }).click();
-  expect((await snapshot(page)).items.every(item => item.state === 'pending')).toBe(true);
+  expect((await snapshot(page)).items.every(item => item.state === 'applied')).toBe(true);
   await page.locator('#task-search').fill('其他任务');
   await expect(page.locator('input[data-bulk-select]:checked')).toHaveCount(0);
   await expect(row(page, 'c')).toBeVisible();
@@ -220,32 +243,35 @@ test('selection follows current filters, excludes attached changes, and viewing 
 });
 
 
-test('newly arriving candidates stay unselected while existing selections survive the refresh', async ({ page, context, request }) => {
+test('newly arriving tasks stay unselected while existing selections survive the refresh', async ({ page, context, request }) => {
   await open(page, context);
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   const response = await request.post(api + '/__test/arrival', { data: { owner: users[0] } });
   expect(response.ok()).toBeTruthy();
-  const detail = await response.json();
-  await page.evaluate(detail => window.dispatchEvent(new CustomEvent('niuma:bulk-saved', { detail })), detail);
-  await expect(candidateRow(page, 'arrival')).toBeVisible();
-  await expect(select(page, 'review:' + users[0] + '-arrival')).not.toBeChecked();
+  await page.evaluate(async () => {
+    const { refreshStore } = await import('/src/team-store.js');
+    const state = await refreshStore();
+    window.dispatchEvent(new CustomEvent('niuma:bulk-saved', {detail:{state}}));
+  });
+  const arrival = page.locator('.task-row').filter({hasText:'新导入的待核对任务'});
+  await expect(arrival.locator('input[data-bulk-select]')).not.toBeChecked();
   await expect(select(page, 'a')).toBeChecked();
-  await expect(select(page, 'review:' + users[0] + '-new')).toBeChecked();
+  await expect(select(page, 'import-' + users[0] + '-new')).toBeChecked();
   await expect(page.locator('input[data-bulk-select]:checked')).toHaveCount(2);
 });
 
-test('mixed completion confirms new candidates once, leaves attached changes pending, and undo keeps the confirmed task ordinary', async ({ page, context }, info) => {
+test('bulk completion and undo leave a separate change notice untouched', async ({ page, context }, info) => {
   await open(page, context);
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await action(page, 'complete').click();
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toHaveCount(0);
   await expect(row(page, 'a')).toHaveCount(0);
   const saved = await snapshot(page), created = confirmedTask(saved);
   expect(saved.tasks.version).toBe(2);
   expect(created.status).toBe('completed');
   expect(saved.tasks.value.find(task => task.id === 'a').status).toBe('completed');
   expect(saved.items.find(item => item.id === users[0] + '-new').state).toBe('applied');
-  expect(saved.items.find(item => item.id === users[0] + '-change').state).toBe('pending');
+  expect(saved.items.find(item => item.id === users[0] + '-change').state).toBe('applied');
   await page.getByRole('button', { name: '撤销', exact: true }).click();
   await expect(row(page, 'a')).toBeVisible();
   await expect(row(page, created.id)).toBeVisible();
@@ -260,12 +286,12 @@ test('mixed completion confirms new candidates once, leaves attached changes pen
 test('mixed batch receipts and undo retain course colors and update calendar activity', async ({ page, context }) => {
   await open(page, context);
   const tone = await row(page, 'a').locator('.course-badge').getAttribute('data-course-tone');
-  await expect(candidateRow(page).locator('.course-badge')).toHaveAttribute('data-course-tone', tone);
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await expect(importedRow(page).locator('.course-badge')).toHaveAttribute('data-course-tone', tone);
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await expect(row(page, 'a')).toHaveClass(/is-bulk-selected/);
   await expect(row(page, 'a').locator('.course-badge')).toHaveAttribute('data-course-tone', tone);
   await action(page, 'complete').click();
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toHaveCount(0);
   const created = confirmedTask(await snapshot(page));
   await page.locator('[data-view="calendar"]').click();
   const today = page.locator('[data-calendar-drop-date="2026-10-20"]');
@@ -288,9 +314,9 @@ test('mixed batch receipts and undo retain course colors and update calendar act
 
 test('mixed date changes preserve per-task times and can clear dates with an exact batch undo', async ({ page, context }) => {
   await open(page, context);
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await changeDate(page, '2026-10-28');
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toBeVisible();
   const saved = await snapshot(page), created = confirmedTask(saved);
   expect(saved.tasks.value.find(task => task.id === 'a').due).toEqual({ date: '2026-10-28', time: '18:00', precision: 'datetime' });
   expect(created.due).toEqual({ date: '2026-10-28', precision: 'date' });
@@ -303,31 +329,31 @@ test('mixed date changes preserve per-task times and can clear dates with an exa
   expect((await snapshot(page)).tasks.value.find(task => task.id === 'b').due.date).toBe('2026-10-21');
 });
 
-test('mixed deletion moves ordinary tasks to trash, ignores candidates, and batch undo restores their respective identities', async ({ page, context }) => {
+test('bulk deletion and undo restore both tasks with their original identities', async ({ page, context }) => {
   await open(page, context);
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await action(page, 'trash').click();
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toHaveCount(0);
   await expect(row(page, 'a')).toHaveCount(0);
   const deleted = await snapshot(page);
   expect(deleted.tasks.value.find(task => task.id === 'a').recycleBin).toBeTruthy();
-  expect(deleted.items.find(item => item.id === users[0] + '-new').state).toBe('ignored');
-  expect(confirmedTask(deleted)).toBeUndefined();
+  expect(deleted.items.find(item => item.id === users[0] + '-new').state).toBe('applied');
+  expect(confirmedTask(deleted).recycleBin).toBeTruthy();
   await page.getByRole('button', { name: '撤销', exact: true }).click();
   await expect(row(page, 'a')).toBeVisible();
-  await expect(candidateRow(page)).toBeVisible();
+  await expect(importedRow(page)).toBeVisible();
   const restored = await snapshot(page);
   expect(restored.tasks.value.find(task => task.id === 'a').recycleBin).toBeUndefined();
-  expect(restored.items.find(item => item.id === users[0] + '-new')).toMatchObject({ state: 'pending', version: 3 });
-  expect(confirmedTask(restored)).toBeUndefined();
+  expect(restored.items.find(item => item.id === users[0] + '-new')).toMatchObject({ state: 'applied', version: 2 });
+  expect(confirmedTask(restored).recycleBin).toBeUndefined();
 });
 
 test('notifications use explicit read/unread states and completed tasks reopen together', async ({ page, context }) => {
   await open(page, context);
   await navigate(page, '通知');
-  await choose(page, 'notice', 'review:' + users[0] + '-notice');
+  await choose(page, 'notice', 'import-' + users[0] + '-notice');
   await action(page, 'complete').click();
-  await expect(candidateRow(page, 'notice')).toHaveCount(0);
+  await expect(importedRow(page, 'notice')).toHaveClass(/is-read/);
   const read = await snapshot(page), created = confirmedTask(read, 'notice');
   expect(read.tasks.value.find(task => task.id === 'notice').status).toBe('completed');
   expect(created.status).toBe('completed');
@@ -362,7 +388,7 @@ test('trash supports selecting and restoring an entire deleted group', async ({ 
   await expect(row(page, 'b')).toBeVisible();
 });
 
-test('a rejected mixed batch keeps all review state and retries the original journaled operation', async ({ page, context }) => {
+test('a rejected mixed batch keeps the task state and retries the original journaled operation', async ({ page, context }) => {
   await open(page, context);
   let attempts = 0;
   await page.route('**/api/tasks/bulk', async route => {
@@ -370,17 +396,17 @@ test('a rejected mixed batch keeps all review state and retries the original jou
     if (attempts === 1) await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '合成暂时保存失败' }) });
     else await route.continue({ url: api + '/api/tasks/bulk' });
   });
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await action(page, 'complete').click();
   await expect(page.getByRole('button', { name: '重试保存', exact: true })).toBeVisible();
-  await expect(candidateRow(page)).toBeVisible();
+  await expect(importedRow(page)).toBeVisible();
   await expect(row(page, 'a')).toBeVisible();
   expect((await snapshot(page)).tasks.version).toBe(1);
-  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('pending');
+  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('applied');
   expect(await journal(page)).toHaveLength(1);
   await expect(page.locator('#toast')).not.toContainText('已完成 2');
   await page.getByRole('button', { name: '重试保存', exact: true }).click();
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toHaveCount(0);
   await expect(row(page, 'a')).toHaveCount(0);
   expect((await snapshot(page)).tasks.version).toBe(2);
   expect(await journal(page)).toHaveLength(0);
@@ -394,7 +420,7 @@ test('lost mixed response reconciles on reload without duplicating a confirmed c
     expect(response.ok()).toBeTruthy(); committed = true;
     await route.abort('failed');
   });
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await action(page, 'complete').click();
   await expect.poll(() => committed).toBe(true);
   await expect(page.getByRole('button', { name: '重试保存', exact: true })).toBeVisible();
@@ -402,7 +428,7 @@ test('lost mixed response reconciles on reload without duplicating a confirmed c
   await page.unroute('**/api/tasks/bulk');
   await page.reload();
   await expect.poll(async () => (await journal(page)).length).toBe(0);
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toHaveCount(0);
   const saved = await snapshot(page);
   expect(saved.tasks.version).toBe(2);
   expect(saved.tasks.value.filter(task => task.recognitionHistory?.some(event => event.storageId === users[0] + '-new'))).toHaveLength(1);
@@ -426,7 +452,7 @@ test('same-page retry recovers the receipt after a lost response and exposes a w
     expect(response.ok()).toBeTruthy(); committed = true;
     await route.abort('failed');
   });
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await action(page, 'complete').click();
   await expect.poll(() => committed).toBe(true);
   await expect(page.getByRole('button', { name: '重试保存', exact: true })).toBeVisible();
@@ -434,7 +460,7 @@ test('same-page retry recovers the receipt after a lost response and exposes a w
   expect((await snapshot(page)).tasks.version).toBe(2);
   await page.unroute('**/api/tasks/bulk');
   await page.getByRole('button', { name: '重试保存', exact: true }).click();
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toHaveCount(0);
   await expect(row(page, 'a')).toHaveCount(0);
   await expect(page.locator('#toast')).toContainText(/已保存|已完成/);
   const saved = await snapshot(page), created = confirmedTask(saved);
@@ -463,7 +489,7 @@ test('an unrelated ordinary edit can queue behind a slow mixed batch and is pres
     await route.continue({ url: api + '/api/tasks/bulk' });
   });
   try {
-    await choose(page, 'a', 'review:' + users[0] + '-new');
+    await choose(page, 'a', 'import-' + users[0] + '-new');
     await action(page, 'complete').click();
     await expect.poll(() => entered).toBe(true);
     await row(page, 'c').locator('.task-open').click();
@@ -473,7 +499,7 @@ test('an unrelated ordinary edit can queue behind a slow mixed batch and is pres
     await drawer.getByRole('button', { name: '保存任务', exact: true }).click();
     await expect(drawer).not.toBeVisible();
     release();
-    await expect(candidateRow(page)).toHaveCount(0);
+    await expect(importedRow(page)).toHaveCount(0);
     await expect(row(page, 'c')).toContainText('保存期间编辑');
     await expect.poll(async () => (await journal(page)).length).toBe(0);
     const saved = await snapshot(page);
@@ -486,7 +512,7 @@ test('an unrelated ordinary edit can queue behind a slow mixed batch and is pres
 
 test('account reset clears bulk selection and another account receives no previous selection or writes', async ({ page, context }) => {
   await open(page, context);
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await page.evaluate(async () => (await import('/src/team-store.js')).logout());
   await expect(page.locator('input[data-bulk-select]:checked')).toHaveCount(0);
   await context.addCookies([{ name: cookie, value: users[1], domain: '127.0.0.1', path: '/' }]);
@@ -497,7 +523,7 @@ test('account reset clears bulk selection and another account receives no previo
   const saved = await snapshot(page);
   expect(saved.taskWriteOwner).toBe(users[1]);
   expect(saved.tasks.version).toBe(1);
-  expect(saved.items.every(item => item.state === 'pending')).toBe(true);
+  expect(saved.items.every(item => item.state === 'applied')).toBe(true);
 });
 
 async function openPlain(page, context, baseURL) {
@@ -513,7 +539,7 @@ async function openPlain(page, context, baseURL) {
   });
   await page.goto(plainOrigin + '/');
   await expect(row(page, 'a')).toBeVisible();
-  await expect(candidateRow(page)).toBeVisible();
+  await expect(importedRow(page)).toBeVisible();
   expect(await page.evaluate(() => ({ secure: isSecureContext, subtle: Boolean(crypto.subtle) })))
     .toEqual({ secure: false, subtle: false });
 }
@@ -534,11 +560,11 @@ test('plain HTTP mixed completion waits for receipt, queues an ordinary edit, an
     await gate; await route.fulfill({ response });
   });
   try {
-    await choose(page, 'a', 'review:' + users[0] + '-new');
+    await choose(page, 'a', 'import-' + users[0] + '-new');
     await action(page, 'complete').click();
     await expect.poll(() => committed).toBe(true);
     await expect(row(page, 'a')).toBeVisible();
-    await expect(candidateRow(page)).toBeVisible();
+    await expect(importedRow(page)).toBeVisible();
     await expect(page.locator('#toast')).not.toContainText('已完成 2');
     await row(page, 'c').locator('.task-open').click();
     const drawer = page.locator('#task-drawer');
@@ -549,7 +575,7 @@ test('plain HTTP mixed completion waits for receipt, queues an ordinary edit, an
     await noPlainJournal(page);
     release();
     await expect(drawer).not.toBeVisible();
-    await expect(candidateRow(page)).toHaveCount(0);
+    await expect(importedRow(page)).toHaveCount(0);
     await expect(row(page, 'c')).toContainText('HTTP 排队编辑');
     const saved = await snapshot(page);
     expect(saved.tasks.version).toBe(3);
@@ -580,14 +606,14 @@ for (const failure of ['before commit', 'lost receipt']) {
       if (attempts === 1) return route.abort('failed');
       await route.fulfill({ response });
     });
-    await choose(page, 'a', 'review:' + users[0] + '-new');
+    await choose(page, 'a', 'import-' + users[0] + '-new');
     await action(page, 'complete').click();
     await expect(page.getByRole('button', { name: '重试保存', exact: true })).toBeVisible();
     await expect(row(page, 'a')).toBeVisible();
-    await expect(candidateRow(page)).toBeVisible();
+    await expect(importedRow(page)).toBeVisible();
     await noPlainJournal(page);
     await page.getByRole('button', { name: '重试保存', exact: true }).click();
-    await expect(candidateRow(page)).toHaveCount(0);
+    await expect(importedRow(page)).toHaveCount(0);
     await expect(row(page, 'a')).toHaveCount(0);
     const saved = await snapshot(page), created = confirmedTask(saved);
     expect(saved.tasks.version).toBe(2);
@@ -604,17 +630,17 @@ for (const failure of ['before commit', 'lost receipt']) {
 
 test('plain HTTP mixed dates, deletion, undo, and trash restoration use their proper routes', async ({ page, context, baseURL }) => {
   await openPlain(page, context, baseURL);
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await action(page, 'trash').click();
   await expect(row(page, 'a')).toHaveCount(0);
-  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('ignored');
+  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('applied');
   await page.getByRole('button', { name: '撤销', exact: true }).click();
   await expect(row(page, 'a')).toBeVisible();
-  await expect(candidateRow(page)).toBeVisible();
-  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('pending');
-  await choose(page, 'a', 'review:' + users[0] + '-new');
+  await expect(importedRow(page)).toBeVisible();
+  expect((await snapshot(page)).items.find(item => item.id === users[0] + '-new').state).toBe('applied');
+  await choose(page, 'a', 'import-' + users[0] + '-new');
   await changeDate(page, '2026-10-28');
-  await expect(candidateRow(page)).toHaveCount(0);
+  await expect(importedRow(page)).toBeVisible();
   const dated = await snapshot(page), created = confirmedTask(dated);
   expect(dated.tasks.value.find(task => task.id === 'a').due).toEqual({ date: '2026-10-28', time: '18:00', precision: 'datetime' });
   expect(created.due).toEqual({ date: '2026-10-28', precision: 'date' });

@@ -108,13 +108,10 @@ class CourseContextHTTPTests(unittest.TestCase):
                 item=recovered['items'][0]
                 status,workspace=self.call('/workspace')
                 self.assertEqual(status,200,workspace)
-                version=workspace.get('tasks',{}).get('version',0)
-                status,saved=self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',reviewed=True,version=item['version'],tasks_version=version,
-                    draft=dict(title=item['candidate']['title'],description=item['candidate']['description'],due=None)))
-                self.assertEqual(status,200,saved)
+                self.assertEqual(item['state'],'applied')
                 for _ in range(2):
                     self.assertNotIn(primary['records'][0]['record']['input_id'],[v['records'][0]['input_id'] for v in self.sync(raw,assets)['requests']])
-                self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1 if missing=='incomplete' else 2)
+                self.assertEqual(len([t for t in self.call('/workspace')[1]['tasks']['value'] if t['title']==item['candidate']['title']]),1 if missing=='incomplete' else 2)
 
     def test_cold_cache_reordering_saves_first_result_without_invalidating_again(self):
         primary=request('homework','请完成第四章书面作业。')
@@ -322,9 +319,9 @@ class CourseContextHTTPTests(unittest.TestCase):
         revised=self.run_record(next_rid)['items'][0]
         self.assertTrue(revised['candidate']['needs_review'])
         self.assertEqual(revised['candidate']['deadline']['value'],'2026-12-21')
-        self.assertEqual(self.call('/recognition/candidates/'+revised['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+        self.assertEqual(revised['state'],'applied')
         saved=self.call('/workspace')[1]['tasks']['value']
-        self.assertEqual(len(saved),1)
+        self.assertEqual([t['content_type'] for t in saved],['task','notice'])
         self.assertEqual(saved[0]['due'],dict(date='2026-12-20',precision='date'))
         # A different authenticated user cannot query the first user's context.
         self.assertEqual(self.call('/auth/register',dict(name='Other',email='other-context@example.test',password='Synthetic-password!'))[0],200)
@@ -338,7 +335,7 @@ class CourseContextHTTPTests(unittest.TestCase):
                 material,asset=self.file_source('material-'+handling,course=iid)
                 sources=[primary,material];assets={material['records'][0]['record']['input_id']:[asset]}
                 rid=self.sync(sources,assets)['requests'][0]['request_id']
-                with self.reader(side_effect=AgentError('file_read_failed',False)):
+                with patch.object(app.recognition,'publish_results',return_value=set()), self.reader(side_effect=AgentError('file_read_failed',False)):
                     batch=self.run_record(rid)
                 item=batch['items'][0]
                 if handling!='pending':

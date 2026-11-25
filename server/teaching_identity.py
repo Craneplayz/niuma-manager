@@ -92,22 +92,24 @@ def reuse_unchanged_result(db, uid, request_id, result):
     old = json.loads(prior[0])
     if old.get('status') not in ('success', 'no_tasks'): return False
 
-    def proof(value):
-        rows = []
-        for raw in value['record_results']:
-            row = deepcopy(raw)
-            decisions = row.pop('decisions')
-            normalized = []
-            for d in decisions:
-                record = d['pair']['record']
-                record.pop('course_context', None)
-                record['references'] = [r for r in record['references'] if r['kind'] != 'course_context']
-                d['pair']['assessment'].pop('candidate_id', None)
-                normalized.append(canonical(d))
-            row['decisions'] = [json.loads(d) for d in sorted(normalized)]
-            rows.append(canonical(row))
-        return sorted(rows)
-    return proof(old) == proof(result)
+    return decision_proof(old) == decision_proof(result)
+
+
+def decision_proof(value):
+    rows = []
+    for raw in value['record_results']:
+        row = deepcopy(raw)
+        decisions = row.pop('decisions')
+        normalized = []
+        for d in decisions:
+            record = d['pair']['record']
+            record.pop('course_context', None)
+            record['references'] = [r for r in record['references'] if r['kind'] != 'course_context']
+            d['pair']['assessment'].pop('candidate_id', None)
+            normalized.append(canonical(d))
+        row['decisions'] = [json.loads(d) for d in sorted(normalized)]
+        rows.append(canonical(row))
+    return sorted(rows)
 
 
 def supersede_unhandled(db, uid, request_id, snapshot_id):

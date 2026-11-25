@@ -420,7 +420,7 @@ check('history shows only added content, review candidates, updates and problems
   run.records[1].review_items=[{candidate_id:'pending',label:'需要核对的作业',course:null}];
   const f=fixture([run]);await f.ui.load();
   const html=markup(f.ui);
-  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);assert.match(html,/修改 1 项/);assert.match(html,/错误 1 条/);
+  assert.match(html,/新增 1 项/);assert.match(html,/历史记录 1 项/);assert.match(html,/修改 1 项/);assert.match(html,/错误 1 条/);
   assert.doesNotMatch(html,/处理详情|candidate-row|实际新增的作业|需要核对的作业|延期的报告/);
   await category(f.ui,run.run_id,'added');assert.match(markup(f.ui),/实际新增的作业/);assert.doesNotMatch(markup(f.ui),/需要核对的作业|合成通知/);
   await category(f.ui,run.run_id,'review');assert.match(markup(f.ui),/需要核对的作业/);assert.doesNotMatch(markup(f.ui),/实际新增的作业/);
@@ -438,11 +438,11 @@ check('result names open their stable task or candidate identity and updates sho
   const run=syncRun({added:2,review:1,updates:[{task_id:'updated',label:'更新的报告',course:null,changed_fields:['due','status']}]});
   run.records[0].added_items=[{candidate_id:'a',task_id:'task:a',label:'<报告 A>',course:null},{candidate_id:'b',task_id:null,label:'已删除的报告',course:null}];
   run.records[0].review_items=[{candidate_id:'pending:a',label:'核对报告',course:null}];
-  const f=fixture([run]), opened=[];f.host.openTask=id=>opened.push(['task',id]);f.host.openReview=id=>opened.push(['review',id]);
+  const f=fixture([run]), opened=[];f.host.openTask=id=>opened.push(['task',id]);f.host.openHistoryItem=id=>opened.push(['review',id]);
   f.remote.tasks=[{id:'task:a',status:'todo'},{id:'updated',status:'todo'}];
   await f.ui.load();await category(f.ui,run.run_id,'added');
   assert.match(markup(f.ui),/&lt;报告 A&gt;/);assert.doesNotMatch(markup(f.ui),/待核对 0|更新 0|错误 0|合成通知/);
-  for(const [action,id] of [['open-task','task:a'],['open-review','pending:a'],['open-task','updated'],['open-task','forged']])
+  for(const [action,id] of [['open-task','task:a'],['open-history-item','pending:a'],['open-task','updated'],['open-task','forged']])
     await f.ui.click({dataset:{sourceSyncAction:action,sourceSyncRun:run.run_id,sourceSyncItem:id}});
   assert.deepEqual(opened,[['task','task:a'],['review','pending:a'],['task','updated']]);
   assert.equal(f.posts().length,0);assert.equal(f.messages.length,1);
@@ -562,7 +562,7 @@ check('resolved errors stay within the original batch alongside additions and re
   run.records[2].recovered=true;run.error=run.records[2].error;
   const f=fixture([run]);await f.ui.load();
   const html=f.ui.renderHistory();
-  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);
+  assert.match(html,/新增 1 项/);assert.match(html,/历史记录 1 项/);
   assert.match(html,/错误 1 条/);assert.doesNotMatch(html,/处理未完成/);
   await category(f.ui,run.run_id,'error');assert.match(markup(f.ui),/sync-item-status-muted">已恢复/);
 });
@@ -584,7 +584,7 @@ check('partial recovery preserves additions and review totals with an amber summ
   run.records[1].recovered=true;
   const f=fixture([run]);await f.ui.load();await category(f.ui,run.run_id,'error');
   const html=markup(f.ui);
-  assert.match(html,/新增 1 项/);assert.match(html,/待核对 1 项/);
+  assert.match(html,/新增 1 项/);assert.match(html,/历史记录 1 项/);
   assert.match(categoryMarkup(html,"error"),/sync-category-review/);
   assert.match(categoryMarkup(html,"error"),/>错误 2 条<\/button>/);
   assert.match(categoryMarkup(html,"error"),/已恢复 1 \/ 2 条；仍需处理 1 条/);
@@ -625,7 +625,7 @@ check('a recovered whole collection can locate a quiet check without starting an
   f.setAPI((call,next)=>call.path===`${API}/${encodeURIComponent(target.run_id)}`?clone(target):next(call));
   await f.ui.load();await f.ui.click({dataset:{sourceSyncAction:'locate-recovery',sourceSyncRun:old.run_id,sourceSyncItem:'0'}});
   assert.deepEqual(f.revealed,[`sync-run-${target.run_id}`]);
-  assert.match(markup(f.ui),/这次处理已完成，没有新增任务或待核对内容/);assert.equal(f.posts().length,0);
+  assert.match(markup(f.ui),/这次处理已完成，没有新增任务或通知/);assert.equal(f.posts().length,0);
 });
 
 check('receipt statuses and confirmed-candidate links follow current tasks without changing totals', async () => {
@@ -639,12 +639,12 @@ check('receipt statuses and confirmed-candidate links follow current tasks witho
   assert.match(markup(f.ui),/sync-item-status-muted">未完成/);
   f.view.tasks[0].status='done';
   assert.match(markup(f.ui),/sync-item-status-success">✓ 已完成/);
-  await category(f.ui,run.run_id,'review');assert.match(markup(f.ui),/sync-item-status-review">待核对/);
+  await category(f.ui,run.run_id,'review');assert.match(markup(f.ui),/sync-item-status-muted">状态暂不可用/);
   f.view.batches[0].items[0].state='applied';
   f.view.tasks.push({id:'confirmed',status:'done',recognitionHistory:[{storageId:'manual',action:'create'}]});
   assert.match(markup(f.ui),/sync-item-status-success">✓ 已完成/);
   assert.doesNotMatch(markup(f.ui),/sync-item-status-review/);
-  assert.match(markup(f.ui),/新增 1 项/);assert.match(markup(f.ui),/待核对 1 项/);
+  assert.match(markup(f.ui),/新增 1 项/);assert.match(markup(f.ui),/历史记录 1 项/);
   await category(f.ui,run.run_id,'added');f.view.tasks=[];
   assert.match(markup(f.ui),/已移除/);assert.doesNotMatch(markup(f.ui),/">未完成<|进行中/);
   await category(f.ui,run.run_id,'error');
@@ -659,23 +659,23 @@ check('categories follow action priority while recovery and review keep the sele
   const f=fixture([run]);f.remote.batches=[{items:[{id:'manual',state:'pending'}]}];
   await f.ui.load();await category(f.ui,run.run_id,'review');
   let html=markup(f.ui);
-  assert.deepEqual(categoryKeys(html),['error','review','added','updated']);
+  assert.deepEqual(categoryKeys(html),['error','added','review','updated']);
   assert.match(categoryMarkup(html,'error'),/sync-category-error/);
-  assert.match(categoryMarkup(html,'review'),/sync-category-review/);
+  assert.match(categoryMarkup(html,'review'),/sync-category-success/);
   for(const key of ['added','updated'])assert.match(categoryMarkup(html,key),/sync-category-success/);
   run.records[1].recovered=true;run.revision++;
   f.setRuns([run]);await f.ui.load();html=markup(f.ui);
-  assert.deepEqual(categoryKeys(html),['review','added','updated','error']);
+  assert.deepEqual(categoryKeys(html),['added','review','updated','error']);
   assert.match(categoryMarkup(html,'error'),/sync-category-success/);
   assert.match(categoryMarkup(html,'review'),/aria-expanded="true"/);
   f.view.batches[0].items[0].state='applied';
   html=markup(f.ui);
-  assert.deepEqual(categoryKeys(html),['added','updated','review','error']);
+  assert.deepEqual(categoryKeys(html),['added','review','updated','error']);
   assert.match(categoryMarkup(html,'review'),/sync-category-success/);
-  assert.match(categoryMarkup(html,'review'),/>待核对 1 项<\/button>/);
+  assert.match(categoryMarkup(html,'review'),/>历史记录 1 项<\/button>/);
   assert.match(categoryMarkup(html,'review'),/aria-expanded="true"/);
   f.view.batches[0].items[0].state='pending';
-  assert.deepEqual(categoryKeys(markup(f.ui)),['review','added','updated','error']);
+  assert.deepEqual(categoryKeys(markup(f.ui)),['added','review','updated','error']);
 });
 
 check('ignored and confirmed review receipts turn green while unknown legacy receipts remain amber', async () => {
@@ -685,11 +685,11 @@ check('ignored and confirmed review receipts turn green while unknown legacy rec
   await f.ui.load();assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-success/);
   f.view.batches=[];
   f.view.tasks=[{id:'task',recognitionHistory:[{storageId:'confirmed'}]}];
-  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-review/);
+  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-success/);
   f.view.tasks.push({id:'other-task',recognitionHistory:[{storageId:'ignored'}]});
   assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-success/);
   delete run.records[0].review_items;run.revision++;f.setRuns([run]);await f.ui.load();
-  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-review/);
+  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-success/);
 });
 
 function linkedRecovery() {
@@ -731,7 +731,7 @@ check('a compacted successful source locates its mixed retry batch and explains 
     const html=markup(f.ui),row=html.match(new RegExp(`<article id="sync-run-${target.run_id}"[\\s\\S]*?</article>`))[0];
     assert.match(row,/sync-run-heading" data-source-sync-highlight/);
     assert.match(row,/部分完成/);
-    assert.match(row,/这条来源已处理完成，没有新增任务或待核对内容。/);
+    assert.match(row,/这条来源已处理完成，没有新增任务或通知。/);
     assert.match(row,/错误 1 条/);assert.match(row,/新增 1 项/);
     if(cached) assert.match(row,/处理未完成 · 1/);
     assert.doesNotMatch(row,/data-source-sync-category="added" aria-expanded="true"/);
@@ -866,9 +866,9 @@ check('reviewed cancellations and removed auto additions show the actual outcome
   assert.equal(f.messages.at(-1),'这条任务或通知已移除，无法打开详情');
   await category(f.ui,run.run_id,'review');
   assert.match(markup(f.ui),/sync-item-status-muted">已取消/);
-  assert.match(markup(f.ui),/sync-item-status-review">待核对/);
-  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-review/);
-  assert.match(markup(f.ui),/新增 1 项/);assert.match(markup(f.ui),/待核对 2 项/);
+  assert.match(markup(f.ui),/sync-item-status-muted">状态暂不可用/);
+  assert.match(categoryMarkup(markup(f.ui),'review'),/sync-category-success/);
+  assert.match(markup(f.ui),/新增 1 项/);assert.match(markup(f.ui),/历史记录 2 项/);
 });
 
 check('notices use the shared leading badge and task completion status, including after review', async () => {

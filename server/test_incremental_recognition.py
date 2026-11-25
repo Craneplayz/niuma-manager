@@ -44,6 +44,8 @@ class IncrementalRecognitionTests(unittest.TestCase):
     def connect(self):
         self.db = sqlite3.connect(self.path)
         self.db.row_factory = sqlite3.Row
+        app.initialize_accounts(self.db)
+        app.usage.initialize(self.db)
         recognition.initialize(self.db)
         source_sync.initialize(self.db)
         self.db.commit()
@@ -113,17 +115,17 @@ class IncrementalRecognitionTests(unittest.TestCase):
         self.db.close()
         self.connect()
         resumed = self.sync()['requests']
-        self.assertIn(request, resumed)
+        self.assertNotIn(request, resumed)
         self.recognize(request)
         self.assertEqual(self.captured, [])
         self.assertEqual(self.output[0]['items'][0]['id'], item['id'])
-        self.db.execute('CREATE TABLE workspace(user_id TEXT,name TEXT,value TEXT,version INTEGER,PRIMARY KEY(user_id,name))')
+
         self.db.commit()
         def reply(status, value):
             self.assertEqual(status, 200)
             self.db.commit()
         handler = SimpleNamespace(command='POST', reply=reply)
-        body = dict(action='create', auto_apply=True, version=item['version'])
+        body = dict(action='create', auto_apply=True, version=1)
         for _ in range(2):
             recognition.route(handler, self.db, 'owner', '/api/recognition/candidates/'+item['id']+'/resolve', body, app.ApiError)
             tasks = json.loads(self.db.execute('SELECT value FROM workspace WHERE user_id="owner" AND name="tasks"').fetchone()['value'])

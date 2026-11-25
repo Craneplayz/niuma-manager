@@ -198,6 +198,17 @@ def recognize_saved(request, native, ApiError, *, attachments=None):
     finally: recognition._ACTIVE.release()
 
 
+def same_result(previous, current):
+    if previous.get('contract_version') != current.get('contract_version') or previous.get('status') != current.get('status'):
+        return False
+    if current.get('contract_version') == '0.4':
+        return teaching.teaching_identity.decision_proof(previous) == teaching.teaching_identity.decision_proof(current)
+    def cards(result):
+        return sorted(json.dumps({k:v for k,v in card.items() if k != 'candidate_id'}, sort_keys=True)
+                      for card in result['tasks'])
+    return cards(previous) == cards(current)
+
+
 def prior_candidates(db, uid, item, identity):
     """Use server-bound request lineage, never a title or input ID alone."""
     kind=item.get('kind','text');ids={item['request']['request_id']}
@@ -279,6 +290,17 @@ def process(path, uid, run_id, ApiError):
                                         or recognition.was_automatically_withdrawn(c))]
                     replaceable_ids = {c['id'] for c in replaceable}
                     protected = [c for c in old if c['id'] not in replaceable_ids]
+                    # Only compare complete outputs from this server-bound source.
+                    # A repeated reprocessing request must not emit the same notice again.
+                    if protected:
+                        prior = db.execute("""SELECT result FROM recognition_batches b
+                            WHERE user_id=? AND request_id IN (
+                                SELECT request_id FROM reprocessing_request_sources
+                                WHERE user_id=? AND kind=? AND account=? AND input_id=?
+                                UNION SELECT ?) ORDER BY rowid DESC LIMIT 1""",
+                            (uid, uid, item.get('kind','text'), item['account'], record['input_id'], item['request']['request_id'])).fetchone()
+                        if prior and same_result(json.loads(prior[0]), result):
+                            cards = []
                     candidate_ids=[secrets.token_hex(16) for _ in cards]
                     plan=contract.association_plan(dict(contract_version=contract.VERSION,
                         previous=[dict(action_id=c['id'],decision='ignored' if c['state']=='ignored' else 'confirmed') for c in protected],
@@ -334,18 +356,10 @@ def process(path, uid, run_id, ApiError):
                                 card=json.loads(db.execute('SELECT candidate FROM recognition_candidates WHERE id=?',(identity,)).fetchone()[0])
                                 teaching.submission.decorate(db,uid,request['request_id'],card)
                                 db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),identity))
-                            # Same account/source guard and transactional task creation as normal sync.
-                            for identity in candidate_ids:
-                                saved_candidate=db.execute('SELECT candidate,state FROM recognition_candidates WHERE id=?',(identity,)).fetchone()
-                                if saved_candidate['state']!='pending':
-                                    summary['new_pending']-=1
-                                    continue
-                                candidate=json.loads(saved_candidate['candidate'])
-                                if recognition.can_auto_apply(candidate,request):
-                                    recognition.resolve_candidate(db,uid,identity,dict(action='create',auto_apply=True,version=1),ApiError)
-                                    summary['new_pending']-=1
                         else:
                             db.execute('UPDATE source_versions SET request=? WHERE user_id=? AND account=? AND input_id=?',(json.dumps(request),uid,item['account'],record['input_id']))
+                    recognition.publish_results(db, uid, request, ApiError)
+                    summary['new_pending'] = 0
                     results=json.loads(stored['results']);results[record['input_id']]=result
                     db.execute('UPDATE reprocessing_runs SET results=? WHERE run_id=?',(json.dumps(results),run_id))
                     record.update(state='succeeded',outcome='tasks' if cards else 'no_tasks',old_result_retained=record['previous_available'] if protected else False)

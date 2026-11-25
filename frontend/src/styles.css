@@ -1884,27 +1884,6 @@ dialog p {
 .section-heading .btn {
   font-size: 12px;
 }
-.candidate-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 22px 0;
-  border-bottom: 1px solid var(--line);
-}
-.candidate-copy {
-  min-width: 0;
-  flex: 1;
-}
-.candidate-copy h3 {
-  font-size: 17px;
-  font-weight: 550;
-  margin: 7px 0;
-  overflow-wrap: anywhere;
-}
-.candidate-copy .status-note {
-  font-size: 12px;
-}
 .candidate-actions {
   display: flex;
   gap: 8px;
@@ -1917,23 +1896,9 @@ dialog p {
   padding: 7px 10px;
   min-height: 36px;
 }
-.candidate-evidence {
-  font-size: 12px;
-  color: #8f9da8;
-  margin-top: 12px;
-  line-height: 1.8;
-}
-.candidate-evidence summary {
-  cursor: pointer;
-}
-.candidate-evidence blockquote {
-  margin: 13px 0;
-  padding-left: 12px;
-  border-left: 2px solid #e3ebf1;
-  white-space: pre-wrap;
-  color: #7c8c99;
-  overflow-wrap: anywhere;
-}
+
+
+
 .import-history {
   font-size: 12px;
   color: #95a1aa;
@@ -2044,10 +2009,7 @@ dialog p {
   .teaching-action-row { justify-content: flex-start; }
   .sync-run-heading { align-items: flex-start; }
   .sync-run-status { flex-direction: column; align-items: flex-start; gap: 6px; }
-  .candidate-row {
-    flex-direction: column;
-    gap: 5px;
-  }
+
   .candidate-actions {
     margin-top: 10px;
   }
@@ -2127,7 +2089,7 @@ dialog p {
   .bulk-toggle { margin-left: auto; font-size: 12px; }
   .trash-list > .trash-row { gap: 8px; }
 }
-.candidate-course { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+
 
 
 .task-page .task-row[data-just-added] {

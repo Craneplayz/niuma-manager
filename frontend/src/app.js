@@ -38,7 +38,6 @@ import {
   deadlineLabel,
 } from "./task-model.js";
 import { renderTaskList, renderTaskRow, renderDayPanel } from "./task-views.js";
-import { projectReviewTasks } from "./review-tasks.js";
 import { isBulkSelectable, selectedBulkTasks, recoveredBulkTasks, renderBulkToolbar, renderBulkCheckbox, renderBulkDeadlineForm } from './task-bulk-ui.js';
 import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
 import { createTimetableUI } from "./timetable.js";
@@ -117,7 +116,6 @@ function syncTaskControls() {
   if (recentTaskId) document.querySelector(`.task-row[data-task-id="${CSS.escape(recentTaskId)}"]`)?.setAttribute("data-just-added", "");
   document.querySelectorAll("[data-task-complete]").forEach(button => {
     button.disabled = taskBusy(button.dataset.taskComplete) ||
-      button.dataset.taskComplete.startsWith("review:") && imports.isReviewBusy(button.dataset.taskComplete.slice(7)) ||
       !demo && session.sync === "error";
   });
   document.querySelectorAll("[data-restore-task]").forEach(button => {
@@ -173,7 +171,6 @@ const host = {
   escapeHtml: esc,
   icon,
   toast,
-  reportReviewError: error => toastError(error, 'import_review'),
   render,
   renderPageHeading: workspaceHeading,
   revealImportResult(id) {
@@ -205,20 +202,11 @@ const host = {
     else toast("这条任务或通知已不在当前列表中");
   },
   getState: () => state,
-  onReviewStore() {
+  onWorkspaceChange() {
     if (demo) return;
     state = readProjectedStore();
     render();
-    if (drawer.open && !drawerEditing) {
-      if (!editableTask(drawerId) && drawerId?.startsWith('review:')) {
-        const candidateId = drawerId.slice(7);
-        const saved = state.tasks.find(task => task.pendingReviewCandidateId === candidateId ||
-          task.recognitionHistory?.some(event => event.storageId === candidateId));
-        if (saved) drawerId = saved.id;
-        else { closeDrawer(); return; }
-      }
-      if (editableTask(drawerId)) updateDrawer();
-    }
+    if (drawer.open && !drawerEditing && editableTask(drawerId)) updateDrawer();
   },
   isTaskBusy: id => taskBusy(id),
   getCancelledTasks: () => demo ? [] : readCancelledTasks(),
@@ -235,7 +223,6 @@ const host = {
     resetAccountUI();
     render();
     if (ui.page === "import") void imports.load();
-    else void imports.loadTaskReviews();
   },
 };
 const imports = createImportUI(host),
@@ -406,37 +393,33 @@ async function refresh() {
   state = await refreshStore();
   render();
 }
-const listItems = () => projectReviewTasks(state.tasks, imports.getReviewItems(), today);
 const syncCourseIdentity = () => syncCourseColors([
-  ...listItems().map((task) => task.course),
-  ...(imports.getCourseNames?.() || []),
+  ...state.tasks.map((task) => task.course),
 ], {
   scope: demo ? "demo" : session.user?.id ? `account:${session.user.id}` : "anonymous",
 });
-const editableTask = id => state.tasks.find(task => task.id === id)
-  || listItems().find(task => task.id === id && task.reviewCandidateId && !task.reviewChange);
-const filtered = () => filterTasks(listItems(), { ...ui, today });
+const editableTask = id => state.tasks.find(task => task.id === id);
+const filtered = () => filterTasks(state.tasks, { ...ui, today });
 const taskView = () => (ui.scope === "all" ? ui.view : "list");
 const calendarItems = () => filterTasks(state.tasks, { scope: "calendar", today });
 const headingCount = () => taskView() === "calendar"
   ? filterTasks(state.tasks, { scope: "all", today }).length
   : filtered().length;
 const courses = () =>
-  [...new Set(listItems().map((t) => t.course).filter(Boolean))].sort((a, b) =>
+  [...new Set(state.tasks.map((t) => t.course).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, "zh"),
   );
 const sources = () =>
-  [...new Set(listItems().map((t) => t.source || "手动添加"))].sort();
-const taskListLoading = () => loading || !demo && Boolean(session.user) && !imports.taskReviewsReady();
+  [...new Set(state.tasks.map((t) => t.source || "手动添加"))].sort();
 function sidebar() {
   const mobile = matchMedia("(max-width: 700px)").matches;
   const expanded = mobile ? ui.mobileMenu : !ui.sidebarCollapsed;
   const toggleLabel = mobile ? "关闭侧栏" : expanded ? "收起侧栏" : "展开侧栏";
   const counts = {
-    all: filterTasks(listItems(), { scope: "all", today }).length,
-    near: filterTasks(listItems(), { scope: "near", today }).length,
+    all: filterTasks(state.tasks, { scope: "all", today }).length,
+    near: filterTasks(state.tasks, { scope: "near", today }).length,
     done: filterTasks(state.tasks, { scope: "done", today }).length,
-    notices: filterTasks(listItems(), { scope: "notices", today }).length,
+    notices: filterTasks(state.tasks, { scope: "notices", today }).length,
   };
   return `<aside id="sidebar" class="sidebar" aria-label="主导航" ${mobile && !ui.mobileMenu ? "inert" : ""}><div class="sidebar-top"><button type="button" id="sidebar-toggle" class="icon-button sidebar-toggle" data-action="sidebar-toggle" aria-controls="sidebar" aria-expanded="${expanded}" aria-label="${toggleLabel}" data-sidebar-label="${toggleLabel}">${icon("sidebar")}</button><a href="/" class="brand" aria-label="牛马管理器"><img class="brand-logo" src="${esc(brandLogo)}" width="36" height="32" alt="" aria-hidden="true" decoding="async"><span>牛马管理器</span></a></div><button type="button" class="btn primary import-entry" data-page="import" aria-label="导入内容" data-sidebar-label="导入内容">${icon("plus")}<span>导入内容</span></button><nav class="task-nav"><span class="nav-label">任务</span>${[
     ["all", "全部任务", "tasks"],
@@ -446,7 +429,7 @@ function sidebar() {
   ]
     .map(
       ([scope, label, name]) =>
-        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${taskListLoading() ? '…' : counts[scope]}</span></button>`,
+        `<button type="button" class="nav-item ${ui.page === "tasks" && ui.scope === scope ? "active" : ""}" data-scope="${scope}" aria-label="${label}" data-sidebar-label="${label}" ${ui.page === "tasks" && ui.scope === scope ? 'aria-current="page"' : ""}>${icon(name)}<span class="nav-text">${label}</span><span class="nav-count">${loading ? '…' : counts[scope]}</span></button>`,
     )
     .join(
       "",
@@ -551,7 +534,7 @@ function taskResults() {
     const recent = recentTaskId && !tasks.some(task => task.id === recentTaskId)
       ? state.tasks.find(task => task.id === recentTaskId && task.status !== "done" && !task.recycleBin) : null;
     const outsideView = recent ? `<section class="quick-outside-result"><h3>刚添加 · 当前列表之外</h3>${renderTaskRow(recent, { escapeHtml: esc, icon, today, now })}</section>` : "";
-    return `${imports.taskReviewsStatus()}${outsideView}${renderTaskList(tasks, { escapeHtml: esc, icon, today, now, reviewBusy: id => imports.isReviewBusy(id), bulk: { active: bulkMode, selected: bulkSelection, busy: bulkRunning, isBusy: taskBusy }, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
+    return `${outsideView}${renderTaskList(tasks, { escapeHtml: esc, icon, today, now, bulk: { active: bulkMode, selected: bulkSelection, busy: bulkRunning, isBusy: taskBusy }, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   }
   const items = calendarItems();
   const activityTasks = demo ? state.tasks : readSavedTasks();
@@ -563,7 +546,7 @@ function bulkControls(trash = false) {
   const selected = trash ? trashBulkSelection : bulkSelection;
   const tasks = selectedBulkTasks(visible, selected);
   return renderBulkToolbar({ tasks, available: visible, selected, busy: bulkRunning,
-    blocked: tasks.some(task => taskBusy(task.id) || task.reviewCandidateId && imports.isReviewBusy(task.reviewCandidateId)) || !demo && session.sync === 'error',
+    blocked: tasks.some(task => taskBusy(task.id)) || !demo && session.sync === 'error',
     error: bulkFailure?.trash === trash ? bulkFailure.error.message || '保存未完成，请重试' : '',
     trash, escapeHtml: esc });
 }
@@ -699,7 +682,7 @@ function render() {
     start = focus?.selectionStart,
     end = focus?.selectionEnd;
   const epoch = accountVersion();
-  updateDOM(app, `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading || ui.page === "tasks" && taskView() === "list" && taskListLoading() ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`, { reset: renderedAccount !== epoch });
+  updateDOM(app, `<div class="workspace ${ui.sidebarCollapsed ? "sidebar-collapsed" : ""} ${ui.mobileMenu ? "menu-open" : ""}">${sidebar()}<button type="button" class="sidebar-scrim" data-action="sidebar-toggle" aria-label="关闭侧栏" tabindex="-1"></button><main id="main" ${ui.mobileMenu ? "inert" : ""}><div class="page-frame"><div id="sync-alert">${syncAlert()}</div>${loading ? `${workspaceHeading({ title: "全部任务" })}<div class="loading-state" role="status">正在读取任务…</div>` : ui.page === "import" ? `<section class="import-page">${imports.render()}</section>` : tasksPage()}</div></main></div>`, { reset: renderedAccount !== epoch });
   renderedAccount = epoch;
   if (!focusId) restoreFocus(token);
   if (focusId) {
@@ -806,11 +789,12 @@ function updateDrawer() {
     notes: "",
   };
   const identity = JSON.stringify([accountVersion(), drawerId, drawerEditing,
-    task.reviewCandidateId || task.pendingReviewCandidateId || '', task.recognitionHistory || []]);
+    task.recognitionHistory || []]);
   const reuse = renderedDrawer === identity;
   updateDOM(drawer, renderTaskDrawer({
     task,
     editing: drawerEditing,
+    tasks: state.tasks,
     escapeHtml: esc,
     icon,
     deadlineLabel,
@@ -820,8 +804,7 @@ function updateDrawer() {
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
   if (!reuse && !drawerEditing && task.id && !task.quickRecognition?.text) {
     const evidence = drawer.querySelector("#task-evidence");
-    if (task.reviewCandidateId || task.pendingReviewCandidateId) evidence.innerHTML = imports.reviewEvidence(task.reviewCandidateId || task.pendingReviewCandidateId);
-    else if (demo)
+    if (demo)
       evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
     else void loadTaskEvidence(task.id, evidence, api);
   }
@@ -912,48 +895,28 @@ async function saveStatus(id, next, expected) {
   if (!task || task.status !== expected.status || (task.completedAt || "") !== expected.completedAt)
     throw new Error("任务状态已变化，无法撤销这次操作");
   const notice = isNotice(task);
-  const pending = Boolean(task.reviewCandidateId);
-  let savedId = id, acknowledged = next;
   busyTasks.add(id);
-  if (pending) {
-    render();
-    if (drawer.open && drawerId === id) updateDrawer();
-  }
-  const saving = pending ? imports.confirmTask(task.reviewCandidateId, task, true)
-    : demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
+  const saving = demo ? Promise.resolve() : setStoredTaskStatus(id, next, expected);
   try {
-    if (pending) {
-      const saved = await saving.staged;
-      if (epoch !== accountVersion()) return;
-      savedId = saved?.id || saving.taskId;
-      if (saved) acknowledged = { status: saved.status, completedAt: saved.completedAt || '' };
-      busyTasks.delete(id);
-      if (drawerId === id && savedId) drawerId = savedId;
-      render();
-      if (drawer.open && !drawerEditing) updateDrawer();
-      await saving;
-    } else {
-      if (!await stageTaskSave(saving, id, epoch)) return;
-      if (demo) Object.assign(task, next);
-      else state = readProjectedStore();
-      render();
-      if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
-      await saving;
-    }
+    if (!await stageTaskSave(saving, id, epoch)) return;
+    if (demo) Object.assign(task, next);
+    else state = readProjectedStore();
+    render();
+    if (drawer.open && drawerId === id && !drawerEditing) updateDrawer();
+    await saving;
     if (epoch !== accountVersion()) return;
     toast(notice
       ? next.status === "done" ? "通知已标记为已阅读" : "通知已标记为未阅读"
       : next.status === "done" ? "任务已完成" : "任务已重新打开",
-    savedId ? () => saveStatus(savedId, expected, acknowledged) : undefined);
+    () => saveStatus(id, expected, next));
   } catch (error) {
-    if (epoch === accountVersion() && (pending || session.sync !== "error")) {
-      if (!pending) Object.assign(task, expected);
+    if (epoch === accountVersion() && session.sync !== "error") {
+      Object.assign(task, expected);
       render();
       toastError(error, "tasks_save");
     }
   } finally {
-    finishTask(id, epoch, pending);
-    if (pending && epoch === accountVersion() && drawer.open && drawerId !== id && !drawerEditing) updateDrawer();
+    finishTask(id, epoch);
   }
 }
 async function trashTask() {
@@ -1060,7 +1023,6 @@ async function runBulk(action, { trash = false, date, undo, undoTasks = [] } = {
   const tasks = action === 'undo' ? undoTasks : selectedBulkTasks(trash ? state.trash : filtered(), trash ? trashBulkSelection : bulkSelection);
   if (!tasks.length) return;
   if (tasks.some(task => !canChangeTask(task.id))) return;
-  if (tasks.some(task => task.reviewCandidateId && imports.isReviewBusy(task.reviewCandidateId))) return toast('正在处理待核对内容，请稍候');
   const epoch = accountVersion(), ids = new Set(tasks.map(task => task.id));
   const dateForm = dialog.open ? dialog.querySelector('#bulk-deadline-form') : null;
   bulkRunning = true;
@@ -1077,8 +1039,8 @@ async function runBulk(action, { trash = false, date, undo, undoTasks = [] } = {
     clearBulkSelection();
     if (dateForm?.isConnected && dialog.open) closeDialog();
     if (drawer.open && ids.has(drawerId)) closeDrawer();
-    const verb = ({ complete: '已完成 / 已阅读', reopen: '已重新打开 / 标记未阅读', deadline: date ? '已修改日期' : '已清除日期', trash: tasks.some(task => task.reviewCandidateId) ? '已删除 / 忽略' : '已移入回收站', restore: '已恢复', undo: '已撤销本批操作' })[action];
-    const restored = result.tasks.filter(task => !state.trash.some(item => item.id === task.id) && (ids.has(task.id) || tasks.some(item => item.reviewCandidateId && task.recognitionHistory?.some(event => event.storageId === item.reviewCandidateId))));
+    const verb = ({ complete: '已完成 / 已阅读', reopen: '已重新打开 / 标记未阅读', deadline: date ? '已修改日期' : '已清除日期', trash: '已移入回收站', restore: '已恢复', undo: '已撤销本批操作' })[action];
+    const restored = result.tasks.filter(task => !state.trash.some(item => item.id === task.id) && ids.has(task.id));
     toast(`${verb}，共 ${tasks.length} 项`, result.undo ? () => runBulk('undo', { undo: result.undo, undoTasks: restored.length ? restored : tasks }) : undefined);
   } catch (error) {
     if (epoch !== accountVersion()) return;
@@ -1188,6 +1150,10 @@ const actions = {
     document.querySelector(mobile && !ui.mobileMenu ? "#sidebar-show" : "#sidebar-toggle").focus({ preventScroll: true });
   },
   "drawer-close": closeDrawer,
+  "open-change-target": () => {
+    const id = drawer.querySelector('[name="change-target"]')?.value;
+    if (id && editableTask(id) && canChangeTask(id)) openTask(id, true);
+  },
   "drawer-edit": () => {
     if (!canChangeTask(drawerId)) return;
     drawerEditing = true;
@@ -1396,8 +1362,6 @@ document.addEventListener("click", async (e) => {
       return;
     }
     await imports.click(button);
-    if (button.dataset.importIgnore && drawer.open && drawerId === `review:${button.dataset.importIgnore}` &&
-        !imports.getReviewItems().some(item => item.id === button.dataset.importIgnore)) closeDrawer();
   } catch (error) {
     toastError(error, button.dataset.restoreTask ? "tasks_restore" : "general");
   }
@@ -1499,42 +1463,6 @@ document.addEventListener("submit", async (e) => {
       ...(existing || { id: draftId, status: "todo", source: "手动添加" }),
       ...values, title: values.title.trim(), course: values.course.trim(),
     };
-    if (existing?.reviewCandidateId) {
-      if (taskEditSnapshot(task) === taskEditSnapshot(existing)) {
-        drawerEditing = false;
-        updateDrawer();
-        toast('没有修改，仍保留待核对状态');
-        return;
-      }
-      busyTasks.add(existing.id);
-      form.querySelectorAll('button,input,textarea,select').forEach(field => { field.disabled = true; });
-      render();
-      try {
-        const saving = imports.confirmTask(existing.reviewCandidateId, task, false, Number(form.dataset.reviewVersion));
-        const saved = await saving.staged;
-        if (epoch !== accountVersion()) return;
-        busyTasks.delete(existing.id);
-        if (form.isConnected && drawer.open) closeDrawer();
-        render();
-        if (saved) restoreFocus({ key: 'taskOpen', value: saved.id });
-        await saving;
-        if (epoch === accountVersion()) toast(isNotice(task) ? '通知已保存' : '任务已保存');
-      } catch (cause) {
-        if (epoch === accountVersion()) {
-          if (form.isConnected) error.innerHTML = userErrorMarkup(cause, 'tasks_save');
-          else toastError(cause, 'tasks_save');
-        }
-      } finally {
-        if (epoch === accountVersion()) {
-          busyTasks.delete(existing.id);
-        }
-        if (form.isConnected) form.querySelectorAll('button,input,textarea,select').forEach(field => {
-          if (!field.dataset.errorFeedback) field.disabled = false;
-        });
-        render();
-      }
-      return;
-    }
     const expected = existing ? form.dataset.taskEditSnapshot : undefined;
     form.dataset.savingId = draftId;
     busyTasks.add(draftId);
@@ -1761,7 +1689,6 @@ async function initialize() {
       loading = false;
       render();
       if (ui.page === "import") void imports.load();
-      else void imports.loadTaskReviews();
     }
   }
 }

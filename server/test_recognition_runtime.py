@@ -285,7 +285,7 @@ class RecognitionRuntimeTests(unittest.TestCase):
             self.assertFalse(batches[0]['demo'])
             self.assertEqual(self.submit(), (200, batches))
             self.assertEqual(provider.call_count, 1)
-            self.assertNotIn('tasks', self.call(self.client, '/workspace')[1])
+            self.assertEqual(len(self.call(self.client, '/workspace')[1]['tasks']['value']), 3)
             changed = copy.deepcopy(self.request)
             changed['records'][0]['text'] += ' Different content.'
             self.assertEqual(self.submit(changed)[0], 409)

@@ -152,9 +152,12 @@ def undo(db, uid, intent, tasks, ApiError):
                 task.pop(key, None)
             else:
                 task[key] = value
-    # Reopen uses the shared transition that also persists submission pauses.
+    previous_ids = set(by_id)
+    # Reopening a legacy ignored item now creates a regular workspace item.
     for entry in inverse['candidates']:
         recognition.resolve_candidate(db, uid, entry['id'], dict(action='reopen', version=entry['version']), ApiError)
+    if inverse['candidates']:
+        tasks.extend(task for task in task_operations.workspace(db, uid)['value'] if task['id'] not in previous_ids)
 
 
 def apply(db, uid, body, ApiError):

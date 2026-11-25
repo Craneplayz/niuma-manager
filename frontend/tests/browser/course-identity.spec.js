@@ -15,18 +15,8 @@ async function workspace(page) {
   await page.clock.setFixedTime(new Date("2026-10-26T04:00:00Z"));
   const tasks = names.map((course, index) => task("a" + index, course, String(8 + index).padStart(2, "0") + ":00"));
   tasks.push(task("same", names[0]), task("long", longCourse), task("unsafe", unsafeCourse), task("none", ""));
-  const batches = [{
-    request: { request_id: "course-review", contract_version: "0.2", records: [{ input_id: "source", platform: "teaching_web", text: "合成课程通知", source_label: "教学网" }] },
-    result: { status: "success", errors: [] },
-    items: [{
-      id: "pending", state: "pending", version: 1,
-      candidate: { input_id: "source", title: "待核对的数据结构任务", description: "合成课程核对",
-        course_or_project: "数据结构", content_type: "task", notice_type: "create",
-        deadline: { kind: "deadline", status: "explicit", precision: "date", value: day },
-        sources: [{ input_id: "source", platform: "teaching_web", label: "教学网", url: null }],
-        evidence: [{ input_id: "source", quote: "待核对的数据结构任务" }], review_reasons: ["请确认"], needs_review: true },
-    }],
-  }];
+  tasks.push(task("imported", "数据结构"));
+  const batches = [];
   let version = 1;
   const unknown = [];
   const errors = [];
@@ -51,7 +41,7 @@ async function workspace(page) {
   });
   await page.goto("/");
   await expect(page.locator(".loading-state")).toHaveCount(0);
-  await expect(page.locator('[data-review-id="pending"]')).toBeVisible();
+  await expect(page.locator('[data-task-id="imported"]')).toBeVisible();
   return { add: course => { tasks.push(task("added", course)); version++; }, unknown, errors };
 }
 
@@ -110,7 +100,7 @@ test("course badges match in details, pending review and import while long names
   const state = await workspace(page);
   await noOverflow(page);
   const identity = await tone(badge(page, "a2"));
-  const pending = page.locator('[data-review-id="pending"]');
+  const pending = page.locator('[data-task-id="imported"]');
   await expect(pending.locator(".course-badge")).toHaveAttribute("data-course-tone", identity);
   await pending.locator(".task-open").click();
   const drawer = page.locator("#task-drawer");
@@ -123,8 +113,7 @@ test("course badges match in details, pending review and import while long names
   await page.keyboard.press("Escape");
   if (await page.locator("#sidebar-show").isVisible()) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
-  const candidate = page.locator(".candidate-row").filter({ hasText: "待核对的数据结构任务" });
-  await expect(candidate.locator(".course-badge")).toHaveAttribute("data-course-tone", identity);
+  await expect(page.locator('.candidate-row')).toHaveCount(0);
   await noOverflow(page);
   expect(state.unknown).toEqual([]);
   expect(state.errors).toEqual([]);

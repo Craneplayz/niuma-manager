@@ -13,28 +13,3 @@ export const zonedParts = (value) =>
       .formatToParts(value)
       .map((part) => [part.type, part.value]),
   );
-
-
-export function candidateDue(deadline = {}) {
-  if (
-    deadline.kind !== "deadline" ||
-    !["explicit", "inferred"].includes(deadline.status) ||
-    !deadline.value
-  )
-    return { date: "", time: "" };
-  if (deadline.precision === "date") return { date: deadline.value, time: "" };
-  if (
-    deadline.precision !== "datetime" ||
-    !Number.isFinite(Date.parse(deadline.value))
-  )
-    return { date: "", time: "" };
-  const value = new Date(deadline.value),
-    p = zonedParts(value);
-  return {
-    date: `${p.year}-${p.month}-${p.day}`,
-    time:
-      value.getUTCSeconds() || value.getUTCMilliseconds()
-        ? ""
-        : `${p.hour}:${p.minute}`,
-  };
-}

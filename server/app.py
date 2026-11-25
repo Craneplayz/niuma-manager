@@ -108,6 +108,7 @@ def initialize(recover=True):
         if manual_materials.enabled():
             manual_materials.initialize(db,recover=recover and not wechat_enabled())
         task_decomposition.initialize(db)
+        recognition.publish_legacy_pending(db, ApiError)
     if text_waiting:
         text_jobs.dispatch(DB, ApiError)
     if quick_waiting:
