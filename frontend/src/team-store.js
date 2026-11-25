@@ -73,7 +73,7 @@ export async function api(path, body, method = "POST", options = {}) {
     const response = await fetch(path, {
       method: body === undefined ? "GET" : method,
       credentials: "same-origin",
-      headers: body === undefined || options.formData ? {} : { "Content-Type": "application/json" },
+      headers: body === undefined || options.formData ? {} : { "Content-Type": "application/json", ...options.headers },
       body: body === undefined ? undefined : options.formData ? body : JSON.stringify(body),
       signal: controller.signal,
     });
@@ -534,7 +534,8 @@ function enqueueChange(change) {
       const write = () => review
         ? api('/api/recognition/candidates/' + encodeURIComponent(operation.intent.candidateId) + '/resolve',
           reviewBody(operation), 'POST')
-        : bulk ? api('/api/tasks/bulk', { version: taskVersion, operation: operationIdentity(operation) })
+        : bulk ? api('/api/tasks/bulk', { version: taskVersion, operation: operationIdentity(operation) },
+          'POST', { headers: { Prefer: 'return=minimal' } })
         : api('/api/data/tasks', { value, version: taskVersion, operation: operationIdentity(operation) }, 'PUT');
       let result;
       for (let attempt = 0; ; attempt++) {
@@ -581,11 +582,11 @@ function enqueueChange(change) {
       if (result.replayed && pendingChanges.length) await reconcileChanges(epoch);
       session.conflict = false;
       report(latest || pendingChanges.length ? "saving" : "saved");
-      if (review || operation.intent.quickRecognition || result.value || taskWritesAreOnlineOnly()) reviewChanged();
+      if (!bulk && (review || operation.intent.quickRecognition || result.value || taskWritesAreOnlineOnly())) reviewChanged();
       if (review) return { ...view(), taskId: operation.intent.newTaskId || operation.intent.targetId };
       if (bulk) {
         const detail = { state: view(), operationId: operation.id, undo: result.undo, batches: result.batches,
-          affectedIds: bulkAffectedIds(operation) };
+          affectedIds: bulkAffectedIds(operation), historyChanged: result.candidates.length > 0 };
         window.dispatchEvent(new CustomEvent('niuma:bulk-saved', { detail }));
         return { ...detail.state, undo: result.undo };
       }
@@ -644,6 +645,7 @@ async function reconcileChanges(epoch) {
     const recovered = result.bulkResults.find(item => item.operationId === operation.id);
     window.dispatchEvent(new CustomEvent('niuma:bulk-saved', { detail: {
       state: view(), operationId: operation.id, undo: recovered.undo, affectedIds: bulkAffectedIds(operation), recovered: true,
+      historyChanged: operation.intent.action === 'undo' ? result.candidates.length > 0 : !!operation.intent.candidates?.length,
     } }));
   }
 }
@@ -677,7 +679,7 @@ function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = fals
     await appendOperation(operation);
     if (change.epoch !== accountEpoch) throw new Error('账号已切换');
     change.durable = true;
-    if (intent.kind === 'review') reviewChanged();
+    if (intent.kind === 'review' || previewsBulkTrash(intent)) reviewChanged();
     return readProjectedStore();
   }).catch(error => { removeChange(change); throw error; });
   staging = change.staged.catch(() => {});
@@ -738,11 +740,17 @@ export function saveStoredTask(task, expected, { quickRecognition, startedPendin
 export function setStoredTaskStatus(id, next, expected) {
   return changeStoredTasks({ kind: 'status', id, next, expected }, { reloadOnStale: true });
 }
+function previewsBulkTrash(intent) {
+  return intent.kind === 'bulk' && intent.action === 'trash' && !intent.candidates.length;
+}
+
 function transformIntent(intent, optimistic = false) {
   const { kind, id, next, expected, draft, createdAt } = intent;
-  // Mixed candidate writes are applied by the server transaction. Keep the old
-  // rows until acknowledgment; replay still goes through the durable queue.
-  if (kind === 'bulk') return tasks => tasks;
+  if (kind === 'bulk') {
+    if (optimistic && !failed && previewsBulkTrash(intent))
+      return transformIntent({ kind: 'trash', ids: intent.tasks.map(entry => entry.id), deletedAt: intent.deletedAt });
+    return tasks => tasks;
+  }
   if (kind === 'save') return tasks => {
     const index = tasks.findIndex(item => item.id === draft.id);
     const current = tasks[index];

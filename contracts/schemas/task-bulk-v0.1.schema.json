@@ -102,8 +102,7 @@
         "version",
         "value",
         "operationId",
-        "undo",
-        "batches"
+        "undo"
       ],
       "additionalProperties": false
     },

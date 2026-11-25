@@ -164,7 +164,7 @@ export function createImportUI(host) {
     if (Array.isArray(event.detail?.batches)) {
       acceptBatches(event.detail.batches);
       refresh();
-    } else if (event.detail) {
+    } else if (event.detail && event.detail.historyChanged !== false) {
       void refreshHistory().catch(() => {});
     }
   });
