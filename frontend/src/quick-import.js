@@ -11,24 +11,13 @@ export function quickImportMode(text, localOnly, pasted) {
   return pasted || text.length > 100 || /[；;]/u.test(text) || /\n|[。；;！？].+|[，,].*(?:再|另|还需|周[一二三四五六日]|明天|后天)/u.test(text) ? "text" : "";
 }
 
-export function quickLink(text) {
-  const urls = text.match(/https?:\/\/[^\s<>()\[\]（）【】，。！？]+/gu) || [];
-  if (!urls.length) return null;
-  const rest = urls.reduce((s, url) => s.replaceAll(url, ""), text).replace(/[\s\[\]()（）【】：:，,。！!]/gu, "");
-  const vague = /^(?:我|想|要|请|帮我|一下|报名|参加|去|听|这个|该|这场|活动|讲座|记录|记下来|记|链接|看看|麻烦|的)*$/u.test(rest);
-  return vague ? urls[0] : null;
-}
-
 export function bindQuickImport(form, options, refresh) {
   const input = form.querySelector("#quick-text"), picker = form.querySelector("#quick-files");
   const filesBox = form.querySelector("#quick-selected-files"), error = form.querySelector("#task-edit-error");
-  const extra = form.querySelector("#quick-link-extra"), supplement = form.querySelector("#quick-link-text");
   const dialog = form.closest("dialog"), controller = new AbortController();
   const { signal } = controller;
   let files = [], pasted = false, busy = false, draft = null, textBody = null, signature = "";
-  let promptedLink = "", articleCache = null, dragDepth = 0;
-  const url = () => quickLink(input.value);
-  const typedText = () => promptedLink && promptedLink === url() ? supplement.value.trim() : input.value.trim();
+  let dragDepth = 0;
   function repaintFiles() {
     filesBox.replaceChildren();
     for (const file of files) {
@@ -74,46 +63,27 @@ export function bindQuickImport(form, options, refresh) {
   }, { signal });
   input.addEventListener("input", () => {
     if (!input.value.trim()) pasted = false;
-    if (promptedLink && promptedLink !== url()) { promptedLink = ""; supplement.value = ""; extra.hidden = true; }
   });
-  const mode = localOnly => files.length ? "files" : url() && !typedSupplement() ? "link" : quickImportMode(typedText(), localOnly, pasted);
-  const typedSupplement = () => promptedLink === url() && supplement.value.trim();
+  const mode = localOnly => files.length ? "files" : quickImportMode(input.value.trim(), localOnly, pasted);
   async function submit(kind) {
     if (busy) return;
-    if (kind === "link" && promptedLink === url()) { supplement.focus(); error.textContent = "请补充活动信息或添加截图。"; return; }
     if (options.isDemo) { error.textContent = "请登录后导入通知或附件。"; return; }
     busy = true; form.setAttribute("aria-busy", "true"); error.textContent = "";
     const controls = [...form.querySelectorAll("button,input,textarea")].filter(el => !el.disabled);
     for (const el of controls) el.disabled = true;
     const primary = form.querySelector(".quick-submit");
-    primary.textContent = kind === "link" ? "读取中…" : "提交中…";
+    primary.textContent = "提交中…";
     let receipt;
     try {
-      let text = typedText();
-      if (kind === "link") {
-        const link = url();
-        const article = articleCache?.url === link ? articleCache.text : await options.readLink(link, signal);
-        if (signal.aborted) return;
-        if (!article) {
-          promptedLink = link; extra.hidden = false;
-          return;
-        }
-        articleCache = { url: link, text: article };
-        const intent = input.value.replaceAll(link, "").replace(/[\[\]()（）【】：:，,。！!]/gu, "").trim();
-        text = intent ? intent + "\n" + article : article;
-        kind = "text";
-      }
-      const original = [input.value.trim(), typedSupplement()].filter(Boolean).join("\n");
+      const text = input.value.trim();
       if (kind === "files") {
-        if (!draft || draft.text !== original) draft = { ...newMaterialDraft("quick-add:"), text: original };
+        if (!draft || draft.text !== text) draft = { ...newMaterialDraft("quick-add:"), text };
         receipt = await options.submitFiles(files, draft, signal);
       } else {
         const published = form.querySelector("#quick-published").value;
-        const key = JSON.stringify([text, published, original]);
+        const key = JSON.stringify([text, published]);
         if (!textBody || signature !== key) {
           textBody = buildTextImport(text, published, "quick-add:" + newId(), undefined, options.courses); signature = key;
-          const link = url();
-          if (link) textBody.records[0].source_url = link;
         }
         receipt = await options.submitNotice(textBody, signal);
       }
@@ -124,11 +94,10 @@ export function bindQuickImport(form, options, refresh) {
         for (const el of controls) el.disabled = false;
         refresh();
         if (receipt) options.added(receipt);
-        else if (!extra.hidden) supplement.focus();
       }
     }
   }
-  return { mode, submit, typedText, supplement, link: () => typedSupplement() ? url() : "",
+  return { mode, submit,
     isBusy: () => busy,
     dispose() { controller.abort(); dialog.classList.remove("is-file-drop"); } };
 }

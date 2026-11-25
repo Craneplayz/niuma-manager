@@ -1,8 +1,7 @@
 import { test, expect } from "@playwright/test";
 
-const link = "https://mp.weixin.qq.com/s/example-id";
 async function workspace(page) {
-  const requests = [], reads = [];
+  const requests = [];
   let rejected = true;
   await page.route("**/api/**", async route => {
     const req = route.request(), path = new URL(req.url()).pathname;
@@ -23,7 +22,6 @@ async function workspace(page) {
         if (rejected) { rejected = false; status = 503; json = { error: "请重试" }; }
       }
     }
-    if (path === "/api/quick/article") { reads.push(req.postDataJSON().url); json = { text: "" }; }
     if (path === "/api/recognition/text-jobs") {
       json = { contract_version: "text-import-jobs/0.1", jobs: [] };
       if (req.method() === "POST") requests.push(req.postDataJSON());
@@ -31,7 +29,7 @@ async function workspace(page) {
     await route.fulfill({ status, json });
   });
   await page.goto("/"); await page.locator(".add-task").click();
-  return { requests, reads };
+  return { requests };
 }
 
 test("drop anywhere in the dialog, retry the same upload and keep the typed note", async ({ page }) => {
@@ -57,37 +55,26 @@ test("drop anywhere in the dialog, retry the same upload and keep the typed note
 
 test("multi-action notice uses the batch importer and optional publication time", async ({ page }) => {
   const { requests } = await workspace(page);
-  const text = "下周一提交报名表；下周三前把访谈提纲发给组长。";
+  const text = "下周一提交报名表；下周三前把访谈提纲发给组长。报名地址 https://example.org/register";
   await page.locator("#quick-text").fill(text);
   await page.getByRole("button", { name: "设置通知发布时间" }).click();
   await page.locator("#quick-published").fill("2026-11-20T08:00");
   await page.getByRole("button", { name: "加入" }).click();
   await expect(page.locator("#quick-task-form")).toHaveCount(0);
   await expect(page).not.toHaveURL(/page=import/);
-  expect(requests[0].records[0]).toMatchObject({ text, published_at: { value: "2026-11-20T08:00:00+08:00" } });
+  expect(requests[0].records[0]).toMatchObject({ text, source_url: null, published_at: { value: "2026-11-20T08:00:00+08:00" } });
 });
 
-test("a bare link is read on submit, and only an unreadable page asks for details", async ({ page }) => {
-  const { reads } = await workspace(page);
-  await page.locator("#quick-text").fill("我想参加这个活动：" + link);
-  await expect(page.locator("#quick-link-extra")).toBeHidden();
-  expect(reads).toEqual([]);
-  await page.getByRole("button", { name: "读取链接" }).click();
-  await expect(page.locator("#quick-link-text")).toBeFocused();
-  expect(reads).toEqual([link]);
-  await page.locator("#quick-link-text").fill("明天上午10点半有数算考试，你帮我记一下");
-  await expect(page.locator("#quick-summary")).toHaveText("数算考试");
-  await expect(page.locator(".quick-submit")).toHaveText("加入");
-});
-
-test("a readable link goes straight to notice recognition with its source", async ({ page }) => {
+test("pasting only a URL uses the ordinary text input", async ({ page }) => {
   const { requests } = await workspace(page);
-  const text = "学生读书会将于周五在图书馆举行，请提前一天报名。";
-  await page.route("**/api/quick/article", route => route.fulfill({ json: { text } }));
-  await page.locator("#quick-text").fill(link);
-  await page.getByRole("button", { name: "读取链接" }).click();
+  const input = page.locator("#quick-text");
+  const text = "https://example.org/events";
+  await input.dispatchEvent("paste");
+  await input.fill(text);
+  await page.getByRole("button", { name: "加入", exact: true }).click();
   await expect(page.locator("#quick-task-form")).toHaveCount(0);
-  expect(requests[0].records[0]).toMatchObject({ text, source_url: link });
+  expect(requests).toHaveLength(1);
+  expect(requests[0].records[0]).toMatchObject({ text, source_url: null });
 });
 
 test("a submitted notice survives reload and appears as a saved task on the list", async ({ page }) => {

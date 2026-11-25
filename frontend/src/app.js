@@ -770,10 +770,6 @@ function openTask(id, editing = false, selectedDate = "") {
         const state = receipt.jobs.find(job => job.request_id === body.request_id)?.state;
         return { kind: "text", id: body.request_id, requestId: body.request_id, queued: state === "queued" };
       },
-      async readLink(url, signal) {
-        if (!url.startsWith("https://")) return "";
-        return (await api("/api/quick/article", { url }, "POST", { signal, timeoutMs: 28000 })).text;
-      },
       async submitFiles(files, draft, signal) {
         const epoch = accountVersion();
         const valid = () => !signal.aborted && epoch === accountVersion();

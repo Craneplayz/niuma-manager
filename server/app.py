@@ -25,7 +25,6 @@ import wechat_media
 import manual_materials
 import task_decomposition
 import task_operations
-import quick_article
 import quick_task_jobs
 import task_bulk
 import reprocessing
@@ -394,8 +393,6 @@ class Handler(BaseHTTPRequestHandler):
             if usage.route(self,db,uid,path,body,ApiError): return
             if timetable.route(self,db,uid,path,body,ApiError): return
             if wechat_enabled() and wechat_media.route(self,db,uid,path,body,DB.parent): return
-            if path == '/api/quick/article' and self.command == 'POST':
-                return self.reply(200, dict(text=quick_article.read_article(body.get('url'))))
             if manual_materials.route(self,db,uid,path,body,DB.parent): return
             if source_jobs.route(self,db,uid,path,body,ApiError,DB): return
             if source_schedule.route(self,db,uid,path,body,ApiError): return

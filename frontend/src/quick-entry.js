@@ -13,9 +13,6 @@ export function renderQuickEntry({ icon }) {
     </div>
     <div id="quick-summary" hidden></div>
     <ul id="quick-selected-files" hidden></ul>
-    <label id="quick-link-extra" class="field" hidden>暂时没读到链接正文。可以补充活动名称和时间，或添加截图。
-      <textarea id="quick-link-text" rows="2" maxlength="2000" placeholder="例如：周五晚七点参加读书会"></textarea>
-    </label>
     <div class="quick-toolbar">
       ${quickAttachmentButton(icon)}
       <button type="button" id="quick-date-button" class="quick-property" aria-expanded="false" aria-controls="quick-date-panel">
@@ -84,7 +81,6 @@ export function bindQuickEntry(form, options) {
     ...analysis.task,
     ...dateOverride,
     course: courseOverride ?? analysis.task.course,
-    ...(imports.link() ? { notes: [analysis.task.notes, "链接：" + imports.link()].filter(Boolean).join("\n") } : {}),
   });
 
   function syncScroll() {
@@ -109,10 +105,10 @@ export function bindQuickEntry(form, options) {
     courseButton.title = course || "设置分类";
     const mode = imports.mode(analysis.localOnly);
     const submit = form.querySelector(".quick-submit");
-    if (!imports.isBusy()) submit.textContent = mode === "link" ? "读取链接" : "加入";
+    if (!imports.isBusy()) submit.textContent = "加入";
     summary.hidden ||= Boolean(mode);
     courseButton.hidden = Boolean(mode);
-    dateButton.hidden = mode === "files" || mode === "link";
+    dateButton.hidden = mode === "files";
     const panelId = mode === "text" ? "quick-publication-panel" : "quick-date-panel";
     if (dateButton.getAttribute("aria-controls") !== panelId || dateButton.hidden) {
       form.querySelector("#quick-publication-panel").hidden = true;
@@ -150,7 +146,7 @@ export function bindQuickEntry(form, options) {
 
   function parseInput() {
     refreshDay();
-    parsedText = imports.typedText();
+    parsedText = input.value.trim();
     const next = analyze(parsedText);
     if (next.task.due !== analysis.task.due || next.task.dueTime !== analysis.task.dueTime) dateOverride = null;
     if (next.task.course !== analysis.task.course) courseOverride = null;
@@ -159,7 +155,6 @@ export function bindQuickEntry(form, options) {
     refresh();
   }
 
-  imports.supplement.addEventListener("input", parseInput);
   input.addEventListener("scroll", syncScroll);
   input.addEventListener("input", event => {
     if (!event.isComposing && !form.classList.contains("is-composing")) parseInput();
@@ -243,7 +238,7 @@ export function bindQuickEntry(form, options) {
       protectedFields.push("due");
     if (courseOverride !== null || analysis.explicitCourse || (options.defaultCourse && analysis.task.course === options.defaultCourse))
       protectedFields.push("course");
-    return { ...(analysis.localOnly ? { localOnly: true } : {}), text: [input.value.trim(), imports.link() && parsedText].filter(Boolean).join("\n"), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
+    return { ...(analysis.localOnly ? { localOnly: true } : {}), text: input.value.trim(), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
   };
   readDraft.refreshDay = refreshDay;
   readDraft.dispose = imports.dispose;

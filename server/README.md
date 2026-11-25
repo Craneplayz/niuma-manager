@@ -16,8 +16,6 @@ server/
 ├── run_course_context_smoke.py 真实合成DOCX、真实模型、HTTP入库及重复同步验收。
 ├── timetable.py             教务XLS课表解析、账号保存、单双周展开与排程占用。
 ├── test_timetable.py        合成二进制XLS、真实HTTP/SQLite及课程排程冲突回归。
-├── test_quick_article.py     公开文章正文、链接读取回执及失败回退的测试。
-├── quick_article.py          读取主动提交的公开 HTTPS 活动链接；公众号优先读取正文，七牛 URL Context 须有原地址读取成功回执才采用摘录。
 ├── quick_task_jobs.py        快捷任务后台识别的持久队列、任务状态及字段合并。
 ├── quick_task_recognition.py  用文本识别协议解析一句话并返回同一任务的可靠字段。
 ├── test_quick_task_recognition.py  快捷任务日期精度、证据校验和多行动测试。
