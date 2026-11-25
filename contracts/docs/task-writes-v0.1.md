@@ -1,6 +1,6 @@
 # 任务保存与浏览器恢复
 
-HTTPS 和 localhost 的普通任务及待核对操作先写入按当前账号分隔的 IndexedDB，再更新页面；恢复时使用当前账号会话核对回执及服务器最新任务与候选状态，按原顺序应用尚未确认的单条操作，不重放旧的整个工作区。
+HTTPS 和 localhost 的任务操作先写入按当前账号分隔的 IndexedDB，再更新页面；恢复时使用当前账号会话核对回执及服务器最新任务与候选状态，按原顺序应用尚未确认的单条操作，不重放旧的整个工作区。
 
 `GET /api/workspace` 同时返回 `taskWriteOwner`，客户端先确认它与刚查询的登录账号一致，避免另一个页面在两次请求之间切换账号时混用任务与本地队列。
 
@@ -10,7 +10,7 @@ HTTPS 和 localhost 的普通任务及待核对操作先写入按当前账号分
 
 `POST /api/tasks/reconcile` 接收 `{owner, operations:[{id,owner,intent}]}`，最多 500 条；返回 `{applied:[id], tasks:{value,version}, candidates:[{id,state,version,taskId?}], generation, bulkResults?:[{operationId,undo}]}`。回执、任务及涉及候选的轻量状态读取来自同一个 SQLite 快照；仅当前会话账号可查询，响应禁止缓存。客户端只移除已确认的本地编号，再检查各操作原本编辑的字段是否仍然匹配；不匹配时保留本地操作并提示重新读取。bulkResults 只列本次已确认的 bulk，撤销引用来自当前账号持久逆向记录及当前代次；撤销操作本身、缺少逆向记录或账号已清空时 undo 为 null，不合成旧撤销引用。
 
-批量任务与待核对新增候选使用 `kind:"bulk"`，通过专用 `POST /api/tasks/bulk` 一次提交，普通任务 PUT 拒绝 bulk；选择、原子保存、候选状态恢复和整批撤销见 [任务批量操作](task-bulk-v0.1.md)。其回执仍只保存摘要，独立逆向表仅保存必要状态、日期和身份，不保存任务正文。
+当前清单的批量操作与旧版候选回执共用 `kind:"bulk"`，通过专用 `POST /api/tasks/bulk` 一次提交，普通任务 PUT 拒绝 bulk；选择、原子保存、候选状态恢复和整批撤销见 [任务批量操作](task-bulk-v0.1.md)。其回执仍只保存摘要，独立逆向表仅保存必要状态、日期和身份，不保存任务正文。
 
 本地仅保存必要操作字段（修改的标题、说明、日期、状态或任务编号及比较前值），不保存密码、Cookie、附件或整个任务列表；操作使用 AES-GCM 加密，账号各有一个不可导出的 WebCrypto 密钥，密钥与密文由同源 IndexedDB 保存。持久暂存需要 HTTPS 或 localhost；安全入口存储禁用、损坏、容量不足或不支持加密时拒绝暂存，不提前更改任务。加密不能防止已经能运行同源脚本或控制浏览器的攻击者；共享设备应使用独立浏览器资料并退出账号。
 
@@ -20,7 +20,7 @@ HTTPS 和 localhost 的普通任务及待核对操作先写入按当前账号分
 
 服务端长期保留仅含操作编号、意图 SHA-256、版本和时间的回执，避免旧浏览器再次上线后重复执行；不保存操作正文。后端须先于或与前端同版本部署；旧服务未返回操作编号时，前端保留暂存并报告版本不兼容。示例见 `examples/task-writes-v01.json`，结构见 `schemas/task-writes-v0.1.schema.json`。
 
-## 待核对操作
+## 旧客户端的候选操作兼容
 
 `POST /api/recognition/candidates/{id}/resolve` 保留旧请求兼容，新增可选 `operation`。稳定意图为 `{kind:"review",candidateId,action,expectedCandidateVersion,workspaceGeneration,draft?,targetId?,expectedTarget?,newTaskId?,complete?,createdAt?,completedAt?,previewSource?}`。支持 create/update/postpone/cancel/ignore/reopen；请求的 action/version/draft/target_id/complete 必须与意图一致。`reviewed:true` 仍代表用户已经确认原文；自动加入不使用浏览器待核对队列。
 

@@ -17,6 +17,7 @@ import threading
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from text_contract import validate_request, validate_result
 
 # dev:api launches server/app.py from frontend/, not from the repository root.
@@ -129,11 +130,11 @@ def initialize(db):
         db.execute('ALTER TABLE recognition_batches ADD COLUMN attempt_id TEXT')
 
 def was_automatically_withdrawn(candidate):
-    """Only the first system withdrawal is replaceable, never a user decision."""
+    """A first system withdrawal or history-only migration is replaceable on reprocessing."""
     if candidate['state']!='ignored' or candidate['version']!=2: return False
     try:
         resolution=json.loads(candidate['resolution'] or '{}')
-        return isinstance(resolution,dict) and resolution.get('action')=='submission_policy_completed'
+        return isinstance(resolution,dict) and resolution.get('action') in ('submission_policy_completed', 'legacy_history_only')
     except (ValueError,TypeError): return False
 
 
@@ -408,7 +409,6 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
             if deadline['precision'] == 'date':
                 when = dict(date=deadline['value'], precision='date')
             elif deadline['precision'] == 'datetime':
-                from zoneinfo import ZoneInfo
                 stamp = datetime.fromisoformat(deadline['value'].replace('Z', '+00:00')).astimezone(ZoneInfo(record.get('timezone') or deadline.get('timezone') or 'Asia/Shanghai'))
                 when = dict(date=stamp.date().isoformat(), time=stamp.strftime('%H:%M'), precision='datetime')
         description = candidate['description'] or ''
@@ -421,6 +421,24 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
     return {row['id'] for row in rows}
 
 
+def current_legacy_task(candidate, record, now):
+    deadline = candidate['deadline']
+    if (candidate['notice_type'] != 'create' or candidate.get('content_type', 'task') != 'task'
+            or candidate.get('needs_review') or deadline['kind'] != 'deadline'
+            or deadline['status'] != 'explicit' or not deadline.get('value')):
+        return False
+    try:
+        if deadline['precision'] == 'date':
+            zone = ZoneInfo(record.get('timezone') or deadline.get('timezone') or 'Asia/Shanghai')
+            return date.fromisoformat(deadline['value']) >= now.astimezone(zone).date()
+        if deadline['precision'] == 'datetime':
+            when = datetime.fromisoformat(deadline['value'].replace('Z', '+00:00'))
+            return when.tzinfo is not None and when >= now
+    except (ValueError, ZoneInfoNotFoundError):
+        pass
+    return False
+
+
 def publish_legacy_pending(db, ApiError):
     if not db.in_transaction:
         db.execute('BEGIN IMMEDIATE')
@@ -429,6 +447,7 @@ def publish_legacy_pending(db, ApiError):
             WHERE c.user_id=b.user_id AND c.request_id=b.request_id AND c.state='pending')
         AND NOT EXISTS (SELECT 1 FROM recognition_import_records r
             WHERE r.user_id=b.user_id AND r.request_id=b.request_id AND r.archived=1)""").fetchall()
+    now = datetime.now(timezone.utc)
     for batch in batches:
         # Some older workspaces already contain a linked task (including recycled
         # tasks) even though its candidate was left pending. Keep the user's copy.
@@ -441,15 +460,31 @@ def publish_legacy_pending(db, ApiError):
                     db.execute("""UPDATE recognition_candidates SET state='applied',version=version+1,resolution=?
                         WHERE user_id=? AND request_id=? AND id=? AND state='pending'""",
                         (json.dumps(dict(action=entry.get('action', 'create'))), batch['user_id'], request_id, entry['storageId']))
+        records = request['records']
+        visible = None
         if request.get('contract_version') == '0.4':
-            # Respect the same history filter the previous UI used on old teaching results.
             import teaching
+            records = teaching.request_view(request)['records']
             visible = {c['candidate_id'] for c in teaching.result_view(request, json.loads(batch['result']))['tasks']}
-            for row in db.execute("""SELECT id,candidate FROM recognition_candidates
-                    WHERE user_id=? AND request_id=? AND state='pending'""", (batch['user_id'], request_id)).fetchall():
-                if json.loads(row['candidate'])['candidate_id'] not in visible:
-                    db.execute("UPDATE recognition_candidates SET state='ignored',version=version+1,resolution=? WHERE id=?",
-                               (json.dumps(dict(action='history_filtered')), row['id']))
+            # A retired snapshot or disconnected account cannot establish that an
+            # old assignment is still actionable under today's submission state.
+            cred = db.execute('SELECT username FROM source_credentials WHERE user_id=?',(batch['user_id'],)).fetchone()
+            if not cred or not db.execute("""SELECT 1 FROM teaching_sources
+                    WHERE user_id=? AND account=? AND request_id=?""",
+                    (batch['user_id'], teaching.account(cred[0]), request_id)).fetchone():
+                visible = set()
+            else:
+                state = teaching.submission.for_request(db, batch['user_id'], request_id)
+                if teaching.submission.skip_model(state) or teaching.submission.review_reason(state):
+                    visible = set()
+        by_id = {r['input_id']: r for r in records}
+        for row in db.execute("""SELECT id,candidate FROM recognition_candidates
+                WHERE user_id=? AND request_id=? AND state='pending'""", (batch['user_id'], request_id)).fetchall():
+            card = json.loads(row['candidate'])
+            if ((visible is not None and card['candidate_id'] not in visible)
+                    or not current_legacy_task(card, by_id[card['input_id']], now)):
+                db.execute("UPDATE recognition_candidates SET state='ignored',version=version+1,resolution=? WHERE id=?",
+                           (json.dumps(dict(action='legacy_history_only')), row['id']))
         publish_results(db, batch['user_id'], request, ApiError)
 
 
