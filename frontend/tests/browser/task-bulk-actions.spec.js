@@ -329,12 +329,43 @@ test('mixed date changes preserve per-task times and can clear dates with an exa
   expect((await snapshot(page)).tasks.value.find(task => task.id === 'b').due.date).toBe('2026-10-21');
 });
 
+test('bulk trash hides the journaled rows before the reply, and a rejected write restores them', async ({ page, context }) => {
+  await open(page, context);
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/tasks/bulk', async route => {
+    await gate;
+    await route.fulfill({ status: 503, json: { error: '合成保存失败' } });
+  });
+  try {
+    await choose(page, 'a', 'b');
+    await action(page, 'trash').click();
+    await expect(row(page, 'a')).toHaveCount(0);
+    await expect(row(page, 'b')).toHaveCount(0);
+    await expect(page.locator('#bulk-controls')).toContainText('正在保存 2 项');
+    expect(await journal(page)).toHaveLength(1);
+    expect((await snapshot(page)).tasks.version).toBe(1);
+    await expect(page.getByRole('button', { name: '撤销', exact: true })).toHaveCount(0);
+  } finally {
+    release();
+  }
+  await expect(row(page, 'a')).toBeVisible();
+  await expect(row(page, 'b')).toBeVisible();
+  await page.unroute('**/api/tasks/bulk');
+  await page.getByRole('button', { name: '重试保存', exact: true }).click();
+  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await expect(row(page, 'a')).toBeVisible();
+  await expect(row(page, 'b')).toBeVisible();
+  expect((await snapshot(page)).tasks.version).toBe(3);
+});
+
 test('bulk deletion and undo restore both tasks with their original identities', async ({ page, context }) => {
   await open(page, context);
   await choose(page, 'a', 'import-' + users[0] + '-new');
   await action(page, 'trash').click();
   await expect(importedRow(page)).toHaveCount(0);
   await expect(row(page, 'a')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeVisible();
   const deleted = await snapshot(page);
   expect(deleted.tasks.value.find(task => task.id === 'a').recycleBin).toBeTruthy();
   expect(deleted.items.find(item => item.id === users[0] + '-new').state).toBe('applied');

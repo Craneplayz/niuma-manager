@@ -59,10 +59,10 @@ class TaskBulkTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def call(self, path, body=None, uid='alice', method='POST'):
+    def call(self, path, body=None, uid='alice', method='POST', headers=None):
         request = Request(f'http://127.0.0.1:{self.server.server_port}/api{path}',
                           None if body is None else json.dumps(body).encode(),
-                          {'Content-Type': 'application/json', 'Cookie': app.runtime_environment.cookie_name() + '=' + uid},
+                          {'Content-Type': 'application/json', 'Cookie': app.runtime_environment.cookie_name() + '=' + uid, **(headers or {})},
                           method='GET' if body is None else method)
         try:
             response = build_opener().open(request)
@@ -93,6 +93,22 @@ class TaskBulkTests(unittest.TestCase):
         self.assertEqual(status, 200, result)
         contract.check('response', result)
         return result
+
+    def test_minimal_bulk_receipt_skips_history_for_trash_replay_and_undo(self):
+        body = self.body('trash', candidates=False)
+        headers = {'Prefer': 'return=minimal'}
+        with patch.object(task_bulk.recognition, 'batches', side_effect=AssertionError('unexpected history read')):
+            for _ in range(2):
+                status, result = self.call('/tasks/bulk', body, headers=headers)
+                self.assertEqual(status, 200, result)
+                contract.check('response', result)
+                self.assertNotIn('batches', result)
+                self.assertEqual(result['version'], 2)
+            undo = self.body('undo', intent=result['undo'])
+            status, restored = self.call('/tasks/bulk', undo, headers=headers)
+            self.assertEqual(status, 200, restored)
+            self.assertEqual(restored['value'], [self.task])
+        self.assertTrue(self.send(body)['batches'])
 
     def test_event_bulk_trash_restore_and_date_use_the_displayed_start(self):
         start = dict(date='2026-12-16', time='10:10', precision='datetime')

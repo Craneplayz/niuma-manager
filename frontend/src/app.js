@@ -1029,7 +1029,8 @@ async function runBulk(action, { trash = false, date, undo, undoTasks = [] } = {
   bulkFailure = null;
   ids.forEach(id => busyTasks.add(id));
   if (dateForm) dateForm.querySelectorAll('input,button[type="submit"]').forEach(field => { field.disabled = true; });
-  render();
+  // The journal will repaint deleted rows as soon as it has persisted the batch.
+  if (action !== 'trash' || demo || taskWritesAreOnlineOnly()) render();
   repaintBulkControls();
   toast(`正在保存 ${tasks.length} 项…`);
   try {
@@ -1040,10 +1041,11 @@ async function runBulk(action, { trash = false, date, undo, undoTasks = [] } = {
     if (dateForm?.isConnected && dialog.open) closeDialog();
     if (drawer.open && ids.has(drawerId)) closeDrawer();
     const verb = ({ complete: '已完成 / 已阅读', reopen: '已重新打开 / 标记未阅读', deadline: date ? '已修改日期' : '已清除日期', trash: '已移入回收站', restore: '已恢复', undo: '已撤销本批操作' })[action];
-    const restored = result.tasks.filter(task => !state.trash.some(item => item.id === task.id) && ids.has(task.id));
+    const restored = result.tasks.filter(task => ids.has(task.id));
     toast(`${verb}，共 ${tasks.length} 项`, result.undo ? () => runBulk('undo', { undo: result.undo, undoTasks: restored.length ? restored : tasks }) : undefined);
   } catch (error) {
     if (epoch !== accountVersion()) return;
+    if (!demo) state = readProjectedStore();
     bulkFailure = { action, trash, date, undo, undoTasks, tasks, error,
       awaitingSave: !demo && tasks.some(task => pendingBulkTaskIds().has(task.id)) };
     const target = dateForm?.isConnected && dialog.open ? dateForm.querySelector('#bulk-deadline-error') : null;
@@ -1662,8 +1664,10 @@ window.addEventListener('niuma:bulk-saved', event => {
     if (finishedFailure || event.detail.undo && recovered.length)
       toast('本批操作已保存', event.detail.undo && recovered.length ? () => runBulk('undo', { undo: event.detail.undo, undoTasks: recovered }) : undefined);
   }
-  render();
-  repaintBulkControls();
+  if (!bulkRunning) {
+    render();
+    repaintBulkControls();
+  }
   if (drawer.open && !drawerEditing && editableTask(drawerId)) updateDrawer();
 });
 matchMedia("(max-width: 700px)").addEventListener("change", () => {

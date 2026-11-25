@@ -164,7 +164,7 @@ def undo(db, uid, intent, tasks, ApiError):
         tasks.extend(task for task in task_operations.workspace(db, uid)['value'] if task['id'] not in previous_ids)
 
 
-def apply(db, uid, body, ApiError):
+def apply(db, uid, body, ApiError, *, include_history=True):
     try:
         contract.check('request', body)
     except (ValueError, TypeError, ValidationError):
@@ -177,7 +177,8 @@ def apply(db, uid, body, ApiError):
     inverse_row = db.execute('SELECT generation FROM task_bulk_undo WHERE user_id=? AND operation_id=?', (uid, operation['id'])).fetchone()
     undo_intent = dict(kind='bulk', action='undo', undoOf=operation['id'], workspaceGeneration=generation)
     if acknowledged:
-        return dict(current, operationId=operation['id'], replayed=True, batches=recognition.batches(db, uid),
+        return dict(current, operationId=operation['id'], replayed=True,
+                    **({'batches': recognition.batches(db, uid)} if include_history else {}),
                     candidates=task_operations.candidate_states(db, uid, [operation], current['value']), generation=generation,
                     undo=undo_intent if inverse_row and inverse_row['generation'] == generation else None)
     if body['version'] != current['version']:
@@ -236,5 +237,5 @@ def apply(db, uid, body, ApiError):
     task_operations.record(db, uid, operation, current['version'] + 1, ApiError)
     usage.workspace_changes(db, uid, current['value'], tasks)
     return dict(value=tasks, version=current['version'] + 1, operationId=operation['id'], undo=undo_intent,
-                batches=recognition.batches(db, uid),
+                **({'batches': recognition.batches(db, uid)} if include_history else {}),
                 candidates=task_operations.candidate_states(db, uid, [operation], tasks), generation=generation)

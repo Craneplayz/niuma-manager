@@ -438,7 +438,8 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/tasks/reconcile' and self.command=='POST':
                 return task_operations.reconcile(self,db,uid,body,ApiError)
             if path=='/api/tasks/bulk' and self.command=='POST':
-                result=task_bulk.apply(db,uid,body,ApiError)
+                result=task_bulk.apply(db,uid,body,ApiError,
+                                       include_history=self.headers.get('Prefer') != 'return=minimal')
                 return self.reply(200,result)
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()

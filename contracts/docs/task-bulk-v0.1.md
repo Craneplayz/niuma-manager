@@ -20,6 +20,8 @@
 
 响应为 `{version,value,operationId,undo,batches,candidates,generation,replayed?}`，value 为当前普通任务与回收站的规范任务数组，batches 为同一事务内当前账号候选展示，candidates 为本次涉及候选的轻量当前状态。重放相同操作时先核对回执，返回当前任务和候选，不重复创建或增加版本；同编号不同意图拒绝。`POST /api/tasks/reconcile` 同样识别 bulk，并返回其涉及候选的当前状态。
 
+任务页发送 `Prefer: return=minimal` 时，回执省略识别历史 `batches`，其余字段及撤销引用照常返回。旧客户端沿用完整响应。普通任务批量删除在本地加密日志写入成功后更新清单，收到服务端回执后提供撤销。普通 HTTP 页面在收到回执后更新。保存失败时显示错误，保留原操作编号用于重试或对账。
+
 响应丢失后通过 reconcile 确认时，响应可附带 `bulkResults:[{operationId,undo}]`，仅包含本次 applied 的 bulk。客户端移除本地队列前保留原操作涉及的任务编号，将真实撤销引用交回界面；撤销本身的回执或账号清空后缺少有效逆向记录时返回 null，不凭原意图伪造撤销。恢复不再次执行已确认的候选操作。
 
 `undo` 为 `{kind:"bulk",action:"undo",undoOf:原操作编号,workspaceGeneration}`，没有可撤销内容或原账号数据已清空时为 null。客户端使用新的稳定操作编号，仍向同一入口提交 `{version,operation:{id,owner,intent:undo}}`。服务端读取原操作的必要逆向字段，整体核对本次修改的字段及回收站身份；候选忽略撤销还核对原候选的 ignored 状态和精确版本，期间被撤回、再次忽略或移除时整组拒绝，避免复活已删除内容。
