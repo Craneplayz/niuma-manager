@@ -31,3 +31,13 @@ create 提供稳定 `newTaskId`（16–100 位字母数字、下划线或连字�
 新操作在同一事务内提交候选、任务与既有回执表，不另建日志表；确认、忽略和撤回都记录回执。新客户端响应 `{operationId,replayed,tasks,candidates,generation}`，不重复传输整批通知正文；无 operation 的旧客户端仍收到原 batches 响应。只允许候选意图通过 resolve 提交，普通任务 PUT 拒绝 review 意图。
 
 恢复时 reconcile 返回涉及候选的当前轻量状态；候选已不存在时为 `{id,state:"missing",version:0}`。`applied` 表示该稳定操作已在历史中成功提交，不能根据候选当前状态再次执行旧操作：例如忽略后撤回，再重放旧忽略回执，只确认旧操作而不再次忽略。未执行操作的候选版本或目标字段不符时保留本地内容并提示核对；账号清空代次阻止旧未执行操作复活数据。
+
+## 一句话添加任务
+
+已登录用户通过普通任务新增操作保存。只有 `kind=save`、`expected=null` 时可带 `intent.quickRecognition`，包含原句 `text`（1–4000 字）、输入时的 IANA 时区 `timezone`、本地日期 `referenceDay` 和创建前已手动设定的 `protectedFields`（title、course、due、description）。可选的 localOnly=true 表示本地已完成整理，直接保存原句并返回 done，不创建队列作业。未提供时兼容旧客户端并启动识别。活动任务用 eventAt 保存活动日期/时刻（与 due 同形），due 留空；地点存入 description。创建时间沿用带时区的 `intent.createdAt`。任务与识别作业同时入库，重放相同操作不会重复建任务或发起模型调用。
+
+任务上的 `quickRecognition` 含原句和 `status`（pending、done、failed）。识别只能更新同一任务中仍适用的标题、备注、课程或截止字段。用户在等待期间的改动优先，识别失败时保留本地结果及原句。多项行动或缺少可靠依据时保留原任务。
+
+创建成功的保存回执带任务数组 `value` 和最新 `version`。账户内有识别中的任务时，客户端从 `GET /api/tasks/quick-recognition` 读取 `{owner,generation,version,value}`。完成时如有字段变化，`quickRecognition.appliedFrom` 和 `applied` 只记录实际变更字段的前值和新值，后续人工修改会清除对应字段的标记。排队但尚未开始的请求按服务恢复设置处理，运行中断时保留本地任务。
+
+接收持久任务写入或候选审核时，只有已知所有中间任务版本均由 AI 回写引起才返回专用 `409 quick_recognition_changed` 和 `quickVersion`。客户端核对所属账号、代次、版本和目标编辑前值后，以原操作编号重新提交。夹杂其他人工变更时，沿用普通冲突处理。

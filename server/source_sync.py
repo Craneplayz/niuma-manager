@@ -9,7 +9,6 @@ from server import operations
 from pathlib import Path
 
 from text_contract import validate_request
-from recognition import has_unapplied_auto_tasks
 import teaching
 import teaching_assets
 from contracts.teaching_capture import check_capture
@@ -75,8 +74,7 @@ def incremental_requests(db, uid, username, requests):
                            (uid, account, record['input_id'], digest, json.dumps(request)))
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                                 (uid, request['request_id'])).fetchone()
-            if (stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks')
-                    and not has_unapplied_auto_tasks(db, uid, request, stored['demo'])):
+            if stored and json.loads(stored['result'])['status'] in ('success', 'no_tasks'):
                 skipped += 1
             else:
                 pending.append(request)

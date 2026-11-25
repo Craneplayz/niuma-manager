@@ -442,7 +442,7 @@ export function createSourceSyncUI(host) {
   function resultMarkup(run, category, latest) {
     const { items, missing } = resultItems(run, category);
     const list = items.map((item, index) => {
-      const action = category === "error" ? "problem" : category === "review" ? "open-review" : "open-task";
+      const action = category === "error" ? "problem" : category === "review" ? "open-history-item" : "open-task";
       const identity = category === "error" ? String(index) : category === "review" ? item.candidate_id : item.task_id || item.candidate_id;
       const changes = category === "updated" ? [...new Set((item.changed_fields || []).map(field => UPDATE_FIELDS[field]))].join("、") : "";
       const note = changes ? `${changes}已更新` : "";
@@ -455,7 +455,7 @@ export function createSourceSyncUI(host) {
       return `<li ${link ? 'class="sync-result-entry"' : ""}><button id="sync-item-${esc(run.run_id)}-${category}-${index}" class="sync-result-name" ${highlighted ? 'data-source-sync-highlight aria-description="对应的恢复结果"' : ""} type="button" data-source-sync-action="${action}" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${esc(identity || "")}" title="${esc(title)}" ${category === "error" ? `aria-expanded="${selectedProblems.get(run.run_id) === (item.request_id || "run")}" aria-controls="sync-problem-${esc(run.run_id)}"` : ""}>${importTypeMarkup(status)}<span class="sync-result-title">${esc(item.label)}</span>${link ? "" : importStatusMarkup(status)}${note ? `<small class="sync-item-changes">${esc(note)}</small>` : ""}</button>${link ? `<button type="button" class="sync-recovery-link" data-source-sync-action="locate-recovery" data-source-sync-run="${esc(run.run_id)}" data-source-sync-item="${index}" aria-label="${esc(item.label)}：已恢复，${recoveryLabel}" title="${recoveryLabel}">已恢复</button>` : ""}</li>`;
     }).join("");
     const selected = items.find(item => (item.request_id || "run") === selectedProblems.get(run.run_id));
-    return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"待核对",updated:"修改",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
+    return `<div id="sync-results-${esc(run.run_id)}-${category}" class="sync-results" role="region" aria-label="${{added:"新增",review:"历史记录",updated:"修改",error:"错误"}[category]}内容">${list ? `<ul class="sync-result-list">${list}</ul>` : ""}${missing ? `<p class="status-note">${missing} 项旧记录未保存具体名称。</p>` : ""}${category === "error" ? `<div id="sync-problem-${esc(run.run_id)}">${selected ? problemMarkup(selected, run, latest) : ""}</div>` : ""}</div>`;
   }
   function runMarkup(run, latest, compact = false) {
     const counts = run.counts;
@@ -472,8 +472,8 @@ export function createSourceSyncUI(host) {
     if (compact && running && !groups.length) return "";
     const actions = !ACTIVE.has(run.state) && (plan.records.length || plan.whole) ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" ${blocked ? "disabled" : ""}>处理未完成${plan.records.length ? ` · ${plan.records.length}` : ""}</button>` : "";
     const recoveryNote = highlight?.emptySource && !highlight.categories.size
-      ? "这条来源已处理完成，没有新增任务或待核对内容。"
-      : locatedRun === run.run_id && !groups.length ? "这次处理已完成，没有新增任务或待核对内容。" : "";
+      ? "这条来源已处理完成，没有新增任务或通知。"
+      : locatedRun === run.run_id && !groups.length ? "这次处理已完成，没有新增任务或通知。" : "";
     return `<article id="sync-run-${esc(run.run_id)}" tabindex="-1" aria-label="${esc(LABELS[run.state])}批次" class="sync-run ${compact ? "sync-run-current" : ""}"><div class="sync-run-heading" ${highlight && !highlight.categories.size ? 'data-source-sync-highlight' : ""}><div class="sync-run-status">${!running ? `<strong role="status">${esc(LABELS[run.state])}</strong>` : ""}${summary ? `<div class="sync-categories" role="group" aria-label="查看本轮导入结果">${summary}</div>` : ""}</div>${actions ? `<div class="candidate-actions">${actions}</div>` : ""}</div>${recoveryNote ? `<p class="status-note">${recoveryNote}</p>` : ""}${groups.map(({ key }) => expanded(key) ? resultMarkup(run, key, latest) : `<div id="sync-results-${esc(run.run_id)}-${key}" hidden></div>`).join("")}</article>`;
   }
   function currentRun() {
@@ -500,14 +500,14 @@ export function createSourceSyncUI(host) {
     const ordinary = all.filter(entry => !required.includes(entry)).slice(0, Math.max(0, 20 - required.length));
     const history = all.filter(entry => required.includes(entry) || ordinary.includes(entry));
     if (!history.length) return "";
-    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(entry => entry.html).join("")}</details>`;
+    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary><button type="button" class="btn quiet" data-import-action="refresh">刷新</button>${history.map(entry => entry.html).join("")}</details>`;
   }
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;
     if (!action) return false;
     cancelRecoveryNavigation();
     if (["category", "problem", "locate-recovery", "recover", "retry"].includes(action)) clearRecoveryHighlight();
-    if (["category", "problem", "open-task", "open-review", "locate-recovery"].includes(action)) {
+    if (["category", "problem", "open-task", "open-history-item", "locate-recovery"].includes(action)) {
       syncAccount();
       const run = runs.find(item => item.run_id === data.sourceSyncRun) || linkedRuns.get(data.sourceSyncRun);
       if (!run) return true;
@@ -535,7 +535,7 @@ export function createSourceSyncUI(host) {
         else host.toast?.(status?.message || "这条任务或通知已无法查看");
       } else {
         const item = resultItems(run, "review").items.find(item => item.candidate_id === data.sourceSyncItem);
-        if (item) await host.openReview?.(item.candidate_id);
+        if (item) await host.openHistoryItem?.(item.candidate_id);
       }
       return true;
     }

@@ -93,22 +93,20 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         body=self.operation(detail,'resume_source_completion',action_ids=[action['action_id']])
         status,out=self.apply(body);self.assertEqual(status,201,out)
         self.assertEqual(self.apply(body),(200,out))
-        self.assertEqual(self.candidate_row(item)['state'],'pending')  # No immediate withdrawal.
+        self.assertEqual(self.candidate_row(item)['state'],'applied')  # No immediate withdrawal.
         app.initialize()
         for _ in range(2): self.assertFalse(self.details()['observation']['actions'][0]['source_completion_paused'])
         capture['request']['records'][0]['record']['collected_at']='2026-10-10T11:00:00+08:00'
         self.sync_native(capture)
-        row=self.candidate_row(item);self.assertEqual((row['state'],row['version']),('ignored',4))
-        self.assertTrue(self.reopen_candidate(item,4)['observation']['actions'][0]['source_completion_paused'])
-        app.initialize()
-        capture['request']['records'][0]['record']['collected_at']='2026-10-10T12:00:00+08:00'
-        self.sync_native(capture)
-        row=self.candidate_row(item);self.assertEqual((row['state'],row['version']),('pending',5))
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'][0]['status'],'completed')
 
     def check_reopened_candidate_correction(self,relation):
         capture,item=self.recognized_submitted_assignment()
         self.reopen_candidate(item)
         app.initialize()
+        detail=self.details()
+        paused=[a['action_id'] for a in detail['observation']['actions'] if a['kind']=='task' and a['source_completion_paused']]
+        self.assertEqual(self.apply(self.operation(detail,'resume_source_completion',action_ids=paused))[0],201)
         detail=self.associate_candidate(relation)
         action=detail['observation']['actions'][0]
         self.assertEqual(action['relation'],relation);self.assertFalse(action['source_completion_paused'])
@@ -117,9 +115,9 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         self.sync_native(capture)
         action=self.details()['observation']['actions'][0]
         self.assertEqual(action['relation'],relation);self.assertFalse(action['source_completion_paused'])
-        self.assertEqual(self.candidate_row(item)['state'],'pending')
+        self.assertEqual(self.candidate_row(item)['state'],'applied')
         self.assertEqual(self.reprocess_native(capture,'corrected-'+relation)['records'][0]['decision_summary']['preserved'],1)
-        self.assertEqual(self.candidate_row(item)['state'],'pending')
+        self.assertEqual(self.candidate_row(item)['state'],'applied')
 
     def test_runtime_reopened_candidate_can_correct_to_other(self):
         self.check_reopened_candidate_correction('other')
@@ -154,7 +152,7 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
         self.associate_candidate('unknown')  # An explicit choice, even when unchanged.
         before=self.candidate_row(item)
-        self.assertEqual((before['state'],before['version']),('pending',1))
+        self.assertEqual((before['state'],before['version']),('applied',2))
         app.initialize()
         saved=self.reprocess_native(capture,'manual-unhandled')
         self.assertEqual(saved['records'][0]['decision_summary']['preserved'],1)
@@ -244,15 +242,16 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
 
     def test_runtime_only_mapped_candidate_withdraws_and_ignored_choices_survive(self):
         view=self.sync_native(self.mixed_capture('active'))['requests'][0];items=self.run_request(view)['items']
-        detail=self.details();actions=detail['observation']['actions'];self.assertEqual(len(actions),2)
-        body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation='assignment_submission' if i==0 else 'other') for i,a in enumerate(actions)])
+        detail=self.details();actions=[a for a in detail['observation']['actions'] if a['kind']=='task'];self.assertEqual(len(actions),2)
+        body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation='assignment_submission' if i==0 else 'other') for i,a in enumerate(detail['observation']['actions'])])
         self.assertEqual(self.apply(body)[0],201)
         self.sync_native(self.mixed_capture('submitted','2026-10-10T11:00:00+08:00'))
         with app.connection() as db:
             states=[r['state'] for r in db.execute('SELECT state FROM recognition_candidates WHERE user_id=?',(self.uid,))]
-        self.assertEqual(sorted(states),['ignored','pending'])
+        self.assertEqual(sorted(states),['applied','applied'])
+        self.assertEqual(sorted(t['status'] for t in self.call('/workspace')[1]['tasks']['value']), ['completed','not_started'])
         app.initialize(recover=False)
-        with app.connection() as db:self.assertEqual(db.execute("SELECT COUNT(*) FROM recognition_candidates WHERE state='ignored' AND user_id=?",(self.uid,)).fetchone()[0],1)
+        with app.connection() as db:self.assertEqual(db.execute("SELECT COUNT(*) FROM recognition_candidates WHERE state='applied' AND user_id=?",(self.uid,)).fetchone()[0],2)
 
     def test_runtime_stale_operation_credentials_and_changed_content_are_guarded(self):
         self.sync_native(self.native_capture('active'));detail=self.details();_,body=self.link_all(detail)
@@ -293,7 +292,7 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         view=self.sync_native(self.mixed_capture('active'))['requests'][0]
         items=self.run_request(view)['items']
         detail=self.details();actions=detail['observation']['actions']
-        body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation='assignment_submission' if i==0 else 'unknown') for i,a in enumerate(actions)])
+        body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation='assignment_submission' if i==0 else 'unknown') for i,a in enumerate(detail['observation']['actions'])])
         self.assertEqual(self.apply(body)[0],201)
         for candidate in items:
             self.assertEqual(self.call('/recognition/candidates/'+candidate['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)

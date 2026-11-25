@@ -13,7 +13,7 @@ function failedRun(id, count, recovered) {
 
 async function openHistory(page, runs, linked = null, { batches = [], tasks = [] } = {}) {
   const writes = [];
-  let version = 1;
+  const version = 1;
   await page.route("**/api/**", async route => {
     const request = route.request(), path = decodeURIComponent(new URL(request.url()).pathname);
     if (request.method() === "POST" && path.startsWith("/api/sources/sync-runs")) writes.push(path);
@@ -24,18 +24,8 @@ async function openHistory(page, runs, linked = null, { batches = [], tasks = []
     else if (path === "/api/usage/visit") value = { offerRating: false };
     else if (path === "/api/usage/guest-visit") value = { saved: true };
     else if (path === "/api/recognition/text-jobs") value = { contract_version: "text-import-jobs/0.1", jobs: [] };
+    else if (path === "/api/recognition/task-evidence") value = { evidence: [] };
     else if (path === "/api/recognition/batches") value = batches;
-    else if (path.endsWith("/resolve")) {
-      const id = path.split("/").at(-2), item = batches.flatMap(batch => batch.items).find(item => item.id === id);
-      const body = request.postDataJSON();
-      expect(body.reviewed).toBe(true);
-      item.state = "applied"; item.version++; version++;
-      item.taskId = body.operation.intent.newTaskId;
-      tasks.push({ id: item.taskId, ...body.draft, status: "not_started", plans: [], subtasks: [],
-        recognitionHistory: [{ storageId: id, action: "create" }] });
-      value = { operationId: body.operation.id, tasks: { value: tasks, version }, generation: 0,
-        candidates: [{ id, state: item.state, version: item.version, taskId: item.taskId }] };
-    }
     else if (path === "/api/sources/sync-runs") value = { contract_version: "source-sync/0.1", runs };
     else if (path.startsWith("/api/sources/sync-runs/")) {
       value = [...(Array.isArray(linked) ? linked : linked ? [linked] : []), ...runs].find(run => path === `/api/sources/sync-runs/${run.run_id}`);
@@ -49,7 +39,6 @@ async function openHistory(page, runs, linked = null, { batches = [], tasks = []
   await page.goto("/");
   if (await page.locator("#sidebar-show").isVisible()) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
-  await page.getByRole("button", { name: "教学网", exact: true }).click();
   await page.locator("[data-source-sync-history] > summary").click();
   return writes;
 }
@@ -99,7 +88,7 @@ test("a resolved whole collection exposes recovery navigation without obsolete p
   await link.click();
   const target = page.locator(`[id="sync-run-${later.run_id}"]`);
   await expect(target).toBeVisible();
-  await expect(target).toContainText("这次处理已完成，没有新增任务或待核对内容。");
+  await expect(target).toContainText("这次处理已完成，没有新增任务或通知。");
   await expect(target.locator(".sync-run-heading")).toHaveAttribute("data-source-sync-highlight", "");
   await expect.poll(async () => Math.abs((await target.boundingBox()).y - 24)).toBeLessThan(2);
   expect(writes).toHaveLength(0);
@@ -117,7 +106,7 @@ for (const cached of [true, false]) test(`a compacted no-task recovery opens its
   await row.getByRole("button", { name: /已恢复，查看成功批次/ }).click();
   const targetRow = page.locator(`[id="sync-run-${target.run_id}"]`);
   await expect(targetRow).toBeVisible();
-  await expect(targetRow).toContainText("这条来源已处理完成，没有新增任务或待核对内容。");
+  await expect(targetRow).toContainText("这条来源已处理完成，没有新增任务或通知。");
   await expect(targetRow.getByRole("status")).toHaveText("部分完成");
   await expect(targetRow.getByRole("button", { name: "错误 1 条", exact: true })).toHaveCSS("color", "rgb(182, 57, 57)");
   if (cached) await expect(targetRow.getByRole("button", { name: "处理未完成 · 1", exact: true })).toBeVisible();
@@ -133,38 +122,21 @@ for (const cached of [true, false]) test(`a compacted no-task recovery opens its
   expect(writes).toHaveLength(0);
 });
 
-test("category priority follows recovered errors and confirmed reviews without changing the receipt totals", async ({ page }, info) => {
-  const run = syncRun({ id: "priority:batch", state: "partial_success", states: ["succeeded", "failed"], added: 1, review: 1,
-    updates: [{ task_id: "updated:task", label: "修改过的任务", course: null }] });
+test("historical receipts open the saved task and keep their original totals after recovery", async ({ page }) => {
+  const run = syncRun({ id: "priority:batch", state: "partial_success", states: ["succeeded", "failed"], added: 1, review: 1 });
   run.records[0].added_items = [{ candidate_id: "auto", task_id: "created:task", label: "新增任务", course: null }];
-  run.records[0].review_items = [{ candidate_id: "manual:review", label: "待核对任务", course: null }];
-  const batches = [{ sourceSyncManaged: true, request: { contract_version: "0.2", request_id: "request:review", records: [] },
-    result: { status: "success" }, items: [{ id: "manual:review", state: "pending", version: 1, candidate: {
-      title: "待核对任务", description: "合成材料", course_or_project: "合成课程", notice_type: "create", needs_review: true,
-      deadline: { kind: "deadline", status: "explicit", precision: "date", value: "2026-10-20" }, evidence: [], sources: [], review_reasons: [],
-    } }] }];
-  const writes = await openHistory(page, [run], null, { batches });
+  run.records[0].review_items = [{ candidate_id: "legacy", label: "课程作业", course: null }];
+  const tasks = [{ id: "migrated", title: "课程作业", status: "not_started", recognitionHistory: [{ storageId: "legacy", action: "create" }] }];
+  const writes = await openHistory(page, [run], null, { tasks });
   const row = page.locator(`[id="sync-run-${run.run_id}"]`), categories = row.locator(".sync-category");
-  await expect(categories).toHaveText(["错误 1 条", "待核对 1 项", "新增 1 项", "修改 1 项"]);
-  await expect(row.getByRole("button", { name: "待核对 1 项", exact: true })).toHaveCSS("color", "rgb(148, 96, 0)");
-  await page.screenshot({ path: info.outputPath("import-priority-pending.png"), fullPage: true });
+  await expect(categories).toHaveText(["错误 1 条", "新增 1 项", "历史记录 1 项"]);
   run.records[1].recovered = true; run.state = "succeeded"; run.revision++;
   await page.getByRole("button", { name: "刷新", exact: true }).click();
-  await expect(categories).toHaveText(["待核对 1 项", "新增 1 项", "修改 1 项", "错误 1 条"]);
-  await row.getByRole("button", { name: "待核对 1 项", exact: true }).click();
+  await expect(categories).toHaveText(["新增 1 项", "历史记录 1 项", "错误 1 条"]);
+  await row.getByRole("button", { name: "历史记录 1 项", exact: true }).click();
   await row.locator(".sync-result-name").click();
-  const form = page.locator('[data-import-form="review"]');
-  await expect(form).toBeVisible();
-  await form.getByRole("button", { name: "确认加入任务", exact: true }).click();
-  await expect(form).not.toBeVisible();
-  await expect(categories).toHaveText(["新增 1 项", "修改 1 项", "待核对 1 项", "错误 1 条"]);
-  await expect(row.getByRole("button", { name: "待核对 1 项", exact: true })).toHaveCSS("color", "rgb(36, 112, 68)");
-  await expect(row.getByRole("button", { name: "待核对 1 项", exact: true })).toHaveAttribute("aria-expanded", "true");
-  await expect(row.locator(".sync-item-status-muted")).toHaveText("未完成");
+  await expect(page.locator("#task-drawer")).toContainText("课程作业");
   expect(writes).toHaveLength(0);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await expect(page.locator("#toast")).not.toHaveClass(/visible/);
-  await page.screenshot({ path: info.outputPath("import-priority-reviewed.png"), fullPage: true });
 });
 
 test("recovery highlights the matching source results and keeps the batch heading fully visible above its first related item", async ({ page }, info) => {
@@ -228,7 +200,7 @@ test("history separates notice type from completion and distinguishes reviewed c
     result: { status: "success" }, items: [
       { id: "removed", state: "applied", version: 2, autoApplied: true, candidate: { title: "原先新增的任务" } },
       { id: "cancel", state: "applied", version: 2, candidate: { title: "取消原定报告" } },
-      { id: "pending", state: "pending", version: 1, candidate: { title: "待确认的考试地点", content_type: "notice" } },
+      { id: "pending", state: "ignored", version: 1, candidate: { title: "待确认的考试地点", content_type: "notice" } },
     ] }];
   const writes = await openHistory(page, [run], null, { tasks, batches });
   const row = page.locator(`[id="sync-run-${run.run_id}"]`);
@@ -243,8 +215,8 @@ test("history separates notice type from completion and distinguishes reviewed c
   await expect(row).not.toContainText("待确认的考试地点");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("import-history-result-statuses.png"), fullPage: true });
-  await row.getByRole("button", { name: "待核对 2 项", exact: true }).click();
-  await expect(names.locator(".sync-item-status")).toHaveText(["已取消", "待核对"]);
+  await row.getByRole("button", { name: "历史记录 2 项", exact: true }).click();
+  await expect(names.locator(".sync-item-status")).toHaveText(["已取消", "已忽略"]);
   await expect(names.nth(1).locator(".notice-label")).toHaveText("通知");
   await names.first().click();
   await expect(page.locator("#toast")).toContainText("这条任务或通知已取消");

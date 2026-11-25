@@ -39,7 +39,7 @@ for (const cached of [true, false]) {
   const row = html.match(new RegExp(`<article id="sync-run-${config.target_run_id}"[\\s\\S]*?</article>`))?.[0];
   assert.ok(row);
   assert.match(row, /sync-run-heading" data-source-sync-highlight/);
-  assert.match(row, /这条来源已处理完成，没有新增任务或待核对内容。/);
+  assert.match(row, /这条来源已处理完成，没有新增任务或通知。/);
   assert.match(row, /部分完成/);
   assert.match(row, /错误 1 条/);
   if (cached) assert.match(row, /处理未完成 · 1/);

@@ -49,11 +49,11 @@
 | value | `YYYY-MM-DD` 或 `YYYY-MM-DDTHH:mm:ss±HH:mm`；未知为 null；秒数不可丢失。 |
 | precision | date / datetime / unknown，与 value 一致；仅日期不补时刻。 |
 | derivation | absolute / relative / offset / missing_year / unresolved，含义见 skill。 |
-| anchor | absolute、unresolved 为 null；relative、offset 为 published_at；missing_year 优先 published_at、缺可信发布时间才可 collected_at。引用的基准属于该项 input_id，不另外填写时间。 |
+| anchor | absolute、unresolved 为 null；relative、offset 为 published_at；missing_year 优先 published_at、缺可信发布时间才可 collected_at。快捷录入另可使用该消息提供的 quick_reference。引用的基准属于该项 input_id，不另外填写时间。 |
 | basis | 非空的一句依据；unresolved 说明真正缺少的条件，不写长篇推演。 |
 
 unresolved 和 urgency 的 value=null、precision=unknown、anchor=null。日期无法确定也要保留其引文。程序从合法提案生成 status 和 timezone；不让模型自行填写这两个对外字段。来源时区之外的原文时区须换算到来源时区，不能只改偏移符号。
 
 missing_year 仍如实填写补年类别与基准，不伪装成 absolute。正常补年不写核实原因：校验通过的 deadline 按 explicit 输出；reference 仍需核实。缺基准、冲突和其他疑点照常保留。
 
-日期与时刻分隔、中文数字、其他语言或标点形式不限制归一化；模型根据语义判断，程序只验证标准值、日历、基准、时区和逐字引文。结构通过不等于语义一定正确。
+日期与时刻分隔、中文数字、其他语言或标点形式不限制归一化；模型根据语义判断，程序验证标准值、日历、基准、时区和逐字引文。快捷录入另校验截止引文中明确的办理区间末日及当天 24 时关闭的日期。结构通过不等于语义一定正确。

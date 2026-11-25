@@ -139,9 +139,52 @@ class TaskBulkTests(unittest.TestCase):
         self.assertEqual(result['value'][0]['recycleBin']['status'], 'in_progress')
         self.assertEqual(self.state()[1], [dict(id='pending', state='ignored', version=2)])
         restored = self.send(self.body('undo', intent=result['undo']))
-        self.assertEqual(restored['value'], [self.task])
-        self.assertEqual(self.state()[1], [dict(id='pending', state='pending', version=3)])
-        self.assertEqual(restored['candidates'], [dict(id='pending', state='pending', version=3)])
+        self.assertEqual(restored['value'][0], self.task)
+        self.assertEqual(restored['value'][1]['recognitionHistory'][0]['storageId'], 'pending')
+        self.assertEqual(self.state()[1], [dict(id='pending', state='applied', version=4)])
+        self.assertEqual(restored['candidates'][0]['state'], 'applied')
+
+    def test_startup_publishes_legacy_records_once_and_preserves_user_decisions(self):
+        rid = self.request['request_id']
+        with app.connection() as db:
+            for identity, state, kind in [('postpone','pending','postpone'), ('cancel','pending','cancel'),
+                                          ('update','pending','update'), ('ignored','ignored','create')]:
+                card = dict(self.candidate, candidate_id=identity, notice_type=kind)
+                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state) VALUES(?,?,?,?,?)',
+                           (identity,'alice',rid,json.dumps(card),state))
+            archived = dict(self.request,request_id='archived')
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',
+                       ('alice','archived','archived',json.dumps(archived),json.dumps(self.result)))
+            db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1)',('alice','archived','archived','old','manual'))
+            db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
+                       ('archived-card','alice','archived',json.dumps(self.candidate)))
+        app.initialize(recover=False)
+        tasks = self.call('/workspace')[1]['tasks']
+        self.assertEqual(tasks['value'][0], self.task)
+        items = {t['recognitionHistory'][0]['storageId']:t for t in tasks['value'][1:]}
+        self.assertEqual(set(items), {'pending','postpone','cancel','update'})
+        self.assertEqual(items['pending']['content_type'], 'task')
+        for kind in ('postpone','cancel','update'):
+            self.assertEqual(items[kind]['content_type'], 'notice')
+            self.assertEqual(items[kind]['recognitionHistory'][0]['noticeType'], kind)
+        app.initialize(recover=False)
+        self.assertEqual(self.call('/workspace')[1]['tasks'], tasks)
+
+    def test_migration_keeps_existing_completed_and_recycled_tasks(self):
+        request_id = self.request['request_id']
+        tasks = [dict(self.task, id='done', status='completed', completedAt='2026-11-20',
+                      recognitionHistory=[dict(storageId='pending', requestId=request_id)]),
+                 dict(self.task, id='deleted', status='cancelled', recycleBin=dict(status='in_progress'),
+                      recognitionHistory=[dict(storageId='recycled')])]
+        with app.connection() as db:
+            db.execute("UPDATE workspace SET value=? WHERE user_id='alice' AND name='tasks'", (json.dumps(tasks),))
+            db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
+                       ('recycled', 'alice', request_id, json.dumps(self.candidate)))
+        app.initialize(recover=False)
+        workspace, candidates = self.state()
+        self.assertEqual(workspace['value'], tasks)
+        self.assertEqual(workspace['version'], 1)
+        self.assertEqual([item['state'] for item in candidates], ['applied', 'applied'])
 
     def test_restore_and_reopen_keep_ordinary_metadata(self):
         self.send(self.body('trash', candidates=False))
@@ -234,7 +277,7 @@ class TaskBulkTests(unittest.TestCase):
     def test_undo_trash_rejects_reignored_candidate_without_restoring_ordinary_task(self):
         result = self.send(self.body('trash'))
         self.assertEqual(self.call('/recognition/candidates/pending/resolve', dict(action='reopen', version=2))[0], 200)
-        self.assertEqual(self.call('/recognition/candidates/pending/resolve', dict(action='ignore', version=3))[0], 200)
+        self.assertEqual(self.call('/recognition/candidates/pending/resolve', dict(action='ignore', version=3))[0], 409)
         before = self.state()
         self.assertEqual(self.call('/tasks/bulk', self.body('undo', intent=result['undo']))[0], 409)
         self.assertEqual(self.state(), before)

@@ -142,32 +142,6 @@ def protect_source_changes(db, uid, request_id, cards):
     return cards
 
 
-def related_saved_tasks(db, uid):
-    """Group a context-only proposal under its source's one saved workspace row.
-
-    This is a presentation link, never authority to update or merge an action.
-    Join on the server's account-bound snapshot, not a model title or ordinal.
-    """
-    rows = db.execute("""WITH saved AS (
-        SELECT DISTINCT json_extract(t.value,'$.id') task_id, old.account,old.input_id,
-               json_extract(b.request,'$.records[0].record.snapshot_id') snapshot_id,old.request_id
-          FROM workspace w, json_each(w.value) t, json_each(t.value,'$.recognitionHistory') h
-          JOIN recognition_candidates c ON c.id=json_extract(h.value,'$.storageId') AND c.user_id=w.user_id AND c.state='applied'
-          JOIN teaching_submission_requests old ON old.user_id=c.user_id AND old.request_id=c.request_id
-          JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
-         WHERE w.user_id=? AND w.name='tasks' AND coalesce(json_type(t.value,'$.recycleBin'),'null') IN ('null','false')
-           AND coalesce(json_extract(t.value,'$.status'),'') NOT IN ('cancelled','completed','done')
-    ) SELECT c.id,min(s.task_id) FROM recognition_candidates c
-        JOIN teaching_submission_requests current ON current.user_id=c.user_id AND current.request_id=c.request_id
-        JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
-        JOIN saved s ON s.account=current.account AND s.input_id=current.input_id AND s.request_id<>current.request_id
-          AND s.snapshot_id=json_extract(b.request,'$.records[0].record.snapshot_id')
-        WHERE c.user_id=? AND c.state='pending' AND json_extract(c.candidate,'$.notice_type')='uncertain'
-          AND EXISTS (SELECT 1 FROM json_each(c.candidate,'$.review_reasons') WHERE value=?)
-        GROUP BY c.id HAVING count(DISTINCT s.task_id)=1""", (uid,uid,CHANGED_SOURCE_REVIEW))
-    return dict(rows)
-
-
 def reuse_unchanged_result(db, uid, request_id, result):
     """Reuse processing only when the latest verified source result is equal.
 
@@ -187,22 +161,24 @@ def reuse_unchanged_result(db, uid, request_id, result):
     old = json.loads(prior[0])
     if old.get('status') not in ('success', 'no_tasks'): return False
 
-    def proof(value):
-        rows = []
-        for raw in value['record_results']:
-            row = deepcopy(raw)
-            decisions = row.pop('decisions')
-            normalized = []
-            for d in decisions:
-                record = d['pair']['record']
-                record.pop('course_context', None)
-                record['references'] = [r for r in record['references'] if r['kind'] != 'course_context']
-                d['pair']['assessment'].pop('candidate_id', None)
-                normalized.append(canonical(d))
-            row['decisions'] = [json.loads(d) for d in sorted(normalized)]
-            rows.append(canonical(row))
-        return sorted(rows)
-    return proof(old) == proof(result)
+    return decision_proof(old) == decision_proof(result)
+
+
+def decision_proof(value):
+    rows = []
+    for raw in value['record_results']:
+        row = deepcopy(raw)
+        decisions = row.pop('decisions')
+        normalized = []
+        for d in decisions:
+            record = d['pair']['record']
+            record.pop('course_context', None)
+            record['references'] = [r for r in record['references'] if r['kind'] != 'course_context']
+            d['pair']['assessment'].pop('candidate_id', None)
+            normalized.append(canonical(d))
+        row['decisions'] = [json.loads(d) for d in sorted(normalized)]
+        rows.append(canonical(row))
+    return sorted(rows)
 
 
 def supersede_unhandled(db, uid, request_id, snapshot_id):

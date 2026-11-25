@@ -11,6 +11,29 @@ export function assertCurrentTaskEdit(task, snapshot) {
     throw new Error("任务内容已变化，请取消编辑后重新打开；当前草稿仍保留。");
 }
 
+// Editors opened on a local preview may overlap its one background AI update.
+export function mergeTaskEdit(task, snapshot, draft, startedPending) {
+  if (task && taskEditSnapshot(task) === snapshot) return draft;
+  const recognition = task?.quickRecognition;
+  if (!startedPending || recognition?.status !== "done" || !recognition.appliedFrom || !recognition.applied) {
+    assertCurrentTaskEdit(task, snapshot);
+    return draft;
+  }
+  const previous = { ...task }, merged = { ...draft };
+  for (const key of ["title", "course", "due", "description"]) {
+    if (!Object.hasOwn(recognition.applied, key) || !Object.hasOwn(recognition.appliedFrom, key)) continue;
+    const asView = value => key === "due"
+      ? { due: value?.date || "", dueTime: value?.time || "" } : { [key === "description" ? "notes" : key]: value || "" };
+    const after = asView(recognition.applied[key]), before = asView(recognition.appliedFrom[key]);
+    const matches = (fields, values) => Object.keys(values).every(k => (fields[k] || "") === values[k]);
+    if (!matches(task, after)) continue;
+    Object.assign(previous, before);
+    if (matches(draft, before)) Object.assign(merged, after);
+  }
+  assertCurrentTaskEdit(previous, snapshot);
+  return merged;
+}
+
 function readDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -21,18 +44,28 @@ function readDate(value) {
 }
 
 function dueOf(task) {
-  return readDate(task.due) ? task.due : "";
+  const date = typeof task.due === "string" ? task.due : task.due?.date;
+  return readDate(date) ? date : "";
 }
 
-function timeOf(task) {
-  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(task.dueTime || ""))
-    ? task.dueTime
-    : "";
+export function taskDueTime(task) {
+  const time = typeof task.dueTime === "string" ? task.dueTime
+    : task.due?.precision === "date" ? "" : task.due?.time;
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time || "") ? time : "";
 }
 
-export function todayKey() {
-  const now = new Date();
+export function todayKey(now = new Date()) {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+export function isTaskOverdue(task, today, now) {
+  if (task.timeKind === "event" || isNotice(task) || task.reviewCandidateId || task.recycleBin ||
+      ["done", "completed", "cancelled"].includes(task.status)) return false;
+  const date = dueOf(task);
+  if (!date || date !== today) return Boolean(date && date < today);
+  const time = taskDueTime(task);
+  if (!time || !(now instanceof Date) || todayKey(now) !== today) return false;
+  return now.getHours() * 60 + now.getMinutes() >= Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 }
 
 export function shiftDay(date, days) {
@@ -51,7 +84,7 @@ export function sortTasks(tasks) {
       bDue = dueOf(b);
     if (aDue !== bDue) return !aDue ? 1 : !bDue ? -1 : aDue.localeCompare(bDue);
     return (
-      (timeOf(a) || "99:99").localeCompare(timeOf(b) || "99:99") ||
+      (taskDueTime(a) || "99:99").localeCompare(taskDueTime(b) || "99:99") ||
       String(a.id ?? "").localeCompare(String(b.id ?? ""), undefined, {
         numeric: true,
       })
@@ -89,9 +122,9 @@ export function filterTasks(
     } else if (scope === "calendar") {
       if (!notice && done) return false;
     } else {
-      if ((scope === "all" && notice) || (scope === "done" ? !done : done)) return false;
+      if ((scope === "all" && notice && !(task.timeKind === "event" && due)) || (scope === "done" ? !done : done)) return false;
     }
-    if (scope === "near" && (!due || due > nearEnd)) return false;
+    if (scope === "near" && (task.timeKind === "event" || !due || due > nearEnd)) return false;
     if (course && task.course !== course) return false;
     if (source && (task.source || "手动添加") !== source)
       return false;
@@ -109,7 +142,7 @@ export function filterTasks(
   return sortTasks(result);
 }
 
-export function groupTasks(tasks, today = todayKey()) {
+export function groupTasks(tasks, today = todayKey(), now = new Date()) {
   const day = readDate(today) ? today : todayKey();
   const tomorrow = shiftDay(day, 1),
     nearEnd = shiftDay(day, 7);
@@ -119,13 +152,14 @@ export function groupTasks(tasks, today = todayKey()) {
     { label: "明天截止", tone: "tomorrow", tasks: [] },
     { label: "未来 7 天", tone: "upcoming", tasks: [] },
     { label: "之后截止", tone: "future", tasks: [] },
+    { label: "活动安排", tone: "events", tasks: [] },
     { label: "无截止日期", tone: "undated", tasks: [] },
   ];
   for (const task of sortTasks(tasks)) {
     const due = dueOf(task);
-    const index = !due
-      ? 5
-      : due < day
+    const index = task.timeKind === "event" ? 5 : !due
+      ? 6
+      : due < day || isTaskOverdue(task, day, now)
         ? 0
         : due === day
           ? 1
@@ -141,7 +175,7 @@ export function groupTasks(tasks, today = todayKey()) {
 
 export function deadlineLabel(task, today = todayKey()) {
   const due = dueOf(task);
-  if (!due) return "无截止日期";
+  if (!due) return task.timeKind === "event" ? "未定活动时间" : "无截止日期";
   const day = readDate(today) ? today : todayKey();
   const [year, month, date] = due.split("-");
   const label =
@@ -150,5 +184,6 @@ export function deadlineLabel(task, today = todayKey()) {
       : due === shiftDay(day, 1)
         ? "明天"
         : `${year === day.slice(0, 4) ? "" : `${year} 年 `}${Number(month)} 月 ${Number(date)} 日`;
-  return `${label}${timeOf(task) ? ` ${timeOf(task)}` : ""}`;
+  const time = taskDueTime(task);
+  return `${label}${time ? ` ${time}` : ""}`;
 }

@@ -4,7 +4,7 @@ import unittest
 from copy import deepcopy
 
 from ddl_text.contracts import ContractError, normalize_record
-from ddl_text.time_validation import validate_time
+from ddl_text.time_validation import quick_reference, validate_time
 
 
 def proposal(quote, value=None, *, kind="deadline", derivation="absolute", anchor=None, basis="原文给出时间。"):
@@ -36,6 +36,34 @@ class NormalizedTimeTests(unittest.TestCase):
             with self.subTest(value=value):
                 result = validate_time(proposal("时间原文", value), record())
                 self.assertEqual((result["value"], result["status"]), (None, "unknown"))
+
+    def test_quick_deadline_window_and_day_end_agree(self):
+        r = record(platform="manual")
+        r["quick_reference"] = quick_reference(r)
+        for quote in ("请在**1月1日至1月5日**期间完成材料提交。", "1月5日24时通道关闭。",
+                      "最晚1月5日 24:00 截止。"):
+            for value in ("2027-01-05", "2027-01-05T24:00:00+08:00", "2027-01-06T00:00:00+08:00"):
+                with self.subTest(quote=quote, value=value):
+                    item = proposal(quote, value, derivation="missing_year", anchor="quick_reference")
+                    result = validate_time(item, r)
+                    self.assertEqual((result["value"], result["precision"], result["status"]),
+                                     ("2027-01-05", "date", "explicit"))
+                    self.assertEqual(result["raw"], quote)
+            for value, derivation, anchor in ((None, "unresolved", None),
+                                               ("2027-01-05", "missing_year", "published_at")):
+                result = validate_time(proposal(quote, value, derivation=derivation, anchor=anchor), r)
+                self.assertEqual(result["value"], "2027-01-05")
+
+    def test_quick_day_end_requires_matching_deadline_evidence(self):
+        r = record(platform="manual")
+        r["quick_reference"] = quick_reference(r)
+        for quote, kind in (("1月5日24时举行活动。", "reference"), ("1月5日24时30分", "deadline"),
+                            ("1月5日24:00开放。", "deadline"), ("1月5日18:00截止。", "deadline"),
+                            ("1月1日至1月5日期间提交，最后一天18时截止。", "deadline")):
+            with self.subTest(quote=quote, kind=kind):
+                item = proposal(quote, "2027-01-05T24:00:00+08:00", kind=kind,
+                                derivation="missing_year", anchor="quick_reference")
+                self.assertIsNone(validate_time(item, r)["value"])
 
     def test_bad_shape_is_protocol_error(self):
         for change in ({"precision": []}, {"anchor": "server_now"}, {"value": 123}, {"basis": ""}, {"extra": 1}):
@@ -70,6 +98,22 @@ class NormalizedTimeTests(unittest.TestCase):
         self.assertIsNone(validate_time(item, r)["value"])
         item["normalized"]["anchor"] = "collected_at"
         self.assertIsNone(validate_time(item, r)["value"])
+
+    def test_manual_add_reference_uses_local_week_and_respects_a_selected_date(self):
+        r = record(platform="manual", collected_at="2026-12-27T20:30:00Z",
+                   published_at={"value": None, "precision": "unknown", "basis": "unknown"})
+        ref = quick_reference(r)
+        self.assertEqual(ref["week_start"], "2026-12-28")
+        self.assertEqual(ref["weeks"]["下周"][1], "2027-01-05")
+        item = proposal("下周二", "2027-01-05", derivation="relative", anchor="quick_reference")
+        self.assertIsNone(validate_time(item, r)["value"])
+        self.assertEqual(validate_time(item, dict(r, quick_reference=ref))["value"], "2027-01-05")
+        self.assertIsNone(quick_reference(dict(r, source_url="https://example.org/notice")))
+        self.assertIsNone(quick_reference(dict(r, platform="teaching_web")))
+        r["published_at"] = {"value": "2026-12-22", "precision": "date", "basis": "upstream_unverified"}
+        self.assertEqual(quick_reference(r)["week_start"], "2026-12-21")
+        unspecified = proposal("另行通知", derivation="unresolved")
+        self.assertIsNone(validate_time(unspecified, dict(r, quick_reference=ref))["value"])
 
     def test_hour_offset_requires_time_precision(self):
         item = proposal("再过一天半", "2027-01-01T22:00:00+08:00", derivation="offset", anchor="published_at")

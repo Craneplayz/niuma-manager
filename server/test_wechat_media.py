@@ -317,7 +317,14 @@ except OSError:sys.exit(26)
         self.assertFalse(paths[loose['file_ref']].exists())
         self.assertTrue(paths[held['file_ref']].exists())
 
-    def test_uploaded_pixels_run_through_shared_reader_and_persist_review_candidate(self):
+    def seed_legacy_ignore(self, item):
+        with app.connection() as db:
+            row = db.execute('SELECT user_id FROM recognition_candidates WHERE id=?', (item['id'],)).fetchone()
+            db.execute('UPDATE workspace SET value=? WHERE user_id=? AND name="tasks"', ('[]', row[0]))
+            db.execute("UPDATE recognition_candidates SET state='ignored',resolution=? WHERE id=?",
+                       (json.dumps(dict(action='ignore',version=1)), item['id']))
+
+    def test_uploaded_pixels_run_through_shared_reader_and_publish_task(self):
         try:
             from ddl_text.tests.media_cases import FakeMediaClient, image_bytes, request_for
         except ImportError:
@@ -342,11 +349,11 @@ except OSError:sys.exit(26)
         self.assertEqual(summary['coverage_basis'],'adapter_confirmed')
         self.assertTrue(job['result']['tasks'][0]['needs_review'])
         batch = self.call(client,'/recognition/batches')[1][0]
-        self.assertEqual(batch['items'][0]['state'],'pending')
-        self.assertEqual(self.call(client,'/workspace')[1].get('tasks',{}).get('value',[]),[])
+        self.assertEqual(batch['items'][0]['state'],'applied')
+        self.assertEqual(len(self.call(client,'/workspace')[1]['tasks']['value']),1)
         self.assertNotIn(receipt['file_ref'],json.dumps(job['result']))
 
-    def test_model_reported_candidates_require_confirmation_and_stay_owned(self):
+    def test_model_reported_candidates_are_saved_once_and_stay_owned(self):
         a, b = self.client('wechat-success@test.local'), self.client('wechat-success-other@test.local')
         raw = b'\x89PNG\r\n\x1a\nnew-image'
         _, ack = self.call(a, '/sources/wechat/assets', 'POST', raw, multipart=True)
@@ -364,16 +371,16 @@ except OSError:sys.exit(26)
                 if job['status'] == 'succeeded': break
                 time.sleep(.02)
         self.assertEqual(job['status'], 'succeeded')
-        self.assertEqual(len(self.call(a, '/workspace')[1].get('tasks',{}).get('value',[])), 0)
+        self.assertEqual(len(self.call(a, '/workspace')[1].get('tasks',{}).get('value',[])), 1)
         batch = self.call(a, '/recognition/batches')[1][0]
         candidate = batch['items'][0]
         self.assertTrue(candidate['candidate']['needs_review'])
-        self.assertEqual(candidate['state'], 'pending')
+        self.assertEqual(candidate['state'], 'applied')
         resolution = dict(action='create',version=candidate['version'],tasks_version=0,reviewed=True,
                           draft=dict(title='提交实验报告',description='已核对附件',course='计算机系统导论',
                                      due=dict(date='2026-10-05',time='09:00',precision='datetime')))
         self.assertEqual(self.call(b, '/recognition/candidates/'+candidate['id']+'/resolve', 'POST',resolution)[0],404)
-        self.assertEqual(self.call(a, '/recognition/candidates/'+candidate['id']+'/resolve', 'POST',resolution)[0],200)
+        self.assertEqual(self.call(a, '/recognition/candidates/'+candidate['id']+'/resolve', 'POST',resolution)[0],409)
         self.assertEqual(len(self.call(b, '/workspace')[1].get('tasks', {}).get('value', [])), 0)
         self.assertEqual(self.call(a, '/sources/wechat/imports', 'POST', request)[0], 200)
         self.assertEqual(len(self.call(a, '/workspace')[1]['tasks']['value']), 1)
@@ -397,7 +404,7 @@ except OSError:sys.exit(26)
             original = finished(ack['job_id'])
         batch = self.call(client, '/recognition/batches')[1][0]
         item = batch['items'][0]
-        self.assertEqual(self.call(client, '/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='ignore',version=item['version']))[0],200)
+        self.seed_legacy_ignore(item)
         with patch.object(wechat_media, 'recognize_v03', side_effect=lambda body,assets,**kwargs:wechat_media._failed_result(body)) as model:
             for retry_id in ['retry-A','retry-B']:
                 self.assertEqual(self.call(client, '/sources/wechat/imports/'+ack['job_id']+'/retry','POST',dict(retry_id=retry_id))[0],202)
@@ -444,8 +451,7 @@ except OSError:sys.exit(26)
             _,ack=self.call(client,'/sources/wechat/imports','POST',request)
             original=finished(ack['job_id'])
         item=self.call(client,'/recognition/batches')[1][0]['items'][0]
-        self.assertEqual(self.call(client,'/recognition/candidates/'+item['id']+'/resolve','POST',
-            dict(action='ignore',version=item['version']))[0],200)
+        self.seed_legacy_ignore(item)
         path='/sources/wechat/imports/'+ack['job_id']+'/retry'
         self.assertEqual(self.call(other,path,'POST',dict(retry_id='parallel-A'))[0],404)
         started,release=threading.Event(),threading.Event()
@@ -543,7 +549,7 @@ except OSError:sys.exit(26)
             _, first = self.call(client,'/sources/wechat/imports','POST',request)
             self.assertEqual(finish(first['job_id'])['status'],'succeeded')
             item = self.call(client,'/recognition/batches')[1][0]['items'][0]
-            self.call(client,'/recognition/candidates/'+item['id']+'/resolve','POST',dict(action='ignore',version=item['version']))
+            self.seed_legacy_ignore(item)
             recollected = copy.deepcopy(request)
             recollected['request_id'] = 'content-cache-recollected'
             recollected['records'][0]['collected_at'] = '2026-10-07T10:00:00+08:00'
@@ -1136,7 +1142,7 @@ with patch('ddl_text.codex_client.live_options',return_value=options),patch('ddl
             candidates=db.execute('SELECT candidate,state FROM recognition_candidates WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchall()
             self.assertEqual(len(candidates),1)
             self.assertEqual(json.loads(candidates[0]['candidate']),result['tasks'][0])
-            self.assertEqual(candidates[0]['state'],'pending')
+            self.assertEqual(candidates[0]['state'],'applied')
             self.assertEqual(db.execute('SELECT COUNT(*) FROM wechat_record_runs WHERE job_id=? AND result IS NOT NULL',(ack['job_id'],)).fetchone()[0],2)
 
     def test_aggregate_result_limit_preserves_earlier_valid_candidates(self):

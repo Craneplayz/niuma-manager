@@ -36,6 +36,31 @@ function accessibleDate(date) {
   return `${date.getUTCFullYear()} 年 ${date.getUTCMonth() + 1} 月 ${date.getUTCDate()} 日，星期${WEEKDAYS[(date.getUTCDay() + 6) % 7]}`;
 }
 
+export function renderAgendaWeek(selectedDate, today, icon) {
+  const selected = readDate(selectedDate);
+  if (!selected) return "";
+  const month = `${selected.getUTCFullYear()} 年 ${selected.getUTCMonth() + 1} 月`;
+  const monday = mondayOf(selected);
+  const days = WEEKDAYS.map((weekday, index) => {
+    const date = addDays(monday, index);
+    const iso = isoDate(date);
+    const isToday = iso === today;
+    return `<button type="button" data-agenda-day="${iso}" aria-pressed="${iso === selectedDate}"
+      aria-label="${accessibleDate(date)}${isToday ? "，今天" : ""}"${isToday ? ' aria-current="date"' : ""}>
+      <span aria-hidden="true">${isToday ? "今" : weekday}</span><strong>${date.getUTCDate()}</strong></button>`;
+  });
+  return `<nav class="agenda-week" aria-label="当日议程选日">
+    <div class="agenda-week-heading">
+      <button type="button" class="agenda-month" data-action="agenda-month" aria-controls="calendar-grid" aria-label="展开 ${month}整月日历">${month}${icon("chevron")}</button>
+      <div class="agenda-week-arrows">
+        <button type="button" class="icon-button" data-action="agenda-prev-week" aria-label="查看上一周的同一天">${icon("chevron", "flip")}</button>
+        <button type="button" class="icon-button" data-action="agenda-next-week" aria-label="查看下一周的同一天">${icon("chevron")}</button>
+      </div>
+    </div>
+    <div class="agenda-week-days">${days.join("")}</div>
+  </nav>`;
+}
+
 function fallbackEscape(value) {
   return String(value ?? "").replace(
     /[&<>"']/g,
@@ -83,9 +108,9 @@ export function renderCalendar({
     const time = task.dueTime ? String(task.dueTime) : "";
     const notice = isNotice(task);
     const course = courseIdentity(task.course);
-    const label = `${notice ? "通知关键时间：" : "任务截止："}${task.title}，课程：${course.label || "未分类"}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
+    const label = `${notice ? "通知关键时间：" : task.timeKind === "event" ? "活动时间：" : "任务截止："}${task.title}，课程：${course.label || "未分类"}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
     const drag = allowDateDrag && task.status !== "done"
-      ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看${notice ? "通知" : "任务"}，拖到其他日期更改${notice ? "关键日期" : "截止日期"}"` : "";
+      ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看${notice ? "通知" : "任务"}，拖到其他日期更改${notice ? "关键日期" : task.timeKind === "event" ? "活动日期" : "截止日期"}"` : "";
     return `<button type="button" class="calendar-task${notice ? " is-notice" : ""}" data-task-open="${escapeHtml(task.id)}"${drag} aria-label="${escapeHtml(label)}"><span class="calendar-task-context">${notice ? '<span class="notice-label">通知</span>' : ""}${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}${renderCourseBadge(task.course, { compact: true })}</span><span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
   }
 

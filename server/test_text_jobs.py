@@ -88,6 +88,21 @@ class TextJobsTests(unittest.TestCase):
         return self.call('/recognition/text-jobs/'+quote(self.request['request_id'],safe='')+'/'+action,
                          dict(attempt=attempt),uid)
 
+    def test_quick_add_persists_once_without_user_review(self):
+        self.request['request_id'] = 'quick-add:synthetic'
+        with patch.object(recognition, 'recognize', self.recognize):
+            self.release.set()
+            self.assertEqual(self.call(body=self.request)[0], 200)
+            text_jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.job()['state'], 'success')
+            self.assertEqual(self.call(body=self.request)[0], 200)
+        self.assertEqual(self.calls, 1)
+        task, = self.call('/tasks/quick-recognition')[1]['value']
+        self.assertEqual(task['source'], '一句话添加')
+        self.assertEqual(task['recognitionHistory'][0]['requestId'], self.request['request_id'])
+        self.assertEqual(self.call('/recognition/batches')[1][0]['items'][0]['state'], 'applied')
+        self.assertEqual(self.call('/tasks/quick-recognition', uid='B')[1]['value'], [])
+
     def test_acceptance_reload_duplicate_and_candidate_persistence(self):
         with patch.object(recognition,'recognize',self.recognize):
             status,envelope = self.call(body=self.request)
@@ -105,7 +120,7 @@ class TextJobsTests(unittest.TestCase):
         batches = self.call('/recognition/batches')[1]
         self.assertEqual(len(batches),1)
         self.assertEqual(len(batches[0]['items']),1)
-        self.assertEqual(batches[0]['items'][0]['state'],'pending')
+        self.assertEqual(batches[0]['items'][0]['state'],'applied')
         self.assertEqual(self.call(body=self.request)[0],200)
         text_jobs.wait_for_jobs(app.DB)
         self.assertEqual(self.calls,1)
@@ -202,7 +217,9 @@ class TextJobsTests(unittest.TestCase):
                 PRIMARY KEY(user_id,request_id))''')
             db.execute('INSERT INTO text_import_jobs VALUES(?,?,?,?,?,?,?,?,?)',
                        ('A','old','fingerprint','{}','no_tasks',1,None,text_jobs.stamp(),text_jobs.stamp()))
+            db.execute("CREATE UNIQUE INDEX text_import_one_active ON text_import_jobs(user_id) WHERE state IN ('queued','recognizing')")
             text_jobs.initialize(db,recover=False)
+            self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='text_import_one_active'").fetchone())
             identity=db.execute('SELECT instance_id FROM text_import_jobs').fetchone()[0]
             self.assertEqual(len(identity),32)
             text_jobs.initialize(db,recover=False)
@@ -219,7 +236,7 @@ class TextJobsTests(unittest.TestCase):
             self.assertEqual(self.call('/recognition/batches')[1],[])
         self.assertEqual(self.calls,1)
 
-    def test_one_active_per_account_and_stop_while_waiting_never_calls_model(self):
+    def test_multiple_waiting_jobs_can_be_stopped_independently(self):
         # Exercise the actual shared model admission rather than an invented UI state.
         from server.model_queue import ModelQueue
         queue = ModelQueue(limit=1,wait=3)
@@ -228,11 +245,76 @@ class TextJobsTests(unittest.TestCase):
             self.call(body=self.request)
             self.assertEqual(self.job()['state'],'queued')
             other = copy.deepcopy(self.request); other['request_id'] = 'another'
-            self.assertEqual(self.call(body=other)[0],409)
-            self.action('stop'); text_jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.call(body=other)[0],200)
+            self.action('stop')
+            self.assertEqual({j['request_id']: j['state'] for j in self.call()[1]['jobs']},
+                             {self.request['request_id']: 'stopped', 'another': 'queued'})
+            self.assertEqual(self.call('/recognition/text-jobs/another/stop', {'attempt': 1})[0], 200)
+            text_jobs.wait_for_jobs(app.DB)
         queue.release()
-        self.assertEqual(self.job()['state'],'stopped')
+        self.assertTrue(all(j['state'] == 'stopped' for j in self.call()[1]['jobs']))
         self.assertEqual(self.call('/recognition/batches')[1],[])
+
+    def test_full_windows_accept_fifo_backlog_and_publish_independent_results(self):
+        from queue import Queue
+        claimed = Queue()
+        ids = [f'notice-{i}' for i in range(23)]
+        gates = {rid: threading.Event() for rid in ids}
+
+        def recognize(request, error, *, on_admitted):
+            rid = request['request_id']
+            on_admitted()
+            claimed.put(rid)
+            if not gates[rid].wait(30):
+                raise AssertionError('test did not release worker')
+            return self.outcome(request)
+
+        def submit(index, uid):
+            status, result = self.call(body=dict(self.request, request_id=ids[index]), uid=uid)
+            self.assertEqual(status, 200)
+            return next(job['state'] for job in result['jobs'] if job['request_id'] == ids[index])
+
+        with patch.object(recognition, 'recognize', recognize):
+            try:
+                for i in range(20):
+                    submit(i, 'A')
+                self.assertEqual({claimed.get(timeout=5) for _ in range(20)}, set(ids[:20]))
+                # A fills the windows; B can submit, replay and cancel/retry while all are busy.
+                self.assertEqual(submit(20, 'B'), 'queued')
+                self.assertEqual(submit(20, 'B'), 'queued')
+                self.assertEqual(submit(21, 'A'), 'queued')
+                self.assertEqual(submit(22, 'B'), 'queued')
+                path = '/recognition/text-jobs/' + ids[20]
+                self.assertEqual(self.call(path, uid='A')[0], 404)
+                for action in ('stop', 'retry'):
+                    self.assertEqual(self.call(path+'/'+action, {'attempt': 1}, uid='B')[0], 200)
+                # One free window drains the waiting jobs, even while the first notice is blocked.
+                gates[ids[19]].set()
+                for i in (21, 22, 20):
+                    self.assertEqual(claimed.get(timeout=5), ids[i])
+                    gates[ids[i]].set()
+                self.assertEqual(self.call('/recognition/text-jobs/'+ids[0])[1]['jobs'][0]['state'], 'recognizing')
+            finally:
+                for gate in gates.values():
+                    gate.set()
+                text_jobs.wait_for_jobs(app.DB)
+        self.assertTrue(claimed.empty())
+        for uid in ('A', 'B'):
+            self.assertTrue(all(job['state'] == 'no_tasks' for job in self.call(uid=uid)[1]['jobs']))
+
+    def test_startup_resumes_queued_receipts_and_detail_outlives_history(self):
+        with app.connection() as db:
+            for i in range(101):
+                text_jobs.create(db, 'A', dict(self.request, request_id=f'backlog-{i}'), app.ApiError)
+                db.commit()
+        oldest = '/recognition/text-jobs/backlog-0'
+        self.assertEqual(len(self.call()[1]['jobs']), 100)
+        self.assertEqual(self.call(oldest)[1]['jobs'][0]['state'], 'queued')
+        with patch.object(recognition, 'recognize', lambda req, err, **kw: self.outcome(req)), \
+                patch('app.runtime_environment.allow_background_recovery', return_value=True):
+            app.initialize()
+            text_jobs.wait_for_jobs(app.DB)
+        self.assertEqual(self.call(oldest)[1]['jobs'][0]['state'], 'no_tasks')
 
     def test_receipt_disconnect_does_not_prevent_accepted_work(self):
         class ClosedReceipt:

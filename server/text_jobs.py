@@ -12,13 +12,11 @@ from urllib.parse import unquote
 import recognition
 from server import recognition_diagnostics as diagnostics
 from contracts.recognition_errors import describe
-from server.model_queue import cancel_if
+from server.model_queue import CONCURRENCY, cancel_if
 
 ACTIVE = ('queued', 'recognizing')
-MAX_ACTIVE = 20
 _lock = threading.Lock()
 _workers = {}
-_slots = threading.BoundedSemaphore(MAX_ACTIVE)
 
 
 def stamp():
@@ -35,7 +33,7 @@ def connection(path):
         db.close()
 
 
-def initialize(db, recover=True):
+def initialize(db, recover=True, *, resume_queued=False):
     db.execute('''CREATE TABLE IF NOT EXISTS text_import_jobs(
         user_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         request TEXT NOT NULL, state TEXT NOT NULL, attempt INTEGER NOT NULL,
@@ -46,12 +44,14 @@ def initialize(db, recover=True):
     for row in db.execute('SELECT user_id,request_id FROM text_import_jobs WHERE instance_id IS NULL').fetchall():
         db.execute('UPDATE text_import_jobs SET instance_id=? WHERE user_id=? AND request_id=?',
                    (secrets.token_hex(16),row['user_id'],row['request_id']))
-    db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS text_import_one_active
-        ON text_import_jobs(user_id) WHERE state IN ('queued','recognizing')''')
+    db.execute('DROP INDEX IF EXISTS text_import_one_active')
+    db.execute("""CREATE INDEX IF NOT EXISTS text_import_waiting ON text_import_jobs(updated_at)
+                  WHERE state='queued'""")
     if recover:
         db.execute("""UPDATE text_import_jobs SET state='interrupted',updated_at=?,error=?
-            WHERE state IN ('queued','recognizing')""", (stamp(), json.dumps(dict(
-                code='interrupted', message='服务已重启，识别已中断，请重试。', retryable=True))))
+            WHERE state='recognizing' OR (state='queued' AND ?=0)""", (stamp(), json.dumps(dict(
+                code='interrupted', message='服务已重启，识别已中断，请重试。', retryable=True)), resume_queued))
+        return resume_queued and db.execute("SELECT 1 FROM text_import_jobs WHERE state='queued' LIMIT 1").fetchone() is not None
 
 
 def view(row):
@@ -61,10 +61,14 @@ def view(row):
 
 
 def listing(db, uid):
-    # Active jobs cannot fall out of the history window.
-    jobs = [view(row) for row in db.execute(
+    rows = db.execute(
         """SELECT * FROM text_import_jobs WHERE user_id=?
-           ORDER BY state IN ('queued','recognizing') DESC,updated_at DESC LIMIT 100""", (uid,))]
+           ORDER BY state IN ('queued','recognizing') DESC,updated_at DESC LIMIT 100""", (uid,))
+    return envelope(db, uid, rows)
+
+
+def envelope(db, uid, rows):
+    jobs = [view(row) for row in rows]
     errors = diagnostics.hydrate_errors(db,uid,[describe(job['error']) for job in jobs if job['error']])
     hydrated = iter(errors)
     for job in jobs:
@@ -76,13 +80,6 @@ def find(db, uid, rid, ApiError):
     row = db.execute('SELECT * FROM text_import_jobs WHERE user_id=? AND request_id=?', (uid,rid)).fetchone()
     if row is None: raise ApiError(404, '文本导入记录不存在')
     return row
-
-
-def capacity(db, uid, ApiError):
-    if db.execute("SELECT 1 FROM text_import_jobs WHERE user_id=? AND state IN ('queued','recognizing')", (uid,)).fetchone():
-        raise ApiError(409, '已有文本正在识别，请等待完成或停止后再提交')
-    if db.execute("SELECT COUNT(*) FROM text_import_jobs WHERE state IN ('queued','recognizing')").fetchone()[0] >= MAX_ACTIVE:
-        raise ApiError(503, '文本识别排队已满，请稍后重试')
 
 
 def create(db, uid, request, ApiError):
@@ -103,7 +100,6 @@ def create(db, uid, request, ApiError):
         return row
     previous = db.execute('SELECT fingerprint FROM recognition_batches WHERE user_id=? AND request_id=?', (uid,rid)).fetchone()
     if previous and previous['fingerprint'] != fingerprint: raise ApiError(409, '同一导入编号不能用于不同内容')
-    capacity(db, uid, ApiError)
     now = stamp()
     db.execute('INSERT INTO text_import_jobs VALUES(?,?,?,?,?,?,?,?,?,?)',
                (uid,rid,fingerprint,json.dumps(request),'queued',1,None,now,now,secrets.token_hex(16)))
@@ -166,23 +162,47 @@ def process(path, uid, rid, attempt, ApiError, *, instance_id):
             pass
 
 
-def launch(path, uid, rid, attempt, ApiError, *, instance_id):
-    key = (str(path),uid,rid,attempt,instance_id)
-    def work():
-        try: process(path,uid,rid,attempt,ApiError,instance_id=instance_id)
-        finally:
-            with _lock: _workers.pop(key,None)
-            _slots.release()
+def dispatch(path, ApiError):
     with _lock:
-        if key in _workers: return
-        if not _slots.acquire(blocking=False): raise ApiError(503,'文本识别排队已满，请稍后重试')
-        worker = threading.Thread(target=work,daemon=True,name='text-import')
-        _workers[key] = worker
-        try: worker.start()
-        except Exception:
-            _workers.pop(key,None)
-            _slots.release()
-            raise
+        fill_windows(path, ApiError)
+
+
+def fill_windows(path, ApiError):
+    # Called under _lock. A worker waiting for shared model admission still has
+    # state queued, so skip its exact attempt when selecting the next jobs.
+    if len(_workers) >= CONCURRENCY:
+        return
+    with connection(path) as db:
+        rows = db.execute("""SELECT user_id, request_id, attempt, instance_id FROM text_import_jobs
+                             WHERE state='queued' ORDER BY updated_at, rowid LIMIT ?""",
+                          (CONCURRENCY,)).fetchall()
+        for row in rows:
+            key = (str(path), *row)
+            if key in _workers:
+                continue
+            worker = threading.Thread(target=run_job, args=(path, key, ApiError),
+                                      daemon=True, name='text-import')
+            _workers[key] = worker
+            try:
+                worker.start()
+            except RuntimeError:
+                del _workers[key]
+                db.execute("""UPDATE text_import_jobs SET state='failed', error=?, updated_at=?
+                              WHERE user_id=? AND request_id=? AND attempt=? AND instance_id=? AND state='queued'""",
+                           (json.dumps(dict(code='agent_unavailable', retryable=True,
+                                            message='识别暂时无法启动，请稍后重试。')), stamp(), *row))
+            if len(_workers) >= CONCURRENCY:
+                break
+
+
+def run_job(path, key, ApiError):
+    _, uid, rid, attempt, instance_id = key
+    try:
+        process(path, uid, rid, attempt, ApiError, instance_id=instance_id)
+    finally:
+        with _lock:
+            del _workers[key]
+            fill_windows(path, ApiError)
 
 
 def wait_for_jobs(path, timeout=30):
@@ -200,6 +220,10 @@ def route(handler, db, uid, path, body, ApiError, database):
     launch_row = None
     if path == base and handler.command == 'GET':
         pass
+    elif handler.command == 'GET' and path.startswith(base + '/'):
+        row = find(db, uid, unquote(path[len(base)+1:]), ApiError)
+        handler.reply(200, envelope(db, uid, [row]))
+        return True
     elif path == base and handler.command == 'POST':
         launch_row = create(db,uid,body,ApiError)
     elif path.startswith(base+'/') and handler.command == 'POST':
@@ -214,7 +238,6 @@ def route(handler, db, uid, path, body, ApiError, database):
             if action == 'stop' and row['state'] in ACTIVE:
                 db.execute("UPDATE text_import_jobs SET state='stopped',error=NULL,updated_at=? WHERE user_id=? AND request_id=?", (stamp(),uid,rid))
             elif action == 'retry' and row['state'] in ('failed','partial_success','stopped','interrupted'):
-                capacity(db,uid,ApiError)
                 db.execute("UPDATE text_import_jobs SET state='queued',attempt=attempt+1,error=NULL,updated_at=? WHERE user_id=? AND request_id=?", (stamp(),uid,rid))
                 launch_row = find(db,uid,rid,ApiError)
     else:
@@ -222,13 +245,6 @@ def route(handler, db, uid, path, body, ApiError, database):
     # Commit acceptance before starting work or writing to a possibly closed socket.
     db.commit()
     if launch_row is not None and launch_row['state'] in ACTIVE:
-        try:
-            launch(database,uid,launch_row['request_id'],launch_row['attempt'],ApiError,instance_id=launch_row['instance_id'])
-        except Exception:
-            db.execute("""UPDATE text_import_jobs SET state='failed',error=?,updated_at=?
-                WHERE user_id=? AND request_id=? AND attempt=? AND instance_id=? AND state='queued'""",
-                (json.dumps(dict(code='agent_unavailable',message='识别暂时无法启动，请稍后重试。',retryable=True)),
-                 stamp(),uid,launch_row['request_id'],launch_row['attempt'],launch_row['instance_id']))
-            db.commit()
+        dispatch(database, ApiError)
     handler.reply(200,listing(db,uid))
     return True

@@ -1,10 +1,11 @@
-"""Validate model-normalized dates, without interpreting the quotation's format.
+"""Validate model-normalized dates against their source-local time context.
 
 Evidence membership is checked by extraction._reference. These checks establish
 structural consistency, not that a model understood a sentence correctly.
 """
 
-from datetime import date, datetime, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .contracts import nonempty, require
@@ -15,12 +16,12 @@ NORMALIZED_FIELDS = {"value", "precision", "derivation", "anchor", "basis"}
 DERIVATIONS = ("absolute", "relative", "offset", "missing_year", "unresolved")
 
 
-def normalized_time_schema():
+def normalized_time_schema(*, quick_entry=False):
     properties = {
         "value": {"type": ["string", "null"]},
         "precision": {"type": "string", "enum": ["date", "datetime", "unknown"]},
         "derivation": {"type": "string", "enum": list(DERIVATIONS)},
-        "anchor": {"type": ["string", "null"], "enum": [None, "published_at", "collected_at"]},
+        "anchor": {"type": ["string", "null"], "enum": [None, "published_at", "collected_at"] + (["quick_reference"] if quick_entry else [])},
         "basis": {"type": "string"},
     }
     return {"type": "object", "properties": properties,
@@ -45,6 +46,33 @@ def _publication(message, zone):
     return None
 
 
+def quick_reference(record):
+    """Account-scoped manual Add only; the original publication stays untouched."""
+    publication = record["published_at"]
+    if record["platform"] != "manual" or (record["source_url"] and not publication["value"]):
+        return None
+    value = publication["value"] or record.get("collected_at")
+    if not value or not record.get("timezone"):
+        return None
+    precision = publication["precision"] if publication["value"] else "datetime"
+    zone = _zone(record["timezone"])
+    if zone is None:
+        return None
+    try:
+        local = (date.fromisoformat(value) if precision == "date" else
+                 datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone))
+    except OverflowError:
+        return None
+    day = local.date() if isinstance(local, datetime) else local
+    monday = day - timedelta(days=day.weekday())
+    return dict(value=local.isoformat(), precision=precision,
+                origin="指定的通知时间" if publication["value"] else "加入清单的时间",
+                week_start=monday.isoformat(),
+                weeks={name: [date.fromordinal(ordinal).isoformat() if 1 <= ordinal <= date.max.toordinal() else None
+                              for ordinal in range(monday.toordinal() + offset, monday.toordinal() + offset + 7)]
+                       for name, offset in (("上周", -7), ("本周", 0), ("下周", 7))})
+
+
 def _nearest_year(day, anchor):
     choices = []
     for year in (anchor.year - 1, anchor.year, anchor.year + 1):
@@ -55,11 +83,55 @@ def _nearest_year(day, anchor):
     return min(choices, key=lambda candidate: (abs((candidate - anchor).days), candidate < anchor))
 
 
+_CALENDAR_DAY = re.compile(r"(?<!\d)(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]")
+_DAY_END = re.compile(r"\s*24\s*(?:[:：]00(?:[:：]00)?|[时点](?:\s*0{1,2}\s*分)?)(?![\s\d:：]*\d)")
+
+
+def _inclusive_day(ref, message):
+    """Recognize equivalent end-of-day proposals for a single cited deadline."""
+    n = ref["normalized"]
+    anchor = message.get("quick_reference")
+    if not anchor or ref["kind"] != "deadline":
+        return n
+    quote = ref["quote"].replace("**", "")
+    dates = list(_CALENDAR_DAY.finditer(quote))
+    if not dates:
+        return n
+    end = dates[-1]
+    tail = quote[end.end():]
+    window = (len(dates) == 2 and quote[dates[0].end():end.start()].strip() in ("至", "到", "—", "–", "-")
+              and re.match(r"\s*期间(?:内)?\s*(?:完成|办理|提交|申请|报名)", tail)
+              and not re.search(r"\d\s*(?:[:：点时]|分)", tail))
+    closing = _DAY_END.match(tail)
+    if not window and not (len(dates) == 1 and closing and
+                           (re.match(r"\s*[^，。；、\d]{0,12}(?:关闭|截止|截至|结束)", tail[closing.end():])
+                            or re.search(r"(?:截止|截至|最迟)(?:时间)?[为到：:\s]*$", quote[:end.start()]))):
+        return n
+    # An explicit sub-day limit may come from a second part of the notice.
+    if window and n["precision"] == "datetime" and n["value"] and not re.search(
+            r"T(?:24:00|00:00|23:59)(?::(?:00|59))?(?:Z|[+-]\d\d:\d\d)?$", n["value"]):
+        return n
+    if re.search(r"原定|原计划|改为|延期|待定|另行通知|并非|取消|假设|去年|明年|次年", quote):
+        return n
+    year, month, day = end.groups()
+    if window and dates[0][1] and not year:
+        # A stated start year carries through the window, including Dec–Jan.
+        start = date(*map(int, dates[0].groups()))
+        year = start.year + ((int(month), int(day)) < (start.month, start.day))
+    if year:
+        last = date(int(year), int(month), int(day))
+        derivation, field = "absolute", None
+    else:
+        last = _nearest_year(date(2000, int(month), int(day)), date.fromisoformat(anchor["value"][:10]))
+        derivation, field = "missing_year", "quick_reference"
+    return dict(n, value=last.isoformat(), precision="date", derivation=derivation, anchor=field)
+
+
 def validate_time(ref, message):
     """Keep the action reviewable when a well-shaped date proposal is invalid.
 
-    Missing fields/types remain protocol errors. No raw phrase is parsed here;
-    derivation and role are semantic judgments supplied by the model.
+    Missing fields/types remain protocol errors. Derivation and role are
+    semantic judgments supplied by the model.
     """
     require(ref["kind"] in {"deadline", "reference", "urgency"})
     n = ref["normalized"]
@@ -67,7 +139,7 @@ def validate_time(ref, message):
     require(n["value"] is None or isinstance(n["value"], str))
     require(n["precision"] in {"date", "datetime", "unknown"})
     require(n["derivation"] in DERIVATIONS)
-    require(n["anchor"] in (None, "published_at", "collected_at"))
+    require(n["anchor"] in (None, "published_at", "collected_at", "quick_reference"))
     require(nonempty(n["basis"]))
     zone = _zone(message.get("timezone"))
     result = {"value": None, "precision": "unknown", "timezone": zone.key if zone else None,
@@ -77,6 +149,10 @@ def validate_time(ref, message):
     def unresolved(reason):
         return dict(result, basis=reason)
 
+    try:
+        n = _inclusive_day(ref, message)
+    except (ValueError, OverflowError):
+        return unresolved("原文中的办理日期无效。")
     if n["derivation"] == "unresolved" or ref["kind"] == "urgency":
         if n["value"] is not None or n["precision"] != "unknown" or n["anchor"] is not None:
             return unresolved("未确定的时间不能同时包含确定日期或计算基准。")
@@ -84,7 +160,6 @@ def validate_time(ref, message):
     if n["value"] is None or n["precision"] == "unknown":
         return unresolved("时间归一化缺少具体值或精度。")
     try:
-        # Only the standard output format is validated, never the source wording.
         time_value(n["value"], n["precision"])
         if n["precision"] == "datetime":
             if zone is None:
@@ -109,6 +184,14 @@ def validate_time(ref, message):
             if field is not None:
                 return unresolved("完整绝对日期不应依赖发布时间或采集时间。")
             basis = "按原文明确时间归一化。"
+        elif field == "quick_reference":
+            anchor = message.get("quick_reference")
+            if not anchor or (derivation == "offset" and anchor["precision"] != "datetime"):
+                return unresolved("此条原文没有可用的快捷录入日期基准。")
+            anchor_day = date.fromisoformat(anchor["value"][:10])
+            if derivation == "missing_year" and day != _nearest_year(day, anchor_day):
+                return unresolved("补全的年份不符合最近有效日期规则。")
+            basis = "按%s %s 换算。" % (anchor["origin"], anchor["value"])
         else:
             publication = _publication(message, zone)
             if derivation == "missing_year":
