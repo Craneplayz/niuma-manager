@@ -31,7 +31,8 @@
       "version": 0
     },
     "generation": 0,
-    "candidates": []
+    "candidates": [],
+    "bulkResults": []
   },
   "reviewOperation": {
     "id": "review-operation-0123456789",

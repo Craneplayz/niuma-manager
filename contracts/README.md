@@ -8,6 +8,11 @@
 
 ```text
 contracts/
+├── task_bulk.py                   # 普通任务与待核对新增候选的批量请求、回复及语义校验
+├── docs/task-bulk-v0.1.md          # 批量完成、改期、回收、恢复与整批撤销约定
+├── schemas/task-bulk-v0.1.schema.json # 可独立校验的批量操作 Schema
+├── examples/task-bulk-v01.json     # 混合任务、无日期、清空日期与撤销共享样例
+├── tests/test_task_bulk.py         # 批量契约、恢复 Schema 对齐和非法选择回归
 ├── course_context.py                # 课程上下文版本、证据预算与出处校验
 ├── course_facts.py                  # 标题事实、课程周次及固定行动旁证补充的共享 Schema
 ├── examples/course-context-v01.json # 跨文件、无日期、三交付、冲突及教学周的合成输入与独立预期
