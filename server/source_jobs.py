@@ -592,8 +592,9 @@ def _process_record(path, uid, run_id, request_id, ApiError):
             next(r for r in run['records'] if r['request_id']==request_id)['state'] = 'running'
             save(db, run)
         with cancel_if(lambda: cancelled(path, uid, run_id, ApiError)), connection(path) as db:
+            updated_tasks = []
             published = teaching.run(db, uid, dict(contract_version=teaching.RUN, request_id=request_id), True, ApiError,
-                         guard=lambda current: guard(current, uid, run_id, ApiError), diagnostic_attempt=diagnostic_attempt)
+                         guard=lambda current: guard(current, uid, run_id, ApiError), diagnostic_attempt=diagnostic_attempt, updated_tasks=updated_tasks)
             if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
             guard(db, uid, run_id, ApiError)
             batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
@@ -603,6 +604,12 @@ def _process_record(path, uid, run_id, request_id, ApiError):
             if teaching.needs_source_completion(result):
                 item.update(state='incomplete', error=error('source_incomplete', '来源尚未完整取得，请重新获取来源或查看原文。'))
             elif result['status'] in ('success', 'no_tasks'):
+                updates = {u['task_id']: u for u in run.get('updated_tasks', [])}
+                for update in updated_tasks:
+                    prior = updates.get(update['task_id'], {})
+                    update['changed_fields'] = list(dict.fromkeys(prior.get('changed_fields', []) + update['changed_fields']))
+                    updates[update['task_id']] = update
+                run['updated_tasks'] = list(updates.values())
                 receipts = added_items(db, uid, request_id, published or set())
                 item.update(state='succeeded', added=len(receipts), added_items=receipts,
                             review=0, review_items=[], error=None)

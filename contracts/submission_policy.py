@@ -20,7 +20,7 @@ def schema():
     snapshot=obj(dict(source_account_id=ID,input_id=INPUT_ID,course_id=ID,content_id=ID,snapshot_id=ID,
         sequence=dict(type='integer',minimum=1),observed_at=dict(type='string',format='date-time',maxLength=40),
         state=dict(enum=['submitted','active','unknown']),
-        basis=dict(enum=['review_submission_history_title','active_assignment_page','unknown'])))
+        basis=dict(enum=['review_submission_history_title','gradebook_submitted','active_assignment_page','unknown'])))
     action=obj(dict(action_id=ID,kind=dict(enum=['candidate','task']),
         relation=dict(enum=['assignment_submission','other','unknown']),
         link_basis=dict(enum=['server_exact','user_confirmed','unresolved']),
@@ -58,7 +58,7 @@ def check(value):
     Draft202012Validator(schema(),format_checker=FormatChecker()).validate(value)
     snapshot=value['snapshot']
     expected={'submitted':'review_submission_history_title','active':'active_assignment_page','unknown':'unknown'}
-    require(snapshot['basis']==expected[snapshot['state']],'state lacks agreed source evidence')
+    require(snapshot['basis']==expected[snapshot['state']] or (snapshot['state'], snapshot['basis']) == ('submitted', 'gradebook_submitted'),'state lacks agreed source evidence')
     require(len({a['action_id'] for a in value['actions']})==len(value['actions']),'duplicate permanent action')
     for action in value['actions']:
         require((action['relation']=='unknown')==(action['link_basis']=='unresolved'),'relation/link mismatch')

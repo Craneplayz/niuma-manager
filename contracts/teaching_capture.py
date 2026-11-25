@@ -26,7 +26,7 @@ def check_capture(value):
                 raise ValueError('listed assignment only identifies the source kind')
         elif assignment is not None or 'gradebook_id' in item:
             raise ValueError('unexpected native assignment binding')
-        if kind != 'gradebook_assignment' and item['submitted']:
+        if item['submitted'] and not (kind == 'gradebook_assignment' or kind == 'listed_assignment' and item.get('gradebook_id')):
             raise ValueError('unexpected gradebook submission signal')
         if kind == 'announcement' and item['due'] is not None:
             raise ValueError('unexpected announcement deadline')

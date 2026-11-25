@@ -241,7 +241,10 @@ class SubmissionRuntimeAPI(test_teaching.TeachingIntegrationTests):
         self.assertTrue(self.sync_native(self.native_capture('active','2026-10-10T13:00:00+08:00'))['requests'])
 
     def test_runtime_only_mapped_candidate_withdraws_and_ignored_choices_survive(self):
-        view=self.sync_native(self.mixed_capture('active'))['requests'][0];items=self.run_request(view)['items']
+        view=self.sync_native(self.mixed_capture('active'))['requests'][0]
+        # These two tasks were already materialized by a prior release.
+        with patch.object(teaching.teaching_identity, 'ambiguous_legacy_assignment', return_value=False):
+            self.run_request(view)
         detail=self.details();actions=[a for a in detail['observation']['actions'] if a['kind']=='task'];self.assertEqual(len(actions),2)
         body=self.operation(detail,scope='mixed',links=[dict(action_id=a['action_id'],relation='assignment_submission' if i==0 else 'other') for i,a in enumerate(detail['observation']['actions'])])
         self.assertEqual(self.apply(body)[0],201)

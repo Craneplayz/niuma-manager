@@ -58,7 +58,7 @@ def route(entry):
     r = entry['record']
     if item['kind'] == 'listed_assignment':
         return 'teaching'
-    if item['kind'] == 'gradebook_assignment':
+    if item['kind'] == 'gradebook_assignment' or item['kind'] == 'native_assignment' and item['due']:
         return 'platform'
     text = r['text']
     # Preserve the teaching reader for multi-part instructions and facts which
@@ -71,7 +71,7 @@ def route(entry):
         if not r['published_at'] or r['published_at']['basis'] != 'source' or re.search(r'教学周|第[零一二两三四五六七八九十百0-9]+周|课程规则', text):
             return 'teaching'
         return 'text'
-    if len(text) > 4096 or re.search(r'分阶段|分批提交|分别提交|另行提交|另交|另需|还需|还要|同时还|此外|in addition|also submit|延期|改期|取消|推迟|提前至|调整到|调整至', text, re.I):
+    if len(text) > 4096 or re.search(r'延期|改期|取消|推迟|提前至|调整到|调整至', text):
         return 'teaching'
     if not item['due'] and re.search(r'截止|之前|前提交|deadline|due by', text, re.I):
         return 'teaching'
@@ -118,7 +118,9 @@ def assignment(request):
     entry, = request['records']
     r, item = entry['record'], entry['platform_item']
     label = entry['source']['label']
-    evidence = [dict(part_id='body', quote=label[:160])]
+    text = r['text'].strip()
+    evidence = ([dict(part_id='body', quote=(label if label in text else text)[:160])] if text else
+                [dict(part_id='source_metadata', quote=r['source_metadata_text'].strip()[:160])])
     due = item['due']
     date_evidence = [dict(part_id='source_metadata', quote=due)] if due else []
     title = re.sub(r'第\s*[零〇一二两三四五六七八九十百0-9]+\s*[章讲周次]', lambda m: course_facts.sequence_display(m[0]), label)
@@ -126,19 +128,45 @@ def assignment(request):
     reasons = []
     relation = 'unknown'
     if item['kind'] == 'gradebook_assignment':
+        relation = 'assignment_submission'
         if not item['submitted']:
             reasons.append('成绩明细列出了这项作业，尚未核实对应的提交页面和状态。')
     elif re.search(r'无[需须]提交|不用提交|不要求提交|no submission', detail, re.I):
         relation = 'other'
-    elif re.search(r'提交|上交|上传|交到|submit|upload', detail, re.I):
+    elif item['kind'] == 'native_assignment' or re.search(r'提交|上交|上传|交到|submit|upload', detail, re.I):
         relation = 'assignment_submission'
     if detail and (relation != 'unknown' or item['submitted']):
         evidence.append(dict(part_id='body', quote=detail[:2048]))
     filtered = '成绩明细已明确标为已提交。' if item['submitted'] else None
-    d = decision(entry, r['input_id'] + ':assignment', title, detail[:4096], evidence,
+    d = decision(entry, 'platform-assignment', title, detail[:4096], evidence,
                  deadline(due, date_evidence), reasons=reasons, relation=relation, filtered=filtered)
     manifest = policy('platform-v1')
     return result(request, 'platform-v1', manifest['version'], [d]), manifest
+
+
+def single_assignment(request, output):
+    """Keep the platform item as the unit of work when an evidence reader supplies its date."""
+    entry, = request['records']
+    if entry.get('platform_item', {}).get('kind') not in ('native_assignment', 'listed_assignment'):
+        return
+    row, = output['record_results']
+    if row['status'] not in ('success', 'no_tasks'):
+        return
+    base, _ = assignment(request)
+    card, = base['record_results'][0]['decisions']
+    submissions = [d for d in row['decisions'] if d.get('submission_relation') == 'assignment_submission'
+                   and d['recommendation'] != 'filtered' and d['notice_type'] == 'create']
+    if not card['filter_reason'] and not entry['platform_item']['due'] and len(submissions) == 1:
+        source = submissions[0]
+        card['pair']['assessment']['deadline'] = source['pair']['assessment']['deadline']
+        for key in ('calendar_rule', 'review_codes', 'review_reasons', 'recommendation'):
+            if key in source:
+                card[key] = source[key]
+    # Native submission status refers to the whole assignment, including all its requirements.
+    if entry['platform_item']['kind'] == 'native_assignment' or submissions:
+        card['submission_relation'] = 'assignment_submission'
+    row.update(status='success', decisions=[card], empty_decision=None)
+    output['status'] = 'success'
 
 
 def notice_request(request):

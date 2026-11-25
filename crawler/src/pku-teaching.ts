@@ -23,6 +23,9 @@ function assignmentScope(source: CourseSourceRecord): boolean {
 // unparseable native dates stay on the existing evidence-based route.
 function platformItem(source: CourseSourceRecord) {
   if (source.kind === "announcement") return {kind: "announcement", due: null, submitted: false} as const;
+  // Teachers also post assignments as ordinary items in the assignments section.
+  if (source.kind === "content" && source.source_item_id && source.title.trim() && assignmentScope(source))
+    return {kind: "listed_assignment", due: null, submitted: false} as const;
   if (source.kind !== "assignment") return;
   if (source.input_id.startsWith("pku:gradebook:") && source.gradebook)
     return {kind: "gradebook_assignment", due: source.gradebook.due, submitted: source.gradebook.submitted} as const;
@@ -33,7 +36,7 @@ function platformItem(source: CourseSourceRecord) {
       target.searchParams.get("course_id") !== new URL(source.source_url).searchParams.get("course_id")) return;
   const gradeIdentity = source.gradebook?.contentId === source.source_item_id && source.gradebook
     ? {gradebook_id: source.gradebook.id} : {};
-  const listed = {kind: "listed_assignment", due: null, submitted: false, ...gradeIdentity} as const;
+  const listed = {kind: "listed_assignment", due: null, submitted: Boolean(gradeIdentity.gradebook_id && source.gradebook?.submitted), ...gradeIdentity} as const;
   if (source.assignment?.state !== "active" || source.gradebook?.submitted ||
       !source.body_evidence?.included_reference_urls.includes(native.url)) return listed;
   const raw = source.assignment.due_raw;

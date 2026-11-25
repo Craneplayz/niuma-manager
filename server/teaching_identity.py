@@ -96,6 +96,91 @@ def retire_covered_gradebook(db, uid, account):
 GRADEBOOK_REVIEW = '本课程已处理过可能对应的成绩明细条目，请核对后再加入。'
 
 
+ASSIGNMENT_KINDS = ('native_assignment', 'listed_assignment', 'gradebook_assignment')
+
+
+def ambiguous_legacy_assignment(db, uid, request_id, state):
+    if not state or state['state'] != 'active' or state.get('structured_assignment'):
+        return False
+    rows = db.execute("""SELECT c.id,c.request_id FROM teaching_submission_requests r
+        JOIN recognition_candidates c ON c.user_id=r.user_id AND c.request_id=r.request_id
+        WHERE r.user_id=? AND r.account=? AND r.input_id=? LIMIT 2""",
+        (uid, state['account'], state['input_id'])).fetchall()
+    return len(rows) > 1 or any(row['request_id'] != request_id for row in rows)
+
+
+def assignment_aliases(db, uid, account, entry):
+    """Resolve both platform identifiers only for an unambiguous, captured column link."""
+    record = entry['record']
+    course = record['course_id']
+    platform = entry.get('platform_item') or {}
+    if platform.get('kind') not in ASSIGNMENT_KINDS or not course:
+        return []
+    grade = platform['kind'] == 'gradebook_assignment'
+    if grade:
+        column = record['source_item_id']
+    else:
+        link = db.execute('SELECT gradebook_id FROM teaching_gradebook_links WHERE user_id=? AND account=? AND course_id=? AND input_id=?',
+                          (uid, account, course, record['input_id'])).fetchone()
+        column = link[0] if link else None
+    native = db.execute('SELECT input_id FROM teaching_gradebook_links WHERE user_id=? AND account=? AND course_id=? AND gradebook_id=?',
+                        (uid, account, course, column)).fetchall()
+    if len(native) != 1:
+        return []
+    return db.execute("""SELECT input_id,request FROM teaching_sources
+        WHERE user_id=? AND account=? AND input_id<>? AND json_extract(request,'$.records[0].record.course_id')=?
+          AND (input_id=? OR (json_extract(request,'$.records[0].platform_item.kind')='gradebook_assignment'
+               AND json_extract(request,'$.records[0].record.source_item_id')=?))""",
+        (uid, account, record['input_id'], course, native[0][0], column)).fetchall()
+
+
+def assignment_publication(db, uid, request, cid, draft):
+    """A missing target after a prior decision is a tombstone. Mixed histories stay untouched."""
+    import submission_runtime as controls
+    entry, = request['records']
+    record = entry['record']
+    course, item = record['course_id'], record['source_item_id']
+    if not course or not item:
+        return None
+    account = controls.current_account(db, uid)
+    aliases = [r['input_id'] for r in assignment_aliases(db, uid, account, entry)]
+    grade = entry['platform_item']['kind'] == 'gradebook_assignment'
+    rows = db.execute("""SELECT c.id,c.state,c.resolution,c.candidate,s.review_pending FROM teaching_submission_requests r
+        JOIN recognition_batches b ON b.user_id=r.user_id AND b.request_id=r.request_id
+        JOIN recognition_candidates c ON c.user_id=r.user_id AND c.request_id=r.request_id
+        LEFT JOIN teaching_submission_sources s ON s.user_id=r.user_id AND s.account=r.account AND s.input_id=r.input_id
+        WHERE r.user_id=? AND r.account=? AND c.id<>?
+          AND json_extract(b.request,'$.records[0].record.course_id')=?
+          AND ((json_extract(b.request,'$.records[0].record.source_item_id')=?
+               AND (coalesce(json_extract(b.request,'$.records[0].platform_item.kind'),'')='gradebook_assignment')=?)
+            OR r.input_id IN (SELECT value FROM json_each(?)))""",
+        (uid, account, cid, course, item, grade, json.dumps(aliases))).fetchall()
+    if not rows:
+        if previous_gradebook_card(db, uid, request['request_id']):
+            return None
+        return dict(action='create', draft=draft)
+    if any(row['review_pending'] for row in rows):
+        return None
+    by_id = {row['id']: row for row in rows}
+    tasks, _ = controls.workspace(db, uid)
+    targets = [t for t in tasks if any(h.get('storageId') in by_id for h in t.get('recognitionHistory', []))]
+    if len(targets) != 1:
+        return None
+    target, = targets
+    history = target.get('recognitionHistory', [])
+    if target.get('recycleBin') or target.get('status') == 'cancelled' or any(h.get('storageId') not in by_id for h in history):
+        return None
+    last = by_id[history[-1]['storageId']]
+    candidate = json.loads(last['candidate'])
+    resolution = json.loads(last['resolution'] or '{}')
+    if not resolution.get('auto_apply') or candidate['candidate_id'] not in ('platform-assignment', candidate['input_id'] + ':assignment'):
+        return None
+    # Compare each source field with the last imported value to preserve local edits.
+    baseline = resolution.get('source_draft', resolution.get('draft', {}))
+    merged = {k: target.get(k) if target.get(k) != baseline.get(k) else v for k, v in draft.items()}
+    return dict(action='update', target_id=target['id'], draft=merged, source_draft=draft)
+
+
 def previous_gradebook_card(db, uid, request_id):
     # The native detail and the gradebook row use different Blackboard IDs.
     # A shared name can withhold auto-apply, but never authorizes a state change.

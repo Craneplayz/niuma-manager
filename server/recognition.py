@@ -387,13 +387,29 @@ def route(handler,db,uid,path,body,ApiError):
 
 def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=None):
     """Materialize new items in the recognition transaction, preserving prior decisions."""
+    assignment = None
     if request.get('contract_version') == '0.4':
         import teaching
+        state = teaching.submission.for_request(db, uid, request['request_id'])
+        # An explicit user reopen is a user decision. Background writes and startup
+        # migrations must respect the live submission latch in this transaction.
+        if candidate_id is None and state and (state['review_pending'] or state['state'] == 'submitted'):
+            return set()
+        if candidate_id is None and teaching.teaching_identity.ambiguous_legacy_assignment(db, uid, request['request_id'], state):
+            return set()
+        if not db.execute('SELECT 1 FROM teaching_submission_requests WHERE user_id=? AND account=? AND request_id=?',
+                          (uid, teaching.submission.controls.current_account(db, uid), request['request_id'])).fetchone():
+            return set()
+        if len(request['records']) == 1:
+            entry = request['records'][0]
+            if entry.get('platform_item', {}).get('kind') in teaching.teaching_identity.ASSIGNMENT_KINDS:
+                assignment = request
         request = teaching.request_view(request)
     records = {r['input_id']: r for r in request['records']}
     rows = db.execute("""SELECT id,version,candidate FROM recognition_candidates
         WHERE user_id=? AND request_id=? AND state='pending' AND (? IS NULL OR id=?)""",
         (uid, request['request_id'], candidate_id, candidate_id)).fetchall()
+    created = set()
     for row in rows:
         candidate = json.loads(row['candidate'])
         record = records[candidate['input_id']]
@@ -416,9 +432,20 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
             description = (description + '\n链接：' + record['source_url']).strip()
         draft = dict(title=candidate['title'], description=description, course=candidate['course_or_project'], due=when,
                      content_type=candidate.get('content_type', 'task') if candidate['notice_type'] == 'create' else 'notice')
-        resolve_candidate(db, uid, row['id'], dict(action='create', version=row['version'], draft=draft, auto_apply=True),
+        operation = dict(action='create', draft=draft)
+        if assignment:
+            # Legacy split results retain their evidence, never pick one by position.
+            if candidate['candidate_id'] not in ('platform-assignment', candidate['input_id'] + ':assignment'):
+                continue
+            draft['content_type'] = 'task'
+            operation = teaching.teaching_identity.assignment_publication(db, uid, assignment, row['id'], draft)
+            if operation is None:
+                continue
+        resolve_candidate(db, uid, row['id'], dict(operation, version=row['version'], auto_apply=True),
                           ApiError, direct_add=True, event=event, source=source)
-    return {row['id'] for row in rows}
+        if operation['action'] == 'create':
+            created.add(row['id'])
+    return created
 
 
 def publish_legacy_pending(db, ApiError):
@@ -450,6 +477,13 @@ def publish_legacy_pending(db, ApiError):
                 if json.loads(row['candidate'])['candidate_id'] not in visible:
                     db.execute("UPDATE recognition_candidates SET state='ignored',version=version+1,resolution=? WHERE id=?",
                                (json.dumps(dict(action='history_filtered')), row['id']))
+            # Historical assignment snapshots retain their original evidence. Only the
+            # current capture can update a live task during startup.
+            if any(e.get('platform_item', {}).get('kind') in teaching.teaching_identity.ASSIGNMENT_KINDS
+                   for e in request['records']) and not db.execute(
+                    'SELECT 1 FROM teaching_sources WHERE user_id=? AND request_id=?',
+                    (batch['user_id'], request_id)).fetchone():
+                continue
         publish_results(db, batch['user_id'], request, ApiError)
 
 
@@ -571,11 +605,13 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=F
         from teaching_identity import CHANGED_SOURCE_REVIEW, GRADEBOOK_REVIEW
         source_change = c['notice_type'] == 'uncertain' and any(
             reason in (CHANGED_SOURCE_REVIEW, GRADEBOOK_REVIEW) for reason in c.get('review_reasons', []))
-        if direct_add and (c['notice_type'] in ('update', 'postpone', 'cancel') or source_change):
+        if direct_add and action == 'create' and (c['notice_type'] in ('update', 'postpone', 'cancel') or source_change):
             entry['noticeType'] = c['notice_type']
         target.setdefault('recognitionHistory', []).append(entry)
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         if record_usage: usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
-    if action!='ignore': submission_runtime.candidate_applied(db,uid,cid,target['id'])
+    if action!='ignore':
+        submission_runtime.candidate_applied(db, uid, cid, target['id'],
+            same_assignment=direct_add and action == 'update' and 'source_draft' in body)
     return

@@ -209,6 +209,8 @@ def register(db, uid, username, requests, *, assets=None):
             seen.add(r['input_id']); total += 1
             previous_state = submission.source_state(db,uid,account(username),r['input_id'])
             observation = assignment if assignment is not None else {'state':'unknown'} if captured_state else None
+            if entry.get('platform_item', {}).get('submitted') and (not assignment or assignment['state'] == 'unknown'):
+                observation = dict(state='submitted', basis='gradebook_submitted')
             if submission.stale(previous_state,r,observation):
                 skipped += 1
                 continue
@@ -262,6 +264,7 @@ def register(db, uid, username, requests, *, assets=None):
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
                                        old_request_id=row['request_id'] if row else None,source=entry['source'],
                                        assets=teaching_assets.identity(files))
+            submission.observe_linked_status(db, uid, account(username), entry, observation, state)
             course_context.index(db,uid,account(username),request['records'][0]['record'])
             if submission.skip_model(state):
                 skipped += 1
@@ -294,6 +297,10 @@ def resolve_snapshot(db, uid, request_id, ApiError):
 def recognize(request, ApiError, **attachments):
     result, manifest = _extract(request, ApiError, **attachments)
     teaching_platform.apply_source_type(request['records'][0], result)
+    entry, = request['records']
+    if entry.get('platform_item', {}).get('kind') in ('native_assignment', 'listed_assignment') and result.get('classification_mode') != 'platform-v1':
+        validate_current_result(request, result, manifest, ApiError)
+        teaching_platform.single_assignment(request, result)
     return result, manifest
 
 
@@ -402,7 +409,7 @@ def validate_current_result(request, result, policy, ApiError):
         raise error from None
 
 
-def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
+def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None, updated_tasks=None):
     import recognition
     if set(body)!={'contract_version','request_id'} or body['contract_version']!=RUN or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
         raise ApiError(400,'教学网运行请求仅接受服务器返回的 request_id')
@@ -484,7 +491,12 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             if captured['records'][0].get('platform_item', {}).get('kind') in ('gradebook_assignment', 'native_assignment', 'listed_assignment'):
                 teaching_identity.retire_covered_gradebook(db, uid, acct)
             submission.controls.refresh_request(db,uid,request['request_id'])
+            if updated_tasks is not None:
+                import source_sync
+                before = source_sync.task_snapshot(db, uid)
             published = recognition.publish_results(db, uid, request, ApiError)
+            if updated_tasks is not None:
+                updated_tasks.extend(source_sync.task_updates(before, source_sync.task_snapshot(db, uid)))
             operations.emit('save',(time.monotonic()-saving)*1000)
             for row in result['record_results']:
                 code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])

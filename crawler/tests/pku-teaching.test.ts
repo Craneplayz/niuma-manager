@@ -10,7 +10,9 @@ describe("native teaching integration", () => {
   it("uses separated evidence and preserves extracted attachment text only in references", () => {
     const input=source();input.body+='\n附件：2026年12月20日前提交';
     input.references[0]={...input.references[0],read_status:'partial',text:'2026年12月20日前提交',reason:'partial_pdf'};
-    const record=toTeachingCaptures([input])[0].request.records[0].record;
+    const entry=toTeachingCaptures([input])[0].request.records[0];
+    expect(entry.platform_item?.kind).toBe('listed_assignment');
+    const record=entry.record;
     expect(record.text).not.toContain('2026年12月20日前提交');
     expect(record.references[0]).toMatchObject({read_state:'partial',text:'2026年12月20日前提交'});
     expect(record.body_status).toBe('complete');

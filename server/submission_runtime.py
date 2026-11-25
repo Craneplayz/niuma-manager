@@ -146,6 +146,7 @@ def refresh(db, row):
 
 def observe(db, uid, account, record, assignment, previous, *, source=None, assets=()):
     if not assignment or not record.get('course_id') or not record.get('source_item_id'): return
+    basis = assignment.get('basis', BASES[assignment['state']])
     row=find(db,uid,account,record['input_id'])
     if row:
         snap=json.loads(row['detail'])['observation']['snapshot']
@@ -160,7 +161,7 @@ def observe(db, uid, account, record, assignment, previous, *, source=None, asse
         rid='submission:'+secrets.token_hex(16)
         observation=dict(contract_version=policy.VERSION,snapshot=dict(source_account_id=account,input_id=record['input_id'],
             course_id=record['course_id'],content_id=record['source_item_id'],snapshot_id='submission-snapshot:'+secrets.token_hex(16),
-            sequence=1,observed_at=record['collected_at'],state=assignment['state'],basis=BASES[assignment['state']]),
+            sequence=1,observed_at=record['collected_at'],state=assignment['state'],basis=basis),
             scope='unknown',actions=[],control_revision=0,review_pending=bool(previous and previous['review_pending']))
         title=next((line.strip() for line in record.get('text','').splitlines() if line.strip()),record['input_id'])
         detail=dict(contract_version=operations.VERSION,record_id=rid,label=label(title),
@@ -178,7 +179,7 @@ def observe(db, uid, account, record, assignment, previous, *, source=None, asse
     snap=obs['snapshot']
     if snap['observed_at']!=record['collected_at'] or snap['state']!=assignment['state']:
         snap.update(sequence=snap['sequence']+1,snapshot_id='submission-snapshot:'+secrets.token_hex(16),
-                    observed_at=record['collected_at'],state=assignment['state'],basis=BASES[assignment['state']])
+                    observed_at=record['collected_at'],state=assignment['state'],basis=basis)
     if row['content_digest']!=digest:
         obs['scope']='unknown';obs['control_revision']+=1
         db.execute('UPDATE submission_controls SET content_digest=? WHERE record_id=?',(digest,row['record_id']))
@@ -243,7 +244,7 @@ def refresh_request(db,uid,request_id,*,reopened_candidate_id=None):
             detail['observation']['control_revision']+=1;persist(db,row,detail)
 
 
-def candidate_applied(db,uid,candidate_id,task_id):
+def candidate_applied(db,uid,candidate_id,task_id,*,same_assignment=False):
     """Transfer controls once, in the candidate/task write transaction.
 
     An existing task's prior confirmation covers its old history only. Adding
@@ -252,11 +253,28 @@ def candidate_applied(db,uid,candidate_id,task_id):
     explicit resume on the task.
     """
     candidate_aid=identity('candidate',candidate_id);task_aid=identity('task',task_id)
-    for row in db.execute('SELECT * FROM submission_controls WHERE user_id=?',(uid,)).fetchall():
-        detail=json.loads(row['detail']);obs=detail['observation']
+    controls = [(row, json.loads(row['detail'])) for row in
+                db.execute('SELECT * FROM submission_controls WHERE user_id=?', (uid,))]
+    existing = [a for _, detail in controls for a in detail['observation']['actions'] if a['action_id'] == task_aid]
+    for row, detail in controls:
+        obs=detail['observation']
         actions={a['action_id']:a for a in obs['actions']}
         incoming,prior=actions.get(candidate_aid),actions.get(task_aid)
         if not incoming and not prior: continue
+        if same_assignment:
+            # Both receipts belong to the same platform item. Keep any explicit unlink or pause.
+            inherit = not prior and incoming and incoming['relation'] == 'assignment_submission' and all(
+                a['relation'] == 'assignment_submission' for a in existing)
+            try: current, _ = refresh(db, row)
+            except ActionLimitError: continue
+            if inherit:
+                task = next((a for a in current['observation']['actions'] if a['action_id'] == task_aid), None)
+                if task:
+                    task.update(relation='assignment_submission', link_basis='server_exact',
+                                source_completion_paused=any(a['source_completion_paused'] for a in existing))
+                    current['observation']['control_revision'] += 1
+                    persist(db, row, current)
+            continue
         if prior:
             before=deepcopy(prior)
             if incoming and incoming['relation']==prior['relation']:
