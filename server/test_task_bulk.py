@@ -94,6 +94,32 @@ class TaskBulkTests(unittest.TestCase):
         contract.check('response', result)
         return result
 
+    def test_event_bulk_trash_restore_and_date_use_the_displayed_start(self):
+        start = dict(date='2026-12-16', time='10:10', precision='datetime')
+        event = dict(self.task, id='exam', title='上机考试', due=None, eventAt=start)
+        original = [self.task, event, dict(self.task, id='practice'), dict(self.task, id='report')]
+        with app.connection() as db:
+            task_bulk.write(db, 'alice', original, 2)
+
+        body = self.body('trash', candidates=False)
+        expected = next(entry['expected'] for entry in body['operation']['intent']['tasks'] if entry['id'] == 'exam')
+        # Send the visible time, as the browser does. A genuinely stale clock rejects the entire selection.
+        expected.update(due=start['date'], dueTime='10:00')
+        self.assertEqual(self.call('/tasks/bulk', body)[0], 409)
+        self.assertEqual(self.state()[0]['value'], original)
+        expected['dueTime'] = start['time']
+        trashed = self.send(body)['value']
+        self.assertTrue(all(t.get('recycleBin') for t in trashed))
+        self.assertEqual(self.send(self.body('restore', candidates=False))['value'], original)
+
+        changed = self.send(self.body('deadline', candidates=False, date='2026-12-17'))
+        self.assertEqual(changed['value'][1]['eventAt'], dict(start, date='2026-12-17'))
+        self.assertIsNone(changed['value'][1]['due'])
+        cleared = self.send(self.body('deadline', candidates=False, date=''))
+        self.assertIsNone(cleared['value'][1]['eventAt'])
+        self.send(self.body('undo', intent=cleared['undo']))
+        self.assertEqual(self.send(self.body('undo', intent=changed['undo']))['value'], original)
+
     def test_mixed_completion_is_one_version_and_undo_keeps_candidate_as_an_ordinary_task(self):
         result = self.send(self.body('complete'))
         self.assertEqual(result['version'], 2)
