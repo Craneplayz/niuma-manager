@@ -22,6 +22,86 @@ from ddl_text.tests.test_teaching_pipeline import example, RecordClient
 from ddl_text.tests.teaching_cases import empty_reply
 
 
+class TeachingTitleMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.old_db = app.DB
+        self.addCleanup(setattr, app, 'DB', self.old_db)
+        app.DB = Path(self.tmp.name) / 'title-migration.sqlite3'
+        app.initialize(recover=False)
+
+    def legacy_batch(self, count=1, *, candidate_title=None, task_title=None):
+        request, drafts = example(('explicit-complete',) * count)
+        for key, value in drafts.items():
+            draft = json.loads(value)
+            draft['tasks'][0].update(title='通知 · 加入课程微信群', content_type='notice')
+            drafts[key] = json.dumps(draft)
+        trusted = {snapshot_digest(entry) for entry in request['records']}
+        result = process_teaching_request(request, client=RecordClient(drafts), settings=Settings(),
+                                         verified_snapshot_digests=trusted)
+        teaching.validate_teaching_result(request, result, verified_snapshot_digests=trusted)
+        self.assertEqual(result['status'], 'success', result)
+        tasks = []
+        with app.connection() as db:
+            db.execute("DELETE FROM teaching_migrations WHERE name='source-display-titles-v1'")
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0)',
+                       ('synthetic', request['request_id'], 'synthetic', json.dumps(request), json.dumps(result)))
+            for index, (entry, row) in enumerate(zip(request['records'], result['record_results'])):
+                decision, = row['decisions']
+                card = teaching.candidate_view(decision, entry, model_routing=True, single=True)
+                card['title'] = candidate_title or decision['title']
+                cid = 'legacy-' + str(index)
+                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state,resolution) VALUES(?,?,?,?,?,?)',
+                           (cid, 'synthetic', request['request_id'], json.dumps(card), 'applied', '{"auto_apply":true}'))
+                tasks.append(dict(id=cid, title=task_title or card['title'], source='教学网',
+                                  recognitionHistory=[dict(storageId=cid)]))
+            db.execute('INSERT INTO workspace VALUES(?,?,?,?)', ('synthetic', 'tasks', json.dumps(tasks), 7))
+
+    def stored(self):
+        with app.connection() as db:
+            return {table: [dict(row) for row in db.execute('SELECT * FROM ' + table + ' ORDER BY rowid')]
+                    for table in ('recognition_batches', 'recognition_candidates', 'workspace')}
+
+    def test_initialize_preserves_valid_multirecord_batch(self):
+        self.legacy_batch(2)
+        before = self.stored()
+        app.initialize()
+        app.initialize()
+        self.assertEqual(self.stored(), before)
+
+    def test_initialize_migrates_single_record_titles_once(self):
+        self.legacy_batch()
+        before = self.stored()
+        app.initialize()
+        after = self.stored()
+        self.assertEqual(after['recognition_batches'], before['recognition_batches'])
+        card = json.loads(before['recognition_candidates'][0]['candidate'])
+        card['title'] = '加入课程微信群'
+        self.assertEqual(after['recognition_candidates'],
+                         [dict(before['recognition_candidates'][0], candidate=json.dumps(card))])
+        tasks = json.loads(before['workspace'][0]['value'])
+        tasks[0]['title'] = '加入课程微信群'
+        self.assertEqual(after['workspace'], [dict(before['workspace'][0], value=json.dumps(tasks), version=8)])
+        app.initialize()
+        self.assertEqual(self.stored(), after)
+
+    def test_initialize_preserves_user_edited_titles(self):
+        self.legacy_batch(candidate_title='用户确认的标题', task_title='用户编辑的任务标题')
+        before = self.stored()
+        app.initialize()
+        self.assertEqual(self.stored(), before)
+
+    def test_initialize_preserves_user_edited_task_title(self):
+        self.legacy_batch(task_title='用户编辑的任务标题')
+        before = self.stored()
+        app.initialize()
+        after = self.stored()
+        self.assertEqual(after['workspace'], before['workspace'])
+        self.assertEqual(after['recognition_batches'], before['recognition_batches'])
+        self.assertEqual(json.loads(after['recognition_candidates'][0]['candidate'])['title'], '加入课程微信群')
+
+
 class TeachingIntegrationTests(unittest.TestCase):
     def test_competing_stored_result_does_not_inherit_losing_attempt_diagnostics(self):
         import os

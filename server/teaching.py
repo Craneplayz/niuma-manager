@@ -68,8 +68,11 @@ def upgrade_display_titles(db):
     updates = {}
     for uid, rid, request, result in db.execute("""SELECT user_id,request_id,request,result FROM recognition_batches
             WHERE json_extract(request,'$.contract_version')='0.4'"""):
-        entry, = json.loads(request)['records']
-        row, = json.loads(result)['record_results']
+        entries = json.loads(request)['records']
+        rows = json.loads(result)['record_results']
+        if len(entries) != 1 or len(rows) != 1:
+            continue
+        entry, row = entries[0], rows[0]
         visible = [d for d in row['decisions'] if d['recommendation'] != 'filtered']
         decisions = {d['pair']['assessment']['candidate_id']: d for d in visible}
         for cid, raw, resolution in db.execute('SELECT id,candidate,resolution FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,rid)):
