@@ -22,8 +22,12 @@ def initialize(db):
         inverse TEXT NOT NULL, PRIMARY KEY(user_id,operation_id))''')
 
 
+def date_field(task):
+    return 'eventAt' if 'eventAt' in task and not task.get('due') else 'due'
+
+
 def snapshot(task):
-    due = task.get('due') or {}
+    due = task.get(date_field(task)) or {}
     return dict(title=task['title'], notes=task.get('description') or '', course=task.get('course') or '',
                 content_type=task.get('content_type') or 'task', due=due.get('date') or '',
                 dueTime=due.get('time') or '', status=STATUS.get((task.get('recycleBin') or {}).get('status', task.get('status')), 'todo'),
@@ -107,7 +111,7 @@ def apply_tasks(tasks, entries, intent, ApiError):
             changes = dict(status='completed' if action == 'complete' else 'not_started',
                            completedAt=intent['completedAt'] if action == 'complete' else '')
         elif action == 'deadline':
-            changes = dict(due=due(intent['date'], entry['expected']['dueTime']))
+            changes = {date_field(task): due(intent['date'], entry['expected']['dueTime'])}
         elif action == 'trash':
             changes = dict(recycleBin=dict(deletedAt=intent['deletedAt'], status=task['status']),
                            status='completed' if task['status'] == 'completed' else 'cancelled')
