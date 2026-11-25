@@ -2,13 +2,13 @@
 
 课表上传、学期与单双周展开、账号保存及规划固定占用见 [课表导入](timetable/README.md)。
 
-待核对任务通过普通完成和编辑操作确认的接口约定见 [待核对任务用户操作](docs/review-task-actions.md)，包含可选 `complete`、原子保存及重试规则。
+识别结果直接保存、历史数据迁移及旧客户端回执见 [识别结果与旧操作](docs/review-task-actions.md)。
 
 账号头像上传、恢复默认、用户返回字段及图片边界见 [账号头像](docs/account-avatar.md)。
 
 ```text
 contracts/
-├── task_bulk.py                   # 普通任务与待核对新增候选的批量请求、回复及语义校验
+├── task_bulk.py                   # 任务批量操作与旧版候选的兼容请求、回复及语义校验
 ├── docs/task-bulk-v0.1.md          # 批量完成、改期、回收、恢复与整批撤销约定
 ├── schemas/task-bulk-v0.1.schema.json # 可独立校验的批量操作 Schema
 ├── examples/task-bulk-v01.json     # 混合任务、无日期、清空日期与撤销共享样例

@@ -83,7 +83,7 @@ class TeachingIntegrationTests(unittest.TestCase):
             self.assertIn('invalid_agent_output',error['diagnostics'])
             self.assertNotIn('ValueError',error['diagnostics'])
 
-    def test_upgrade_old_changed_candidate_publishes_notice_once_even_when_sync_skips(self):
+    def test_upgrade_keeps_old_changed_candidate_in_history_when_sync_skips(self):
         request, drafts = example(); self.drafts.update(drafts)
         with app.connection() as db:
             first_sync = teaching.register(db, self.uid, 'synthetic-course-user', [request])
@@ -106,9 +106,9 @@ class TeachingIntegrationTests(unittest.TestCase):
         batches = self.call('/recognition/batches')[1]
         current = next(c for b in batches for c in b['items'] if c['id'] == item['id'])
         self.assertEqual(current['candidate']['notice_type'], 'uncertain')
-        self.assertEqual(current['state'], 'applied')
+        self.assertEqual(current['state'], 'ignored')
         tasks = self.call('/workspace')[1]['tasks']['value']
-        self.assertEqual([task['content_type'] for task in tasks], ['task','notice'])
+        self.assertEqual([task['content_type'] for task in tasks], ['task'])
 
     def test_changed_source_publishes_notices_without_overwriting_decisions(self):
         request,drafts=example();self.drafts.update(drafts)
