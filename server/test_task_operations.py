@@ -113,6 +113,28 @@ class TaskOperationTests(unittest.TestCase):
                 self.fail('quick task worker did not finish')
             time.sleep(.015)
 
+    def test_bulk_date_and_undo_keep_quick_recognition_field_protected(self):
+        import task_bulk
+        import quick_task_jobs
+        with patch('quick_task_jobs.wake'):
+            self.assertEqual(self.write(operation=self.quick_operation())[0], 200)
+            current = self.quick_snapshot()
+            intent = dict(kind='bulk', action='deadline', workspaceGeneration=0,
+                          tasks=[dict(id='a', expected=task_bulk.snapshot(current['value'][0]))],
+                          candidates=[], date='2026-12-01')
+            operation = dict(id='bulk-quick-date-0001', owner='alice', intent=intent)
+            status, changed = self.call('/tasks/bulk', dict(version=current['version'], operation=operation))
+            self.assertEqual(status, 200, changed)
+            operation = dict(id='bulk-quick-undo-0001', owner='alice', intent=changed['undo'])
+            self.assertEqual(self.call('/tasks/bulk', dict(version=changed['version'], operation=operation))[0], 200)
+            with app.connection() as db:
+                job = db.execute('SELECT * FROM quick_task_jobs').fetchone()
+                self.assertIn('due', json.loads(job['request'])['protectedFields'])
+                quick_task_jobs.settle(db, job, dict(title='合成整理', due=dict(date='2026-12-02', precision='date')))
+            saved, = self.quick_snapshot()['value']
+            self.assertIsNone(saved['due'])
+            self.assertEqual(saved['title'], '合成整理')
+
     def test_local_summary_saves_original_without_scheduling_recognition(self):
         source = '明早10点到报告厅参加说明会'
         operation = self.quick_operation(text=source, localOnly=True)

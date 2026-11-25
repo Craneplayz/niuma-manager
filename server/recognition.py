@@ -418,7 +418,7 @@ def add_quick_results(db, uid, request, ApiError):
                           ApiError, direct_add=True, event=event)
 
 
-def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=False, event=False):
+def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=False, event=False, record_usage=True):
     """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     import submission_runtime
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
@@ -527,7 +527,7 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=F
             target['quickRecognition'] = quick_task_jobs.observe_edit(db,uid,original_target,target)
         target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
-        usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
+        if record_usage: usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
     if action!='ignore': submission_runtime.candidate_applied(db,uid,cid,target['id'])
     return

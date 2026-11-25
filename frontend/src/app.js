@@ -20,6 +20,8 @@ import {
   restoreStoredTasks,
   accountVersion,
   setStoredTaskDeadline,
+  bulkStoredTasks,
+  pendingBulkTaskIds,
   readStoredTimetable,
   acceptStoredTimetable,
 } from "./team-store.js";
@@ -37,6 +39,7 @@ import {
 } from "./task-model.js";
 import { renderTaskList, renderTaskRow, renderDayPanel } from "./task-views.js";
 import { projectReviewTasks } from "./review-tasks.js";
+import { isBulkSelectable, selectedBulkTasks, recoveredBulkTasks, renderBulkToolbar, renderBulkCheckbox, renderBulkDeadlineForm } from './task-bulk-ui.js';
 import { renderCalendar, renderCalendarActivityLegend } from "./calendar.js";
 import { createTimetableUI } from "./timetable.js";
 import { nextCalendarActivityChange } from "./calendar-activity.js";
@@ -93,7 +96,15 @@ let demo = params.get("demo") === "1",
   environment = null,
   backendRevision = "unknown";
 const busyTasks = new Set();
-const taskBusy = id => busyTasks.has(id);
+const taskBusy = id => busyTasks.has(id) || !demo && pendingBulkTaskIds().has(id);
+const bulkSelection = new Set(), trashBulkSelection = new Set();
+let bulkMode = false, trashBulkMode = false, bulkRunning = false, bulkFailure = null, bulkSaveReceipt = 0;
+function clearBulkSelection(exit = false) {
+  bulkSelection.clear();
+  trashBulkSelection.clear();
+  bulkFailure = null;
+  if (exit) bulkMode = trashBulkMode = false;
+}
 function canChangeTask(id) {
   if (taskBusy(id) || loading || session.changing) return false;
   if (!demo && session.sync === "error") {
@@ -209,6 +220,7 @@ const host = {
       if (editableTask(drawerId)) updateDrawer();
     }
   },
+  isTaskBusy: id => taskBusy(id),
   getCancelledTasks: () => demo ? [] : readCancelledTasks(),
   isDemo: () => demo,
   isImportVisible: () => ui.page === "import",
@@ -293,6 +305,8 @@ function clearQuickEntry() {
   drawer.classList.remove("is-quick-entry");
 }
 function resetAccountUI() {
+  clearBulkSelection(true);
+  bulkRunning = false;
   clearUndo();
   clearQuickEntry();
   recentTaskId = "";
@@ -377,9 +391,15 @@ function openDialog(html) {
 }
 function closeDialog() {
   dialog.close();
+  trashBulkMode = false;
+  trashBulkSelection.clear();
 }
 dialog.addEventListener("close", () => {
-  if (!dialog.open) account.closed?.();
+  if (!dialog.open) {
+    trashBulkMode = false;
+    trashBulkSelection.clear();
+    account.closed?.();
+  }
 });
 async function refresh() {
   if (demo) return;
@@ -483,29 +503,38 @@ function saveLabel() {
     "已保存"
   );
 }
+function bulkToggle(active, trash = false) {
+  return `<button type="button" class="btn bulk-toggle ${active ? 'selected' : 'quiet'}" data-bulk-action="${active ? 'exit' : 'enter'}"${trash ? ' data-bulk-context="trash"' : ''} ${bulkRunning ? 'disabled' : ''}>${active ? '退出批量操作' : '批量操作'}</button>`;
+}
 function toolbar() {
   const mixed = ui.scope === "near" || ui.scope === "done";
   const searchLabel = ui.scope === "notices" ? "搜索通知" : mixed ? "搜索任务与通知" : "搜索任务";
   const dateLabel = ui.scope === "notices" ? "关键日期" : mixed ? "日期范围" : "截止日期";
-  return `<div class="query-toolbar"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label><label class="course-filter${ui.course ? " has-course" : ""}"><span class="sr-only">课程筛选</span>${ui.course ? renderCourseDot(ui.course) : ""}<select id="course-filter" aria-label="课程筛选" title="${esc(ui.course || "全部课程")}"><option value="">全部课程</option>${courses()
+  return `<div class="query-toolbar"><div class="query-search"><label class="search-field">${icon("search")}<input id="task-search" type="search" aria-label="${searchLabel}" placeholder="${searchLabel}" value="${esc(ui.query)}" autocomplete="off"></label>${ui.query || ui.course || ui.source || ui.dateFrom || ui.dateTo ? '<button type="button" class="btn quiet reset-filters" data-action="filter-reset">清除</button>' : ""}</div><label class="course-filter filter-select${ui.course ? " has-course" : ""}"><span class="sr-only">课程筛选</span>${ui.course ? renderCourseDot(ui.course) : ""}<select id="course-filter" aria-label="课程筛选" title="${esc(ui.course || "全部课程")}"><option value="">全部课程</option>${courses()
     .map(
       (c) =>
         `<option ${ui.course === c ? "selected" : ""} value="${esc(c)}">${esc(c)}</option>`,
     )
     .join(
       "",
-    )}</select></label><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${ui.query || ui.course || ui.source || ui.dateFrom || ui.dateTo ? '<button type="button" class="btn quiet reset-filters" data-action="filter-reset">清除</button>' : ""}</div>${
+    )}</select>${icon("chevron")}</label><div class="filter-disclosure"><button type="button" class="btn filter-button ${ui.filterOpen || ui.source || ui.dateFrom || ui.dateTo ? "selected" : ""}" data-action="filter-toggle" aria-expanded="${ui.filterOpen}" aria-controls="advanced-filters">${icon("filter")}筛选${ui.source || ui.dateFrom || ui.dateTo ? '<span class="filter-dot"></span>' : ""}</button>${
     ui.filterOpen
-      ? `<div id="advanced-filters" class="advanced-filters"><label class="field">来源<select id="source-filter"><option value="">全部来源</option>${sources()
+      ? `<div id="advanced-filters" class="advanced-filters"><div class="filter-field"><label for="source-filter">来源</label><span class="filter-select"><select id="source-filter"><option value="">全部来源</option>${sources()
           .map(
             (s) =>
               `<option ${ui.source === s ? "selected" : ""} value="${esc(s)}">${esc(s)}</option>`,
           )
           .join(
             "",
-          )}</select></label><label class="field">${dateLabel}，从<input id="date-from" type="date" value="${esc(ui.dateFrom)}"></label><label class="field">到<input id="date-to" type="date" value="${esc(ui.dateTo)}"></label></div>`
+          )}</select>${icon("chevron")}</span></div>
+        <fieldset class="filter-dates"><legend>${dateLabel}</legend><div class="filter-range">
+          <span class="filter-from" aria-hidden="true">从</span>
+          <input id="date-from" aria-label="${dateLabel}起始日期" type="date" value="${esc(ui.dateFrom)}">
+          <span aria-hidden="true">至</span>
+          <input id="date-to" aria-label="${dateLabel}结束日期" type="date" value="${esc(ui.dateTo)}">
+        </div></fieldset></div>`
       : ""
-  }`;
+  }</div>${bulkToggle(bulkMode)}</div>`;
 }
 function monthLabel() {
   const d = new Date(ui.anchor + "T12:00:00");
@@ -522,12 +551,31 @@ function taskResults() {
     const recent = recentTaskId && !tasks.some(task => task.id === recentTaskId)
       ? state.tasks.find(task => task.id === recentTaskId && task.status !== "done" && !task.recycleBin) : null;
     const outsideView = recent ? `<section class="quick-outside-result"><h3>刚添加 · 当前列表之外</h3>${renderTaskRow(recent, { escapeHtml: esc, icon, today, now })}</section>` : "";
-    return `${imports.taskReviewsStatus()}${outsideView}${renderTaskList(tasks, { escapeHtml: esc, icon, today, now, reviewBusy: imports.isReviewBusy(), emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
+    return `${imports.taskReviewsStatus()}${outsideView}${renderTaskList(tasks, { escapeHtml: esc, icon, today, now, reviewBusy: id => imports.isReviewBusy(id), bulk: { active: bulkMode, selected: bulkSelection, busy: bulkRunning, isBusy: taskBusy }, emptyLabel: ui.scope === "notices" ? "没有符合条件的通知" : ui.scope === "all" ? "没有符合条件的任务" : "没有符合条件的任务或通知" })}`;
   }
   const items = calendarItems();
   const activityTasks = demo ? state.tasks : readSavedTasks();
   scheduleDeadlineRefresh(activityTasks, now);
   return `<div class="timetable-toolbar"><button type="button" class="btn" data-timetable-open>导入课表</button></div>${calendarTools()}${renderCalendarActivityLegend()}<div class="calendar-layout"><div class="calendar-grid-wrap" id="calendar-grid">${renderCalendar({ tasks: items, activityTasks, classes: timetable.events(), anchorDate: ui.anchor, mode: ui.mode, selectedDate: ui.selectedDate, today, now, allowDateDrag: true, escapeHtml: esc })}</div>${renderDayPanel({ tasks: items, activityTasks, selectedDate: ui.selectedDate, pane: ui.pane, classesMarkup: ui.pane === 'day' ? timetable.day(ui.selectedDate) : '', allowDateDrag: true, escapeHtml: esc, icon, today, now })}</div>`;
+}
+function bulkControls(trash = false) {
+  const visible = (trash ? state.trash : filtered()).filter(isBulkSelectable);
+  const selected = trash ? trashBulkSelection : bulkSelection;
+  const tasks = selectedBulkTasks(visible, selected);
+  return renderBulkToolbar({ tasks, available: visible, selected, busy: bulkRunning,
+    blocked: tasks.some(task => taskBusy(task.id) || task.reviewCandidateId && imports.isReviewBusy(task.reviewCandidateId)) || !demo && session.sync === 'error',
+    error: bulkFailure?.trash === trash ? bulkFailure.error.message || '保存未完成，请重试' : '',
+    trash, escapeHtml: esc });
+}
+function renderTrashDialog() {
+  const controls = trashBulkMode || state.trash.length ? bulkToggle(trashBulkMode, true) : '';
+  const rows = state.trash.map(task => `<div class="trash-row">${trashBulkMode ? renderBulkCheckbox(task, { selected: trashBulkSelection, escapeHtml: esc, trash: true, disabled: bulkRunning || taskBusy(task.id) }) : ''}<span>${esc(task.title)}</span><button type="button" class="btn quiet" data-restore-task="${esc(task.id)}" ${taskBusy(task.id) ? 'disabled' : ''}>恢复</button></div>`).join('');
+  return `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon('close')}</button></header><div class="trash-bulk-controls">${controls}${trashBulkMode ? bulkControls(true) : ''}</div><div class="trash-list">${rows || '<p class="empty-state">回收站为空</p>'}</div>`;
+}
+function repaintBulkControls() {
+  const controls = document.querySelector('#bulk-controls');
+  if (controls) updateDOM(controls, bulkMode && taskView() === 'list' ? bulkControls() : '');
+  if (dialog.open && dialog.querySelector('.trash-list')) updateDOM(dialog, renderTrashDialog());
 }
 function workspaceHeading(options) {
   return renderPageHeading({
@@ -554,7 +602,7 @@ function tasksPage() {
     actions: ui.scope === "notices" ? "" : `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
     escapeHtml: esc,
   });
-  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}">${heading}${view === "list" ? toolbar() : ""}${quickAdds.markup()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}${bulkMode ? " is-bulk-mode" : ""}">${heading}${view === "list" ? toolbar() : ""}<div id="bulk-controls">${view === "list" && bulkMode ? bulkControls() : ""}</div>${quickAdds.markup()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
     .map((c) => `<option value="${esc(c)}">`)
     .join("")}</datalist></section>`;
 }
@@ -582,6 +630,9 @@ function focusToken(el) {
       "calendarMode",
       "calendarPane",
       "accountAction",
+      "bulkAction",
+      "bulkSelect",
+      "bulkTrashSelect",
     ].includes(key),
   );
   return key ? { key, value: el.dataset[key] } : null;
@@ -676,11 +727,13 @@ function renderResults() {
   const results = document.querySelector("#task-results");
   if (!results) return;
   updateDOM(results, taskResults());
+  repaintBulkControls();
   syncTaskControls();
   document.querySelector("#result-count").textContent = headingCount();
   if (restore && token) restoreFocus(token);
 }
 function navigatePage(page, scope = ui.scope) {
+  clearBulkSelection(true);
   const fromMobileMenu = ui.mobileMenu;
   recentTaskId = "";
   ui.page = page;
@@ -971,6 +1024,117 @@ async function restoreTask(id) {
     finishTask(id, epoch);
   }
 }
+function demoBulk(action, tasks, options) {
+  const ids = new Set(tasks.map(task => task.id));
+  if (action === 'undo') {
+    const undo = options.undo;
+    for (const applied of undo.applied) {
+      const current = [...state.tasks, ...state.trash].find(task => task.id === applied.id);
+      if (JSON.stringify(current) !== JSON.stringify(applied)) throw new Error('部分内容已变化，请重新核对后操作');
+    }
+    const affected = new Set(undo.applied.map(task => task.id));
+    return { tasks: [...state.tasks.filter(task => !affected.has(task.id)), ...undo.tasks],
+      trash: [...state.trash.filter(task => !affected.has(task.id)), ...undo.trash] };
+  }
+  const before = { tasks: structuredClone(state.tasks.filter(task => ids.has(task.id))), trash: structuredClone(state.trash.filter(task => ids.has(task.id))) };
+  const next = { tasks: structuredClone(state.tasks), trash: structuredClone(state.trash) };
+  if (action === 'trash') {
+    next.tasks = next.tasks.filter(task => !ids.has(task.id));
+    next.trash.push(...structuredClone(tasks));
+  } else if (action === 'restore') {
+    next.trash = next.trash.filter(task => !ids.has(task.id));
+    next.tasks.push(...structuredClone(tasks));
+  } else {
+    for (const task of next.tasks.filter(task => ids.has(task.id))) {
+      if (action === 'deadline') {
+        task.due = options.date;
+        if (!options.date) task.dueTime = '';
+      } else {
+        if (action === 'complete' && task.status === 'done' || action === 'reopen' && task.status !== 'done') continue;
+        task.status = action === 'complete' ? 'done' : 'todo';
+        task.completedAt = action === 'complete' ? todayKey() : '';
+      }
+    }
+  }
+  return { ...next, undo: { ...before, applied: structuredClone([...next.tasks, ...next.trash].filter(task => ids.has(task.id))) } };
+}
+async function runBulk(action, { trash = false, date, undo, undoTasks = [] } = {}) {
+  if (bulkRunning || !requireAccount()) return;
+  const tasks = action === 'undo' ? undoTasks : selectedBulkTasks(trash ? state.trash : filtered(), trash ? trashBulkSelection : bulkSelection);
+  if (!tasks.length) return;
+  if (tasks.some(task => !canChangeTask(task.id))) return;
+  if (tasks.some(task => task.reviewCandidateId && imports.isReviewBusy(task.reviewCandidateId))) return toast('正在处理待核对内容，请稍候');
+  const epoch = accountVersion(), ids = new Set(tasks.map(task => task.id));
+  const dateForm = dialog.open ? dialog.querySelector('#bulk-deadline-form') : null;
+  bulkRunning = true;
+  bulkFailure = null;
+  ids.forEach(id => busyTasks.add(id));
+  if (dateForm) dateForm.querySelectorAll('input,button[type="submit"]').forEach(field => { field.disabled = true; });
+  render();
+  repaintBulkControls();
+  toast(`正在保存 ${tasks.length} 项…`);
+  try {
+    const result = demo ? demoBulk(action, tasks, { date, undo }) : await bulkStoredTasks(action, tasks, { date, undo });
+    if (epoch !== accountVersion()) return;
+    state = demo ? { ...state, tasks: result.tasks, trash: result.trash } : readProjectedStore();
+    clearBulkSelection();
+    if (dateForm?.isConnected && dialog.open) closeDialog();
+    if (drawer.open && ids.has(drawerId)) closeDrawer();
+    const verb = ({ complete: '已完成 / 已阅读', reopen: '已重新打开 / 标记未阅读', deadline: date ? '已修改日期' : '已清除日期', trash: tasks.some(task => task.reviewCandidateId) ? '已删除 / 忽略' : '已移入回收站', restore: '已恢复', undo: '已撤销本批操作' })[action];
+    const restored = result.tasks.filter(task => !state.trash.some(item => item.id === task.id) && (ids.has(task.id) || tasks.some(item => item.reviewCandidateId && task.recognitionHistory?.some(event => event.storageId === item.reviewCandidateId))));
+    toast(`${verb}，共 ${tasks.length} 项`, result.undo ? () => runBulk('undo', { undo: result.undo, undoTasks: restored.length ? restored : tasks }) : undefined);
+  } catch (error) {
+    if (epoch !== accountVersion()) return;
+    bulkFailure = { action, trash, date, undo, undoTasks, tasks, error,
+      awaitingSave: !demo && tasks.some(task => pendingBulkTaskIds().has(task.id)) };
+    const target = dateForm?.isConnected && dialog.open ? dateForm.querySelector('#bulk-deadline-error') : null;
+    if (target) target.innerHTML = userErrorMarkup(error, 'tasks_save');
+    clearUndo();
+  } finally {
+    if (epoch === accountVersion()) {
+      bulkRunning = false;
+      ids.forEach(id => busyTasks.delete(id));
+      if (dateForm?.isConnected && dialog.open) dateForm.querySelectorAll('input,button[type="submit"]').forEach(field => { field.disabled = false; });
+      render();
+      repaintBulkControls();
+      syncTaskControls();
+    }
+  }
+}
+async function handleBulkAction(button) {
+  const action = button.dataset.bulkAction, trash = button.dataset.bulkContext === 'trash';
+  const selected = trash ? trashBulkSelection : bulkSelection;
+  if (action === 'enter') {
+    if (!requireAccount()) return;
+    clearBulkSelection();
+    if (trash) trashBulkMode = true;
+    else bulkMode = true;
+  } else if (bulkRunning) return;
+  else if (action === 'exit') {
+    selected.clear();
+    bulkFailure = null;
+    if (trash) trashBulkMode = false;
+    else bulkMode = false;
+  } else if (action === 'select-all') {
+    const available = (trash ? state.trash : filtered()).filter(isBulkSelectable).filter(task => !taskBusy(task.id));
+    const all = available.length && available.every(task => selected.has(task.id));
+    selected.clear();
+    if (!all) available.forEach(task => selected.add(task.id));
+    bulkFailure = null;
+  } else if (action === 'deadline') {
+    const tasks = selectedBulkTasks(filtered(), selected);
+    if (tasks.length) openDialog(renderBulkDeadlineForm(tasks.length, esc));
+    return;
+  } else if (action === 'retry') {
+    if (bulkFailure) await runBulk(bulkFailure.action, bulkFailure);
+    return;
+  } else {
+    await runBulk(action, { trash });
+    return;
+  }
+  render();
+  repaintBulkControls();
+}
 function showMobileDay(focusDate = false) {
   if (!matchMedia("(max-width: 700px)").matches) return;
   const panel = document.querySelector(".day-panel");
@@ -1046,6 +1210,7 @@ const actions = {
   },
   "filter-reset": () => {
     recentTaskId = "";
+    clearBulkSelection();
     ui.query = "";
     ui.course = "";
     ui.source = "";
@@ -1067,10 +1232,11 @@ const actions = {
   },
   "dialog-close": closeDialog,
   "retry-save": async () => {
+    const epoch = accountVersion(), receipt = bulkSaveReceipt;
     try {
       await retrySave();
       await refresh();
-      toast("已保存");
+      if (epoch === accountVersion() && receipt === bulkSaveReceipt) toast("已保存");
     } catch (e) {
       toastError(e);
     }
@@ -1090,9 +1256,7 @@ const actions = {
     }
   },
   "open-trash": () => {
-    openDialog(
-      `<header class="dialog-header"><h2 id="dialog-heading">回收站</h2><button type="button" class="icon-button" data-action="dialog-close" aria-label="关闭回收站">${icon("close")}</button></header><div class="trash-list">${state.trash.length ? state.trash.map((t) => `<div><span>${esc(t.title)}</span><button type="button" class="btn quiet" data-restore-task="${esc(t.id)}" ${taskBusy(t.id) ? "disabled" : ""}>恢复</button></div>`).join("") : '<p class="empty-state">回收站为空</p>'}</div>`,
-    );
+    openDialog(renderTrashDialog());
   },
 };
 document.addEventListener("pointerover", (event) => {
@@ -1141,6 +1305,10 @@ window.addEventListener("resize", hideSidebarTooltip);
 document.addEventListener("click", async (e) => {
   imports.cancelRecoveryNavigation();
   const button = e.target.closest("button");
+  if (ui.filterOpen && !e.target.closest(".filter-disclosure")) {
+    ui.filterOpen = false;
+    render();
+  }
   if (!button) return;
   if (button.dataset.quickJob) return quickAdds.action(button);
   if (button.dataset.errorFeedback) {
@@ -1153,7 +1321,9 @@ document.addEventListener("click", async (e) => {
   }
   hideSidebarTooltip();
   try {
-    if (button.dataset.action === "task-new") {
+    if (button.dataset.bulkAction) {
+      await handleBulkAction(button);
+    } else if (button.dataset.action === "task-new") {
       const selected = button.dataset.quickDate || (taskView() === "calendar" && ui.pane === "day" ? ui.selectedDate : "");
       openTask(null, true, selected);
       return;
@@ -1190,6 +1360,7 @@ document.addEventListener("click", async (e) => {
     if (button.dataset.view) {
       if (ui.scope !== "all") return;
       recentTaskId = "";
+      clearBulkSelection(true);
       ui.view = button.dataset.view;
       remember();
       syncNavigation();
@@ -1238,6 +1409,7 @@ document.addEventListener("input", (e) => {
   imports.cancelRecoveryNavigation();
   if (e.target.id === "task-search") {
     recentTaskId = "";
+    clearBulkSelection();
     ui.query = e.target.value;
     renderResults();
     return;
@@ -1247,6 +1419,17 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("change", (e) => {
   imports.cancelRecoveryNavigation();
+  const selectedId = e.target.dataset.bulkSelect || e.target.dataset.bulkTrashSelect;
+  if (selectedId) {
+    if (bulkRunning || taskBusy(selectedId)) return;
+    const selected = e.target.dataset.bulkTrashSelect ? trashBulkSelection : bulkSelection;
+    if (e.target.checked) selected.add(selectedId);
+    else selected.delete(selectedId);
+    bulkFailure = null;
+    renderResults();
+    repaintBulkControls();
+    return;
+  }
   if (account.change?.(e)) return;
   if (e.target.dataset.noticeRead) {
     void toggleTask(e.target.dataset.noticeRead);
@@ -1268,6 +1451,7 @@ document.addEventListener("change", (e) => {
       syncNavigation();
     }
   } else return;
+  clearBulkSelection();
   render();
 });
 document.addEventListener("toggle", (event) => {
@@ -1276,6 +1460,15 @@ document.addEventListener("toggle", (event) => {
 document.addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = e.target;
+  if (form.id === 'bulk-deadline-form') {
+    const date = String(new FormData(form).get('date') || '');
+    if (date && !shiftDay(date, 0)) {
+      form.querySelector('#bulk-deadline-error').textContent = '请选择有效日期';
+      return;
+    }
+    await runBulk('deadline', { date });
+    return;
+  }
   const quick = form.id === "quick-task-form";
   if (quick || form.id === "task-edit-form") {
     if (!canChangeTask(form.dataset.id || form.dataset.savingId)) return;
@@ -1348,6 +1541,7 @@ document.addEventListener("submit", async (e) => {
     const expected = existing ? form.dataset.taskEditSnapshot : undefined;
     form.dataset.savingId = draftId;
     busyTasks.add(draftId);
+    const bulkReceipt = bulkSaveReceipt;
     if (demo && quick) task.quickRecognition = { text: readQuickDraft.recognition().text, status: "done" };
     const saving = demo ? Promise.resolve() : saveStoredTask(task, expected, {
       quickRecognition: quick ? readQuickDraft.recognition() : undefined,
@@ -1378,7 +1572,10 @@ document.addEventListener("submit", async (e) => {
     } else if (ownsDrawer) restoreFocus({ key: "taskOpen", value: draftId });
     try {
       await saving;
-      if (epoch === accountVersion()) toast(isNotice(task) ? "通知已保存" : "任务已保存");
+      // A preceding batch can finish while this edit waits in the same queue.
+      // Its whole-batch undo must survive this unrelated save confirmation.
+      if (epoch === accountVersion() && bulkReceipt === bulkSaveReceipt)
+        toast(isNotice(task) ? "通知已保存" : "任务已保存");
     } catch (error) {
       if (epoch === accountVersion() && session.sync !== "error") toastError(error, "tasks_save");
     } finally {
@@ -1403,6 +1600,12 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") hideSidebarTooltip();
   const modalOpen = dialog.open || drawer.open;
+  if (e.key === "Escape" && ui.filterOpen && !modalOpen && !ui.mobileMenu) {
+    ui.filterOpen = false;
+    render();
+    document.querySelector('[data-action="filter-toggle"]')?.focus({ preventScroll: true });
+    return;
+  }
   if (e.key === "Tab" && ui.mobileMenu && !modalOpen) {
     const focusable = [
       ...document.querySelectorAll(".sidebar a,.sidebar button"),
@@ -1467,6 +1670,8 @@ drawer.addEventListener("cancel", (e) => {
 window.addEventListener("niuma:account-reset", () => {
   clearTimeout(quickPollTimer);
   quickPollTimer = quickPollEpoch = null;
+  clearBulkSelection(true);
+  bulkRunning = false;
   resetErrorFeedback();
   clearQuickEntry();
   recentTaskId = "";
@@ -1496,6 +1701,7 @@ window.addEventListener("niuma:account-reset", () => {
 });
 window.addEventListener("popstate", () => {
   recentTaskId = "";
+  clearBulkSelection(true);
   Object.assign(ui, readNavigation(new URLSearchParams(location.search), { today: todayKey(), preferences }));
   ui.mobileMenu = false;
   imports.cancelRecoveryNavigation();
@@ -1513,7 +1719,27 @@ window.addEventListener("niuma:sync", () => {
   const alert = document.querySelector("#sync-alert");
   if (alert) alert.innerHTML = syncAlert();
   syncTaskControls();
+  repaintBulkControls();
   if (session.sync === "saved" && !loading && ui.page === "tasks" && taskView() === "calendar") renderResults();
+});
+window.addEventListener('niuma:bulk-saved', event => {
+  if (demo || !event.detail?.state) return;
+  bulkSaveReceipt++;
+  state = event.detail.state;
+  // A retry can complete after the initiating promise already rejected. Clear
+  // that batch's stale error only once its persisted locks have been released.
+  if (!bulkRunning) {
+    const failure = bulkFailure;
+    const finishedFailure = failure?.awaitingSave && failure.tasks.every(task => !pendingBulkTaskIds().has(task.id));
+    const affectedIds = event.detail.affectedIds || (finishedFailure ? failure.tasks.map(task => task.id) : []);
+    const recovered = recoveredBulkTasks(state, affectedIds, failure?.tasks || []);
+    if (finishedFailure) clearBulkSelection();
+    if (finishedFailure || event.detail.undo && recovered.length)
+      toast('本批操作已保存', event.detail.undo && recovered.length ? () => runBulk('undo', { undo: event.detail.undo, undoTasks: recovered }) : undefined);
+  }
+  render();
+  repaintBulkControls();
+  if (drawer.open && !drawerEditing && editableTask(drawerId)) updateDrawer();
 });
 matchMedia("(max-width: 700px)").addEventListener("change", () => {
   ui.mobileMenu = false;
