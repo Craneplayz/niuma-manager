@@ -170,31 +170,48 @@ class TaskBulkTests(unittest.TestCase):
         self.assertEqual(self.state()[1], [dict(id='pending', state='applied', version=4)])
         self.assertEqual(restored['candidates'][0]['state'], 'applied')
 
-    def test_startup_publishes_legacy_records_once_and_preserves_user_decisions(self):
+    def test_startup_publishes_only_unambiguous_open_deadlines_once(self):
         rid = self.request['request_id']
         with app.connection() as db:
-            for identity, state, kind in [('postpone','pending','postpone'), ('cancel','pending','cancel'),
-                                          ('update','pending','update'), ('ignored','ignored','create')]:
-                card = dict(self.candidate, candidate_id=identity, notice_type=kind)
-                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state) VALUES(?,?,?,?,?)',
-                           (identity,'alice',rid,json.dumps(card),state))
+            for identity, kind, value, review in [
+                    ('future', 'create', '2099-10-23', False), ('expired', 'create', '2000-10-23', False),
+                    ('no-date', 'create', None, False), ('changed', 'postpone', '2099-10-23', False),
+                    ('unclear', 'create', '2099-10-23', True)]:
+                card = dict(self.candidate, candidate_id=identity, notice_type=kind, needs_review=review,
+                            deadline=dict(self.candidate['deadline'], value=value))
+                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
+                           (identity,'alice',rid,json.dumps(card)))
             archived = dict(self.request,request_id='archived')
             db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',
                        ('alice','archived','archived',json.dumps(archived),json.dumps(self.result)))
             db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1)',('alice','archived','archived','old','manual'))
             db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                        ('archived-card','alice','archived',json.dumps(self.candidate)))
+            db.execute("INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state,version) VALUES(?,?,?,?,'ignored',7)",
+                       ('manual-ignore','alice',rid,json.dumps(self.candidate)))
         app.initialize(recover=False)
-        tasks = self.call('/workspace')[1]['tasks']
-        self.assertEqual(tasks['value'][0], self.task)
-        items = {t['recognitionHistory'][0]['storageId']:t for t in tasks['value'][1:]}
-        self.assertEqual(set(items), {'pending','postpone','cancel','update'})
-        self.assertEqual(items['pending']['content_type'], 'task')
-        for kind in ('postpone','cancel','update'):
-            self.assertEqual(items[kind]['content_type'], 'notice')
-            self.assertEqual(items[kind]['recognitionHistory'][0]['noticeType'], kind)
+        workspace, candidates = self.state()
+        states = {row['id']: (row['state'], row['version']) for row in candidates}
+        self.assertEqual(states['archived-card'], ('pending', 1))
+        self.assertEqual(states['manual-ignore'], ('ignored', 7))
+        for key in ('expired','no-date','unclear','changed'):
+            self.assertEqual(states[key], ('ignored', 2))
+        self.assertEqual(workspace['value'][0], self.task)
+        self.assertEqual([t['recognitionHistory'][0]['storageId'] for t in workspace['value'][1:]], ['future'])
+        self.assertEqual(states['future'], ('applied', 2))
+        self.assertEqual(states['pending'], ('ignored', 2))
         app.initialize(recover=False)
-        self.assertEqual(self.call('/workspace')[1]['tasks'], tasks)
+        self.assertEqual(self.state(), (workspace, candidates))
+
+    def test_legacy_deadline_uses_local_day_and_exact_instant(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 11, 25, 16, tzinfo=timezone.utc)
+        for precision, value, expected in [('date','2026-11-25',False), ('date','2026-11-26',True),
+                ('datetime','2026-11-25T23:59:59+08:00',False), ('datetime','2026-11-26T00:00:00+08:00',True)]:
+            with self.subTest(value=value):
+                card = dict(self.candidate, needs_review=False,
+                            deadline=dict(self.candidate['deadline'], precision=precision, value=value))
+                self.assertEqual(app.recognition.current_legacy_task(card, {'timezone':'Asia/Shanghai'}, now), expected)
 
     def test_migration_keeps_existing_completed_and_recycled_tasks(self):
         request_id = self.request['request_id']

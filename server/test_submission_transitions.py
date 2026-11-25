@@ -115,9 +115,14 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
             app.initialize()
             saved=self.call('/workspace')[1]['tasks']['value']
             self.assertEqual(saved, [task])
-            old = next(a for a in self.details()['observation']['actions']
-                       if a['action_id'] == submission_runtime.identity('candidate', second['id']))
-            self.assertEqual(old['source_completion_paused'], not resume_before)
+            row = self.candidate_row(second)
+            self.assertEqual(row['state'], 'ignored')
+            self.assertEqual(json.loads(row['resolution'])['action'], 'legacy_history_only')
+            actions = self.details()['observation']['actions']
+            aid = submission_runtime.identity('candidate', second['id'])
+            self.assertEqual(next(a for a in actions if a['action_id'] == aid)['source_completion_paused'],
+                             not resume_before)
+            return
         body=self.update(second,task)
         # The same successful resolution must not replay the transfer.
         self.assertEqual(self.call('/recognition/candidates/'+second['id']+'/resolve',body)[0],200)
