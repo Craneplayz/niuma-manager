@@ -107,6 +107,7 @@ export function createSourceSyncUI(host) {
   }
   function cancelRead() {
     readSequence++;
+    if (loading) { refreshSequence++; refreshing = false; }
     readController?.abort();
     readController = null; loading = false;
     clearPoll();
@@ -124,6 +125,8 @@ export function createSourceSyncUI(host) {
   }
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
   function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
+  // Only the first progress read is needed to discover an already running import.
+  function blocksStart() { syncAccount(); return writing || active() || (!loaded && loading); }
   function isRunning() { syncAccount(); return writing || active(); }
   function progressLabel() {
     syncAccount();
@@ -225,12 +228,14 @@ export function createSourceSyncUI(host) {
       if (!valid()) return false;
       if (response?.contract_version !== VERSION || !Array.isArray(response.runs) || response.runs.length > 20) throw new Error("导入服务版本不匹配，请刷新或更新服务。");
       lastCheck = checkLast(response.last_check);
+      const wasActive = active();
       acceptList(response.runs.map(checkRun));
       focusedRun = runs.find(run => ACTIVE.has(run.state))?.run_id || focusedRun;
       const focused = runs.find(run => run.run_id === focusedRun);
       // A quiet scheduled run may finish entirely between polls and only update last_check.
       if (focused && !ACTIVE.has(focused.state) && lastCheck && lastCheck.run_id !== focused.run_id &&
           Date.parse(lastCheck.updated_at) > Date.parse(focused.updated_at)) focusedRun = null;
+      if (!wasLoaded || wasActive !== active()) redraw();
       const refreshed = await changed(valid);
       if (valid() && refreshed) notifyQuiet();
       return refreshed;
@@ -247,7 +252,8 @@ export function createSourceSyncUI(host) {
   }
   async function act(action, id = null, selection = null) {
     if (!allowed() || writing) return false;
-    if (action !== "stop" && (active() || loading || refreshing || host.isImportBusy())) {
+    const blocked = action === "start" ? blocksStart() : isBusy();
+    if (action !== "stop" && (blocked || host.isImportBusy())) {
       error = { message: "请先等待当前导入完成，再继续操作。" }; redraw(); return false;
     }
     let selected = selection;
@@ -500,7 +506,7 @@ export function createSourceSyncUI(host) {
     const ordinary = all.filter(entry => !required.includes(entry)).slice(0, Math.max(0, 20 - required.length));
     const history = all.filter(entry => required.includes(entry) || ordinary.includes(entry));
     if (!history.length) return "";
-    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary><button type="button" class="btn quiet" data-import-action="refresh">刷新</button>${history.map(entry => entry.html).join("")}</details>`;
+    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(entry => entry.html).join("")}</details>`;
   }
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;
@@ -563,5 +569,5 @@ export function createSourceSyncUI(host) {
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
+  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, blocksStart, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
 }

@@ -187,7 +187,8 @@ test("retrying the same import history row reports the new diagnosis and retains
   await expect(alert).toContainText(firstId);
   await alert.getByRole('button', { name: '反馈此问题' }).click();
   await expect(alert.getByRole('button', { name: '已反馈' })).toBeDisabled();
-  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await row.locator('[data-import-history-item="0"]').click();
+  await row.locator('[data-import-history-item="0"]').click();
   await expect(alert.getByRole('button', { name: '已反馈' })).toBeDisabled();
   await row.getByRole('button', { name: '处理未完成', exact: true }).click();
   await expect(alert).toContainText(nextId);

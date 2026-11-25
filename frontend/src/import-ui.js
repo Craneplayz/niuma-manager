@@ -99,12 +99,12 @@ export function createImportUI(host) {
       else host.toast(status.message);
     },
   });
-  const syncIsActive = () => sourceSync.isBusy();
+  const syncBlocked = () => busy || credentialsLoading || stopping || sourceSync.blocksStart();
   const syncOwnsBatch = batch => batch?.sourceSyncManaged === true || sourceSync.ownsRequest(batch?.request?.request_id);
   const refreshSourceSync = () => sourceSync.load();
   const schedule = createSyncScheduleUI({
     ...host, isDemo: demo, isConnected: () => Boolean(credentials?.configured),
-    isBusy: () => blocked() || stopping || sourceSync.isBusy(),
+    isBusy: syncBlocked,
     isRunning: () => sourceSync.isRunning(),
     getProgressLabel: () => sourceSync.progressLabel(),
     canStop: () => sourceSync.canStop(),
@@ -365,7 +365,7 @@ export function createImportUI(host) {
       }
       return;
     }
-    if (blocked() || syncIsActive()) return;
+    if (syncBlocked()) return;
     if (!credentials?.configured) { openCredentials(); return; }
     await schedule.start();
   }
@@ -462,10 +462,6 @@ export function createImportUI(host) {
     }
     if (action === "stop") {
       controller?.abort();
-      return true;
-    }
-    if (action === "refresh") {
-      if (allowed()) { await host.refresh(); await load(); await refreshSourceSync(); }
       return true;
     }
     if (action === "credentials") {

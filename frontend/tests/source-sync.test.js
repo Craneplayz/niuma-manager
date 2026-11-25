@@ -227,7 +227,7 @@ check('a network-uncertain start reuses its operation id without render resubmis
   await f.ui.start(); assert.equal(f.posts().length, 2, 'an active run cannot start competing work');
 });
 
-check('completed server task creation refreshes both tasks and candidates while the completion stays locked', async () => {
+check('starting during a completion refresh preserves results and ignores the superseded read', async () => {
   const active = syncRun({state: 'recognizing', states: ['running']}), f = fixture([active]);
   await f.ui.load();
   const finished = syncRun({added: 1}); finished.revision = 2;
@@ -241,9 +241,11 @@ check('completed server task creation refreshes both tasks and candidates while 
     return true;
   });
   const reading = f.ui.load(); await new Promise(resolve => setImmediate(resolve));
-  await f.ui.start(); assert.equal(f.posts().length, 0); assert.equal(f.ui.isBusy(), true);
-  refresh.resolve(); await reading;
-  assert.equal(f.ui.isBusy(), false);
+  const starting = f.ui.start();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.posts().length, 1);
+  refresh.resolve(); await reading; await starting;
+  assert.equal(f.ui.canStop(), true);
   assert.deepEqual(f.remote.observed, {tasks: [{id: 'automatically-created'}], batches: [{items: [{state: 'applied'}]}]});
   assert.equal(f.calls.some(call => call.path.endsWith('/resolve')), false);
 });

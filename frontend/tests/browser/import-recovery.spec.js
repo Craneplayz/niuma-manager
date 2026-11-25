@@ -36,6 +36,7 @@ async function openHistory(page, runs, linked = null, { batches = [], tasks = []
     else throw new Error("Unmocked API: " + path);
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
   });
+  await page.clock.install();
   await page.goto("/");
   if (await page.locator("#sidebar-show").isVisible()) await page.locator("#sidebar-show").click();
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
@@ -131,7 +132,7 @@ test("historical receipts open the saved task and keep their original totals aft
   const row = page.locator(`[id="sync-run-${run.run_id}"]`), categories = row.locator(".sync-category");
   await expect(categories).toHaveText(["错误 1 条", "新增 1 项", "历史记录 1 项"]);
   run.records[1].recovered = true; run.state = "succeeded"; run.revision++;
-  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await Promise.all([page.waitForResponse("**/api/sources/sync-runs"), page.clock.fastForward(31000)]);
   await expect(categories).toHaveText(["新增 1 项", "历史记录 1 项", "错误 1 条"]);
   await row.getByRole("button", { name: "历史记录 1 项", exact: true }).click();
   await row.locator(".sync-result-name").click();
@@ -169,7 +170,7 @@ test("recovery highlights the matching source results and keeps the batch headin
   await page.evaluate(() => window.scrollBy(0, 120));
   await page.keyboard.press("ArrowDown");
   await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(2);
-  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await Promise.all([page.waitForResponse("**/api/sources/sync-runs"), page.clock.fastForward(31000)]);
   await expect(page.locator("[data-source-sync-highlight]")).toHaveCount(2);
   const targetRow = page.locator(`[id="sync-run-${target.run_id}"]`);
   await targetRow.getByRole("button", { name: "新增 3 项", exact: true }).click();
@@ -267,7 +268,7 @@ test("whole connection recovery highlights every related category across several
   }
   await expect(first.locator('[data-source-sync-category="updated"]')).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(`[id="sync-run-${unrelated.run_id}"] [data-source-sync-highlight]`)).toHaveCount(0);
-  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await Promise.all([page.waitForResponse("**/api/sources/sync-runs"), page.clock.fastForward(31000)]);
   await expect(page.locator(".sync-result-name[data-source-sync-highlight]")).toHaveCount(5);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath("import-recovery-multiple-batches.png"), fullPage: true });
