@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
@@ -147,4 +147,32 @@ test('four consecutive notices can finish independently after refresh', async ({
   await expect(pending).toHaveCount(0);
   await page.reload();
   expect(await savedIds()).toEqual(jobs.map(job => job.request_id).sort());
+});
+
+test('a notice submitted with all twenty windows busy survives reload and starts in the next free window', async ({page,context,request}) => {
+  await open(page,context);
+  const fixture = JSON.parse(await readFile('../contracts/text-to-app/text-contract-v0.2.json', 'utf8'));
+  const records = [{...fixture.request.records[0], platform: 'manual'}];
+  const blockers = [];
+  for (let i = 0; i < 20; i++) {
+    const id = 'window-' + i;
+    const response = await page.request.post(api+'/api/recognition/text-jobs', {
+      data: {...fixture.request, request_id:id, records}
+    });
+    expect(response.ok()).toBeTruthy();
+    blockers.push({request_id:id});
+  }
+  const waiting = await start(page, '排队样例');
+  expect(waiting.state).toBe('queued');
+  await page.reload();
+  await expect(page.getByText('已收到，正在排队等待识别…')).toBeVisible();
+  await finish(request,blockers.pop(),'empty');
+  await expect(page.getByText('正在识别，完成后将自动加入清单…')).toBeVisible();
+  await finish(request,waiting,'success');
+  await expect.poll(async () => {
+    const response = await page.request.get(api + '/api/tasks/quick-recognition');
+    return (await response.json()).value.some(task =>
+      task.recognitionHistory?.some(entry => entry.requestId === waiting.request_id));
+  }).toBe(true);
+  for (const job of blockers) await finish(request,job,'empty');
 });

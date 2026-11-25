@@ -43,7 +43,7 @@ _POLICY_COMPONENTS = {name:hashlib.sha256((POLICY_ROOT/name).read_text(encoding=
 def recognize(request, ApiError, *, on_admitted=None):
     """Queue model admission across accounts, features and transports."""
     _EXECUTION.policy = None
-    if not _ACTIVE.acquire():
+    if not _ACTIVE.acquire(durable=on_admitted is not None):
         error=ApiError(503, WAIT_ERROR)
         error.code, error.diagnostic='agent_unavailable','model_busy'
         raise error

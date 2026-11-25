@@ -96,7 +96,7 @@ def initialize(recover=True):
         initialize_accounts(db)
         recognition.initialize(db)
         quick_waiting = quick_task_jobs.initialize(db, recover=recover, resume_queued=runtime_environment.allow_background_recovery())
-        text_jobs.initialize(db, recover=recover)
+        text_waiting = text_jobs.initialize(db, recover=recover, resume_queued=runtime_environment.allow_background_recovery())
         usage.initialize(db)
         error_reports.initialize(db)
         source_sync.initialize(db)
@@ -109,6 +109,8 @@ def initialize(recover=True):
         if manual_materials.enabled():
             manual_materials.initialize(db,recover=recover and not wechat_enabled())
         task_decomposition.initialize(db)
+    if text_waiting:
+        text_jobs.dispatch(DB, ApiError)
     if quick_waiting:
         quick_task_jobs.wake(DB)
     if recover and wechat_enabled() and runtime_environment.allow_background_recovery():

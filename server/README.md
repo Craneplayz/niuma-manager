@@ -247,7 +247,7 @@ PDF 证据只采用通过可见性校验的本地文字或视觉转录；超过�
 合成文件端到端验收：安装 `ddl_text/media_test_requirements.txt`，然后运行 `python server/run_teaching_attachment_smoke.py --env-file <测试模型配置文件> --output <新的本地结果路径>`。覆盖真实 PDF/扫描 PDF/PNG/DOCX、采集导出、同步 API、真实模型及任务入库；不访问私人课程或校园网，结果包含输入、输出、用时和最终任务。追加 `--only scan.pdf image.png` 可仅复验指定格式；脚本等待附件读取及任务识别的完整预算，退出时先等待请求释放临时数据库。离线回归运行 `python -m unittest discover -s server -p 'test_teaching_assets.py' -v`。
 文本识别默认由业务 API 直接调用 `ddl_text.pipeline.process_request`，读取当前环境的 `.env.model` 或容器环境变量，无需启动 1333；未设置环境身份的旧本地入口仍兼容根目录 `.env`。
 在启动业务 API 的终端设置 `TEXT_HARNESS_URL`（及可选 `TEXT_HARNESS_TOKEN`）时，识别改走原 HTTP 服务；连接失败不会自动切换模型或重复调用。
-同一后端进程的文本、教学网、附件识别、重识别、规划及 AI 拆解合计最多 20 个模型请求执行，额外最多 100 个按到达顺序排队，等待上限 180 秒；队列满或等待超时返回 503，不开始模型调用。
+同一后端进程的文本、教学网、附件识别、重识别、规划及 AI 拆解合计最多 20 个模型请求执行，共享模型队列另有 100 个等待位。普通请求最多等待 180 秒，队满或等待超时返回 503。已持久化的文本通知在后台等候空位，可随时停止。
 同步请求排队时客户端断连会撤销等待；已经开始的模型调用不因浏览器取消而保证中止，生成预览仍不写入任务或日程；该限制为单进程共享，多进程部署须另行提供跨进程控制。
 规划默认调用 `task_planning.planning_harness.generate`，同样读取当前环境的模型配置，沿用独立规划服务的七牛配置要求；未配置密钥返回 503，不用本地假排程代替模型。
 显式导出 `HARNESS_URL` 时走原 HTTP 通道，仍支持 `HARNESS_TOKEN`；HTTP 失败不会转而再调用本地模型。恢复直调需清除此环境变量并重启，`.env` 中的路由变量不生效。
@@ -391,7 +391,7 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 
 接线回归：`python -m unittest server.test_submission_runtime server.test_public_sources server.test_source_jobs server.test_source_schedule server.test_teaching_reprocessing server.test_manual_materials -q`（`PYTHONPATH` 包含仓库根及 `server`）；浏览器完整入口验收按 [前端说明](../frontend/README.md) 执行，合成外部服务与真实模型联调须分别记录。
 
-文本导入后台接口见 [text-import-jobs/0.1](../contracts/docs/text-import-jobs-v0.1.md)：允许同账号同时提交多条，接受后立即持久化，复用原识别队列和候选保存；刷新不重提请求，停止拒绝迟到入库，重启标记中断并等待用户重试。验证：`python -m unittest discover -s server -p test_text_jobs.py -v`，使用临时数据库和合成模型，不读取私人数据。
+文本导入后台接口见 [text-import-jobs/0.1](../contracts/docs/text-import-jobs-v0.1.md)：允许同账号同时提交多条，接受后立即持久化，最多 20 个后台线程从已保存的文本中按提交顺序领取，满员时继续收件；停止拒绝迟到入库，允许后台恢复时重启续办排队文本，已开始的识别标为中断。验证：`python -m unittest discover -s server -p test_text_jobs.py -v`，使用临时数据库和合成模型，不读取私人数据。
 
 文本、教学网和手动文件导入的错误分类、诊断编号及验证边界见 [统一错误约定](../contracts/docs/recognition-errors.md)。文本和文件沿用原有总预算，仅允许一次草稿纠错；DeepSeek 文本/文件识别与教学网一致关闭思考模式，无须改配置。开发和测试环境均可查看详情；生产保留安全诊断供维护人员排查，只向用户返回分类和编号。所有环境都不记录原文、模型回答、异常消息和凭据。
 

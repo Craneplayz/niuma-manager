@@ -766,8 +766,9 @@ function openTask(id, editing = false, selectedDate = "") {
       isDemo: demo,
       async submitNotice(body, signal) {
         await flushStore();
-        await api("/api/recognition/text-jobs", body, "POST", { signal });
-        return { kind: "text", id: body.request_id, requestId: body.request_id };
+        const receipt = await api("/api/recognition/text-jobs", body, "POST", { signal });
+        const state = receipt.jobs.find(job => job.request_id === body.request_id)?.state;
+        return { kind: "text", id: body.request_id, requestId: body.request_id, queued: state === "queued" };
       },
       async readLink(url, signal) {
         if (!url.startsWith("https://")) return "";

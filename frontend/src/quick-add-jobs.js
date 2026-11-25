@@ -37,10 +37,17 @@ export function createQuickAddJobs({ render, refreshTasks, escapeHtml, toast }) 
         const response = isFile ? await api("/api/materials/imports/" + encodeURIComponent(job.id))
           : await (textJobs ??= api("/api/recognition/text-jobs"));
         if (account !== session.user?.id || !jobs.includes(job)) return;
-        const receipt = isFile ? response : response.jobs.find(j => j.request_id === job.id);
-        if (!receipt) throw new Error("暂时找不到这次识别记录");
+        let receipt = isFile ? response : response.jobs.find(j => j.request_id === job.id);
+        if (!receipt) {
+          const detail = await api("/api/recognition/text-jobs/" + encodeURIComponent(job.id));
+          if (account !== session.user?.id || !jobs.includes(job)) return;
+          receipt = detail.jobs[0];
+        }
         const status = isFile ? receipt.status : receipt.state;
-        if (["running","queued","recognizing"].includes(status)) continue;
+        if (["running","queued","recognizing"].includes(status)) {
+          job.queued = !isFile && status === "queued";
+          continue;
+        }
         const count = await refreshTasks(job.requestId);
         if (account !== session.user?.id || !jobs.includes(job)) return;
         if (["success","succeeded","no_tasks"].includes(status)) {
@@ -90,7 +97,7 @@ export function createQuickAddJobs({ render, refreshTasks, escapeHtml, toast }) 
       return '<p class="status-note" role="status">' + (job.message ? escapeHtml(job.message) +
         ' <button class="btn quiet" data-quick-job="' + id + '" data-job-action="retry">重试</button>' +
         ' <button class="btn quiet" data-quick-job="' + id + '" data-job-action="dismiss">关闭</button>'
-        : "正在识别，完成后将自动加入清单…") + '</p>';
+        : job.queued ? "已收到，正在排队等待识别…" : "正在识别，完成后将自动加入清单…") + '</p>';
     }).join("");
   }
   return { track, markup, action, syncAccount };

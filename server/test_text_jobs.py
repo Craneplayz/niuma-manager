@@ -255,6 +255,67 @@ class TextJobsTests(unittest.TestCase):
         self.assertTrue(all(j['state'] == 'stopped' for j in self.call()[1]['jobs']))
         self.assertEqual(self.call('/recognition/batches')[1],[])
 
+    def test_full_windows_accept_fifo_backlog_and_publish_independent_results(self):
+        from queue import Queue
+        claimed = Queue()
+        ids = [f'notice-{i}' for i in range(23)]
+        gates = {rid: threading.Event() for rid in ids}
+
+        def recognize(request, error, *, on_admitted):
+            rid = request['request_id']
+            on_admitted()
+            claimed.put(rid)
+            if not gates[rid].wait(30):
+                raise AssertionError('test did not release worker')
+            return self.outcome(request)
+
+        def submit(index, uid):
+            status, result = self.call(body=dict(self.request, request_id=ids[index]), uid=uid)
+            self.assertEqual(status, 200)
+            return next(job['state'] for job in result['jobs'] if job['request_id'] == ids[index])
+
+        with patch.object(recognition, 'recognize', recognize):
+            try:
+                for i in range(20):
+                    submit(i, 'A')
+                self.assertEqual({claimed.get(timeout=5) for _ in range(20)}, set(ids[:20]))
+                # A fills the windows; B can submit, replay and cancel/retry while all are busy.
+                self.assertEqual(submit(20, 'B'), 'queued')
+                self.assertEqual(submit(20, 'B'), 'queued')
+                self.assertEqual(submit(21, 'A'), 'queued')
+                self.assertEqual(submit(22, 'B'), 'queued')
+                path = '/recognition/text-jobs/' + ids[20]
+                self.assertEqual(self.call(path, uid='A')[0], 404)
+                for action in ('stop', 'retry'):
+                    self.assertEqual(self.call(path+'/'+action, {'attempt': 1}, uid='B')[0], 200)
+                # One free window drains the waiting jobs, even while the first notice is blocked.
+                gates[ids[19]].set()
+                for i in (21, 22, 20):
+                    self.assertEqual(claimed.get(timeout=5), ids[i])
+                    gates[ids[i]].set()
+                self.assertEqual(self.call('/recognition/text-jobs/'+ids[0])[1]['jobs'][0]['state'], 'recognizing')
+            finally:
+                for gate in gates.values():
+                    gate.set()
+                text_jobs.wait_for_jobs(app.DB)
+        self.assertTrue(claimed.empty())
+        for uid in ('A', 'B'):
+            self.assertTrue(all(job['state'] == 'no_tasks' for job in self.call(uid=uid)[1]['jobs']))
+
+    def test_startup_resumes_queued_receipts_and_detail_outlives_history(self):
+        with app.connection() as db:
+            for i in range(101):
+                text_jobs.create(db, 'A', dict(self.request, request_id=f'backlog-{i}'), app.ApiError)
+                db.commit()
+        oldest = '/recognition/text-jobs/backlog-0'
+        self.assertEqual(len(self.call()[1]['jobs']), 100)
+        self.assertEqual(self.call(oldest)[1]['jobs'][0]['state'], 'queued')
+        with patch.object(recognition, 'recognize', lambda req, err, **kw: self.outcome(req)), \
+                patch('app.runtime_environment.allow_background_recovery', return_value=True):
+            app.initialize()
+            text_jobs.wait_for_jobs(app.DB)
+        self.assertEqual(self.call(oldest)[1]['jobs'][0]['state'], 'no_tasks')
+
     def test_receipt_disconnect_does_not_prevent_accepted_work(self):
         class ClosedReceipt:
             command = 'POST'
