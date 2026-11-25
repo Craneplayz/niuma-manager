@@ -15,8 +15,9 @@ test("approved logo and white theme stay consistent across the workspace and adm
     return route.fulfill({ status: 500, json: { error: "Unexpected synthetic API" } });
   });
   const fits = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.goto("/?demo=1");
+  await page.goto("/?demo=1&page=tasks");
   await expect(page.locator(".task-row").first()).toBeVisible();
+  const listBounds = await page.locator("#task-results").boundingBox();
   const logo = page.locator(".brand-logo");
   await expect.poll(() => logo.evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
   const src = await logo.getAttribute("src");
@@ -31,6 +32,11 @@ test("approved logo and white theme stay consistent across the workspace and adm
   await page.getByRole("button", { name: "导入内容", exact: true }).click();
   await expect(page.getByRole("heading", { name: "导入", exact: true })).toBeVisible();
   await fits();
+  for (const selector of [".import-source-tabs", "#import-text", ".import-results"]) {
+    const bounds = await page.locator(selector).boundingBox();
+    expect(bounds.x).toBeCloseTo(listBounds.x, 1);
+    expect(bounds.width).toBeCloseTo(listBounds.width, 1);
+  }
   await page.screenshot({ path: info.outputPath("brand-import.png"), fullPage: true });
   await page.goto("/admin.html");
   await expect(page.getByRole("heading", { name: "管理后台登录" })).toBeVisible();
