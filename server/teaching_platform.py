@@ -18,6 +18,39 @@ def policy(mode, text_policy=None):
     return dict(info, version='teaching-policy-v1:' + hashlib.sha256(canonical(info)).hexdigest())
 
 
+# A reference to the assignment's own attachment stays in the primary reader.
+# Only an instruction that points outside this record requests course context.
+_REFERENCE_TARGET = (
+    r'《[^《》\n]{1,80}》|(?:课程|教学)?(?:大纲|日历|课件)|课程(?:规定|规则|安排)|'
+    r'(?:此前|之前|先前|上次|先前发布的|此前发布的)?(?:通知|公告)|'
+    r'(?i:\bsyllabus\b|\bcourse (?:calendar|policy|schedule)\b|\bprevious announcement\b)'
+)
+_COURSE_REFERENCE = re.compile(
+    r'(?:参见|详见|请见|见|参考|根据|按照?|参照|依照|以|'
+    r'(?i:\bsee\b|\brefer to\b|\baccording to\b))'
+    r'[ \t]*(?:本|课程的|本课程的|老师发布的|the )?(?P<target>' + _REFERENCE_TARGET + r')'
+    r'(?:中的?|的)?[ \t]*(?P<title>《[^《》\n]{1,80}》)?'
+)
+
+
+def course_references(entry):
+    text = entry['record']['text']
+    own_files = {(ref.get('label') or '').casefold() for ref in entry['record']['references']
+                 if ref['kind'] in ('attachment', 'content_image')}
+    targets = set()
+    for match in _COURSE_REFERENCE.finditer(text):
+        target = (match['title'] or match['target']).casefold()
+        if target.strip('《》') in own_files:
+            continue
+        # “以课件和实验为主” describes exam scope, without delegating a rule.
+        if re.search(r'(?:选读|拓展阅读|延伸阅读|有兴趣的同学)[^。；\n]{0,16}$', text[max(0, match.start()-25):match.start()]):
+            continue
+        if match.group().startswith('以') and not re.match(r'[^，。；\n]{0,12}为准', text[match.end():]):
+            continue
+        targets.add(target)
+    return targets
+
+
 def route(entry):
     item = entry.get('platform_item')
     if not item:
@@ -32,7 +65,7 @@ def route(entry):
     # the source explicitly delegates to an attachment or another announcement.
     if r['references'] or r['body_status'] != 'complete':
         return 'teaching'
-    if re.search(r'(?:详见|参见|见|按照?|根据).{0,12}(?:附件|大纲|课件|此前通知|课程日历)', text):
+    if course_references(entry) or re.search(r'(?:详见|参见|见|按照?|根据).{0,12}附件', text):
         return 'teaching'
     if item['kind'] == 'announcement':
         if not r['published_at'] or r['published_at']['basis'] != 'source' or re.search(r'教学周|第[零一二两三四五六七八九十百0-9]+周|课程规则', text):

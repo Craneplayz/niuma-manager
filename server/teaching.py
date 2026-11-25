@@ -55,6 +55,7 @@ def initialize(db):
     teaching_identity.initialize_gradebook(db)
     teaching_identity.upgrade_pending_candidates(db)
     upgrade_display_titles(db)
+    course_context.migrate_implicit_dependencies(db)
 
 
 def upgrade_display_titles(db):

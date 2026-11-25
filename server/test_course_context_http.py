@@ -54,8 +54,8 @@ class CourseContextHTTPTests(unittest.TestCase):
         if expected!=200:return batches
         return next(b for b in batches if b['request']['request_id']==rid)
 
-    def file_source(self,name,*,course='synthetic-course'):
-        value=request(name,'练习内容见附件。',course=course)
+    def file_source(self,name,*,course='synthetic-course',text='练习内容见附件。'):
+        value=request(name,text,course=course)
         value['records'][0]['record']['references']=[dict(ref_id='file:1',kind='attachment',label='01.pdf',read_state='unread',text=None)]
         data=('synthetic-pdf-'+name).encode()
         return value,dict(ref_id='file:1',data=data,sha256=hashlib.sha256(data).hexdigest(),mime_type='application/pdf')
@@ -83,7 +83,7 @@ class CourseContextHTTPTests(unittest.TestCase):
             with self.subTest(missing=missing):
                 primary,asset=self.file_source('a-'+missing,course=missing)
                 primary['records'][0]['record']['body_status']='partial' if missing=='incomplete' else 'complete'
-                other=request('b-'+missing,'请完成课堂练习。',course=missing)
+                other=request('b-'+missing,'课堂练习要求见《a-'+missing+'》。',course=missing)
                 raw=[primary,other];assets={primary['records'][0]['record']['input_id']:[asset]}
                 views=self.sync(raw,assets)['requests'];rid=views[0]['request_id'];other_rid=views[1]['request_id']
                 classify=lambda record,**kwargs:self.file_classifier(record,missing=missing,**kwargs)
@@ -117,8 +117,8 @@ class CourseContextHTTPTests(unittest.TestCase):
                 self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1 if missing=='incomplete' else 2)
 
     def test_cold_cache_reordering_saves_first_result_without_invalidating_again(self):
-        primary=request('homework','请完成第四章书面作业。')
-        a,a_file=self.file_source('a-material');z,z_file=self.file_source('z-material')
+        primary=request('homework','请完成第四章书面作业，截止时间见教学大纲。')
+        a,a_file=self.file_source('a-material',text='教学大纲见附件。');z,z_file=self.file_source('z-material',text='教学大纲见附件。')
         rid=self.sync([primary,a,z],{'a-material':[a_file],'z-material':[z_file]})['requests'][0]['request_id']
         acct=teaching.account('synthetic-course-user')
         def selection():
@@ -162,8 +162,8 @@ class CourseContextHTTPTests(unittest.TestCase):
         for replay in (False,True):
             with self.subTest(reprocessing=replay):
                 course='rank-replay' if replay else 'rank-normal'
-                iid=course+'-task';primary=request(iid,'请完成书面作业。',course=course)
-                pairs=[self.file_source(course+'-'+name,course=course) for name in 'abcdefz']
+                iid=course+'-task';primary=request(iid,'请完成书面作业，截止时间见教学大纲。',course=course)
+                pairs=[self.file_source(course+'-'+name,course=course,text='教学大纲见附件。') for name in 'abcdefz']
                 raw=[primary]+[p[0] for p in pairs]
                 assets={p['records'][0]['record']['input_id']:[a] for p,a in pairs}
                 rid=self.sync(raw,assets)['requests'][0]['request_id']
@@ -277,10 +277,37 @@ class CourseContextHTTPTests(unittest.TestCase):
                 again=self.run_record(matching[0],classifier=lambda *a,**k:self.fail('unchanged batch must reuse saved result'))
                 self.assertEqual([item['id'] for item in again['items']],[item['id'] for item in recovered['items']])
 
+    def test_lab_repeat_after_unrelated_pdf_becomes_readable(self):
+        primary = request('lab', '完成实验，提交要求详见本作业附件。')
+        primary['records'][0]['platform_item'] = dict(kind='listed_assignment', due=None, submitted=False)
+        lecture, asset = self.file_source('lecture')
+        sources = [dict(contract_version='teaching-capture/0.1', request=primary, assignment=None), lecture]
+        assets = {'lecture': [asset]}
+        views = self.sync(sources, assets)['requests']
+        rid, lecture_rid = [view['request_id'] for view in views]
+        batch = self.run_record(rid)
+        with app.connection() as db:
+            stored = db.execute('SELECT request FROM recognition_batches WHERE user_id=? AND request_id=?',
+                                (self.uid, rid)).fetchone()[0]
+        self.assertNotIn('course_context', json.loads(stored)['records'][0]['record'])
+        item = batch['items'][0]
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',
+                                   dict(action='create',auto_apply=True,version=1))[0], 200)
+        with app.connection() as db:
+            stored = teaching_assets.load(db,self.uid,teaching.account('synthetic-course-user'),lecture_rid)[0]
+            teaching_assets.save_read_cache(db,self.uid,stored,'v1',
+                                            dict(read_state='complete',text='新的实验讲义摘录'))
+        for _ in range(2):
+            views = self.sync(sources, assets)['requests']
+            self.assertNotIn('lab', [v['records'][0]['input_id'] for v in views])
+        with app.connection() as db:
+            self.assertEqual(db.execute('SELECT count(*) FROM recognition_candidates WHERE user_id=?',
+                                        (self.uid,)).fetchone()[0], 1)
+
     def test_actual_context_addition_and_removal_still_reject_stale_results(self):
         for change in ('add','remove'):
             with self.subTest(change=change):
-                primary=request('task-'+change,'请完成第四章作业。',course=change)
+                primary=request('task-'+change,'请完成第四章作业，规则见教学大纲。',course=change)
                 material=request('syllabus-'+change,'教学大纲：第四章作业于12月20日截止。',course=change)
                 rid=self.sync([primary,material])['requests'][0]['request_id']
                 original=teaching.validate_current_result
@@ -335,8 +362,8 @@ class CourseContextHTTPTests(unittest.TestCase):
         for handling in ('pending', 'applied', 'ignored'):
             with self.subTest(handling=handling):
                 iid='stable-'+handling
-                primary=request(iid,'请完成第四章书面作业。',course=iid)
-                material,asset=self.file_source('material-'+handling,course=iid)
+                primary=request(iid,'请完成第四章书面作业，规则见教学大纲。',course=iid)
+                material,asset=self.file_source('material-'+handling,course=iid,text='教学大纲见附件。')
                 sources=[primary,material];assets={material['records'][0]['record']['input_id']:[asset]}
                 rid=self.sync(sources,assets)['requests'][0]['request_id']
                 with self.reader(side_effect=AgentError('file_read_failed',False)):
