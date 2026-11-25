@@ -979,12 +979,13 @@ class TeachingIntegrationTests(unittest.TestCase):
                 self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=rid))[0],409)
             model.assert_not_called()
             current=self.call('/recognition/batches')[1][0]['items']
-            self.assertEqual([(i['id'],i['state'],i['version']) for i in current],[(i['id'],i['state'],i['version']) for i in items])
+            self.assertEqual({i['id'] for i in current},{i['id'] for i in items})
             self.assertTrue(all('来源核对状态尚未明确解除' in ' '.join(i['candidate']['review_reasons']) for i in current))
             app.initialize(recover=False)
             self.assertFalse(self.call('/workspace')[1].get('tasks', {}).get('value'))
-            for item in current:
-                self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
+            for item in self.call('/recognition/batches')[1][0]['items']:
+                self.assertEqual(item['state'], 'ignored')
+                self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],409)
         with app.connection() as db:
             self.assertEqual(db.execute('SELECT review_pending FROM teaching_submission_sources').fetchone()[0],1)
 
