@@ -1,18 +1,18 @@
 import { extractCourseSourcesFromHtml, deduplicateCourseSources, type CourseSourceRecord } from "./pku-source.js";
 import { addGradebookItems, gradebookItems, resolveGradebookLinks } from "./pku-gradebook.js";
+import { load } from "cheerio";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { DateTime } from "luxon";
-import { chromium, type Browser, type Locator, type Page } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { DEFAULT_TIMEZONE, parseEventTime } from "./core/time.js";
-import { enrichAssignmentSources } from "./pku-assignment.js";
+import { enrichAssignmentSources, enrichListedAssignment, parseAssignmentDetailHtml, readAssignmentDetail, validateAssignmentDestination } from "./pku-assignment.js";
 import { authenticatedAttachmentReader, enrichSourceAttachments } from "./pku-attachments.js";
 import type { DownloadObserver } from "./producer-observation.js";
 import { CollectionFailure, collectionStage } from "./collection-failure.js";
 
-const PKU_ORIGIN = "https://course.pku.edu.cn";
+import { PKU_ORIGIN, PKU_PORTAL_URL, readTeachingPage, pageAnchors, mapPages, allAnnouncements, courseAnnouncementTool, courseEntryId, UnrenderedTeachingPage, type TeachingPage } from "./pku-teaching-overview.js";
 const PKU_LOGIN_URL = `${PKU_ORIGIN}/webapps/bb-sso-BBLEARN/login.html`;
-const PKU_PORTAL_URL = `${PKU_ORIGIN}/webapps/portal/execute/tabs/tabAction?tab_tab_group_id=_1_1`;
 const SECTION_PATH_PATTERN = /\/content\/listContent(?:Editable)?\.jsp$/i;
 
 export type HomeworkStatus = "upcoming" | "past" | "no_deadline";
@@ -146,85 +146,123 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
         scopeWarning: "Only the requested source item and its references were inspected.",
       });
     }
-    await navigateCoursePage(page, PKU_PORTAL_URL);
-    await page.waitForTimeout(2_000);
-
-    // Blackboard separates current and archived enrolments. Prefer its own
-    // term selection, retaining the label filter for older portal layouts.
-    const currentModule = page.locator(".portlet").filter({has: page.getByRole("heading", {name:"当前学期课程", exact:true})});
-    const useCurrentModule = options.teachingSections && options.term === undefined && await currentModule.count() === 1;
-    const courses = discoverCourses(await collectAnchors(useCurrentModule ? currentModule : page), useCurrentModule ? null : term);
-    const sources: CourseSourceRecord[] = [];
-    const coverageWarnings: string[] = [];
-    let sectionsChecked = 0;
-
-    for (const course of courses) {
-      await navigateCoursePage(page, course.href);
-      await page.waitForTimeout(700);
-      const coursePageUrl = page.url();
-      const firstSource = sources.length;
-      const plan = planCourseCollection(course.name, await collectAnchors(page), options.allSections ?? false, options.teachingSections ?? false);
-      coverageWarnings.push(...plan.warnings);
-      if (plan.collectAnnouncements) {
-        const landingSources = extractCourseSourcesFromHtml(await page.content(), {
-          course: course.name,
-          courseEntry: { text: course.entryText, url: course.href },
-          section: "课程通知",
-          sourceUrl: coursePageUrl,
-          collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
-        });
-        sources.push(...(options.teachingSections ? landingSources.filter(source => source.kind === "announcement") : landingSources));
+    if (options.pageOnly && options.teachingSections && !options.allSections) {
+      try {
+        return await collectCourseSources(page, options, asOf, term, true);
+      } catch (error) {
+        // Older or client-rendered Blackboard layouts still need the browser.
+        if (!(error instanceof UnrenderedTeachingPage)) throw error;
       }
-
-      for (const section of plan.sections) {
-        sectionsChecked += 1;
-        await navigateCoursePage(page, section.href, 30_000);
-        await page.waitForTimeout(500);
-        sources.push(...extractCourseSourcesFromHtml(await page.content(), {
-          course: course.name,
-          courseEntry: { text: course.entryText, url: course.href },
-          section: section.text,
-          sourceUrl: page.url(),
-          collectedAt: DateTime.now().setZone(DEFAULT_TIMEZONE).toISO()!,
-        }));
-      }
-      if (options.teachingSections) {
-        const courseId = new URL(coursePageUrl).searchParams.get("course_id")
-          ?? course.href.match(/(?:key=|key%3D)(_\d+_\d+)/i)?.[1]
-          ?? new URL(course.href).searchParams.get("id");
-        if (courseId && /^_\d+_\d+$/.test(courseId)) {
-          const url = new URL("/webapps/bb-mygrades-BBLEARN/myGrades", PKU_ORIGIN);
-          url.searchParams.set("course_id", courseId);
-          url.searchParams.set("stream_name", "mygrades");
-          try {
-            const response = await context.request.get(url.href, {timeout: 15000, maxRedirects: 0});
-            try {
-              if (!response.ok()) throw new Error("gradebook unavailable");
-              const html = await response.text();
-              if (!html.includes("sortable_item_row")) coverageWarnings.push(course.name + "：成绩明细为空或未识别，已保留课程栏目。");
-              const listed = sources.slice(firstSource);
-              const items = gradebookItems(html, url);
-              await resolveGradebookLinks(context.request, listed, items, url);
-              sources.push(...addGradebookItems(listed, items, url, course.name, asOf.toISO()!));
-            } finally { await response.dispose(); }
-          } catch {
-            coverageWarnings.push(course.name + "：成绩明细不可用，已保留课程栏目。");
-          }
-        }
-      }
-      for (const source of sources.slice(firstSource)) source.course_term_label = course.termLabel;
     }
-
-    const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
-    const sourceRecords = options.pageOnly ? detailed : await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
-    return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
-      asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
-      allSections: options.allSections ?? false, coverageWarnings,
-      ...(options.teachingSections ? {scopeWarning: "Inspected course assignment, announcement and teaching-content sections, native assignment details and gradebook assignment rows when available. Nested folders are outside this scan."} : {}),
-    });
+    return await collectCourseSources(page, options, asOf, term, false);
   } finally {
     await closeBrowser(browser);
   }
+}
+
+export async function collectCourseSources(page: Page, options: ScrapeOptions, asOf: DateTime, term: string | null, direct: boolean) {
+  const request = page.context().request;
+  const readPage = async (href: string, settleMs: number): Promise<TeachingPage> => {
+    if (direct) return collectionStage("navigation", () => readTeachingPage(request, href));
+    await navigateCoursePage(page, href);
+    await page.waitForTimeout(settleMs);
+    return { url: page.url(), html: await page.content() };
+  };
+
+  const portal = await readPage(PKU_PORTAL_URL, 2000);
+  const $ = load(portal.html);
+  const links = pageAnchors($, $.root(), portal.url);
+  const current = $(".portlet").filter((_i, el) => /^(?:当前学期课程|current (?:term|semester) courses)$/i.test($(el).find("h2").first().text().trim()));
+  const useCurrent = options.teachingSections && options.term === undefined && current.length === 1;
+  const courses = discoverCourses(useCurrent ? pageAnchors($, current, portal.url) : links, useCurrent ? null : term);
+  if (direct && (!courses.length || (options.term === undefined && !useCurrent))) throw new UnrenderedTeachingPage();
+  const announcements = direct ? await allAnnouncements(portal, discoverCourses(links, null), href => readPage(href, 0)) : null;
+  const collectedAt = asOf.toISO()!;
+  const byCourse = await mapPages(courses, direct ? 3 : 1, async course => {
+    const landing = await readPage(course.href, 700);
+    const courseId = new URL(landing.url).searchParams.get("course_id") ?? courseEntryId(course.href);
+    const expectedId = courseEntryId(course.href);
+    if (direct && expectedId && new URL(landing.url).searchParams.get("course_id") !== expectedId)
+      throw new CollectionFailure("navigation", "http_error", "course launcher redirected to an unidentified course");
+    const h = load(landing.html);
+    const menu = h("#courseMenuPalette_contents");
+    if (direct && !menu.length) throw new UnrenderedTeachingPage();
+    const plan = planCourseCollection(course.name, pageAnchors(h, direct ? menu : h.root(), landing.url),
+      options.allSections ?? false, options.teachingSections ?? false);
+    const context = { course: course.name, courseEntry: { text: course.entryText, url: course.href }, collectedAt };
+    const sources: CourseSourceRecord[] = [];
+    if (plan.collectAnnouncements) {
+      const listed = extractCourseSourcesFromHtml(landing.html, { ...context, section: "课程通知", sourceUrl: landing.url });
+      sources.push(...(options.teachingSections ? listed.filter(s => s.kind === "announcement") : listed));
+    }
+    // Reuse the historical course-scoped URL and evidence even when reading the global list.
+    // If an overview omitted a visible course announcement its coverage is uncertain.
+    const rows = announcements?.get(course.href);
+    const scopedLanding = /\/execute\/announcement$/i.test(new URL(landing.url).pathname);
+    let covered = false;
+    if (rows && scopedLanding) {
+      const notices = extractCourseSourcesFromHtml('<ul id="announcementList">' + rows.join("") + "</ul>",
+        { ...context, section: "课程通知", sourceUrl: landing.url });
+      covered = sources.every(old => notices.some(n => n.source_item_id === old.source_item_id));
+      sources.push(...notices);
+    }
+    const sections = plan.sections.filter(s => !(covered && courseAnnouncementTool(s.href)));
+    for (const section of sections) {
+      const listing = await readPage(section.href, 500);
+      if (direct) {
+        const target = new URL(section.href), actual = new URL(listing.url);
+        const contentId = target.searchParams.get("content_id");
+        if (actual.searchParams.get("course_id") !== courseId || (contentId && SECTION_PATH_PATTERN.test(target.pathname)
+          && actual.searchParams.get("content_id") !== contentId))
+          throw new CollectionFailure("navigation", "http_error", "course section redirected to another listing");
+      }
+      if (direct && !/id=["'](?:content_listContainer|announcementList|noItems)[^"']*["']/i.test(listing.html))
+        throw new UnrenderedTeachingPage();
+      sources.push(...extractCourseSourcesFromHtml(listing.html, { ...context, section: section.text, sourceUrl: listing.url }));
+    }
+    if (options.teachingSections && courseId && /^_\d+_\d+$/.test(courseId)) {
+      const url = new URL("/webapps/bb-mygrades-BBLEARN/myGrades", PKU_ORIGIN);
+      url.searchParams.set("course_id", courseId);
+      url.searchParams.set("stream_name", "mygrades");
+      try {
+        const response = await request.get(url.href, { timeout: 15000, maxRedirects: 0 });
+        try {
+          if (!response.ok()) throw new Error("gradebook unavailable");
+          const html = await response.text();
+          if (!html.includes("sortable_item_row")) plan.warnings.push(course.name + "：成绩明细为空或未识别，已保留课程栏目。");
+          const items = gradebookItems(html, url);
+          await resolveGradebookLinks(request, sources, items, url, direct ? 1 : 4);
+          sources.push(...addGradebookItems(sources, items, url, course.name, collectedAt));
+        } finally { await response.dispose(); }
+      } catch {
+        plan.warnings.push(course.name + "：成绩明细不可用，已保留课程栏目。");
+      }
+    }
+    for (const source of sources) source.course_term_label = course.termLabel;
+    return { sources, warnings: plan.warnings, sections: sections.length };
+  });
+
+  const unique = deduplicateCourseSources(byCourse.flatMap(c => c.sources));
+  const detailed = direct ? await mapPages(unique, 3, source => enrichListedAssignment(source, async url => {
+    const detail = await readTeachingPage(request, url);
+    validateAssignmentDestination(url, new URL(detail.url));
+    return parseAssignmentDetailHtml(detail.html, url);
+  })) : await enrichAssignmentSources(page, unique);
+  if (direct) {
+    // A client-rendered detail can have a valid URL and an empty initial body.
+    // Use the shared browser page sequentially only for those unrecognized details.
+    for (const [i, source] of detailed.entries()) {
+      if (source.assignment?.state === "unknown")
+        detailed[i] = await enrichListedAssignment(unique[i], url => readAssignmentDetail(page, url));
+    }
+  }
+  const sourceRecords = options.pageOnly ? detailed : await enrichSourceAttachments(detailed,
+    authenticatedAttachmentReader(page.context()), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
+  return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
+    asOf, term, coursesChecked: courses.length, sectionsChecked: byCourse.reduce((n, c) => n + c.sections, 0), sourceRecords,
+    allSections: options.allSections ?? false, coverageWarnings: byCourse.flatMap(c => c.warnings),
+    ...(options.teachingSections ? {scopeWarning: "Inspected course assignment, announcement and teaching-content sections, native assignment details and gradebook assignment rows when available. Nested folders are outside this scan."} : {}),
+  });
 }
 
 export function validateSourceTarget(value: string, itemId: string): void {
@@ -393,13 +431,6 @@ async function firstVisible(page: Page, selectors: string[]) {
   return null;
 }
 
-async function collectAnchors(page: Page | Locator): Promise<AnchorInfo[]> {
-  return page.locator("a").evaluateAll((elements) => elements.map((element) => ({
-    text: (element.textContent ?? "").replace(/\s+/g, " ").trim(),
-    href: (element as HTMLAnchorElement).href,
-  })).filter((item) => item.text && item.href));
-}
-
 function discoverCourses(anchors: AnchorInfo[], term: string | null): CourseLink[] {
   const courses = new Map<string, CourseLink>();
   for (const anchor of anchors) {
@@ -417,8 +448,7 @@ function discoverSections(anchors: AnchorInfo[], includeAnnouncements = false): 
   for (const anchor of anchors) {
     const url = new URL(anchor.href, PKU_ORIGIN);
     const announcement = includeAnnouncements && /通知|公告|\bannouncements?\b/i.test(anchor.text)
-      && (/\/webapps\/(?:blackboard|announcement)\/execute\/announcement$/i.test(url.pathname)
-        || (url.pathname === "/webapps/blackboard/content/launchLink.jsp" && url.searchParams.get("tool_type") === "TOOL"));
+      && courseAnnouncementTool(url.href);
     if (url.origin !== PKU_ORIGIN || !(SECTION_PATH_PATTERN.test(url.pathname) || announcement)) continue;
     if (!sections.has(anchor.href)) sections.set(anchor.href, anchor);
   }
@@ -435,7 +465,7 @@ export function planCourseCollection(courseName: string, anchors: AnchorInfo[], 
   const assignments = available.filter((section) => isAssignmentSection(section.text));
   return {
     collectAnnouncements: allSections || teachingSections,
-    sections: allSections ? available : teachingSections ? available.filter((section) => isAssignmentSection(section.text) || /教学内容|课程通知|公告|\bannouncements?\b|\bcourse content\b/i.test(section.text)) : assignments,
+    sections: allSections ? available : teachingSections ? available.filter((section) => isAssignmentSection(section.text) || /教学内容|通知|公告|\bannouncements?\b|\bcourse content\b/i.test(section.text)) : assignments,
     warnings: assignments.length ? [] : [`No assignment section was found for course "${courseName}".`],
   };
 }

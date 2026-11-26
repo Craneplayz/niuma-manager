@@ -150,10 +150,12 @@ class ChatClientTests(unittest.TestCase):
 
     def test_thinking_is_explicit_opt_in_and_truncation_is_diagnosable(self):
         from dataclasses import replace
-        self.client.complete_json('rules','{}',replace(self.settings,thinking_mode='disabled'))
+        self.client.complete_json('rules','{}',replace(self.settings,thinking_mode='disabled',max_output_tokens=160))
         self.assertEqual(self.calls[-1][2]['thinking'],{'type':'disabled'})
+        self.assertEqual(self.calls[-1][2]['max_tokens'],160)
         self.generate()
         self.assertNotIn('thinking',self.calls[-1][2])
+        self.assertEqual(self.calls[-1][2]['max_tokens'],8192)
         self.reply={'choices':[{'finish_reason':'length','message':{'content':'','reasoning_content':'private reasoning'}}]}
         with self.assertRaises(AgentError) as caught:self.generate()
         self.assertEqual(caught.exception.diagnostic,'output_truncated')

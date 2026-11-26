@@ -12,6 +12,7 @@ import teaching_submission as submission
 import teaching_platform
 from ddl_text.course_facts import teaching_display_title
 import teaching_assets
+import teaching_titles
 import teaching_identity
 from server.model_queue import WAIT_ERROR, disconnected
 from server import operations
@@ -52,6 +53,7 @@ def initialize(db):
     diagnostics.initialize(db)
     submission.initialize(db)
     teaching_assets.initialize(db)
+    teaching_titles.initialize(db)
     db.execute('''CREATE TABLE IF NOT EXISTS teaching_sources(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
         digest TEXT NOT NULL, request_id TEXT NOT NULL, request TEXT NOT NULL,
@@ -142,7 +144,8 @@ def candidate_view(decision, entry, *, model_routing=False, single=False):
     context={d['ref_id']:d for d in r.get('course_context',{}).get('documents',[])}
     inferred = known and ((not model_routing and 'original_age_unknown' in codes)
                           or d['derivation'] == 'course_rule'
-                          or entry.get('platform_item', {}).get('kind') == 'announcement' and d['derivation'] in ('relative','offset','missing_year')
+                          or d['derivation'] == 'missing_year' and (entry.get('platform_item') or teaching_platform.route(entry) == 'platform')
+                          or entry.get('platform_item', {}).get('kind') == 'announcement' and d['derivation'] in ('relative','offset')
                           or any(q['part_id'] in context for q in d['evidence']))
     evidence = []; by_quote = {}
     sources=[dict(input_id=r['input_id'],platform=r['platform'],url=source['url'],label=source['label'],source_item_id=r['source_item_id'])]
@@ -323,34 +326,16 @@ def resolve_snapshot(db, uid, request_id, ApiError):
 
 
 def recognize(request, ApiError, **attachments):
-    result, manifest = _extract(request, ApiError, **attachments)
-    teaching_platform.apply_source_type(request['records'][0], result)
     entry, = request['records']
-    if entry.get('platform_item', {}).get('kind') in ('native_assignment', 'listed_assignment') and result.get('classification_mode') != 'platform-v1':
-        validate_current_result(request, result, manifest, ApiError)
-        teaching_platform.single_assignment(request, result)
-    return result, manifest
+    if teaching_platform.page_only(entry):
+        teaching_platform.use_page_evidence(entry)
+    if teaching_platform.route(entry) == 'platform':
+        return teaching_platform.classify(request)
+    return _extract(request, ApiError, **attachments)
 
 
 def _extract(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
     entry, = request['records']
-    if teaching_platform.page_only(entry):
-        teaching_platform.use_page_evidence(entry)
-    route = teaching_platform.route(entry)
-    if route == 'platform':
-        return teaching_platform.assignment(request)
-    if route == 'text':
-        import recognition
-        text_request = teaching_platform.notice_request(request)
-        output = recognition.validate_result(text_request, recognition.recognize_admitted(text_request, ApiError))
-        if output['status'] == 'failed':
-            failure = next(iter(output['errors']), {})
-            error = ApiError(502, failure.get('message') or '文本通知识别未完成')
-            error.code = failure.get('code') or 'agent_unavailable'
-            raise error
-        shared = teaching_platform.notice_result(request, output, getattr(recognition._EXECUTION,'policy',None))
-        if shared is not None:
-            return shared
     try:
         options = live_options(model_env_path(ROOT))
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
@@ -369,9 +354,7 @@ def _extract(request, ApiError, *, files=(), save_cache=None, prepare_context=No
         if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
     if not teaching_platform.page_only(entry):
         teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
-    # A self-contained announcement can need the specialist time/evidence
-    # format without needing a second model call over unrelated course files.
-    if prepare_context and route != 'text':
+    if prepare_context:
         prepare_context(request,client,settings,check_active)
     check_active()
     with operations.span('recognition') as observation:

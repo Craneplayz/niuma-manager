@@ -410,6 +410,9 @@ def refresh_dependents(db, uid, account):
     materials=None; receipts={}
     for raw,previous in rows:
         request=json.loads(raw); entry=request['records'][0]
+        # Page-derived cards cannot change when another course document changes.
+        if route(entry) == 'platform':
+            continue
         if materials is None and course_references(entry):
             materials=catalog(db,uid,account)
         chosen=select(db,uid,account,entry,materials=materials,receipts=receipts)

@@ -39,7 +39,7 @@ export function gradebookItems(html: string, url: URL): GradebookItem[] {
 
 /** Resolve Blackboard's explicit content → grade column relation without requesting scores. */
 export async function resolveGradebookLinks(request: Pick<APIRequestContext, "get">,
-  sources: CourseSourceRecord[], items: GradebookItem[], url: URL) {
+  sources: CourseSourceRecord[], items: GradebookItem[], url: URL, concurrency: 1 | 4 = 4) {
   const courseId = url.searchParams.get("course_id");
   if (!courseId || !/^_\d+_\d+$/.test(courseId)) return;
   const missing = new Set(items.filter(item => !item.contentId).map(item => item.id));
@@ -49,8 +49,8 @@ export async function resolveGradebookLinks(request: Pick<APIRequestContext, "ge
     && new URL(source.source_url).searchParams.get("course_id") === courseId)
     .map(source => source.source_item_id).filter((id): id is string => !!id && /^_\d+_\d+$/.test(id) && !known.has(id)))];
   const columns = new Map<string, string[]>();
-  for (let i = 0; i < ids.length; i += 4) {
-    await Promise.all(ids.slice(i, i + 4).map(async id => {
+  for (let i = 0; i < ids.length; i += concurrency) {
+    await Promise.all(ids.slice(i, i + concurrency).map(async id => {
       const endpoint = new URL(`/learn/api/public/v1/courses/${courseId}/contents/${id}`, url.origin);
       endpoint.searchParams.set("fields", "id,contentHandler");
       try {

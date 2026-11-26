@@ -1,11 +1,11 @@
 """Project authenticated platform facts and shared text results onto teaching decisions."""
-from datetime import datetime
+from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 import hashlib
 from pathlib import Path
 import re
 
-from contracts.teaching_io import attachment_listing_only, canonical
+from contracts.teaching_io import canonical, course_content_page
 from ddl_text import course_facts
 
 
@@ -13,8 +13,8 @@ _COMPONENTS = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                for p in (Path(__file__), Path(course_facts.__file__))}
 
 
-def policy(mode, text_policy=None):
-    info = dict(mode=mode, components=_COMPONENTS, text_policy=text_policy)
+def policy(mode):
+    info = dict(mode=mode, components=_COMPONENTS)
     return dict(info, version='teaching-policy-v1:' + hashlib.sha256(canonical(info)).hexdigest())
 
 
@@ -70,30 +70,9 @@ def course_references(entry):
 
 
 def route(entry):
-    item = entry.get('platform_item')
-    if not item:
-        return 'teaching'
-    r = entry['record']
-    if item['kind'] == 'listed_assignment':
-        return 'platform' if attachment_listing_only(entry) else 'teaching'
-    if item['kind'] == 'gradebook_assignment' or item['kind'] == 'native_assignment' and item['due']:
+    if entry.get('platform_item') or course_content_page(entry):
         return 'platform'
-    text = r['text']
-    # Preserve the teaching reader for multi-part instructions and facts which
-    # the source explicitly delegates to an attachment or another announcement.
-    if r['references'] or entry.get('page_attachments') or r['body_status'] != 'complete':
-        return 'teaching'
-    if course_references(entry) or re.search(r'(?:详见|参见|见|按照?|根据).{0,12}附件', text):
-        return 'teaching'
-    if item['kind'] == 'announcement':
-        if not r['published_at'] or r['published_at']['basis'] != 'source' or re.search(r'教学周|第[零一二两三四五六七八九十百0-9]+周|课程规则', text):
-            return 'teaching'
-        return 'text'
-    if len(text) > 4096 or re.search(r'延期|改期|取消|推迟|提前至|调整到|调整至', text):
-        return 'teaching'
-    if not item['due'] and re.search(r'截止|之前|前提交|deadline|due by', text, re.I):
-        return 'teaching'
-    return 'platform'
+    return 'teaching'
 
 
 def precision(value):
@@ -105,13 +84,13 @@ def deadline(value=None, evidence=(), derivation=None, anchor=None):
                 evidence=list(evidence), anchor=anchor)
 
 
-def decision(entry, cid, title, description, action, due, *, reasons=(), notice='create', target=None,
-             relation='unknown', content_type='task', filtered=None):
+def decision(entry, cid, title, description, action, due, *, reasons=(), relation='unknown',
+             content_type='task', filtered=None):
     record = entry['record']
     assessment = dict(input_id=record['input_id'], candidate_id=cid,
                       action=dict(state='supported', evidence=action), deadline=due,
                       unread_relations=[], other_review_reasons=[])
-    return dict(title=title, description=description, content_type=content_type, notice_type=notice, target=target,
+    return dict(title=title, description=description, content_type=content_type, notice_type='create', target=None,
                 relevance=dict(state='current', reason='来源条目明确记录此事项。', evidence=action),
                 pair=dict(contract_version='0.4-draft.1', record=record, assessment=assessment),
                 recommendation='filtered' if filtered else 'candidate' if reasons else 'task',
@@ -119,28 +98,26 @@ def decision(entry, cid, title, description, action, due, *, reasons=(), notice=
                 submission_relation=relation, filter_reason=filtered)
 
 
-def result(request, mode, version, decisions):
+def result(request, decisions):
+    manifest = policy('platform-v1')
     entry, = request['records']
     record = entry['record']
     status = 'success' if decisions else 'no_tasks'
     row = dict(input_id=record['input_id'], snapshot_id=record['snapshot_id'], source=entry['source'],
                attempted=True, status=status, decisions=decisions, warnings=[], error=None)
     if not decisions:
-        row['empty_decision'] = dict(status=status, reason='通知识别未发现待办。', evidence=[
-            dict(part_id='body', quote=record['text'][:160])])
-    return dict(contract_version='0.4', request_id=request['request_id'], classification_mode=mode,
-                policy_version=version, status=status, record_results=[row])
+        row['empty_decision'] = dict(status=status, reason='教学内容页未发现明确的事项。', evidence=source_evidence(entry))
+    return dict(contract_version='0.4', request_id=request['request_id'], classification_mode='platform-v1',
+                policy_version=manifest['version'], status=status, record_results=[row]), manifest
 
 
 def assignment(request):
     entry, = request['records']
     r, item = entry['record'], entry['platform_item']
     label = entry['source']['label']
-    text = r['text'].strip()
-    evidence = ([dict(part_id='body', quote=(label if label in text else text)[:160])] if text else
-                [dict(part_id='source_metadata', quote=r['source_metadata_text'].strip()[:160])])
-    due = item['due']
-    date_evidence = [dict(part_id='source_metadata', quote=due)] if due else []
+    evidence = source_evidence(entry)
+    due = (deadline(item['due'], [dict(part_id='source_metadata', quote=item['due'])])
+           if item['due'] else body_deadline(entry))
     title = re.sub(r'第\s*[零〇一二两三四五六七八九十百0-9]+\s*[章讲周次]', lambda m: course_facts.sequence_display(m[0]), label)
     detail = r['text'].removeprefix(label).strip()
     reasons = []
@@ -157,118 +134,181 @@ def assignment(request):
         evidence.append(dict(part_id='body', quote=detail[:2048]))
     filtered = '成绩明细已明确标为已提交。' if item['submitted'] else None
     d = decision(entry, 'platform-assignment', title, detail[:4096], evidence,
-                 deadline(due, date_evidence), reasons=reasons, relation=relation, filtered=filtered)
-    manifest = policy('platform-v1')
-    return result(request, 'platform-v1', manifest['version'], [d]), manifest
+                 due, reasons=reasons, relation=relation, filtered=filtered)
+    return result(request, [d])
 
 
-def single_assignment(request, output):
-    """Keep the platform item as the unit of work when an evidence reader supplies its date."""
-    entry, = request['records']
-    if entry.get('platform_item', {}).get('kind') not in ('native_assignment', 'listed_assignment'):
-        return
-    row, = output['record_results']
-    if row['status'] == 'incomplete' and not entry['record']['text'].strip():
-        return
-    if row['status'] not in ('success', 'no_tasks', 'incomplete'):
-        return
-    base, _ = assignment(request)
-    card, = base['record_results'][0]['decisions']
-    submissions = [d for d in row['decisions'] if d.get('submission_relation') == 'assignment_submission'
-                   and d['recommendation'] != 'filtered' and d['notice_type'] == 'create']
-    if not card['filter_reason'] and not entry['platform_item']['due'] and len(submissions) == 1:
-        source = submissions[0]
-        card['pair']['assessment']['deadline'] = source['pair']['assessment']['deadline']
-        for key in ('calendar_rule', 'review_codes', 'review_reasons', 'recommendation'):
-            if key in source:
-                card[key] = source[key]
-    # Native submission status refers to the whole assignment, including all its requirements.
-    if entry['platform_item']['kind'] == 'native_assignment' or submissions:
-        card['submission_relation'] = 'assignment_submission'
-    row.update(status='success', decisions=[card], empty_decision=None)
-    output['status'] = 'success'
+def source_evidence(entry):
+    record = entry['record']
+    text = record['text'].strip()
+    label = entry['source']['label']
+    if text:
+        return [dict(part_id='body', quote=(label if label and label in text else text)[:160])]
+    return [dict(part_id='source_metadata', quote=record['source_metadata_text'].strip()[:160])]
 
 
-def notice_request(request):
-    entry, = request['records']
-    r, source = entry['record'], entry['source']
-    publication = r['published_at']['value']
-    record = dict(input_id=r['input_id'], text=r['text'], text_quality=r['body_status'], platform='teaching_web',
-                  published_at=dict(value=publication, precision=precision(publication), basis='source'),
-                  collected_at=r['collected_at'], timezone=r['timezone'], timezone_basis='source',
-                  source_url=source['url'], source_label=source['label'], source_item_id=r['source_item_id'],
-                  course_or_project=source['course_or_project'], context=[], upstream_hints=None)
-    return dict(contract_version='0.2', request_id=request['request_id'], records=[record])
+# Bind dates to an explicit deadline, an event start, or its revised date.
+# Lecture and publication dates on the same page are not submission deadlines.
+_MONTH_NUMBERS = {name: i for i, name in enumerate('jan feb mar apr may jun jul aug sep oct nov dec'.split(), 1)}
+_MONTH = r'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?'
+_DATE = re.compile(
+    r'(?<![\d./-])(?:(?:(?P<year>20\d\d)\s*[年./-]\s*)?(?P<month>\d{1,2})\s*[月./-]\s*'
+    r'(?P<day>\d{1,2})(?!\d)(?:\s*[日号])?|'
+    rf'\b(?P<month_name>{_MONTH})\.?\s+(?P<en_day>\d{{1,2}})(?:st|nd|rd|th)?\b(?:,?\s+(?P<en_year>20\d{{2}}))?)'
+    r'(?:[ \t]*[（(](?:周|星期)[一二三四五六日天][）)])?'
+    r'(?:(?:[ \t,，]*(?:at|from)\s+|[ T\t]*)(?P<period>上午|下午|晚上|中午|凌晨)?'
+    r'(?P<hour>\d{1,2})(?:[：:](?P<minute>\d{2})|[点时](?:(?P<cnminute>\d{1,2})分)?)'
+    r'(?:\s*(?P<ampm>am|pm)\b)?)?', re.I)
+_BEFORE_DATE = re.compile(r'(?:截止(?:日期|时间)?|到期(?:日期|时间)?|提交(?:截止)?时间|最晚(?:提交)?时间|'
+                          r'\bdue(?:\s+(?:date|by|on))?|\bdeadline|\b(?:submit|upload)\s+by)\s*[:：为是]?\s*$', re.I)
+_AFTER_DATE = re.compile(r'^\s*(?:截止|(?:之|以)?前\s*(?:截止|提交|交|上传|完成|上交|发)|\bis\s+the\s+deadline)', re.I)
+_UNCERTAIN = re.compile(r'待定|待通知|暂定|延期|改期|推迟|取消|原截止|更正|例如|举例|\b(?:tentative|cancelled|canceled|postponed|rescheduled|example|original deadline)\b', re.I)
+_MOVE_TO = re.compile(r'(?:改(?:期)?(?:至|到|为)|调整(?:至|到|为)|延(?:期|后)(?:至|到)|推迟(?:至|到)|提前(?:至|到)|'
+                      r'\b(?:moved|rescheduled|postponed|changed)\s+(?:to|until)|\bnew\s+(?:date|time))'
+                      r'\s*[:：]?\s*$', re.I)
+_CANCEL = re.compile(r'取消|不再举行|不再举办|待定|另行通知|暂定|\b(?:cancelled|canceled|tentative|tbd|to be determined)\b', re.I)
+_EVENT = re.compile(r'考试|测验|测试|答辩|讲座|讲演|研讨会|宣讲会|报告会|上课|说明会|'
+                    r'\b(?:exam(?:ination)?|midterm|final|quiz|test|lecture|seminar|meeting|session|class|presentation)\b', re.I)
+_EVENT_AT = re.compile(r'(?:将(?:在|于)|定于|安排在|举行时间|开始时间|时间[为是：:]|日期[为是：:]|'
+                       r'\b(?:held|scheduled|takes? place|starts?|begins?|is|will be)\s+(?:on\s+)?|\b(?:exam|midterm|lecture|seminar|meeting)\s+on)\s*$', re.I)
+_CLOCK_RANGE = re.compile(r'^[ \t]*[-~～–—至][ \t]*\d{1,2}[：:]\d{2}(?![\d:])')
+_UNPARSED_TIME = re.compile(r'^\s*(?:[:：]|\d|[上下]午|晚上|中午|凌晨|至|到|[-~～–—]|[ap]\.?m\b|[+-]\d|Z\b|(?:at|from)\s+\d)', re.I)
 
 
-def notice_deadline(source_deadline, record):
-    if source_deadline['status'] == 'not_provided':
+def anchored_day(record, month, day, year, *, notice):
+    if year:
+        return date(int(year), month, day), None
+    term = record.get('course_term')
+    publication = record.get('published_at')
+    published = date.fromisoformat(publication['value'][:10]) if publication and publication['basis'] == 'source' else None
+    if term and (term['applies_to'] == 'current_assignment' or notice):
+        start, end = date.fromisoformat(term['starts_on']), date.fromisoformat(term['ends_on'])
+        if not published or start <= published <= end:
+            for year in range(start.year, end.year + 1):
+                if (start.year, start.month, start.day) <= (year, month, day) <= (end.year, end.month, end.day):
+                    return date(year, month, day), 'course_term'
+    if published:
+        choices = []
+        for year in (published.year-1, published.year, published.year+1):
+            try:
+                candidate = date(year, month, day)
+            except ValueError:
+                continue
+            choices.append((abs((candidate-published).days), candidate))
+        choices.sort()
+        if choices and choices[0][0] <= 180:
+            return choices[0][1], 'published_at'
+    raise ValueError('date has no captured year anchor')
+
+
+def normalized_date(record, match, *, notice):
+    month = (_MONTH_NUMBERS[match['month_name'][:3].lower()]
+             if match['month_name'] else int(match['month']))
+    day, anchor = anchored_day(record, month, int(match['day'] or match['en_day']),
+                               match['year'] or match['en_year'], notice=notice)
+    value = day.isoformat()
+    if match['hour'] is not None:
+        hour = int(match['hour'])
+        meridiem = match['period'] or (match['ampm'] or '').lower()
+        if meridiem:
+            if not 1 <= hour <= 12:
+                raise ValueError('invalid half-day clock')
+            hour = hour % 12 + (12 if meridiem in ('pm','下午','晚上','中午') else 0)
+        clock = time(hour, int(match['minute'] or match['cnminute'] or 0))
+        value = datetime.combine(day, clock, ZoneInfo(record['timezone'])).isoformat()
+    return deadline(value, [dict(part_id='body', quote=match[0])], 'missing_year' if anchor else 'absolute', anchor)
+
+
+def body_deadline(entry, *, notice=False):
+    record, text = entry['record'], entry['record']['text']
+    if (_CANCEL if notice else _UNCERTAIN).search(text):
         return deadline()
-    raw = source_deadline['raw']
-    value = source_deadline['value']
-    if (source_deadline['kind'] != 'deadline' or not value or not raw
-            or raw not in record['text'] or len(raw) > 2048):
-        return None
-    evidence = [dict(part_id='body', quote=raw)]
-    if source_deadline['precision'] == 'datetime':
-        stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
-        value = stamp.astimezone(ZoneInfo(record['timezone'])).isoformat()
-    if re.search(r'今天|明天|后天|下周|本周|\d+天后', raw):
-        return deadline(value, evidence, 'relative', 'published_at')
-    if source_deadline['status'] == 'explicit':
-        return deadline(value, evidence)
+    regular, revised = {}, {}
+    for match in _DATE.finditer(text):
+        before = text[max(0, match.start() - 90):match.start()]
+        after = text[match.end():match.end() + 48]
+        # Ignore the superseded date when the teacher explicitly contrasts it with a new one.
+        clause = re.split(r'[。；;，,\n]', before)[-1]
+        changed = notice and _MOVE_TO.search(before)
+        if notice and not changed and re.search(r'原(?:定|来|先|截止)|\b(?:originally|previously|former)\b', clause, re.I):
+            continue
+        event = (notice and _EVENT_AT.search(before) and _EVENT.search((entry['source']['label'] or '') + ' ' + clause)
+                 and not re.search(r'发布|上传|资料|课件|\b(?:posted|uploaded|published|materials)\b', clause[-24:], re.I)
+                 and not re.match(r'^\s*(?:发布|上传)', after))
+        if not (changed or event or _BEFORE_DATE.search(before) or _AFTER_DATE.search(after)):
+            continue
+        # A time range attached to an event supplies its start. A malformed time,
+        # or a deadline range, cannot safely be reduced to its first endpoint.
+        if _UNPARSED_TIME.match(after) and not ((event or changed) and match['hour'] and _CLOCK_RANGE.match(after)):
+            return deadline()
+        try:
+            day = normalized_date(record, match, notice=notice)
+        except ValueError:
+            return deadline()
+        values = revised if changed else regular
+        values[day['value']] = day
+    matches = revised or regular
+    if revised and set(regular) - set(revised):
+        return deadline()
+    if not revised and notice and _UNCERTAIN.search(text):
+        return deadline()
+    return next(iter(matches.values())) if len(matches) == 1 else deadline()
+
+
+# Course-content lists mix lecture files with actionable posts. A bare date
+# (often the lecture date) or a keyword inside a filename isn't an action.
+_TASK_TITLE = re.compile(r'作业|必读|必做|必交|\b(?:homework|assignment|problem set|required reading)\b', re.I)
+_ACTION = re.compile(r'(?:务必|必须|须|需要|要求|请)(?:大家|同学们?|各位同学)?[^。；;\n]{0,18}'
+                     r'(?:提交|上交|交回|上传|填写|报名|选题|完成|预习|阅读)|(?:读完|阅读|提交|上交)[^。；;\n]{0,16}(?:必读|必做)|'
+                     r'\b(?:please|must|required to)\s+(?:submit|upload|complete|register|read|fill out|sign up)\b|'
+                     r'\b(?:submit|turn in|upload)\s+(?:by|before)\b', re.I)
+_NOTICE = re.compile(r'考试|测验|闭卷|开卷|答辩|调课|停课|补课|换教室|上课地点|'
+                     r'\b(?:exam(?:ination)?s?|midterms?|finals?|quizzes|quiz|class cancel(?:l?ed|lation)|room change|rescheduled)\b', re.I)
+_SCHEDULE = re.compile(r'安排|说明|时间|地点|教室|须知|要求|调整|规则|将于|占比|\d{1,2}月\d|\d{1,2}:\d{2}|'
+                       r'\b(?:schedule|rules|instructions|held|room|postponed|cancelled|on (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday))\b', re.I)
+_REFERENCE_TITLE = re.compile(r'参考答案|解题|样题|真题|样例|示例|往年|模拟题|复习资料|'
+                              r'\b(?:sample|practice|past|mock)\s+(?:exam|quiz|assignment|paper)|\b(?:solutions?|answer key)\b', re.I)
+
+
+_OPTIONAL = re.compile(
+    r'不(?:作|做|作为|算作|属于|在|列入|计入|纳入|涉及|包括|包含|要求|需要|必|用|考)'
+    r'|无[需须]|不[是作].{0,6}(?:重点|考点)|可选|选读|仅供(?:参考|复习)|'
+    r"\b(?:optional|not examinable|not (?:part of|on|in|required for) (?:the )?(?:exam|test)"
+    r"|won.t be (?:tested|examined)|(?:not|do not|don.t) (?:need to |have to )?(?:submit|upload|read))\b", re.I)
+_CHANGE = re.compile(r'(?:考试|测验|答辩|课程|上课).{0,8}(?:取消|推迟|延期|改期|改至|调整至|暂停)|'
+                     r'(?:取消|暂停|不再举行).{0,8}(?:考试|测验|答辩|课程)|'
+                     r'\b(?:cancelled|canceled|rescheduled|postponed)\b', re.I)
+
+
+def course_content_type(label, text):
+    # An exam mentioned in one lecture paragraph and a requirement in another
+    # do not establish an exam announcement. Check the same teacher statement.
+    body = text.removeprefix(label).strip()
+    statements = [s for s in re.split(r'[。；;！？!?\n]|(?<=\.)\s+', body) if s.strip()]
+    actionable = [s for s in statements if not _OPTIONAL.search(s)]
+    if _REFERENCE_TITLE.search(label):
+        return 'task' if any(_ACTION.search(s) for s in actionable) else None
+    if _NOTICE.search(label) and (not _OPTIONAL.search(label) or _CHANGE.search(label)):
+        return 'notice'
+    if any(_NOTICE.search(s) and (_SCHEDULE.search(s) or _CHANGE.search(s))
+           for s in statements if not _OPTIONAL.search(s) or _CHANGE.search(s)):
+        return 'notice'
+    if (_TASK_TITLE.search(label) and not _OPTIONAL.search(label)) or any(_ACTION.search(s) for s in actionable):
+        return 'task'
     return None
 
 
-def notice_result(request, output, text_policy):
-    """Return None when v0.2 cannot express the source's time/evidence faithfully."""
-    if output['status'] not in ('success', 'no_tasks') or len(output['tasks']) > 50:
-        return None
+def classify(request):
     entry, = request['records']
-    text = entry['record']['text']
-    items = []
-    for task in output['tasks']:
-        action = [dict(part_id='body', quote=e['quote']) for e in task['evidence']
-                  if 'title' in e['supports'] and e['quote'] in text and 0 < len(e['quote']) <= 2048]
-        d, reasons = task['deadline'], list(task['review_reasons'])
-        if (not action or len(action) > 20 or len(reasons) > 100 or any(len(reason) > 1024 for reason in reasons)
-                or task['prerequisites'] or d['alternatives'] or len(task['candidate_id']) > 256
-                or len(task['title']) > 512 or len(task['description']) > 4096):
-            return None
-        due = notice_deadline(d, entry['record'])
-        if due is None:
-            return None
-        target = task['target_reference']
-        if target and (target not in text or len(target) > 2048):
-            return None
-        if task['notice_type'] != 'create' or task['needs_review']:
-            reasons = reasons or ['请核对通知及其对应的任务。']
-        items.append(decision(entry, task['candidate_id'], task['title'], task['description'], action, due,
-                              notice=task['notice_type'], target=dict(part_id='body',quote=target) if target else None,
-                              reasons=reasons, content_type='notice'))
-    manifest = policy('text-v0.2', text_policy)
-    return result(request, 'text-v0.2', manifest['version'], items), manifest
-
-
-def apply_source_type(entry, output):
-    """Fix the destination for a newly recognized authenticated source, before saving it."""
     item = entry.get('platform_item')
-    if not item:
-        return
-    row, = output['record_results']
-    content_type = 'notice' if item['kind'] == 'announcement' else 'task'
-    for candidate in row['decisions']:
-        candidate['content_type'] = content_type
-    # An announcement without an action still belongs in the notice list.
-    if content_type == 'notice' and row['status'] in ('no_tasks','incomplete'):
-        record = entry['record']
-        text = record['text'].strip()
-        if not text:
-            return
-        label = entry['source']['label']
-        evidence = [dict(part_id='body', quote=text[:160])]
-        row['decisions'] = [decision(entry, 'platform-announcement', label,
-                                     text.removeprefix(label).strip()[:4096], evidence,
-                                     deadline(), content_type='notice')]
-        row.update(status='success', empty_decision=None)
-        output['status'] = 'success'
+    if item and item['kind'] != 'announcement':
+        return assignment(request)
+    record = entry['record']
+    label = entry['source']['label'] or record['text'].strip().split('\n', 1)[0][:512]
+    kind = 'notice' if item else course_content_type(label, record['text'])
+    if not kind:
+        return result(request, [])
+    candidate_id = 'platform-announcement' if item else 'course-content-item'
+    description = record['text'].removeprefix(label).strip()
+    return result(request, [decision(entry, candidate_id, label, description[:4096], source_evidence(entry),
+                                     body_deadline(entry, notice=kind == 'notice'), content_type=kind)])

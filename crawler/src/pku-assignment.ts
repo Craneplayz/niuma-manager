@@ -215,14 +215,19 @@ export async function readAssignmentDetail(page: AssignmentPage, url: string, ti
     || await page.locator('input[type="password"]').count()) {
     throw new Error("assignment detail left the authenticated area; login may have expired");
   }
+  validateAssignmentDestination(url, destination);
+  return parseAssignmentDetailHtml(await page.content(), url);
+}
+
+export function validateAssignmentDestination(url: string, destination: URL) {
   const requested = new URL(url);
+  if (!isPkuAssignmentUrl(destination.href)) throw new Error("assignment detail left the assignment area");
   for (const key of ["course_id", "content_id"]) {
     const expected = requested.searchParams.get(key);
     if (expected && destination.searchParams.get(key) !== expected) {
       throw new Error("assignment detail redirected to a different or unidentified assignment");
     }
   }
-  return parseAssignmentDetailHtml(await page.content(), url);
 }
 
 function markDetailReferenceRead(source: CourseSourceRecord, url: string): CourseSourceRecord["references"] {
@@ -314,25 +319,24 @@ export function enrichAssignmentSource(source: CourseSourceRecord, detailUrl: st
   };
 }
 
-/** Read native assignment links sequentially so the authenticated session is not flooded. */
+/** Both transports preserve the listing when a detail cannot be safely read. */
+export async function enrichListedAssignment(source: CourseSourceRecord, read: (url: string) => Promise<AssignmentDetail>): Promise<CourseSourceRecord> {
+  const reference = source.kind === "assignment" ? source.references.find(item => isPkuAssignmentUrl(item.url)) : undefined;
+  if (!reference) return source;
+  try {
+    return enrichAssignmentSource(source, reference.url, await read(reference.url));
+  } catch {
+    return {
+      ...source,
+      ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, status: source.body_evidence.text ? "partial" : "missing" } } : {}),
+      references: source.references.map(item => item.url === reference.url ? { ...item, read_status: "failed", reason: "detail_failed" } : item),
+      warnings: [...new Set([...source.warnings, "assignment detail could not be read; listing text was retained"])],
+    };
+  }
+}
+
 export async function enrichAssignmentSources(page: AssignmentPage, sources: CourseSourceRecord[]): Promise<CourseSourceRecord[]> {
   const enriched: CourseSourceRecord[] = [];
-  for (const source of sources) {
-    const reference = source.kind === "assignment" ? source.references.find((item) => isPkuAssignmentUrl(item.url)) : undefined;
-    if (!reference) {
-      enriched.push(source);
-      continue;
-    }
-    try {
-      enriched.push(enrichAssignmentSource(source, reference.url, await readAssignmentDetail(page, reference.url)));
-    } catch {
-      enriched.push({
-        ...source,
-        ...(source.body_evidence ? { body_evidence: { ...source.body_evidence, status: source.body_evidence.text ? "partial" as const : "missing" as const } } : {}),
-        references: source.references.map((item) => item.url === reference.url ? { ...item, read_status: "failed", reason: "detail_failed" } : { ...item } ),
-        warnings: [...new Set([...source.warnings, "assignment detail could not be read; listing text was retained"])],
-      });
-    }
-  }
+  for (const source of sources) enriched.push(await enrichListedAssignment(source, url => readAssignmentDetail(page, url)));
   return enriched;
 }

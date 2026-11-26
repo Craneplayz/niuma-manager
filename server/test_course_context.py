@@ -158,9 +158,13 @@ class CourseContextTests(unittest.TestCase):
         target['platform_item'] = {'kind': 'native_assignment', 'due': None}
         for text in ('截止时间按此前通知执行。', '提交要求见《实验提交规则通知》。'):
             target['record']['text'] = text
-            self.assertEqual(route(target), 'teaching')
-            self.assertEqual([s['request']['request_id'] for s in context.select(self.db,'u','a',target)],
+            self.assertEqual(route(target), 'platform')
+            self.assertEqual(context.select(self.db,'u','a',target), [])
+            # Older captures without trusted platform facts still resolve explicit references.
+            legacy = {k:v for k,v in target.items() if k!='platform_item'}
+            self.assertEqual([s['request']['request_id'] for s in context.select(self.db,'u','a',legacy)],
                              [notice['request_id']])
+        target = legacy
         self.save(request('其他课程通知', '选修课安排。'))
         target['record']['text'] = '截止时间按此前通知执行。'
         self.assertEqual(context.select(self.db,'u','a',target), [])

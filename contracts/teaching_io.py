@@ -73,20 +73,11 @@ def aggregate_status(rows):
     return 'success' if any(r['decisions'] for r in rows) else 'no_tasks'
 
 
-def attachment_listing_only(entry):
-    """Blackboard lists filenames and sizes inside the teacher-body container."""
-    files = entry.get('page_attachments')
-    if not files or entry['record']['body_status'] != 'complete':
-        return False
-    title = entry['source']['label'] or ''
-    # A date in the title is still page evidence and needs the normal time reader.
-    if re.search(r'截止|提交时间|前交|周[一二三四五六日天]|明天|[月日号点时:/]|\d{1,4}[.-]\d|due|deadline', title, re.I):
-        return False
-    lines = {line.strip() for line in entry['record']['text'].splitlines() if line.strip()}
-    labels = {file['label'] for file in files}
-    return bool(lines & labels) and all(
-        line in labels or line == title or line.rstrip(':：') in ('已附加文件', '附件', 'Attached Files')
-        or re.fullmatch(r'\([\d.,]+\s*(?:bytes?|[KMGT]i?B)\)', line, re.I) for line in lines)
+def course_content_page(entry):
+    """An authenticated page-only capture explicitly placed in the course content section."""
+    page_capture = 'page_attachments' in entry or entry['record']['input_id'].startswith('pku:source:')
+    return page_capture and bool(re.search(
+        r'^栏目：[ \t]*(?:教学内容|course content)[ \t]*$', entry['record']['source_metadata_text'], re.I | re.M))
 
 
 def check_pair(request,result,*,verified_snapshot_digests=()):
@@ -101,10 +92,11 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
         r=entry['record'];verified=snapshot_digest(entry) in trusted
         mode = result.get('classification_mode')
         if mode in ('platform-v1', 'text-v0.2'):
-            kinds = ('native_assignment', 'gradebook_assignment') if mode == 'platform-v1' else ('announcement',)
-            if mode == 'platform-v1' and attachment_listing_only(entry):
-                kinds += ('listed_assignment',)
-            require(verified and entry.get('platform_item', {}).get('kind') in kinds, 'classification requires matching captured platform facts')
+            kind = entry.get('platform_item', {}).get('kind')
+            allowed = kind == 'announcement' if mode == 'text-v0.2' else (
+                kind in ('native_assignment', 'listed_assignment', 'gradebook_assignment', 'announcement')
+                or kind is None and course_content_page(entry))
+            require(verified and allowed, 'classification requires matching captured platform facts')
         require(row['input_id']==r['input_id'] and row['snapshot_id']==r['snapshot_id'],'record identity mismatch')
         require(row['source']==entry['source'],'source metadata changed')
         status=row['status'];decisions=row['decisions']

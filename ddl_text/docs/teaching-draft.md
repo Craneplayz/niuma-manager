@@ -1,6 +1,6 @@
 # 教学网 v0.4 模型分类
 
-教学网使用 `teaching_pipeline.process_teaching_request` 接收账号绑定的 [v0.4 快照](../../contracts/docs/teaching-v0.4.md)；同一次调用完成行动、日期、证据与 `task/candidate/filtered` 分类。
+受控教学网同步使用程序分类。早期缺少来源分类的快照仍可使用 `teaching_pipeline.process_teaching_request` 识别行动、日期和证据。[v0.4 快照](../../contracts/docs/teaching-v0.4.md)
 
 ## 职责
 
@@ -10,9 +10,7 @@
 - `server/teaching.py` 原样投影模型分类，task 可自动新增、candidate 等待核实、filtered 保留结果及依据；无任务与来源不足分别显示。
 - 来源账号权限、过期快照、用户已确认/忽略决定、既有任务修改权限和原生 submitted 状态关联保护仍归后端管理，不由模型解除。
 
-受控采集能识别 Blackboard 的公告列表、作业链接和成绩簿作业。公告正文提取的各条内容都进通知，纯资讯公告也保留标题和原文。作业来源提取的条目进任务。普通教学材料继续按正文判断。
-
-普通教学材料中的 notice 仅收录用户漏看会直接影响考核、日程、资格或必要信息接收的告知；普通课件/讲义发布不收录，未读普通课件也不自动变为来源待补全。教学内容中的明确作业、考核说明和必做阅读仍保留，具体对照见 skill。
+正式作业和正式公告依平台类别各保存一项，保留原题及正文。教学内容页中的明确任务、考试和调课等告知按网页表述收录，普通课件保存为来源。确认后的任务、忽略记录和已读历史沿用账号原有决定。
 
 新增接口不能直接执行既有任务变更：模型输出 update/postpone/cancel/uncertain 却标为 task 时，适配器保留操作、目标证据和新日期，兼容路由为 candidate 等待关联，不再整条报错，也不会擅自修改旧任务。格式、日期合法性和引用真实性仍照常校验。
 
@@ -31,9 +29,9 @@ result = process_teaching_request(request, client=ChatClient(key), settings=sett
 validate_teaching_result(request, result, verified_snapshot_digests=verified_digests)
 ```
 
-安装 `python -m pip install -r ddl_text/teaching_requirements.txt`。每条一次调用，子进程超时回收，失败保留错误且不丢其他成功记录；七牛 DeepSeek 关闭 thinking，避免输出预算被推理耗尽。批次总预算最多180秒，不自动循环重试。
+模型兼容入口使用 `python -m pip install -r ddl_text/teaching_requirements.txt` 安装依赖。每条一次调用，子进程超时回收，失败保留错误且不丢其他成功记录；七牛 DeepSeek 关闭 thinking，避免输出预算被推理耗尽。批次总预算最多180秒，不自动循环重试。
 
-新结果使用 `classification_mode=model-v1`，`policy_version` 记录实际模型与代码规则摘要；模型内部草稿必须提供 recommendation/reason，旧草稿不能作为新调用成功结果。对外请求与 UI 卡片字段不变，结果新增兼容字段；旧结果仍可读取且不会在查看时重新分类。成功批次普通重试仍为幂等；已有账号在来源管理的“重新识别已有通知”中显式选择旧记录，按当前规则重新处理，无需清空数据。明确任务自动入库，旧待核实项可替换，已确认/忽略/修改的决定保留；详见 [重识别约定](../../contracts/docs/reprocessing-v0.1.md)。
+本模型的结果使用 `classification_mode=model-v1`，`policy_version` 记录实际模型与代码规则摘要；模型内部草稿必须提供 recommendation/reason，旧草稿不能作为新调用成功结果。对外请求与 UI 卡片字段不变，结果新增兼容字段；旧结果仍可读取且不会在查看时重新分类。成功批次普通重试仍为幂等；已有账号在来源管理的“重新识别已有通知”中显式选择旧记录，按当前规则重新处理，无需清空数据。明确任务自动入库，旧待核实项可替换，已确认/忽略/修改的决定保留；详见 [重识别约定](../../contracts/docs/reprocessing-v0.1.md)。
 
 `teaching_review_draft.review_codes` 只用于旧结果/历史契约回归，新模型路径不调用它；手工 v0.2 与微信 v0.3.1 不受本次变更影响。来源采集缺失内容仍需要采集侧补全，模型不能读取未提供资料。
 

@@ -24,6 +24,7 @@ crawler/
 │   ├── producer-observation.ts       可选实际附件下载计时及无正文回调
 │   ├── collection-failure.ts         采集阶段与固定原因码，阻止原始异常进入 CLI 输出
 │   ├── pku-gradebook.ts              读取成绩明细中的作业类别、条目标识和到期时间
+│   ├── pku-teaching-overview.ts      读取门户与公告汇总，校验同源跳转和课程归属
 │   ├── pku-homework.ts               登录并采集课程内容
 │   ├── pku-attachments.ts            同源附件下载、PDF/TXT 文本提取、图片/DOCX/扫描页暂存
 │   ├── pku-assignment.ts             只读解析作业详情、到期日期与提交状态
@@ -61,6 +62,7 @@ crawler/
 │   ├── collection-failure.test.ts     采集失败共享契约、隐私和旧逻辑兼容测试
 │   ├── pku-browser-lifecycle.test.ts  创建上下文、页面及登录失败后的浏览器清理
 │   ├── pku-homework-html.test.ts      测试课程页面解析
+│   ├── pku-teaching-overview.test.ts  测试跨学期公告、回退和汇总采集到来源记录
 │   ├── pku-homework.test.ts           测试课程采集规则
 │   ├── pku-attachment-download.test.ts 测试流式大小限制、重定向及鉴权边界
 │   ├── pku-attachments.test.ts        测试附件读取、大小限制和失败状态
@@ -187,4 +189,6 @@ The producer uses `contracts/schemas/teaching-request-v0.4.schema.json`, copied 
 
 公开活动已接入网页“导入 → 公开活动”，后台调用 `public-import-cli.ts <cs|bio|gse> <临时输出目录>`；当前仅返回未来活动，最多 6 页，页面和跳转均限制在所选网站来源内，原始页面仅保存在临时目录并在结束时移除。
 
-教学网同步优先使用门户的「当前学期课程」，旧版门户按课程的学期标签筛选。每门课读取「我的成绩 → 全部」，仅保留作业类别、条目标识、到期时间和明确提交标记。栏目中的原生详情提供教师说明和提交状态。成绩明细与详情使用不同的标识，只在同一课程有明确详情链接时关联。成绩行直接链接到栏目扫描范围外的原生详情时，也会读取该详情，并沿用课程栏目对同一内容的标识。同名的独立成绩行保留为可核对的来源。成绩明细读取失败时继续采集课程作业、公告和教学内容。导出的合成样例见[原生作业快照](../contracts/examples/teaching-platform-native.json)。
+教学网同步从门户的「当前学期课程」确定范围，登录后直接读取网页，同时最多检查三门课程。全站「更多公告」按课程归属筛选，保留课程内公告的原文、发布时间与来源标识；汇总页不完整、课程重名或归属不明时读取课程公告。只能在浏览器渲染的课程页面沿用逐课采集。
+
+每门课的成绩明细提供平台标记为作业的行、到期时间和明确提交标记，课程作业、教学内容与原生详情补全教师发布的事项和说明。内容编号与成绩行通过平台给出的对应关系合并，同名且无法对应的来源保留各自身份。网页同步保留附件链接，仅读网页正文。参见[原生作业快照](../contracts/examples/teaching-platform-native.json)。

@@ -46,7 +46,7 @@ class ChatClient:
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": input_json},
             ],
-            "stream": False, "max_tokens": 8192,
+            "stream": False, "max_tokens": settings.max_output_tokens,
             "response_format": {"type": "json_object"},
         }
         if settings.thinking_mode is not None:

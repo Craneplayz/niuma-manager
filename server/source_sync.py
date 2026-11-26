@@ -117,12 +117,15 @@ def route(handler, db, uid, path, body, ApiError, key_path):
             raise ApiError(400, '请填写有效的教学网账号和密码')
         encrypted = cipher(key_path, ApiError, create=True).encrypt(password.encode())
         previous = db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-        if previous and previous['username'] != username.strip(): teaching_assets.clear(db,uid)
+        if previous and previous['username'] != username.strip():
+            teaching_assets.clear(db,uid)
+            db.execute('DELETE FROM teaching_title_jobs WHERE user_id=?', (uid,))
         db.execute('INSERT INTO source_credentials VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,secret=excluded.secret', (uid, username.strip(), encrypted))
         handler.reply(200, {'configured': True, 'username': username.strip()})
         return True
     if path == '/api/sources/credentials/remove' and handler.command == 'POST':
         teaching_assets.clear(db,uid)
+        db.execute('DELETE FROM teaching_title_jobs WHERE user_id=?', (uid,))
         db.execute('DELETE FROM source_credentials WHERE user_id=?', (uid,))
         handler.reply(200, {'configured': False, 'username': None})
         return True

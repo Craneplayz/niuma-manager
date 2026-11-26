@@ -63,7 +63,7 @@ class ClassificationTests(unittest.TestCase):
             self.assertFalse(matches(c, result))
 
     def test_backend_persists_only_kept_candidates_and_retains_audit(self):
-        from server import text_contract
+        from server import submission_runtime, text_contract
         with patch.dict(sys.modules, {"text_contract": text_contract}):
             from server import recognition
         root = Path(__file__).resolve().parents[2]
@@ -72,9 +72,14 @@ class ClassificationTests(unittest.TestCase):
         db = sqlite3.connect(":memory:")
         db.row_factory = sqlite3.Row
         try:
+            # Publishing a kept text candidate also writes its task to the workspace.
+            db.execute("""CREATE TABLE workspace(user_id TEXT, name TEXT, value TEXT,
+                       version INTEGER DEFAULT 1, PRIMARY KEY(user_id,name))""")
+            submission_runtime.initialize(db)
             recognition.initialize(db)
             body = io.BytesIO(json.dumps(fixture["expected"]).encode())
-            with patch.dict("os.environ", {"TEXT_HARNESS_URL": "http://synthetic.invalid/recognize"}), \
+            with patch.object(sys, "path", [str(root / "server"), *sys.path]), \
+                    patch.dict("os.environ", {"TEXT_HARNESS_URL": "http://synthetic.invalid/recognize"}), \
                     patch.object(recognition, "urlopen", return_value=body):
                 recognition.route(handler, db, "synthetic-user", "/api/recognition/batches", fixture["request"], ValueError)
             handler.reply.assert_called_once()

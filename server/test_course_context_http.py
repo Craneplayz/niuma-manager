@@ -89,8 +89,8 @@ class CourseContextHTTPTests(unittest.TestCase):
                 classify=lambda record,**kwargs:self.file_classifier(record,missing=missing,**kwargs)
                 with self.reader(side_effect=AgentError('file_read_failed',False)):
                     first=self.run_record(rid,classifier=classify)
-                self.assertEqual(first['result']['status'],'failed' if missing=='incomplete' else 'no_tasks',first)
-                if missing=='incomplete':self.assertEqual(first['result']['errors'][0]['code'],'incomplete_source')
+                self.assertEqual(first['result']['status'],'no_tasks',first)
+                self.assertEqual(first['result']['errors'],[])
                 self.assertFalse(first['items'])
                 complete=dict(read_state='complete',text='请完成并提交第四章书面练习。')
                 with self.reader(return_value=complete):
@@ -149,8 +149,8 @@ class CourseContextHTTPTests(unittest.TestCase):
             return self.file_classifier(record,**kwargs)
         with self.reader(side_effect=AgentError('file_read_failed',False)):
             batch=self.run_record(rid,classifier=classify)
-        self.assertEqual(batch['result']['status'],'failed')
-        self.assertEqual(batch['result']['errors'][0]['code'],'incomplete_source')
+        self.assertEqual(batch['result']['status'],'no_tasks')
+        self.assertEqual(batch['result']['errors'],[])
         next_views=self.sync([primary],{'only':[asset]})['requests']
         self.assertEqual(len(next_views),1)
         self.assertNotEqual(next_views[0]['request_id'],rid)

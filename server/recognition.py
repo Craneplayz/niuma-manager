@@ -399,6 +399,7 @@ def route(handler,db,uid,path,body,ApiError):
 def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=None):
     """Materialize new items in the recognition transaction, preserving prior decisions."""
     assignment = None
+    platform_entry = None
     if request.get('contract_version') == '0.4':
         import teaching
         state = teaching.submission.for_request(db, uid, request['request_id'])
@@ -413,6 +414,7 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
             return set()
         if len(request['records']) == 1:
             entry = request['records'][0]
+            platform_entry = entry if entry.get('platform_item') else None
             if entry.get('platform_item', {}).get('kind') in teaching.teaching_identity.ASSIGNMENT_KINDS:
                 assignment = request
         request = teaching.request_view(request)
@@ -474,6 +476,9 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
                 continue
         resolve_candidate(db, uid, row['id'], dict(operation, version=row['version'], auto_apply=True),
                           ApiError, direct_add=True, source_range=source_range, source=source)
+        if platform_entry and operation['draft']['title'] == candidate['title']:
+            import teaching_titles
+            teaching_titles.enqueue(db, uid, platform_entry, row['id'], candidate['title'])
         if operation['action'] == 'create':
             created.add(row['id'])
     return created
