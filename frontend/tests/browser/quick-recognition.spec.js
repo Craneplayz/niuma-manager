@@ -2,8 +2,11 @@ import { test, expect } from '@playwright/test';
 
 test.use({ timezoneId: 'Asia/Shanghai' });
 
-async function quickWorkspace(page, initial = []) {
-  let tasks = structuredClone(initial), version = 1, missNextWrite = false;
+const original = '明天整理一下实验数据';
+async function quickWorkspace(page) {
+  const pending = { id: 'legacy', title: '整理一下实验数据', status: 'not_started', course: null, due: null, description: '',
+    quickRecognition: { text: original, status: 'pending' } };
+  let tasks = [pending], version = 1, missNextWrite = false;
   const owner = 'quick-test', writes = [], polls = [];
   const canonical = (task, status) => {
     const quick = task.quickRecognition;
@@ -33,9 +36,6 @@ async function quickWorkspace(page, initial = []) {
         json = { code: 'quick_recognition_changed', error: '后台已更新任务', quickVersion: version };
       } else {
         tasks = body.value;
-        const quick = body.operation.intent.quickRecognition;
-        if (quick) tasks = tasks.map(task => task.id === body.operation.intent.draft.id
-          ? { ...task, quickRecognition: { text: quick.text, status: 'pending' } } : task);
         json = { version: ++version, value: tasks, operationId: body.operation.id };
       }
     } else if (path === '/api/recognition/batches') json = [];
@@ -48,30 +48,14 @@ async function quickWorkspace(page, initial = []) {
   await expect(page.locator('.add-task')).toBeVisible();
   return { writes, polls, finish, finishDuringWrite() { missNextWrite = true; }, get tasks() { return tasks; } };
 }
-const original = '明天整理一下实验数据';
-async function add(page, override = false) {
-  await page.locator('.add-task').click();
-  await page.locator('#quick-text').fill(original);
-  if (override) {
-    await page.locator('#quick-date-button').click();
-    await page.locator('#quick-date').fill('2027-03-12');
-  }
-  await page.locator('#quick-text').press('Enter');
-  const row = page.locator('[data-just-added]');
-  await expect(row.locator('.task-title')).toContainText('整理一下实验数据');
-  return row;
-}
-
-test('quick creation is usable before AI finishes; an open detail and its list row update together', async ({ page }, info) => {
+test('an existing pending task still updates in its open detail and list row', async ({ page }) => {
   const api = await quickWorkspace(page);
-  const row = await add(page, true);
+  const row = page.locator('.task-row[data-task-id="legacy"]');
   await row.locator('.task-open').click();
   const drawer = page.locator('#task-drawer');
   await expect(drawer.getByRole('status')).toContainText('AI 正在识别');
   await expect(drawer.locator('.quick-original')).toHaveText(original);
   await expect(drawer.getByRole('button', { name: '编辑', exact: true })).toBeEnabled();
-  expect(api.writes[0].operation.intent.quickRecognition).toMatchObject({ text: original, timezone: 'Asia/Shanghai', protectedFields: ['due'] });
-  await page.screenshot({ path: info.outputPath('recognizing-task.png') });
   api.finish();
   await expect(drawer.locator('#drawer-heading')).toHaveText('整理实验数据');
   await expect(drawer.locator('.course-name')).toHaveText('物理实验');
@@ -82,7 +66,6 @@ test('quick creation is usable before AI finishes; an open detail and its list r
 
 test('refresh discovers an unfinished job; failure keeps the original editable task', async ({ page }) => {
   const api = await quickWorkspace(page);
-  await add(page);
   await expect.poll(() => api.tasks.length).toBe(1);
   await page.reload();
   const row = page.locator('.task-row');
@@ -94,13 +77,13 @@ test('refresh discovers an unfinished job; failure keeps the original editable t
   await expect(drawer.locator('.quick-original')).toHaveText(original);
   await drawer.getByRole('button', { name: '编辑', exact: true }).click();
   await expect(drawer.locator('[name=title]')).toHaveValue('整理一下实验数据');
-  expect(api.writes).toHaveLength(1);
+  expect(api.writes).toHaveLength(0);
 });
 
 for (const timing of ['while editing', 'during save']) {
   test('preserves user edits while applying untouched AI fields ' + timing, async ({ page }) => {
     const api = await quickWorkspace(page);
-    const row = await add(page);
+    const row = page.locator('.task-row[data-task-id="legacy"]');
     await row.locator('.task-open').click();
     const drawer = page.locator('#task-drawer');
     await drawer.getByRole('button', { name: '编辑', exact: true }).click();

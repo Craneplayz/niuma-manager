@@ -103,6 +103,31 @@ class TextJobsTests(unittest.TestCase):
         self.assertEqual(self.call('/recognition/batches')[1][0]['items'][0]['state'], 'applied')
         self.assertEqual(self.call('/tasks/quick-recognition', uid='B')[1]['value'], [])
 
+    def test_event_start_background_and_manual_overrides(self):
+        for role, settings, expect_when in [
+            ('event_start', {}, '2026-11-26'), ('background', {}, None),
+            ('event_start', {'when': {'date': '2026-12-02', 'precision': 'date'}, 'course': '运动'}, '2026-12-02'),
+            ('event_start', {'when': None}, None),
+        ]:
+            def recognized(request, ApiError, **kwargs):
+                result = self.outcome(request, task=True)
+                task = result['tasks'][0]
+                task.update(title='去球馆', needs_review=True, review_reasons=['参考时间'])
+                task['deadline'].update(kind='reference', status='inferred', role=role,
+                                        precision='date', value='2026-11-26')
+                return result
+            rid = 'quick-add:role-' + str(expect_when) + role + str(len(settings))
+            self.request['request_id'] = rid
+            self.request['records'][0]['quick_settings'] = settings
+            with patch.object(recognition, 'recognize', recognized):
+                self.assertEqual(self.call(body=self.request)[0], 200)
+                text_jobs.wait_for_jobs(app.DB)
+            saved, = (t for t in self.call('/tasks/quick-recognition')[1]['value']
+                      if t['recognitionHistory'][0]['requestId'] == rid)
+            self.assertIsNone(saved['due'])
+            self.assertEqual((saved.get('eventAt') or {}).get('date'), expect_when)
+            if 'course' in settings: self.assertEqual(saved['course'], settings['course'])
+
     def test_acceptance_reload_duplicate_and_candidate_persistence(self):
         with patch.object(recognition,'recognize',self.recognize):
             status,envelope = self.call(body=self.request)

@@ -34,7 +34,7 @@ export function renderQuickEntry({ icon }) {
       <button type="button" class="btn quiet quick-reset" data-reset="course" hidden>恢复自动识别</button>
     </div>
     <div id="quick-publication-panel" class="quick-fields" hidden>
-      <label class="field">通知时间（北京时间，默认按加入时换算）<input id="quick-published" type="datetime-local" step="1"></label>
+      <label class="field">原通知发布时间（可选，北京时间）<input id="quick-published" type="datetime-local" step="1"></label>
     </div>
     <div id="task-edit-error" class="error" role="alert"></div>
   </form>`;
@@ -66,6 +66,7 @@ export function bindQuickEntry(form, options) {
   const courseInput = form.querySelector("#quick-course");
   const courseList = form.querySelector("#quick-course-options");
   const dateReset = form.querySelector('[data-reset="date"]');
+  const publicationField = form.querySelector("#quick-published").closest("label");
   const courseReset = form.querySelector('[data-reset="course"]');
   const error = form.querySelector("#task-edit-error");
   for (const course of new Set(options.courses)) courseList.append(new Option(course));
@@ -107,7 +108,7 @@ export function bindQuickEntry(form, options) {
     const submit = form.querySelector(".quick-submit");
     if (!imports.isBusy()) submit.textContent = "加入";
     summary.hidden ||= Boolean(mode);
-    courseButton.hidden = Boolean(mode);
+    courseButton.hidden = mode === "text" || mode === "files";
     dateButton.hidden = mode === "files";
     const panelId = mode === "text" ? "quick-publication-panel" : "quick-date-panel";
     if (dateButton.getAttribute("aria-controls") !== panelId || dateButton.hidden) {
@@ -116,12 +117,15 @@ export function bindQuickEntry(form, options) {
       dateButton.setAttribute("aria-expanded", "false");
     }
     dateButton.setAttribute("aria-controls", panelId);
+    const publicationPanel = form.querySelector(mode === "personal" ? "#quick-date-panel" : "#quick-publication-panel");
+    if (publicationField.parentElement !== publicationPanel) publicationPanel.append(publicationField);
+    if (mode === "personal") form.querySelector("#quick-date-label").textContent = "指定任务日期";
     if (mode === "text") {
       dateButton.querySelector("span").textContent = "通知时间";
       dateButton.setAttribute("aria-label", "设置通知发布时间");
-      dateButton.title = "相对日期默认按加入时的北京时间计算，可指定原通知时间";
+      dateButton.title = "相对日期默认按加入时的本地时间计算，可指定原通知时间";
     }
-    if (mode) { form.querySelector("#quick-course-panel").hidden = true; courseButton.setAttribute("aria-expanded", "false"); }
+    if (courseButton.hidden) { form.querySelector("#quick-course-panel").hidden = true; courseButton.setAttribute("aria-expanded", "false"); }
     dateReset.hidden = !dateOverride;
     courseReset.hidden = courseOverride === null;
     if (dateInput.value !== due) dateInput.value = due;
@@ -147,10 +151,7 @@ export function bindQuickEntry(form, options) {
   function parseInput() {
     refreshDay();
     parsedText = input.value.trim();
-    const next = analyze(parsedText);
-    if (next.task.due !== analysis.task.due || next.task.dueTime !== analysis.task.dueTime) dateOverride = null;
-    if (next.task.course !== analysis.task.course) courseOverride = null;
-    analysis = next;
+    analysis = analyze(parsedText);
     error.textContent = "";
     refresh();
   }
@@ -184,7 +185,14 @@ export function bindQuickEntry(form, options) {
     } else if (imports.mode(analysis.localOnly)) {
       event.preventDefault();
       event.stopPropagation();
-      void imports.submit(imports.mode(analysis.localOnly));
+      const settings = {};
+      if (dateOverride) {
+        const { due, dueTime } = dateOverride;
+        settings.when = due ? { date: due, precision: dueTime ? "datetime" : "date", ...(dueTime && { time: dueTime }) } : null;
+      } else if (options.defaultDate) settings.default_date = options.defaultDate;
+      if (courseOverride !== null || analysis.explicitCourse) settings.course = readDraft().course;
+      else if (options.defaultCourse) settings.default_course = options.defaultCourse;
+      void imports.submit(imports.mode(analysis.localOnly), settings);
     } else if (refreshDay()) {
       // A suspended tab may receive a click before its midnight timer runs.
       // Present the revised absolute day before the application saves it.

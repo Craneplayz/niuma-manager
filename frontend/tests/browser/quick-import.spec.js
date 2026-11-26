@@ -98,3 +98,31 @@ test("a submitted notice survives reload and appears as a saved task on the list
   await expect(page.locator(".task-row.is-pending-review")).toHaveCount(0);
   await expect(page).not.toHaveURL(/page=import/);
 });
+
+test("typed and pasted personal plans enqueue once each without provisional tasks", async ({ page }) => {
+  const { requests } = await workspace(page);
+  const text = "我明天想去球馆从九点打球打到十一点，帮我记一下";
+  let taskWrites = 0;
+  await page.route("**/api/data/tasks", route => { taskWrites++; return route.fulfill({json: {}}); });
+  for (const pasted of [false, true]) {
+    if (pasted) {
+      await page.locator(".add-task").click();
+      await page.locator("#quick-text").dispatchEvent("paste");
+    }
+    await page.locator("#quick-text").fill(text);
+    await page.locator("#quick-course-button").click();
+    await page.locator("#quick-course").fill("运动");
+    await page.locator("#quick-date-button").click();
+    await page.locator("#quick-date").fill("2026-12-02");
+    await page.locator(".quick-submit").click();
+    await expect(page.locator("#quick-task-form")).toHaveCount(0);
+    await expect(page.locator(".task-row")).toHaveCount(0);
+  }
+  expect(taskWrites).toBe(0);
+  expect(requests).toHaveLength(2);
+  expect(requests[0].request_id).not.toBe(requests[1].request_id);
+  for (const request of requests) {
+    expect(request.records[0]).toMatchObject({ text, timezone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+      quick_settings: { course: "运动", when: { date: "2026-12-02", precision: "date" } } });
+  }
+});

@@ -34,7 +34,7 @@
 - `target`：变更对象的逐字引用 `{"input_id": "old-1", "quote": "实验报告"}`，无法唯一确定时为 null。不是数据库任务 ID。create 时必须为 null。
 - `course`：上游 `course_or_project` 非 null 时必须为 null，程序会复制元数据；不要返回 `{"value": "元数据课程名"}`，也不要给它编造引文。上游未提供时，可用 `{"value": "ICS", "input_id": "msg-1", "quote": "ICS第一次小班课"}`；value 必须实际出现在 quote 中。未知为 null。不要将组织者名称直接当作课程。
 - `evidence`：非空引用列表，每项只含 input_id/quote，且至少一项来自当前正文。不得将模型概括作为引文。
-- `times`：每项只含 input_id/quote/kind/normalized。kind 为 deadline、reference 或 urgency。无时间要求时为空列表。
+- `times`：每项只含 input_id/quote/kind/normalized。kind 为 deadline、reference 或 urgency；快捷录入的活动开始用 event_start。直接指向“今天”“明早”等日期时可选 relative_days 中对应的原话作 anchor。无时间要求时为空列表。
 - `review_reasons`：非空字符串列表或空列表，列出适用对象、课程推断、对象匹配、原文缺失等具体不确定性。
 - `relevance`：只含 state/reason/evidence；state 为 current/ongoing/historical/uncertain，reason 为一句非空说明；evidence 为 input_id/quote 引用列表，除 current 外必须非空。历史行动也保留完整草稿，程序排除后将理由和原文引用写入 record_results.warnings；不向公共任务结构添加 relevance。
 

@@ -152,9 +152,14 @@ def compile_drafts(response, record, *, spans=None):
                 if v02:
                     time_evidence["supports"] = ["deadline"]
                 evidence.append(time_evidence)
-                times.append(validate_time(ref, available[ref["input_id"]]))
+                # Keep the v0.2 reference time shape, with its specific role for the calendar.
+                normalized_ref = dict(ref, kind="reference") if ref["kind"] == "event_start" else ref
+                times.append(validate_time(normalized_ref, available[ref["input_id"]]))
             deadline = combine_times(times, record.get("timezone"))
             if v02:
+                if record.get("quick_reference") and deadline["kind"] == "reference" and deadline["status"] == "inferred":
+                    deadline["role"] = ("event_start" if all(t["kind"] == "event_start" for t in draft["times"])
+                                        else "background")
                 if not times and record["text_quality"] == "complete":
                     deadline.update(status="not_provided", basis="完整正文未提供该行动的时间要求。")
                 if deadline["kind"] == "reference" and deadline["status"] != "inferred":
