@@ -10,15 +10,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .contracts import nonempty, require
 from .contract_v02 import time_value
-from .daily_tasks import daily_windows
+from .daily_tasks import DAY_OFFSETS, daily_windows
 
 
 NORMALIZED_FIELDS = {"value", "precision", "derivation", "anchor", "basis"}
 DERIVATIONS = ("absolute", "relative", "offset", "missing_year", "unresolved")
 
 # The model selects the day meant by this action. Calendar arithmetic belongs here.
-RELATIVE_DAYS = {"前天": -2, "昨天": -1, "今天": 0, "今日": 0, "今早": 0, "今晚": 0,
-                 "明天": 1, "明早": 1, "明晚": 1, "后天": 2, "大后天": 3}
+RELATIVE_DAYS = {**DAY_OFFSETS, "今早": 0, "今晚": 0, "明早": 1, "明晚": 1}
 DAY_WORD = re.compile("|".join(sorted(RELATIVE_DAYS, key=len, reverse=True)))
 
 

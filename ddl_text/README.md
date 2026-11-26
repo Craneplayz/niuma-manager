@@ -64,7 +64,7 @@ ddl_text/
 ├── teaching_policy.py    # 教学网实际运行规则和模型配置的独立版本
 ├── teaching_requirements.txt # 可选教学网识别与校验依赖，复用共享契约版本
 ├── text_requirements.txt # 文本入口的 JSON Schema 校验依赖及 Windows 时区数据
-├── daily_tasks.py       # 按来源时区逐日展开有界的重复安排
+├── daily_tasks.py       # 按来源时区取活动与用户请求的日期交集，再逐日展开
 ├── time_validation.py    # 模型标准时间的日期、时区和基准校验
 ├── skills/               # 程序直接加载的识别规则，无须个人安装
 │   ├── teaching-file-reading/

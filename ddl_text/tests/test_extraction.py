@@ -116,6 +116,44 @@ class ExtractionTests(unittest.TestCase):
         with self.assertRaises(AgentError):
             compile_tasks(record, item, item)
 
+    def test_daily_requests_intersect_the_schedule_with_the_requested_days(self):
+        from ddl_text.time_validation import quick_reference
+        # Thursday at 23:30 local time, already Friday in UTC.
+        def windows(text):
+            record = message(text, platform='manual', timezone='America/Los_Angeles',
+                             collected_at='2026-11-27T07:30:00Z',
+                             published_at={'value': None, 'precision': 'unknown', 'basis': 'unknown'})
+            return quick_reference(record)['daily_windows']
+
+        rest = ['2026-11-27', '2026-11-28', '2026-11-29']
+        full = ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', *rest]
+        self.assertEqual(windows('这周每天盘点，帮我在今天之后的每天都设一个待办'),
+                         {'今天之后的每天': rest})
+        self.assertEqual(windows('本周从今天起每日读书'), {'本周从今天起每日': full[3:]})
+        self.assertEqual(windows('未来三天从明天起每天读书'), {'未来三天从明天起每天': rest[:2]})
+        self.assertEqual(windows('本周每天读书，帮我在今天之后的每个工作日都设置一个提醒'),
+                         {'今天之后的每个工作日': rest[:1]})
+        self.assertEqual(windows('本周每天读书，本周每天散步，今天之后的每天都设一个任务'),
+                         {'本周每天': full, '今天之后的每天': rest})
+        self.assertEqual(windows('本周每天读书，今天之后的每天都设置一个闹钟叫我吃药'),
+                         {'本周每天': full})
+
+    def test_empty_daily_window_does_not_roll_into_next_week(self):
+        from ddl_text.time_validation import quick_reference
+        record = message('这周每天读书，帮我在今天之后的每天设置一个待办。明天交报告。',
+                         platform='manual', published_at={'value': '2026-11-29',
+                                                        'precision': 'date', 'basis': 'source'})
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        phrase = '今天之后的每天'
+        self.assertEqual(record['quick_reference']['daily_windows'], {phrase: []})
+        single = draft(record, times=[time_ref(record, '明天交报告', '2026-11-30')])
+        self.assertEqual([t['title'] for t in compile_tasks(record, draft(record, repeat_window=phrase), single)],
+                         ['提交报告'])
+        self.assertEqual(compile_tasks(record), [])
+        with self.assertRaises(AgentError):
+            compile_tasks(record, draft(record, title='读书', repeat_window=None))
+
     def test_daily_windows_use_local_week_and_preserve_time_across_dst(self):
         from ddl_text.daily_tasks import shift_local
         from ddl_text.time_validation import quick_reference

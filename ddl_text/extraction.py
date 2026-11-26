@@ -12,7 +12,7 @@ from .adapters import AgentError
 from .classification import CandidateTasks, classify, filter_audit
 from .contracts import ContractError, nonempty, normalize_record, require, validate_tasks
 from .dates import combine_times
-from .daily_tasks import DAILY_REQUEST, RESTRICTED, expand_daily
+from .daily_tasks import expand_daily, requires_daily_template
 from .time_validation import validate_time
 from .draft_recovery import recover
 from . import diagnostics
@@ -221,12 +221,11 @@ def compile_drafts(response, record, *, spans=None):
                 require(identity not in repeated and len(tasks) + len(days) <= 100)
                 repeated.add(identity)
                 tasks.extend(expand_daily(task, phrase, days, record))
-        if windows and DAILY_REQUEST.search(record["text"]) and not RESTRICTED.search(record["text"]):
-            if not repeated:
-                error = AgentError("invalid_agent_output", True, "draft_semantics")
-                error.model_feedback = ("原文要求逐日建待办。为重复行动选择 quick_reference.daily_windows 中相符的 "
-                                        "repeat_window，times 只描述一场的开始与结束，其他独立任务填 null。")
-                raise error
+        if not repeated and (drafts or any(windows.values())) and requires_daily_template(record['text'], windows):
+            error = AgentError("invalid_agent_output", True, "draft_semantics")
+            error.model_feedback = ("原文要求逐日建待办。选择对应的 repeat_window；日期表为空时模板的 times 填 []，"
+                                    "否则只描述一场的时间。其他独立行动填 null。")
+            raise error
         return validate_tasks(tasks, record)
     except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as error:
         if stage != 'draft_json' and isinstance(error,(TypeError,KeyError,AttributeError)):
