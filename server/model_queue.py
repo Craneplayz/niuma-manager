@@ -27,10 +27,10 @@ class ModelQueue:
     def failure(self):
         return getattr(self._local, 'failure', None)
 
-    def acquire(self, blocking=True):
+    def acquire(self, blocking=True, *, durable=False):
         start=time.monotonic()
         try:
-            acquired=self._acquire(blocking)
+            acquired=self._acquire(blocking, durable)
         except Exception as error:
             operations.emit(self.name,(time.monotonic()-start)*1000,result='failed',code=operations.classify(error))
             raise
@@ -42,29 +42,37 @@ class ModelQueue:
         with self.condition:
             return dict(running=self.active,queued=len(self.waiters),oldestWaitSeconds=round(max(0,time.monotonic()-min(self.waiting_at.values())),1) if self.waiting_at else 0)
 
-    def _acquire(self, blocking=True):
+    def _acquire(self, blocking, durable):
         self._local.failure = None
         reserved = getattr(self._local, 'continuation', None)
         self._local.continuation = None
         # Cancellation may perform SQLite I/O; never hold the condition while probing.
-        if reserved is None and disconnected():
-            self._local.failure = 'stopped'
-            return False
-        with self.condition:
-            if reserved is not None:
-                ticket, expires = reserved
-            else:
+        while reserved is None:
+            if disconnected():
+                self._local.failure = 'stopped'
+                return False
+            with self.condition:
                 if self.active < self.limit and not self.waiters:
                     self.active += 1
                     return True
-                if not blocking or len(self.waiters) >= self.pending:
+                if not blocking:
                     self._local.failure = 'queue_full'
                     return False
-                ticket = object()
-                self.waiters.append(ticket)
-                self.waiting_at[ticket]=time.monotonic()
-                self.condition.notify_all()
-                expires = time.monotonic() + self.wait
+                if len(self.waiters) < self.pending:
+                    ticket = object()
+                    now = time.monotonic()
+                    self.waiters.append(ticket)
+                    self.waiting_at[ticket] = now
+                    self.condition.notify_all()
+                    expires = float('inf') if durable else now + self.wait
+                    break
+                if not durable:
+                    self._local.failure = 'queue_full'
+                    return False
+                # Durable text jobs already have a receipt and a bounded worker.
+                self.condition.wait(.25)
+        else:
+            ticket, expires = reserved
         try:
             while True:
                 if disconnected():

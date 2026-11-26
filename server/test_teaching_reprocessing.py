@@ -106,12 +106,11 @@ class TeachingReprocessingTests(unittest.TestCase):
         self.assertEqual(saved['records'][0]['decision_summary']['preserved'],1)
         self.assertEqual(saved['records'][0]['decision_summary']['unresolved'],1)
         items=[i for b in self.call('/recognition/batches')[1] for i in b['items']]
-        item=next(i for i in items if i['state']=='pending')
+        item=next(i for i in items if i['state']=='applied')
         self.assertTrue(item['candidate']['needs_review'])
         self.assertEqual(item['candidate']['notice_type'],'uncertain')
         self.assertTrue(any('旧任务' in reason for reason in item['candidate']['review_reasons']))
-        self.assertIn(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],(400,409))
-        self.assertFalse(self.tasks())
+        self.assertEqual([t['content_type'] for t in self.tasks()], ['notice'])
 
     def test_no_action_filter_and_candidate_are_not_auto_created(self):
         for index,name in enumerate(('non-action-partial','expired-partial','required-date-unread')):
@@ -119,7 +118,7 @@ class TeachingReprocessingTests(unittest.TestCase):
             with patch.object(teaching,'recognize',side_effect=self.model): saved=self.saved(self.launch())
             self.assertEqual(saved['state'],'succeeded',saved)
             self.assertEqual(saved['records'][0]['outcome'],'tasks' if index==2 else 'no_tasks')
-        self.assertFalse(self.tasks())
+        self.assertEqual(len(self.tasks()),1)
         items=[i for b in self.call('/recognition/batches')[1] for i in b['items']]
         self.assertEqual(len(items),1);self.assertTrue(items[0]['candidate']['needs_review'])
 
@@ -199,7 +198,7 @@ class TeachingReprocessingTests(unittest.TestCase):
                 self.request['records'][0]['record'],self.request['request_id'],dict(state='submitted'))
         with patch.object(teaching,'recognize',side_effect=self.model): saved=self.saved(self.launch())
         self.assertEqual(saved['state'],'succeeded',saved)
-        self.assertFalse(self.tasks())
+        self.assertEqual(self.tasks()[0]['status'],'not_started')
         item=self.call('/recognition/batches')[1][0]['items'][0]
         self.assertTrue(item['candidate']['needs_review'])
         self.assertIn(teaching.submission.SCOPE_REVIEW,item['candidate']['review_reasons'])

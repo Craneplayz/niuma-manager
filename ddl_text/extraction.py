@@ -12,6 +12,7 @@ from .adapters import AgentError
 from .classification import CandidateTasks, classify, filter_audit
 from .contracts import ContractError, nonempty, normalize_record, require, validate_tasks
 from .dates import combine_times
+from .daily_tasks import expand_daily, requires_daily_template
 from .time_validation import validate_time
 from .draft_recovery import recover
 from . import diagnostics
@@ -88,10 +89,12 @@ def compile_drafts(response, record, *, spans=None):
         available = {item["input_id"]: item for item in [record] + record["context"]}
         v02 = record.get("contract_version") == "0.2"
         tasks = CandidateTasks()
+        windows = (record.get("quick_reference") or {}).get("daily_windows", {})
+        repeated = set()
         if not drafts and v02:
             tasks.warnings.append("no_action: 未识别到需要执行的行动或变更。")
         for index, draft in enumerate(drafts, 1):
-            require(isinstance(draft, dict) and set(draft) - {"relevance"} == {"title", "description", "prerequisites",
+            require(isinstance(draft, dict) and set(draft) - {"relevance", "repeat_window"} == {"title", "description", "prerequisites",
                     "notice_type", "target", "course", "evidence", "times", "review_reasons"})
             require(nonempty(draft["title"]) and isinstance(draft["description"], str))
             require(draft["notice_type"] in {"create", "update", "postpone", "cancel", "uncertain"})
@@ -146,15 +149,25 @@ def compile_drafts(response, record, *, spans=None):
                 elif course_ref["value"] != course:
                     reasons.append("正文课程与上游课程标注不一致，保留上游标注待核实。")
             require(isinstance(draft["times"], list) and len(draft["times"]) <= 20)
-            times = []
+            times, ends = [], []
             for ref in draft["times"]:
                 time_evidence = _reference(ref, available, ("kind", "normalized"))
                 if v02:
                     time_evidence["supports"] = ["deadline"]
                 evidence.append(time_evidence)
-                times.append(validate_time(ref, available[ref["input_id"]]))
+                # Keep the v0.2 reference time shape, with its specific role for the calendar.
+                normalized_ref = dict(ref, kind="reference") if ref["kind"] in ("event_start", "event_end") else ref
+                value = validate_time(normalized_ref, available[ref["input_id"]])
+                (ends if ref["kind"] == "event_end" else times).append(value)
             deadline = combine_times(times, record.get("timezone"))
             if v02:
+                if record.get("quick_reference") and deadline["kind"] == "reference" and deadline["status"] == "inferred":
+                    deadline["role"] = ("event_start" if all(t["kind"] in ("event_start", "event_end") for t in draft["times"])
+                                        else "background")
+                if ends:
+                    require(deadline.get("role") == "event_start" and len(ends) == 1 and
+                            ends[0]["precision"] == deadline["precision"] and ends[0]["value"])
+                    deadline["range_end"] = ends[0]["value"]
                 if not times and record["text_quality"] == "complete":
                     deadline.update(status="not_provided", basis="完整正文未提供该行动的时间要求。")
                 if deadline["kind"] == "reference" and deadline["status"] != "inferred":
@@ -198,7 +211,21 @@ def compile_drafts(response, record, *, spans=None):
                 continue
             task["review_reasons"] = list(dict.fromkeys(task["review_reasons"] + extra_reasons))
             task["needs_review"] = bool(task["review_reasons"])
-            tasks.append(task)
+            phrase = draft.get("repeat_window")
+            if phrase is None:
+                tasks.append(task)
+            else:
+                days = windows[phrase]
+                # A model that also enumerated template copies must not multiply them.
+                identity = (phrase, task["title"], deadline["value"][10:] if deadline["value"] else "")
+                require(identity not in repeated and len(tasks) + len(days) <= 100)
+                repeated.add(identity)
+                tasks.extend(expand_daily(task, phrase, days, record))
+        if not repeated and (drafts or any(windows.values())) and requires_daily_template(record['text'], windows):
+            error = AgentError("invalid_agent_output", True, "draft_semantics")
+            error.model_feedback = ("原文要求逐日建待办。选择对应的 repeat_window；日期表为空时模板的 times 填 []，"
+                                    "否则只描述一场的时间。其他独立行动填 null。")
+            raise error
         return validate_tasks(tasks, record)
     except (ContractError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError) as error:
         if stage != 'draft_json' and isinstance(error,(TypeError,KeyError,AttributeError)):

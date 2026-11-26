@@ -53,6 +53,20 @@ def validate_request(request):
     for r in request['records']:
         fields(r,'input_id text text_quality platform published_at collected_at timezone timezone_basis source_url source_label source_item_id course_or_project context upstream_hints')
         string(r['input_id'],nonempty=True);require(r['input_id'] not in ids);ids.add(r['input_id'])
+        settings = r.get('quick_settings', {})
+        require(isinstance(settings,dict) and set(settings) <= {'when','default_date','course','default_course'})
+        if settings:
+            require(r['platform']=='manual')
+            for key in ('course','default_course'):
+                if key in settings:
+                    string(settings[key]); require(len(settings[key]) <= 100)
+            if 'default_date' in settings: time_value(settings['default_date'],'date')
+            when = settings.get('when')
+            if when is not None:
+                require(isinstance(when,dict) and when.get('precision') in ('date','datetime'))
+                time_value(when.get('date'),'date')
+                if when['precision']=='datetime':
+                    require(isinstance(when.get('time'),str) and re.fullmatch(r'(?:[01]\d|2[0-3]):[0-5]\d',when['time']))
         string(r['text']);require(len(r['text'])<=100000)
         require(r['text_quality'] in ['complete','partial','summary','missing'])
         require(r['platform'] in PLATFORMS)
@@ -96,6 +110,12 @@ def validate_candidate(c,r):
     if d['status']=='not_provided':
         require(r['text_quality']=='complete' and d['kind']=='unknown' and d['raw'] is None)
     if d['status']!='conflict': require(not d['alternatives'])
+    if 'range_end' in d:
+        from contracts.time_range import valid_range
+        require(d.get('role') == 'event_start' and valid_range(d))
+        time_value(d['range_end'], d['precision'])
+    if 'role' in d:
+        require(r['platform']=='manual' and d['kind']=='reference' and d['role'] in ('event_start','background'))
     if d['kind']=='reference': require(d['status']=='inferred')
     if d['status']=='explicit': require(d['kind']=='deadline')
     if d['precision']=='datetime':

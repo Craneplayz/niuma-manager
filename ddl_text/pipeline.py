@@ -7,6 +7,7 @@ from dataclasses import replace
 from .adapters import AgentError, UnavailableAdapter
 from .config import Settings
 from .contracts import ContractError, check_request, nonempty, normalize_record, validate_tasks
+from .time_validation import quick_reference
 from .runner import MESSAGES, run_attempt
 from contracts.recognition_errors import describe
 from . import diagnostics
@@ -43,6 +44,10 @@ def process_request(request, adapter=None, settings=None, budget_seconds=None, d
         try:
             try:
                 record = normalize_record(raw, version)
+                if version == "0.2" and request_id.startswith("quick-add:"):
+                    reference = quick_reference(record)
+                    if reference:
+                        record["quick_reference"] = reference
             except (ContractError, TypeError, ValueError, KeyError):
                 raise ContractError("invalid_input") from None
             if record["text_quality"] in {"partial", "summary"}:

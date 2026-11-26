@@ -38,7 +38,8 @@
             "workspaceGeneration": {
               "type": "integer",
               "minimum": 0
-            }
+            },
+            "quickRecognition": false
           },
           "allOf": [
             {

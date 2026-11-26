@@ -102,6 +102,12 @@ def validate_candidate(c,r):
     if d['status']=='not_provided':
         require(r['text_quality']=='complete' and d['kind']=='unknown' and d['raw'] is None)
     if d['status']!='conflict': require(not d['alternatives'])
+    if 'range_end' in d:
+        from contracts.time_range import valid_range
+        require(d.get('role') == 'event_start' and valid_range(d))
+        time_value(d['range_end'], d['precision'])
+    if 'role' in d:
+        require(r['platform']=='manual' and d['kind']=='reference' and d['role'] in ('event_start','background'))
     if d['kind']=='reference': require(d['status']=='inferred')
     if d['status']=='explicit': require(d['kind']=='deadline')
     if d['precision']=='datetime':

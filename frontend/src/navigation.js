@@ -6,7 +6,6 @@ const choices = {
   view: ["list", "calendar"],
   mode: ["month", "week"],
   pane: ["day", "undated"],
-  importSource: ["text", "teaching", "files"],
 };
 const choice = (key, value, fallback) => choices[key].includes(value) ? value : fallback;
 const date = (value, fallback) => shiftDay(value, 0) || fallback;
@@ -21,7 +20,6 @@ export function readNavigation(params, { today = todayKey(), preferences = {} } 
     anchor: date(params.get("anchor"), today),
     selectedDate: date(params.get("date"), today),
     pane: choice("pane", params.get("pane"), "day"),
-    importSource: choice("importSource", params.get("importSource"), "text"),
   };
 }
 
@@ -31,5 +29,6 @@ export function navigationURL(href, navigation) {
   url.searchParams.set("anchor", navigation.anchor);
   url.searchParams.set("date", navigation.selectedDate);
   url.searchParams.delete("activity");
+  url.searchParams.delete("importSource");
   return url;
 }

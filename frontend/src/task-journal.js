@@ -1,4 +1,4 @@
-// Only pending operation intents live here, never credentials, attachments or a workspace snapshot.
+// Local operations and recovered drafts share the account encryption key.
 // IndexedDB transaction completion is the durability boundary before an optimistic UI update.
 const DATABASE = 'niuma-task-journal-v1';
 let database;
@@ -6,11 +6,14 @@ function open() {
   if (!globalThis.indexedDB || !globalThis.crypto?.subtle)
     return Promise.reject(new Error('无法安全暂存操作：请使用 HTTPS 或 localhost，并允许浏览器本地存储。任务尚未修改。'));
   return database ||= new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore('keys');
-      const operations = request.result.createObjectStore('operations', { keyPath: 'id' });
-      operations.createIndex('owner', 'owner');
+    const request = indexedDB.open(DATABASE, 2);
+    request.onupgradeneeded = ({ oldVersion }) => {
+      const db = request.result;
+      if (oldVersion === 0) {
+        db.createObjectStore('keys');
+        db.createObjectStore('operations', { keyPath: 'id' }).createIndex('owner', 'owner');
+      }
+      db.createObjectStore('quickDrafts', { keyPath: 'id' }).createIndex('owner', 'owner');
     };
     request.onerror = () => { database = null; reject(request.error); };
     request.onblocked = () => { database = null; reject(new Error('本地暂存被其他页面阻止，请关闭旧页面后重试')); };
@@ -70,12 +73,14 @@ export async function appendOperation(operation) {
     });
   } catch (error) { throw storageError(error); }
 }
-export async function readOperations(owner) {
+export const readOperations = owner => readRecords(owner, 'operations');
+export const readQuickDrafts = owner => readRecords(owner, 'quickDrafts');
+async function readRecords(owner, storeName) {
   // Browsing is still possible when secure local storage is unavailable; writes fail closed.
   if (!globalThis.indexedDB || !globalThis.crypto?.subtle) return [];
   try {
-    const records = await transaction(['operations'], 'readonly', (tx, done) => {
-      tx.objectStore('operations').index('owner').getAll(owner).onsuccess = e => done(e.target.result);
+    const records = await transaction([storeName], 'readonly', (tx, done) => {
+      tx.objectStore(storeName).index('owner').getAll(owner).onsuccess = e => done(e.target.result);
     });
     if (!records.length) return [];
     const { secret } = await key(owner);
@@ -90,10 +95,23 @@ export async function readOperations(owner) {
     return operations.sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
   } catch (error) { throw storageError(error); }
 }
-export async function removeOperations(owner, ids) {
+// Move the existing ciphertext in one transaction. A failed move leaves the journal intact.
+export async function archiveQuickDrafts(owner, ids) {
+  await transaction(['operations', 'quickDrafts'], 'readwrite', tx => {
+    const active = tx.objectStore('operations');
+    for (const id of ids) active.get(id).onsuccess = ({target}) => {
+      if (target.result?.owner !== owner) return;
+      tx.objectStore('quickDrafts').put(target.result);
+      active.delete(id);
+    };
+  });
+}
+export const removeOperations = (owner, ids) => removeRecords(owner, ids, 'operations');
+export const removeQuickDraft = (owner, id) => removeRecords(owner, [id], 'quickDrafts');
+async function removeRecords(owner, ids, storeName) {
   if (!ids.length) return;
-  await transaction(['operations'], 'readwrite', tx => {
-    const store = tx.objectStore('operations');
+  await transaction([storeName], 'readwrite', tx => {
+    const store = tx.objectStore(storeName);
     for (const id of ids) store.get(id).onsuccess = e => {
       if (e.target.result?.owner === owner) store.delete(id);
     };
@@ -101,12 +119,17 @@ export async function removeOperations(owner, ids) {
 }
 export async function clearJournal(owner, discard = false) {
   if (!globalThis.indexedDB || !globalThis.crypto?.subtle) return;
-  await transaction(['operations', 'keys'], 'readwrite', (tx, _done, fail) => {
+  await transaction(['operations', 'quickDrafts', 'keys'], 'readwrite', (tx, _done, fail) => {
     const store = tx.objectStore('operations');
     store.index('owner').getAllKeys(owner).onsuccess = e => {
       if (e.target.result.length && !discard) { fail(new Error('其他页面仍有待保存操作，请先保存后再退出或切换账号。')); return; }
       for (const id of e.target.result) store.delete(id);
-      tx.objectStore('keys').delete(owner);
+      const drafts = tx.objectStore('quickDrafts');
+      drafts.index('owner').getAllKeys(owner).onsuccess = ({target}) => {
+        if (!discard && target.result.length) return;
+        for (const id of target.result) drafts.delete(id);
+        tx.objectStore('keys').delete(owner);
+      };
     };
   });
 }

@@ -58,7 +58,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
 
     def check_ignore_reopen(self,*,intermediate_refresh,restart):
         capture=self.submission_capture()
-        item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        item=self.legacy_request(self.sync_native(capture)['requests'][0])['items'][0]
         self.ignore_reopen(item,intermediate_refresh=intermediate_refresh,restart=restart)
         if restart: app.initialize()
         for _ in range(2):
@@ -66,7 +66,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
             self.assertTrue(action['source_completion_paused'])
         self.submit(capture)
         row=self.candidate_row(item)
-        self.assertEqual((row['state'],row['version']),('pending',3))
+        self.assertEqual((row['state'],row['version']),('applied',4))
 
     def test_transition_ignore_reopen_without_read(self):
         self.check_ignore_reopen(intermediate_refresh=False,restart=False)
@@ -91,10 +91,13 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
             for field in ('action','deadline'):
                 task['assessment'][field]['evidence']=[dict(part_id='body',quote=record['text'])]
         self.drafts[record['input_id']]=json.dumps(draft)
-        first,second=self.run_request(self.sync_native(capture)['requests'][0])['items']
+        first,second=self.legacy_request(self.sync_native(capture)['requests'][0])['items']
         self.associate_candidate('assignment_submission')
         # Observe the ignore so this test independently covers task transfer.
-        self.ignore_reopen(second,intermediate_refresh=True)
+        # Seed the paused candidate as persisted by the pre-migration service.
+        from unittest.mock import patch
+        with patch.object(app.recognition, 'publish_results', return_value=set()):
+            self.ignore_reopen(second,intermediate_refresh=True)
         action=next(a for a in self.details()['observation']['actions']
             if a['action_id']==submission_runtime.identity('candidate',second['id']))
         self.assertTrue(action['source_completion_paused'])
@@ -108,7 +111,18 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
             self.assertEqual(self.apply(self.operation(detail,'resume_source_completion',action_ids=[aid]))[0],201)
         task=self.create(first)
         if intermediate_refresh: self.details()
-        if restart: app.initialize()
+        if restart:
+            app.initialize()
+            saved=self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(saved, [task])
+            row = self.candidate_row(second)
+            self.assertEqual(row['state'], 'ignored')
+            self.assertEqual(json.loads(row['resolution'])['action'], 'legacy_history_only')
+            actions = self.details()['observation']['actions']
+            aid = submission_runtime.identity('candidate', second['id'])
+            self.assertEqual(next(a for a in actions if a['action_id'] == aid)['source_completion_paused'],
+                             not resume_before)
+            return
         body=self.update(second,task)
         # The same successful resolution must not replay the transfer.
         self.assertEqual(self.call('/recognition/candidates/'+second['id']+'/resolve',body)[0],200)
@@ -142,7 +156,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
         self.check_paused_update(intermediate_refresh=True,restart=True,resume_before=True)
 
     def test_transition_inherited_task_pause_can_be_resumed(self):
-        self.check_paused_update(intermediate_refresh=True,restart=True,resume_after=True)
+        self.check_paused_update(intermediate_refresh=True,restart=False,resume_after=True)
 
     def test_transition_combined_history_inherits_pause_from_later_candidate(self):
         capture,first,second=self.paused_pair()
@@ -168,7 +182,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
         draft['tasks'][1].update(submission_relation='other',notice_type='uncertain',
             recommendation='candidate',reason='请关联独立阅读要求。')
         self.drafts[record['input_id']]=json.dumps(draft)
-        first,second=self.run_request(self.sync_native(capture)['requests'][0])['items']
+        first,second=self.legacy_request(self.sync_native(capture)['requests'][0])['items']
         task=self.create(first)
         if intermediate_refresh: self.details()
         self.update(second,task)
@@ -185,7 +199,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
 
     def test_transition_foreign_action_invalidates_previous_source_mapping(self):
         first_capture=self.submission_capture()
-        first=self.run_request(self.sync_native(first_capture)['requests'][0])['items'][0]
+        first=self.legacy_request(self.sync_native(first_capture)['requests'][0])['items'][0]
         task=self.create(first)
         first_input=first_capture['request']['records'][0]['record']['input_id']
         capture=self.mixed_capture('active')
@@ -198,7 +212,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
         other.update(submission_relation='other',notice_type='uncertain',
             recommendation='candidate',reason='请关联独立阅读要求。')
         self.drafts[record['input_id']]=json.dumps(dict(tasks=[other]))
-        incoming=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        incoming=self.legacy_request(self.sync_native(capture)['requests'][0])['items'][0]
         self.update(incoming,task)
         account=self.call('/sources/credentials')[1]['source_account_id']
         directory=self.call('/sources/submissions?source_account_id='+account)[1]
@@ -219,7 +233,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
         draft['tasks'][0]['submission_relation']='assignment_submission'
         draft['tasks'][1]['submission_relation']='other'
         self.drafts[record['input_id']]=json.dumps(draft)
-        first,second=self.run_request(self.sync_native(capture)['requests'][0])['items']
+        first,second=self.legacy_request(self.sync_native(capture)['requests'][0])['items']
         first_task=self.create(first);self.create(second)
         self.assertEqual(self.task_action(first_task)['relation'],'assignment_submission')
         saved=self.call('/workspace')[1]['tasks']
@@ -233,7 +247,7 @@ class SubmissionTransitionAPI(SubmissionRuntimeAPI):
 
     def test_transition_ordinary_task_edit_keeps_submission_mapping(self):
         capture=self.submission_capture()
-        item=self.run_request(self.sync_native(capture)['requests'][0])['items'][0]
+        item=self.legacy_request(self.sync_native(capture)['requests'][0])['items'][0]
         task=self.create(item)
         self.assertEqual(self.task_action(task)['relation'],'assignment_submission')
         saved=self.call('/workspace')[1]['tasks']

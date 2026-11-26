@@ -236,7 +236,7 @@ test('plain HTTP blocks another action for the same unacknowledged candidate', a
   const confirming = f.store.resolveStoredCandidate(item, createBody(item)); await gate.entered;
   for (const body of [createBody(item), { action: 'ignore', version: 1 }]) {
     const duplicate = f.store.resolveStoredCandidate(item, body);
-    await assert.rejects(duplicate, /正在保存这项待核对/); await assert.rejects(duplicate.staged, /正在保存这项待核对/);
+    await assert.rejects(duplicate, /正在保存这条导入记录/); await assert.rejects(duplicate.staged, /正在保存这条导入记录/);
   }
   assert.equal(f.requests.length, 1); assert.equal(f.store.readProjectedStore().tasks.length, 1);
   gate.release(); await confirming; await confirming.staged;
@@ -248,7 +248,7 @@ test('plain HTTP keeps a failed candidate identity reserved until the original s
   const ignoring = f.store.resolveStoredCandidate(item, { action: 'ignore', version: 1 });
   await assert.rejects(ignoring); await assert.rejects(ignoring.staged);
   const duplicate = f.store.resolveStoredCandidate(item, { action: 'ignore', version: 1 });
-  await assert.rejects(duplicate, /正在保存这项待核对/); await assert.rejects(duplicate.staged);
+  await assert.rejects(duplicate, /正在保存这条导入记录/); await assert.rejects(duplicate.staged);
   await f.store.retrySave();
   assert.equal(f.requests.length, 2); assert.equal(f.requests[1].body.operation.id, f.requests[0].body.operation.id);
   const ignored = f.store.readStoredCandidates([item])[0]; assert.equal(ignored.state, 'ignored'); assert.equal(ignored.version, 2);

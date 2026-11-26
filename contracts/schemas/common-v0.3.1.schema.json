@@ -1219,6 +1219,19 @@
             "pattern": "\\S"
           },
           "uniqueItems": true
+        },
+        "range_end": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "string",
+              "format": "date-time"
+            }
+          ],
+          "description": "本人明确要参加或执行的时段终点，与 value 起点精度一致；单个时刻省略。"
         }
       },
       "allOf": [

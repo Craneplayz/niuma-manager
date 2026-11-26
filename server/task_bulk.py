@@ -21,8 +21,12 @@ def initialize(db):
         inverse TEXT NOT NULL, PRIMARY KEY(user_id,operation_id))''')
 
 
+def date_field(task):
+    return 'eventAt' if 'eventAt' in task and not task.get('due') else 'due'
+
+
 def snapshot(task):
-    due = task.get('due') or {}
+    due = task.get(date_field(task)) or {}
     return dict(title=task['title'], notes=task.get('description') or '', course=task.get('course') or '',
                 content_type=task.get('content_type') or 'task', due=due.get('date') or '',
                 dueTime=due.get('time') or '', status=STATUS.get((task.get('recycleBin') or {}).get('status', task.get('status')), 'todo'),
@@ -106,7 +110,7 @@ def apply_tasks(tasks, entries, intent, ApiError):
             changes = dict(status='completed' if action == 'complete' else 'not_started',
                            completedAt=intent['completedAt'] if action == 'complete' else '')
         elif action == 'deadline':
-            changes = dict(due=due(intent['date'], entry['expected']['dueTime']))
+            changes = {date_field(task): due(intent['date'], entry['expected']['dueTime'])}
         elif action == 'trash':
             changes = dict(recycleBin=dict(deletedAt=intent['deletedAt'], status=task['status']),
                            status='completed' if task['status'] == 'completed' else 'cancelled')
@@ -151,12 +155,15 @@ def undo(db, uid, intent, tasks, ApiError):
                 task.pop(key, None)
             else:
                 task[key] = value
-    # Reopen uses the shared transition that also persists submission pauses.
+    previous_ids = set(by_id)
+    # Reopening a legacy ignored item now creates a regular workspace item.
     for entry in inverse['candidates']:
         recognition.resolve_candidate(db, uid, entry['id'], dict(action='reopen', version=entry['version']), ApiError)
+    if inverse['candidates']:
+        tasks.extend(task for task in task_operations.workspace(db, uid)['value'] if task['id'] not in previous_ids)
 
 
-def apply(db, uid, body, ApiError):
+def apply(db, uid, body, ApiError, *, include_history=True):
     try:
         contract.check('request', body)
     except (ValueError, TypeError, ValidationError):
@@ -169,7 +176,8 @@ def apply(db, uid, body, ApiError):
     inverse_row = db.execute('SELECT generation FROM task_bulk_undo WHERE user_id=? AND operation_id=?', (uid, operation['id'])).fetchone()
     undo_intent = dict(kind='bulk', action='undo', undoOf=operation['id'], workspaceGeneration=generation)
     if acknowledged:
-        return dict(current, operationId=operation['id'], replayed=True, batches=recognition.batches(db, uid),
+        return dict(current, operationId=operation['id'], replayed=True,
+                    **({'batches': recognition.batches(db, uid)} if include_history else {}),
                     candidates=task_operations.candidate_states(db, uid, [operation], current['value']), generation=generation,
                     undo=undo_intent if inverse_row and inverse_row['generation'] == generation else None)
     if body['version'] != current['version']:
@@ -227,5 +235,5 @@ def apply(db, uid, body, ApiError):
     task_operations.record(db, uid, operation, current['version'] + 1, ApiError)
     usage.workspace_changes(db, uid, current['value'], tasks)
     return dict(value=tasks, version=current['version'] + 1, operationId=operation['id'], undo=undo_intent,
-                batches=recognition.batches(db, uid),
+                **({'batches': recognition.batches(db, uid)} if include_history else {}),
                 candidates=task_operations.candidate_states(db, uid, [operation], tasks), generation=generation)

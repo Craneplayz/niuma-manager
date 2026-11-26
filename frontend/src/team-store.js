@@ -1,9 +1,10 @@
 // Maps the task UI to the account workspace API.
 import { todayKey as dayKey, shiftDay, assertCurrentTaskEdit } from "./task-model.js";
-import { appendOperation, readOperations, removeOperations, clearJournal } from './task-journal.js';
+import { appendOperation, readOperations, removeOperations, archiveQuickDrafts, readQuickDrafts, removeQuickDraft, clearJournal } from './task-journal.js';
 import { newId } from './id.js';
 export const session = {
   user: null,
+  recoveredDrafts: [],
   sync: "saved",
   error: "",
   failure: null,
@@ -41,6 +42,7 @@ function resetAccount() {
   for (const controller of requests) controller.abort();
   requests.clear();
   session.user = null;
+  session.recoveredDrafts = [];
   canonicalTasks = [];
   canonicalCandidates = new Map();
   canonicalTimetable = { value: [], version: 0 };
@@ -73,7 +75,7 @@ export async function api(path, body, method = "POST", options = {}) {
     const response = await fetch(path, {
       method: body === undefined ? "GET" : method,
       credentials: "same-origin",
-      headers: body === undefined || options.formData ? {} : { "Content-Type": "application/json" },
+      headers: body === undefined || options.formData ? {} : { "Content-Type": "application/json", ...options.headers },
       body: body === undefined ? undefined : options.formData ? body : JSON.stringify(body),
       signal: controller.signal,
     });
@@ -132,8 +134,8 @@ function toView(task) {
     source: task.source === "微信" && task.recognitionHistory?.some(
       entry => entry.action === "create" && entry.requestId?.startsWith("material:"),
     ) ? "图片与文件" : task.source,
-    due: task.due?.date || "",
-    dueTime: task.due?.time || "",
+    due: (task.due || task.eventAt)?.date || "",
+    dueTime: (task.due || task.eventAt)?.time || "",
     course: task.course || "",
     notes: task.description || "",
     status: status[task.status] || "todo",
@@ -154,7 +156,7 @@ function toCanonical(task, previous = {}) {
         ? task.completedAt ||
           (previous.status === "completed" ? previous.completedAt || "" : dayKey())
         : "",
-    due: task.due
+    [Object.hasOwn(previous, "eventAt") && !previous.due ? "eventAt" : "due"]: task.due
       ? {
           date: task.due,
           precision: task.dueTime ? "datetime" : "date",
@@ -177,11 +179,11 @@ function reviewChanged() {
 // Independent reads must not advance a candidate ahead of its paired task receipt.
 // Only identity/state is cached here, never source text.
 export function acceptStoredCandidates(items, { authoritative = false } = {}) {
-  if (!Array.isArray(items)) throw new Error('待核对状态暂时无法读取');
+  if (!Array.isArray(items)) throw new Error('导入记录暂时无法读取');
   for (const item of items) {
     if (!item || typeof item.id !== 'string' || !Number.isInteger(item.version) ||
         !['pending', 'applied', 'ignored', 'missing'].includes(item.state))
-      throw new Error('待核对状态暂时无法读取');
+      throw new Error('导入记录暂时无法读取');
     const previous = canonicalCandidates.get(item.id);
     if (!authoritative && (previous?.state === 'missing' || pendingChanges.some(change =>
       change.epoch === accountEpoch && !change.acknowledged && change.operation.intent.kind === 'review' &&
@@ -230,7 +232,7 @@ function checkReviewCandidate(intent, candidates) {
   };
   if (current.state !== (intent.action === 'reopen' ? 'ignored' : 'pending') ||
       current.version !== intent.expectedCandidateVersion)
-    throw new Error('待核对内容已变化，请重新读取后核对；本地操作仍保留');
+    throw new Error('导入记录已变化，请重新读取后核对；本地操作仍保留');
 }
 function nextCandidateState(intent) {
   return { id: intent.candidateId, version: intent.expectedCandidateVersion + 1,
@@ -273,7 +275,7 @@ function projectOperations(strict = true) {
         checkReviewCandidate(intent, candidates);
         tasks = applyReviewIntent(tasks, intent);
         candidates.set(intent.candidateId, nextCandidateState(intent));
-      } else tasks = transformIntent(intent)(tasks);
+      } else tasks = transformIntent(intent, true)(tasks);
     } catch (error) {
       if (strict) throw error;
       break;
@@ -331,8 +333,10 @@ async function loadSession(discardPending = false) {
         session.conflict = false;
       }
       if (journalLoaded !== session.user.id) {
-        const operations = taskWritesAreOnlineOnly() ? null : await readOperations(session.user.id);
+        const [operations, drafts] = taskWritesAreOnlineOnly() ? [null, []] :
+          await Promise.all([readOperations(session.user.id), readQuickDrafts(session.user.id)]);
         if (epoch !== accountEpoch) throw new Error('账号已切换');
+        session.recoveredDrafts = drafts;
         if (operations) pendingChanges = operations.map(operation => ({ operation, epoch, retryOnFailure: true, reloadOnStale: true, durable: true }));
         // Online-only operations have no journal to reload during reconnect.
         else pendingChanges = pendingChanges.filter(change => change.epoch === epoch && change.operation.owner === session.user.id);
@@ -406,7 +410,7 @@ export async function reloadStore() {
 }
 function taskPayload(data) {
   if ([...(data.tasks || []), ...(data.trash || [])].some(isReviewProjection))
-    throw new Error('待核对投影不能整表保存，请使用单条任务操作');
+    throw new Error('旧版导入草稿不能整表保存，请使用单条任务操作');
   const previous = new Map(canonicalTasks.map((task) => [task.id, task]));
   const incoming = new Set(data.tasks.map((task) => task.id));
   return [
@@ -456,7 +460,7 @@ export function saveStore(data) {
   }
   if (pendingChanges.some(change => change.epoch === accountEpoch && ['review', 'bulk'].includes(change.operation.intent.kind)) ||
       [...(data.tasks || []), ...(data.trash || [])].some(isReviewProjection)) {
-    report('error', new Error('待核对内容正在单独保存，不能整表覆盖，请使用单条任务操作'));
+    report('error', new Error('单项操作正在保存，不能整表覆盖，请使用单条任务操作'));
     return false;
   }
   const previous = new Map((latest?.tasks || canonicalTasks).map(task => [task.id, task]));
@@ -504,16 +508,17 @@ function enqueueChange(change) {
     report("saving");
     try {
       const review = operation.intent.kind === 'review', bulk = operation.intent.kind === 'bulk';
-      const result = review
-        ? await api('/api/recognition/candidates/' + encodeURIComponent(operation.intent.candidateId) + '/resolve',
+      const result = await (review
+        ? api('/api/recognition/candidates/' + encodeURIComponent(operation.intent.candidateId) + '/resolve',
           reviewBody(operation), 'POST')
-        : bulk ? await api('/api/tasks/bulk', { version: taskVersion, operation: operationIdentity(operation) })
-        : await api('/api/data/tasks', { value, version: taskVersion, operation: operationIdentity(operation) }, 'PUT');
+        : bulk ? api('/api/tasks/bulk', { version: taskVersion, operation: operationIdentity(operation) },
+          'POST', { headers: { Prefer: 'return=minimal' } })
+        : api('/api/data/tasks', { value, version: taskVersion, operation: operationIdentity(operation) }, 'PUT'));
       if (epoch !== accountEpoch) throw new Error("账号已切换");
       if (result.operationId !== operation.id) throw new Error('服务器未确认操作编号，请更新服务后重试；本地操作仍保留');
       if (review) {
         if (!Array.isArray(result.tasks?.value) || !Number.isInteger(result.tasks.version) || !Array.isArray(result.candidates))
-          throw new Error('服务器未确认待核对操作结果；本地操作仍保留');
+          throw new Error('服务器未确认旧版导入操作结果；本地操作仍保留');
         canonicalTasks = clone(result.tasks.value); taskVersion = result.tasks.version;
         taskGeneration = result.generation || 0;
         acceptStoredCandidates(result.candidates, { authoritative: true });
@@ -524,7 +529,7 @@ function enqueueChange(change) {
         acceptStoredCandidates(result.candidates, { authoritative: true });
       } else {
         taskVersion = result.version;
-        canonicalTasks = clone(result.replayed ? result.value : value);
+        canonicalTasks = clone(result.value ?? value);
       }
       // Receipted changes are already in canonicalTasks while journal removal commits.
       change.acknowledged = true;
@@ -534,11 +539,11 @@ function enqueueChange(change) {
       if (result.replayed && pendingChanges.length) await reconcileChanges(epoch);
       session.conflict = false;
       report(latest || pendingChanges.length ? "saving" : "saved");
-      if (review || taskWritesAreOnlineOnly()) reviewChanged();
+      if (!bulk && (review || result.value || taskWritesAreOnlineOnly())) reviewChanged();
       if (review) return { ...view(), taskId: operation.intent.newTaskId || operation.intent.targetId };
       if (bulk) {
         const detail = { state: view(), operationId: operation.id, undo: result.undo, batches: result.batches,
-          affectedIds: bulkAffectedIds(operation) };
+          affectedIds: bulkAffectedIds(operation), historyChanged: result.candidates.length > 0 };
         window.dispatchEvent(new CustomEvent('niuma:bulk-saved', { detail }));
         return { ...detail.state, undo: result.undo };
       }
@@ -572,16 +577,40 @@ function reviewBody(operation) {
     ...(Object.hasOwn(intent, 'complete') ? { complete: intent.complete } : {}),
     operation: operationIdentity(operation) };
 }
+export async function dismissRecoveredDraft(id) {
+  const epoch = accountEpoch;
+  await removeQuickDraft(session.user.id, id);
+  if (epoch === accountEpoch) session.recoveredDrafts = session.recoveredDrafts.filter(draft => draft.id !== id);
+}
+
+// A later edit or atomic bulk action can refer to the uncreated task.
+// Preserve the whole dependent intent for inspection instead of replaying part of it.
+function legacyDraftOperations(unapplied) {
+  const missingTargets = new Set();
+  const archived = new Set();
+  for (const {operation} of unapplied) {
+    const {intent} = operation;
+    const targets = [intent.id, intent.draft?.id, intent.targetId, ...(intent.ids || []),
+      ...(intent.tasks || []).map(task => task.id)].filter(Boolean);
+    const oldCreate = intent.kind === 'save' && intent.quickRecognition;
+    if (!oldCreate && !archived.has(intent.undoOf) && !targets.some(id => missingTargets.has(id))) continue;
+    archived.add(operation.id);
+    for (const id of targets) missingTargets.add(id);
+  }
+  return archived;
+}
 async function reconcileChanges(epoch) {
   if (!pendingChanges.length) return;
+  const checked = [...pendingChanges];
+  const owner = session.user.id;
   const result = await api('/api/tasks/reconcile', {
-    owner: session.user.id, operations: pendingChanges.map(change => operationIdentity(change.operation)),
+    owner, operations: checked.map(change => operationIdentity(change.operation)),
   });
   if (epoch !== accountEpoch) throw new Error('账号已切换');
   if (!Array.isArray(result.applied) || !Array.isArray(result.tasks?.value) || !Number.isInteger(result.tasks.version))
     throw new Error('服务器未提供有效的保存回执，请更新服务后重试；本地操作仍保留');
   if (pendingChanges.some(change => ['review', 'bulk'].includes(change.operation.intent.kind)) && !Array.isArray(result.candidates))
-    throw new Error('服务器未提供待核对保存回执，请更新服务后重试；本地操作仍保留');
+    throw new Error('服务器未提供旧版导入操作回执，请更新服务后重试；本地操作仍保留');
   const appliedBulk = pendingChanges.filter(change => change.operation.intent.kind === 'bulk' && result.applied.includes(change.operation.id));
   if (appliedBulk.some(change => !result.bulkResults?.some(item => item.operationId === change.operation.id && Object.hasOwn(item, 'undo'))))
     throw new Error('服务器未提供批量保存恢复信息；本地操作仍保留');
@@ -589,6 +618,15 @@ async function reconcileChanges(epoch) {
   await forgetPersistedChanges(pendingChanges.filter(change => result.applied.includes(change.operation.id)));
   if (epoch !== accountEpoch) throw new Error('账号已切换');
   pendingChanges = pendingChanges.filter(change => !result.applied.includes(change.operation.id));
+  const remaining = checked.filter(change => !result.applied.includes(change.operation.id));
+  const archived = legacyDraftOperations(remaining);
+  if (archived.size) {
+    await archiveQuickDrafts(owner, archived);
+    const drafts = await readQuickDrafts(owner);
+    if (epoch !== accountEpoch) throw new Error('账号已切换');
+    session.recoveredDrafts = drafts;
+    pendingChanges = pendingChanges.filter(({operation}) => !archived.has(operation.id));
+  }
   canonicalTasks = clone(result.tasks.value);
   taskVersion = result.tasks.version;
   taskGeneration = result.generation || 0;
@@ -597,6 +635,7 @@ async function reconcileChanges(epoch) {
     const recovered = result.bulkResults.find(item => item.operationId === operation.id);
     window.dispatchEvent(new CustomEvent('niuma:bulk-saved', { detail: {
       state: view(), operationId: operation.id, undo: recovered.undo, affectedIds: bulkAffectedIds(operation), recovered: true,
+      historyChanged: operation.intent.action === 'undo' ? result.candidates.length > 0 : !!operation.intent.candidates?.length,
     } }));
   }
 }
@@ -630,7 +669,7 @@ function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = fals
     await appendOperation(operation);
     if (change.epoch !== accountEpoch) throw new Error('账号已切换');
     change.durable = true;
-    if (intent.kind === 'review') reviewChanged();
+    if (intent.kind === 'review' || previewsBulkTrash(intent)) reviewChanged();
     return readProjectedStore();
   }).catch(error => { removeChange(change); throw error; });
   staging = change.staged.catch(() => {});
@@ -642,12 +681,12 @@ function changeStoredTasks(intent, { retryOnFailure = true, reloadOnStale = fals
 export function resolveStoredCandidate(item, body) {
   try {
     if (!item || typeof item.id !== 'string' || !Number.isInteger(item.version))
-      throw new Error('待核对内容不存在，请重新读取');
+      throw new Error('导入记录不存在，请重新读取');
     if (pendingBulkTaskIds().has('review:' + item.id) || body.target_id && pendingBulkTaskIds().has(body.target_id))
       throw new Error('此候选或目标任务正在批量保存，请稍后操作；当前内容保留');
     if (taskWritesAreOnlineOnly() && pendingChanges.some(change => change.epoch === accountEpoch &&
         !change.acknowledged && change.operation.intent.kind === 'review' && change.operation.intent.candidateId === item.id))
-      throw new Error('正在保存这项待核对，请等待保存结果或重试原操作');
+      throw new Error('正在保存这条导入记录，请等待保存结果或重试原操作');
     const { action } = body;
     if (!['create', 'update', 'postpone', 'cancel', 'ignore', 'reopen'].includes(action))
       throw new Error('请选择明确的核对操作');
@@ -689,11 +728,17 @@ export function saveStoredTask(task, expected) {
 export function setStoredTaskStatus(id, next, expected) {
   return changeStoredTasks({ kind: 'status', id, next, expected }, { reloadOnStale: true });
 }
-function transformIntent(intent) {
+function previewsBulkTrash(intent) {
+  return intent.kind === 'bulk' && intent.action === 'trash' && !intent.candidates.length;
+}
+
+function transformIntent(intent, optimistic = false) {
   const { kind, id, next, expected, draft, createdAt } = intent;
-  // Mixed candidate writes are applied by the server transaction. Keep the old
-  // rows until acknowledgment; replay still goes through the durable queue.
-  if (kind === 'bulk') return tasks => tasks;
+  if (kind === 'bulk') {
+    if (optimistic && !failed && previewsBulkTrash(intent))
+      return transformIntent({ kind: 'trash', ids: intent.tasks.map(entry => entry.id), deletedAt: intent.deletedAt });
+    return tasks => tasks;
+  }
   if (kind === 'save') return tasks => {
     const index = tasks.findIndex(item => item.id === draft.id);
     const current = tasks[index];
@@ -703,8 +748,7 @@ function transformIntent(intent) {
     const previous = current || { createdAt };
     const next = toCanonical({
       ...(current ? toView(current) : { id: draft.id, status: "todo" }),
-      title: draft.title, notes: draft.notes, course: draft.course,
-      content_type: draft.content_type, due: draft.due, dueTime: draft.dueTime,
+      ...draft,
     }, previous);
     if (index < 0) tasks.push(next);
     else tasks[index] = next;
@@ -721,11 +765,12 @@ function transformIntent(intent) {
   };
   if (kind === 'deadline') return tasks => {
     const task = tasks.find((item) => item.id === id && !item.recycleBin && item.status !== "cancelled");
+    const field = task && Object.hasOwn(task, 'eventAt') && !task.due ? 'eventAt' : 'due';
     if (!task ||
-        (task.due?.date || "") !== expected.due ||
-        (task.due?.time || "") !== expected.dueTime)
+        (task[field]?.date || "") !== expected.due ||
+        (task[field]?.time || "") !== expected.dueTime)
       throw new Error("任务日期已变化，请重新核对");
-    task.due = next.due ? {
+    task[field] = next.due ? {
       date: next.due,
       precision: next.dueTime ? "datetime" : "date",
       ...(next.dueTime ? { time: next.dueTime } : {}),
@@ -800,20 +845,17 @@ export async function bulkStoredTasks(action, selectedTasks = [], options = {}) 
       throw new Error('请先选择要处理的任务');
     if (selectedTasks.length > 500) throw new Error('一次最多处理500项，请缩小选择范围');
     const ids = new Set();
-    const tasks = [], candidates = [];
+    const tasks = [];
     for (const task of selectedTasks) {
-      if (!task.id || ids.has(task.id) || task.reviewChange) throw new Error('所选内容已变化，请重新选择');
+      if (!task.id || ids.has(task.id) || isReviewProjection(task)) throw new Error('所选内容已变化，请重新选择');
       ids.add(task.id);
       const expected = Object.fromEntries(['title', 'notes', 'course', 'content_type', 'due', 'dueTime', 'status', 'completedAt']
         .map(key => [key, task[key] ?? (key === 'content_type' ? 'task' : '')]));
-      if (task.reviewCandidateId) {
-        if (!['complete', 'deadline', 'trash'].includes(action)) throw new Error('待核对内容不支持此操作');
-        candidates.push({ id: task.reviewCandidateId, version: task.reviewVersion, taskId: newId(), expected });
-      } else tasks.push({ id: task.id, expected });
+      tasks.push({ id: task.id, expected });
     }
     const date = options.date || '';
     if (action === 'deadline' && date && !shiftDay(date, 0)) throw new Error('日期格式不正确');
-    intent = { kind: 'bulk', action, tasks, candidates, date, completedAt: dayKey(), deletedAt: new Date().toISOString() };
+    intent = { kind: 'bulk', action, tasks, candidates: [], date, completedAt: dayKey(), deletedAt: new Date().toISOString() };
   }
   if (new TextEncoder().encode(JSON.stringify(intent)).length > 99000) throw new Error('所选内容过多，请缩小选择范围后重试');
   return changeStoredTasks(intent, { reloadOnStale: true, affectedIds: selectedTasks.map(task => task.id) });

@@ -142,6 +142,24 @@ class ManualMaterialTests(unittest.TestCase):
             self.assertEqual(receipt['mime_type'],'application/octet-stream')
             wechat_media.check_request(self.request(receipt,supported=False))
 
+    def test_quick_file_add_creates_one_task_even_when_image_evidence_needs_review(self):
+        root = Path(__file__).resolve().parents[1] / 'contracts'
+        _, receipt = self.upload(b'\x89PNG\r\n\x1a\nsynthetic', 'poster.png')
+        request = json.loads((root/'source-to-text/text-attachments-v031-request.json').read_text())
+        request['request_id'] = 'quick-add:poster'
+        request['records'][0]['attachments'][0].update({k: receipt[k] for k in (
+            'file_name','mime_type','size_bytes','sha256','file_ref')})
+        result = json.loads((root/'text-to-app/text-attachments-v031-output.json').read_text())
+        result['request_id'] = request['request_id']
+        with patch.object(wechat_media, 'recognize_v03', return_value=result) as model:
+            self.assertEqual(self.call('/materials/imports',request)[0],202)
+            wechat_media.wait_for_jobs(app.DB)
+            self.assertEqual(self.call('/materials/imports',request)[0],200)
+            self.assertEqual(model.call_count,1)
+        task, = self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual(task['title'], result['tasks'][0]['title'])
+        self.assertEqual(self.call('/recognition/batches')[1][0]['items'][0]['state'], 'applied')
+
     def test_png_and_docx_keep_real_mime_types(self):
         buffer=io.BytesIO()
         with ZipFile(buffer,'w') as archive:

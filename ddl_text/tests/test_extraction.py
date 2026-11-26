@@ -81,6 +81,92 @@ class ExtractionTests(unittest.TestCase):
         self.assertIsNone(combine_times(dates[:1] + [uncertain])['value'])
         self.assertEqual(combine_times(dates[:1] * 2)['value'], '2026-09-29')
 
+    def test_quick_interval_end_is_preserved_without_conflicting_with_start(self):
+        from ddl_text.time_validation import quick_reference
+        record = message('2026年12月27日23点至28日凌晨1点值班', platform='manual')
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        start = time_ref(record, record['text'], '2026-12-27T23:00:00+08:00', kind='event_start')
+        end = time_ref(record, record['text'], '2026-12-28T01:00:00+08:00', kind='event_end')
+        clock = compile_tasks(record, draft(record, times=[start, end]))[0]['deadline']
+        self.assertEqual((clock['value'], clock['range_end']), (start['normalized']['value'], end['normalized']['value']))
+        end['normalized']['value'] = '2026-12-27T01:00:00+08:00'
+        with self.assertRaises(AgentError):
+            compile_tasks(record, draft(record, times=[start, end]))
+
+    def test_bounded_daily_schedule_expands_templates_with_source_local_times(self):
+        from ddl_text.time_validation import quick_reference
+        text = '这周的每天晚上十一点至次日一点照看设备，帮我每天设置一个提醒；周六交登记表。'
+        record = message(text, platform='manual', course_or_project='实验课')
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        first = time_ref(record, text, '2026-12-28T23:00:00+08:00', kind='event_start')
+        last = time_ref(record, text, '2026-12-29T01:00:00+08:00', kind='event_end')
+        item = draft(record, title='照看设备', times=[first, last], repeat_window='这周的每天')
+        single = draft(record, title='交登记表', times=[time_ref(record, text, '2027-01-02')])
+        tasks = compile_tasks(record, item, single)
+        expected_dates = record['quick_reference']['weeks']['本周']
+        self.assertEqual([t['deadline']['value'][:10] for t in tasks[:-1]], expected_dates)
+        self.assertTrue(all(t['course_or_project'] == '实验课' for t in tasks))
+        self.assertEqual(tasks[-2]['deadline']['range_end'], '2027-01-04T01:00:00+08:00')
+        self.assertEqual([t['title'] for t in tasks], ['照看设备'] * 7 + ['交登记表'])
+        self.assertEqual(len({t['candidate_id'] for t in tasks}), 8)
+        with self.assertRaises(AgentError):
+            compile_tasks(record, dict(item, repeat_window=None), single)
+        with self.assertRaises(AgentError):
+            compile_tasks(record, item, item)
+
+    def test_daily_requests_intersect_the_schedule_with_the_requested_days(self):
+        from ddl_text.time_validation import quick_reference
+        # Thursday at 23:30 local time, already Friday in UTC.
+        def windows(text):
+            record = message(text, platform='manual', timezone='America/Los_Angeles',
+                             collected_at='2026-11-27T07:30:00Z',
+                             published_at={'value': None, 'precision': 'unknown', 'basis': 'unknown'})
+            return quick_reference(record)['daily_windows']
+
+        rest = ['2026-11-27', '2026-11-28', '2026-11-29']
+        full = ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', *rest]
+        self.assertEqual(windows('这周每天盘点，帮我在今天之后的每天都设一个待办'),
+                         {'今天之后的每天': rest})
+        self.assertEqual(windows('本周从今天起每日读书'), {'本周从今天起每日': full[3:]})
+        self.assertEqual(windows('未来三天从明天起每天读书'), {'未来三天从明天起每天': rest[:2]})
+        self.assertEqual(windows('本周每天读书，帮我在今天之后的每个工作日都设置一个提醒'),
+                         {'今天之后的每个工作日': rest[:1]})
+        self.assertEqual(windows('本周每天读书，本周每天散步，今天之后的每天都设一个任务'),
+                         {'本周每天': full, '今天之后的每天': rest})
+        self.assertEqual(windows('本周每天读书，今天之后的每天都设置一个闹钟叫我吃药'),
+                         {'本周每天': full})
+
+    def test_empty_daily_window_does_not_roll_into_next_week(self):
+        from ddl_text.time_validation import quick_reference
+        record = message('这周每天读书，帮我在今天之后的每天设置一个待办。明天交报告。',
+                         platform='manual', published_at={'value': '2026-11-29',
+                                                        'precision': 'date', 'basis': 'source'})
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        phrase = '今天之后的每天'
+        self.assertEqual(record['quick_reference']['daily_windows'], {phrase: []})
+        single = draft(record, times=[time_ref(record, '明天交报告', '2026-11-30')])
+        self.assertEqual([t['title'] for t in compile_tasks(record, draft(record, repeat_window=phrase), single)],
+                         ['提交报告'])
+        self.assertEqual(compile_tasks(record), [])
+        with self.assertRaises(AgentError):
+            compile_tasks(record, draft(record, title='读书', repeat_window=None))
+
+    def test_daily_windows_use_local_week_and_preserve_time_across_dst(self):
+        from ddl_text.daily_tasks import shift_local
+        from ddl_text.time_validation import quick_reference
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        record = message('下周每个工作日收快递，未来三天每日整理笔记', platform='manual')
+        windows = quick_reference(record)['daily_windows']
+        self.assertEqual(windows['未来三天每日'], ['2026-12-31', '2027-01-01', '2027-01-02'])
+        self.assertEqual(windows['下周每个工作日'], ['2027-01-04', '2027-01-05', '2027-01-06', '2027-01-07', '2027-01-08'])
+        zone = ZoneInfo('America/Los_Angeles')
+        self.assertEqual(shift_local('2026-03-07T18:00:00-08:00', timedelta(days=1), zone),
+                         '2026-03-08T18:00:00-07:00')
+
     def test_exam_interval_is_only_a_reference(self):
         raw = '2026-9-29 9:00~12:00'
         record = message(raw + '有小测，请复习。')
@@ -89,6 +175,17 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual((result['value'], result['kind'], result['raw']),
                          ('2026-09-29T09:00:00+08:00', 'reference', raw))
         self.assertEqual(result['status'], 'inferred')
+
+    def test_quick_event_role_survives_validation_without_promoting_background(self):
+        from ddl_text.time_validation import quick_reference
+        record = message('明早九点去看朋友', platform='manual')
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        for kind, role in [('event_start', 'event_start'), ('reference', 'background')]:
+            item = time_ref(record, record['text'], '2027-01-01T09:00:00+08:00',
+                            kind=kind, derivation='relative', anchor='quick_reference')
+            clock = compile_tasks(record, draft(record, times=[item]))[0]['deadline']
+            self.assertEqual((clock['kind'], clock['role'], clock['status']), ('reference', role, 'inferred'))
 
     def test_urgency_filter_uses_role_and_keeps_literal_evidence(self):
         record = message('2026年10月11日前提交报告；麻烦大家抓点紧呀。')

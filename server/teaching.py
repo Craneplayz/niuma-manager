@@ -137,7 +137,6 @@ def result_view(request, result):
 
 def register(db, uid, username, requests, *, assets=None):
     """Only call for the authenticated crawler output, never for browser JSON."""
-    from recognition import has_unapplied_auto_tasks
     pending, seen = [], set(); total = skipped = 0
     if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
     for batch in requests:
@@ -211,8 +210,7 @@ def register(db, uid, username, requests, *, assets=None):
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                 (uid,request['request_id'])).fetchone()
             output = json.loads(stored['result']) if stored else None
-            if output and (needs_source_completion(output) or output['status'] in ('success','no_tasks')
-                           and not has_unapplied_auto_tasks(db,uid,request,stored['demo'])):
+            if output and (needs_source_completion(output) or output['status'] in ('success','no_tasks')):
                 skipped += 1
             else: pending.append(request_view(request))
     for old,current in course_context.refresh_dependents(db,uid,account(username)):
@@ -397,11 +395,13 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
                 (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
             submission.controls.refresh_request(db,uid,request['request_id'])
+            published = recognition.publish_results(db, uid, request, ApiError)
             operations.emit('save',(time.monotonic()-saving)*1000)
             for row in result['record_results']:
                 code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])
                 if code in operations.CODES:operations.after_commit(db,'outcome',code=code,result='failed' if row['status']=='failed' else 'ok')
                 filtered=sum(decision.get('recommendation')=='filtered' for decision in row.get('decisions',[]))
                 if filtered:operations.after_commit(db,'outcome',code='filtered',quantity=filtered)
+        return published
     finally:
         recognition._ACTIVE.release()

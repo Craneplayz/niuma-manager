@@ -92,6 +92,7 @@ def normalize_record(record, version="0.1"):
     ids = {result["input_id"]}
     for context in result["context"]:
         require(isinstance(context, dict) and nonempty(context.get("input_id")))
+        context.pop("quick_reference", None)  # Only the current manual record may receive this internal field.
         require(context["input_id"] not in ids)
         ids.add(context["input_id"])
         require(isinstance(context.get("text"), str) and len(context["text"]) <= 200000
@@ -120,7 +121,7 @@ def validate_tasks(tasks, record):
                 require(task["candidate_id"] not in seen)
                 seen.add(task["candidate_id"])
                 validate_candidate(task, record)
-                require(set(task["deadline"]) == {"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"})
+                require(set(task["deadline"]) - {"role", "range_end"} == {"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"})
                 for source in task["sources"]:
                     require(set(source) == {"input_id", "platform", "url", "label", "source_item_id"})
                 for ref in task["evidence"]:

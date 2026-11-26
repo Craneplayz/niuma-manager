@@ -16,6 +16,26 @@ from server import model_queue
 
 
 class ModelQueueTests(unittest.TestCase):
+    def test_durable_worker_survives_full_queue_and_ordinary_wait_deadline(self):
+        import time
+        from server.model_queue import ModelQueue
+        queue = ModelQueue(limit=1, pending=1, wait=.05)
+        self.assertTrue(queue.acquire())
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            ordinary = pool.submit(queue.acquire)
+            deadline = time.monotonic() + 2
+            while not queue.snapshot()['queued'] and time.monotonic() < deadline:
+                time.sleep(.001)
+            durable = pool.submit(queue.acquire, durable=True)
+            try:
+                self.assertFalse(ordinary.result(timeout=2))
+                time.sleep(.1)
+                self.assertFalse(durable.done())
+            finally:
+                queue.release()
+            self.assertTrue(durable.result(timeout=2))
+            queue.release()
+
     def test_reserved_continuation_is_removed_on_stop_or_timeout(self):
         for stop,wait,code in ((True,5,'stopped'),(False,0,'queue_timeout')):
             with self.subTest(code=code):

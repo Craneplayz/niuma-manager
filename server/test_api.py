@@ -434,7 +434,7 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
         self.assertEqual(captured,[fixture['request']])
         changed=copy.deepcopy(fixture['request']);changed['records'][0]['text']='不同内容'
         self.assertEqual(self.call(a,'/recognition/batches','POST',changed)[0],409)
-        self.assertNotIn('tasks',self.call(a,'/workspace')[1])
+        self.assertEqual(len(self.call(a,'/workspace')[1]['tasks']['value']),len(fixture['expected']['tasks']))
         empty=dict(contract_version='0.2',request_id='empty',records=[])
         status,batches=self.call(a,'/recognition/batches','POST',empty)
         self.assertEqual(status,200);self.assertEqual(batches[0]['result']['status'],'no_tasks')
@@ -454,14 +454,14 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
         for record in fixture['request']['records']: record['platform']='teaching_web'
         for candidate in fixture['expected']['tasks']:
             for source in candidate['sources']: source['platform']='teaching_web'
-        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
+        with patch.object(app.recognition,'publish_results',return_value=set()), patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
             status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
         self.assertEqual(status,200)
         clear=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c1')
         unclear=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c2')
         body=dict(action='create',auto_apply=True,version=clear['version'])
         path='/recognition/candidates/'+clear['id']+'/resolve'
-        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(manual['expected']).encode())):
+        with patch.object(app.recognition,'publish_results',return_value=set()), patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(manual['expected']).encode())):
             manual_status,manual_batches=self.call(client,'/recognition/batches','POST',manual['request'])
         self.assertEqual(manual_status,200)
         manual_candidate=next(item for item in manual_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
@@ -472,7 +472,7 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
             for record in unsupported['request']['records']: record['platform']=platform
             for candidate in unsupported['expected']['tasks']:
                 for source in candidate['sources']: source['platform']=platform
-            with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(unsupported['expected']).encode())):
+            with patch.object(app.recognition,'publish_results',return_value=set()), patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(unsupported['expected']).encode())):
                 status,other_batches=self.call(client,'/recognition/batches','POST',unsupported['request'])
             self.assertEqual(status,200)
             other=next(item for item in other_batches[0]['items'] if item['candidate']['candidate_id']=='c1')
@@ -494,7 +494,7 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
         fixture['request']['request_id']=fixture['expected']['request_id']='raw-date'
         fixture['request']['records'][0]['platform']='teaching_web'
         fixture['expected']['tasks'][0]['sources'][0]['platform']='teaching_web'
-        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
+        with patch.object(app.recognition,'publish_results',return_value=set()), patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
             status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
         self.assertEqual(status,200)
         candidate=next(item for item in batches[0]['items'] if item['candidate']['candidate_id']=='c1')
@@ -511,7 +511,7 @@ for(const mode of ['month','week'])assert.doesNotMatch(day(calendar(reloaded,mod
     def test_f3_classification_auto_apply_respects_review_and_no_date(self):
         client=self.client();self.register(client,'f3-auto@test.local')
         fixture=json.loads((Path(__file__).parent.parent/'contracts/text-to-app/text-classification-v02.json').read_text(encoding='utf-8'))
-        with patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
+        with patch.object(app.recognition,'publish_results',return_value=set()), patch.dict(app.os.environ,{'TEXT_HARNESS_URL':'http://local-test/recognize'}),patch.object(app.recognition,'urlopen',return_value=io.BytesIO(json.dumps(fixture['expected']).encode())):
             status,batches=self.call(client,'/recognition/batches','POST',fixture['request'])
         self.assertEqual(status,200)
         batch=batches[0]

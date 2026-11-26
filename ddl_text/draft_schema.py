@@ -16,20 +16,28 @@ def draft_schema(record, *, historical=False):
     # for a course that is provided outside the original text.
     if not historical and record.get("course_or_project") is not None:
         course = {"type": "null"}
+    kinds = ["deadline", "reference", "urgency"]
+    if record.get("quick_reference"):
+        kinds.extend(("event_start", "event_end"))
     task = _object({
         "title": text, "description": text, "prerequisites": strings,
         "notice_type": {"type": "string", "enum": ["create", "update", "postpone", "cancel", "uncertain"]},
         "target": nullable_reference, "course": course,
         "evidence": {"type": "array", "items": reference},
         "times": {"type": "array", "items": _object({"input_id": text, "quote": text,
-                                                        "kind": {"type": "string", "enum": ["deadline", "reference", "urgency"]},
-                                                        "normalized": normalized_time_schema()})},
+                                                        "kind": {"type": "string", "enum": kinds},
+                                                        "normalized": normalized_time_schema(record.get("quick_reference"))})},
         "review_reasons": strings,
         "relevance": _object({
             "state": {"type": "string", "enum": ["current", "ongoing", "historical", "uncertain"]},
             "reason": text, "evidence": {"type": "array", "items": reference},
         }),
     })
+    windows = (record.get("quick_reference") or {}).get("daily_windows")
+    if windows:
+        task["properties"]["repeat_window"] = {"enum": [None, *windows]}
+        if not historical:
+            task["required"].append("repeat_window")
     schema = _object({"tasks": {"type": "array", "items": task}})
     if historical:
         task['required'].remove('relevance')

@@ -134,7 +134,7 @@ test("each day has one priority colour and its intensity uses only the highest-p
 
 test("month and week agree, while clicking a date shows all its content and preserves list filters", async ({ page }, info) => {
   const state = await workspace(page);
-  await expect(page.locator('[data-review-id="activity-pending"]')).toBeVisible();
+  await expect(page.locator('[data-task-id="today-expired"]')).toBeVisible();
   await page.locator("#task-search").fill("不存在的合成搜索词");
   await page.locator("#course-filter").selectOption("线性代数");
   await expect(page.locator(".task-row")).toHaveCount(0);

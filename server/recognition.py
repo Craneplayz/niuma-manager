@@ -17,6 +17,7 @@ import threading
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from text_contract import validate_request, validate_result
 
 # dev:api launches server/app.py from frontend/, not from the repository root.
@@ -43,7 +44,7 @@ _POLICY_COMPONENTS = {name:hashlib.sha256((POLICY_ROOT/name).read_text(encoding=
 def recognize(request, ApiError, *, on_admitted=None):
     """Queue model admission across accounts, features and transports."""
     _EXECUTION.policy = None
-    if not _ACTIVE.acquire():
+    if not _ACTIVE.acquire(durable=on_admitted is not None):
         error=ApiError(503, WAIT_ERROR)
         error.code, error.diagnostic='agent_unavailable','model_busy'
         raise error
@@ -122,11 +123,11 @@ def initialize(db):
         db.execute('ALTER TABLE recognition_batches ADD COLUMN attempt_id TEXT')
 
 def was_automatically_withdrawn(candidate):
-    """Only the first system withdrawal is replaceable, never a user decision."""
+    """A first system withdrawal or history-only migration is replaceable on reprocessing."""
     if candidate['state']!='ignored' or candidate['version']!=2: return False
     try:
         resolution=json.loads(candidate['resolution'] or '{}')
-        return isinstance(resolution,dict) and resolution.get('action')=='submission_policy_completed'
+        return isinstance(resolution,dict) and resolution.get('action') in ('submission_policy_completed', 'legacy_history_only')
     except (ValueError,TypeError): return False
 
 
@@ -205,16 +206,6 @@ def can_auto_apply(candidate, request, demo=False):
                 and candidate['notice_type']=='create' and not candidate['needs_review']
                 and not candidate['review_reasons'] and valid_due)
 
-def has_unapplied_auto_tasks(db, uid, request, demo=False):
-    # Reopened candidates have already been handled by the user and stay manual.
-    if request.get('contract_version')=='0.4':
-        import teaching_submission
-        if teaching_submission.review_reason(teaching_submission.for_request(db,uid,request['request_id'])):
-            return False
-    return any(can_auto_apply(json.loads(row['candidate']),request,demo)
-               for row in db.execute('SELECT candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state="pending" AND version=1',
-                                     (uid,request['request_id'])))
-
 def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before_save=None, on_admitted=None):
     """Share validation, idempotency and candidate persistence with durable text jobs."""
     previous=None
@@ -290,6 +281,8 @@ def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before
             for record in request['records']:
                 db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?)',
                     (uid,request['request_id'],record['input_id'],json.dumps(policy) if policy is not None else None))
+        if not demo:
+            publish_results(db, uid, request, ApiError)
     return result
 
 
@@ -386,7 +379,130 @@ def route(handler,db,uid,path,body,ApiError):
     raise ApiError(404,'识别接口不存在')
 
 
-def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, record_usage=True):
+def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=None):
+    """Materialize new items in the recognition transaction, preserving prior decisions."""
+    if request.get('contract_version') == '0.4':
+        import teaching
+        request = teaching.request_view(request)
+    records = {r['input_id']: r for r in request['records']}
+    rows = db.execute("""SELECT id,version,candidate FROM recognition_candidates
+        WHERE user_id=? AND request_id=? AND state='pending' AND (? IS NULL OR id=?)""",
+        (uid, request['request_id'], candidate_id, candidate_id)).fetchall()
+    for row in rows:
+        candidate = json.loads(row['candidate'])
+        record = records[candidate['input_id']]
+        deadline = candidate['deadline']
+        attendance = bool(re.search(r'参加|出席|观看|考试|考核|讲座|讲坛|沙龙', candidate['title']))
+        schedule_change = candidate['notice_type'] in ('postpone', 'update')
+        event = deadline['kind'] == 'reference' and (schedule_change or attendance and not re.search(
+            r'报名|提交|申请|截止', candidate['title'] + (deadline.get('raw') or '')))
+        if 'role' in deadline:
+            event = deadline['role'] == 'event_start'
+        if deadline.get('range_end'):
+            event = True
+        when = None
+        if (deadline['status'] in ('explicit', 'inferred') and deadline['value']
+                and (deadline['kind'] == 'deadline' or event and deadline['kind'] == 'reference')):
+            if deadline['precision'] == 'date':
+                when = dict(date=deadline['value'], precision='date')
+            elif deadline['precision'] == 'datetime':
+                stamp = datetime.fromisoformat(deadline['value'].replace('Z', '+00:00')).astimezone(ZoneInfo(record.get('timezone') or deadline.get('timezone') or 'Asia/Shanghai'))
+                when = dict(date=stamp.date().isoformat(), time=stamp.strftime('%H:%M'), precision='datetime')
+        description = candidate['description'] or ''
+        source_range = None
+        if event and when and deadline.get('range_end'):
+            zone = record.get('timezone') or deadline.get('timezone') or 'Asia/Shanghai'
+            start, end = deadline['value'], deadline['range_end']
+            source_range = dict(start=start, end=end, precision=deadline['precision'], timezone=zone)
+            if deadline['precision'] == 'datetime':
+                first, last = (datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(ZoneInfo(zone))
+                               for value in (start, end))
+                start = first.strftime('%Y-%m-%d %H:%M')
+                end = last.strftime('%H:%M' if first.date() == last.date() else '%Y-%m-%d %H:%M')
+            description = (description + '\n时段：' + start + '–' + end).strip()
+        if record.get('source_url') and (source == '一句话添加' or record.get('platform') == 'manual'):
+            description = (description + '\n链接：' + record['source_url']).strip()
+        settings = record.get('quick_settings', {}) if record.get('platform') == 'manual' else {}
+        if 'when' in settings:
+            when = settings['when']
+        elif when is None and deadline['status'] == 'not_provided' and settings.get('default_date'):
+            when = dict(date=settings['default_date'], precision='date')
+        course = settings.get('course', candidate['course_or_project'] or settings.get('default_course'))
+        draft = dict(title=candidate['title'], description=description, course=course, due=when,
+                     content_type=candidate.get('content_type', 'task') if candidate['notice_type'] == 'create' else 'notice')
+        resolve_candidate(db, uid, row['id'], dict(action='create', version=row['version'], draft=draft, auto_apply=True),
+                          ApiError, direct_add=True, source_range=source_range, source=source)
+    return {row['id'] for row in rows}
+
+
+def current_legacy_task(candidate, record, now):
+    deadline = candidate['deadline']
+    if (candidate['notice_type'] != 'create' or candidate.get('content_type', 'task') != 'task'
+            or candidate.get('needs_review') or deadline['kind'] != 'deadline'
+            or deadline['status'] != 'explicit' or not deadline.get('value')):
+        return False
+    try:
+        if deadline['precision'] == 'date':
+            zone = ZoneInfo(record.get('timezone') or deadline.get('timezone') or 'Asia/Shanghai')
+            return date.fromisoformat(deadline['value']) >= now.astimezone(zone).date()
+        if deadline['precision'] == 'datetime':
+            when = datetime.fromisoformat(deadline['value'].replace('Z', '+00:00'))
+            return when.tzinfo is not None and when >= now
+    except (ValueError, ZoneInfoNotFoundError):
+        pass
+    return False
+
+
+def publish_legacy_pending(db, ApiError):
+    if not db.in_transaction:
+        db.execute('BEGIN IMMEDIATE')
+    batches = db.execute("""SELECT b.user_id,b.request,b.result FROM recognition_batches b
+        WHERE b.demo=0 AND EXISTS (SELECT 1 FROM recognition_candidates c
+            WHERE c.user_id=b.user_id AND c.request_id=b.request_id AND c.state='pending')
+        AND NOT EXISTS (SELECT 1 FROM recognition_import_records r
+            WHERE r.user_id=b.user_id AND r.request_id=b.request_id AND r.archived=1)""").fetchall()
+    now = datetime.now(timezone.utc)
+    for batch in batches:
+        # Some older workspaces already contain a linked task (including recycled
+        # tasks) even though its candidate was left pending. Keep the user's copy.
+        request = json.loads(batch['request'])
+        request_id = request['request_id']
+        workspace = db.execute("SELECT value FROM workspace WHERE user_id=? AND name='tasks'", (batch['user_id'],)).fetchone()
+        for task in json.loads(workspace['value']) if workspace else []:
+            for entry in task.get('recognitionHistory', []):
+                if entry.get('storageId') and entry.get('requestId') in (None, request_id):
+                    db.execute("""UPDATE recognition_candidates SET state='applied',version=version+1,resolution=?
+                        WHERE user_id=? AND request_id=? AND id=? AND state='pending'""",
+                        (json.dumps(dict(action=entry.get('action', 'create'))), batch['user_id'], request_id, entry['storageId']))
+        records = request['records']
+        visible = None
+        if request.get('contract_version') == '0.4':
+            import teaching
+            records = teaching.request_view(request)['records']
+            visible = {c['candidate_id'] for c in teaching.result_view(request, json.loads(batch['result']))['tasks']}
+            # A retired snapshot or disconnected account cannot establish that an
+            # old assignment is still actionable under today's submission state.
+            cred = db.execute('SELECT username FROM source_credentials WHERE user_id=?',(batch['user_id'],)).fetchone()
+            if not cred or not db.execute("""SELECT 1 FROM teaching_sources
+                    WHERE user_id=? AND account=? AND request_id=?""",
+                    (batch['user_id'], teaching.account(cred[0]), request_id)).fetchone():
+                visible = set()
+            else:
+                state = teaching.submission.for_request(db, batch['user_id'], request_id)
+                if teaching.submission.skip_model(state) or teaching.submission.review_reason(state):
+                    visible = set()
+        by_id = {r['input_id']: r for r in records}
+        for row in db.execute("""SELECT id,candidate FROM recognition_candidates
+                WHERE user_id=? AND request_id=? AND state='pending'""", (batch['user_id'], request_id)).fetchall():
+            card = json.loads(row['candidate'])
+            if ((visible is not None and card['candidate_id'] not in visible)
+                    or not current_legacy_task(card, by_id[card['input_id']], now)):
+                db.execute("UPDATE recognition_candidates SET state='ignored',version=version+1,resolution=? WHERE id=?",
+                           (json.dumps(dict(action='legacy_history_only')), row['id']))
+        publish_results(db, batch['user_id'], request, ApiError)
+
+
+def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=False, source_range=None, record_usage=True, source=None):
     """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     import submission_runtime
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
@@ -405,14 +521,23 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, record_usage
         # Persist the manual pause before the candidate can become a task. Its
         # version also lets older reopened rows recover the pause after restart.
         submission_runtime.refresh_request(db,uid,row['request_id'],reopened_candidate_id=cid)
+        batch = db.execute('SELECT request,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
+                           (uid, row['request_id'])).fetchone()
+        if not batch['demo']:
+            publish_results(db, uid, json.loads(batch['request']), ApiError, candidate_id=cid)
         return
     if row['state']!='pending':
+        # Old clients can acknowledge a task already saved by this recognition transaction.
+        if (row['state'] == 'applied' and row['resolution'] and
+                body == dict(action='create', auto_apply=True, version=row['version'] - 1)
+                and json.loads(row['resolution']).get('auto_apply') is True):
+            return
         if row['resolution']!=canonical: raise ApiError(409,'候选已处理，不能用不同操作重复确认')
         return
     if body.get('version')!=row['version']: raise ApiError(409,'候选已变化，请刷新')
     c=json.loads(row['candidate'])
     if action not in ['create','update','postpone','cancel','ignore']: raise ApiError(400,'请选择明确操作')
-    auto=body.get('auto_apply') is True
+    auto=not direct_add and body.get('auto_apply') is True
     if auto:
         d=c['deadline']
         batch=db.execute('SELECT demo,request FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,row['request_id'])).fetchone()
@@ -424,11 +549,12 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, record_usage
         if action!='create' or not can_auto_apply(c,json.loads(batch['request']),batch['demo']):
             raise ApiError(400,'此候选需要人工处理，不能自动加入日程')
     if action!='ignore':
-        if not auto and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
-        if c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
+        if not auto and not direct_add and body.get('reviewed') is not True: raise ApiError(400,'请先核对证据与变更')
+        if not direct_add and c['notice_type']!='uncertain' and action!=c['notice_type']: raise ApiError(400,'操作与通知类型不符')
         taskrow=db.execute('SELECT * FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
         version=taskrow['version'] if taskrow else 0
-        if not auto and body.get('tasks_version')!=version: raise ApiError(409,'任务已变化，请刷新后重新核对')
+        if not auto and not direct_add and body.get('tasks_version')!=version:
+            raise ApiError(409,'任务已变化，请刷新后重新核对')
         tasks=json.loads(taskrow['value']) if taskrow else []
         target=next((t for t in tasks if t['id']==body.get('target_id')),None)
         if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
@@ -463,8 +589,10 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, record_usage
             if content_type not in ('task','notice'): raise ApiError(400,'内容类型必须是任务或通知')
             if action=='create':
                 platform=c['sources'][0]['platform']
-                source={'teaching_web':'教学网','wechat':'微信'}.get(platform,c['sources'][0]['label'] or '文本识别')
+                source=source or {'teaching_web':'教学网','wechat':'微信','manual':'一句话添加'}.get(platform,c['sources'][0]['label'] or '文本识别')
                 target=dict(id=intent['newTaskId'] if intent is not None else secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=intent.get('createdAt',datetime.now(timezone.utc).isoformat()) if intent is not None else datetime.now(timezone.utc).isoformat())
+                if source_range:
+                    target['sourceTimeRange'] = source_range
                 tasks.append(target)
                 target['course']=course
                 target['category']='课程作业' if course else '个人事务'
@@ -481,7 +609,10 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, record_usage
         if body.get('complete') is True:
             target['status']='completed'
             target['completedAt']=intent['completedAt'] if intent is not None else datetime.now(usage.TZ).date().isoformat()
-        target.setdefault('recognitionHistory',[]).append(dict(storageId=cid,requestId=row['request_id'],candidateId=c['candidate_id'],action=action))
+        entry = dict(storageId=cid, requestId=row['request_id'], candidateId=c['candidate_id'], action=action)
+        if direct_add and c['notice_type'] in ('update', 'postpone', 'cancel'):
+            entry['noticeType'] = c['notice_type']
+        target.setdefault('recognitionHistory', []).append(entry)
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         if record_usage: usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))

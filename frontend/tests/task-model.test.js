@@ -147,7 +147,7 @@ test("combined query, course, source, and inclusive date filters preserve deadli
 
 test("grouping uses all six deadline buckets across a year boundary and sorting never mutates input", () => {
   const originalIds = ids(tasks);
-  const grouped = groupTasks(filterTasks(tasks, { today }), today);
+  const grouped = groupTasks(filterTasks(tasks, { today }), today, new Date(`${today}T00:00:00`));
   assert.deepEqual(
     grouped.map((group) => group.tone),
     ["overdue", "today", "tomorrow", "upcoming", "future", "undated"],
@@ -377,7 +377,7 @@ test("month, week and day panels distinguish dated notices and retain undated no
     const markup = renderCalendar({ tasks: mixed, anchorDate: today, today, mode });
     assert.match(markup, /calendar-task is-notice/);
     assert.match(markup, /通知关键时间：考试地点/);
-    assert.match(markup, /任务截止：提交实验/);
+    assert.match(markup, /任务时间：提交实验/);
     assert.doesNotMatch(markup, /data-task-open="undated-notice"/);
   }
   const panel = renderDayPanel({ tasks: mixed, selectedDate: today, today });
@@ -416,6 +416,26 @@ test("tasks and notices share overdue styling for valid unread dates and clear i
   }
 });
 
+test("list rows and groups move confirmed tasks at the deadline minute and keep date-only and unconfirmed items in today", () => {
+  const now = new Date(`${today}T12:00:00`);
+  const task = (id, props = {}) => ({ id, title: id, status: "todo", due: today, dueTime: "12:00", ...props });
+  const records = [
+    task("deadline"), task("later", { dueTime: "12:01" }), task("date-only", { dueTime: "" }),
+    task("notice", { content_type: "notice" }), task("review", { reviewCandidateId: "candidate" }),
+  ];
+  const groups = groupTasks(records, today, now);
+  assert.deepEqual(groups.map(group => group.tone), ["overdue", "today"]);
+  assert.deepEqual(ids(groups[0].tasks), ["deadline"]);
+  const mixed = renderTaskList(records, { today, now });
+  assert.match(mixed, /时间已过<span>1/);
+  assert.doesNotMatch(mixed, /早于今天/);
+  assert.match(mixed, /class="task-row is-overdue" data-task-id="deadline"/);
+  assert.equal(mixed.match(/is-overdue/g).length, 1);
+  assert.doesNotMatch(renderTaskList([task("finished", { status: "done" })], { today, now }), /is-overdue|已逾期/);
+  const earlier = renderTaskList(records, { today, now: new Date(`${today}T11:59:59`) });
+  assert.doesNotMatch(earlier, /时间已过|is-overdue/);
+});
+
 test("calendar and day panels put unread notices before read notices even when their key time is later", () => {
   const notices = [
     { id: "read", title: "早间已读", content_type: "notice", status: "done", due: today, dueTime: "08:00" },
@@ -438,4 +458,25 @@ test('task edits reject changed or removed records while allowing independent st
   assert.throws(()=>assertCurrentTaskEdit({...original,...change},snapshot),/内容已变化/);
  }
  assert.throws(()=>assertCurrentTaskEdit(undefined,snapshot),/内容已变化/);
+});
+
+test("a dated schedule change is visible in the task list and notices", () => {
+  const event = { id: "rescheduled", status: "todo", content_type: "notice", recognitionHistory: [{noticeType:"postpone"}], due: today };
+  const info = { id: "info", status: "todo", content_type: "notice" };
+  assert.deepEqual(ids(filterTasks([info, event], { today })), [event.id]);
+  assert.deepEqual(ids(filterTasks([info, event], { scope: "notices", today })), [event.id, info.id]);
+  assert.deepEqual(ids(filterTasks([{ ...event, status: "done" }], { today })), []);
+});
+
+test("task ranges and single times share ordering and become overdue at their displayed time", () => {
+  const day = "2026-11-26";
+  const shift = {id:"shift", status:"todo", due:day, dueTime:"14:00",
+    sourceTimeRange:{start:"2026-11-26T14:00:00+08:00",end:"2026-11-26T18:00:00+08:00"}};
+  const later = {id:"submit", status:"todo", due:day, dueTime:"15:00"};
+  const before = groupTasks([later, shift], day, new Date(2026, 10, 26, 13, 59));
+  assert.deepEqual(before.map(g => [g.label, ids(g.tasks)]), [["今天", ["shift", "submit"]]]);
+  const atStart = groupTasks([later, shift], day, new Date(2026, 10, 26, 14, 0));
+  assert.deepEqual(atStart.map(g => [g.label, ids(g.tasks)]), [["已逾期", ["shift"]], ["今天", ["submit"]]]);
+  assert.deepEqual(ids(filterTasks([later, shift], {scope:"near", today:day})), ["shift","submit"]);
+  assert.equal(deadlineLabel(shift, day), "今天 14:00");
 });

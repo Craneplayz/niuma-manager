@@ -59,10 +59,10 @@ class TaskBulkTests(unittest.TestCase):
         self.env.stop()
         self.tmp.cleanup()
 
-    def call(self, path, body=None, uid='alice', method='POST'):
+    def call(self, path, body=None, uid='alice', method='POST', headers=None):
         request = Request(f'http://127.0.0.1:{self.server.server_port}/api{path}',
                           None if body is None else json.dumps(body).encode(),
-                          {'Content-Type': 'application/json', 'Cookie': app.runtime_environment.cookie_name() + '=' + uid},
+                          {'Content-Type': 'application/json', 'Cookie': app.runtime_environment.cookie_name() + '=' + uid, **(headers or {})},
                           method='GET' if body is None else method)
         try:
             response = build_opener().open(request)
@@ -93,6 +93,48 @@ class TaskBulkTests(unittest.TestCase):
         self.assertEqual(status, 200, result)
         contract.check('response', result)
         return result
+
+    def test_minimal_bulk_receipt_skips_history_for_trash_replay_and_undo(self):
+        body = self.body('trash', candidates=False)
+        headers = {'Prefer': 'return=minimal'}
+        with patch.object(task_bulk.recognition, 'batches', side_effect=AssertionError('unexpected history read')):
+            for _ in range(2):
+                status, result = self.call('/tasks/bulk', body, headers=headers)
+                self.assertEqual(status, 200, result)
+                contract.check('response', result)
+                self.assertNotIn('batches', result)
+                self.assertEqual(result['version'], 2)
+            undo = self.body('undo', intent=result['undo'])
+            status, restored = self.call('/tasks/bulk', undo, headers=headers)
+            self.assertEqual(status, 200, restored)
+            self.assertEqual(restored['value'], [self.task])
+        self.assertTrue(self.send(body)['batches'])
+
+    def test_event_bulk_trash_restore_and_date_use_the_displayed_start(self):
+        start = dict(date='2026-12-16', time='10:10', precision='datetime')
+        event = dict(self.task, id='exam', title='上机考试', due=None, eventAt=start)
+        original = [self.task, event, dict(self.task, id='practice'), dict(self.task, id='report')]
+        with app.connection() as db:
+            task_bulk.write(db, 'alice', original, 2)
+
+        body = self.body('trash', candidates=False)
+        expected = next(entry['expected'] for entry in body['operation']['intent']['tasks'] if entry['id'] == 'exam')
+        # Send the visible time, as the browser does. A genuinely stale clock rejects the entire selection.
+        expected.update(due=start['date'], dueTime='10:00')
+        self.assertEqual(self.call('/tasks/bulk', body)[0], 409)
+        self.assertEqual(self.state()[0]['value'], original)
+        expected['dueTime'] = start['time']
+        trashed = self.send(body)['value']
+        self.assertTrue(all(t.get('recycleBin') for t in trashed))
+        self.assertEqual(self.send(self.body('restore', candidates=False))['value'], original)
+
+        changed = self.send(self.body('deadline', candidates=False, date='2026-12-17'))
+        self.assertEqual(changed['value'][1]['eventAt'], dict(start, date='2026-12-17'))
+        self.assertIsNone(changed['value'][1]['due'])
+        cleared = self.send(self.body('deadline', candidates=False, date=''))
+        self.assertIsNone(cleared['value'][1]['eventAt'])
+        self.send(self.body('undo', intent=cleared['undo']))
+        self.assertEqual(self.send(self.body('undo', intent=changed['undo']))['value'], original)
 
     def test_mixed_completion_is_one_version_and_undo_keeps_candidate_as_an_ordinary_task(self):
         result = self.send(self.body('complete'))
@@ -139,9 +181,69 @@ class TaskBulkTests(unittest.TestCase):
         self.assertEqual(result['value'][0]['recycleBin']['status'], 'in_progress')
         self.assertEqual(self.state()[1], [dict(id='pending', state='ignored', version=2)])
         restored = self.send(self.body('undo', intent=result['undo']))
-        self.assertEqual(restored['value'], [self.task])
-        self.assertEqual(self.state()[1], [dict(id='pending', state='pending', version=3)])
-        self.assertEqual(restored['candidates'], [dict(id='pending', state='pending', version=3)])
+        self.assertEqual(restored['value'][0], self.task)
+        self.assertEqual(restored['value'][1]['recognitionHistory'][0]['storageId'], 'pending')
+        self.assertEqual(self.state()[1], [dict(id='pending', state='applied', version=4)])
+        self.assertEqual(restored['candidates'][0]['state'], 'applied')
+
+    def test_startup_publishes_only_unambiguous_open_deadlines_once(self):
+        rid = self.request['request_id']
+        with app.connection() as db:
+            for identity, kind, value, review in [
+                    ('future', 'create', '2099-10-23', False), ('expired', 'create', '2000-10-23', False),
+                    ('no-date', 'create', None, False), ('changed', 'postpone', '2099-10-23', False),
+                    ('unclear', 'create', '2099-10-23', True)]:
+                card = dict(self.candidate, candidate_id=identity, notice_type=kind, needs_review=review,
+                            deadline=dict(self.candidate['deadline'], value=value))
+                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
+                           (identity,'alice',rid,json.dumps(card)))
+            archived = dict(self.request,request_id='archived')
+            db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,NULL)',
+                       ('alice','archived','archived',json.dumps(archived),json.dumps(self.result)))
+            db.execute('INSERT INTO recognition_import_records VALUES(?,?,?,?,?,1)',('alice','archived','archived','old','manual'))
+            db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
+                       ('archived-card','alice','archived',json.dumps(self.candidate)))
+            db.execute("INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state,version) VALUES(?,?,?,?,'ignored',7)",
+                       ('manual-ignore','alice',rid,json.dumps(self.candidate)))
+        app.initialize(recover=False)
+        workspace, candidates = self.state()
+        states = {row['id']: (row['state'], row['version']) for row in candidates}
+        self.assertEqual(states['archived-card'], ('pending', 1))
+        self.assertEqual(states['manual-ignore'], ('ignored', 7))
+        for key in ('expired','no-date','unclear','changed'):
+            self.assertEqual(states[key], ('ignored', 2))
+        self.assertEqual(workspace['value'][0], self.task)
+        self.assertEqual([t['recognitionHistory'][0]['storageId'] for t in workspace['value'][1:]], ['future'])
+        self.assertEqual(states['future'], ('applied', 2))
+        self.assertEqual(states['pending'], ('ignored', 2))
+        app.initialize(recover=False)
+        self.assertEqual(self.state(), (workspace, candidates))
+
+    def test_legacy_deadline_uses_local_day_and_exact_instant(self):
+        from datetime import datetime, timezone
+        now = datetime(2026, 11, 25, 16, tzinfo=timezone.utc)
+        for precision, value, expected in [('date','2026-11-25',False), ('date','2026-11-26',True),
+                ('datetime','2026-11-25T23:59:59+08:00',False), ('datetime','2026-11-26T00:00:00+08:00',True)]:
+            with self.subTest(value=value):
+                card = dict(self.candidate, needs_review=False,
+                            deadline=dict(self.candidate['deadline'], precision=precision, value=value))
+                self.assertEqual(app.recognition.current_legacy_task(card, {'timezone':'Asia/Shanghai'}, now), expected)
+
+    def test_migration_keeps_existing_completed_and_recycled_tasks(self):
+        request_id = self.request['request_id']
+        tasks = [dict(self.task, id='done', status='completed', completedAt='2026-11-20',
+                      recognitionHistory=[dict(storageId='pending', requestId=request_id)]),
+                 dict(self.task, id='deleted', status='cancelled', recycleBin=dict(status='in_progress'),
+                      recognitionHistory=[dict(storageId='recycled')])]
+        with app.connection() as db:
+            db.execute("UPDATE workspace SET value=? WHERE user_id='alice' AND name='tasks'", (json.dumps(tasks),))
+            db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
+                       ('recycled', 'alice', request_id, json.dumps(self.candidate)))
+        app.initialize(recover=False)
+        workspace, candidates = self.state()
+        self.assertEqual(workspace['value'], tasks)
+        self.assertEqual(workspace['version'], 1)
+        self.assertEqual([item['state'] for item in candidates], ['applied', 'applied'])
 
     def test_restore_and_reopen_keep_ordinary_metadata(self):
         self.send(self.body('trash', candidates=False))
@@ -234,7 +336,7 @@ class TaskBulkTests(unittest.TestCase):
     def test_undo_trash_rejects_reignored_candidate_without_restoring_ordinary_task(self):
         result = self.send(self.body('trash'))
         self.assertEqual(self.call('/recognition/candidates/pending/resolve', dict(action='reopen', version=2))[0], 200)
-        self.assertEqual(self.call('/recognition/candidates/pending/resolve', dict(action='ignore', version=3))[0], 200)
+        self.assertEqual(self.call('/recognition/candidates/pending/resolve', dict(action='ignore', version=3))[0], 409)
         before = self.state()
         self.assertEqual(self.call('/tasks/bulk', self.body('undo', intent=result['undo']))[0], 409)
         self.assertEqual(self.state(), before)

@@ -160,8 +160,10 @@ class SourceJobsTests(unittest.TestCase):
             with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
                 run=self.start('op:revision-'+str(index));jobs.wait_for_jobs(app.DB)
             result=self.until(run['run_id'],lambda r:r['state'] not in ('queued','crawling','recognizing'))
-            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
-            self.assertEqual(result['counts']['added'],1 if index==0 else 0)
+            tasks = self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(sum(t['content_type'] == 'task' for t in tasks), 1)
+            self.assertEqual(len(tasks), [1, 1, 2, 3][index])
+            self.assertEqual(result['counts']['added'], int(index != 1))
 
     def test_failure_diagnostics_survive_real_job_retry_and_stay_test_only(self):
         from server import recognition_diagnostics as diagnostics
@@ -609,7 +611,7 @@ class SourceJobsTests(unittest.TestCase):
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=model),patch.object(app.source_sync,'collect',wraps=app.source_sync.collect) as collect:
             first=self.start();jobs.wait_for_jobs(app.DB)
             old=self.call('/sources/sync-runs/'+first['run_id'])[1]
-            self.assertEqual((old['counts']['added'],old['counts']['review'],old['counts']['failed'],old['counts']['incomplete']),(1,1,1,1))
+            self.assertEqual((old['counts']['added'],old['counts']['review'],old['counts']['failed'],old['counts']['incomplete']),(2,0,1,1))
             before=self.call('/workspace')[1]['tasks']['value'];before[0]['title']='用户已经改过的成功任务'
             with app.connection() as db:db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',(json.dumps(before),self.uid))
             review_before=[item for batch in self.call('/recognition/batches')[1] for item in batch['items'] if item['state']=='pending']
@@ -632,7 +634,7 @@ class SourceJobsTests(unittest.TestCase):
             self.assertEqual({record['input_id'] for record in repaired['records']},set(ids[2:]))
             self.assertEqual(calls.count(ids[0]),1);self.assertEqual(calls.count(ids[1]),1)
             self.assertEqual(calls.count(ids[2]),2);self.assertEqual(calls.count(ids[3]),2);self.assertEqual(len(calls),6)
-            tasks=self.call('/workspace')[1]['tasks']['value'];self.assertEqual(len(tasks),3)
+            tasks=self.call('/workspace')[1]['tasks']['value'];self.assertEqual(len(tasks),4)
             self.assertIn('用户已经改过的成功任务',[task['title'] for task in tasks])
             review_after=[item for batch in self.call('/recognition/batches')[1] for item in batch['items'] if item['state']=='pending']
             self.assertEqual(review_after,review_before)
@@ -800,7 +802,7 @@ class SourceJobsTests(unittest.TestCase):
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
             run=self.start();jobs.wait_for_jobs(app.DB)
         result=self.until(run['run_id'],lambda r:r['state']=='succeeded')
-        self.assertEqual(result['counts']['added'],2);self.assertEqual(result['counts']['review'],1)
+        self.assertEqual(result['counts']['added'],3);self.assertEqual(result['counts']['review'],0)
         self.assertEqual(len(result['records']),3)
         self.assertEqual(len(self.call('/sources/sync-runs')[1]['runs']),1)
         tasks=self.call('/workspace')[1]['tasks']['value']

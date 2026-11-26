@@ -1,8 +1,8 @@
 // Preserve live controls and disclosure state while updating changed regions.
 const bound = new WeakSet(), composing = new WeakSet();
 export const isComposing = node => Boolean(node && composing.has(node));
-const keys = ['id', 'data-task-id', 'data-review-id', 'data-candidate-id', 'data-material-job',
-  'data-import-history-batch-entry', 'data-scope', 'data-import-source', 'data-calendar-day'];
+const keys = ['id', 'data-task-id', 'data-review-id', 'data-candidate-id',
+  'data-import-history-batch-entry', 'data-scope', 'data-calendar-day'];
 function key(node) {
   if (node.nodeType !== 1) return null;
   for (const name of keys) if (node.hasAttribute(name)) return `${node.tagName}:${name}:${node.getAttribute(name)}`;
@@ -17,7 +17,7 @@ function patch(current, next) {
     return;
   }
   const disclosure = current.tagName === 'DETAILS' &&
-    !next.hasAttribute('data-source-sync-history') && !next.hasAttribute('data-material-history');
+    !next.hasAttribute('data-source-sync-history');
   const typing = isComposing(current);
   for (const attr of [...current.attributes]) {
     if (disclosure && attr.name === 'open' || typing && attr.name === 'value') continue;

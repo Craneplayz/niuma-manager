@@ -157,6 +157,8 @@ def candidate_states(db, uid, operations, tasks):
                 for entry in json.loads(row['inverse'])['candidates']: ids[entry['id']] = None
         else:
             for entry in intent['candidates']: ids[entry['id']] = None
+    if not ids:
+        return []
     task_ids = {event.get('storageId'): task['id'] for task in tasks
                 for event in task.get('recognitionHistory', []) if isinstance(event, dict)}
     result = []

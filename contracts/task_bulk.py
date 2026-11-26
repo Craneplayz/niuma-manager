@@ -40,7 +40,6 @@ RESPONSE = obj(dict(version=dict(type='integer', minimum=0), value=dict(type='ar
 RESPONSE['properties']['batches'] = dict(type='array', items=dict(type='object'))
 RESPONSE['properties']['candidates'] = dict(type='array', items=dict(type='object'))
 RESPONSE['properties']['generation'] = dict(type='integer', minimum=0)
-RESPONSE['required'].append('batches')
 SCHEMAS = dict(intent=INTENT, operation=OPERATION, request=REQUEST, response=RESPONSE)
 
 

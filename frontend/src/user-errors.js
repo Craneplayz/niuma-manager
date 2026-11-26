@@ -76,7 +76,7 @@ export function describeUserError(error, action = "general") {
   if (code === "credential_storage" || /凭据加密密钥|无法解密教学网凭据/.test(text))
     return report("credential_storage", "无法读取教学网连接信息，请重新保存账号和密码。如仍失败，请提交问题反馈。");
   if (code === "crawler_dependency" || /教学网采集依赖.*未安装|(?:crawler|tsx).*(?:未安装|not found|cannot find)|cannot find.*(?:tsx|playwright)/i.test(text))
-    return report("crawler_dependency", "暂时无法从教学网获取通知，需要维护人员处理。可通过粘贴通知内容导入。");
+    return report("crawler_dependency", "暂时无法从教学网获取通知，需要维护人员处理。可在任务页的「＋」粘贴通知内容。");
   if (code === "teaching_model_configuration" || /教学网识别配置不可用/.test(text))
     return report("teaching_model_configuration", "暂时无法整理教学网通知，需要维护人员处理。可手动添加任务。");
   if (code === "model_configuration" || /文本识别配置不可用|模型.*(?:未配置|缺少配置|配置不可用)|missing (?:model )?credential/i.test(text))

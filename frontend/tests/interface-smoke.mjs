@@ -32,11 +32,11 @@ try{
  await page.goto(origin);await page.locator('[data-account-action="open"]').click();
  await page.locator('input[name="email"]').fill(info.email);await page.locator('input[name="password"]').fill(info.password);
  await page.locator('[data-account-form="login"] button[type="submit"]').click();
- await page.locator('[data-page="import"]').click();await page.locator('[data-import-source="teaching"]').click();
+ await page.locator('[data-page="import"]').click();
  await page.locator('[data-import-action="sync"]').click();
  let runs=await until(async()=>{const v=await get('/sources/sync-runs');return v.runs[0]?.state==='partial_success'&&v;});
  assert.equal(runs.runs[0].counts.added,1);assert.equal(runs.runs[0].counts.failed,1);
- await page.reload();await page.locator('[data-page="import"]').click();await page.locator('[data-import-source="teaching"]').click();
+ await page.reload();await page.locator('[data-page="import"]').click();
  await page.locator('[data-source-sync-history] > summary').click();
  await page.locator('[data-source-sync-action="recover"]:visible').first().click();
  await until(async()=>{const v=await get('/sources/sync-runs');return v.runs[0]?.parent_run_id&&v.runs[0].state==='succeeded';});
@@ -48,17 +48,15 @@ try{
  await until(()=>page.locator('[data-import-action="sync"]').isEnabled());
  const screenshots=join(root,'frontend/docs/screenshots');await mkdir(screenshots,{recursive:true});
  await page.screenshot({path:join(screenshots,'teaching-sync-progress-desktop.png'),fullPage:true});
- await page.locator('[data-import-source="files"]').click();await page.locator('#material-files').setInputFiles(info.image);
- await page.locator('#material-consent').check();await page.locator('[data-material-action="upload"]').click();
+ await page.locator('[data-scope="all"]').click();
+ await page.locator('.add-task').click();await page.locator('#quick-files').setInputFiles(info.image);
+ await page.locator('.quick-submit').click();
  await until(async()=>{const v=await get('/materials/imports');return v.jobs[0]?.status==='failed';});
  const retryResponse=page.waitForResponse(r=>r.url().includes('/api/materials/imports/')&&r.url().endsWith('/retry'),{timeout:10000});
- await page.locator('[data-material-action="retry"]').click();
+ await page.locator('[data-job-action="retry"]').click();
  const retryResult=await retryResponse;assert.equal(retryResult.status(),202,await retryResult.text());
  const job=await until(async()=>{const v=await get('/materials/imports');diagnostic=JSON.stringify(v.jobs[0]);return v.jobs[0]?.status==='succeeded'&&v.jobs[0];});
  assert.equal(job.result.tasks[0].title,'合成图片作业');
- const row=page.locator('.import-results .candidate-row').filter({has:page.getByRole('heading',{name:'合成图片作业',exact:true})});
- await row.locator('[data-import-review]').click();
- await page.locator('[data-import-form="review"] button[type="submit"]').click();
  await until(async()=> (await get('/workspace')).tasks.value.some(t=>t.title==='合成图片作业'));
  const tasks=(await get('/workspace')).tasks.value;
  assert.equal(tasks.length,3);
@@ -68,7 +66,7 @@ try{
  await page.setViewportSize({width:320,height:844});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'320px mobile overflow: '+JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).slice(-12).map(e=>[e.tagName,e.className,e.getBoundingClientRect().right]))));
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({passed:['background sync','reload and targeted recovery','schedule settings','submission directory removed','multipart upload and file retry','file candidate confirmation'],tasks:tasks.length,external_services:'synthetic',browser:'Chromium'},null,2));
+ console.log(JSON.stringify({passed:['background sync','reload and targeted recovery','schedule settings','submission directory removed','multipart upload and file retry','quick-add file saved'],tasks:tasks.length,external_services:'synthetic',browser:'Chromium'},null,2));
 }catch(error){if(browser){const pages=browser.contexts().flatMap(c=>c.pages());if(pages[0]){diagnostic+='\n'+(await pages[0].locator('body').innerText()).slice(-6000);await pages[0].screenshot({path:join(temporary,'failure.png'),fullPage:true});}}console.error(diagnostic);throw error;}
 finally{
  await browser?.close();await writeFile(join(temporary,'ready.stop'),'stop');

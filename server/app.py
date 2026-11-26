@@ -93,7 +93,9 @@ def initialize(recover=True):
     with connection() as db:
         initialize_accounts(db)
         recognition.initialize(db)
-        text_jobs.initialize(db, recover=recover)
+        # Legacy jobs only refined already-saved tasks. Keep those tasks and their original text.
+        db.execute("DROP TABLE IF EXISTS quick_task_jobs")
+        text_waiting = text_jobs.initialize(db, recover=recover, resume_queued=runtime_environment.allow_background_recovery())
         usage.initialize(db)
         error_reports.initialize(db)
         source_sync.initialize(db)
@@ -106,6 +108,9 @@ def initialize(recover=True):
         if manual_materials.enabled():
             manual_materials.initialize(db,recover=recover and not wechat_enabled())
         task_decomposition.initialize(db)
+        recognition.publish_legacy_pending(db, ApiError)
+    if text_waiting:
+        text_jobs.dispatch(DB, ApiError)
     if recover and wechat_enabled() and runtime_environment.allow_background_recovery():
         wechat_media.resume(DB)
 
@@ -427,7 +432,8 @@ class Handler(BaseHTTPRequestHandler):
             if path=='/api/tasks/reconcile' and self.command=='POST':
                 return task_operations.reconcile(self,db,uid,body,ApiError)
             if path=='/api/tasks/bulk' and self.command=='POST':
-                result=task_bulk.apply(db,uid,body,ApiError)
+                result=task_bulk.apply(db,uid,body,ApiError,
+                                       include_history=self.headers.get('Prefer') != 'return=minimal')
                 return self.reply(200,result)
             if path=='/api/workspace' and self.command=='GET':
                 rows=db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,)).fetchall()
@@ -508,9 +514,12 @@ class Handler(BaseHTTPRequestHandler):
                     if operation['intent']['kind']=='bulk': raise ApiError(400,'批量任务操作须使用专用入口')
                 if operation is not None and task_operations.acknowledged(db,uid,operation,ApiError):
                     return self.reply(200,dict(task_operations.workspace(db,uid),replayed=True,operationId=operation['id']))
+                if operation and 'quickRecognition' in operation['intent']:
+                    raise ApiError(400,'一句话添加页面已更新，请刷新任务页后重新提交原句')
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()
                 version=row['version'] if row else 0
-                if body.get('version')!=version: raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
+                if body.get('version')!=version:
+                    raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
                 if name=='tasks':
                     old=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
                     self.usage_tasks=json.loads(old['value']) if old else []

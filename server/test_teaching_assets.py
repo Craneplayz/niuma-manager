@@ -85,7 +85,9 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             data=package(paragraph(TEXT+action))
             with self.subTest(action=action),patch.object(teaching_assets,'MAX_ACCOUNT',0):
                 old=self.sync(data,body=TEXT,source_suffix=action)['requests'][0]['request_id']
-                batch,_=self.run_record(old);card=batch['items'][0]
+                with patch.object(app.recognition,'publish_results',return_value=set()):
+                    batch,_=self.run_record(old)
+                card=batch['items'][0]
                 self.assertEqual(self.call('/recognition/candidates/'+card['id']+'/resolve',dict(action=action,auto_apply=action=='create',version=1))[0],200)
             before=self.call('/workspace')[1]['tasks']['value']
             recovered=self.sync(data,body=TEXT,source_suffix=action)
@@ -94,8 +96,9 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
             batch,_=self.run_record(new);replacement=batch['items'][0]
             self.assertEqual(replacement['candidate']['notice_type'],'uncertain')
             self.assertTrue(replacement['candidate']['needs_review'])
-            self.assertEqual(self.call('/recognition/candidates/'+replacement['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
-            self.assertEqual(self.call('/workspace')[1]['tasks']['value'],before)
+            after=self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(after[:-1],before)
+            self.assertEqual(after[-1]['content_type'],'notice')
             self.assertEqual(self.sync(data,body=TEXT,source_suffix=action)['summary']['pending'],0)
             with app.connection() as db:
                 saved=db.execute('SELECT state,resolution FROM recognition_candidates WHERE id=?',(card['id'],)).fetchone()
@@ -658,7 +661,7 @@ class TeachingAssetsIntegrationTests(unittest.TestCase):
                 # This is the prune that used to delete the sole original file.
                 teaching_assets.prune(db,self.uid)
                 self.assertEqual(teaching_assets.load(db,self.uid,account,current)[0]['data'],data)
-            self.assertEqual(self.sync(data,'image/png')['requests'][0]['request_id'],current)
+            self.assertEqual(self.sync(data,'image/png')['requests'],[])
             rid=current
         # Reinitialize storage through a new connection, with no in-memory cache.
         app.initialize()

@@ -120,7 +120,7 @@ for (const mode of ["month", "week"]) test(`${mode} calendar and day panel resch
   await page.locator("#calendar-jump").fill("2026-10-16");
   await page.locator(`[data-calendar-mode="${mode}"]`).click();
   await dragToDate(page, page.locator('.calendar-view [data-calendar-drag-task="dated"]'), "2026-10-17");
-  await expect(page.locator('#toast')).toContainText("截止日期已改为 2026-10-17 18:30");
+  await expect(page.locator('#toast')).toContainText("任务日期已改为 2026-10-17 18:30");
   expect(f.writes[0].value.find(task => task.id === "dated").due).toEqual({ date: "2026-10-17", time: "18:30", precision: "datetime" });
   await expect(page.locator('[data-calendar-drop-date="2026-10-17"] [data-task-open="dated"]')).toBeVisible();
   await page.getByRole("button", { name: "撤销", exact: true }).click();
@@ -128,7 +128,7 @@ for (const mode of ["month", "week"]) test(`${mode} calendar and day panel resch
   expect(f.writes[1].value.find(task => task.id === "dated").due).toEqual({ date: "2026-10-16", time: "18:30", precision: "datetime" });
   await page.locator('[data-calendar-day="2026-10-16"]').click();
   await dragToDate(page, page.locator('.day-panel [data-calendar-drag-task="dated"]'), "2026-10-18");
-  await expect(page.locator('#toast')).toContainText("截止日期已改为 2026-10-18 18:30");
+  await expect(page.locator('#toast')).toContainText("任务日期已改为 2026-10-18 18:30");
   expect(f.writes[2].value.find(task => task.id === "dated").due).toEqual({ date: "2026-10-18", time: "18:30", precision: "datetime" });
   await page.screenshot({ path: info.outputPath(`calendar-${mode}-rescheduled.png`), fullPage: true });
   await page.locator('.calendar-view [data-task-open="dated"]').click();

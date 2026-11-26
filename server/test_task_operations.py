@@ -94,6 +94,27 @@ class TaskOperationTests(unittest.TestCase):
         fresh = dict(unknown, intent=dict(unknown['intent'], workspaceGeneration=1))
         self.assertEqual(self.write(2, fresh)[0], 200)
 
+    def test_obsolete_quick_create_cannot_save_a_placeholder(self):
+        operation = dict(self.operation, intent=dict(kind='save', expected=None, draft=dict(id=self.task['id']),
+                         quickRecognition=dict(text='另约时间', localOnly=False)))
+        status, result = self.write(operation=operation)
+        self.assertEqual(status, 400)
+        self.assertIn('刷新', result['error'])
+        self.assertEqual(self.call('/workspace')[1].get('tasks', {}).get('value', []), [])
+        with app.connection() as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='quick_task_jobs'").fetchone())
+
+    def test_upgrade_retires_old_queue_and_preserves_saved_task_and_original(self):
+        task = dict(self.task, quickRecognition=dict(text='明天一起讨论', status='pending'))
+        with app.connection() as db:
+            db.execute('CREATE TABLE quick_task_jobs (state TEXT)')
+            db.execute("INSERT INTO quick_task_jobs VALUES ('queued')")
+            db.execute("INSERT INTO workspace VALUES(?,?,?,?)", ('alice', 'tasks', json.dumps([task]), 1))
+        app.initialize()
+        with app.connection() as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='quick_task_jobs'").fetchone())
+        self.assertEqual(self.call('/workspace')[1]['tasks'], {'value':[task], 'version':1})
+
     def test_shared_contract_example_matches_server_validation(self):
         from jsonschema import Draft202012Validator
         contracts = Path(__file__).resolve().parents[1] / 'contracts'

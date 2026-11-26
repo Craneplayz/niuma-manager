@@ -13,7 +13,7 @@ const esc = (value) =>
     })[character],
   );
 
-function sourceLinks(record, sources, showLabels = true) {
+function sourceLinks(record, sources) {
   const seen = new Set();
   return [
     {
@@ -35,32 +35,10 @@ function sourceLinks(record, sources, showLabels = true) {
       const key = new URL(url).href;
       if (seen.has(key)) return "";
       seen.add(key);
-      const label = text(source?.label);
-      return `${showLabels && label ? `${esc(label)} · ` : ""}${link}`;
+      return link;
     })
     .filter(Boolean)
     .join("<br>");
-}
-
-export function candidateEvidenceMarkup(item) {
-  const candidate = item?.candidate || {};
-  const record = list(item?.batch?.request?.records).find(
-    (record) => record.input_id === candidate.input_id,
-  );
-  const quotes = [
-    ...new Set(
-      list(candidate.evidence)
-        .map((evidence) => text(evidence?.quote))
-        .filter((quote) => quote.trim()),
-    ),
-  ];
-  const original = text(record?.text);
-  const links = sourceLinks(record, candidate.sources);
-  const basis = text(candidate.deadline?.basis);
-  const reasons = [
-    ...new Set([basis, ...list(candidate.review_reasons).map(text)]),
-  ].filter(Boolean);
-  return `<details class="candidate-evidence"><summary>查看原文</summary><div class="task-evidence-entry">${links ? `<div class="task-evidence-links">${links}</div>` : ""}${quotes.length ? `<section class="task-evidence-quotes"><p class="status-note">识别摘录</p>${quotes.map((quote) => `<blockquote>${esc(quote)}</blockquote>`).join("")}</section>` : ""}${original.trim() ? `<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>` : '<p class="status-note">原文暂不可用</p>'}${reasons.map((reason) => `<p class="status-note">${esc(reason)}</p>`).join("")}</div></details>`;
 }
 
 export function failureSources(batch) {
@@ -97,7 +75,7 @@ export function failureSources(batch) {
         text(record?.text).split(/\r?\n/).find((line) => line.trim())?.trim().slice(0, 120) ||
         "通知";
       const course = text(record?.course_or_project) || text(candidate?.course_or_project);
-      const links = sourceLinks(record, sources, false);
+      const links = sourceLinks(record, sources);
       return { input_id: id, label, course, links };
     });
 }

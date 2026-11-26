@@ -502,75 +502,6 @@ body.is-calendar-dragging * {
   font-weight: 550;
 }
 
-.review-label {
-  display: inline-block;
-  margin-right: 8px;
-  padding: 1px 6px;
-  border: 1px solid #ebd79e;
-  border-radius: 6px;
-  background: #fff8e6;
-  color: #8b691e;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.7;
-  letter-spacing: 0;
-  vertical-align: 2px;
-  white-space: nowrap;
-}
-.task-row .task-review-marker > span {
-  display: grid;
-  place-items: center;
-  color: #b28b37;
-}
-.task-review-marker .icon { width: 20px; height: 20px; }
-.task-review-actions {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-.task-row .task-review-ignore {
-  min-height: 44px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-}
-.task-row .task-review-ignore:not(:disabled):hover { color: var(--action-ink); background: var(--action-soft); }
-.task-row .task-deadline.is-unconfirmed { color: #8b691e; }
-.task-review-changes {
-  grid-column: 2 / -1;
-  margin-top: -3px;
-}
-.task-review-change { display: flex; align-items: center; gap: 10px; }
-.task-review-change > button:first-child {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #8b691e;
-  font-size: 12px;
-}
-.task-review-change .review-label { vertical-align: baseline; }
-.task-review-load-error { margin-bottom: 16px; }
-@media (max-width: 700px) {
-  .task-row.is-pending-review .task-review-actions {
-    grid-column: 2;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    margin-top: -4px;
-  }
-  .task-row.is-pending-review .task-review-actions .task-deadline {
-    padding: 0;
-    white-space: normal;
-  }
-  .task-row .task-review-ignore { min-width: 44px; }
-}
-
 .task-row.is-completed .task-title {
   color: var(--muted);
   text-decoration: line-through;
@@ -643,6 +574,87 @@ body.is-calendar-dragging * {
 .day-panel-heading > span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.agenda-week, .btn.agenda-add-task {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  /* Let even a day with no tasks scroll up far enough to be read on its own. */
+  .is-calendar .calendar-layout > .day-panel {
+    min-height: calc(100svh - 12px);
+    margin-top: 0;
+    scroll-margin-top: 8px;
+  }
+  .agenda-week {
+    display: block;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .agenda-week-heading, .agenda-week-arrows {
+    display: flex;
+    align-items: center;
+  }
+  .agenda-week-heading { justify-content: space-between; }
+  .agenda-week-arrows .icon-button { width: 44px; }
+  .agenda-month {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .agenda-month .icon { width: 13px; transform: rotate(-90deg); }
+  .agenda-week-days {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    touch-action: pan-y;
+  }
+  .agenda-week-days > button {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 50px;
+    padding: 3px 0;
+    border: 0;
+    border-radius: var(--radius-small);
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .agenda-week-days > button > span {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .agenda-week-days > button[aria-pressed="true"] {
+    background: var(--action-soft);
+    color: var(--action-text);
+  }
+  .agenda-week-days > button[aria-pressed="true"] > span { color: inherit; }
+  .day-panel-heading:has(.agenda-add-task) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .btn.agenda-add-task {
+    display: inline-flex;
+    grid-column: 2;
+    grid-row: 1 / 3;
+    justify-self: end;
+    color: var(--action-text);
+  }
 }
 
 .task-row.is-compact {
@@ -769,17 +781,6 @@ body.is-calendar-dragging * {
       display: none;
     }
   }
-  @container calendar-day (min-height: 63px) and (max-height: 88px) {
-    .calendar-month .calendar-day-tasks {
-      display: block;
-    }
-    .calendar-month .calendar-date-button {
-      height: auto;
-      flex-direction: row;
-      justify-content: space-between;
-      gap: 0;
-    }
-  }
   @container calendar-day (max-width: 76px) {
     .calendar-month .calendar-day-course-dots {
       display: none;
@@ -901,6 +902,19 @@ body.is-calendar-dragging * {
   .calendar-month .calendar-day-tasks { display: none; }
   .calendar-month .calendar-day-mobile-count { display: none; }
   .calendar-month .calendar-date-button { height: 100%; }
+}
+/* In a compact desktop cell one header and the first deadline still fit together. */
+@media (min-width: 701px) and (pointer: fine) {
+  @container calendar-day (min-height: 63px) and (max-height: 88px) {
+    .calendar-month .calendar-day-tasks { display: block; }
+    .calendar-view.calendar-month .calendar-date-button {
+      height: auto;
+      min-height: 32px;
+      flex-direction: row;
+      justify-content: space-between;
+      gap: 0;
+    }
+  }
 }
 @media (max-width: 700px) {
   .calendar-activity-legend { gap: 4px; margin: -2px 0 12px; }

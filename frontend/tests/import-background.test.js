@@ -33,7 +33,7 @@ async function setup(t,intercept=()=>{}) {
  state=await store.initSession();
  const ui=createImportUI({escapeHtml:s=>String(s??''),icon:()=>'',toast(){},render(){},openDialog(){},closeDialog(){},isDemo:()=>false,isImportVisible:()=>true,getState:()=>state,
   refresh:async()=>{state=await store.refreshStore();}});
- t.after(()=>ui.reset());await ui.load();await ui.loadSourceSync();await ui.click({dataset:{importSource:'teaching'}});await new Promise(r=>setImmediate(r));
+ t.after(()=>ui.reset());await ui.load();await ui.loadSourceSync();await new Promise(r=>setImmediate(r));
  return {ui,calls,get state(){return state;},complete(){tasks=[{id:'one',title:'后端已自动加入',content_type:'notice',status:'not_started',due:null,plans:[],subtasks:[]}];version++;runs=[syncRun({added:1})];},switchAccount(){account='B';window.dispatchEvent(new Event('niuma:account-reset'));}};
 }
 test('one explicit sync action starts one durable run, refreshes server tasks, and restores progress on return',async t=>{
