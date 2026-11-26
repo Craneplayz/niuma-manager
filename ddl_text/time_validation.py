@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .contracts import nonempty, require
 from .contract_v02 import time_value
+from .daily_tasks import daily_windows
 
 
 NORMALIZED_FIELDS = {"value", "precision", "derivation", "anchor", "basis"}
@@ -74,7 +75,7 @@ def quick_reference(record):
     day = local.date() if isinstance(local, datetime) else local
     monday = day - timedelta(days=day.weekday())
     day_offsets = {RELATIVE_DAYS[word] for word in DAY_WORD.findall(record["text"])}
-    return dict(value=local.isoformat(), precision=precision,
+    reference = dict(value=local.isoformat(), precision=precision,
                 origin="指定的通知时间" if publication["value"] else "加入清单的时间",
                 relative_days={word: date.fromordinal(day.toordinal()+offset).isoformat()
                                for word, offset in RELATIVE_DAYS.items()
@@ -83,6 +84,10 @@ def quick_reference(record):
                 weeks={name: [date.fromordinal(ordinal).isoformat() if 1 <= ordinal <= date.max.toordinal() else None
                               for ordinal in range(monday.toordinal() + offset, monday.toordinal() + offset + 7)]
                        for name, offset in (("上周", -7), ("本周", 0), ("下周", 7))})
+    windows = daily_windows(record["text"], day, reference["weeks"])
+    if windows:
+        reference["daily_windows"] = windows
+    return reference
 
 
 def _nearest_year(day, anchor):

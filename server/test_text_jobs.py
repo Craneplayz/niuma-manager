@@ -135,6 +135,53 @@ class TextJobsTests(unittest.TestCase):
                 self.assertNotIn('sourceTimeRange', saved)
             if 'course' in settings: self.assertEqual(saved['course'], settings['course'])
 
+    def test_retry_of_daily_quick_entry_saves_each_occurrence_once(self):
+        from ddl_text.contracts import normalize_record
+        from ddl_text.extraction import compile_drafts
+        from ddl_text.time_validation import quick_reference
+
+        self.request['request_id'] = 'quick-add:daily-retry'
+        raw = self.request['records'][0]
+        raw.update(text='本周每天18:00至20:00参加晚间研讨，帮我每日设置一个待办。',
+                   course_or_project='研讨课', timezone='Asia/Shanghai',
+                   published_at=dict(value='2026-11-26', precision='date', basis='source'))
+        def recognize(request, ApiError, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return self.outcome(request, failed=True)
+            record = normalize_record(raw, '0.2')
+            record['quick_reference'] = quick_reference(record)
+            evidence = dict(input_id=raw['input_id'], quote=raw['text'])
+            times = [dict(evidence, kind=kind, normalized=dict(value='2026-11-23T'+clock+':00+08:00',
+                     precision='datetime', derivation='relative', anchor='quick_reference', basis='按本周日历。'))
+                     for kind, clock in [('event_start','18:00'), ('event_end','20:00')]]
+            draft = dict(title='参加晚间研讨', description='', prerequisites=[], notice_type='create',
+                         target=None, course=None, evidence=[evidence], times=times, review_reasons=[],
+                         repeat_window='本周每天')
+            tasks = compile_drafts(json.dumps(dict(tasks=[draft])), record)
+            result = self.outcome(request, task=True)
+            result['tasks'] = tasks
+            result['record_results'][0]['task_ids'] = [t['candidate_id'] for t in tasks]
+            return result
+
+        with patch.object(recognition, 'recognize', recognize):
+            self.assertEqual(self.call(body=self.request)[0], 200)
+            text_jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.job()['state'], 'failed')
+            self.assertFalse(self.call('/workspace')[1].get('tasks', {}).get('value'))
+            self.assertEqual(self.action('retry')[0], 200)
+            text_jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.job()['state'], 'success')
+            self.assertEqual(self.call(body=self.request)[0], 200)
+            self.assertEqual(self.calls, 2)
+        saved = sorted(self.call('/workspace')[1]['tasks']['value'], key=lambda task: task['due']['date'])
+        self.assertEqual([t['due']['date'] for t in saved], [f'2026-11-{d}' for d in range(23,30)])
+        for task in saved:
+            self.assertEqual(task['due']['time'], '18:00')
+            self.assertEqual(task['sourceTimeRange']['end'], task['due']['date'] + 'T20:00:00+08:00')
+            self.assertEqual(task['course'], '研讨课')
+        self.assertEqual(len({t['id'] for t in saved}), 7)
+
     def test_acceptance_reload_duplicate_and_candidate_persistence(self):
         with patch.object(recognition,'recognize',self.recognize):
             status,envelope = self.call(body=self.request)

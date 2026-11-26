@@ -33,6 +33,11 @@ def draft_schema(record, *, historical=False):
             "reason": text, "evidence": {"type": "array", "items": reference},
         }),
     })
+    windows = (record.get("quick_reference") or {}).get("daily_windows")
+    if windows:
+        task["properties"]["repeat_window"] = {"enum": [None, *windows]}
+        if not historical:
+            task["required"].append("repeat_window")
     schema = _object({"tasks": {"type": "array", "items": task}})
     if historical:
         task['required'].remove('relevance')

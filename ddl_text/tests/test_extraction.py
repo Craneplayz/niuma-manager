@@ -94,6 +94,41 @@ class ExtractionTests(unittest.TestCase):
         with self.assertRaises(AgentError):
             compile_tasks(record, draft(record, times=[start, end]))
 
+    def test_bounded_daily_schedule_expands_templates_with_source_local_times(self):
+        from ddl_text.time_validation import quick_reference
+        text = '这周的每天晚上十一点至次日一点照看设备，帮我每天设置一个提醒；周六交登记表。'
+        record = message(text, platform='manual', course_or_project='实验课')
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        first = time_ref(record, text, '2026-12-28T23:00:00+08:00', kind='event_start')
+        last = time_ref(record, text, '2026-12-29T01:00:00+08:00', kind='event_end')
+        item = draft(record, title='照看设备', times=[first, last], repeat_window='这周的每天')
+        single = draft(record, title='交登记表', times=[time_ref(record, text, '2027-01-02')])
+        tasks = compile_tasks(record, item, single)
+        expected_dates = record['quick_reference']['weeks']['本周']
+        self.assertEqual([t['deadline']['value'][:10] for t in tasks[:-1]], expected_dates)
+        self.assertTrue(all(t['course_or_project'] == '实验课' for t in tasks))
+        self.assertEqual(tasks[-2]['deadline']['range_end'], '2027-01-04T01:00:00+08:00')
+        self.assertEqual([t['title'] for t in tasks], ['照看设备'] * 7 + ['交登记表'])
+        self.assertEqual(len({t['candidate_id'] for t in tasks}), 8)
+        with self.assertRaises(AgentError):
+            compile_tasks(record, dict(item, repeat_window=None), single)
+        with self.assertRaises(AgentError):
+            compile_tasks(record, item, item)
+
+    def test_daily_windows_use_local_week_and_preserve_time_across_dst(self):
+        from ddl_text.daily_tasks import shift_local
+        from ddl_text.time_validation import quick_reference
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        record = message('下周每个工作日收快递，未来三天每日整理笔记', platform='manual')
+        windows = quick_reference(record)['daily_windows']
+        self.assertEqual(windows['未来三天每日'], ['2026-12-31', '2027-01-01', '2027-01-02'])
+        self.assertEqual(windows['下周每个工作日'], ['2027-01-04', '2027-01-05', '2027-01-06', '2027-01-07', '2027-01-08'])
+        zone = ZoneInfo('America/Los_Angeles')
+        self.assertEqual(shift_local('2026-03-07T18:00:00-08:00', timedelta(days=1), zone),
+                         '2026-03-08T18:00:00-07:00')
+
     def test_exam_interval_is_only_a_reference(self):
         raw = '2026-9-29 9:00~12:00'
         record = message(raw + '有小测，请复习。')
