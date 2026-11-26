@@ -76,6 +76,33 @@ export function shiftDay(date, days) {
     .slice(0, 10);
 }
 
+const taskNames = new Intl.Collator("zh-CN-u-co-pinyin", { numeric: true, sensitivity: "base" });
+
+function sortText(value) {
+  return String(value ?? "").normalize("NFKC").trim();
+}
+
+// Convert Chinese numbers only inside an explicit lecture, chapter or assignment number.
+function titleSortKey(title) {
+  return sortText(title).replace(
+    /(第)([零〇一二两三四五六七八九十百千]+)(?=部分|单元|[讲章节课周次题])|(实验|作业|练习|习题)([零〇一二两三四五六七八九十百千]+)(?=$|[\s\p{P}])/gu,
+    (_, ordinal, number, kind, index) => {
+      const digits = "零一二三四五六七八九";
+      const units = { 十: 10, 百: 100, 千: 1000 };
+      let total = 0, part = "";
+      for (const char of (number || index).replaceAll("〇", "零").replaceAll("两", "二")) {
+        if (units[char]) {
+          total += Number(part || 1) * units[char];
+          part = "";
+        } else {
+          part += digits.indexOf(char);
+        }
+      }
+      return (ordinal || kind) + (total + Number(part));
+    },
+  );
+}
+
 export function sortTasks(tasks) {
   return [...(Array.isArray(tasks) ? tasks : [])].sort((a, b) => {
     const statusOrder = Number(a.status === "done") - Number(b.status === "done");
@@ -83,12 +110,17 @@ export function sortTasks(tasks) {
     const aDue = dueOf(a),
       bDue = dueOf(b);
     if (aDue !== bDue) return !aDue ? 1 : !bDue ? -1 : aDue.localeCompare(bDue);
-    return (
-      (taskDueTime(a) || "99:99").localeCompare(taskDueTime(b) || "99:99") ||
-      String(a.id ?? "").localeCompare(String(b.id ?? ""), undefined, {
-        numeric: true,
-      })
-    );
+    const timeOrder = (taskDueTime(a) || "99:99").localeCompare(taskDueTime(b) || "99:99");
+    if (timeOrder) return timeOrder;
+    const aCourse = sortText(a.course), bCourse = sortText(b.course);
+    if (Boolean(aCourse) !== Boolean(bCourse)) return aCourse ? -1 : 1;
+    const aId = String(a.id ?? ""), bId = String(b.id ?? "");
+    const order = taskNames.compare(aCourse, bCourse)
+      || taskNames.compare(titleSortKey(a.title), titleSortKey(b.title))
+      || taskNames.compare(sortText(a.source) || "手动添加", sortText(b.source) || "手动添加")
+      || taskNames.compare(aId, bId);
+    if (order || aId === bId) return order;
+    return aId < bId ? -1 : 1;
   });
 }
 
