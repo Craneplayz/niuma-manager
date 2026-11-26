@@ -17,6 +17,7 @@ from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import operations
 from ddl_text.adapters import AgentError
 from ddl_text.codex_client import live_options
+from server import model_experiment
 from task_planning.decomposition import generate_decomposition, validate_model_draft
 
 TZ = timezone(timedelta(hours=8))
@@ -88,7 +89,7 @@ def generate(task, conversation, ApiError):
         raise ApiError(503, WAIT_ERROR)
     try:
         try:
-            options = live_options(model_env_path(ROOT))
+            options = model_experiment.options(live_options(model_env_path(ROOT)))
             if not options['key'].strip():
                 raise ValueError('missing credential')
         except (OSError, ValueError, TypeError, KeyError):
@@ -118,7 +119,7 @@ def route(handler, db, user_id, path, body, ApiError):
             raise ApiError(404, '任务不存在')
         if task.get('status') in ['completed', 'cancelled']:
             raise ApiError(400, '已完成或已取消的任务无需拆解')
-        result = generate(task, conversation, ApiError)
+        result = model_experiment.run(db,user_id,'decomposition',generate,task,conversation,ApiError)
         if result['status'] == 'ready_to_plan':
             request_id = secrets.token_hex(16)
             db.execute('INSERT INTO decomposition_proposals VALUES(?,?,?,?,?,0)',

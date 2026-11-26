@@ -4,6 +4,8 @@ server/
 ├── test_task_bulk.py         真实 HTTP/SQLite 的混合批量、回滚、重放、撤销与账号回归。
 ├── model_evaluation/         分层合成与真实用例、预算受控运行及离线评分，详见其 README。
 ├── model_evaluations.py      管理员会话下读取、筛选和导出已发布评测报告。
+├── model_experiment.py       在线账号分组、模型结果评价、双次提示和管理员归因汇总。
+├── test_model_experiment.py  在线模型实验的真实 HTTP、权限、无模型调用与提示回归。
 ├── test_benchmark_report.py  评分边界、同口径合并与隐私回归。
 ├── test_model_benchmark.py   样本生成、模型接入与共享预算回归。
 ├── test_model_evaluations_http.py 管理员报告鉴权、详情与导出回归。
@@ -391,3 +393,9 @@ PDF/DOCX 读取器代码、限制及实际 PDFium、Pillow、defusedxml 版本�
 文本、教学网和手动文件导入的错误分类、诊断编号及验证边界见 [统一错误约定](../contracts/docs/recognition-errors.md)。文本和文件沿用原有总预算，仅允许一次草稿纠错；DeepSeek 文本/文件识别与教学网一致关闭思考模式，无须改配置。开发和测试环境均可查看详情；生产保留安全诊断供维护人员排查，只向用户返回分类和编号。所有环境都不记录原文、模型回答、异常消息和凭据。
 
 普通任务与人工待核对写入共用浏览器持久队列的幂等回执和当前账号恢复核对，SQLite 首次启动自动增加回执及清空代次表，无需修改部署配置；后端需先于或与前端同版本部署，协议与保留规则见 [任务保存与恢复](../contracts/docs/task-writes-v0.1.md)。
+
+## 在线模型实验
+
+设置 `NIUMA_EXPERIMENT_ID`、至少 32 字符的私有 `NIUMA_EXPERIMENT_SALT`、自愿参加的账号 ID 白名单 `NIUMA_EXPERIMENT_ACCOUNTS`（空格分隔），以及 `NIUMA_EXPERIMENT_B_MODEL=google/gemini-3.1-flash-lite`、`NIUMA_EXPERIMENT_B_ENDPOINT=https://api.modelink.ai/v1`。A 使用环境现有直连模型，B 使用配置的七牛版本；分组由实验 ID 与账号的 HMAC 固定。同一轮实验保持盐、模型、提示词和配置不变；移除实验 ID 或白名单并重启即恢复基线。默认关闭。
+
+本轮覆盖直接调用七牛的文本识别、教学网识别（含其课程旁证流程）、任务拆解和工时估计。外部桥接、附件导入、缓存、确定性流程和未观察到模型调用的结果不进入实验。打开「账号与数据 → 使用反馈 → 评价已有模型结果」可评价最近 30 天的参与结果；每第二条生成结果至多自动弹窗一次，跳过后可手动补评。管理员在使用数据中展开「在线模型实验」查看模型、组、尝试、生成结果、可用数、耗时、已知 Token 和 1–5 分评分分布；无评分与缺测分别保留。只存聚合所需元数据和数值评分，不复制任务原文或响应。

@@ -21,6 +21,7 @@ from contracts.teaching_io import canonical, check_request, snapshot_digest
 from contracts.teaching_capture import check_capture
 from ddl_text.chat_client import ChatClient
 from ddl_text.codex_client import live_options
+from server import model_experiment
 from ddl_text.config import Settings
 from ddl_text.teaching_draft import CLASSIFICATION_MODE, UNRESOLVED_TIME
 from ddl_text.teaching_pipeline import process_teaching_request, validate_teaching_result
@@ -235,7 +236,7 @@ def resolve_snapshot(db, uid, request_id, ApiError):
 
 def recognize(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
     try:
-        options = live_options(model_env_path(ROOT))
+        options = model_experiment.options(live_options(model_env_path(ROOT)))
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
         # Qiniu's DeepSeek defaults to thinking; it can exhaust all 8192 tokens
         # before producing JSON. Keep the bounded extraction call non-thinking.
@@ -351,7 +352,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
         with diagnostics.capture(db,uid,request['request_id']) as attempt:
             if diagnostic_attempt is not None and attempt is not None:
                 diagnostic_attempt['id'] = attempt['attempt_id']
-            result, policy = recognize(request,ApiError,**attachments)
+            result, policy = model_experiment.run(db,uid,'teaching',recognize,request,ApiError,**attachments)
             diagnostics.stamp(result)
             for outcome in result['record_results']:
                 failure = outcome.get('error') or {}

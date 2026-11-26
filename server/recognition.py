@@ -29,6 +29,7 @@ from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import operations
 from server import recognition_diagnostics as diagnostics
 from ddl_text.codex_client import live_options
+from server import model_experiment
 from ddl_text.config import Settings
 from ddl_text.extraction import ExtractionAdapter
 from ddl_text.pipeline import process_request
@@ -76,7 +77,7 @@ def recognize(request, ApiError, *, on_admitted=None):
                 failure.diagnostic=reason
                 raise failure from None
         try:
-            options = live_options(model_env_path(ROOT))
+            options = model_experiment.options(live_options(model_env_path(ROOT)))
             if not options['key'].strip():
                 raise ValueError('missing credential')
             adapter = ExtractionAdapter(operations.observe_chat(make_client(options)))
@@ -247,8 +248,7 @@ def process_batch(db, uid, request, ApiError, *, retry=False, demo=False, before
                 result=dict(contract_version='0.2',request_id=request['request_id'],status='no_tasks',record_results=[],tasks=[],errors=[])
             else:
                 _EXECUTION.policy = None
-                result=diagnostics.stamp(recognize(extraction_request,ApiError,on_admitted=on_admitted)
-                    if on_admitted is not None else recognize(extraction_request,ApiError))
+                result=diagnostics.stamp(model_experiment.run(db,uid,'text',recognize,extraction_request,ApiError,**(dict(on_admitted=on_admitted) if on_admitted is not None else {})))
         policy = getattr(_EXECUTION,'policy',None) if not demo and extraction_request['records'] else None
         try:
             result=validate_result(extraction_request,result)

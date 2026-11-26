@@ -543,7 +543,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)
-                result=planning.plan(payload,ApiError)
+                from server import model_experiment
+                result=model_experiment.run(db,uid,'estimation',planning.plan,payload,ApiError)
                 try:
                     scheduled={block['taskId'] for block in result.get('blocks',[])}
                     payload['existingPlans'].extend(dict(plan,taskId=task['id']) for task in tasks if task['id'] not in scheduled for plan in task['plans'] if plan['id'] in replace_plans.get(task['id'],[]))

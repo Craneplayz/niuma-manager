@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
 from server.model_queue import ACTIVE as _ACTIVE, WAIT_ERROR
 from server import operations
 from ddl_text.codex_client import live_options
+from server import model_experiment
 from task_planning import planning_harness
 from task_planning.scheduling import rank_tasks
 
@@ -62,7 +63,7 @@ def plan(request, ApiError):
             except Exception:
                 raise ApiError(502, '规划服务不可用或超时，请稍后重试；任务未修改') from None
         try:
-            options = live_options(model_env_path(ROOT))
+            options = model_experiment.options(live_options(model_env_path(ROOT)))
             # Keep the same provider requirement as the standalone planning service.
             if options['provider'] != 'qiniu' or not options['key'].strip():
                 raise ValueError('Qiniu credential required')
