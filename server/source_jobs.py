@@ -59,7 +59,10 @@ def initialize(db, recover=True):
         user_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL)''')
     for row in db.execute('SELECT user_id,operation_id,run_id,snapshot FROM source_sync_runs ORDER BY rowid').fetchall():
         run = json.loads(row['snapshot'])
-        if compact_diagnostics(run):
+        retry_fixed = restore_transport_retries(db, run)
+        if retry_fixed:
+            run['revision'] += 1
+        if compact_diagnostics(run) or retry_fixed:
             db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(run),run['run_id']))
         db.execute('INSERT OR IGNORE INTO source_sync_operations VALUES(?,?,?,?)',
                    (row['user_id'],row['operation_id'],row['run_id'],
@@ -276,6 +279,33 @@ def save(db, run, state=None):
         duration=(datetime.fromisoformat(run['updated_at'])-datetime.fromisoformat(run['created_at'])).total_seconds()*1000
         usage.record(db,run['user_id'],'sync',run['state']=='succeeded',duration)
         remember_check(db, run)
+
+
+def restore_transport_retries(db, run):
+    """Old clients also used model_unavailable for rejected HTTP requests.
+    Only enable a retry when this item's exact attempt lost the transport.
+    """
+    changed = False
+    for item in run['records']:
+        failure = item.get('error') or {}
+        if (item['state'] != 'failed' or item.get('recovered') or failure.get('retryable') is not False
+                or failure.get('code') != 'agent_unavailable'
+                or failure.get('failure', {}).get('reason') != 'model_unavailable'):
+            continue
+        attempt_id = failure.get('diagnostic_id') or failure.get('_diagnostic_attempt', {}).get('id')
+        row = db.execute("""SELECT detail FROM recognition_attempt_diagnostics
+            WHERE user_id=? AND request_id=? AND id=?""",
+            (run['user_id'], item['request_id'], attempt_id)).fetchone()
+        if not row:
+            continue
+        transport = next((event for event in reversed(json.loads(row[0])['events'])
+                          if event['stage'] == 'model_transport'), {})
+        if transport.get('status') == 'unavailable':
+            if run.get('error') == failure:
+                run['error'] = dict(failure, retryable=True)
+            failure['retryable'] = True
+            changed = True
+    return changed
 
 
 def compact_diagnostics(run):

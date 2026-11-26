@@ -753,6 +753,54 @@ class SourceJobsTests(unittest.TestCase):
         self.assertFalse(result['records'][0]['error']['retryable'])
         self.assertEqual(self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:config',consent=True))[0],409)
 
+    def test_legacy_transport_failure_retries_only_disconnected_source(self):
+        request, drafts = example(('explicit-complete',) * 3)
+        self.drafts.update(drafts)
+        chapter, rejected, _ = [entry['record'] for entry in request['records']]
+        chapter['text'] = '第四章 示例章节'
+        chapter['body_status'] = 'summary'
+        chapter['references'] = [dict(ref_id='ref:chapter', kind='attachment', label=chapter['text'],
+                                      read_state='unsupported', text=None)]
+        self.drafts[chapter['input_id']] = empty_reply(chapter)
+        statuses = {chapter['input_id']: 'unavailable', rejected['input_id']: 'http_error'}
+
+        def legacy_model(current, ApiError):
+            status = statuses.get(current['records'][0]['record']['input_id'])
+            if status:
+                jobs.diagnostics.event('model_transport', status=status)
+                error = ApiError(502, '识别失败')
+                error.code, error.diagnostic, error.retryable = 'agent_unavailable', 'model_unavailable', False
+                raise error
+            return self.model(current, ApiError)
+
+        with patch.object(app.source_sync.subprocess, 'run',
+                          return_value=SimpleNamespace(returncode=0, stdout=json.dumps(request))) as crawler:
+            with patch.object(jobs.teaching, 'recognize', side_effect=legacy_model):
+                parent = self.start()
+                jobs.wait_for_jobs(app.DB)
+            tasks = self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(len(tasks), 1)
+            with app.connection() as db:
+                jobs.initialize(db, recover=False)
+            url = '/sources/sync-runs/' + parent['run_id']
+            listing = self.call(url)[1]
+            failed = {r['input_id']: r for r in listing['records'] if r['state'] == 'failed'}
+            self.assertTrue(failed[chapter['input_id']]['error']['retryable'])
+            self.assertFalse(failed[rejected['input_id']]['error']['retryable'])
+            with patch.object(jobs.teaching, 'recognize', side_effect=self.model) as model:
+                status, child = self.call(url + '/retry', dict(contract_version='source-sync/0.1',
+                                                              operation_id='retry:transport', consent=True))
+                self.assertEqual(status, 202, child)
+                jobs.wait_for_jobs(app.DB)
+                model.assert_called_once()
+                self.assertEqual(model.call_args.args[0]['records'][0]['record']['input_id'], chapter['input_id'])
+            self.assertEqual(sum(call.args[0][0] == 'node' for call in crawler.call_args_list), 1)
+        self.assertEqual(self.call('/sources/sync-runs/' + child['run_id'])[1]['state'], 'succeeded')
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'], tasks)
+        old = {r['input_id']: r for r in self.call(url)[1]['records']}
+        self.assertTrue(old[chapter['input_id']]['recovered'])
+        self.assertFalse(old[rejected['input_id']].get('recovered'))
+
     def test_temporary_service_503_remains_retryable(self):
         request,_=example()
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(503,'合成临时不可用')):
