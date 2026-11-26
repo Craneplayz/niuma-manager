@@ -1,9 +1,10 @@
 // Maps the task UI to the account workspace API.
 import { todayKey as dayKey, shiftDay, assertCurrentTaskEdit } from "./task-model.js";
-import { appendOperation, readOperations, removeOperations, clearJournal } from './task-journal.js';
+import { appendOperation, readOperations, removeOperations, archiveQuickDrafts, readQuickDrafts, removeQuickDraft, clearJournal } from './task-journal.js';
 import { newId } from './id.js';
 export const session = {
   user: null,
+  recoveredDrafts: [],
   sync: "saved",
   error: "",
   failure: null,
@@ -41,6 +42,7 @@ function resetAccount() {
   for (const controller of requests) controller.abort();
   requests.clear();
   session.user = null;
+  session.recoveredDrafts = [];
   canonicalTasks = [];
   canonicalCandidates = new Map();
   canonicalTimetable = { value: [], version: 0 };
@@ -333,8 +335,10 @@ async function loadSession(discardPending = false) {
         session.conflict = false;
       }
       if (journalLoaded !== session.user.id) {
-        const operations = taskWritesAreOnlineOnly() ? null : await readOperations(session.user.id);
+        const [operations, drafts] = taskWritesAreOnlineOnly() ? [null, []] :
+          await Promise.all([readOperations(session.user.id), readQuickDrafts(session.user.id)]);
         if (epoch !== accountEpoch) throw new Error('账号已切换');
+        session.recoveredDrafts = drafts;
         if (operations) pendingChanges = operations.map(operation => ({ operation, epoch, retryOnFailure: true, reloadOnStale: true, durable: true }));
         // Online-only operations have no journal to reload during reconnect.
         else pendingChanges = pendingChanges.filter(change => change.epoch === epoch && change.operation.owner === session.user.id);
@@ -575,10 +579,34 @@ function reviewBody(operation) {
     ...(Object.hasOwn(intent, 'complete') ? { complete: intent.complete } : {}),
     operation: operationIdentity(operation) };
 }
+export async function dismissRecoveredDraft(id) {
+  const epoch = accountEpoch;
+  await removeQuickDraft(session.user.id, id);
+  if (epoch === accountEpoch) session.recoveredDrafts = session.recoveredDrafts.filter(draft => draft.id !== id);
+}
+
+// A later edit or atomic bulk action can refer to the uncreated task.
+// Preserve the whole dependent intent for inspection instead of replaying part of it.
+function legacyDraftOperations(unapplied) {
+  const missingTargets = new Set();
+  const archived = new Set();
+  for (const {operation} of unapplied) {
+    const {intent} = operation;
+    const targets = [intent.id, intent.draft?.id, intent.targetId, ...(intent.ids || []),
+      ...(intent.tasks || []).map(task => task.id)].filter(Boolean);
+    const oldCreate = intent.kind === 'save' && intent.quickRecognition;
+    if (!oldCreate && !archived.has(intent.undoOf) && !targets.some(id => missingTargets.has(id))) continue;
+    archived.add(operation.id);
+    for (const id of targets) missingTargets.add(id);
+  }
+  return archived;
+}
 async function reconcileChanges(epoch) {
   if (!pendingChanges.length) return;
+  const checked = [...pendingChanges];
+  const owner = session.user.id;
   const result = await api('/api/tasks/reconcile', {
-    owner: session.user.id, operations: pendingChanges.map(change => operationIdentity(change.operation)),
+    owner, operations: checked.map(change => operationIdentity(change.operation)),
   });
   if (epoch !== accountEpoch) throw new Error('账号已切换');
   if (!Array.isArray(result.applied) || !Array.isArray(result.tasks?.value) || !Number.isInteger(result.tasks.version))
@@ -592,6 +620,15 @@ async function reconcileChanges(epoch) {
   await forgetPersistedChanges(pendingChanges.filter(change => result.applied.includes(change.operation.id)));
   if (epoch !== accountEpoch) throw new Error('账号已切换');
   pendingChanges = pendingChanges.filter(change => !result.applied.includes(change.operation.id));
+  const remaining = checked.filter(change => !result.applied.includes(change.operation.id));
+  const archived = legacyDraftOperations(remaining);
+  if (archived.size) {
+    await archiveQuickDrafts(owner, archived);
+    const drafts = await readQuickDrafts(owner);
+    if (epoch !== accountEpoch) throw new Error('账号已切换');
+    session.recoveredDrafts = drafts;
+    pendingChanges = pendingChanges.filter(({operation}) => !archived.has(operation.id));
+  }
   canonicalTasks = clone(result.tasks.value);
   taskVersion = result.tasks.version;
   taskGeneration = result.generation || 0;

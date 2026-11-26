@@ -82,8 +82,10 @@ export function bindQuickImport(form, options, refresh) {
         if (!draft || draft.text !== text) draft = { ...newMaterialDraft("quick-add:"), text };
         receipt = await options.submitFiles(files, draft, signal);
       } else {
-        const published = form.querySelector("#quick-published").value;
-        const timezone = published ? "Asia/Shanghai" : Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const override = form.querySelector("#quick-published").value;
+        const original = options.recovered?.quickRecognition;
+        const published = override || original?.referenceDay || "";
+        const timezone = override ? "Asia/Shanghai" : original?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
         const key = JSON.stringify([text, published, timezone, settings]);
         if (!textBody || signature !== key) {
           textBody = buildTextImport(text, published, "quick-add:" + newId(), undefined, options.courses);

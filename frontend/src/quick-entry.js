@@ -73,6 +73,8 @@ export function bindQuickEntry(form, options) {
 
   const getToday = options.getToday ?? (() => options.today);
   let referenceDay = getToday();
+  const recovered = options.recovered;
+  if (recovered) input.value = recovered.quickRecognition.text;
   let parsedText = input.value;
   const analyze = source => {
     if (options.isDemo) return analyzeQuickTask(source, { ...options, today: referenceDay });
@@ -81,8 +83,10 @@ export function bindQuickEntry(form, options) {
       spans: [], explicitCourse: Boolean(tag) };
   };
   let analysis = analyze(parsedText);
-  let dateOverride = null;
-  let courseOverride = null;
+  const protectedFields = recovered?.quickRecognition.protectedFields || [];
+  let dateOverride = protectedFields.includes("due")
+    ? { due: recovered.draft.due || "", dueTime: recovered.draft.dueTime || "" } : null;
+  let courseOverride = protectedFields.includes("course") ? recovered.draft.course || "" : null;
   const readDraft = () => ({
     ...analysis.task,
     ...dateOverride,
