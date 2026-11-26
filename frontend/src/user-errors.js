@@ -55,7 +55,9 @@ export function describeUserError(error, action = "general") {
   };
   if (Object.hasOwn(emailMessages, code))
     return report(["email_not_configured", "email_send_failed"].includes(code) ? "service_connection" : "validation", emailMessages[code]);
-  if (["incomplete_source", "source_incomplete", "source_changed", "source_missing"].includes(code) || /通知内容.*不完整|来源待补全|incomplete_source|重试识别不会补齐/.test(text))
+  if (["source_changed", "source_missing"].includes(code))
+    return report(code, code === "source_changed" ? "教学网来源已变化。" : "本次未取得这条教学网页面。", "重新获取页面后可以继续。");
+  if (["incomplete_source", "source_incomplete"].includes(code) || /通知内容.*不完整|来源待补全|incomplete_source|重试识别不会补齐/.test(text))
     return report("incomplete_source", "通知内容不完整，请重新获取来源或粘贴完整通知内容。", "重新识别仅处理已获取的内容，不会补充缺失的网页或附件。");
   if (/^(邮箱或密码不正确|该邮箱已注册|两次输入.*不一致|新密码不能与当前密码相同)$/.test(text))
     return report("validation", text);

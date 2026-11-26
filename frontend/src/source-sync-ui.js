@@ -13,13 +13,13 @@ const LABELS = {
 };
 const RECORD_LABELS = {
   queued: "等待识别", running: "正在识别", succeeded: "已识别", failed: "识别失败",
-  incomplete: "来源待补全", cancelled: "未处理", interrupted: "已中断",
+  incomplete: "已处理", cancelled: "未处理", interrupted: "已中断",
 };
 const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-const needsCollection = (record) => record.state === "incomplete" || ["source_incomplete", "source_changed", "source_missing"].includes(record.error?.code);
+const needsCollection = (record) => ["source_changed", "source_missing", "collection_failed"].includes(record.error?.code);
 const retryable = (record) => !record.recovered && !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
 const recoverable = record => !record.recovered && (retryable(record) || needsCollection(record));
-const unresolved = record => !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
+const unresolved = record => !record.recovered && ["failed", "cancelled", "interrupted"].includes(record.state);
 const usefulRecord = record => record.added > 0 || record.review > 0 || record.recovered || unresolved(record);
 const runError = run => run.error && !run.records.some(record => record.recovered && record.error?.code === run.error.code && record.error?.message === run.error.message) ? run.error : null;
 const usefulRun = run => Boolean(runError(run) || !run.records.length && ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
@@ -323,7 +323,7 @@ export function createSourceSyncUI(host) {
     return !request && plan.whole ? start() : Promise.resolve(false);
   }
   function guidance(record) {
-    if (needsCollection(record)) return "来源内容尚未完整取得，处理时会先重新获取这条来源。";
+    if (needsCollection(record)) return "处理时会重新获取这条教学网页面。";
     if (record.error?.code === "model_configuration" || record.error?.code === "agent_unavailable" && !record.error.retryable) return "请修复模型配置后重新获取来源。";
     if (["cancelled", "interrupted"].includes(record.state)) return "已保存内容保留，可继续处理。";
     if (record.error?.code === "agent_timeout") return "识别超时，可稍后重试。";
@@ -441,7 +441,7 @@ export function createSourceSyncUI(host) {
     const superseded = newest && newest.run !== run;
     const recovered = record.recovered || superseded && newest.record.state === "succeeded";
     const blocked = isBusy() || host.isImportBusy();
-    const formatted = report(needsCollection(record) ? { ...record.error, code: "source_incomplete" } : record.error, guidance(record));
+    const formatted = report(record.error, guidance(record));
     const status = recovered ? "后续已恢复。" : superseded ? `后续${RECORD_LABELS[newest.record.state]}。` : null;
     return `<div class="sync-problem" role="region" aria-label="${esc(record.label)}的处理情况"><strong>${esc(record.label)}</strong>${status ? `<p class="status-note">${esc(status)}</p>` : errorMarkup(formatted, JSON.stringify(["source-sync", run.run_id, record.request_id]))}${!status && !ACTIVE.has(run.state) && recoverable(record) && record.request_id ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${blocked ? "disabled" : ""}>处理本条</button>` : ""}</div>`;
   }

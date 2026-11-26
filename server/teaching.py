@@ -32,12 +32,20 @@ ROOT = Path(__file__).resolve().parents[1]
 CLASSIFICATION_MODES = (CLASSIFICATION_MODE, 'platform-v1', 'text-v0.2')
 VIEW = 'teaching-workspace/0.1'
 RUN = 'teaching-run/0.1'
-SOURCE_INCOMPLETE = '来源待补全：已读部分未发现任务，但网页正文未完整读取。重试识别不会补抓内容，请查看来源或补全后重新同步。'
+def recognition_finished(result):
+    # The evidence contract can record insufficient page evidence without
+    # assigning the user a follow-up. Genuine reader/model errors remain failed.
+    return result['status'] in ('success','no_tasks') or (
+        bool(result['record_results']) and all(row['status'] in ('success','no_tasks','incomplete')
+                                               for row in result['record_results']))
 
 
-def needs_source_completion(result):
-    rows = result['record_results']
-    return any(row['status']=='incomplete' for row in rows) and not any(row['status']=='failed' for row in rows)
+def reusable(result, entry):
+    if not recognition_finished(result):
+        return False
+    # Let the next sync recover a platform item omitted by a pre-upgrade reader.
+    return not (entry.get('platform_item') and entry['record']['text'].strip()
+                and any(row['status']=='incomplete' for row in result['record_results']))
 
 
 def initialize(db):
@@ -176,14 +184,17 @@ def result_view(request, result):
         warnings = list(row['warnings'])
         warnings.extend('history_filtered:'+str(d['filter_reason']) for d in decisions if d['recommendation']=='filtered')
         if row['status']=='no_tasks': warnings.append('no_action:未发现行动要求')
-        failed = row['status'] in ('failed','incomplete')
+        failed = row['status']=='failed'
         rows.append(dict(input_id=row['input_id'], status='failed' if failed else 'success' if cards else 'no_tasks',
             task_ids=[c['candidate_id'] for c in cards], warnings=warnings))
         if failed:
-            failure = row['error'] or dict(code='incomplete_source',message=SOURCE_INCOMPLETE,retryable=False)
+            failure = row['error']
             errors.append(dict(input_id=row['input_id'], **{k:failure[k] for k in
                 ('code','message','retryable','failure','diagnostic','diagnostic_id') if k in failure}))
-    return dict(contract_version=VIEW, request_id=request['request_id'], status=result['status'],
+    status=result['status']
+    if any(row['status']=='incomplete' for row in result['record_results']) and recognition_finished(result):
+        status='success' if tasks else 'no_tasks'
+    return dict(contract_version=VIEW, request_id=request['request_id'], status=status,
         record_results=rows, tasks=tasks, errors=errors)
 
 
@@ -289,7 +300,7 @@ def register(db, uid, username, requests, *, assets=None):
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                 (uid,request['request_id'])).fetchone()
             output = json.loads(stored['result']) if stored else None
-            if output and (needs_source_completion(output) or output['status'] in ('success','no_tasks')):
+            if output and reusable(output,entry):
                 skipped += 1
             else: pending.append(request_view(request))
     teaching_identity.retire_covered_gradebook(db, uid, account(username))
@@ -367,7 +378,7 @@ def _extract(request, ApiError, *, files=(), save_cache=None, prepare_context=No
         result = process_teaching_request(request, client=client, settings=settings,
             verified_snapshot_digests={snapshot_digest(e) for e in request['records']},
             budget_seconds=90,diagnostic_event=diagnostics.event)
-        if result['status'] in ('failed','partial_success'):
+        if not recognition_finished(result):
             code=next((row['error']['code'] for row in result['record_results'] if row.get('error')),'upstream_error')
             observation.update(result='failed',code=code if code in operations.CODES else 'upstream_error')
     return result, policy
@@ -460,12 +471,10 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None, 
     context_selection=getattr(attachments.get('prepare_context'),'selected',None)
     if context_selection is None: context_selection=course_context.select(db,uid,acct,captured['records'][0])
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-    if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')):
+    if previous and (not retry or reusable(json.loads(previous['result']),captured['records'][0])):
         operations.emit('outcome',code='cache_hit')
         return
     if previous:operations.emit('outcome',code='retry')
-    if previous and needs_source_completion(json.loads(previous['result'])):
-        raise ApiError(409,SOURCE_INCOMPLETE)
     needs_slot = not platform_only
     if needs_slot and not recognition._ACTIVE.acquire():
         with diagnostics.capture(db,uid,request['request_id']):

@@ -222,7 +222,7 @@ python server/manage_environment.py test-account development
 Docker 公网部署使用 [部署说明](deploy/README.md)，`NIUMA_HOST` 设置容器监听地址，`NIUMA_ALLOWED_ORIGINS` 指定允许的完整来源，`NIUMA_COOKIE_SECURE=1` 仅经 HTTPS 发送会话；未设置时保留 localhost:1331 的本机行为。
 Windows 整合测试在仓库根运行 `powershell -ExecutionPolicy Bypass -File server/start-local-test.ps1`；默认 test 环境为网页 1531、API 1532，数据库在 `server/data/test/`，旧测试数据库不迁移、不删除。
 教学网同步使用原生 v0.4：按课程作业、课程通知、教学内容顺序识别，来源账号和快照由后端核验；明确任务自动加入，引用所需材料缺失时保留审核，详见 [运行视图](../contracts/docs/teaching-workspace-v0.1.md)。
-正文不完整且已读部分无任务时标记“来源待补全”，相同快照不重复调用模型；补全正文后重新同步，最终任务模型失败仍可重试；不可用附件直接略过，不单独触发来源待补全。
+网页未提供日期时留空。已确认的作业和公告按来源收录；其他网页未识别出事项时正常结束。后续网页内容改变会重新识别，实际采集和模型错误可按原因处理。
 真实 API 合成验收在仓库根运行 `.venv/Scripts/python.exe server/run_teaching_smoke.py --output local-data/teaching-smoke.json`；只发送合成内容，独立临时数据库，不访问校园网账号。
 追加 `--env-file <测试模型配置文件> --reprocess` 验证旧批次显式重识别及自动入库；输出路径必须不存在，包含两次真实模型输出和最终任务结果，不启动生产服务。
 原生作业识别输出逐行动 `submission_relation`，后端只在当前账号、精确原生来源及有证据的新增行动上建立永久关联：已提交作业的提交行动自动撤出候选或完成任务，独立阅读等行动保留；未知关系保留现有完成状态，不跨来源猜测。已提交后状态反转、用户决定及手动重开保护沿用 [采集状态约定](../contracts/docs/teaching-capture-v0.1.md)。旧待核对结果可通过重识别接口更新，已有人工决定不被覆盖。

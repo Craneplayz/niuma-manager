@@ -168,7 +168,9 @@ def single_assignment(request, output):
     if entry.get('platform_item', {}).get('kind') not in ('native_assignment', 'listed_assignment'):
         return
     row, = output['record_results']
-    if row['status'] not in ('success', 'no_tasks'):
+    if row['status'] == 'incomplete' and not entry['record']['text'].strip():
+        return
+    if row['status'] not in ('success', 'no_tasks', 'incomplete'):
         return
     base, _ = assignment(request)
     card, = base['record_results'][0]['decisions']
@@ -258,7 +260,7 @@ def apply_source_type(entry, output):
     for candidate in row['decisions']:
         candidate['content_type'] = content_type
     # An announcement without an action still belongs in the notice list.
-    if content_type == 'notice' and row['status'] == 'no_tasks':
+    if content_type == 'notice' and row['status'] in ('no_tasks','incomplete'):
         record = entry['record']
         text = record['text'].strip()
         if not text:

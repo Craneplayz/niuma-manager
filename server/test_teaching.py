@@ -1202,11 +1202,11 @@ class TeachingIntegrationTests(unittest.TestCase):
         view=sync['requests'][0];iid=view['records'][0]['input_id']
         self.drafts[iid]=empty_reply(request['records'][0]['record'],'incomplete')
         batch=self.run_request(view)
-        self.assertEqual(batch['result']['errors'][0]['code'],'incomplete_source')
-        self.assertFalse(batch['result']['errors'][0]['retryable'])
+        self.assertEqual(batch['result']['errors'],[])
+        self.assertEqual(batch['result']['status'],'no_tasks')
         with patch.object(teaching,'recognize') as model:
             status,result=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
-            self.assertEqual(status,409);self.assertIn('不会补抓',result['error'])
+            self.assertEqual(status,200,result)
             # Collection time alone does not make the same missing data retryable.
             unchanged=deepcopy(request);unchanged['records'][0]['record']['collected_at']='2026-10-11T10:00:00+08:00'
             with app.connection() as db:
@@ -1223,6 +1223,22 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.drafts[iid]=empty_reply(record)
         self.assertEqual(self.run_request(fresh)['result']['status'],'no_tasks')
         self.assertEqual(len(self.call('/recognition/batches')[1]),2)
+
+    def test_captured_platform_item_survives_empty_partial_read(self):
+        for kind,expected in [('listed_assignment','task'),('announcement','notice')]:
+            with self.subTest(kind=kind):
+                capture=self.native_capture('unknown')
+                entry,=capture['request']['records']
+                record=entry['record']
+                record['body_status']='partial'
+                entry['platform_item']=dict(kind=kind,due=None,submitted=False)
+                self.drafts[record['input_id']]=empty_reply(record,'incomplete')
+                with patch.object(teaching,'_extract',side_effect=lambda req,err,**kw:self.model(req,err)):
+                    result,policy=teaching.recognize(capture['request'],app.ApiError)
+                teaching.validate_current_result(capture['request'],result,policy,app.ApiError)
+                item,=teaching.result_view(capture['request'],result)['tasks']
+                self.assertEqual(item['content_type'],expected)
+                self.assertIsNone(item['deadline']['value'])
 
     def test_no_tasks_and_multiple_tasks_are_distinct(self):
         request,sync=self.capture(('explicit-complete','explicit-complete'))

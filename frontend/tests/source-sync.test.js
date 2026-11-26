@@ -305,7 +305,8 @@ check('account switching while a start waits cannot submit to the new account', 
 });
 
 check('single and batch retry select only the latest recoverable attempts', async () => {
-  const old = syncRun({state: 'failed', states: ['failed','failed','incomplete']}), child = syncRun({id: 'run:child'});
+  const old = syncRun({state: 'failed', states: ['failed','failed','failed']}), child = syncRun({id: 'run:child'});
+  old.records[2].error = {code:'source_missing',message:'网页未取得',retryable:false};
   child.parent_run_id = old.run_id;
   const f = fixture([child, old]); await f.ui.load();
   assert.doesNotMatch(markup(f.ui), /后续已恢复|本轮记录保留/); assert.match(markup(f.ui), /处理未完成 · 2/);
@@ -332,7 +333,8 @@ check('a lost single retry response reuses operation identity and never includes
 });
 
 check('incomplete or changed sources offer recollection and configuration failures avoid futile retries', async () => {
-  const run = syncRun({state: 'failed', states: ['incomplete','failed','failed']});
+  const run = syncRun({state: 'failed', states: ['failed','failed','failed']});
+  run.records[0].error = {code:'source_missing',message:'网页未取得',retryable:false};
   run.records[0].label = '<script>unsafe</script>';
   run.records[1].error = {code: 'source_changed', message: '来源变化', retryable: true};
   run.records[2].error = {code: 'model_configuration', message: '配置不可用', retryable: false};
@@ -340,13 +342,14 @@ check('incomplete or changed sources offer recollection and configuration failur
   await category(f.ui, run.run_id, 'error'); await problem(f.ui, run.run_id, 0);
   const html = markup(f.ui);
   assert.match(html, /data-source-sync-action="recover"/); assert.doesNotMatch(html, /data-source-sync-action="retry"|data-source-sync-action="collect"/);
-  assert.match(html, /完整通知/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
+  assert.match(html, /教学网页面/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
   await f.ui.click(button('recover',run.run_id)); assert.equal(f.posts()[0].path, `${API}/${encodeURIComponent(run.run_id)}/recover`);
   assert.deepEqual(f.posts()[0].body.request_ids,['sync:0','sync:1']);
 });
 
 check('one recovery action scopes mixed errors and never includes successful content or pending review', async () => {
-  const run=syncRun({state:'partial_success',states:['succeeded','succeeded','failed','incomplete'],added:1});
+  const run=syncRun({state:'partial_success',states:['succeeded','succeeded','failed','failed'],added:1});
+  run.records[3].error={code:'source_missing',message:'网页未取得',retryable:false};
   run.records[1].review=1;run.counts.review=1;
   const f=fixture([run]);await f.ui.load();
   const html=markup(f.ui);assert.match(html,/处理未完成 · 2/);

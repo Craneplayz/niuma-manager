@@ -116,15 +116,24 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
   const browser = await collectionStage("browser", () => launchBrowser(options.executablePath ?? process.env.PLAYWRIGHT_EXECUTABLE_PATH));
 
   try {
-    const context = await collectionStage("browser", () => browser.newContext({ locale: "zh-CN", timezoneId: DEFAULT_TIMEZONE }));
-    if (options.pageOnly) {
-      await context.route("**/*", route => {
-        const req = route.request();
-        return ["image", "media"].includes(req.resourceType()) || /\/bbcswebdav\//i.test(new URL(req.url()).pathname)
-          ? route.abort() : route.continue();
-      });
-    }
+    const context = await collectionStage("browser", () => browser.newContext({
+      locale: "zh-CN", timezoneId: DEFAULT_TIMEZONE, ...(options.pageOnly ? {serviceWorkers: "block" as const} : {}),
+    }));
     const page = await collectionStage("browser", () => context.newPage());
+    if (options.pageOnly) {
+      // Intercept only file requests. A catch-all Playwright route disables
+      // Chromium's HTTP cache for the repeated course-page navigations.
+      const session = await context.newCDPSession(page);
+      session.on("Fetch.requestPaused", ({requestId}) => {
+        void session.send("Fetch.failRequest", {requestId, errorReason: "BlockedByClient"}).catch(() => {
+          // Navigation or browser shutdown can already have cancelled this request.
+        });
+      });
+      await session.send("Fetch.enable", {patterns: [
+        {resourceType: "Image"}, {resourceType: "Media"}, {urlPattern: "*/bbcswebdav/*"},
+        ...["pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx", "zip"].map(ext => ({urlPattern: `*.${ext}*`})),
+      ]});
+    }
     await collectionStage("login", () => login(page, credentials.username, credentials.password));
     if (options.targetSource) {
       const target = options.targetSource;
