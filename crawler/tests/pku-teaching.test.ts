@@ -17,6 +17,16 @@ describe("native teaching integration", () => {
     expect(record.references[0]).toMatchObject({read_state:'partial',text:'2026年12月20日前提交'});
     expect(record.body_status).toBe('complete');
   });
+  it("exports only the page as evidence and keeps a sanitized attachment link", () => {
+    const input=source();
+    input.references[0].url += "?token=private#page=2";
+    input.references[0]={...input.references[0],read_status:'partial',text:'private file content'};
+    const entry=toTeachingCaptures([input], "page-only", {pageOnly:true})[0].request.records[0];
+    expect(entry.record.references).toEqual([]);
+    expect(JSON.stringify(entry)).not.toContain('private');
+    expect(entry).toMatchObject({page_attachments:[{label:'参考.pdf',url:'https://course.pku.edu.cn/bbcswebdav/courses/test/extra.pdf'}]});
+    expect(entry.record.text).toContain('10月23日');
+  });
   it("rejects old or duplicate source identities rather than silently granting trust", () => {
     const input=source();
     expect(()=>toTeachingCaptures([input,input])).toThrow(/duplicate_input_id/);

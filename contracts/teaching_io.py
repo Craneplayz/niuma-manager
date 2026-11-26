@@ -45,6 +45,14 @@ def check_request(request):
         r=entry['record'];validate_record(r)
         require(r['input_id'] not in seen,'duplicate input_id');seen.add(r['input_id'])
         if entry['source']['url'] is not None:check_source_url(entry['source']['url'])
+        if 'page_attachments' in entry:
+            links=entry['page_attachments']
+            require(len({link['ref_id'] for link in links}) == len(links), 'duplicate attachment')
+            require(all(ref['kind'] not in ('attachment','content_image') for ref in r['references']), 'unexpected file evidence')
+        for attachment in entry.get('page_attachments', []):
+            if attachment['url'] is not None:
+                check_source_url(attachment['url'])
+                require(attachment['url'].startswith('https://course.pku.edu.cn/'), 'invalid attachment origin')
         for field in ('label','course_or_project'):
             value=entry['source'][field]
             require(value is None or value.strip() and not any(ord(c)<32 or ord(c)==127 for c in value),'invalid source label')
@@ -65,6 +73,22 @@ def aggregate_status(rows):
     return 'success' if any(r['decisions'] for r in rows) else 'no_tasks'
 
 
+def attachment_listing_only(entry):
+    """Blackboard lists filenames and sizes inside the teacher-body container."""
+    files = entry.get('page_attachments')
+    if not files or entry['record']['body_status'] != 'complete':
+        return False
+    title = entry['source']['label'] or ''
+    # A date in the title is still page evidence and needs the normal time reader.
+    if re.search(r'截止|提交时间|前交|周[一二三四五六日天]|明天|[月日号点时:/]|\d{1,4}[.-]\d|due|deadline', title, re.I):
+        return False
+    lines = {line.strip() for line in entry['record']['text'].splitlines() if line.strip()}
+    labels = {file['label'] for file in files}
+    return bool(lines & labels) and all(
+        line in labels or line == title or line.rstrip(':：') in ('已附加文件', '附件', 'Attached Files')
+        or re.fullmatch(r'\([\d.,]+\s*(?:bytes?|[KMGT]i?B)\)', line, re.I) for line in lines)
+
+
 def check_pair(request,result,*,verified_snapshot_digests=()):
     check_request(request);check_shape('result',result)
     trusted=verified_set(request,verified_snapshot_digests)
@@ -78,6 +102,8 @@ def check_pair(request,result,*,verified_snapshot_digests=()):
         mode = result.get('classification_mode')
         if mode in ('platform-v1', 'text-v0.2'):
             kinds = ('native_assignment', 'gradebook_assignment') if mode == 'platform-v1' else ('announcement',)
+            if mode == 'platform-v1' and attachment_listing_only(entry):
+                kinds += ('listed_assignment',)
             require(verified and entry.get('platform_item', {}).get('kind') in kinds, 'classification requires matching captured platform facts')
         require(row['input_id']==r['input_id'] and row['snapshot_id']==r['snapshot_id'],'record identity mismatch')
         require(row['source']==entry['source'],'source metadata changed')

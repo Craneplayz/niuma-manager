@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 import re
 
-from contracts.teaching_io import canonical
+from contracts.teaching_io import attachment_listing_only, canonical
 from ddl_text import course_facts
 
 
@@ -33,10 +33,28 @@ _COURSE_REFERENCE = re.compile(
 )
 
 
+FILE_KINDS = {'attachment', 'content_image'}
+
+
+def page_only(entry):
+    # Captures from before page_attachments already have the crawler's stable IDs.
+    return 'page_attachments' in entry or entry['record']['input_id'].startswith(('pku:source:', 'pku:gradebook:'))
+
+
+def use_page_evidence(entry):
+    record = entry['record']
+    if 'page_attachments' not in entry:
+        entry['page_attachments'] = [dict(ref_id=r['ref_id'], label=r['label'], url=None)
+                                     for r in record['references'] if r['kind'] in FILE_KINDS]
+    record['references'] = [r for r in record['references'] if r['kind'] not in FILE_KINDS | {'course_context'}]
+    record.pop('course_context', None)
+
+
 def course_references(entry):
     text = entry['record']['text']
     own_files = {(ref.get('label') or '').casefold() for ref in entry['record']['references']
                  if ref['kind'] in ('attachment', 'content_image')}
+    own_files.update(ref['label'].casefold() for ref in entry.get('page_attachments', []))
     targets = set()
     for match in _COURSE_REFERENCE.finditer(text):
         target = (match['title'] or match['target']).casefold()
@@ -57,13 +75,13 @@ def route(entry):
         return 'teaching'
     r = entry['record']
     if item['kind'] == 'listed_assignment':
-        return 'teaching'
+        return 'platform' if attachment_listing_only(entry) else 'teaching'
     if item['kind'] == 'gradebook_assignment' or item['kind'] == 'native_assignment' and item['due']:
         return 'platform'
     text = r['text']
     # Preserve the teaching reader for multi-part instructions and facts which
     # the source explicitly delegates to an attachment or another announcement.
-    if r['references'] or r['body_status'] != 'complete':
+    if r['references'] or entry.get('page_attachments') or r['body_status'] != 'complete':
         return 'teaching'
     if course_references(entry) or re.search(r'(?:详见|参见|见|按照?|根据).{0,12}附件', text):
         return 'teaching'

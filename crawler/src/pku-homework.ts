@@ -47,6 +47,7 @@ export interface HomeworkScrapeResult {
 
 export interface ScrapeOptions {
   downloadObserver?: DownloadObserver;
+  pageOnly?: boolean;
   secretPath?: string;
   term?: string | null;
   asOf?: DateTime;
@@ -116,6 +117,13 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
 
   try {
     const context = await collectionStage("browser", () => browser.newContext({ locale: "zh-CN", timezoneId: DEFAULT_TIMEZONE }));
+    if (options.pageOnly) {
+      await context.route("**/*", route => {
+        const req = route.request();
+        return ["image", "media"].includes(req.resourceType()) || /\/bbcswebdav\//i.test(new URL(req.url()).pathname)
+          ? route.abort() : route.continue();
+      });
+    }
     const page = await collectionStage("browser", () => context.newPage());
     await collectionStage("login", () => login(page, credentials.username, credentials.password));
     if (options.targetSource) {
@@ -123,7 +131,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
       await navigateCoursePage(page, target.url);
       const selected = selectSourceTarget(await page.content(), target, asOf.toISO()!);
       const detailed = await enrichAssignmentSources(page, selected);
-      const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
+      const sourceRecords = options.pageOnly ? detailed : await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
       return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
         asOf, term: null, coursesChecked: 1, sectionsChecked: 1, sourceRecords,
         scopeWarning: "Only the requested source item and its references were inspected.",
@@ -199,7 +207,7 @@ export async function scrapePkuHomeworks(options: ScrapeOptions = {}): Promise<H
     }
 
     const detailed = await enrichAssignmentSources(page, deduplicateCourseSources(sources));
-    const sourceRecords = await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
+    const sourceRecords = options.pageOnly ? detailed : await enrichSourceAttachments(detailed, authenticatedAttachmentReader(context), process.env.PKU_ATTACHMENT_DIR, options.downloadObserver);
     return buildHomeworkScrapeResult(homeworkView(sourceRecords, asOf), {
       asOf, term, coursesChecked: courses.length, sectionsChecked, sourceRecords,
       allSections: options.allSections ?? false, coverageWarnings,

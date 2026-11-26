@@ -13,7 +13,7 @@ import time
 from jsonschema import ValidationError
 
 from contracts import course_context as contract
-from server.teaching_platform import course_references, route
+from server.teaching_platform import course_references, page_only, route
 
 MAX_SOURCES = 6
 PART_BUDGET = 4000
@@ -79,7 +79,9 @@ def catalog(db, uid, account, scoped=None):
         text=searchable(other)
         groups.setdefault(scope,[]).append(dict(request=request,digest=digest,tokens=terms(text),policy=bool(POLICY.search(text)),
             has_files=any(r['kind'] in ('attachment','content_image') for r in other['record']['references'])))
-    by_request={m['request']['request_id']:m for group in groups.values() for m in group}
+    by_request={m['request']['request_id']:m for group in groups.values() for m in group
+                if not page_only(m['request']['records'][0])}
+    if not by_request: return groups
     # Ordinary filenames often hide the actual syllabus/rules. Search completed
     # private read caches too; they are hints only until prepare rechecks the
     # reader version and binds actual excerpts. Original blobs are never loaded.
@@ -142,7 +144,7 @@ def select(db, uid, account, entry, *, materials=None, receipts=None):
     selected=selected[:MAX_SOURCES]
     for item in selected:
         rid=item['request']['request_id']
-        if rid not in receipts: receipts[rid]=completed_receipts(db,uid,account,rid)
+        if rid not in receipts: receipts[rid]=[] if page_only(item['request']['records'][0]) else completed_receipts(db,uid,account,rid)
         item['observed_receipts']=receipts[rid]
         item['readiness']=contract.revision(receipts[rid])
     return selected
@@ -224,6 +226,8 @@ def dependency_fingerprint(selected, own_readiness):
 
 
 def remember(db, uid, account, entry, selected, *, own_readiness=None, references=None, files=()):
+    if own_readiness is None and page_only(entry):
+        own_readiness=contract.revision([])
     if own_readiness is None:
         row=db.execute('SELECT request_id FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
                        (uid,account,entry['record']['input_id'])).fetchone()
@@ -410,7 +414,7 @@ def refresh_dependents(db, uid, account):
             materials=catalog(db,uid,account)
         chosen=select(db,uid,account,entry,materials=materials,receipts=receipts)
         rid=request['request_id']
-        if rid not in receipts: receipts[rid]=completed_receipts(db,uid,account,rid)
+        if rid not in receipts: receipts[rid]=[] if page_only(entry) else completed_receipts(db,uid,account,rid)
         own_readiness=contract.revision(receipts[rid])
         if dependency_fingerprint(chosen,own_readiness)==previous: continue
         old=request['request_id']; request['request_id']='teaching:'+secrets.token_hex(16)

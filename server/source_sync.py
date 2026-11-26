@@ -191,7 +191,9 @@ def _collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
                         payload['records'] = [entry for entry in payload['records'] if entry['record']['input_id'] in input_ids]
                         if payload['records']: selected.append(item)
                     requests = selected
-                assets = teaching_assets.read_capture(attachment_dir,requests,**({'input_ids':input_ids} if input_ids is not None else {}))
+                legacy = [item for item in requests if any(not teaching.teaching_platform.page_only(entry)
+                          for entry in item.get('request',item)['records'])]
+                assets = teaching_assets.read_capture(attachment_dir,legacy,**({'input_ids':input_ids} if input_ids is not None else {})) if legacy else {}
             except Exception:
                 raise collection_exception(ApiError, 502, 'export') from None
     except subprocess.TimeoutExpired:

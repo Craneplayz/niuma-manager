@@ -50,6 +50,8 @@ def source_digest(entry, assignment, files, *, include_legacy_gradebook_id=False
             ref.pop('read_state', None)
             ref['file_identity'] = assets[ref['ref_id']]
     record['references'].sort(key=lambda r: r['ref_id'])
+    if 'page_attachments' in stable:
+        stable['page_attachments'].sort(key=lambda link: link['ref_id'])
     material = dict(entry=stable, assignment=assignment)
     return hashlib.sha256(canonical(material)).hexdigest()
 

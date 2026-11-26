@@ -32,6 +32,7 @@ def schemas():
     source = obj(dict(label=nullable(string(512, 1)), url=nullable(string(2048, 1)),
                       course_or_project=nullable(string(512, 1))))
     entry = obj(dict(record=deepcopy(POLICY['properties']['record']), source=source))
+    entry['properties']['page_attachments'] = array(obj(dict(ref_id=ident, label=string(512, 1), url=nullable(string(2048, 1)))), 50)
     entry['properties']['platform_item'] = obj(dict(
         kind=dict(enum=['native_assignment','gradebook_assignment','listed_assignment','announcement']),
         due=nullable(dict(anyOf=[dict(type='string', format='date'),dict(type='string', format='date-time')])),

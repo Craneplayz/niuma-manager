@@ -330,11 +330,21 @@ def route(handler,db,uid,path,body,ApiError):
             if not batch: continue
             item=json.loads(candidate['candidate'])
             request=json.loads(batch['request'])
+            attachments=[]
             if request.get('contract_version')=='0.4':
                 import teaching
+                entry=next((e for e in request['records'] if e['record']['input_id']==item.get('input_id')),None)
+                if entry is not None:
+                    if 'page_attachments' not in entry or any(link['url'] is None for link in entry['page_attachments']):
+                        # A pre-upgrade result can share its snapshot with the refreshed link index.
+                        current=db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND request_id=? AND input_id=?',
+                            (uid,candidate['request_id'],item['input_id'])).fetchone()
+                        if current: entry=json.loads(current['request'])['records'][0]
+                    attachments=entry.get('page_attachments', [dict(label=r['label'],url=None)
+                        for r in entry['record']['references'] if r['kind'] in teaching.teaching_platform.FILE_KINDS])
                 request=teaching.request_view(request)
             record=next((r for r in request.get('records',[]) if r.get('input_id')==item.get('input_id')),{})
-            evidence.append(dict(action=history.get('action'),quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
+            evidence.append(dict(action=history.get('action'),attachments=attachments,quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
         handler.reply(200,dict(evidence=evidence));return True
     if path=='/api/recognition/imports' and handler.command=='POST':
         ids=body.get('request_ids')

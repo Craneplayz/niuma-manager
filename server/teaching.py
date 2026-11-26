@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLASSIFICATION_MODES = (CLASSIFICATION_MODE, 'platform-v1', 'text-v0.2')
 VIEW = 'teaching-workspace/0.1'
 RUN = 'teaching-run/0.1'
-SOURCE_INCOMPLETE = '来源待补全：已读部分未发现任务，但正文或附件未完整读取。重试识别不会补抓内容，请查看来源或补全后重新同步。'
+SOURCE_INCOMPLETE = '来源待补全：已读部分未发现任务，但网页正文未完整读取。重试识别不会补抓内容，请查看来源或补全后重新同步。'
 
 
 def needs_source_completion(result):
@@ -215,7 +215,7 @@ def register(db, uid, username, requests, *, assets=None):
                 skipped += 1
                 continue
             teaching_identity.record_gradebook_link(db, uid, account(username), entry)
-            files = (assets or {}).get(r['input_id'],[])
+            files = [] if teaching_platform.page_only(entry) else (assets or {}).get(r['input_id'],[])
             digest = teaching_identity.source_digest(entry, assignment, files)
             row = db.execute('SELECT * FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
                 (uid, account(username), r['input_id'])).fetchone()
@@ -224,7 +224,8 @@ def register(db, uid, username, requests, *, assets=None):
             previous_digest = None
             if row and row['digest'] != digest:
                 old = json.loads(row['request'])['records'][0]
-                old_files = teaching_assets.load(db,uid,account(username),row['request_id'])
+                old_files = [dict(ref_id=ref, sha256=sha, mime_type=mime) for ref,sha,mime in
+                             teaching_assets.retained_identity(db,uid,account(username),row['request_id'])]
                 if old.get('platform_item', {}).get('gradebook_id') and row['digest'] == teaching_identity.source_digest(
                         old, assignment, old_files, include_legacy_gradebook_id=True):
                     previous_digest = teaching_identity.source_digest(old, assignment, old_files)
@@ -234,10 +235,26 @@ def register(db, uid, username, requests, *, assets=None):
                 if old_files: legacy_material = dict(source=legacy_material,assets=teaching_assets.identity(old_files))
                 if row['digest']==hashlib.sha256(canonical(legacy_material)).hexdigest():
                     previous_digest = teaching_identity.source_digest(old, assignment, old_files)
+                if 'page_attachments' in entry and 'page_attachments' not in old and (
+                        previous_digest is not None or row['digest']==teaching_identity.source_digest(old,assignment,old_files)):
+                    teaching_platform.use_page_evidence(old)
+                    projection = deepcopy(entry)
+                    for link in projection['page_attachments']:
+                        link['url'] = None  # The legacy ref_id already binds the original URL.
+                    if teaching_identity.source_digest(old,assignment,[]) == teaching_identity.source_digest(projection,assignment,[]):
+                        previous_digest = digest
             if row and (row['digest']==digest or previous_digest==digest):
                 request = json.loads(row['request'])
-                db.execute('UPDATE teaching_sources SET digest=? WHERE user_id=? AND account=? AND input_id=?',
-                           (digest,uid,account(username),r['input_id']))
+                if 'page_attachments' in entry and 'page_attachments' not in request['records'][0]:
+                    upgraded = deepcopy(entry)
+                    for key in ('snapshot_id', 'collected_at'):
+                        upgraded['record'][key] = request['records'][0]['record'][key]
+                    request['records'] = [upgraded]
+                    # With no course references the only old dependency was the file reader.
+                    if not teaching_platform.course_references(entry):
+                        course_context.remember(db,uid,account(username),entry,[])
+                db.execute('UPDATE teaching_sources SET digest=?,request=? WHERE user_id=? AND account=? AND input_id=?',
+                           (digest,json.dumps(request),uid,account(username),r['input_id']))
             else:
                 r['snapshot_id'] = 'snapshot:'+secrets.token_hex(16)
                 request = dict(contract_version='0.4', request_id='teaching:'+secrets.token_hex(16), records=[entry])
@@ -305,7 +322,10 @@ def recognize(request, ApiError, **attachments):
 
 
 def _extract(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
-    route = teaching_platform.route(request['records'][0])
+    entry, = request['records']
+    if teaching_platform.page_only(entry):
+        teaching_platform.use_page_evidence(entry)
+    route = teaching_platform.route(entry)
     if route == 'platform':
         return teaching_platform.assignment(request)
     if route == 'text':
@@ -336,7 +356,8 @@ def _extract(request, ApiError, *, files=(), save_cache=None, prepare_context=No
     diagnostics.event('configuration',model=settings.model,timeout_seconds=settings.timeout_seconds)
     def check_active():
         if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
-    teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
+    if not teaching_platform.page_only(entry):
+        teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
     # A self-contained announcement can need the specialist time/evidence
     # format without needing a second model call over unrelated course files.
     if prepare_context and route != 'text':
@@ -357,7 +378,6 @@ def attachment_context(db, uid, request_id):
     import sqlite3
     from contextlib import closing
     cred = db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-    files = teaching_assets.load(db,uid,account(cred['username']),request_id) if cred else []
     path = db.execute('PRAGMA database_list').fetchone()[2]
     def save_cache(asset,version,result):
         if not path: return  # In-memory tests need no durable cache.
@@ -368,8 +388,23 @@ def attachment_context(db, uid, request_id):
     acct=account(cred['username'])
     row=db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND account=? AND request_id=?',
                    (uid,acct,request_id)).fetchone()
-    if not row: return dict(files=files,save_cache=save_cache) if files else {}
-    captured=json.loads(row[0]); selected=course_context.select(db,uid,acct,captured['records'][0])
+    if not row: return {}
+    captured=json.loads(row[0])
+    entry, = captured['records']
+    selected=course_context.select(db,uid,acct,entry)
+    if teaching_platform.page_only(entry):
+        if not selected: return {}
+        def prepare_pages(request,client,settings,guard):
+            materials=[]
+            for item in selected:
+                guard()
+                material=deepcopy(item['request'])
+                teaching_platform.use_page_evidence(material['records'][0])
+                materials.append(material)
+            course_context.attach(request,materials)
+        prepare_pages.selected=selected
+        return dict(prepare_context=prepare_pages)
+    files = teaching_assets.load(db,uid,acct,request_id)
     def load_files(item):
         if not path: return teaching_assets.load(db,uid,acct,item['request']['request_id'])
         with closing(sqlite3.connect(path,timeout=30)) as current_db:
@@ -470,7 +505,7 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None, 
             else:
                 db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
             cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-            used_files = teaching_assets.load(db,uid,acct,request['request_id']) if platform_only else attachments.get('files',[])
+            used_files = teaching_assets.load(db,uid,acct,request['request_id']) if platform_only and not teaching_platform.page_only(captured['records'][0]) else attachments.get('files',[])
             teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],used_files)
             course_context.remember(db,uid,acct,captured['records'][0],context_selection,
                 references=request['records'][0]['record']['references'],files=used_files)

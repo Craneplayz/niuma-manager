@@ -706,6 +706,45 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.drafts[record['input_id']]=json.dumps(dict(tasks=[first,second]))
         return capture
 
+    def test_legacy_file_listing_uses_page_on_retry_and_upgrades_links_in_place(self):
+        import reprocessing
+        capture=self.native_capture('active')
+        entry,=capture['request']['records']
+        entry['platform_item']=dict(kind='listed_assignment',due=None,submitted=False)
+        entry['source']['label']='第3讲作业'
+        file=dict(ref_id='file:1',kind='attachment',label='练习.pdf',read_state='complete',text='附件中写着明天截止')
+        record=entry['record']
+        record.update(input_id='pku:source:fixture',text='第3讲作业\n已附加文件:\n练习.pdf\n(162.8 KB)',
+                      body_status='complete',references=[file])
+        rid=self.sync_native(capture)['requests'][0]['request_id']
+        with patch.object(teaching.teaching_assets,'load',side_effect=AssertionError('read original')), \
+             patch.object(teaching.teaching_assets,'enrich',side_effect=AssertionError('read file')), \
+             patch.object(teaching,'live_options',side_effect=AssertionError('called model')):
+            status,batches=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=rid))
+            self.assertEqual(status,200,batches)
+            task,=self.call('/workspace')[1]['tasks']['value']
+            self.assertIsNone(task['due'])
+            with app.connection() as db:
+                old=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+                replay=deepcopy(old)
+                replay['request_id']='reprocessing:test'
+                output,_=reprocessing.recognize_saved(replay,True,app.ApiError,attachments=teaching.attachment_context(db,self.uid,rid))
+                self.assertEqual(output['status'],'success')
+                self.assertEqual(replay['records'][0]['record']['references'],[])
+            record['references']=[]
+            link=dict(ref_id='file:1',label='练习.pdf',url='https://course.pku.edu.cn/bbcswebdav/1')
+            entry['page_attachments']=[link]
+            self.assertEqual(self.sync_native(capture)['requests'],[])
+            with app.connection() as db:
+                current=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+                self.assertEqual(current['records'][0]['record']['snapshot_id'],old['records'][0]['record']['snapshot_id'])
+                self.assertEqual(current['records'][0]['page_attachments'],[link])
+            evidence=self.call('/recognition/task-evidence',dict(task_id=task['id']))[1]['evidence']
+            self.assertEqual(evidence[0]['attachments'], [link])
+            record['text']+='\n周五截止。'
+            self.assertNotEqual(self.sync_native(capture)['requests'][0]['request_id'],rid)
+            self.assertEqual(teaching.teaching_platform.route(entry),'teaching')
+
     def test_listed_assignment_with_two_model_actions_saves_the_assignment_once(self):
         capture = self.mixed_capture('active')
         entry, = capture['request']['records']

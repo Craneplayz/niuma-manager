@@ -7,6 +7,7 @@ import { DEFAULT_TIMEZONE } from "./core/time.js";
 
 // Shape owned by contracts/schemas/teaching-request-v0.4.schema.json (#124).
 export interface TeachingEntry {
+  page_attachments?: { ref_id: string; label: string; url: string | null }[];
   record: {
     input_id: string; source_item_id: string; course_id: string; snapshot_id: string;
     platform: "teaching_web"; text: string; body_status: CourseSourceRecord["text_quality"];
@@ -34,7 +35,7 @@ function label(value: string): string | null {
 }
 function navigationUrl(original: URL): string | null {
   // #124's public display URL cannot carry item fragments, private parameters or non-public hosts.
-  if (original.origin !== "https://course.pku.edu.cn") return null;
+  if (original.username || original.password || original.origin !== "https://course.pku.edu.cn") return null;
   const url = new URL(original.href); url.hash = "";
   const allowed = new Set(["id", "page", "view", "mode", "method", "context", "courseid", "handle", "contentid", "announcementid", "p", "lang"]);
   const used = new Set<string>();
@@ -45,7 +46,7 @@ function navigationUrl(original: URL): string | null {
   }
   return url.href.length <= 2048 && !/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(url.href) ? url.href : null;
 }
-function entry(source: CourseSourceRecord): TeachingEntry {
+function entry(source: CourseSourceRecord, pageOnly: boolean): TeachingEntry {
   check(identifier(source.input_id) && identifier(source.source_item_id), "stable_source_identity_missing");
   const url = new URL(source.source_url);
   check(["http:", "https:"].includes(url.protocol) && !url.username && !url.password && source.source_url.length <= 2048, "source_url_invalid");
@@ -58,23 +59,30 @@ function entry(source: CourseSourceRecord): TeachingEntry {
   check(body.text.length <= 100_000 && (body.status === "missing" ? !body.text : body.text.trim()), "body_evidence_invalid");
   const included = new Set(body.included_reference_urls);
   check(included.size === body.included_reference_urls.length && [...included].every((value) => source.references.some((ref) => ref.url === value && ref.kind === "detail" && ref.content_read && ref.read_status === "complete")), "included_detail_invalid");
-  const references = source.references.filter((ref) => !included.has(ref.url)).map((ref, index) => {
+  const files: NonNullable<TeachingEntry["page_attachments"]> = [];
+  const references = source.references.filter((ref) => !included.has(ref.url)).flatMap((ref, index) => {
     check(ref.label.length <= 512 && !hasControl(ref.label), "reference_label_invalid");
     const read = ref.read_status === "complete" || ref.read_status === "partial";
     check(!read || Boolean(ref.text?.trim()), "reference_text_missing");
     check(ref.content_read === (ref.read_status === "complete"), "reference_read_state_invalid");
-    return { ref_id: `pku:ref:${sha256(JSON.stringify([source.input_id, ref.kind, ref.url, index]))}`,
+    const ref_id = `pku:ref:${sha256(JSON.stringify([source.input_id, ref.kind, ref.url, index]))}`;
+    const label = ref.label.trim() ? ref.label : ref.kind;
+    if (pageOnly && (ref.kind === "attachment" || ref.kind === "image")) {
+      files.push({ref_id, label, url: ref.url ? navigationUrl(new URL(ref.url)) : null});
+      return [];
+    }
+    return [{ ref_id,
       kind: ref.kind === "attachment" ? "attachment" as const : ref.kind === "image" ? "content_image" as const : "linked_detail" as const,
-      label: ref.label.trim() ? ref.label : ref.kind, read_state: ref.read_status, text: read ? ref.text! : null };
+      label, read_state: ref.read_status, text: read ? ref.text! : null }];
   });
-  check(references.length <= 50, "reference_count_exceeded");
+  check(references.length + files.length <= 50, "reference_count_exceeded");
   const metadata = source.provenance?.source_metadata_text ?? "";
   check(metadata.length <= 4096, "source_metadata_too_large");
   check(body.text.length + metadata.length + references.reduce((total, ref) => total + (ref.text?.length ?? 0), 0) <= 100_000, "aggregate_evidence_too_large");
   check(time(source.collected_at), "collection_time_invalid");
   const publication = source.published_at.value;
   check(!publication || source.published_at.basis === "source" && (time(publication) || /^\d{4}-\d{2}-\d{2}$/.test(publication) && DateTime.fromISO(publication).isValid), "publication_time_invalid");
-  return { record: { input_id: source.input_id, source_item_id: source.source_item_id, course_id: courseId,
+  return { ...(pageOnly ? {page_attachments: files} : {}), record: { input_id: source.input_id, source_item_id: source.source_item_id, course_id: courseId,
       snapshot_id: sourceSnapshotId(source), platform: "teaching_web", text: body.text, body_status: body.status,
       source_metadata_text: metadata, references, published_at: publication ? { value: publication, basis: "source" } : null,
       collected_at: source.collected_at, timezone: DEFAULT_TIMEZONE,
@@ -83,7 +91,7 @@ function entry(source: CourseSourceRecord): TeachingEntry {
     source: { label: label(source.title), url: navigationUrl(url), course_or_project: label(source.course) } };
 }
 /** Export only; account trust and the v0.4 entry digest belong to the controlled server consumer. */
-export function toTeachingRequests(sources: CourseSourceRecord[], requestId = `pku:${randomUUID()}`): TeachingExport {
+export function toTeachingRequests(sources: CourseSourceRecord[], requestId = `pku:${randomUUID()}`, pageOnly = false): TeachingExport {
   check(identifier(requestId) && requestId.length <= 240, "request_id_invalid");
   const requests: TeachingRequest[] = []; const skipped: TeachingExport["skipped"] = [];
   const seen = new Set<string>(); const duplicate = new Set<string>();
@@ -92,7 +100,7 @@ export function toTeachingRequests(sources: CourseSourceRecord[], requestId = `p
   for (const source of sources) {
     try {
       check(!duplicate.has(source.input_id), "duplicate_input_id");
-      const value = entry(source);
+      const value = entry(source, pageOnly);
       const next = () => ({ ...batch, records: [...batch.records, value] });
       if (batch.records.length === 20 || Buffer.byteLength(JSON.stringify(next()), "utf8") > 2_000_000) {
         if (batch.records.length) requests.push(batch);

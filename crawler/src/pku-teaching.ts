@@ -48,10 +48,10 @@ function platformItem(source: CourseSourceRecord) {
 }
 
 /** A native v0.4 projection; successful detail text is already part of teacher_body. */
-export function toTeachingRequests(sources: CourseSourceRecord[], requestId: string = randomUUID()) {
+export function toTeachingRequests(sources: CourseSourceRecord[], requestId: string = randomUUID(), pageOnly = false) {
   if (new Set(sources.map(source => source.input_id)).size !== sources.length) throw new Error("teaching_export_rejected:duplicate_input_id");
   const entries = [...sources].sort((a, b) => teachingPriority(a) - teachingPriority(b)).map((source) => {
-    const output = exportEvidence([source], `capture:${digest(source.input_id)}`);
+    const output = exportEvidence([source], `capture:${digest(source.input_id)}`, pageOnly);
     if (output.skipped.length || output.requests.length !== 1) {
       throw new Error(`teaching_export_rejected:${output.skipped[0]?.reason ?? "empty_request"}`);
     }
@@ -76,16 +76,16 @@ export function toTeachingRequests(sources: CourseSourceRecord[], requestId: str
             { part_id: "source_metadata", quote: `栏目：${source.section}` }] };
       }
     }
-    return { ...(platform ? {platform_item: platform} : {}), record: { ...entry.record, source_metadata_text: sourceMetadata, body_status: detailUnread && entry.record.body_status === "complete" ? "partial" : entry.record.body_status, course_term: term }, source: entry.source };
+    return { ...entry, ...(platform ? {platform_item: platform} : {}), record: { ...entry.record, source_metadata_text: sourceMetadata, body_status: detailUnread && entry.record.body_status === "complete" ? "partial" : entry.record.body_status, course_term: term } };
   });
   // One bounded item per request: a slow record never spends the next record's budget.
   return entries.map((entry, index) => ({ contract_version: "0.4", request_id: `${requestId}:${index}`, records: [entry] }));
 }
 
 /** Trusted process output only: the public v0.4 model request stays unchanged. */
-export function toTeachingCaptures(sources: CourseSourceRecord[], requestId?: string) {
+export function toTeachingCaptures(sources: CourseSourceRecord[], requestId?: string, { pageOnly = false } = {}) {
   const ordered = [...sources].sort((a, b) => teachingPriority(a) - teachingPriority(b));
-  return toTeachingRequests(ordered, requestId).map((request, index) => {
+  return toTeachingRequests(ordered, requestId, pageOnly).map((request, index) => {
     const record = request.records[0].record;
     const source = ordered[index];
     const native = source.references.find(ref => ref.kind === 'detail' && isPkuAssignmentUrl(ref.url));
