@@ -84,33 +84,6 @@
     ],
     "generation": 0
   },
-  "quickTaskOperation": {
-    "id": "quick-entry-synthetic-01",
-    "owner": "synthetic-account",
-    "intent": {
-      "kind": "save",
-      "workspaceGeneration": 0,
-      "createdAt": "2026-11-18T08:00:00+08:00",
-      "expected": null,
-      "draft": {
-        "id": "synthetic-quick-01",
-        "title": "交报告",
-        "notes": "",
-        "course": "实验课",
-        "content_type": "task",
-        "due": "2026-11-19",
-        "dueTime": ""
-      },
-      "quickRecognition": {
-        "text": "明天交报告",
-        "timezone": "Asia/Shanghai",
-        "referenceDay": "2026-11-18",
-        "protectedFields": [
-          "course"
-        ]
-      }
-    }
-  },
   "localEventOperation": {
     "id": "local-event-synthetic-01",
     "owner": "synthetic-account",

@@ -58,7 +58,7 @@ function resolveTime(groups, period) {
   return [hour, minute].map(part => String(part).padStart(2, "0")).join(":");
 }
 
-function takeCourse(text, courses, defaultCourse) {
+export function takeCourse(text, courses, defaultCourse) {
   const tags = [...text.matchAll(/(?<![a-zA-Z0-9_#&])[#＃](?<tag>[^\s#＃，,。；;：:、]+)[#＃]?|(?:^|(?<=[\s，,；;]))(?:课程|科目|分类)\s*[:：]\s*(?<field>[^\s，,。；;、]+)/gu)];
   // Mask tags without shifting offsets. A punctuation marker also prevents one
   // time match from spanning a tag between its day part and its clock digits.

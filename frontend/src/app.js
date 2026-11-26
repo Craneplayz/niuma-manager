@@ -4,12 +4,11 @@ import {
   readStore,
   readSavedTasks,
   readProjectedStore,
-  hasPendingQuickRecognition,
-  refreshQuickRecognition,
   taskWritesAreOnlineOnly,
   readCancelledTasks,
   initSession,
   reconnectStore,
+  dismissRecoveredDraft,
   reloadStore,
   refreshStore,
   saveStoredTask,
@@ -34,7 +33,7 @@ import {
   filterTasks,
   isNotice,
   taskEditSnapshot,
-  mergeTaskEdit,
+  assertCurrentTaskEdit,
   deadlineLabel,
 } from "./task-model.js";
 import { renderTaskList, renderTaskRow, renderDayPanel } from "./task-views.js";
@@ -240,37 +239,6 @@ const quickAdds = createQuickAddJobs({ render, toast, escapeHtml: esc, async ref
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 let readQuickDraft = null, recentTaskId = "";
-let quickPollTimer, quickPollEpoch = null;
-function scheduleQuickPoll(delay = 500) {
-  if (demo || document.hidden || !hasPendingQuickRecognition() || quickPollTimer || quickPollEpoch !== null) return;
-  quickPollTimer = setTimeout(pollQuickRecognition, delay);
-}
-async function pollQuickRecognition() {
-  clearTimeout(quickPollTimer);
-  quickPollTimer = null;
-  if (quickPollEpoch !== null || demo || document.hidden || !hasPendingQuickRecognition()) return;
-  const epoch = accountVersion();
-  quickPollEpoch = epoch;
-  let delay = 1200;
-  try {
-    if (await refreshQuickRecognition() && epoch === accountVersion()) {
-      state = readProjectedStore();
-      render();
-      if (drawer.open && drawerId && !drawerEditing) {
-        if (editableTask(drawerId)) updateDrawer();
-        else closeDrawer();
-      }
-    }
-  } catch {
-    // Intermittent connectivity shouldn't prevent working with the locally saved task.
-    delay = 5000;
-  } finally {
-    if (quickPollEpoch === epoch) {
-      quickPollEpoch = null;
-      scheduleQuickPoll(delay);
-    }
-  }
-}
 function draggableTask(id) {
   if (taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
@@ -568,6 +536,23 @@ function workspaceHeading(options) {
     escapeHtml: esc,
   });
 }
+function describeRecoveredEdit(intent) {
+  const actions = { save: "编辑任务", status: "更改完成状态", deadline: "更改日期", trash: "移入回收站",
+    restore: "从回收站恢复", complete: "标为已完成", reopen: "标为未完成", undo: "撤销批量操作" };
+  const action = actions[intent.action || intent.kind] || "更新任务";
+  const titles = [intent.draft?.title, intent.expected?.title, ...(intent.tasks || []).map(task => task.expected?.title)];
+  return [action, ...titles.filter(Boolean)].join(" · ");
+}
+function recoveredDraftsMarkup() {
+  return session.recoveredDrafts.map(({id, intent}) => {
+    const original = intent.quickRecognition;
+    const content = original
+      ? `<span>旧录入尚未提交 · ${esc(original.referenceDay)} · ${esc(original.text.slice(0, 70))}</span>
+         <button type="button" class="btn quiet" data-recover-draft="${esc(id)}">取回原文</button>`
+      : `<details><summary>有一项修改涉及尚未创建的旧任务，需手动处理</summary><p>${esc(describeRecoveredEdit(intent))}</p><details><summary>查看原始修改记录</summary><pre>${esc(JSON.stringify(intent, null, 2))}</pre></details></details>`;
+    return `<div class="connection-alert">${content}<button type="button" class="btn quiet" data-dismiss-draft="${esc(id)}">移除本地记录</button></div>`;
+  }).join("");
+}
 function tasksPage() {
   const view = taskView();
   const viewSwitch = ui.scope === "all"
@@ -585,7 +570,7 @@ function tasksPage() {
     actions: ui.scope === "notices" ? "" : `<button type="button" class="btn add-task" data-action="task-new" aria-label="添加任务">${icon("plus")}<span>添加任务</span></button>`,
     escapeHtml: esc,
   });
-  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}${bulkMode ? " is-bulk-mode" : ""}">${heading}${view === "list" ? toolbar() : ""}<div id="bulk-controls">${view === "list" && bulkMode ? bulkControls() : ""}</div>${quickAdds.markup()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
+  return `<section class="task-page ${view === "calendar" ? "is-calendar" : ""}${bulkMode ? " is-bulk-mode" : ""}">${heading}${view === "list" ? toolbar() : ""}<div id="bulk-controls">${view === "list" && bulkMode ? bulkControls() : ""}</div>${recoveredDraftsMarkup()}${quickAdds.markup()}<div id="task-results">${taskResults()}</div>${state.trash.length ? `<footer class="task-page-footer"><button type="button" class="btn quiet" data-action="open-trash">${icon("trash")}回收站 <span>${state.trash.length}</span></button></footer>` : ""}<datalist id="course-options">${courses()
     .map((c) => `<option value="${esc(c)}">`)
     .join("")}</datalist></section>`;
 }
@@ -699,7 +684,6 @@ function render() {
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
-  scheduleQuickPoll();
 }
 function renderResults() {
   calendarDrag.cancel();
@@ -732,7 +716,7 @@ function requireAccount() {
   account.click({ dataset: { accountAction: "open" } });
   return false;
 }
-function openTask(id, editing = false, selectedDate = "") {
+function openTask(id, editing = false, selectedDate = "", recovered = null) {
   hideSidebarTooltip();
   if (!requireAccount()) return;
   drawerVisit++;
@@ -746,12 +730,13 @@ function openTask(id, editing = false, selectedDate = "") {
     drawer.innerHTML = renderQuickEntry({ icon });
     const timetableCourses = readStoredTimetable().value.flatMap(table => table.meetings.map(meeting => meeting.title));
     readQuickDraft = bindQuickEntry(drawer.querySelector("form"), {
-      isDemo: demo,
+      isDemo: demo, recovered: recovered?.intent,
       async submitNotice(body, signal) {
         await flushStore();
         const receipt = await api("/api/recognition/text-jobs", body, "POST", { signal });
-        const state = receipt.jobs.find(job => job.request_id === body.request_id)?.state;
-        return { kind: "text", id: body.request_id, requestId: body.request_id, queued: state === "queued" };
+        const job = receipt.jobs?.find(item => item.request_id === body.request_id);
+        if (!job) throw new Error("服务器未确认这次录入，请重试");
+        return { kind: "text", id: body.request_id, requestId: body.request_id, queued: job.state === "queued" };
       },
       async submitFiles(files, draft, signal) {
         const epoch = accountVersion();
@@ -763,11 +748,19 @@ function openTask(id, editing = false, selectedDate = "") {
       },
       added(job) {
         quickAdds.track(job);
+        if (recovered) {
+          const epoch = accountVersion();
+          dismissRecoveredDraft(recovered.id).then(() => {
+            if (epoch === accountVersion()) render();
+          }).catch(() => {
+            if (epoch === accountVersion()) toast("已提交，旧录入仍保留在本机，可手动移除");
+          });
+        }
         closeDrawer();
         render();
       },
       today: todayKey(), getToday: todayKey, defaultDate: selectedDate,
-      defaultCourse: taskView() === "list" ? ui.course : "",
+      defaultCourse: !recovered && taskView() === "list" ? ui.course : "",
       courses: [...new Set([...courses(), ...timetableCourses])],
     });
   } else {
@@ -777,7 +770,6 @@ function openTask(id, editing = false, selectedDate = "") {
   }
   if (!drawer.open) drawer.showModal();
   if (quick) drawer.querySelector("#quick-text").focus();
-  if (id && !editing && editableTask(id)?.quickRecognition?.status === "pending") void pollQuickRecognition();
 }
 function updateDrawer() {
   syncCourseIdentity();
@@ -802,7 +794,7 @@ function updateDrawer() {
   renderedDrawer = identity;
   const actionError = drawer.querySelector("#task-action-error");
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
-  if (!reuse && !drawerEditing && task.id && !task.quickRecognition?.text) {
+  if (!reuse && !drawerEditing && task.id && !task.originalText && !task.quickRecognition?.text) {
     const evidence = drawer.querySelector("#task-evidence");
     if (demo)
       evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
@@ -1286,6 +1278,16 @@ document.addEventListener("click", async (e) => {
   }
   hideSidebarTooltip();
   try {
+    if (button.dataset.recoverDraft) {
+      const draft = session.recoveredDrafts.find(item => item.id === button.dataset.recoverDraft);
+      if (draft) openTask(null, true, "", draft);
+      return;
+    }
+    if (button.dataset.dismissDraft) {
+      await dismissRecoveredDraft(button.dataset.dismissDraft);
+      render();
+      return;
+    }
     if (button.dataset.bulkAction) {
       await handleBulkAction(button);
     } else if (button.dataset.action === "task-new") {
@@ -1433,7 +1435,7 @@ document.addEventListener("submit", async (e) => {
     return;
   }
   const quick = form.id === "quick-task-form";
-  if (quick || form.id === "task-edit-form") {
+  if ((quick && demo) || form.id === "task-edit-form") {
     if (!canChangeTask(form.dataset.id || form.dataset.savingId)) return;
     if (quick && (!readQuickDraft || !drawer.open)) return;
     const values = quick ? readQuickDraft() : Object.fromEntries(new FormData(form)),
@@ -1453,7 +1455,7 @@ document.addEventListener("submit", async (e) => {
     const existing = editableTask(form.dataset.id);
     if (form.dataset.id) {
       try {
-        mergeTaskEdit(existing, form.dataset.taskEditSnapshot, values, form.hasAttribute("data-recognition-pending"));
+        assertCurrentTaskEdit(existing, form.dataset.taskEditSnapshot);
       } catch (cause) {
         error.textContent = cause.message;
         return;
@@ -1469,11 +1471,8 @@ document.addEventListener("submit", async (e) => {
     form.dataset.savingId = draftId;
     busyTasks.add(draftId);
     const bulkReceipt = bulkSaveReceipt;
-    if (demo && quick) task.quickRecognition = { text: readQuickDraft.recognition().text, status: "done" };
-    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected, {
-      quickRecognition: quick ? readQuickDraft.recognition() : undefined,
-      startedPending: !quick && form.hasAttribute("data-recognition-pending"),
-    });
+    if (demo && quick) task.originalText = form.querySelector("#quick-text").value.trim();
+    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
     if (!await stageTaskSave(saving, draftId, epoch, form)) return;
     if (demo) {
       if (existing) Object.assign(existing, task);
@@ -1595,8 +1594,6 @@ drawer.addEventListener("cancel", (e) => {
   closeDrawer();
 });
 window.addEventListener("niuma:account-reset", () => {
-  clearTimeout(quickPollTimer);
-  quickPollTimer = quickPollEpoch = null;
   clearBulkSelection(true);
   bulkRunning = false;
   resetErrorFeedback();
@@ -1640,7 +1637,6 @@ window.addEventListener("popstate", () => {
   if (ui.page === "import") void imports.load();
 });
 window.addEventListener("niuma:sync", () => {
-  scheduleQuickPoll();
   const label = document.querySelector("#save-status");
   if (label) label.textContent = saveLabel();
   const alert = document.querySelector("#sync-alert");
@@ -1676,7 +1672,6 @@ matchMedia("(max-width: 700px)").addEventListener("change", () => {
 });
 document.addEventListener("visibilitychange", () => {
   syncToday();
-  if (!document.hidden) void pollQuickRecognition();
 });
 window.addEventListener("focus", syncToday);
 window.addEventListener("pageshow", syncToday);

@@ -18,6 +18,11 @@ with app.connection() as db:
         db.execute('INSERT INTO sessions VALUES(?,?,?)',(hashlib.sha256(uid.encode()).hexdigest(),uid,time.time()+3600))
 class Handler(app.Handler):
     def route(self):
+        if self.path=='/__test/old-receipt':
+            operation=self.body()
+            with app.connection() as db:
+                app.task_operations.record(db,'alice',operation,1,app.ApiError)
+            return self.reply(200,{})
         if self.path=='/__test/reset':
             with app.connection() as db:
                 db.execute('DELETE FROM workspace');db.execute('DELETE FROM task_write_receipts');db.execute('DELETE FROM task_write_epochs');db.execute('DELETE FROM sessions')
@@ -247,4 +252,83 @@ test('a forced browser-process exit preserves already-staged changes in the disk
     for(const p of processes) if(p.stamp && await stamp(p.id)===p.stamp) { try {process.kill(p.id,'SIGKILL');} catch {} }
     await rm(profile,{recursive:true,force:true});
   }
+});
+
+const legacyOperation = {
+  format: 1, id: 'legacy-quick-0001', owner: 'alice', order: 1,
+  intent: {
+    kind: 'save', expected: null, draft: { id: 'temporary', title: '旧占位', course: '测试课程', due: '2026-12-03', dueTime: '09:15' },
+    createdAt: '2026-11-25T10:00:00Z',
+    quickRecognition: { text: '下周找同学讨论照片 <草稿>', referenceDay: '2026-11-25',
+      timezone: 'Asia/Shanghai', protectedFields: ['course', 'due'] },
+  },
+};
+
+test('upgrade retains unsaved legacy quick input and replays unrelated edits after checking receipts', async ({page, context}) => {
+  await open(page, context);
+  await page.route('**/api/data/tasks', route => route.abort());
+  await edit(page, 'a', '保留正常编辑');
+  await expect(page.getByRole('button', {name: '重试保存', exact: true})).toBeVisible();
+  await page.evaluate(async operation => {
+    const { appendOperation } = await import('/src/task-journal.js');
+    await appendOperation(operation);
+    await appendOperation({ ...operation, id: 'legacy-status-0001', order: 2, intent: {
+      kind: 'status', id: operation.intent.draft.id, expected: {status: 'todo'}, next: {status: 'done'}
+    } });
+  }, legacyOperation);
+
+  await page.unroute('**/api/data/tasks');
+  const writes = [];
+  page.on('request', request => {
+    if (request.method() === 'PUT' && request.url().endsWith('/api/data/tasks'))
+      writes.push(request.postDataJSON().operation.id);
+  });
+  await page.reload();
+  await expect.poll(async () => (await workspace(page)).tasks.value.find(t => t.id === 'a').title).toBe('保留正常编辑');
+  await expect(row(page, 'temporary')).toHaveCount(0);
+  await expect.poll(() => pending(page)).toEqual([]);
+  expect(writes).toHaveLength(1);
+  expect(writes).not.toContain(legacyOperation.id);
+  await page.reload();
+  await page.getByRole('button', {name: '取回原文'}).click();
+  await expect(page.locator('#quick-text')).toHaveValue(legacyOperation.intent.quickRecognition.text);
+  const request = page.waitForRequest('**/api/recognition/text-jobs');
+  await page.route('**/api/recognition/text-jobs', route => route.abort());
+  await page.locator('.quick-submit').click();
+  const record = (await request).postDataJSON().records[0];
+  expect(record.published_at.value).toBe('2026-11-25');
+  expect(record.timezone).toBe('Asia/Shanghai');
+  expect(record.quick_settings).toMatchObject({course:'测试课程', when:{date:'2026-12-03',time:'09:15'}});
+  expect((await workspace(page)).tasks.version).toBe(2);
+  await page.reload();
+  await expect(page.getByText('有一项修改涉及尚未创建的旧任务，需手动处理')).toBeVisible();
+  await expect(page.getByRole('button', {name: '取回原文'})).toBeVisible();
+  await page.locator('[data-dismiss-draft="legacy-status-0001"]').click();
+  await page.getByRole('button', {name: '取回原文'}).click();
+  // A text-job receipt is sufficient for the new flow to take ownership.
+  await page.route('**/api/recognition/text-jobs', async route => {
+    if (route.request().method() !== 'POST') return route.fulfill({json: {jobs: []}});
+    const id = route.request().postDataJSON().request_id;
+    return route.fulfill({json: {jobs: [{request_id: id, state: 'queued'}]}});
+  });
+  await page.getByRole('button', {name: '加入', exact: true}).click();
+  await expect(page.getByRole('button', {name: '取回原文'})).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.task-title').first()).toBeVisible();
+  await expect(page.getByRole('button', {name: '取回原文'})).toHaveCount(0);
+});
+
+test('upgrade clears a receipted old quick entry without creating a draft or writing tasks again', async ({page, context, request}) => {
+  await open(page, context);
+  const {id, owner, intent} = legacyOperation;
+  expect((await request.post(api+'/__test/old-receipt', {data: {id, owner, intent}})).ok()).toBeTruthy();
+  await page.evaluate(async op => (await import('/src/task-journal.js')).appendOperation(op), legacyOperation);
+  let writes = 0;
+  page.on('request', req => { if (req.method() === 'PUT') writes++; });
+  await page.reload();
+  await expect.poll(() => pending(page)).toEqual([]);
+  await expect(row(page, 'a')).toBeVisible();
+  await expect(page.getByRole('button', {name: '取回原文'})).toHaveCount(0);
+  expect(writes).toBe(0);
+  expect((await workspace(page)).tasks.version).toBe(1);
 });

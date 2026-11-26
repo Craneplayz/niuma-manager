@@ -97,11 +97,11 @@ class TextJobsTests(unittest.TestCase):
             self.assertEqual(self.job()['state'], 'success')
             self.assertEqual(self.call(body=self.request)[0], 200)
         self.assertEqual(self.calls, 1)
-        task, = self.call('/tasks/quick-recognition')[1]['value']
+        task, = self.call('/workspace')[1]['tasks']['value']
         self.assertEqual(task['source'], '一句话添加')
         self.assertEqual(task['recognitionHistory'][0]['requestId'], self.request['request_id'])
         self.assertEqual(self.call('/recognition/batches')[1][0]['items'][0]['state'], 'applied')
-        self.assertEqual(self.call('/tasks/quick-recognition', uid='B')[1]['value'], [])
+        self.assertEqual(self.call('/workspace', uid='B')[1].get('tasks', {}).get('value', []), [])
 
     def test_event_start_background_and_manual_overrides(self):
         for role, settings, expect_when in [
@@ -122,7 +122,7 @@ class TextJobsTests(unittest.TestCase):
             with patch.object(recognition, 'recognize', recognized):
                 self.assertEqual(self.call(body=self.request)[0], 200)
                 text_jobs.wait_for_jobs(app.DB)
-            saved, = (t for t in self.call('/tasks/quick-recognition')[1]['value']
+            saved, = (t for t in self.call('/workspace')[1]['tasks']['value']
                       if t['recognitionHistory'][0]['requestId'] == rid)
             self.assertIsNone(saved['due'])
             self.assertEqual((saved.get('eventAt') or {}).get('date'), expect_when)

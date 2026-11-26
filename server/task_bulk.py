@@ -8,7 +8,6 @@ from contracts import task_bulk as contract
 import recognition
 import submission_runtime
 import task_operations
-import quick_task_jobs
 import usage
 
 
@@ -231,7 +230,6 @@ def apply(db, uid, body, ApiError, *, include_history=True):
             db.execute('INSERT INTO task_bulk_undo VALUES(?,?,?,?)', (uid, operation['id'], generation, json.dumps(inverse)))
         else:
             undo_intent = None
-    quick_task_jobs.before_write(db, uid, current['value'], tasks, None, ApiError)
     submission_runtime.manual_task_write(db, uid, tasks)
     write(db, uid, tasks, current['version'] + 1)
     task_operations.record(db, uid, operation, current['version'] + 1, ApiError)

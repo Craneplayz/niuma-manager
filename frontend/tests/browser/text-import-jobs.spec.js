@@ -94,6 +94,16 @@ async function start(page, label = '') {
   expect(receipt.ok()).toBeTruthy();
   return (await receipt.json()).jobs.find(job => job.request_id === receipt.request().postDataJSON().request_id);
 }
+// Unloading can interrupt an in-flight progress read. Exercise the existing
+// explicit transport recovery while keeping the original server job receipt.
+async function reloadProgress(page) {
+  await page.reload();
+  await expect(page.locator('.task-page')).toBeVisible();
+  const retry = page.locator('.status-note').filter({hasText: '无法连接服务，请检查网络后重试'})
+    .getByRole('button', {name: '重试', exact: true});
+  while (await retry.count()) await retry.first().click();
+}
+
 async function finish(request, job, mode) {
   const response = await request.post(api+'/__test/finish',{data:{request_id:job.request_id,mode}});
   expect(response.ok()).toBeTruthy();
@@ -104,7 +114,7 @@ test('task-page text import survives reload and retries into a single saved task
   await open(page,context);
   const job = await start(page);
   await expect(page.locator('#quick-task-form')).toHaveCount(0);
-  await page.reload();
+  await reloadProgress(page);
   await expect(page.getByText('正在识别，完成后将自动加入清单…')).toBeVisible();
   await finish(request,job,'failure');
   const retry = page.locator('[data-quick-job][data-job-action="retry"]');
@@ -116,7 +126,7 @@ test('task-page text import survives reload and retries into a single saved task
   await finish(request,job,'success');
   const task = page.locator('.task-row[data-task-id]').filter({hasText:'提交需求报告'});
   await expect(task).toHaveCount(1);
-  await page.reload();
+  await reloadProgress(page);
   await expect(task).toHaveCount(1);
   await expect(page.locator('.task-row.is-pending-review')).toHaveCount(0);
 });
@@ -130,7 +140,7 @@ test('four consecutive notices can finish independently after refresh', async ({
     jobs.push(await start(page,label));
     await expect(page.locator('#quick-task-form')).toHaveCount(0);
   }
-  await page.reload();
+  await reloadProgress(page);
   const pending = page.getByText('正在识别，完成后将自动加入清单…');
   await expect(pending).toHaveCount(4);
   const states = async () => (await (await page.request.get(api+'/api/recognition/text-jobs')).json()).jobs;
@@ -139,13 +149,13 @@ test('four consecutive notices can finish independently after refresh', async ({
   // A stays in progress while the three later notices reach the task list.
   for (const job of jobs.slice(1)) await finish(request,job,'success');
   await expect(pending).toHaveCount(1);
-  const savedIds = async () => (await (await page.request.get(api+'/api/tasks/quick-recognition')).json()).value
+  const savedIds = async () => (await (await page.request.get(api+'/api/workspace')).json()).tasks.value
     .flatMap(task => task.recognitionHistory || []).map(entry => entry.requestId)
     .filter(id => jobs.some(job => job.request_id === id)).sort();
   expect(await savedIds()).toEqual(jobs.slice(1).map(job => job.request_id).sort());
   await finish(request,jobs[0],'success');
   await expect(pending).toHaveCount(0);
-  await page.reload();
+  await reloadProgress(page);
   expect(await savedIds()).toEqual(jobs.map(job => job.request_id).sort());
 });
 
@@ -164,15 +174,29 @@ test('a notice submitted with all twenty windows busy survives reload and starts
   }
   const waiting = await start(page, '排队样例');
   expect(waiting.state).toBe('queued');
-  await page.reload();
+  await reloadProgress(page);
   await expect(page.getByText('已收到，正在排队等待识别…')).toBeVisible();
   await finish(request,blockers.pop(),'empty');
   await expect(page.getByText('正在识别，完成后将自动加入清单…')).toBeVisible();
   await finish(request,waiting,'success');
   await expect.poll(async () => {
-    const response = await page.request.get(api + '/api/tasks/quick-recognition');
-    return (await response.json()).value.some(task =>
+    const response = await page.request.get(api + '/api/workspace');
+    return ((await response.json()).tasks?.value || []).some(task =>
       task.recognitionHistory?.some(entry => entry.requestId === waiting.request_id));
   }).toBe(true);
   for (const job of blockers) await finish(request,job,'empty');
+});
+
+test('poll transport failure remains recoverable after reload without a second submission', async ({page,context,request})=>{
+ await open(page,context);
+ let posts=0;page.on('request',req=>{if(req.method()==='POST'&&req.url().endsWith('/api/recognition/text-jobs'))posts++;});
+ await page.route('**/api/recognition/text-jobs',route=>route.request().method()==='GET'?route.abort('failed'):route.fallback());
+ const job=await start(page,'轮询恢复');
+ await expect(page.getByRole('button',{name:'重试',exact:true})).toBeVisible();await page.reload();
+ await expect(page.getByRole('button',{name:'重试',exact:true})).toBeVisible();
+ await page.unroute('**/api/recognition/text-jobs');await page.getByRole('button',{name:'重试',exact:true}).click();
+ await expect(page.getByText('正在识别，完成后将自动加入清单…')).toBeVisible();
+ await finish(request,job,'success');
+ await expect.poll(async()=>{const state=await(await page.request.get(api+'/api/workspace')).json();return(state.tasks?.value||[]).filter(t=>t.recognitionHistory?.some(e=>e.requestId===job.request_id)).length;}).toBe(1);
+ expect(posts).toBe(1);await page.reload();await expect(page.getByRole('button',{name:'重试',exact:true})).toHaveCount(0);expect(posts).toBe(1);
 });
