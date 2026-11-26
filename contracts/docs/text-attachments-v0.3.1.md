@@ -119,3 +119,5 @@ python -m unittest discover -s contracts/tests -p 'test_*.py' -v
 Schema 包、语义校验和反例覆盖七种入口、ID/证据、状态/进度、模型引用审核、输入边界、元数据冲突、重试保留成功结果和不支持格式；旧 v0.3 样例独立回归，旧 v0.2 运行测试仍需通过。
 
 这些检查不验证真实鉴权、上传/存储原子性、TTL/删除、DNS/网络、模型语义或真实文件覆盖。#103 必须切换 v0.3.1、补齐对应持久化/HTTP 测试；#94 读取适配器、#95 采集及 #96/#97 联调完成前不开放附件入口。PNG 曾有合成能力试探成功，PDF/DOCX 仍须 adapter/reader 联调验证后逐格式启用。
+
+附件中属于本任务的明确时段可在 reference/inferred 的 deadline 上附 range_end，与 value 精度相同且晚于起点。单个时刻省略该字段。

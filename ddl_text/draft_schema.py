@@ -18,7 +18,7 @@ def draft_schema(record, *, historical=False):
         course = {"type": "null"}
     kinds = ["deadline", "reference", "urgency"]
     if record.get("quick_reference"):
-        kinds.append("event_start")
+        kinds.extend(("event_start", "event_end"))
     task = _object({
         "title": text, "description": text, "prerequisites": strings,
         "notice_type": {"type": "string", "enum": ["create", "update", "postpone", "cancel", "uncertain"]},

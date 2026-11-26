@@ -162,7 +162,9 @@ def check_pair(request, result):
     check_request(request)
     require(len(json_bytes(result)) <= MAX_RESULT_BYTES, 'result_too_large')
     previous.check_pair(request, result, validate_schema=schema)
+    from contracts.time_range import valid_range
     for candidate in result['tasks']:
+        require(valid_range(candidate['deadline']), 'invalid_time_range')
         require(not any(e['field'] == 'attachment_file' for e in candidate['evidence'])
                 or candidate['needs_review'], 'model_evidence_requires_review')
 

@@ -115,6 +115,8 @@ class TextJobsTests(unittest.TestCase):
                 task.update(title='去球馆', needs_review=True, review_reasons=['参考时间'])
                 task['deadline'].update(kind='reference', status='inferred', role=role,
                                         precision='date', value='2026-11-26')
+                if role == 'event_start':
+                    task['deadline']['range_end'] = '2026-11-28'
                 return result
             rid = 'quick-add:role-' + str(expect_when) + role + str(len(settings))
             self.request['request_id'] = rid
@@ -124,8 +126,13 @@ class TextJobsTests(unittest.TestCase):
                 text_jobs.wait_for_jobs(app.DB)
             saved, = (t for t in self.call('/workspace')[1]['tasks']['value']
                       if t['recognitionHistory'][0]['requestId'] == rid)
-            self.assertIsNone(saved['due'])
-            self.assertEqual((saved.get('eventAt') or {}).get('date'), expect_when)
+            self.assertNotIn('eventAt', saved)
+            self.assertEqual((saved.get('due') or {}).get('date'), expect_when)
+            if role == 'event_start':
+                self.assertEqual(saved['sourceTimeRange']['end'], '2026-11-28')
+                self.assertIn('2026-11-26–2026-11-28', saved['description'])
+            else:
+                self.assertNotIn('sourceTimeRange', saved)
             if 'course' in settings: self.assertEqual(saved['course'], settings['course'])
 
     def test_acceptance_reload_duplicate_and_candidate_persistence(self):

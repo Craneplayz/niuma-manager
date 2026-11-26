@@ -377,7 +377,7 @@ test("month, week and day panels distinguish dated notices and retain undated no
     const markup = renderCalendar({ tasks: mixed, anchorDate: today, today, mode });
     assert.match(markup, /calendar-task is-notice/);
     assert.match(markup, /通知关键时间：考试地点/);
-    assert.match(markup, /任务截止：提交实验/);
+    assert.match(markup, /任务时间：提交实验/);
     assert.doesNotMatch(markup, /data-task-open="undated-notice"/);
   }
   const panel = renderDayPanel({ tasks: mixed, selectedDate: today, today });
@@ -461,9 +461,22 @@ test('task edits reject changed or removed records while allowing independent st
 });
 
 test("a dated schedule change is visible in the task list and notices", () => {
-  const event = { id: "rescheduled", status: "todo", content_type: "notice", timeKind: "event", due: today };
+  const event = { id: "rescheduled", status: "todo", content_type: "notice", recognitionHistory: [{noticeType:"postpone"}], due: today };
   const info = { id: "info", status: "todo", content_type: "notice" };
   assert.deepEqual(ids(filterTasks([info, event], { today })), [event.id]);
   assert.deepEqual(ids(filterTasks([info, event], { scope: "notices", today })), [event.id, info.id]);
   assert.deepEqual(ids(filterTasks([{ ...event, status: "done" }], { today })), []);
+});
+
+test("task ranges and single times share ordering and become overdue at their displayed time", () => {
+  const day = "2026-11-26";
+  const shift = {id:"shift", status:"todo", due:day, dueTime:"14:00",
+    sourceTimeRange:{start:"2026-11-26T14:00:00+08:00",end:"2026-11-26T18:00:00+08:00"}};
+  const later = {id:"submit", status:"todo", due:day, dueTime:"15:00"};
+  const before = groupTasks([later, shift], day, new Date(2026, 10, 26, 13, 59));
+  assert.deepEqual(before.map(g => [g.label, ids(g.tasks)]), [["今天", ["shift", "submit"]]]);
+  const atStart = groupTasks([later, shift], day, new Date(2026, 10, 26, 14, 0));
+  assert.deepEqual(atStart.map(g => [g.label, ids(g.tasks)]), [["已逾期", ["shift"]], ["今天", ["submit"]]]);
+  assert.deepEqual(ids(filterTasks([later, shift], {scope:"near", today:day})), ["shift","submit"]);
+  assert.equal(deadlineLabel(shift, day), "今天 14:00");
 });

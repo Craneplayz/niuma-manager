@@ -108,9 +108,9 @@ export function renderCalendar({
     const time = task.dueTime ? String(task.dueTime) : "";
     const notice = isNotice(task);
     const course = courseIdentity(task.course);
-    const label = `${notice ? "通知关键时间：" : task.timeKind === "event" ? "活动时间：" : "任务截止："}${task.title}，课程：${course.label || "未分类"}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
+    const label = `${notice ? "通知关键时间：" : "任务时间："}${task.title}，课程：${course.label || "未分类"}，${accessibleDate(date)}${time ? ` ${time}` : ""}`;
     const drag = allowDateDrag && task.status !== "done"
-      ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看${notice ? "通知" : "任务"}，拖到其他日期更改${notice ? "关键日期" : task.timeKind === "event" ? "活动日期" : "截止日期"}"` : "";
+      ? ` data-calendar-drag-task="${escapeHtml(task.id)}" title="点击查看${notice ? "通知" : "任务"}，拖到其他日期更改${notice ? "关键日期" : "任务日期"}"` : "";
     return `<button type="button" class="calendar-task${notice ? " is-notice" : ""}" data-task-open="${escapeHtml(task.id)}"${drag} aria-label="${escapeHtml(label)}"><span class="calendar-task-context">${notice ? '<span class="notice-label">通知</span>' : ""}${time ? `<span class="calendar-task-time">${escapeHtml(time)}</span>` : ""}${renderCourseBadge(task.course, { compact: true })}</span><span class="calendar-task-title">${escapeHtml(task.title)}</span></button>`;
   }
 

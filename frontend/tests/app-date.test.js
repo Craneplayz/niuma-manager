@@ -220,7 +220,7 @@ for (const mode of ["month", "week"]) test(`${mode} calendar drag writes a date 
   assert.equal(f.writes.length, 1);
   assert.deepEqual(f.writes[0].value.find(task => task.id === "undated").due, { date, precision: "date" });
   assert.equal(f.drawer.open, false);
-  assert.match(f.toast.innerHTML, new RegExp(`截止日期已设为 ${date}`));
+  assert.match(f.toast.innerHTML, new RegExp(`任务日期已设为 ${date}`));
   assert.doesNotMatch(f.app.innerHTML, /data-task-id="undated"/);
   await f.undo.onclick();
   assert.equal(f.writes.at(-1).value.find(task => task.id === "undated").due, null);
@@ -242,7 +242,7 @@ test(`${mode} calendar reschedules a dated task, retains ${deadlineTime || "date
   assert.equal(f.writes.length, 1);
   assert.deepEqual(f.writes[0].value.find(task => task.id === "task").due, due);
   assert.equal(f.drawer.open, false);
-  assert.match(f.toast.innerHTML, new RegExp(`截止日期已改为 ${date}${deadlineTime ? ` ${deadlineTime}` : ""}`));
+  assert.match(f.toast.innerHTML, new RegExp(`任务日期已改为 ${date}${deadlineTime ? ` ${deadlineTime}` : ""}`));
   assert.match(f.app.innerHTML, new RegExp(`data-calendar-day="${date}"[^>]*aria-pressed="true"`));
   await f.undo.onclick();
   assert.deepEqual(f.writes.at(-1).value.find(task => task.id === "task").due, { ...due, date: "2026-10-16" });
@@ -254,7 +254,7 @@ test("dropping on the original date does not save, open details or offer undo", 
   await f.drag("2026-10-16", "task");
   assert.equal(f.writes.length, 0);
   assert.equal(f.drawer.open, false);
-  assert.doesNotMatch(f.toast.innerHTML, /截止日期已/);
+  assert.doesNotMatch(f.toast.innerHTML, /任务日期已/);
 });
 
 test("a failed reschedule keeps task and notice original dates and times", async t => {
@@ -262,7 +262,7 @@ test("a failed reschedule keeps task and notice original dates and times", async
   await f.click({ view: "calendar" });
   await f.drag("2026-10-20", "task");
   assert.equal(f.writes.length, 0);
-  assert.match(f.toast.innerHTML, /未更改截止日期：合成保存失败/);
+  assert.match(f.toast.innerHTML, /未更改任务日期：合成保存失败/);
   await f.click({ taskOpen: "task" });
   assert.match(f.drawer.innerHTML, /2026-10-16|明天/);
   assert.match(f.drawer.innerHTML, /18:30/);
@@ -282,15 +282,15 @@ test("a failed calendar drop retains the undated row and reports failure without
   await f.drag();
   assert.equal(f.writes.length, 0);
   assert.match(f.app.innerHTML, /data-calendar-drag-task="undated"/);
-  assert.match(f.toast.innerHTML, /未设置截止日期：合成保存失败/);
-  assert.doesNotMatch(f.toast.innerHTML, /截止日期已设为/);
+  assert.match(f.toast.innerHTML, /未设置任务日期：合成保存失败/);
+  assert.doesNotMatch(f.toast.innerHTML, /任务日期已设为/);
   assert.equal(f.drawer.open, false);
 });
 
 test("midnight updates deadline groups, near notices and open read details", async t => {
   const f = await fixture(t);
   await f.click({ scope: "near" });
-  assert.match(f.app.innerHTML, /明天截止/);
+  assert.match(f.app.innerHTML, /明天/);
   assert.doesNotMatch(f.app.innerHTML, /合成通知/);
   await f.click({ taskOpen: "task" });
   assert.match(f.drawer.innerHTML, /明天/);
@@ -304,7 +304,7 @@ test("midnight updates deadline groups, near notices and open read details", asy
 test("the task list moves into overdue at the exact deadline without navigation or a write", async t => {
   const f = await fixture(t, { deadlineTime: "00:01" });
   t.mock.timers.tick(1000);
-  assert.match(f.app.innerHTML, /今天截止/);
+  assert.match(f.app.innerHTML, /今天/);
   t.mock.timers.tick(59999);
   assert.doesNotMatch(f.results.innerHTML, /is-overdue/);
   t.mock.timers.tick(1);

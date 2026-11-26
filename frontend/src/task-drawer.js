@@ -12,7 +12,7 @@ export function renderTaskDrawer({
 }) {
   const notice = isNotice(task);
   const kind = notice ? "通知" : "任务";
-  const dateLabel = notice ? "关键日期" : task.timeKind === "event" ? "活动日期" : "截止日期";
+  const dateLabel = notice ? "关键日期" : "任务日期";
   const original = task.originalText || task.quickRecognition?.text;
   const header = `<header class="drawer-header"><span>${editing ? "编辑" : ""}${kind}${editing ? "" : "详情"}</span><button type="button" class="icon-button" data-action="drawer-close" aria-label="关闭${kind}详情">${icon("close")}</button></header>`;
   if (editing)
@@ -27,5 +27,5 @@ export function renderTaskDrawer({
   const complete = notice
     ? `<label class="notice-read-control"><input type="checkbox" data-notice-read="${esc(task.id)}" ${task.status === "done" ? "checked" : ""}>已阅读</label>`
     : `<button type="button" class="btn primary" data-task-complete="${esc(task.id)}">${icon("check")}${task.status === "done" ? "重新打开" : "完成任务"}</button>`;
-  return `${header}<div class="drawer-body"><h2 id="drawer-heading">${esc(task.title)}</h2><div class="drawer-properties"><div><span>${notice ? "关键时间" : task.timeKind === "event" ? "活动时间" : "截止"}</span><strong>${esc(dateValue)}</strong></div><div><span>课程或分类</span>${renderCourseBadge(task.course)}</div><div><span>来源</span><strong>${esc(task.source || "手动添加")}</strong></div>${state}</div><div id="task-action-error"></div>${task.notes ? `<section class="drawer-notes"><h3>说明</h3><p>${esc(task.notes)}</p></section>` : ""}${changeTarget}${sourceLink(task.sourceUrl || task.url)}<section class="drawer-evidence"><h3>原文</h3>${original ? `<p class="quick-original">${esc(original)}</p>` : '<div id="task-evidence"><p class="status-note">正在读取…</p></div>'}</section></div><footer class="drawer-footer"><button type="button" class="icon-button" data-action="drawer-trash" aria-label="移入回收站">${icon("trash")}</button><button type="button" class="btn quiet" data-action="drawer-edit">编辑</button>${complete}</footer>`;
+  return `${header}<div class="drawer-body"><h2 id="drawer-heading">${esc(task.title)}</h2><div class="drawer-properties"><div><span>${notice ? "关键时间" : "任务时间"}</span><strong>${esc(dateValue)}</strong></div><div><span>课程或分类</span>${renderCourseBadge(task.course)}</div><div><span>来源</span><strong>${esc(task.source || "手动添加")}</strong></div>${state}</div><div id="task-action-error"></div>${task.notes ? `<section class="drawer-notes"><h3>说明</h3><p>${esc(task.notes)}</p></section>` : ""}${changeTarget}${sourceLink(task.sourceUrl || task.url)}<section class="drawer-evidence"><h3>原文</h3>${original ? `<p class="quick-original">${esc(original)}</p>` : '<div id="task-evidence"><p class="status-note">正在读取…</p></div>'}</section></div><footer class="drawer-footer"><button type="button" class="icon-button" data-action="drawer-trash" aria-label="移入回收站">${icon("trash")}</button><button type="button" class="btn quiet" data-action="drawer-edit">编辑</button>${complete}</footer>`;
 }

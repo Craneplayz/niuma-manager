@@ -29,7 +29,7 @@ test('typed time is highlighted in place, saved once, and editable in the main l
   await expect(row.locator('.task-title')).toHaveText('上数算课');
   await expect(row.locator('.task-deadline')).toHaveText('明天 08:00');
   await expect(row.locator('.course-name')).toHaveText('数算');
-  await expect(row.locator("xpath=..")).toContainText("活动安排");
+  await expect(row.locator("xpath=..")).toContainText("明天");
   await row.locator('.task-open').click();
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await expect(page.locator('#task-edit-form [name=due]')).toHaveValue('2026-11-19');
@@ -101,6 +101,6 @@ test('a selected match shows tomorrow in preview and in the saved event', async 
   await expect(row.locator('.task-title')).toHaveText(title);
   await expect(row.locator('.task-deadline')).toHaveText('明天');
   await row.locator('.task-open').click();
-  await expect(page.locator('.drawer-properties')).toContainText('活动时间');
+  await expect(page.locator('.drawer-properties')).toContainText('任务时间');
   await expect(page.locator('.quick-original')).toHaveText(text);
 });
