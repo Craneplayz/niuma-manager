@@ -156,7 +156,7 @@ function summarizeAction(raw, source, spans) {
   const subject = exam?.[1].replace(/(?:期中|期末|随堂|闭卷|开卷|线上|线下)+$/u, "");
   const course = subject && !/一场|期中|期末|补考|资格|等级|有|的|要/u.test(subject) ? subject : "";
   return { title: action || raw, ...(course && simple ? { course } : {}), ...(visit ? { notes: '地点：' + visit.groups.place.trim() } : {}),
-    ...(event && simple ? { timeKind: 'event' } : {}), clear };
+    ...(event && simple && visit && !course ? { course: '校园活动' } : {}), clear };
 }
 
 /** Spans index the original UTF-16 string, including whitespace and any tags. */
@@ -218,7 +218,7 @@ export function analyzeQuickTask(input, { today = "", defaultDate = "", defaultC
   const possibleEvent = /前往|观看|参加|出席|参观|旁听|开场|开演|集合|签到/u.test(source);
   if (!clear && possibleEvent)
     return { task: { ...task, due: "" }, spans: [], explicitCourse, localOnly: false };
-  const category = course || summary.course || (summary.timeKind === "event" && summary.notes ? "校园活动" : "");
+  const category = course || summary.course || "";
   return { task: { ...summary, due, dueTime, course: category }, spans, explicitCourse, localOnly: clear };
 }
 

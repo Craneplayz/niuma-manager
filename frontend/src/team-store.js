@@ -134,7 +134,6 @@ function toView(task) {
     source: task.source === "微信" && task.recognitionHistory?.some(
       entry => entry.action === "create" && entry.requestId?.startsWith("material:"),
     ) ? "图片与文件" : task.source,
-    ...(Object.hasOwn(task, "eventAt") && !task.due ? { timeKind: "event" } : {}),
     due: (task.due || task.eventAt)?.date || "",
     dueTime: (task.due || task.eventAt)?.time || "",
     course: task.course || "",
@@ -157,8 +156,7 @@ function toCanonical(task, previous = {}) {
         ? task.completedAt ||
           (previous.status === "completed" ? previous.completedAt || "" : dayKey())
         : "",
-    ...(task.timeKind === "event" ? { due: null } : {}),
-    [task.timeKind === "event" ? "eventAt" : "due"]: task.due
+    [Object.hasOwn(previous, "eventAt") && !previous.due ? "eventAt" : "due"]: task.due
       ? {
           date: task.due,
           precision: task.dueTime ? "datetime" : "date",
@@ -724,7 +722,6 @@ export function resolveStoredCandidate(item, body) {
 }
 export function saveStoredTask(task, expected) {
   const draft = Object.fromEntries(['id', 'title', 'notes', 'course', 'content_type', 'due', 'dueTime'].map(key => [key, task[key] ?? '']));
-  if (task.timeKind === 'event') draft.timeKind = 'event';
   draft.content_type ||= 'task';
   return changeStoredTasks({ kind: 'save', draft, expected: expected ?? null, createdAt: new Date().toISOString() }, { reloadOnStale: true });
 }

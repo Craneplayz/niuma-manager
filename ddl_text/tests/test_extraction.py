@@ -81,6 +81,19 @@ class ExtractionTests(unittest.TestCase):
         self.assertIsNone(combine_times(dates[:1] + [uncertain])['value'])
         self.assertEqual(combine_times(dates[:1] * 2)['value'], '2026-09-29')
 
+    def test_quick_interval_end_is_preserved_without_conflicting_with_start(self):
+        from ddl_text.time_validation import quick_reference
+        record = message('2026年12月27日23点至28日凌晨1点值班', platform='manual')
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        start = time_ref(record, record['text'], '2026-12-27T23:00:00+08:00', kind='event_start')
+        end = time_ref(record, record['text'], '2026-12-28T01:00:00+08:00', kind='event_end')
+        clock = compile_tasks(record, draft(record, times=[start, end]))[0]['deadline']
+        self.assertEqual((clock['value'], clock['range_end']), (start['normalized']['value'], end['normalized']['value']))
+        end['normalized']['value'] = '2026-12-27T01:00:00+08:00'
+        with self.assertRaises(AgentError):
+            compile_tasks(record, draft(record, times=[start, end]))
+
     def test_exam_interval_is_only_a_reference(self):
         raw = '2026-9-29 9:00~12:00'
         record = message(raw + '有小测，请复习。')

@@ -421,6 +421,8 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
             r'报名|提交|申请|截止', candidate['title'] + (deadline.get('raw') or '')))
         if 'role' in deadline:
             event = deadline['role'] == 'event_start'
+        if deadline.get('range_end'):
+            event = True
         when = None
         if (deadline['status'] in ('explicit', 'inferred') and deadline['value']
                 and (deadline['kind'] == 'deadline' or event and deadline['kind'] == 'reference')):
@@ -430,6 +432,17 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
                 stamp = datetime.fromisoformat(deadline['value'].replace('Z', '+00:00')).astimezone(ZoneInfo(record.get('timezone') or deadline.get('timezone') or 'Asia/Shanghai'))
                 when = dict(date=stamp.date().isoformat(), time=stamp.strftime('%H:%M'), precision='datetime')
         description = candidate['description'] or ''
+        source_range = None
+        if event and when and deadline.get('range_end'):
+            zone = record.get('timezone') or deadline.get('timezone') or 'Asia/Shanghai'
+            start, end = deadline['value'], deadline['range_end']
+            source_range = dict(start=start, end=end, precision=deadline['precision'], timezone=zone)
+            if deadline['precision'] == 'datetime':
+                first, last = (datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(ZoneInfo(zone))
+                               for value in (start, end))
+                start = first.strftime('%Y-%m-%d %H:%M')
+                end = last.strftime('%H:%M' if first.date() == last.date() else '%Y-%m-%d %H:%M')
+            description = (description + '\n时段：' + start + '–' + end).strip()
         if record.get('source_url') and (source == '一句话添加' or record.get('platform') == 'manual'):
             description = (description + '\n链接：' + record['source_url']).strip()
         settings = record.get('quick_settings', {}) if record.get('platform') == 'manual' else {}
@@ -450,7 +463,7 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
             if operation is None:
                 continue
         resolve_candidate(db, uid, row['id'], dict(operation, version=row['version'], auto_apply=True),
-                          ApiError, direct_add=True, event=event, source=source)
+                          ApiError, direct_add=True, source_range=source_range, source=source)
         if operation['action'] == 'create':
             created.add(row['id'])
     return created
@@ -523,7 +536,7 @@ def publish_legacy_pending(db, ApiError):
         publish_results(db, batch['user_id'], request, ApiError)
 
 
-def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=False, event=False, record_usage=True, source=None):
+def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=False, source_range=None, record_usage=True, source=None):
     """Resolve in the caller transaction for HTTP, background sync and reprocessing."""
     import submission_runtime
     row=db.execute('SELECT * FROM recognition_candidates WHERE id=? AND user_id=?',(cid,uid)).fetchone()
@@ -612,8 +625,8 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=F
                 platform=c['sources'][0]['platform']
                 source=source or {'teaching_web':'教学网','wechat':'微信','manual':'一句话添加'}.get(platform,c['sources'][0]['label'] or '文本识别')
                 target=dict(id=intent['newTaskId'] if intent is not None else secrets.token_hex(16),title=draft['title'].strip(),description=draft['description'],due=confirmed_due,category='个人事务',course=c['course_or_project'],priority='medium',status='not_started',source=source,subtasks=[],plans=[],createdAt=intent.get('createdAt',datetime.now(timezone.utc).isoformat()) if intent is not None else datetime.now(timezone.utc).isoformat())
-                if event and confirmed_due:
-                    target['eventAt'], target['due'] = confirmed_due, None
+                if source_range:
+                    target['sourceTimeRange'] = source_range
                 tasks.append(target)
                 target['course']=course
                 target['category']='课程作业' if course else '个人事务'

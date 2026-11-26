@@ -27,7 +27,12 @@ function timedEvent(text, today) {
   const times = moments.map(m => m[1].padStart(2, "0") + ":" + m[2]);
   if (times.length === 2 && (!/^\s*[-–—~～至到]\s*$/u.test(
     text.slice(moments[0].index + moments[0][0].length, moments[1].index)) || times[1] <= times[0])) return null;
-  return { due, dueTime: times[0], range: times.length === 2 ? times.join("–") : "" };
+  const interval = times.length === 2 ? {
+    start: new Date(due + "T" + times[0]).toISOString(),
+    end: new Date(due + "T" + times[1]).toISOString(),
+    precision: "datetime", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  } : null;
+  return { due, dueTime: times[0], range: times.length === 2 ? times.join("–") : "", interval };
 }
 
 function field(text, label) {
@@ -48,7 +53,7 @@ function examNotice(text, today) {
     ?.split(/\n\s*(?:任课教师|通知人|[0-9]{4}\s*年)/u)[0].trim();
   const notes = [place && "地点：" + place, time.range && "时段：" + time.range,
     format && "形式：" + format, instructions].filter(Boolean).join("\n");
-  return { title: course + kind, course, explicitCourse: true, due: time.due, dueTime: time.dueTime, timeKind: "event", notes };
+  return { title: course + kind, course, explicitCourse: true, due: time.due, dueTime: time.dueTime, ...(time.interval && { sourceTimeRange: time.interval }), notes };
 }
 
 function poster(text, today) {
@@ -74,7 +79,7 @@ function poster(text, today) {
   const topic = text.match(/(?:聚焦|主题为|分享(?![：:]))\s*([^。！？!\n]{2,75}?)(?:，|。|；|$)/u);
   if (topic && !topic[1].includes("：")) notes.push("主题：" + topic[1]);
   return { title: registered ? "参加" + title : title, notes: notes.join("\n"),
-    due: time.due, dueTime: time.dueTime, timeKind: "event", course: "校园活动" };
+    due: time.due, dueTime: time.dueTime, ...(time.interval && { sourceTimeRange: time.interval }), course: "校园活动" };
 }
 
 function changeOfDate(text, today) {
@@ -89,7 +94,7 @@ function changeOfDate(text, today) {
     .replace(/^[）)\s，,]+/u, "");
   if (!existing) return null;
   return { title: move[1].trim(), notes: original + " " + existing + "。\n" + move[1].trim() + "改至 " + due + "。",
-    due, dueTime: "", timeKind: "event", course: "课程安排" };
+    due, dueTime: "", course: "课程安排" };
 }
 
 // Availability windows in a service notice are not personal appointments.

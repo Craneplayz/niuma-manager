@@ -8,6 +8,7 @@
 
 ```text
 contracts/
+├── time_range.py                  # 校验识别时段的起止顺序与精度
 ├── task_bulk.py                   # 任务批量操作与旧版候选的兼容请求、回复及语义校验
 ├── docs/task-bulk-v0.1.md          # 批量完成、改期、回收、恢复与整批撤销约定
 ├── schemas/task-bulk-v0.1.schema.json # 可独立校验的批量操作 Schema

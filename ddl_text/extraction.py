@@ -146,20 +146,25 @@ def compile_drafts(response, record, *, spans=None):
                 elif course_ref["value"] != course:
                     reasons.append("正文课程与上游课程标注不一致，保留上游标注待核实。")
             require(isinstance(draft["times"], list) and len(draft["times"]) <= 20)
-            times = []
+            times, ends = [], []
             for ref in draft["times"]:
                 time_evidence = _reference(ref, available, ("kind", "normalized"))
                 if v02:
                     time_evidence["supports"] = ["deadline"]
                 evidence.append(time_evidence)
                 # Keep the v0.2 reference time shape, with its specific role for the calendar.
-                normalized_ref = dict(ref, kind="reference") if ref["kind"] == "event_start" else ref
-                times.append(validate_time(normalized_ref, available[ref["input_id"]]))
+                normalized_ref = dict(ref, kind="reference") if ref["kind"] in ("event_start", "event_end") else ref
+                value = validate_time(normalized_ref, available[ref["input_id"]])
+                (ends if ref["kind"] == "event_end" else times).append(value)
             deadline = combine_times(times, record.get("timezone"))
             if v02:
                 if record.get("quick_reference") and deadline["kind"] == "reference" and deadline["status"] == "inferred":
-                    deadline["role"] = ("event_start" if all(t["kind"] == "event_start" for t in draft["times"])
+                    deadline["role"] = ("event_start" if all(t["kind"] in ("event_start", "event_end") for t in draft["times"])
                                         else "background")
+                if ends:
+                    require(deadline.get("role") == "event_start" and len(ends) == 1 and
+                            ends[0]["precision"] == deadline["precision"] and ends[0]["value"])
+                    deadline["range_end"] = ends[0]["value"]
                 if not times and record["text_quality"] == "complete":
                     deadline.update(status="not_provided", basis="完整正文未提供该行动的时间要求。")
                 if deadline["kind"] == "reference" and deadline["status"] != "inferred":

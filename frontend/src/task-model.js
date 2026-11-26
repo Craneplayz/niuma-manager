@@ -36,7 +36,7 @@ export function todayKey(now = new Date()) {
 }
 
 export function isTaskOverdue(task, today, now) {
-  if (task.timeKind === "event" || isNotice(task) || task.reviewCandidateId || task.recycleBin ||
+  if (isNotice(task) || task.reviewCandidateId || task.recycleBin ||
       ["done", "completed", "cancelled"].includes(task.status)) return false;
   const date = dueOf(task);
   if (!date || date !== today) return Boolean(date && date < today);
@@ -131,9 +131,13 @@ export function filterTasks(
     } else if (scope === "calendar") {
       if (!notice && done) return false;
     } else {
-      if ((scope === "all" && notice && !(task.timeKind === "event" && due)) || (scope === "done" ? !done : done)) return false;
+      if (scope === "done" ? !done : done) return false;
+      if (scope === "all" && notice) {
+        const dateChange = task.eventAt || task.recognitionHistory?.some(entry => ["update", "postpone"].includes(entry.noticeType));
+        if (!due || !dateChange) return false;
+      }
     }
-    if (scope === "near" && (task.timeKind === "event" || !due || due > nearEnd)) return false;
+    if (scope === "near" && (!due || due > nearEnd)) return false;
     if (course && task.course !== course) return false;
     if (source && (task.source || "手动添加") !== source)
       return false;
@@ -157,17 +161,16 @@ export function groupTasks(tasks, today = todayKey(), now = new Date()) {
     nearEnd = shiftDay(day, 7);
   const groups = [
     { label: "已逾期", tone: "overdue", tasks: [] },
-    { label: "今天截止", tone: "today", tasks: [] },
-    { label: "明天截止", tone: "tomorrow", tasks: [] },
+    { label: "今天", tone: "today", tasks: [] },
+    { label: "明天", tone: "tomorrow", tasks: [] },
     { label: "未来 7 天", tone: "upcoming", tasks: [] },
-    { label: "之后截止", tone: "future", tasks: [] },
-    { label: "活动安排", tone: "events", tasks: [] },
+    { label: "之后", tone: "future", tasks: [] },
     { label: "无截止日期", tone: "undated", tasks: [] },
   ];
   for (const task of sortTasks(tasks)) {
     const due = dueOf(task);
-    const index = task.timeKind === "event" ? 5 : !due
-      ? 6
+    const index = !due
+      ? 5
       : due < day || isTaskOverdue(task, day, now)
         ? 0
         : due === day
@@ -184,7 +187,7 @@ export function groupTasks(tasks, today = todayKey(), now = new Date()) {
 
 export function deadlineLabel(task, today = todayKey()) {
   const due = dueOf(task);
-  if (!due) return task.timeKind === "event" ? "未定活动时间" : "无截止日期";
+  if (!due) return "无截止日期";
   const day = readDate(today) ? today : todayKey();
   const [year, month, date] = due.split("-");
   const label =

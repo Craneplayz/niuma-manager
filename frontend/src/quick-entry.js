@@ -98,16 +98,15 @@ export function bindQuickEntry(form, options) {
   }
 
   function refresh() {
-    const { due, dueTime, course, title, timeKind } = readDraft();
-    const event = timeKind === "event";
+    const { due, dueTime, course, title } = readDraft();
     const summary = form.querySelector("#quick-summary");
     summary.hidden = !title || title === input.value.trim();
     summary.textContent = title;
-    form.querySelector("#quick-date-label").textContent = event ? "活动日期" : "截止日期";
+    form.querySelector("#quick-date-label").textContent = "任务日期";
     const day = due ? deadlineLabel({ due }, referenceDay) : "日期";
     const when = dueTime ? `${day}，${dueTime}` : day;
     dateButton.querySelector("span").textContent = when;
-    dateButton.setAttribute("aria-label", `${event ? "调整活动时间" : "调整日期"}：${due ? when : "无截止日期"}`);
+    dateButton.setAttribute("aria-label", `调整日期：${due ? when : "无截止日期"}`);
     dateButton.title = due ? `${due} ${dueTime}`.trim() : "设置日期";
     dateButton.classList.toggle("has-value", Boolean(due));
     courseButton.querySelector("span").textContent = course || "分类";
