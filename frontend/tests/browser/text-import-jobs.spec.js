@@ -139,7 +139,7 @@ test('four consecutive notices can finish independently after refresh', async ({
   // A stays in progress while the three later notices reach the task list.
   for (const job of jobs.slice(1)) await finish(request,job,'success');
   await expect(pending).toHaveCount(1);
-  const savedIds = async () => (await (await page.request.get(api+'/api/tasks/quick-recognition')).json()).value
+  const savedIds = async () => (await (await page.request.get(api+'/api/workspace')).json()).tasks.value
     .flatMap(task => task.recognitionHistory || []).map(entry => entry.requestId)
     .filter(id => jobs.some(job => job.request_id === id)).sort();
   expect(await savedIds()).toEqual(jobs.slice(1).map(job => job.request_id).sort());
@@ -170,8 +170,8 @@ test('a notice submitted with all twenty windows busy survives reload and starts
   await expect(page.getByText('正在识别，完成后将自动加入清单…')).toBeVisible();
   await finish(request,waiting,'success');
   await expect.poll(async () => {
-    const response = await page.request.get(api + '/api/tasks/quick-recognition');
-    return (await response.json()).value.some(task =>
+    const response = await page.request.get(api + '/api/workspace');
+    return ((await response.json()).tasks?.value || []).some(task =>
       task.recognitionHistory?.some(entry => entry.requestId === waiting.request_id));
   }).toBe(true);
   for (const job of blockers) await finish(request,job,'empty');

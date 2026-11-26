@@ -7,7 +7,7 @@ export function quickAttachmentButton(icon) {
 }
 
 function quickImportMode(text, localOnly, demo, pasted) {
-  if (localOnly || !text.trim()) return "";
+  if ((demo && localOnly) || !text.trim()) return "";
   const notice = text.length > 100 || /[；;]/u.test(text) || /\n|[。；;！？].+|[，,].*(?:再|另|还需|周[一二三四五六日]|明天|后天)/u.test(text);
   if (notice || (demo && pasted)) return "text";
   return demo ? "" : "personal";

@@ -25,7 +25,6 @@ import wechat_media
 import manual_materials
 import task_decomposition
 import task_operations
-import quick_task_jobs
 import task_bulk
 import reprocessing
 import runtime_environment
@@ -94,7 +93,8 @@ def initialize(recover=True):
     with connection() as db:
         initialize_accounts(db)
         recognition.initialize(db)
-        quick_waiting = quick_task_jobs.initialize(db, recover=recover, resume_queued=runtime_environment.allow_background_recovery())
+        # Legacy jobs only refined already-saved tasks. Keep those tasks and their original text.
+        db.execute("DROP TABLE IF EXISTS quick_task_jobs")
         text_waiting = text_jobs.initialize(db, recover=recover, resume_queued=runtime_environment.allow_background_recovery())
         usage.initialize(db)
         error_reports.initialize(db)
@@ -111,8 +111,6 @@ def initialize(recover=True):
         recognition.publish_legacy_pending(db, ApiError)
     if text_waiting:
         text_jobs.dispatch(DB, ApiError)
-    if quick_waiting:
-        quick_task_jobs.wake(DB)
     if recover and wechat_enabled() and runtime_environment.allow_background_recovery():
         wechat_media.resume(DB)
 
@@ -431,10 +429,6 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('DELETE FROM sessions WHERE user_id=? AND token!=?',(uid,token))
                 email_verification.invalidate_account_codes(db, uid)
                 return self.reply(200,{})
-            if path=='/api/tasks/quick-recognition' and self.command=='GET':
-                db.execute('BEGIN')
-                return self.reply(200, dict(task_operations.workspace(db,uid), owner=uid,
-                                            generation=task_operations.generation(db,uid)))
             if path=='/api/tasks/reconcile' and self.command=='POST':
                 return task_operations.reconcile(self,db,uid,body,ApiError)
             if path=='/api/tasks/bulk' and self.command=='POST':
@@ -457,7 +451,6 @@ class Handler(BaseHTTPRequestHandler):
                 tasks=json.loads(row['value']) if row else []
                 existing={task['id'] for task in tasks}
                 if any(item not in existing for item in ids): raise ApiError(404,'要删除的任务不存在')
-                quick_task_jobs.forget(db,uid,ids)
                 selected=set(ids);tasks=[task for task in tasks if task['id'] not in selected]
                 for task in tasks:
                     if task.get('dependsOn') in selected: task['dependsOn']=''
@@ -521,25 +514,19 @@ class Handler(BaseHTTPRequestHandler):
                     if operation['intent']['kind']=='bulk': raise ApiError(400,'批量任务操作须使用专用入口')
                 if operation is not None and task_operations.acknowledged(db,uid,operation,ApiError):
                     return self.reply(200,dict(task_operations.workspace(db,uid),replayed=True,operationId=operation['id']))
+                if operation and 'quickRecognition' in operation['intent']:
+                    raise ApiError(400,'一句话添加页面已更新，请刷新任务页后重新提交原句')
                 row=db.execute('SELECT version FROM workspace WHERE user_id=? AND name=?',(uid,name)).fetchone()
                 version=row['version'] if row else 0
                 if body.get('version')!=version:
-                    if operation:
-                        quick_task_jobs.check_version(db,uid,body.get('version'),version,ApiError)
                     raise ApiError(409,'数据已在其他窗口修改，请刷新后重试')
-                quick_created = quick_changed = False
                 if name=='tasks':
                     old=db.execute('SELECT value FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
                     self.usage_tasks=json.loads(old['value']) if old else []
-                    quick_created, quick_changed = quick_task_jobs.before_write(db,uid,self.usage_tasks,value,operation,ApiError)
                     submission_runtime.manual_task_write(db,uid,value)
                 db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,name,json.dumps(value),version+1))
                 if operation is not None: task_operations.record(db,uid,operation,version+1,ApiError)
-                if quick_created:
-                    db.commit()  # The saved task, receipt and queued job are now durable.
-                    quick_task_jobs.wake(DB)
-                return self.reply(200,dict(version=version+1,**({'operationId':operation['id']} if operation is not None else {}),
-                                           **({'value':value} if quick_created or quick_changed else {})))
+                return self.reply(200,dict(version=version+1,**({'operationId':operation['id']} if operation is not None else {})))
             if path=='/api/planning/proposals' and self.command=='POST':
                 rows={r['name']:r for r in db.execute('SELECT name,value,version FROM workspace WHERE user_id=?',(uid,))}
                 tasks=json.loads(rows['tasks']['value']) if 'tasks' in rows else []
@@ -663,8 +650,6 @@ class Handler(BaseHTTPRequestHandler):
                 from contracts.recognition_errors import describe
                 value = describe(dict(code=e.code, message=e.message))
                 self.reply(e.status,dict(error=value.pop('message'), **value))
-            elif getattr(e,'code',None) == 'quick_recognition_changed':
-                self.reply(e.status,dict(error=e.message,code=e.code,quickVersion=e.quick_version))
             else: self.reply(e.status,dict(error=e.message))
         except (ValueError,KeyError,TypeError) as e:
             if getattr(e,'_recognition_failure',None):

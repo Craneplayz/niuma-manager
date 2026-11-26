@@ -104,12 +104,12 @@ test("typed and pasted personal plans enqueue once each without provisional task
   const text = "我明天想去球馆从九点打球打到十一点，帮我记一下";
   let taskWrites = 0;
   await page.route("**/api/data/tasks", route => { taskWrites++; return route.fulfill({json: {}}); });
-  for (const pasted of [false, true]) {
-    if (pasted) {
+  for (const [i, sample] of [text, text, "买面包"].entries()) {
+    if (i) {
       await page.locator(".add-task").click();
-      await page.locator("#quick-text").dispatchEvent("paste");
+      if (i === 1) await page.locator("#quick-text").dispatchEvent("paste");
     }
-    await page.locator("#quick-text").fill(text);
+    await page.locator("#quick-text").fill(sample);
     await page.locator("#quick-course-button").click();
     await page.locator("#quick-course").fill("运动");
     await page.locator("#quick-date-button").click();
@@ -119,10 +119,10 @@ test("typed and pasted personal plans enqueue once each without provisional task
     await expect(page.locator(".task-row")).toHaveCount(0);
   }
   expect(taskWrites).toBe(0);
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(3);
   expect(requests[0].request_id).not.toBe(requests[1].request_id);
-  for (const request of requests) {
-    expect(request.records[0]).toMatchObject({ text, timezone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+  for (const [i, request] of requests.entries()) {
+    expect(request.records[0]).toMatchObject({ text: i === 2 ? "买面包" : text, timezone: await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
       quick_settings: { course: "运动", when: { date: "2026-12-02", precision: "date" } } });
   }
 });

@@ -541,13 +541,9 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=F
         taskrow=db.execute('SELECT * FROM workspace WHERE user_id=? AND name="tasks"',(uid,)).fetchone()
         version=taskrow['version'] if taskrow else 0
         if not auto and not direct_add and body.get('tasks_version')!=version:
-            if intent:
-                import quick_task_jobs
-                quick_task_jobs.check_version(db,uid,body.get('tasks_version'),version,ApiError)
             raise ApiError(409,'任务已变化，请刷新后重新核对')
         tasks=json.loads(taskrow['value']) if taskrow else []
         target=next((t for t in tasks if t['id']==body.get('target_id')),None)
-        original_target = dict(target) if target and target.get('quickRecognition') else None
         if action!='create' and not target: raise ApiError(400,'请选择当前账号的目标任务')
         if action=='create' and body.get('target_id'): raise ApiError(400,'新增任务不能带目标 ID')
         if intent is not None and action!='create':
@@ -600,9 +596,6 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=F
         if body.get('complete') is True:
             target['status']='completed'
             target['completedAt']=intent['completedAt'] if intent is not None else datetime.now(usage.TZ).date().isoformat()
-        if original_target:
-            import quick_task_jobs
-            target['quickRecognition'] = quick_task_jobs.observe_edit(db,uid,original_target,target)
         entry = dict(storageId=cid, requestId=row['request_id'], candidateId=c['candidate_id'], action=action)
         if direct_add and c['notice_type'] in ('update', 'postpone', 'cancel'):
             entry['noticeType'] = c['notice_type']

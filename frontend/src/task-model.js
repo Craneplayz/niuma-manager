@@ -11,29 +11,6 @@ export function assertCurrentTaskEdit(task, snapshot) {
     throw new Error("任务内容已变化，请取消编辑后重新打开；当前草稿仍保留。");
 }
 
-// Editors opened on a local preview may overlap its one background AI update.
-export function mergeTaskEdit(task, snapshot, draft, startedPending) {
-  if (task && taskEditSnapshot(task) === snapshot) return draft;
-  const recognition = task?.quickRecognition;
-  if (!startedPending || recognition?.status !== "done" || !recognition.appliedFrom || !recognition.applied) {
-    assertCurrentTaskEdit(task, snapshot);
-    return draft;
-  }
-  const previous = { ...task }, merged = { ...draft };
-  for (const key of ["title", "course", "due", "description"]) {
-    if (!Object.hasOwn(recognition.applied, key) || !Object.hasOwn(recognition.appliedFrom, key)) continue;
-    const asView = value => key === "due"
-      ? { due: value?.date || "", dueTime: value?.time || "" } : { [key === "description" ? "notes" : key]: value || "" };
-    const after = asView(recognition.applied[key]), before = asView(recognition.appliedFrom[key]);
-    const matches = (fields, values) => Object.keys(values).every(k => (fields[k] || "") === values[k]);
-    if (!matches(task, after)) continue;
-    Object.assign(previous, before);
-    if (matches(draft, before)) Object.assign(merged, after);
-  }
-  assertCurrentTaskEdit(previous, snapshot);
-  return merged;
-}
-
 function readDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ""))) return null;
   const date = new Date(`${value}T00:00:00.000Z`);

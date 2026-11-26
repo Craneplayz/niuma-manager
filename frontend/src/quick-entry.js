@@ -1,4 +1,4 @@
-import { analyzeQuickTask } from "./quick-task.js";
+import { analyzeQuickTask, takeCourse } from "./quick-task.js";
 import { quickAttachmentButton, bindQuickImport } from "./quick-import.js";
 import { deadlineLabel } from "./task-model.js";
 
@@ -74,7 +74,12 @@ export function bindQuickEntry(form, options) {
   const getToday = options.getToday ?? (() => options.today);
   let referenceDay = getToday();
   let parsedText = input.value;
-  const analyze = source => analyzeQuickTask(source, { ...options, today: referenceDay });
+  const analyze = source => {
+    if (options.isDemo) return analyzeQuickTask(source, { ...options, today: referenceDay });
+    const { course, tag } = takeCourse(source, options.courses, options.defaultCourse);
+    return { task: { title: "", due: options.defaultDate || "", dueTime: "", course },
+      spans: [], explicitCourse: Boolean(tag) };
+  };
   let analysis = analyze(parsedText);
   let dateOverride = null;
   let courseOverride = null;
@@ -240,14 +245,6 @@ export function bindQuickEntry(form, options) {
     refresh();
   });
   refresh();
-  readDraft.recognition = () => {
-    const protectedFields = [];
-    if (dateOverride || (options.defaultDate && analysis.task.due === options.defaultDate))
-      protectedFields.push("due");
-    if (courseOverride !== null || analysis.explicitCourse || (options.defaultCourse && analysis.task.course === options.defaultCourse))
-      protectedFields.push("course");
-    return { ...(analysis.localOnly ? { localOnly: true } : {}), text: input.value.trim(), referenceDay, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, protectedFields };
-  };
   readDraft.refreshDay = refreshDay;
   readDraft.dispose = imports.dispose;
   readDraft.isImporting = imports.isBusy;

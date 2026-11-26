@@ -4,8 +4,6 @@ import {
   readStore,
   readSavedTasks,
   readProjectedStore,
-  hasPendingQuickRecognition,
-  refreshQuickRecognition,
   taskWritesAreOnlineOnly,
   readCancelledTasks,
   initSession,
@@ -34,7 +32,7 @@ import {
   filterTasks,
   isNotice,
   taskEditSnapshot,
-  mergeTaskEdit,
+  assertCurrentTaskEdit,
   deadlineLabel,
 } from "./task-model.js";
 import { renderTaskList, renderTaskRow, renderDayPanel } from "./task-views.js";
@@ -240,37 +238,6 @@ const quickAdds = createQuickAddJobs({ render, toast, escapeHtml: esc, async ref
 const calendarDrag = createCalendarDrag({ root: app, getTask: draggableTask, onDrop: dropTaskOnDate });
 let renderedAccount = null, renderedDrawer = null, drawerVisit = 0;
 let readQuickDraft = null, recentTaskId = "";
-let quickPollTimer, quickPollEpoch = null;
-function scheduleQuickPoll(delay = 500) {
-  if (demo || document.hidden || !hasPendingQuickRecognition() || quickPollTimer || quickPollEpoch !== null) return;
-  quickPollTimer = setTimeout(pollQuickRecognition, delay);
-}
-async function pollQuickRecognition() {
-  clearTimeout(quickPollTimer);
-  quickPollTimer = null;
-  if (quickPollEpoch !== null || demo || document.hidden || !hasPendingQuickRecognition()) return;
-  const epoch = accountVersion();
-  quickPollEpoch = epoch;
-  let delay = 1200;
-  try {
-    if (await refreshQuickRecognition() && epoch === accountVersion()) {
-      state = readProjectedStore();
-      render();
-      if (drawer.open && drawerId && !drawerEditing) {
-        if (editableTask(drawerId)) updateDrawer();
-        else closeDrawer();
-      }
-    }
-  } catch {
-    // Intermittent connectivity shouldn't prevent working with the locally saved task.
-    delay = 5000;
-  } finally {
-    if (quickPollEpoch === epoch) {
-      quickPollEpoch = null;
-      scheduleQuickPoll(delay);
-    }
-  }
-}
 function draggableTask(id) {
   if (taskBusy(id) || loading || session.changing || ui.page !== "tasks" ||
       taskView() !== "calendar" ||
@@ -699,7 +666,6 @@ function render() {
   if (environment && ui.page === "tasks" && (!ui.sidebarCollapsed || matchMedia("(max-width: 700px)").matches))
     document.querySelector(".account-entry").title = environment.detail;
   pruneErrorFeedback();
-  scheduleQuickPoll();
 }
 function renderResults() {
   calendarDrag.cancel();
@@ -777,7 +743,6 @@ function openTask(id, editing = false, selectedDate = "") {
   }
   if (!drawer.open) drawer.showModal();
   if (quick) drawer.querySelector("#quick-text").focus();
-  if (id && !editing && editableTask(id)?.quickRecognition?.status === "pending") void pollQuickRecognition();
 }
 function updateDrawer() {
   syncCourseIdentity();
@@ -802,7 +767,7 @@ function updateDrawer() {
   renderedDrawer = identity;
   const actionError = drawer.querySelector("#task-action-error");
   if (actionError) actionError.innerHTML = drawerError ? userErrorMarkup(drawerError.error, drawerError.action) : "";
-  if (!reuse && !drawerEditing && task.id && !task.quickRecognition?.text) {
+  if (!reuse && !drawerEditing && task.id && !task.originalText && !task.quickRecognition?.text) {
     const evidence = drawer.querySelector("#task-evidence");
     if (demo)
       evidence.innerHTML = `<p>${esc(task.notes || "这项任务由手动添加。")}</p>`;
@@ -1433,7 +1398,7 @@ document.addEventListener("submit", async (e) => {
     return;
   }
   const quick = form.id === "quick-task-form";
-  if (quick || form.id === "task-edit-form") {
+  if ((quick && demo) || form.id === "task-edit-form") {
     if (!canChangeTask(form.dataset.id || form.dataset.savingId)) return;
     if (quick && (!readQuickDraft || !drawer.open)) return;
     const values = quick ? readQuickDraft() : Object.fromEntries(new FormData(form)),
@@ -1453,7 +1418,7 @@ document.addEventListener("submit", async (e) => {
     const existing = editableTask(form.dataset.id);
     if (form.dataset.id) {
       try {
-        mergeTaskEdit(existing, form.dataset.taskEditSnapshot, values, form.hasAttribute("data-recognition-pending"));
+        assertCurrentTaskEdit(existing, form.dataset.taskEditSnapshot);
       } catch (cause) {
         error.textContent = cause.message;
         return;
@@ -1469,11 +1434,8 @@ document.addEventListener("submit", async (e) => {
     form.dataset.savingId = draftId;
     busyTasks.add(draftId);
     const bulkReceipt = bulkSaveReceipt;
-    if (demo && quick) task.quickRecognition = { text: readQuickDraft.recognition().text, status: "done" };
-    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected, {
-      quickRecognition: quick ? readQuickDraft.recognition() : undefined,
-      startedPending: !quick && form.hasAttribute("data-recognition-pending"),
-    });
+    if (demo && quick) task.originalText = form.querySelector("#quick-text").value.trim();
+    const saving = demo ? Promise.resolve() : saveStoredTask(task, expected);
     if (!await stageTaskSave(saving, draftId, epoch, form)) return;
     if (demo) {
       if (existing) Object.assign(existing, task);
@@ -1595,8 +1557,6 @@ drawer.addEventListener("cancel", (e) => {
   closeDrawer();
 });
 window.addEventListener("niuma:account-reset", () => {
-  clearTimeout(quickPollTimer);
-  quickPollTimer = quickPollEpoch = null;
   clearBulkSelection(true);
   bulkRunning = false;
   resetErrorFeedback();
@@ -1640,7 +1600,6 @@ window.addEventListener("popstate", () => {
   if (ui.page === "import") void imports.load();
 });
 window.addEventListener("niuma:sync", () => {
-  scheduleQuickPoll();
   const label = document.querySelector("#save-status");
   if (label) label.textContent = saveLabel();
   const alert = document.querySelector("#sync-alert");
@@ -1676,7 +1635,6 @@ matchMedia("(max-width: 700px)").addEventListener("change", () => {
 });
 document.addEventListener("visibilitychange", () => {
   syncToday();
-  if (!document.hidden) void pollQuickRecognition();
 });
 window.addEventListener("focus", syncToday);
 window.addEventListener("pageshow", syncToday);
