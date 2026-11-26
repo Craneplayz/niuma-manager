@@ -15,13 +15,21 @@ from .contract_v02 import time_value
 NORMALIZED_FIELDS = {"value", "precision", "derivation", "anchor", "basis"}
 DERIVATIONS = ("absolute", "relative", "offset", "missing_year", "unresolved")
 
+# The model selects the day meant by this action. Calendar arithmetic belongs here.
+RELATIVE_DAYS = {"前天": -2, "昨天": -1, "今天": 0, "今日": 0, "今早": 0, "今晚": 0,
+                 "明天": 1, "明早": 1, "明晚": 1, "后天": 2, "大后天": 3}
+DAY_WORD = re.compile("|".join(sorted(RELATIVE_DAYS, key=len, reverse=True)))
 
-def normalized_time_schema(*, quick_entry=False):
+
+def normalized_time_schema(quick_reference=None):
+    anchors = [None, "published_at", "collected_at"]
+    if quick_reference:
+        anchors.extend(["quick_reference", *quick_reference.get("relative_days", {})])
     properties = {
         "value": {"type": ["string", "null"]},
         "precision": {"type": "string", "enum": ["date", "datetime", "unknown"]},
         "derivation": {"type": "string", "enum": list(DERIVATIONS)},
-        "anchor": {"type": ["string", "null"], "enum": [None, "published_at", "collected_at"] + (["quick_reference"] if quick_entry else [])},
+        "anchor": {"type": ["string", "null"], "enum": anchors},
         "basis": {"type": "string"},
     }
     return {"type": "object", "properties": properties,
@@ -65,8 +73,12 @@ def quick_reference(record):
         return None
     day = local.date() if isinstance(local, datetime) else local
     monday = day - timedelta(days=day.weekday())
+    day_offsets = {RELATIVE_DAYS[word] for word in DAY_WORD.findall(record["text"])}
     return dict(value=local.isoformat(), precision=precision,
                 origin="指定的通知时间" if publication["value"] else "加入清单的时间",
+                relative_days={word: date.fromordinal(day.toordinal()+offset).isoformat()
+                               for word, offset in RELATIVE_DAYS.items()
+                               if offset in day_offsets and 1 <= day.toordinal()+offset <= date.max.toordinal()},
                 week_start=monday.isoformat(),
                 weeks={name: [date.fromordinal(ordinal).isoformat() if 1 <= ordinal <= date.max.toordinal() else None
                               for ordinal in range(monday.toordinal() + offset, monday.toordinal() + offset + 7)]
@@ -139,7 +151,7 @@ def validate_time(ref, message):
     require(n["value"] is None or isinstance(n["value"], str))
     require(n["precision"] in {"date", "datetime", "unknown"})
     require(n["derivation"] in DERIVATIONS)
-    require(n["anchor"] in (None, "published_at", "collected_at", "quick_reference"))
+    require(n["anchor"] in (None, "published_at", "collected_at", "quick_reference", *RELATIVE_DAYS))
     require(nonempty(n["basis"]))
     zone = _zone(message.get("timezone"))
     result = {"value": None, "precision": "unknown", "timezone": zone.key if zone else None,
@@ -161,6 +173,13 @@ def validate_time(ref, message):
         return unresolved("时间归一化缺少具体值或精度。")
     try:
         time_value(n["value"], n["precision"])
+        word = n["anchor"]
+        if word in RELATIVE_DAYS:
+            calendar = (message.get("quick_reference") or {}).get("relative_days", {})
+            cited_days = {RELATIVE_DAYS[token] for token in DAY_WORD.findall(ref["quote"])}
+            if n["derivation"] != "relative" or word not in calendar or RELATIVE_DAYS[word] not in cited_days:
+                return unresolved("相对日期与引用原话或录入基准不一致。")
+            n = dict(n, value=calendar[word] + n["value"][10:], anchor="quick_reference")
         if n["precision"] == "datetime":
             if zone is None:
                 return unresolved("具体时刻缺少可用的来源时区。")

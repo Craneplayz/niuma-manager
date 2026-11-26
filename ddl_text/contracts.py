@@ -121,7 +121,7 @@ def validate_tasks(tasks, record):
                 require(task["candidate_id"] not in seen)
                 seen.add(task["candidate_id"])
                 validate_candidate(task, record)
-                require(set(task["deadline"]) == {"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"})
+                require(set(task["deadline"]) - {"role"} == {"value", "precision", "timezone", "kind", "status", "raw", "basis", "alternatives"})
                 for source in task["sources"]:
                     require(set(source) == {"input_id", "platform", "url", "label", "source_item_id"})
                 for ref in task["evidence"]:

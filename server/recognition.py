@@ -396,6 +396,8 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
         schedule_change = candidate['notice_type'] in ('postpone', 'update')
         event = deadline['kind'] == 'reference' and (schedule_change or attendance and not re.search(
             r'报名|提交|申请|截止', candidate['title'] + (deadline.get('raw') or '')))
+        if 'role' in deadline:
+            event = deadline['role'] == 'event_start'
         when = None
         if (deadline['status'] in ('explicit', 'inferred') and deadline['value']
                 and (deadline['kind'] == 'deadline' or event and deadline['kind'] == 'reference')):
@@ -407,7 +409,13 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
         description = candidate['description'] or ''
         if record.get('source_url') and (source == '一句话添加' or record.get('platform') == 'manual'):
             description = (description + '\n链接：' + record['source_url']).strip()
-        draft = dict(title=candidate['title'], description=description, course=candidate['course_or_project'], due=when,
+        settings = record.get('quick_settings', {}) if record.get('platform') == 'manual' else {}
+        if 'when' in settings:
+            when = settings['when']
+        elif when is None and deadline['status'] == 'not_provided' and settings.get('default_date'):
+            when = dict(date=settings['default_date'], precision='date')
+        course = settings.get('course', candidate['course_or_project'] or settings.get('default_course'))
+        draft = dict(title=candidate['title'], description=description, course=course, due=when,
                      content_type=candidate.get('content_type', 'task') if candidate['notice_type'] == 'create' else 'notice')
         resolve_candidate(db, uid, row['id'], dict(action='create', version=row['version'], draft=draft, auto_apply=True),
                           ApiError, direct_add=True, event=event, source=source)

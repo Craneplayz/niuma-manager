@@ -146,7 +146,7 @@ function summarizeAction(raw, source, spans) {
   const title = compactEventTitle(cleaned, source, spans);
   const exam = title.match(/^(?:有|要考|要参加|参加)?(?:一场)?([^，,。；;！？\s]{0,20}?)(考试|测验)$/u);
   const simple = title.length > 0 && title.length <= 48 &&
-    !/[，,；;。！？!?]|(?:然后|并且|顺便|另行|分别|之后|之前|取消|无需|不用|不要|不必|如果|除非|改为|改到|待定|或者|还需|一下|结束后|结束前|会后|会前)|(?:并|及|再)(?:把|提交|观看|参加|领取|签到|将)/u.test(title);
+    !/[，,；;。！？!?]|(?:然后|并且|顺便|还要|还得|接着|另行|分别|之后|之前|取消|无需|不用|不要|不必|如果|除非|改为|改到|待定|或者|还需|一下|结束后|结束前|会后|会前)|(?:并|及|再)(?:把|提交|观看|参加|领取|签到|将)/u.test(title);
   const hasLimit = /截止|截至|最迟|不晚于|不迟于/u.test(source) ||
     spans.some(({ end }) => /^\s*(?:之|以)?前(?!往|去|来|进)/u.test(source.slice(end)));
   const visit = simple ? title.match(/^(?:前往|前去|到|在|去)\s*(?<place>[^，,。；;！？]{1,40}?)\s*(?<action>(?:观看|参加|出席|参观|旁听|听取|集合|签到|开会|上课|提交|领取|归还).*)$/u) : null;

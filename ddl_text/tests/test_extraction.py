@@ -90,6 +90,17 @@ class ExtractionTests(unittest.TestCase):
                          ('2026-09-29T09:00:00+08:00', 'reference', raw))
         self.assertEqual(result['status'], 'inferred')
 
+    def test_quick_event_role_survives_validation_without_promoting_background(self):
+        from ddl_text.time_validation import quick_reference
+        record = message('明早九点去看朋友', platform='manual')
+        record['contract_version'] = '0.2'
+        record['quick_reference'] = quick_reference(record)
+        for kind, role in [('event_start', 'event_start'), ('reference', 'background')]:
+            item = time_ref(record, record['text'], '2027-01-01T09:00:00+08:00',
+                            kind=kind, derivation='relative', anchor='quick_reference')
+            clock = compile_tasks(record, draft(record, times=[item]))[0]['deadline']
+            self.assertEqual((clock['kind'], clock['role'], clock['status']), ('reference', role, 'inferred'))
+
     def test_urgency_filter_uses_role_and_keeps_literal_evidence(self):
         record = message('2026年10月11日前提交报告；麻烦大家抓点紧呀。')
         task = compile_tasks(record, draft(record, times=[

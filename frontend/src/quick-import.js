@@ -6,9 +6,11 @@ export function quickAttachmentButton(icon) {
     <input id="quick-files" type="file" multiple accept="${materialAccept}" hidden>`;
 }
 
-export function quickImportMode(text, localOnly, pasted) {
+function quickImportMode(text, localOnly, demo, pasted) {
   if (localOnly || !text.trim()) return "";
-  return pasted || text.length > 100 || /[；;]/u.test(text) || /\n|[。；;！？].+|[，,].*(?:再|另|还需|周[一二三四五六日]|明天|后天)/u.test(text) ? "text" : "";
+  const notice = text.length > 100 || /[；;]/u.test(text) || /\n|[。；;！？].+|[，,].*(?:再|另|还需|周[一二三四五六日]|明天|后天)/u.test(text);
+  if (notice || (demo && pasted)) return "text";
+  return demo ? "" : "personal";
 }
 
 export function bindQuickImport(form, options, refresh) {
@@ -64,8 +66,8 @@ export function bindQuickImport(form, options, refresh) {
   input.addEventListener("input", () => {
     if (!input.value.trim()) pasted = false;
   });
-  const mode = localOnly => files.length ? "files" : quickImportMode(input.value.trim(), localOnly, pasted);
-  async function submit(kind) {
+  const mode = localOnly => files.length ? "files" : quickImportMode(input.value.trim(), localOnly, options.isDemo, pasted);
+  async function submit(kind, settings) {
     if (busy) return;
     if (options.isDemo) { error.textContent = "请登录后导入通知或附件。"; return; }
     busy = true; form.setAttribute("aria-busy", "true"); error.textContent = "";
@@ -81,9 +83,15 @@ export function bindQuickImport(form, options, refresh) {
         receipt = await options.submitFiles(files, draft, signal);
       } else {
         const published = form.querySelector("#quick-published").value;
-        const key = JSON.stringify([text, published]);
+        const timezone = published ? "Asia/Shanghai" : Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const key = JSON.stringify([text, published, timezone, settings]);
         if (!textBody || signature !== key) {
-          textBody = buildTextImport(text, published, "quick-add:" + newId(), undefined, options.courses); signature = key;
+          textBody = buildTextImport(text, published, "quick-add:" + newId(), undefined, options.courses);
+          const record = textBody.records[0];
+          record.timezone = timezone;
+          if (Object.keys(settings).length) record.quick_settings = settings;
+          if (Object.hasOwn(settings, "course")) record.course_or_project = settings.course || null;
+          signature = key;
         }
         receipt = await options.submitNotice(textBody, signal);
       }

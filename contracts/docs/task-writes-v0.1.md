@@ -34,7 +34,7 @@ create 提供稳定 `newTaskId`（16–100 位字母数字、下划线或连字�
 
 ## 一句话添加任务
 
-已登录用户通过普通任务新增操作保存。只有 `kind=save`、`expected=null` 时可带 `intent.quickRecognition`，包含原句 `text`（1–4000 字）、输入时的 IANA 时区 `timezone`、本地日期 `referenceDay` 和创建前已手动设定的 `protectedFields`（title、course、due、description）。可选的 localOnly=true 表示本地已完成整理，直接保存原句并返回 done，不创建队列作业。未提供时兼容旧客户端并启动识别。活动任务用 eventAt 保存活动日期/时刻（与 due 同形），due 留空；地点存入 description。创建时间沿用带时区的 `intent.createdAt`。任务与识别作业同时入库，重放相同操作不会重复建任务或发起模型调用。
+当前任务页只对本地已整理的输入使用普通任务新增操作。其余手打和粘贴文本共用 text-jobs，在服务端取得结果后直接写入清单。旧版客户端的写入协议继续兼容。只有 `kind=save`、`expected=null` 时可带 `intent.quickRecognition`，包含原句 `text`（1–4000 字）、输入时的 IANA 时区 `timezone`、本地日期 `referenceDay` 和创建前已手动设定的 `protectedFields`（title、course、due、description）。可选的 localOnly=true 表示本地已完成整理，直接保存原句并返回 done，不创建队列作业。未提供时兼容旧客户端并启动识别。活动任务用 eventAt 保存活动日期/时刻（与 due 同形），due 留空；地点存入 description。创建时间沿用带时区的 `intent.createdAt`。任务与识别作业同时入库，重放相同操作不会重复建任务或发起模型调用。
 
 任务上的 `quickRecognition` 含原句和 `status`（pending、done、failed）。识别只能更新同一任务中仍适用的标题、备注、课程或截止字段。用户在等待期间的改动优先，识别失败时保留本地结果及原句。多项行动或缺少可靠依据时保留原任务。
 

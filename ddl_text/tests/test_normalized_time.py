@@ -37,6 +37,18 @@ class NormalizedTimeTests(unittest.TestCase):
                 result = validate_time(proposal("时间原文", value), record())
                 self.assertEqual((result["value"], result["status"]), (None, "unknown"))
 
+    def test_spoken_day_uses_the_selected_source_word_and_local_calendar(self):
+        r = record(text="明早九点接人", platform="manual", timezone="America/Los_Angeles",
+                   published_at={"value": "2027-01-01T04:00:00Z", "precision": "datetime", "basis": "source"})
+        r["quick_reference"] = quick_reference(r)
+        item = proposal("明早九点接人", "2027-01-02T09:00:00-08:00", derivation="relative", anchor="明早")
+        self.assertEqual(validate_time(item, r)["value"], "2027-01-01T09:00:00-08:00")
+        item["normalized"]["anchor"] = "明天"
+        self.assertEqual(validate_time(item, r)["value"], "2027-01-01T09:00:00-08:00")
+        item["normalized"]["anchor"] = "后天"
+        item["quote"] = "大后天九点接人"
+        self.assertIsNone(validate_time(item, r)["value"])
+
     def test_quick_deadline_window_and_day_end_agree(self):
         r = record(platform="manual")
         r["quick_reference"] = quick_reference(r)
