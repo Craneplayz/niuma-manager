@@ -14,6 +14,7 @@ class Settings:
     timeout_seconds: float = 5.0
     max_retries: int = 0
     thinking_mode: Optional[str] = None
+    max_output_tokens: int = 8192
 
     def __post_init__(self):
         if self.mode not in {"offline", "real"}:
@@ -25,6 +26,8 @@ class Settings:
             raise ValueError("timeout_seconds must be finite and within (0, 300]")
         if type(self.max_retries) is not int or not 0 <= self.max_retries <= 2:
             raise ValueError("max_retries must be an integer from 0 to 2")
+        if type(self.max_output_tokens) is not int or not 1 <= self.max_output_tokens <= 8192:
+            raise ValueError("max_output_tokens must be an integer from 1 to 8192")
         if self.thinking_mode not in (None, 'enabled', 'disabled'):
             raise ValueError('thinking_mode must be enabled, disabled or null')
         for value in (self.model, self.endpoint, self.credential_env):

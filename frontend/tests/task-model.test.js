@@ -145,6 +145,32 @@ test("combined query, course, source, and inclusive date filters preserve deadli
   assert.deepEqual(ids(filterTasks(namedAll, { course: "all", source: "all", today })), ["named-all"]);
 });
 
+test("list orders deadline ties by course, natural title, displayed source, then stable ID", () => {
+  const base = { status: "todo", due: today, title: "ICS小班研讨题-第十讲", course: "计算机", source: "教学网" };
+  const entries = [
+    ["completed", { status: "done", due: "2000-01-01" }],
+    ["undated", { due: "" }],
+    ["no-course", { course: "  ", title: "A" }],
+    ["math", { course: "数学", title: "A" }],
+    ["manual", { source: null }],
+    ["id10", { title: " ＩＣＳ小班研讨题-第１０讲 " }],
+    ["id2", { title: "ics小班研讨题-第10讲" }],
+    ["third", { title: "ICS小班研讨题-第3讲", source: "微信" }],
+    ["second", { title: "ICS小班研讨题-第二讲" }],
+    ["timed", { dueTime: "23:59", course: "" }],
+  ].map(([id, fields]) => ({ ...base, id, ...fields }));
+  const expected = ["timed", "second", "third", "id2", "id10", "manual", "math", "no-course", "undated", "completed"];
+  assert.deepEqual(ids(sortTasks(entries)), expected);
+  assert.deepEqual(ids(sortTasks(entries.reverse())), expected);
+});
+
+test("assignment and lab numbers sort by value", () => {
+  for (const titles of [["实验二", "实验十一", "实验100"], ["Lab 2", "lab 10", "Lab 20"]]) {
+    const input = titles.map((title, index) => ({ title, id: String(9 - index) })).reverse();
+    assert.deepEqual(sortTasks(input).map(task => task.title), titles);
+  }
+});
+
 test("grouping uses all six deadline buckets across a year boundary and sorting never mutates input", () => {
   const originalIds = ids(tasks);
   const grouped = groupTasks(filterTasks(tasks, { today }), today, new Date(`${today}T00:00:00`));

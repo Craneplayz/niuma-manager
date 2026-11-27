@@ -308,10 +308,14 @@ function toast(message, undo) {
         toastError(e);
       }
     };
+  const content = el.firstElementChild;
   toastTimer = setTimeout(
     () => el.classList.remove("visible"),
     undo ? 7000 : 4000,
   );
+  return () => {
+    if (el.firstElementChild === content) clearUndo();
+  };
 }
 function toastError(error, action = "general") {
   if (dialog.open) {

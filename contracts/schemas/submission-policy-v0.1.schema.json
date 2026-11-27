@@ -55,6 +55,7 @@
         "basis": {
           "enum": [
             "review_submission_history_title",
+            "gradebook_submitted",
             "active_assignment_page",
             "unknown"
           ]

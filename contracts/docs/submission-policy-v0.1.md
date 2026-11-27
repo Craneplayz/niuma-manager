@@ -21,6 +21,7 @@ input_id 原样继承已有 v0.2 非空白字符串，可含中文、斜杠、�
 | state | basis | 含义 |
 | --- | --- | --- |
 | submitted | review_submission_history_title | 按已确认产品规则，受控原生作业页的提交历史标题作为提交状态；正文/导航中的同名文字不算。 |
+| submitted | gradebook_submitted | 已认证的成绩列明确标记已提交，按账号、课程和成绩列 ID 或唯一关联的原生作业 ID 匹配。 |
 | active | active_assignment_page | 正常原生作业页面；不单独证明“撤回”或“要求重交”。 |
 | unknown | unknown | 不具备可靠状态；不能当成 active/submitted。 |
 

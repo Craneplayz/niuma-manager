@@ -10,10 +10,22 @@ describe("native teaching integration", () => {
   it("uses separated evidence and preserves extracted attachment text only in references", () => {
     const input=source();input.body+='\n附件：2026年12月20日前提交';
     input.references[0]={...input.references[0],read_status:'partial',text:'2026年12月20日前提交',reason:'partial_pdf'};
-    const record=toTeachingCaptures([input])[0].request.records[0].record;
+    const entry=toTeachingCaptures([input])[0].request.records[0];
+    expect(entry.platform_item?.kind).toBe('listed_assignment');
+    const record=entry.record;
     expect(record.text).not.toContain('2026年12月20日前提交');
     expect(record.references[0]).toMatchObject({read_state:'partial',text:'2026年12月20日前提交'});
     expect(record.body_status).toBe('complete');
+  });
+  it("exports only the page as evidence and keeps a sanitized attachment link", () => {
+    const input=source();
+    input.references[0].url += "?token=private#page=2";
+    input.references[0]={...input.references[0],read_status:'partial',text:'private file content'};
+    const entry=toTeachingCaptures([input], "page-only", {pageOnly:true})[0].request.records[0];
+    expect(entry.record.references).toEqual([]);
+    expect(JSON.stringify(entry)).not.toContain('private');
+    expect(entry).toMatchObject({page_attachments:[{label:'参考.pdf',url:'https://course.pku.edu.cn/bbcswebdav/courses/test/extra.pdf'}]});
+    expect(entry.record.text).toContain('10月23日');
   });
   it("rejects old or duplicate source identities rather than silently granting trust", () => {
     const input=source();
@@ -32,6 +44,7 @@ describe("native teaching integration", () => {
     const html='<form id="announcementForm"><ul id="announcementList"><li id="notice"><h3>作业已发布，截止时间为2026-11-17 23:30</h3><div class="details"><div class="vtbegenerated"><p>请同学们按时完成。</p></div></div></li></ul></form>';
     const input=extractCourseSourcesFromHtml(html, {course:'测试课程',section:'课程通知',sourceUrl:'https://course.pku.edu.cn/webapps/blackboard/execute/announcement?course_id=_1',collectedAt:'2026-10-09T10:00:00+08:00'})[0];
     const record=toTeachingRequests([input])[0].records[0].record;
+    expect(toTeachingCaptures([input])[0].request.records[0].platform_item?.kind).toBe('announcement');
     expect(record.body_status).toBe('complete');
     expect(record.text).toContain('请同学们按时完成。');
     expect(record.text).toContain('2026-11-17 23:30');
@@ -42,12 +55,14 @@ describe("native teaching integration", () => {
     input.references.unshift({kind:'detail',label:'作业',url:'https://course.pku.edu.cn/webapps/assignment/uploadAssignment?course_id=_1&content_id=_1',content_read:false,read_status:'partial',reason:'submission_history_only',text:'Review Submission History'});
     const capture=toTeachingCaptures([input])[0];
     expect(capture.contract_version).toBe('teaching-capture/0.1');
+    expect(capture.request.records[0].platform_item).toEqual({kind:'listed_assignment',due:null,submitted:false});
     expect(capture.assignment).toEqual({course_id:'_1',content_id:'_1',state:'submitted',basis:'review_submission_history_title'});
     expect(capture.request.contract_version).toBe('0.4');
     expect(capture.request.records[0].record).not.toHaveProperty('assignment');
     for(const kind of ['announcement','content'] as const) expect(toTeachingCaptures([{...input,kind}])[0].assignment).toBeNull();
     input.references[0].url=input.references[0].url.replace('content_id=_1','content_id=_2');
     expect(toTeachingCaptures([input])[0].assignment).toBeNull();
+    expect(toTeachingCaptures([input])[0].request.records[0].platform_item).toBeUndefined();
   });
   it("never infers submitted from teacher text", () => {
     const input=source();input.body='已提交，请等待批改。';

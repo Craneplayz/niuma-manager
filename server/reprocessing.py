@@ -104,7 +104,8 @@ def catalogue(db, uid, cursor):
         status = 'unknown'
         if stored:
             outcome = next((r for r in json.loads(stored['result'])['record_results'] if r['input_id'] == row['input_id']), None)
-            status = outcome['status'] if outcome and outcome['status'] in ('success','no_tasks') else 'failed'
+            status = 'no_tasks' if row['kind']=='teaching' and outcome and outcome['status']=='incomplete' else (
+                outcome['status'] if outcome and outcome['status'] in ('success','no_tasks') else 'failed')
         policy = db.execute('SELECT policy FROM recognition_record_policies WHERE user_id=? AND request_id=? AND input_id=?', (uid, request['request_id'], row['input_id'])).fetchone()
         version = json.loads(policy['policy'])['version'] if policy and policy['policy'] else None
         account = accounts.setdefault(row['source_id'], dict(source_account_id=row['source_id'], label='当前教学网账号' if row['kind']=='teaching' else '旧版教学网来源 '+row['source_id'][:6], records=[]))
@@ -161,7 +162,9 @@ def start(db, uid, body, ApiError):
         request = json.loads(row['request'])
         if source['kind']=='teaching': teaching.resolve_snapshot(db,uid,request['request_id'],ApiError)
         old_batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request['request_id'])).fetchone()
-        previous = bool(old_batch and json.loads(old_batch['result'])['status'] in ('success','no_tasks'))
+        old_result = json.loads(old_batch['result']) if old_batch else None
+        previous = bool(old_result and (teaching.recognition_finished(old_result) if source['kind']=='teaching'
+                                        else old_result['status'] in ('success','no_tasks')))
         inputs.append(dict(request=request, digest=row['digest'], account=source['account'],kind=source['kind']))
         if source['kind']=='teaching':inputs[-1]['control_token']=teaching.submission.controls.token(db,uid,request['request_id'])
         records.append(dict(input_id=identity, state='queued', attempted=False, policy_version=None, previous_available=previous, old_result_retained=previous, outcome=None, decision_summary=dict(preserved=0,replaced=0,new_pending=0,unresolved=0), error=None))
@@ -190,12 +193,14 @@ def recognize_saved(request, native, ApiError, *, attachments=None):
     if not native:
         result=validate_result(request,recognition.recognize(request,ApiError))
         return result,getattr(recognition._EXECUTION,'policy',None)
-    if not recognition._ACTIVE.acquire(): raise ApiError(503,'模型队列暂不可用')
+    needs_slot = teaching.teaching_platform.route(request['records'][0]) != 'platform'
+    if needs_slot and not recognition._ACTIVE.acquire(): raise ApiError(503,'模型队列暂不可用')
     try:
         result,policy=teaching.recognize(request,ApiError,**(attachments or {}))
         teaching.validate_current_result(request,result,policy,ApiError)
         return result,policy
-    finally: recognition._ACTIVE.release()
+    finally:
+        if needs_slot: recognition._ACTIVE.release()
 
 
 def same_result(previous, current):
@@ -256,7 +261,7 @@ def process(path, uid, run_id, ApiError):
             try:
                 with cancel_if(cancelled):
                     result,policy = recognize_saved(request,native,ApiError,**({'attachments':attachments} if attachments else {}))
-                if not policy or result['status'] not in ('success','no_tasks'):
+                if not policy or not (teaching.recognition_finished(result) if native else result['status'] in ('success','no_tasks')):
                     raise ValueError('invalid or unversioned result')
             except Exception:
                 result = None

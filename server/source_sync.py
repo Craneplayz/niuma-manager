@@ -117,12 +117,15 @@ def route(handler, db, uid, path, body, ApiError, key_path):
             raise ApiError(400, '请填写有效的教学网账号和密码')
         encrypted = cipher(key_path, ApiError, create=True).encrypt(password.encode())
         previous = db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-        if previous and previous['username'] != username.strip(): teaching_assets.clear(db,uid)
+        if previous and previous['username'] != username.strip():
+            teaching_assets.clear(db,uid)
+            db.execute('DELETE FROM teaching_title_jobs WHERE user_id=?', (uid,))
         db.execute('INSERT INTO source_credentials VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,secret=excluded.secret', (uid, username.strip(), encrypted))
         handler.reply(200, {'configured': True, 'username': username.strip()})
         return True
     if path == '/api/sources/credentials/remove' and handler.command == 'POST':
         teaching_assets.clear(db,uid)
+        db.execute('DELETE FROM teaching_title_jobs WHERE user_id=?', (uid,))
         db.execute('DELETE FROM source_credentials WHERE user_id=?', (uid,))
         handler.reply(200, {'configured': False, 'username': None})
         return True
@@ -191,7 +194,9 @@ def _collect(db, uid, ApiError, key_path, *, guard=None, input_ids=None):
                         payload['records'] = [entry for entry in payload['records'] if entry['record']['input_id'] in input_ids]
                         if payload['records']: selected.append(item)
                     requests = selected
-                assets = teaching_assets.read_capture(attachment_dir,requests,**({'input_ids':input_ids} if input_ids is not None else {}))
+                legacy = [item for item in requests if any(not teaching.teaching_platform.page_only(entry)
+                          for entry in item.get('request',item)['records'])]
+                assets = teaching_assets.read_capture(attachment_dir,legacy,**({'input_ids':input_ids} if input_ids is not None else {})) if legacy else {}
             except Exception:
                 raise collection_exception(ApiError, 502, 'export') from None
     except subprocess.TimeoutExpired:

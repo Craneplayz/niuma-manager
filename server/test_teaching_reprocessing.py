@@ -198,7 +198,7 @@ class TeachingReprocessingTests(unittest.TestCase):
                 self.request['records'][0]['record'],self.request['request_id'],dict(state='submitted'))
         with patch.object(teaching,'recognize',side_effect=self.model): saved=self.saved(self.launch())
         self.assertEqual(saved['state'],'succeeded',saved)
-        self.assertEqual(self.tasks()[0]['status'],'not_started')
+        self.assertEqual(self.tasks(), [])
         item=self.call('/recognition/batches')[1][0]['items'][0]
         self.assertTrue(item['candidate']['needs_review'])
         self.assertIn(teaching.submission.SCOPE_REVIEW,item['candidate']['review_reasons'])

@@ -28,7 +28,9 @@ export function evidenceMarkup(entries){
   if(seen.has(key))return false;seen.add(key);return true;
  });
  const sources=[...(entry.sources||[])];if(entry.sourceUrl&&!sources.some(s=>s.url===entry.sourceUrl))sources.unshift({url:entry.sourceUrl,label:entry.sourceLabel,platform:entry.platform});
- return `<article class="task-evidence-entry"><div class="task-evidence-links">${sources.map(s=>`${esc(s.label||entry.sourceLabel||'通知来源')} ${sourceLink(s.url,(s.platform||entry.platform)==='teaching_web'?'打开教学网原页面':'打开来源页面')}`).join('<br>')}</div>${original?`<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>`:''}${quotes.length?`<section class="task-evidence-quotes"><h4>来源证据摘录</h4>${quotes.map(evidence=>evidenceQuote(evidence,entry)).join('')}</section>`:''}</article>`;
+ const attachments=(entry.attachments||[]).map(file=>sourceLink(file.url||entry.sourceUrl,file.label)||esc(file.label));
+ const fileList=attachments.length?`<section><h4>附件</h4><ul>${attachments.map(link=>`<li>${link}</li>`).join('')}</ul></section>`:'';
+ return `<article class="task-evidence-entry"><div class="task-evidence-links">${sources.map(s=>`${esc(s.label||entry.sourceLabel||'通知来源')} ${sourceLink(s.url,(s.platform||entry.platform)==='teaching_web'?'打开教学网原页面':'打开来源页面')}`).join('<br>')}</div>${fileList}${original?`<details><summary>查看完整通知原文</summary><pre>${esc(original)}</pre></details>`:''}${quotes.length?`<section class="task-evidence-quotes"><h4>来源证据摘录</h4>${quotes.map(evidence=>evidenceQuote(evidence,entry)).join('')}</section>`:''}</article>`;
  }).join('');
 }
 export async function loadTaskEvidence(taskId,container,request){

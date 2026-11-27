@@ -1,5 +1,6 @@
 """Authenticated teaching snapshots -> v0.4 recognition -> existing workspace cards."""
 from copy import deepcopy
+from datetime import datetime
 import hashlib
 import json
 if __package__:
@@ -9,7 +10,10 @@ else:
 from pathlib import Path
 import secrets
 import teaching_submission as submission
+import teaching_platform
+from ddl_text.course_facts import teaching_display_title
 import teaching_assets
+import teaching_titles
 import teaching_identity
 from server.model_queue import WAIT_ERROR, disconnected
 from server import operations
@@ -27,20 +31,30 @@ from ddl_text.teaching_pipeline import process_teaching_request, validate_teachi
 from ddl_text.teaching_policy import teaching_policy_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
+CLASSIFICATION_MODES = (CLASSIFICATION_MODE, 'platform-v1', 'text-v0.2')
 VIEW = 'teaching-workspace/0.1'
 RUN = 'teaching-run/0.1'
-SOURCE_INCOMPLETE = '来源待补全：已读部分未发现任务，但正文或附件未完整读取。重试识别不会补抓内容，请查看来源或补全后重新同步。'
+def recognition_finished(result):
+    # The evidence contract can record insufficient page evidence without
+    # assigning the user a follow-up. Genuine reader/model errors remain failed.
+    return result['status'] in ('success','no_tasks') or (
+        bool(result['record_results']) and all(row['status'] in ('success','no_tasks','incomplete')
+                                               for row in result['record_results']))
 
 
-def needs_source_completion(result):
-    rows = result['record_results']
-    return any(row['status']=='incomplete' for row in rows) and not any(row['status']=='failed' for row in rows)
+def reusable(result, entry):
+    if not recognition_finished(result):
+        return False
+    # Let the next sync recover a platform item omitted by a pre-upgrade reader.
+    return not (entry.get('platform_item') and entry['record']['text'].strip()
+                and any(row['status']=='incomplete' for row in result['record_results']))
 
 
 def initialize(db):
     diagnostics.initialize(db)
     submission.initialize(db)
     teaching_assets.initialize(db)
+    teaching_titles.initialize(db)
     db.execute('''CREATE TABLE IF NOT EXISTS teaching_sources(
         user_id TEXT NOT NULL, account TEXT NOT NULL, input_id TEXT NOT NULL,
         digest TEXT NOT NULL, request_id TEXT NOT NULL, request TEXT NOT NULL,
@@ -49,7 +63,139 @@ def initialize(db):
     db.execute('''CREATE INDEX IF NOT EXISTS teaching_sources_request
         ON teaching_sources(user_id,account,request_id)''')
     course_context.initialize(db)
+    teaching_identity.initialize_gradebook(db)
     teaching_identity.upgrade_pending_candidates(db)
+    upgrade_display_titles(db)
+    course_context.migrate_implicit_dependencies(db)
+
+
+def upgrade_display_titles(db):
+    """Bring untouched generated titles forward without rewriting source or model history."""
+    from recognition import was_auto_applied
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='workspace'").fetchone():
+        return
+    db.execute('CREATE TABLE IF NOT EXISTS teaching_migrations(name TEXT PRIMARY KEY)')
+    if not db.execute("INSERT OR IGNORE INTO teaching_migrations VALUES ('source-display-titles-v1')").rowcount:
+        return
+    updates = {}
+    for uid, rid, request, result in db.execute("""SELECT user_id,request_id,request,result FROM recognition_batches
+            WHERE json_extract(request,'$.contract_version')='0.4'"""):
+        entries = json.loads(request)['records']
+        rows = json.loads(result)['record_results']
+        if len(entries) != 1 or len(rows) != 1:
+            continue
+        entry, row = entries[0], rows[0]
+        visible = [d for d in row['decisions'] if d['recommendation'] != 'filtered']
+        decisions = {d['pair']['assessment']['candidate_id']: d for d in visible}
+        for cid, raw, resolution in db.execute('SELECT id,candidate,resolution FROM recognition_candidates WHERE user_id=? AND request_id=?', (uid,rid)):
+            card = json.loads(raw)
+            decision = decisions.get(card['candidate_id'])
+            if not decision or card['title'] != decision['title']:
+                continue
+            title = teaching_display_title(decision, entry, len(visible) == 1)
+            if title == card['title']:
+                continue
+            if was_auto_applied(resolution):
+                updates.setdefault(uid, {})[cid] = (card['title'], title)
+            card['title'] = title
+            db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=? AND user_id=?', (json.dumps(card),cid,uid))
+    for uid, renamed in updates.items():
+        row = db.execute("SELECT value FROM workspace WHERE user_id=? AND name='tasks'", (uid,)).fetchone()
+        if not row:
+            continue
+        tasks, changed = json.loads(row[0]), False
+        for task in tasks:
+            history = task.get('recognitionHistory', [])
+            change = renamed.get(history[0].get('storageId')) if len(history)==1 else None
+            if change and task.get('source')=='教学网' and task['title']==change[0]:
+                task['title'], changed = change[1], True
+        if changed:
+            db.execute("UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name='tasks'", (json.dumps(tasks),uid))
+
+
+def refreshed_platform_field(request, card, field, current):
+    entry, = request['records']
+    if field == 'description':
+        raw = entry['record']['text'].removeprefix(entry['source']['label'] or '').strip()
+        if entry.get('platform_item', {}).get('kind') != 'native_assignment' or card.get(field) != raw[:4096] or current != card[field]:
+            return None
+        value = teaching_platform.assignment_description(raw)[:4096]
+        if value == current:
+            return None
+        card[field] = value
+        return value
+    if card.get('deadline', {}).get('status') != 'not_provided':
+        return None
+    result, _ = teaching_platform.classify(request)
+    decisions = result['record_results'][0]['decisions']
+    if len(decisions) != 1:
+        return None
+    decision, = decisions
+    due = decision['pair']['assessment']['deadline']
+    if (decision['pair']['assessment']['candidate_id'] != card.get('candidate_id')
+            or decision.get('content_type') != 'notice' or due['derivation'] != 'relative'
+            or due['anchor'] != 'published_at' or due['precision'] != 'datetime'):
+        return None
+    # The parser already expresses this timestamp in the course timezone.
+    stamp = datetime.fromisoformat(due['value'])
+    value = dict(date=stamp.date().isoformat(), time=stamp.strftime('%H:%M'), precision='datetime')
+    fresh = candidate_view(decision, entry, model_routing=True, single=True)
+    card.update(deadline=fresh['deadline'], evidence=fresh['evidence'])
+    return value
+
+
+def upgrade_platform_fields(db):
+    """Refresh untouched display fields from the same, still-current platform source."""
+    if not db.execute("INSERT OR IGNORE INTO teaching_migrations VALUES ('platform-notice-time-and-detail-v1')").rowcount:
+        return
+    for uid, username in db.execute('SELECT user_id,username FROM source_credentials'):
+        tasks, version = submission.controls.workspace(db, uid)
+        acct = account(username)
+        changed = False
+        for task in tasks:
+            history = task.get('recognitionHistory') or []
+            if (not history or task.get('source') != '教学网' or task.get('recycleBin')
+                    or task.get('status') in ('completed', 'cancelled')):
+                continue
+            last = history[-1]
+            candidate_id = last.get('candidateId')
+            if candidate_id == 'platform-assignment' and (task.get('description') or '').startswith('列表正文：'):
+                field = 'description'
+            elif candidate_id in ('platform-announcement', 'course-content-item') and task.get('content_type') == 'notice' and task.get('due') is None:
+                field = 'due'
+            else:
+                continue
+            row = db.execute("""SELECT s.request,c.candidate,c.resolution FROM recognition_candidates c
+                JOIN teaching_sources s ON s.user_id=c.user_id AND s.request_id=c.request_id
+                JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
+                JOIN teaching_submission_sources st ON st.user_id=s.user_id AND st.account=s.account AND st.input_id=s.input_id
+                WHERE c.id=? AND c.user_id=? AND c.request_id=? AND s.account=? AND c.state='applied'
+                  AND json_extract(b.result,'$.classification_mode')='platform-v1'
+                  AND st.review_pending=0 AND st.state!='submitted'""",
+                (last.get('storageId'), uid, last.get('requestId'), acct)).fetchone()
+            if not row:
+                continue
+            card = json.loads(row['candidate'])
+            resolution = json.loads(row['resolution'] or '{}')
+            baseline = resolution.get('source_draft', resolution.get('draft', {}))
+            if (not resolution.get('auto_apply') or field not in baseline or task.get(field) != baseline[field]
+                    or card.get('candidate_id') != candidate_id):
+                continue
+            request = json.loads(row['request'])
+            entry, = request['records']
+            if card.get('input_id') != entry['record']['input_id']:
+                continue
+            value = refreshed_platform_field(request, card, field, task.get(field))
+            if value is None:
+                continue
+            task[field] = value
+            resolution.setdefault('source_draft', dict(baseline))[field] = value
+            db.execute('UPDATE recognition_candidates SET candidate=?,resolution=? WHERE user_id=? AND id=?',
+                       (json.dumps(card), json.dumps(resolution), uid, last['storageId']))
+            changed = True
+        if changed:
+            db.execute("UPDATE workspace SET value=?,version=? WHERE user_id=? AND name='tasks'",
+                       (json.dumps(tasks), version+1, uid))
 
 
 def account(username):
@@ -73,7 +219,7 @@ def request_view(request):
     return dict(contract_version=VIEW, request_id=request['request_id'], records=records)
 
 
-def candidate_view(decision, entry, *, model_routing=False):
+def candidate_view(decision, entry, *, model_routing=False, single=False):
     r, source = entry['record'], entry['source']
     a = decision['pair']['assessment']; d = a['deadline']
     # A guessed year can be shown without granting auto-apply. Keep actual
@@ -84,6 +230,9 @@ def candidate_view(decision, entry, *, model_routing=False):
     context={d['ref_id']:d for d in r.get('course_context',{}).get('documents',[])}
     inferred = known and ((not model_routing and 'original_age_unknown' in codes)
                           or d['derivation'] == 'course_rule'
+                          or d['derivation'] == 'missing_year' and (entry.get('platform_item') or teaching_platform.route(entry) == 'platform')
+                          or decision.get('content_type') == 'notice' and teaching_platform.route(entry) == 'platform'
+                          and d['derivation'] in ('relative','offset')
                           or any(q['part_id'] in context for q in d['evidence']))
     evidence = []; by_quote = {}
     sources=[dict(input_id=r['input_id'],platform=r['platform'],url=source['url'],label=source['label'],source_item_id=r['source_item_id'])]
@@ -99,7 +248,7 @@ def candidate_view(decision, entry, *, model_routing=False):
                     sources.append(dict(input_id=origin['input_id'],platform=r['platform'],url=origin['source_url'],
                                         label=origin['source_label'],source_item_id=None))
             by_quote[key]['supports']=list(dict.fromkeys(by_quote[key]['supports']+supports))
-    return dict(candidate_id=a['candidate_id'], input_id=r['input_id'], title=decision['title'],
+    return dict(candidate_id=a['candidate_id'], input_id=r['input_id'], title=teaching_display_title(decision, entry, single),
         content_type=decision.get('content_type', 'task'),
         description=decision['description'], course_or_project=source['course_or_project'],
         course_basis='provided' if source['course_or_project'] else 'unknown',
@@ -115,23 +264,27 @@ def candidate_view(decision, entry, *, model_routing=False):
 
 def result_view(request, result):
     tasks, rows, errors = [], [], []
-    model_routing = result.get('classification_mode') == CLASSIFICATION_MODE
+    model_routing = result.get('classification_mode') in CLASSIFICATION_MODES
     for entry, row in zip(request['records'], result['record_results']):
         # Viewing a stored result must not reclassify it or change user decisions.
         decisions=row['decisions']
-        cards = [candidate_view(d, entry, model_routing=model_routing) for d in decisions if d['recommendation']!='filtered']
+        visible = [d for d in decisions if d['recommendation'] != 'filtered']
+        cards = [candidate_view(d, entry, model_routing=model_routing, single=len(visible)==1) for d in visible]
         tasks.extend(cards)
         warnings = list(row['warnings'])
         warnings.extend('history_filtered:'+str(d['filter_reason']) for d in decisions if d['recommendation']=='filtered')
         if row['status']=='no_tasks': warnings.append('no_action:未发现行动要求')
-        failed = row['status'] in ('failed','incomplete')
+        failed = row['status']=='failed'
         rows.append(dict(input_id=row['input_id'], status='failed' if failed else 'success' if cards else 'no_tasks',
             task_ids=[c['candidate_id'] for c in cards], warnings=warnings))
         if failed:
-            failure = row['error'] or dict(code='incomplete_source',message=SOURCE_INCOMPLETE,retryable=False)
+            failure = row['error']
             errors.append(dict(input_id=row['input_id'], **{k:failure[k] for k in
                 ('code','message','retryable','failure','diagnostic','diagnostic_id') if k in failure}))
-    return dict(contract_version=VIEW, request_id=request['request_id'], status=result['status'],
+    status=result['status']
+    if any(row['status']=='incomplete' for row in result['record_results']) and recognition_finished(result):
+        status='success' if tasks else 'no_tasks'
+    return dict(contract_version=VIEW, request_id=request['request_id'], status=status,
         record_results=rows, tasks=tasks, errors=errors)
 
 
@@ -145,7 +298,10 @@ def register(db, uid, username, requests, *, assets=None):
         if captured_state:
             check_capture(batch)
             assignment = batch['assignment']; batch = batch['request']
-        else: check_request(batch)
+        else:
+            check_request(batch)
+            if any('platform_item' in entry for entry in batch['records']):
+                raise ValueError('platform facts require the authenticated capture envelope')
         for entry in batch['records']:
             entry = deepcopy(entry); r = entry['record']
             if 'course_context' in r or any(ref['kind']=='course_context' for ref in r['references']):
@@ -154,10 +310,13 @@ def register(db, uid, username, requests, *, assets=None):
             seen.add(r['input_id']); total += 1
             previous_state = submission.source_state(db,uid,account(username),r['input_id'])
             observation = assignment if assignment is not None else {'state':'unknown'} if captured_state else None
+            if entry.get('platform_item', {}).get('submitted') and (not assignment or assignment['state'] == 'unknown'):
+                observation = dict(state='submitted', basis='gradebook_submitted')
             if submission.stale(previous_state,r,observation):
                 skipped += 1
                 continue
-            files = (assets or {}).get(r['input_id'],[])
+            teaching_identity.record_gradebook_link(db, uid, account(username), entry)
+            files = [] if teaching_platform.page_only(entry) else (assets or {}).get(r['input_id'],[])
             digest = teaching_identity.source_digest(entry, assignment, files)
             row = db.execute('SELECT * FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
                 (uid, account(username), r['input_id'])).fetchone()
@@ -166,17 +325,37 @@ def register(db, uid, username, requests, *, assets=None):
             previous_digest = None
             if row and row['digest'] != digest:
                 old = json.loads(row['request'])['records'][0]
-                old_files = teaching_assets.load(db,uid,account(username),row['request_id'])
+                old_files = [dict(ref_id=ref, sha256=sha, mime_type=mime) for ref,sha,mime in
+                             teaching_assets.retained_identity(db,uid,account(username),row['request_id'])]
+                if old.get('platform_item', {}).get('gradebook_id') and row['digest'] == teaching_identity.source_digest(
+                        old, assignment, old_files, include_legacy_gradebook_id=True):
+                    previous_digest = teaching_identity.source_digest(old, assignment, old_files)
                 legacy = deepcopy(old)
                 for key in ('collected_at','snapshot_id'): legacy['record'].pop(key)
                 legacy_material = dict(entry=legacy,assignment=assignment) if assignment else legacy
                 if old_files: legacy_material = dict(source=legacy_material,assets=teaching_assets.identity(old_files))
                 if row['digest']==hashlib.sha256(canonical(legacy_material)).hexdigest():
                     previous_digest = teaching_identity.source_digest(old, assignment, old_files)
+                if 'page_attachments' in entry and 'page_attachments' not in old and (
+                        previous_digest is not None or row['digest']==teaching_identity.source_digest(old,assignment,old_files)):
+                    teaching_platform.use_page_evidence(old)
+                    projection = deepcopy(entry)
+                    for link in projection['page_attachments']:
+                        link['url'] = None  # The legacy ref_id already binds the original URL.
+                    if teaching_identity.source_digest(old,assignment,[]) == teaching_identity.source_digest(projection,assignment,[]):
+                        previous_digest = digest
             if row and (row['digest']==digest or previous_digest==digest):
                 request = json.loads(row['request'])
-                db.execute('UPDATE teaching_sources SET digest=? WHERE user_id=? AND account=? AND input_id=?',
-                           (digest,uid,account(username),r['input_id']))
+                if 'page_attachments' in entry and 'page_attachments' not in request['records'][0]:
+                    upgraded = deepcopy(entry)
+                    for key in ('snapshot_id', 'collected_at'):
+                        upgraded['record'][key] = request['records'][0]['record'][key]
+                    request['records'] = [upgraded]
+                    # With no course references the only old dependency was the file reader.
+                    if not teaching_platform.course_references(entry):
+                        course_context.remember(db,uid,account(username),entry,[])
+                db.execute('UPDATE teaching_sources SET digest=?,request=? WHERE user_id=? AND account=? AND input_id=?',
+                           (digest,json.dumps(request),uid,account(username),r['input_id']))
             else:
                 r['snapshot_id'] = 'snapshot:'+secrets.token_hex(16)
                 request = dict(contract_version='0.4', request_id='teaching:'+secrets.token_hex(16), records=[entry])
@@ -203,6 +382,7 @@ def register(db, uid, username, requests, *, assets=None):
             state = submission.observe(db,uid,account(username),r,request['request_id'],observation,
                                        old_request_id=row['request_id'] if row else None,source=entry['source'],
                                        assets=teaching_assets.identity(files))
+            submission.observe_linked_status(db, uid, account(username), entry, observation, state)
             course_context.index(db,uid,account(username),request['records'][0]['record'])
             if submission.skip_model(state):
                 skipped += 1
@@ -210,9 +390,10 @@ def register(db, uid, username, requests, *, assets=None):
             stored = db.execute('SELECT result,demo FROM recognition_batches WHERE user_id=? AND request_id=?',
                 (uid,request['request_id'])).fetchone()
             output = json.loads(stored['result']) if stored else None
-            if output and (needs_source_completion(output) or output['status'] in ('success','no_tasks')):
+            if output and reusable(output,entry):
                 skipped += 1
             else: pending.append(request_view(request))
+    teaching_identity.retire_covered_gradebook(db, uid, account(username))
     for old,current in course_context.refresh_dependents(db,uid,account(username)):
         pending=[p for p in pending if p['request_id']!=old]
         state=submission.source_state(db,uid,account(username),current['records'][0]['record']['input_id'])
@@ -231,7 +412,17 @@ def resolve_snapshot(db, uid, request_id, ApiError):
     return json.loads(row['request'])
 
 
-def recognize(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
+def recognize(request, ApiError, **attachments):
+    entry, = request['records']
+    if teaching_platform.page_only(entry):
+        teaching_platform.use_page_evidence(entry)
+    if teaching_platform.route(entry) == 'platform':
+        return teaching_platform.classify(request)
+    return _extract(request, ApiError, **attachments)
+
+
+def _extract(request, ApiError, *, files=(), save_cache=None, prepare_context=None):
+    entry, = request['records']
     try:
         options = live_options(model_env_path(ROOT))
         if not options['key'].strip() or options['provider']!='qiniu': raise ValueError()
@@ -248,14 +439,16 @@ def recognize(request, ApiError, *, files=(), save_cache=None, prepare_context=N
     diagnostics.event('configuration',model=settings.model,timeout_seconds=settings.timeout_seconds)
     def check_active():
         if disconnected(): raise ApiError(409,'识别已停止或来源已变化，已读附件进度保留。')
-    teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
-    if prepare_context: prepare_context(request,client,settings,check_active)
+    if not teaching_platform.page_only(entry):
+        teaching_assets.enrich(request,files,client,settings,save_cache,guard=check_active)
+    if prepare_context:
+        prepare_context(request,client,settings,check_active)
     check_active()
     with operations.span('recognition') as observation:
         result = process_teaching_request(request, client=client, settings=settings,
             verified_snapshot_digests={snapshot_digest(e) for e in request['records']},
             budget_seconds=90,diagnostic_event=diagnostics.event)
-        if result['status'] in ('failed','partial_success'):
+        if not recognition_finished(result):
             code=next((row['error']['code'] for row in result['record_results'] if row.get('error')),'upstream_error')
             observation.update(result='failed',code=code if code in operations.CODES else 'upstream_error')
     return result, policy
@@ -266,7 +459,6 @@ def attachment_context(db, uid, request_id):
     import sqlite3
     from contextlib import closing
     cred = db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-    files = teaching_assets.load(db,uid,account(cred['username']),request_id) if cred else []
     path = db.execute('PRAGMA database_list').fetchone()[2]
     def save_cache(asset,version,result):
         if not path: return  # In-memory tests need no durable cache.
@@ -277,8 +469,23 @@ def attachment_context(db, uid, request_id):
     acct=account(cred['username'])
     row=db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND account=? AND request_id=?',
                    (uid,acct,request_id)).fetchone()
-    if not row: return dict(files=files,save_cache=save_cache) if files else {}
-    captured=json.loads(row[0]); selected=course_context.select(db,uid,acct,captured['records'][0])
+    if not row: return {}
+    captured=json.loads(row[0])
+    entry, = captured['records']
+    selected=course_context.select(db,uid,acct,entry)
+    if teaching_platform.page_only(entry):
+        if not selected: return {}
+        def prepare_pages(request,client,settings,guard):
+            materials=[]
+            for item in selected:
+                guard()
+                material=deepcopy(item['request'])
+                teaching_platform.use_page_evidence(material['records'][0])
+                materials.append(material)
+            course_context.attach(request,materials)
+        prepare_pages.selected=selected
+        return dict(prepare_context=prepare_pages)
+    files = teaching_assets.load(db,uid,acct,request_id)
     def load_files(item):
         if not path: return teaching_assets.load(db,uid,acct,item['request']['request_id'])
         with closing(sqlite3.connect(path,timeout=30)) as current_db:
@@ -306,7 +513,7 @@ def attachment_context(db, uid, request_id):
 
 def validate_current_result(request, result, policy, ApiError):
     try:
-        if result.get('classification_mode') != CLASSIFICATION_MODE: raise ValueError()
+        if result.get('classification_mode') not in CLASSIFICATION_MODES: raise ValueError()
         validate_teaching_result(request,result,verified_snapshot_digests={snapshot_digest(e) for e in request['records']})
         if not policy or result['policy_version']!=policy['version']: raise ValueError()
     except Exception as cause:
@@ -318,7 +525,7 @@ def validate_current_result(request, result, policy, ApiError):
         raise error from None
 
 
-def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
+def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None, updated_tasks=None):
     import recognition
     if set(body)!={'contract_version','request_id'} or body['contract_version']!=RUN or not isinstance(body['request_id'],str) or len(body['request_id'])>256:
         raise ApiError(400,'教学网运行请求仅接受服务器返回的 request_id')
@@ -329,17 +536,17 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
     cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
     acct=account(cred['username'])
     context_revision=course_context.catalog_revision(db,uid,acct,captured['records'][0])
-    attachments = attachment_context(db,uid,request['request_id'])
+    platform_only = teaching_platform.route(captured['records'][0]) == 'platform'
+    attachments = {} if platform_only else attachment_context(db,uid,request['request_id'])
     context_selection=getattr(attachments.get('prepare_context'),'selected',None)
     if context_selection is None: context_selection=course_context.select(db,uid,acct,captured['records'][0])
     previous = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',(uid,request['request_id'])).fetchone()
-    if previous and (not retry or json.loads(previous['result'])['status'] in ('success','no_tasks')):
+    if previous and (not retry or reusable(json.loads(previous['result']),captured['records'][0])):
         operations.emit('outcome',code='cache_hit')
         return
     if previous:operations.emit('outcome',code='retry')
-    if previous and needs_source_completion(json.loads(previous['result'])):
-        raise ApiError(409,SOURCE_INCOMPLETE)
-    if not recognition._ACTIVE.acquire():
+    needs_slot = not platform_only
+    if needs_slot and not recognition._ACTIVE.acquire():
         with diagnostics.capture(db,uid,request['request_id']):
             error=ApiError(503,WAIT_ERROR)
             error.code,error.diagnostic='agent_unavailable','model_busy'
@@ -377,9 +584,10 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             else:
                 db.execute('INSERT INTO recognition_batches VALUES(?,?,?,?,?,0,?)',(uid,request['request_id'],hashlib.sha256(canonical(request)).hexdigest(),json.dumps(request),json.dumps(result),attempt_id))
             cred=db.execute('SELECT username FROM source_credentials WHERE user_id=?',(uid,)).fetchone()
-            teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],attachments.get('files',[]))
+            used_files = teaching_assets.load(db,uid,acct,request['request_id']) if platform_only and not teaching_platform.page_only(captured['records'][0]) else attachments.get('files',[])
+            teaching_assets.remember_inputs(db,uid,account(cred['username']),request['request_id'],used_files)
             course_context.remember(db,uid,acct,captured['records'][0],context_selection,
-                references=request['records'][0]['record']['references'],files=attachments.get('files',[]))
+                references=request['records'][0]['record']['references'],files=used_files)
             unchanged = teaching_identity.reuse_unchanged_result(db,uid,request['request_id'],result)
             if result['status'] in ('success','no_tasks') and not unchanged:
                 teaching_identity.supersede_unhandled(db,uid,request['request_id'],captured['records'][0]['record']['snapshot_id'])
@@ -387,15 +595,22 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
             for card in cards:
                 db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate) VALUES(?,?,?,?)',
                     (secrets.token_hex(16),uid,request['request_id'],json.dumps(card)))
-            submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(attachments.get('files',[])))
+            submission.bind_recognition(db,uid,captured,result,teaching_assets.identity(used_files))
             for saved in db.execute("SELECT id,candidate FROM recognition_candidates WHERE user_id=? AND request_id=? AND state='pending'",
                                     (uid,request['request_id'])).fetchall():
                 card = submission.decorate(db,uid,request['request_id'],json.loads(saved['candidate']))
                 db.execute('UPDATE recognition_candidates SET candidate=? WHERE id=?',(json.dumps(card),saved['id']))
             db.execute('INSERT INTO recognition_record_policies VALUES(?,?,?,?) ON CONFLICT(user_id,request_id,input_id) DO UPDATE SET policy=excluded.policy',
                 (uid,request['request_id'],request['records'][0]['record']['input_id'],json.dumps(policy)))
+            if captured['records'][0].get('platform_item', {}).get('kind') in ('gradebook_assignment', 'native_assignment', 'listed_assignment'):
+                teaching_identity.retire_covered_gradebook(db, uid, acct)
             submission.controls.refresh_request(db,uid,request['request_id'])
+            if updated_tasks is not None:
+                import source_sync
+                before = source_sync.task_snapshot(db, uid)
             published = recognition.publish_results(db, uid, request, ApiError)
+            if updated_tasks is not None:
+                updated_tasks.extend(source_sync.task_updates(before, source_sync.task_snapshot(db, uid)))
             operations.emit('save',(time.monotonic()-saving)*1000)
             for row in result['record_results']:
                 code=(row.get('error') or {}).get('code') or ('succeeded' if row['status']=='success' else row['status'])
@@ -404,4 +619,4 @@ def run(db, uid, body, retry, ApiError, *, guard=None, diagnostic_attempt=None):
                 if filtered:operations.after_commit(db,'outcome',code='filtered',quantity=filtered)
         return published
     finally:
-        recognition._ACTIVE.release()
+        if needs_slot: recognition._ACTIVE.release()

@@ -59,7 +59,12 @@ def initialize(db, recover=True):
         user_id TEXT PRIMARY KEY, snapshot TEXT NOT NULL)''')
     for row in db.execute('SELECT user_id,operation_id,run_id,snapshot FROM source_sync_runs ORDER BY rowid').fetchall():
         run = json.loads(row['snapshot'])
-        if compact_diagnostics(run):
+        if run['state'] in contract.FINAL:
+            retire_content_gaps(db,run)
+        retry_fixed = restore_transport_retries(db, run)
+        if retry_fixed:
+            run['revision'] += 1
+        if compact_diagnostics(run) or retry_fixed:
             db.execute('UPDATE source_sync_runs SET snapshot=? WHERE run_id=?', (json.dumps(run),run['run_id']))
         db.execute('INSERT OR IGNORE INTO source_sync_operations VALUES(?,?,?,?)',
                    (row['user_id'],row['operation_id'],row['run_id'],
@@ -278,6 +283,64 @@ def save(db, run, state=None):
         remember_check(db, run)
 
 
+def retire_content_gaps(db, run):
+    """Settle only historical content gaps, preserving actual collection and model errors."""
+    changed=False
+    settled=False
+    for item in run['records']:
+        if item['state'] != 'incomplete': continue
+        changed=True
+        if (item.get('error') or {}).get('code') in ('source_incomplete','incomplete_source'):
+            settled=True
+            item.update(state='succeeded',error=None)
+            item.pop('recovered',None)
+            item.pop('recovered_by',None)
+        else:
+            item['state']='failed'
+    if not changed: return
+    if (run.get('error') or {}).get('code') in ('source_incomplete','incomplete_source'):
+        run['error']=None
+    if run['state']=='failed' and settled:
+        run['state']='partial_success'
+    run['records']=[item for item in run['records'] if useful_record(item)]
+    if run['state'] in ('failed','partial_success') and not run.get('error') and all(
+            item['state']=='succeeded' for item in run['records']):
+        run['state']='succeeded'
+    compact(db,run)
+    run['counts']=counts(run)
+    run['revision']+=1
+    db.execute('UPDATE source_sync_runs SET state=?,snapshot=? WHERE user_id=? AND run_id=?',
+               (run['state'],json.dumps(run),run['user_id'],run['run_id']))
+    remember_check(db,run)
+
+
+def restore_transport_retries(db, run):
+    """Old clients also used model_unavailable for rejected HTTP requests.
+    Only enable a retry when this item's exact attempt lost the transport.
+    """
+    changed = False
+    for item in run['records']:
+        failure = item.get('error') or {}
+        if (item['state'] != 'failed' or item.get('recovered') or failure.get('retryable') is not False
+                or failure.get('code') != 'agent_unavailable'
+                or failure.get('failure', {}).get('reason') != 'model_unavailable'):
+            continue
+        attempt_id = failure.get('diagnostic_id') or failure.get('_diagnostic_attempt', {}).get('id')
+        row = db.execute("""SELECT detail FROM recognition_attempt_diagnostics
+            WHERE user_id=? AND request_id=? AND id=?""",
+            (run['user_id'], item['request_id'], attempt_id)).fetchone()
+        if not row:
+            continue
+        transport = next((event for event in reversed(json.loads(row[0])['events'])
+                          if event['stage'] == 'model_transport'), {})
+        if transport.get('status') == 'unavailable':
+            if run.get('error') == failure:
+                run['error'] = dict(failure, retryable=True)
+            failure['retryable'] = True
+            changed = True
+    return changed
+
+
 def compact_diagnostics(run):
     changed = False
     for item in [run,*run['records']]:
@@ -302,7 +365,7 @@ def can_retry(item):
 
 
 def needs_collection(item):
-    return item['state'] == 'incomplete' or (item.get('error') or {}).get('code') in ('source_incomplete', 'source_changed', 'source_missing')
+    return (item.get('error') or {}).get('code') in ('source_changed','source_missing','collection_failed')
 
 
 def input_identity(db, uid, item):
@@ -471,7 +534,7 @@ def retry_records(db, uid, old, selection, ApiError):
         stored = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, identity)).fetchone()
         if stored:
             result = json.loads(stored['result'])
-            if result['status'] in ('success','no_tasks') or teaching.needs_source_completion(result): continue
+            if teaching.recognition_finished(result): continue
         try: teaching.resolve_snapshot(db, uid, identity, ApiError)
         except ApiError as exc:
             if exc.status==409: continue  # removed, replaced or already submitted
@@ -592,17 +655,22 @@ def _process_record(path, uid, run_id, request_id, ApiError):
             next(r for r in run['records'] if r['request_id']==request_id)['state'] = 'running'
             save(db, run)
         with cancel_if(lambda: cancelled(path, uid, run_id, ApiError)), connection(path) as db:
+            updated_tasks = []
             published = teaching.run(db, uid, dict(contract_version=teaching.RUN, request_id=request_id), True, ApiError,
-                         guard=lambda current: guard(current, uid, run_id, ApiError), diagnostic_attempt=diagnostic_attempt)
+                         guard=lambda current: guard(current, uid, run_id, ApiError), diagnostic_attempt=diagnostic_attempt, updated_tasks=updated_tasks)
             if not db.in_transaction: db.execute('BEGIN IMMEDIATE')
             guard(db, uid, run_id, ApiError)
             batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?', (uid, request_id)).fetchone()
             result = json.loads(batch['result'])
             run = get(db, uid, run_id, ApiError)
             item = next(r for r in run['records'] if r['request_id']==request_id)
-            if teaching.needs_source_completion(result):
-                item.update(state='incomplete', error=error('source_incomplete', '来源尚未完整取得，请重新获取来源或查看原文。'))
-            elif result['status'] in ('success', 'no_tasks'):
+            if teaching.recognition_finished(result):
+                updates = {u['task_id']: u for u in run.get('updated_tasks', [])}
+                for update in updated_tasks:
+                    prior = updates.get(update['task_id'], {})
+                    update['changed_fields'] = list(dict.fromkeys(prior.get('changed_fields', []) + update['changed_fields']))
+                    updates[update['task_id']] = update
+                run['updated_tasks'] = list(updates.values())
                 receipts = added_items(db, uid, request_id, published or set())
                 item.update(state='succeeded', added=len(receipts), added_items=receipts,
                             review=0, review_items=[], error=None)
@@ -665,7 +733,7 @@ def collect_recovery(db, uid, run, ApiError, path):
         # their already captured source. Incomplete sources remain unresolved.
         for item in run['records']:
             if targets[item['request_id']]['needs_collection']:
-                item.update(state='incomplete',error=run['error'])
+                item.update(state='failed',error=run['error'])
         return run
     guard(db, uid, run['run_id'], ApiError)
     run = get(db, uid, run['run_id'], ApiError)
@@ -686,11 +754,10 @@ def collect_recovery(db, uid, run, ApiError, path):
             batch = db.execute('SELECT result FROM recognition_batches WHERE user_id=? AND request_id=?',
                 (uid,source['request_id'])).fetchone() if source else None
             result = json.loads(batch['result']) if batch else None
-            settled = result and result['status'] in ('success','no_tasks')
+            settled = result and teaching.recognition_finished(result)
             if source and teaching.submission.skip_model(teaching.submission.for_request(db,uid,source['request_id'])): settled = True
-            item.update(state='succeeded' if settled else 'incomplete',error=None if settled else
-                error('source_incomplete' if result and teaching.needs_source_completion(result) else 'source_missing',
-                      '重新获取后来源仍不完整，请稍后再处理或查看原文。' if result and teaching.needs_source_completion(result) else '本次未重新取得这条来源，请稍后再处理。'))
+            item.update(state='succeeded' if settled else 'failed',error=None if settled else
+                        error('source_missing','本次未取得这条教学网页面，请重新获取。'))
         records.append(item)
     run['records'] = records
     run['updated_tasks'] = response.get('updated_tasks', [])

@@ -51,6 +51,27 @@ class TeachingIOTests(unittest.TestCase):
     def check(self,request,result,verified=True):
         return check_pair(request,result,verified_snapshot_digests={snapshot_digest(e) for e in request['records']} if verified else ())
 
+    def test_programmatic_classification_requires_authenticated_platform_or_content_scope(self):
+        request, result = self.sample()
+        result['classification_mode'] = 'platform-v1'
+        entry, = request['records']
+        with self.assertRaises(ValueError):
+            self.check(request, result)
+        entry['platform_item'] = dict(kind='listed_assignment', due=None, submitted=False)
+        self.check(request, result)
+        with self.assertRaises(ValueError):
+            self.check(request, result, verified=False)
+        del entry['platform_item']
+        entry['page_attachments'] = []
+        with self.assertRaises(ValueError):
+            self.check(request, result)
+        entry['record']['source_metadata_text'] += '\n栏目：教学内容'
+        for decision in result['record_results'][0]['decisions']:
+            decision['pair']['record'] = deepcopy(entry['record'])
+        self.check(request, result)
+        with self.assertRaises(ValueError):
+            self.check(request, result, verified=False)
+
     def test_standalone_schemas_and_shared_boundary_pairs(self):
         self.assertEqual(SCHEMAS,schemas())
         for value in SCHEMAS.values():Draft202012Validator.check_schema(value)

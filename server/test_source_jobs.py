@@ -213,9 +213,9 @@ class SourceJobsTests(unittest.TestCase):
         self.drafts[record['input_id']]=empty_reply(record,'incomplete')
         with patch.dict(os.environ,{'NIUMA_ENVIRONMENT':'test'}):
             self.call('/auth/login',dict(email='teaching@example.test',password='Synthetic-password!'))
-            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
+            with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=app.ApiError(409,"来源已变化")):
                 parent=self.start('rollback:parent');jobs.wait_for_jobs(app.DB)
-                self.assertEqual(self.call('/sources/sync-runs/'+parent['run_id'])[1]['counts']['incomplete'],1)
+                self.assertEqual(self.call('/sources/sync-runs/'+parent['run_id'])[1]['counts']['failed'],1)
                 def fail_registration(db,*args,**kwargs):
                     self.assertTrue(db.in_transaction)
                     db.execute('UPDATE source_credentials SET username=? WHERE user_id=?',('must-roll-back',self.uid))
@@ -586,6 +586,25 @@ class SourceJobsTests(unittest.TestCase):
             self.assertEqual(status,202,retry);jobs.wait_for_jobs(app.DB)
         self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),3)
 
+    def test_upgrade_retires_only_content_gaps_and_preserves_real_failures(self):
+        with patch.object(jobs,'launch'):
+            run=self.start()
+        with app.connection() as db:
+            raw=jobs.get(db,self.uid,run['run_id'],app.ApiError)
+            def old(rid,code):
+                return dict(request_id=rid,label=rid,course=None,state='incomplete',added=0,review=0,
+                            seconds=1,error=jobs.error(code,'旧记录'))
+            raw['records']=[old('gap','source_incomplete'),old('missing','source_missing')]
+            jobs.save(db,raw,'failed')
+            jobs.initialize(db,recover=False)
+            updated=jobs.get(db,self.uid,run['run_id'],app.ApiError)
+            self.assertEqual(updated['state'],'partial_success')
+            self.assertEqual([(r['request_id'],r['state'],r['error']['code']) for r in updated['records']],
+                             [('missing','failed','source_missing')])
+            self.assertTrue(jobs.needs_collection(updated['records'][0]))
+            jobs.initialize(db,recover=False)
+            self.assertEqual(updated,jobs.get(db,self.uid,run['run_id'],app.ApiError))
+
     def test_incomplete_source_is_not_model_retryable(self):
         with patch.object(jobs,'launch'):
             run=self.start()
@@ -606,12 +625,13 @@ class SourceJobsTests(unittest.TestCase):
         calls=[];failing=True
         def model(body,ApiError):
             rid=body['records'][0]['record']['input_id'];calls.append(rid)
+            if failing and rid==ids[3]:raise ApiError(409,'来源页面有更新')
             if failing and rid==ids[2]:raise ApiError(502,'合成识别失败')
             return self.model(body,ApiError)
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=model),patch.object(app.source_sync,'collect',wraps=app.source_sync.collect) as collect:
             first=self.start();jobs.wait_for_jobs(app.DB)
             old=self.call('/sources/sync-runs/'+first['run_id'])[1]
-            self.assertEqual((old['counts']['added'],old['counts']['review'],old['counts']['failed'],old['counts']['incomplete']),(2,0,1,1))
+            self.assertEqual((old['counts']['added'],old['counts']['review'],old['counts']['failed'],old['counts']['incomplete']),(2,0,2,0))
             before=self.call('/workspace')[1]['tasks']['value'];before[0]['title']='用户已经改过的成功任务'
             with app.connection() as db:db.execute('UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name="tasks"',(json.dumps(before),self.uid))
             review_before=[item for batch in self.call('/recognition/batches')[1] for item in batch['items'] if item['state']=='pending']
@@ -647,17 +667,17 @@ class SourceJobsTests(unittest.TestCase):
             self.assertEqual(self.call(endpoint,payload)[1]['run_id'],child['run_id'])
             self.assertEqual(self.call(endpoint.replace('/recover','/retry'),payload)[0],409)
 
-    def test_recovery_keeps_unchanged_incomplete_sources_unresolved_without_repeating_model_calls(self):
+    def test_empty_page_result_finishes_without_a_recovery_action(self):
         request,_=example();record=request['records'][0]['record'];record['body_status']='partial'
         self.drafts[record['input_id']]=empty_reply(record,'incomplete')
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model) as model:
             first=self.start();jobs.wait_for_jobs(app.DB)
             status,child=self.call('/sources/sync-runs/'+first['run_id']+'/recover',dict(contract_version='source-sync/0.1',operation_id='recover:still-missing',consent=True))
-            self.assertEqual(status,202,child);jobs.wait_for_jobs(app.DB)
-            result=self.call('/sources/sync-runs/'+child['run_id'])[1]
-            self.assertEqual(result['counts']['incomplete'],1);self.assertEqual(result['counts']['added'],0)
+            self.assertEqual(status,409,child)
+            result=self.call('/sources/sync-runs/'+first['run_id'])[1]
+            self.assertEqual(result['state'],'succeeded')
+            self.assertEqual(result['records'],[])
             self.assertEqual(model.call_count,1)
-            self.assertFalse(self.call('/sources/sync-runs/'+first['run_id'])[1]['records'][0].get('recovered'))
 
     def test_recovery_collection_outage_still_retries_recognition_and_keeps_missing_source_unresolved(self):
         request,drafts=example(('explicit-complete',)*2);self.drafts.update(drafts)
@@ -666,6 +686,7 @@ class SourceJobsTests(unittest.TestCase):
         self.drafts[ids[1]]=empty_reply(request['records'][1]['record'],'incomplete')
         failing=True
         def model(body,ApiError):
+            if failing and body['records'][0]['record']['input_id']==ids[1]:raise ApiError(409,'网页已变化')
             if failing and body['records'][0]['record']['input_id']==ids[0]:raise ApiError(502,'暂时识别失败')
             return self.model(body,ApiError)
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=model) as recognizer:
@@ -675,18 +696,21 @@ class SourceJobsTests(unittest.TestCase):
             self.assertEqual(status,202,child);jobs.wait_for_jobs(app.DB)
             result=self.call('/sources/sync-runs/'+child['run_id'])[1]
             self.assertEqual(result['state'],'partial_success');self.assertEqual(result['counts']['added'],1)
-            self.assertEqual(result['counts']['incomplete'],1);self.assertEqual(result['error']['code'],'collection_failed')
+            self.assertEqual(result['counts']['failed'],1);self.assertEqual(result['error']['code'],'collection_failed')
             self.assertEqual(recognizer.call_count,3)
 
-    def test_recovery_resolves_all_predecessors_after_several_incomplete_snapshots(self):
+    def test_recovery_resolves_predecessors_after_repeated_source_changes(self):
         request,drafts=example();record=request['records'][0]['record'];identity=record['input_id'];record['body_status']='partial'
         self.drafts[identity]=empty_reply(record,'incomplete')
-        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=self.model):
+        def changed_until_final(body,ApiError):
+            if body['records'][0]['record']['body_status']=='partial':raise ApiError(409,'网页已变化')
+            return self.model(body,ApiError)
+        with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=changed_until_final):
             first=self.start();jobs.wait_for_jobs(app.DB)
             record['text']+='\n只补齐了一部分内容。';crawler.return_value.stdout=json.dumps(request)
             status,middle=self.call('/sources/sync-runs/'+first['run_id']+'/recover',dict(contract_version='source-sync/0.1',operation_id='recover:partial',consent=True))
             self.assertEqual(status,202,middle);jobs.wait_for_jobs(app.DB)
-            self.assertEqual(self.call('/sources/sync-runs/'+middle['run_id'])[1]['counts']['incomplete'],1)
+            self.assertEqual(self.call('/sources/sync-runs/'+middle['run_id'])[1]['counts']['failed'],1)
             self.assertEqual([run['run_id'] for run in self.call('/sources/sync-runs')[1]['runs']],[middle['run_id']])
             record['text']+='\n最终附件已完整取得。';record['body_status']='complete';crawler.return_value.stdout=json.dumps(request);self.drafts[identity]=drafts[identity]
             status,last=self.call('/sources/sync-runs/'+middle['run_id']+'/recover',dict(contract_version='source-sync/0.1',operation_id='recover:complete',consent=True))
@@ -701,7 +725,7 @@ class SourceJobsTests(unittest.TestCase):
             self.assertEqual([run['run_id'] for run in listing['runs']],[last['run_id'],middle['run_id']])
             self.assertTrue(listing['runs'][1]['records'][0]['recovered'])
             batches=self.call('/recognition/batches')[1]
-            self.assertEqual(len(batches),3)
+            self.assertEqual(len(batches),1)
             self.assertTrue(all(batch['sourceSyncManaged'] for batch in batches))
 
     def test_single_retry_then_remaining_batch_uses_latest_attempt_and_idempotency(self):
@@ -752,6 +776,54 @@ class SourceJobsTests(unittest.TestCase):
         self.assertEqual(result['records'][0]['error']['code'],'model_configuration')
         self.assertFalse(result['records'][0]['error']['retryable'])
         self.assertEqual(self.call('/sources/sync-runs/'+run['run_id']+'/retry',dict(contract_version='source-sync/0.1',operation_id='retry:config',consent=True))[0],409)
+
+    def test_legacy_transport_failure_retries_only_disconnected_source(self):
+        request, drafts = example(('explicit-complete',) * 3)
+        self.drafts.update(drafts)
+        chapter, rejected, _ = [entry['record'] for entry in request['records']]
+        chapter['text'] = '第四章 示例章节'
+        chapter['body_status'] = 'summary'
+        chapter['references'] = [dict(ref_id='ref:chapter', kind='attachment', label=chapter['text'],
+                                      read_state='unsupported', text=None)]
+        self.drafts[chapter['input_id']] = empty_reply(chapter)
+        statuses = {chapter['input_id']: 'unavailable', rejected['input_id']: 'http_error'}
+
+        def legacy_model(current, ApiError):
+            status = statuses.get(current['records'][0]['record']['input_id'])
+            if status:
+                jobs.diagnostics.event('model_transport', status=status)
+                error = ApiError(502, '识别失败')
+                error.code, error.diagnostic, error.retryable = 'agent_unavailable', 'model_unavailable', False
+                raise error
+            return self.model(current, ApiError)
+
+        with patch.object(app.source_sync.subprocess, 'run',
+                          return_value=SimpleNamespace(returncode=0, stdout=json.dumps(request))) as crawler:
+            with patch.object(jobs.teaching, 'recognize', side_effect=legacy_model):
+                parent = self.start()
+                jobs.wait_for_jobs(app.DB)
+            tasks = self.call('/workspace')[1]['tasks']['value']
+            self.assertEqual(len(tasks), 1)
+            with app.connection() as db:
+                jobs.initialize(db, recover=False)
+            url = '/sources/sync-runs/' + parent['run_id']
+            listing = self.call(url)[1]
+            failed = {r['input_id']: r for r in listing['records'] if r['state'] == 'failed'}
+            self.assertTrue(failed[chapter['input_id']]['error']['retryable'])
+            self.assertFalse(failed[rejected['input_id']]['error']['retryable'])
+            with patch.object(jobs.teaching, 'recognize', side_effect=self.model) as model:
+                status, child = self.call(url + '/retry', dict(contract_version='source-sync/0.1',
+                                                              operation_id='retry:transport', consent=True))
+                self.assertEqual(status, 202, child)
+                jobs.wait_for_jobs(app.DB)
+                model.assert_called_once()
+                self.assertEqual(model.call_args.args[0]['records'][0]['record']['input_id'], chapter['input_id'])
+            self.assertEqual(sum(call.args[0][0] == 'node' for call in crawler.call_args_list), 1)
+        self.assertEqual(self.call('/sources/sync-runs/' + child['run_id'])[1]['state'], 'succeeded')
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'], tasks)
+        old = {r['input_id']: r for r in self.call(url)[1]['records']}
+        self.assertTrue(old[chapter['input_id']]['recovered'])
+        self.assertFalse(old[rejected['input_id']].get('recovered'))
 
     def test_temporary_service_503_remains_retryable(self):
         request,_=example()
@@ -901,8 +973,8 @@ class SourceJobsTests(unittest.TestCase):
         with app.connection() as db:self.assertEqual(db.execute('SELECT count(*) FROM source_sync_runs').fetchone()[0],2)
 
     def test_sync_batch_ownership_does_not_cross_accounts(self):
-        request,_=example();record=request['records'][0]['record'];record['body_status']='partial'
-        self.drafts[record['input_id']]=empty_reply(record,'incomplete')
+        request,drafts=example()
+        self.drafts.update(drafts)
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))),patch.object(jobs.teaching,'recognize',side_effect=self.model):
             first=self.start();jobs.wait_for_jobs(app.DB)
         self.assertTrue(self.call('/recognition/batches')[1][0]['sourceSyncManaged'])
@@ -1018,25 +1090,23 @@ class SourceJobsTests(unittest.TestCase):
         with app.connection() as db:
             self.assertEqual(db.execute('SELECT snapshot FROM source_sync_runs WHERE run_id=?',(old['run_id'],)).fetchone()[0],original)
 
-    def test_normal_sync_completed_snapshot_recovers_old_incomplete_source(self):
+    def test_changed_page_can_add_work_after_empty_result(self):
         request,drafts=example();record=request['records'][0]['record']
         record['body_status']='partial'
         self.drafts[record['input_id']]=empty_reply(record,'incomplete')
         with patch.object(app.source_sync.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))) as crawler,patch.object(jobs.teaching,'recognize',side_effect=self.model):
             first=self.start();jobs.wait_for_jobs(app.DB)
             old=self.call('/sources/sync-runs/'+first['run_id'])[1]
-            self.assertEqual(old['counts']['incomplete'],1)
+            self.assertEqual(old['state'],'succeeded');self.assertEqual(old['records'],[])
             record['body_status']='complete';record['text']+='\n正文现已补齐。'
             self.drafts.update(drafts)
             crawler.return_value=SimpleNamespace(returncode=0,stdout=json.dumps(request))
             second=self.start('normal:completed');jobs.wait_for_jobs(app.DB)
         latest=self.call('/sources/sync-runs/'+second['run_id'])[1]
         self.assertEqual(latest['counts']['added'],1)
-        self.assertNotEqual(old['records'][0]['request_id'],latest['records'][0]['request_id'])
-        self.assertTrue(self.call('/sources/sync-runs/'+first['run_id'])[1]['records'][0].get('recovered'))
-        self.assertEqual([r['run_id'] for r in self.call('/sources/sync-runs')[1]['runs']],[second['run_id'],first['run_id']])
+        self.assertEqual([r['run_id'] for r in self.call('/sources/sync-runs')[1]['runs']],[second['run_id']])
         app.initialize()
-        self.assertEqual([r['run_id'] for r in self.call('/sources/sync-runs')[1]['runs']],[second['run_id'],first['run_id']])
+        self.assertEqual([r['run_id'] for r in self.call('/sources/sync-runs')[1]['runs']],[second['run_id']])
 
     def test_normal_snapshot_recovery_is_scoped_to_credential_and_source(self):
         def store(db,operation,identity,state):

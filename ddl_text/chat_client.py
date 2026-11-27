@@ -2,6 +2,8 @@
 
 import json
 import socket
+import ssl
+from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -44,7 +46,7 @@ class ChatClient:
                 {"role": "system", "content": instructions},
                 {"role": "user", "content": input_json},
             ],
-            "stream": False, "max_tokens": 8192,
+            "stream": False, "max_tokens": settings.max_output_tokens,
             "response_format": {"type": "json_object"},
         }
         if settings.thinking_mode is not None:
@@ -71,9 +73,13 @@ class ChatClient:
             if isinstance(error.reason, (TimeoutError, socket.timeout)):
                 event['result_code'] = 'timeout'
                 raise AgentError("agent_timeout", True) from None
-            raise AgentError("agent_unavailable", False) from None
-        except OSError:
-            raise AgentError("agent_unavailable", False) from None
+            if isinstance(error.reason, ssl.SSLCertVerificationError) or not isinstance(error.reason, OSError):
+                raise AgentError("agent_unavailable", False, "model_configuration") from None
+            raise AgentError("agent_unavailable", True, "model_unavailable") from None
+        except ssl.SSLCertVerificationError:
+            raise AgentError("agent_unavailable", False, "model_configuration") from None
+        except (OSError, IncompleteRead):
+            raise AgentError("agent_unavailable", True, "model_unavailable") from None
         try:
             event['result_code'] = 'invalid_response'
             if len(raw) > MAX_RESPONSE_BYTES:

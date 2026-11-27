@@ -47,6 +47,10 @@ def source_state(db, uid, account, input_id):
     if not row:return None
     state=dict(row);control=controls.find(db,uid,account,input_id)
     state['scope']=json.loads(control['detail'])['observation']['scope'] if control else 'unknown'
+    from teaching_identity import ASSIGNMENT_KINDS
+    source = db.execute("SELECT json_extract(request,'$.records[0].platform_item.kind') FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?",
+                        (uid, account, input_id)).fetchone()
+    state['structured_assignment'] = bool(source and source[0] in ASSIGNMENT_KINDS)
     return state
 
 
@@ -76,6 +80,21 @@ def observe(db, uid, account, record, request_id, assignment, old_request_id=Non
     return source_state(db,uid,account,record['input_id'])
 
 
+def observe_linked_status(db, uid, account, entry, observation, state):
+    """Deliver a verified status transition to an earlier exact gradebook/detail binding."""
+    from teaching_identity import assignment_aliases
+    if observation is None or state and state['review_pending'] and observation['state'] == 'submitted':
+        return
+    for alias in assignment_aliases(db, uid, account, entry):
+        previous = source_state(db, uid, account, alias['input_id'])
+        if not previous or observation['state'] != 'submitted' and previous['state'] != 'submitted':
+            continue
+        other, = json.loads(alias['request'])['records']
+        record = dict(other['record'], collected_at=entry['record']['collected_at'])
+        if not stale(previous, record, observation):
+            observe(db, uid, account, record, None, observation, source=other['source'])
+
+
 def for_request(db, uid, request_id):
     # Credential removal/switching invalidates this lookup, never granting trust
     # to a same-named assignment belonging to another account.
@@ -90,9 +109,10 @@ def for_request(db, uid, request_id):
 
 
 def skip_model(state):
-    # submission-policy/0.1: unknown scope is not enough to skip a model call;
-    # review_pending, however, pauses all later calls until explicit resolution.
-    return bool(state and (state['review_pending'] or state['state']=='submitted' and state.get('scope')=='submission_only'))
+    if not state:
+        return False
+    single_assignment = state.get('structured_assignment') or state.get('scope') == 'submission_only'
+    return bool(state['review_pending'] or state['state'] == 'submitted' and single_assignment)
 
 
 def review_reason(state):
@@ -112,6 +132,8 @@ def guard_auto_apply(db, uid, request_id, ApiError):
     state=for_request(db,uid,request_id)
     reason=review_reason(state)
     if reason: raise ApiError(400,reason)
+    if state and state['state'] == 'submitted':
+        raise ApiError(400,'作业已提交，请保留现有任务状态')
     return state
 
 
@@ -145,7 +167,10 @@ def bind_recognition(db, uid, captured, result, assets=()):
     select another source/account. Existing user decisions always take precedence.
     """
     state = for_request(db, uid, captured['request_id'])
-    if not state or state['state'] not in ('active','submitted') or state['review_pending']: return
+    if not state or state['review_pending']: return
+    entry = captured['records'][0]
+    structured = entry.get('platform_item', {}).get('kind') in ('listed_assignment', 'gradebook_assignment', 'native_assignment')
+    if state['state'] == 'unknown' and not structured: return
     row = controls.find(db, uid, state['account'], state['input_id'])
     if not row: return
     try: detail, refs = controls.refresh(db, row)
@@ -179,6 +204,6 @@ def bind_recognition(db, uid, captured, result, assets=()):
     obs['scope'] = 'unknown' if any(a['relation']=='unknown' and a['decision'] not in ('ignored','deleted') for a in obs['actions']) else 'mixed'
     obs['control_revision'] += 1
     controls.persist(db,row,detail)
-    entry = captured['records'][0]
-    controls.observe(db,uid,state['account'],entry['record'],dict(state=state['state']),state,
+    snapshot = obs['snapshot']
+    controls.observe(db,uid,state['account'],entry['record'],dict(state=state['state'],basis=snapshot['basis']),state,
                      source=entry['source'],assets=assets)

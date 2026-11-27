@@ -9,6 +9,11 @@ test('evidence shows original text and teaching source without duplicate excerpt
  const result=evidenceMarkup([{quotes:[{quote:'<img>'}],original:'原文 <img>',basis:'周五',sourceUrl:'https://course.pku.edu.cn/notice/1',platform:'teaching_web'}]);
  assert.match(result,/打开教学网原页面/);assert.doesNotMatch(result,/<blockquote>|截止日期依据/);assert.match(result,/原文 &lt;img&gt;/);assert.doesNotMatch(result,/<script>/);
 });
+test('teaching attachments link to the file or its source page and escape labels',()=>{
+ const html=evidenceMarkup([{sourceUrl:'https://course.pku.edu.cn/notice',attachments:[
+  {label:'题目.pdf',url:'https://course.pku.edu.cn/bbcswebdav/1'},{label:'<图>',url:null}]}]);
+ assert.match(html,/bbcswebdav\/1[^<]*题目.pdf/);assert.match(html,/notice[^<]*&lt;图&gt;/);
+});
 test('tasks without evidence explain the empty state',()=>assert.match(evidenceMarkup([]),/没有保存识别证据/));
 
 

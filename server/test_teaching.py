@@ -22,6 +22,86 @@ from ddl_text.tests.test_teaching_pipeline import example, RecordClient
 from ddl_text.tests.teaching_cases import empty_reply
 
 
+class TeachingTitleMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.old_db = app.DB
+        self.addCleanup(setattr, app, 'DB', self.old_db)
+        app.DB = Path(self.tmp.name) / 'title-migration.sqlite3'
+        app.initialize(recover=False)
+
+    def legacy_batch(self, count=1, *, candidate_title=None, task_title=None):
+        request, drafts = example(('explicit-complete',) * count)
+        for key, value in drafts.items():
+            draft = json.loads(value)
+            draft['tasks'][0].update(title='通知 · 加入课程微信群', content_type='notice')
+            drafts[key] = json.dumps(draft)
+        trusted = {snapshot_digest(entry) for entry in request['records']}
+        result = process_teaching_request(request, client=RecordClient(drafts), settings=Settings(),
+                                         verified_snapshot_digests=trusted)
+        teaching.validate_teaching_result(request, result, verified_snapshot_digests=trusted)
+        self.assertEqual(result['status'], 'success', result)
+        tasks = []
+        with app.connection() as db:
+            db.execute("DELETE FROM teaching_migrations WHERE name='source-display-titles-v1'")
+            db.execute('INSERT INTO recognition_batches(user_id,request_id,fingerprint,request,result,demo) VALUES(?,?,?,?,?,0)',
+                       ('synthetic', request['request_id'], 'synthetic', json.dumps(request), json.dumps(result)))
+            for index, (entry, row) in enumerate(zip(request['records'], result['record_results'])):
+                decision, = row['decisions']
+                card = teaching.candidate_view(decision, entry, model_routing=True, single=True)
+                card['title'] = candidate_title or decision['title']
+                cid = 'legacy-' + str(index)
+                db.execute('INSERT INTO recognition_candidates(id,user_id,request_id,candidate,state,resolution) VALUES(?,?,?,?,?,?)',
+                           (cid, 'synthetic', request['request_id'], json.dumps(card), 'applied', '{"auto_apply":true}'))
+                tasks.append(dict(id=cid, title=task_title or card['title'], source='教学网',
+                                  recognitionHistory=[dict(storageId=cid)]))
+            db.execute('INSERT INTO workspace VALUES(?,?,?,?)', ('synthetic', 'tasks', json.dumps(tasks), 7))
+
+    def stored(self):
+        with app.connection() as db:
+            return {table: [dict(row) for row in db.execute('SELECT * FROM ' + table + ' ORDER BY rowid')]
+                    for table in ('recognition_batches', 'recognition_candidates', 'workspace')}
+
+    def test_initialize_preserves_valid_multirecord_batch(self):
+        self.legacy_batch(2)
+        before = self.stored()
+        app.initialize()
+        app.initialize()
+        self.assertEqual(self.stored(), before)
+
+    def test_initialize_migrates_single_record_titles_once(self):
+        self.legacy_batch()
+        before = self.stored()
+        app.initialize()
+        after = self.stored()
+        self.assertEqual(after['recognition_batches'], before['recognition_batches'])
+        card = json.loads(before['recognition_candidates'][0]['candidate'])
+        card['title'] = '加入课程微信群'
+        self.assertEqual(after['recognition_candidates'],
+                         [dict(before['recognition_candidates'][0], candidate=json.dumps(card))])
+        tasks = json.loads(before['workspace'][0]['value'])
+        tasks[0]['title'] = '加入课程微信群'
+        self.assertEqual(after['workspace'], [dict(before['workspace'][0], value=json.dumps(tasks), version=8)])
+        app.initialize()
+        self.assertEqual(self.stored(), after)
+
+    def test_initialize_preserves_user_edited_titles(self):
+        self.legacy_batch(candidate_title='用户确认的标题', task_title='用户编辑的任务标题')
+        before = self.stored()
+        app.initialize()
+        self.assertEqual(self.stored(), before)
+
+    def test_initialize_preserves_user_edited_task_title(self):
+        self.legacy_batch(task_title='用户编辑的任务标题')
+        before = self.stored()
+        app.initialize()
+        after = self.stored()
+        self.assertEqual(after['workspace'], before['workspace'])
+        self.assertEqual(after['recognition_batches'], before['recognition_batches'])
+        self.assertEqual(json.loads(after['recognition_candidates'][0]['candidate'])['title'], '加入课程微信群')
+
+
 class TeachingIntegrationTests(unittest.TestCase):
     def test_competing_stored_result_does_not_inherit_losing_attempt_diagnostics(self):
         import os
@@ -287,10 +367,10 @@ class TeachingIntegrationTests(unittest.TestCase):
     def tearDown(self):
         self.server.shutdown(); self.server.server_close();self.thread.join();app.DB=self.old_db;self.tmp.cleanup()
 
-    def call(self,path,body=None):
+    def call(self,path,body=None,method=None):
         if path == '/auth/register':
             body = registration_payload(body, lambda request:self.call('/auth/email-code',request))
-        req=Request(self.base+path, None if body is None else json.dumps(body).encode(), {'Content-Type':'application/json'})
+        req=Request(self.base+path, None if body is None else json.dumps(body).encode(), {'Content-Type':'application/json'}, method=method)
         try:
             with self.client.open(req,timeout=120) as response:return response.status,json.load(response)
         except HTTPError as response:return response.code,json.load(response)
@@ -323,6 +403,477 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertEqual(status,200,result)
         return result
 
+    def test_native_assignment_displays_shared_teacher_text_once_and_keeps_raw_evidence(self):
+        fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'
+        request = json.loads(fixture.read_text())['request']
+        entry, = request['records']
+        record = entry['record']
+        label = entry['source']['label']
+        files = '已附加文件:\n实验说明.pdf\n(512 KB)'
+        shared = '请完成实验并提交报告。\n教师要求在 12 月 1 日 23:59 前提交。'
+        extra = '附上运行截图。\n到期日期：2026年12月2日 星期三 上午1:30'
+        due = '2026-12-02T01:30:00+08:00'
+        entry['platform_item']['due'] = due
+        record['source_metadata_text'] = '平台到期时间：' + due
+        for listing, detail, expected in [
+            (files + '\n' + shared, shared + '\n' + extra, files + '\n' + shared + '\n' + extra),
+            (files + '\n' + shared, shared, files + '\n' + shared),
+            (shared + '\n' + extra, files + '\n' + shared, files + '\n' + shared + '\n' + extra),
+            # Similar or apparently repeated instructions under different headings retain both contexts.
+            ('第一次实验\n提交 A.zip', '第二次实验\n提交 B.zip', None),
+            ('第一题\n上传报告\n第二题\n上传报告', '上传报告\n附运行截图', None),
+        ]:
+            with self.subTest(listing=listing, detail=detail):
+                raw_detail = f'列表正文：{listing}\n\n作业详情：{detail}'
+                record['text'] = label + '\n\n' + raw_detail
+                result, manifest = teaching.recognize(request, app.ApiError)
+                teaching.validate_current_result(request, result, manifest, app.ApiError)
+                item, = teaching.result_view(request, result)['tasks']
+                self.assertEqual(item['description'], expected if expected is not None else raw_detail)
+                self.assertEqual(item['deadline']['value'], due)
+                decision, = result['record_results'][0]['decisions']
+                self.assertEqual(decision['pair']['record']['text'], label + '\n\n' + raw_detail)
+
+    def test_existing_platform_fields_upgrade_in_place_without_overwriting_user_decisions(self):
+        capture = json.loads((Path(__file__).parents[1] / 'contracts/examples/teaching-platform-native.json').read_text())
+        entry, = capture['request']['records']
+        raw = '列表正文：附实验说明.pdf\n请提交报告。\n\n作业详情：请提交报告。\n附上截图。'
+        entry['record']['text'] = entry['source']['label'] + '\n' + raw
+        notice = self.native_capture('unknown')
+        notice['assignment'] = None
+        e, = notice['request']['records']
+        e['platform_item'] = dict(kind='announcement', due=None, submitted=False)
+        e['source']['label'] = '课程分组安排'
+        e['record'].update(text='课程分组安排\n明晚6:40-8:30为第一次小班课。', references=[],
+                           published_at=dict(value='2026-09-15T13:00:00+08:00', basis='source'))
+        with patch.object(teaching.teaching_platform, 'assignment_description', side_effect=lambda body: body), \
+             patch.object(teaching.teaching_platform, 'body_deadline', return_value=teaching.teaching_platform.deadline()):
+            for fixture in (capture, notice):
+                view, = self.sync_native(fixture)['requests']
+                status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN, request_id=view['request_id']))
+                self.assertEqual(status, 200, batches)
+        with app.connection() as db:
+            db.execute("DELETE FROM teaching_migrations WHERE name='platform-notice-time-and-detail-v1'")
+            tasks, version = teaching.submission.controls.workspace(db, self.uid)
+            lab, meeting = tasks
+            self.assertEqual((lab['description'], meeting['due']), (raw, None))
+            for change in ('manual', 'review', 'other-account', 'deleted', 'none'):
+                with self.subTest(change=change):
+                    db.execute('SAVEPOINT original')
+                    if change == 'manual':
+                        altered = deepcopy(tasks)
+                        altered[0]['description'] = raw + ' 我的备注'
+                        altered[1]['due'] = dict(date='2027-01-01', precision='date')
+                        db.execute("UPDATE workspace SET value=? WHERE user_id=? AND name='tasks'", (json.dumps(altered), self.uid))
+                    elif change == 'review':
+                        db.execute('UPDATE teaching_submission_sources SET review_pending=1')
+                    elif change == 'other-account':
+                        db.execute("UPDATE source_credentials SET username='another-school-account'")
+                    elif change == 'deleted':
+                        db.execute("UPDATE workspace SET value='[]' WHERE user_id=? AND name='tasks'", (self.uid,))
+                    before = teaching.submission.controls.workspace(db, self.uid)
+                    teaching.upgrade_platform_fields(db)
+                    after = teaching.submission.controls.workspace(db, self.uid)
+                    if change == 'none':
+                        fixed, new_version = after
+                        self.assertEqual(new_version, version + 1)
+                        self.assertEqual(fixed[0], dict(lab, description='附实验说明.pdf\n请提交报告。\n附上截图。'))
+                        self.assertEqual(fixed[1], dict(meeting, due=dict(date='2026-09-16', time='18:40', precision='datetime')))
+                    else:
+                        self.assertEqual(before, after)
+                    teaching.upgrade_platform_fields(db)
+                    self.assertEqual(teaching.submission.controls.workspace(db, self.uid), after)
+                    db.execute('ROLLBACK TO original')
+                    db.execute('RELEASE original')
+
+    def test_platform_assignment_without_model_is_idempotent_and_protects_user(self):
+        import recognition
+        fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'
+        capture = json.loads(fixture.read_text())
+        entry = capture['request']['records'][0]
+        r = entry['record']
+        view, = self.sync_native(capture)['requests']
+        with patch.object(recognition._ACTIVE,'acquire',side_effect=AssertionError('unexpected model slot')):
+            status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN,request_id=view['request_id']))
+        self.assertEqual(status,200,batches)
+        item, = batches[0]['items']
+        self.assertEqual(item['candidate']['title'],'第4章作业')
+        self.assertEqual(item['candidate']['deadline']['value'],entry['platform_item']['due'])
+        self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        self.assertEqual(self.sync_native(capture)['requests'],[])
+        self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']),1)
+        entry['platform_item']['due']='2026-12-03T01:30:00+08:00'
+        r['source_metadata_text']='平台到期时间：'+entry['platform_item']['due']
+        r['collected_at']='2026-11-02T10:00:00+08:00'
+        changed, = self.sync_native(capture)['requests']
+        status, batches=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=changed['request_id']))
+        self.assertEqual(status,200,batches)
+        revised=next(b for b in batches if b['request']['request_id']==changed['request_id'])
+        self.assertTrue(revised['items'][0]['candidate']['needs_review'])
+
+        workspace = self.call('/workspace')[1]['tasks']
+        self.assertEqual(len(workspace['value']), 1)
+        self.assertEqual(self.call('/data/tasks', dict(workspace, value=[]), method='PUT')[0], 200)
+        r['collected_at']='2026-11-03T10:00:00+08:00'
+        r['text'] += '\n老师补充了材料格式。'
+        changed, = self.sync_native(capture)['requests']
+        self.assertEqual(self.call('/recognition/batches', dict(contract_version=teaching.RUN, request_id=changed['request_id']))[0], 200)
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'], [])
+
+    def test_structured_assignment_keeps_one_edited_task_through_sync_reprocessing_and_submission(self):
+        import reprocessing
+        capture = json.loads((teaching.ROOT/'contracts/examples/teaching-platform-native.json').read_text())
+        entry, = capture['request']['records']
+        record, platform = entry['record'], entry['platform_item']
+        record['text'] += '\n另需阅读论文、参加答辩并上传材料。'
+
+        def process():
+            view, = self.sync_native(capture)['requests']
+            status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN, request_id=view['request_id']))
+            self.assertEqual(status, 200, batches)
+
+        process()
+        saved = self.call('/workspace')[1]['tasks']
+        original, = saved['value']
+        task_id = original['id']
+        self.assertIn('参加答辩', original['description'])
+        original['title'] = '我修改的标题'
+        self.assertEqual(self.call('/data/tasks', saved, method='PUT')[0], 200)
+        platform['due'] = '2026-12-04T01:30:00+08:00'
+        record.update(collected_at='2026-11-02T10:00:00+08:00', source_metadata_text='平台到期时间：'+platform['due'])
+        process()
+        latest, = self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual((latest['id'], latest['title'], latest['due']['date']), (task_id, '我修改的标题', '2026-12-04'))
+        evidence = self.call('/recognition/task-evidence', dict(task_id=task_id))[1]['evidence']
+        self.assertEqual(evidence[-1]['original'], record['text'])
+        self.assertEqual(self.sync_native(capture)['requests'], [])
+        source = self.call('/recognition/reprocessing/sources')[1]['accounts'][0]
+        status, run = self.call('/recognition/reprocessing/runs', dict(contract_version='reprocessing/0.1',
+            operation_id='structured-assignment', source_account_id=source['source_account_id'], input_ids=[record['input_id']]))
+        self.assertEqual(status, 202, run)
+        self.assertTrue(reprocessing.wait_for_jobs(app.DB))
+        self.assertEqual(self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]['state'], 'succeeded')
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'], [latest])
+
+        platform.update(kind='listed_assignment', due=None)
+        capture['assignment'].update(state='submitted', basis='review_submission_history_title')
+        record['collected_at'] = '2026-11-03T10:00:00+08:00'
+        self.sync_native(capture)
+        saved = self.call('/workspace')[1]['tasks']
+        completed, = saved['value']
+        self.assertEqual((completed['id'], completed['status']), (task_id, 'completed'))
+        completed['status'] = 'not_started'
+        self.assertEqual(self.call('/data/tasks', saved, method='PUT')[0], 200)
+        record['collected_at'] = '2026-11-04T10:00:00+08:00'
+        self.sync_native(capture)
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'][0]['status'], 'not_started')
+
+    def test_gradebook_submission_updates_only_exact_assignment_and_keeps_reopened_decision(self):
+        capture = json.loads((teaching.ROOT/'contracts/examples/teaching-platform-native.json').read_text())
+        capture['assignment'] = None
+        entry, = capture['request']['records']
+        item, record = entry['platform_item'], entry['record']
+        item['kind'] = 'gradebook_assignment'
+        record.update(input_id='pku:gradebook:course1.column3', source_item_id='_83_1')
+        view, = self.sync_native(capture)['requests']
+        self.assertEqual(self.call('/recognition/batches', dict(contract_version=teaching.RUN, request_id=view['request_id']))[0], 200)
+        saved = self.call('/workspace')[1]['tasks']
+        original, = saved['value']
+        same_name = dict(original, id='manual', recognitionHistory=[])
+        saved['value'].append(same_name)
+        self.assertEqual(self.call('/data/tasks', saved, method='PUT')[0], 200)
+        record['collected_at'] = '2026-11-02T10:00:00+08:00'
+        item['submitted'] = True
+        self.sync_native(capture)
+        saved = self.call('/workspace')[1]['tasks']
+        self.assertEqual([t['status'] for t in saved['value']], ['completed', 'not_started'])
+        saved['value'][0]['status'] = 'not_started'
+        self.assertEqual(self.call('/data/tasks', saved, method='PUT')[0], 200)
+        record['collected_at'] = '2026-11-03T10:00:00+08:00'
+        self.sync_native(capture)
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'], saved['value'])
+
+    def test_gradebook_and_linked_detail_reuse_task_and_preserve_deletion(self):
+        native = json.loads((teaching.ROOT/'contracts/examples/teaching-platform-native.json').read_text())
+        entry, = native['request']['records']
+        entry['platform_item']['gradebook_id'] = '_83_1'
+        grade = deepcopy(native)
+        grade['assignment'] = None
+        ge, = grade['request']['records']
+        ge['platform_item'] = dict(kind='gradebook_assignment', due=None, submitted=False)
+        ge['record'].update(input_id='pku:gradebook:course1.column3', source_item_id='_83_1')
+        def process(capture):
+            view, = self.sync_native(capture)['requests']
+            self.assertEqual(self.call('/recognition/batches', dict(contract_version=teaching.RUN, request_id=view['request_id']))[0], 200)
+        process(grade)
+        first, = self.call('/workspace')[1]['tasks']['value']
+        process(native)
+        merged, = self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual((merged['id'], merged['due']['date']), (first['id'], '2026-12-02'))
+        submitted = deepcopy(native)
+        submitted['assignment'].update(state='submitted', basis='review_submission_history_title')
+        se, = submitted['request']['records']
+        se['record']['collected_at']='2026-11-02T10:00:00+08:00'
+        se['platform_item'].update(kind='listed_assignment', due=None)
+        self.assertEqual(self.sync_native(submitted)['requests'], [])
+        saved = self.call('/workspace')[1]['tasks']
+        self.assertEqual([(t['id'],t['status']) for t in saved['value']], [(first['id'],'completed')])
+        saved['value'] = []
+        self.assertEqual(self.call('/data/tasks', saved, method='PUT')[0], 200)
+        ge['record']['text'] += '\n新的材料说明。'
+        ge['record']['collected_at']='2026-11-03T10:00:00+08:00'
+        self.sync_native(grade)
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'], [])
+
+    def test_native_exercise_and_material_requirements(self):
+        from teaching_platform import assignment, route
+        fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'
+        request = json.loads(fixture.read_text())['request']
+        entry, = request['records']
+        entry['platform_item']['due'] = None
+        entry['record']['text'] = '第四章作业\n熟悉实验框架，无需提交。'
+        self.assertEqual(route(entry), 'platform')
+        output, _ = assignment(request)
+        decision, = output['record_results'][0]['decisions']
+        self.assertEqual(decision['submission_relation'], 'other')
+        self.assertEqual(decision['recommendation'], 'task')
+        self.assertIsNone(decision['pair']['assessment']['deadline']['value'])
+        entry['record']['text'] = '第四章作业\n提交报告后另需准备答辩'
+        self.assertEqual(route(entry), 'platform')
+        for extra in ['按附件说明提交', '原截止日期推迟到周五']:
+            with self.subTest(extra=extra):
+                entry['record']['text'] = '第四章作业\n' + extra
+                self.assertEqual(route(entry), 'platform')
+                self.assertIsNone(assignment(request)[0]['record_results'][0]['decisions'][0]['pair']['assessment']['deadline']['value'])
+
+    def test_missing_publication_or_linked_files_do_not_hide_platform_items(self):
+        for kind, expected in [('announcement', 'notice'), ('listed_assignment', 'task')]:
+            with self.subTest(kind=kind):
+                capture = self.native_capture('unknown')
+                capture['assignment'] = None
+                entry, = capture['request']['records']
+                entry['record']['input_id'] += kind
+                entry['record']['published_at'] = None
+                entry['record']['text'] = '变更说明详见附件。'
+                entry['platform_item'] = dict(kind=kind, due=None, submitted=False)
+                view, = self.sync_native(capture)['requests']
+                with patch.object(app.recognition._ACTIVE, 'acquire', side_effect=AssertionError('model queue')):
+                    status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN, request_id=view['request_id']))
+                self.assertEqual(status, 200, batches)
+                batch = next(b for b in batches if b['request']['request_id'] == view['request_id'])
+                card, = batch['items']
+                self.assertEqual(card['candidate']['content_type'], expected)
+                self.assertEqual(card['candidate']['description'], entry['record']['text'])
+                self.assertIsNone(card['candidate']['deadline']['value'])
+
+    def test_course_content_pages_are_kept_and_screened_without_a_model(self):
+        cases = [
+            ('课程考核方式说明', '期末考试时间为十二月下旬，总评中占 50%。', 'notice'),
+            ('Required reading', 'Read chapters 4 and 5 before class.', 'task'),
+            ('Lab notes', 'Please submit your design notes by Friday.', 'task'),
+            ('Room change', 'Meet in the west building instead.', 'notice'),
+            ('第七讲课件', '本节扩展内容不作考试要求。', None),
+            ('参考讲义', '复习上次考试。\n后半章涉及器件生产要求。', None),
+            ('Optional notes', 'This chapter is not on the exam. Read it at your leisure.', None),
+            ('课程动态', '原定考试取消。其余单元不作考试要求。', 'notice'),
+            ('往年考试参考答案', '只供复习参考。', None),
+            ('Practice exam', 'Worked solutions for revision.', None),
+            ('Lecture slides', 'Slides from the lecture on 2026-10-02.', None),
+        ]
+        for i, (title, body, expected) in enumerate(cases):
+            with self.subTest(title=title):
+                capture = self.native_capture('unknown')
+                capture['assignment'] = None
+                entry, = capture['request']['records']
+                entry.pop('platform_item', None)
+                entry['page_attachments'] = []
+                entry['source']['label'] = title
+                record = entry['record']
+                record['course_term'] = None
+                record.update(input_id=f'pku:source:material-{i}', source_item_id=f'_{100+i}_1',
+                              source_metadata_text='栏目：Course Content', text=title+'\n'+body, references=[])
+                view, = self.sync_native(capture)['requests']
+                with patch.object(app.recognition._ACTIVE,'acquire',side_effect=AssertionError('model queue')):
+                    status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN,request_id=view['request_id']))
+                self.assertEqual(status, 200, batches)
+                batch = next(b for b in batches if b['request']['request_id'] == view['request_id'])
+                self.assertEqual([v['candidate']['content_type'] for v in batch['items']], [expected] if expected else [])
+                self.assertEqual(batch['request']['records'][0]['text'], record['text'])
+                self.assertEqual(self.sync_native(capture)['requests'], [])
+
+    def test_only_explicit_unambiguous_text_deadlines_are_published(self):
+        capture = self.native_capture('unknown')
+        entry, = capture['request']['records']
+        entry['platform_item'] = dict(kind='listed_assignment', due=None, submitted=False)
+        entry['record']['course_term'] = None
+        for body, expected in [
+            ('Deadline: 2026-12-02 18:30', '2026-12-02T18:30:00+08:00'),
+            ('请于2026年12月2日前提交报告。', '2026-12-02'),
+            ('考试时间为2026年12月2日。', None),
+            ('报告于2026年12月2日截止，讲稿于2026年12月3日截止。', None),
+            ('原截止2026年12月2日，已延期，另行通知。', None),
+            ('Deadline: 2026-12-02 8:30 PM', '2026-12-02T20:30:00+08:00'),
+            ('截止日期暂定为2026年12月2日。', None),
+            ('第3周周三前提交。', None),
+            ('Deadline: 2026-02-30', None),
+        ]:
+            with self.subTest(body=body):
+                entry['record']['text'] = body
+                result, manifest = teaching.recognize(capture['request'], app.ApiError)
+                teaching.validate_current_result(capture['request'],result,manifest,app.ApiError)
+                item, = teaching.result_view(capture['request'],result)['tasks']
+                self.assertEqual(item['deadline']['value'], expected)
+                self.assertEqual(item['description'], body)
+
+    def test_announcement_event_start_and_rescheduled_date_use_publication(self):
+        capture = self.native_capture('unknown')
+        entry, = capture['request']['records']
+        entry['platform_item'] = dict(kind='announcement', due=None, submitted=False)
+        entry['source']['label'] = '课程安排'
+        entry['record'].update(course_term=None, published_at=dict(value='2026-09-20',basis='source'))
+        for body, expected in [
+            ('课堂测验将于10月14日13:00-14:50举行。', '2026-10-14T13:00:00+08:00'),
+            ('阶段性测试将在12月2日13:00–14:50举行。', '2026-12-02T13:00:00+08:00'),
+            ('原定于周一（10月12日）的课程讲座，现调整至11月3日（周二）。', '2026-11-03'),
+            ('The lecture previously scheduled for October 14 was moved to Nov 3.', '2026-11-03'),
+            ('The midterm will be held on October 14 from 1:00 pm to 2:00 pm.', '2026-10-14T13:00:00+08:00'),
+            ('测验将于10月14日举行。答辩定于11月3日。', None),
+            ('原定于10月14日的讲座取消。', None),
+            ('考试时间待定，暂定于10月14日。', None),
+            ('9月7日发布了此次考试的复习资料。', None),
+            ('The exam materials were posted on October 14.', None),
+            ('期末考试的复习材料将于10月14日发布。', None),
+        ]:
+            with self.subTest(body=body):
+                entry['record']['text'] = body
+                result, manifest = teaching.recognize(capture['request'],app.ApiError)
+                teaching.validate_current_result(capture['request'],result,manifest,app.ApiError)
+                notice, = teaching.result_view(capture['request'],result)['tasks']
+                self.assertEqual(notice['content_type'], 'notice')
+                self.assertEqual(notice['deadline']['value'], expected)
+                self.assertEqual(notice['description'], body)
+                if expected:
+                    self.assertEqual(notice['deadline']['status'], 'inferred')
+        entry['record']['published_at']['value'] = '2026-12-20'
+        entry['record']['text'] = 'The lecture has been moved to January 4.'
+        self.assertEqual(teaching.teaching_platform.body_deadline(entry,notice=True)['value'], '2027-01-04')
+
+    def test_relative_event_clock_uses_only_source_publication_and_course_timezone(self):
+        capture = self.native_capture('unknown')
+        entry, = capture['request']['records']
+        entry['platform_item'] = dict(kind='announcement', due=None, submitted=False)
+        entry['source']['label'] = '上课分组'
+        body = '同学们好，明晚6:40-8:30为第一次小班课，请提前查看分组。'
+        record = entry['record']
+        # The same timestamp is already the next calendar day in the course timezone.
+        record.update(text=body, timezone='Asia/Shanghai', references=[],
+                      published_at=dict(value='2026-09-14T22:30:00Z', basis='source'))
+        result, manifest = teaching.recognize(capture['request'], app.ApiError)
+        teaching.validate_current_result(capture['request'], result, manifest, app.ApiError)
+        notice, = teaching.result_view(capture['request'], result)['tasks']
+        self.assertEqual((notice['content_type'], notice['description'], notice['deadline']['value']),
+                         ('notice', body, '2026-09-16T18:40:00+08:00'))
+        due = teaching.teaching_platform.body_deadline(entry, notice=True)
+        self.assertEqual((due['derivation'], due['anchor'], due['evidence']),
+                         ('relative', 'published_at', [dict(part_id='body', quote='明晚6:40')]))
+        for publication in (None, dict(value='2026-09-15', basis='unverified')):
+            record['published_at'] = publication
+            self.assertIsNone(teaching.teaching_platform.body_deadline(entry, notice=True)['value'])
+
+    def test_relative_event_clock_requires_unambiguous_event_start(self):
+        entry = self.native_capture('unknown')['request']['records'][0]
+        entry['source']['label'] = '课程安排'
+        entry['record'].update(timezone='Asia/Shanghai', published_at=dict(value='2026-12-31',basis='source'))
+        for body, expected in [
+            ('讲座将于明天上午9:15开始。', '2027-01-01T09:15:00+08:00'),
+            ('讲座明晚18:40举行。', '2027-01-01T18:40:00+08:00'),
+            ('明晚6:40开小班课。', '2027-01-01T18:40:00+08:00'),
+            ('讲座将于明晚6:40结束。', None),
+            ('讲座结束时间为明晚6:40。', None),
+            ('小班课资料将于明晚6:40发布。', None),
+            ('明晚6:40为准备下一次考试。', None),
+            ('明晚6:40-8:30为第一次小班课，现已取消。', None),
+            ('考试定于明晚8:30。讲座定于后天15:10。', None),
+            ('明晚12:00为第一次小班课。', None),
+            ('明晚7:80为第一次小班课。', None),
+        ]:
+            with self.subTest(body=body):
+                entry['record']['text'] = body
+                self.assertEqual(teaching.teaching_platform.body_deadline(entry, notice=True)['value'], expected)
+                self.assertIsNone(teaching.teaching_platform.body_deadline(entry)['value'])
+
+    def test_new_column_identity_retires_existing_review_without_a_second_task(self):
+        fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'
+        native = json.loads(fixture.read_text())
+        grade = deepcopy(native)
+        grade['assignment'] = None
+        ge = grade['request']['records'][0]
+        ge['platform_item']['kind'] = 'gradebook_assignment'
+        ge['record'].update(input_id='pku:gradebook:old', source_item_id='_8_1')
+        ids = []
+        from contextlib import nullcontext
+        for record in [grade, native]:
+            view, = self.sync_native(record)['requests']
+            # Simulate a provisional grade row retained by a pre-publication release.
+            legacy = patch.object(app.recognition, 'publish_results', return_value=set()) if record is grade else nullcontext()
+            with legacy:
+                status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN,request_id=view['request_id']))
+            self.assertEqual(status, 200, batches)
+            ids.append(next(b for b in batches if b['request']['request_id']==view['request_id'])['items'][0]['id'])
+        self.assertEqual(self.call('/recognition/candidates/'+ids[1]+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+        native['request']['records'][0]['platform_item']['gradebook_id'] = '_8_1'
+        for _ in range(2):
+            self.assertEqual(self.sync_native(native)['requests'], [])
+            self.assertEqual([i['id'] for b in self.call('/recognition/batches')[1] for i in b['items']], [ids[1]])
+            self.assertEqual(len(self.call('/workspace')[1]['tasks']['value']), 1)
+
+    def test_gradebook_title_alone_preserves_task_without_creating_a_duplicate(self):
+        import recognition
+        native = self.native_capture('active')
+        entry = native['request']['records'][0]
+        entry['source']['label'] = '实验报告'
+        entry['record'].update(text='实验报告\n提交实验报告。', references=[], body_status='complete', course_term=None)
+        entry['platform_item'] = dict(kind='native_assignment', due=None, submitted=False)
+        grade = deepcopy(native)
+        grade['assignment'] = None
+        grade_entry = grade['request']['records'][0]
+        grade_entry['platform_item']['kind'] = 'gradebook_assignment'
+        grade_entry['record'].update(input_id='pku:gradebook:sample', source_item_id='_1_1', body_status='summary')
+        def process(capture):
+            view, = self.sync_native(capture)['requests']
+            status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN,request_id=view['request_id']))
+            self.assertEqual(status, 200, batches)
+            return next(b for b in batches if b['request']['request_id'] == view['request_id'])['items'][0]
+        with patch.object(recognition._ACTIVE,'acquire', side_effect=AssertionError('unexpected model slot')):
+            grade_card = process(grade)
+            self.assertTrue(grade_card['candidate']['needs_review'])
+            self.assertEqual(grade_card['state'], 'applied')
+            saved, = self.call('/workspace')[1]['tasks']['value']
+            detail_card = process(native)
+        self.assertTrue(detail_card['candidate']['needs_review'])
+        self.assertIn(teaching.teaching_identity.GRADEBOOK_REVIEW, detail_card['candidate']['review_reasons'])
+        self.assertEqual(self.call('/workspace')[1]['tasks']['value'], [saved])
+        self.assertEqual(detail_card['state'], 'pending')
+        self.assertEqual(self.sync_native(native)['requests'], [])
+
+    def test_whole_announcement_keeps_relative_dates_in_original_body(self):
+        capture = self.native_capture('unknown')
+        capture['assignment'] = None
+        entry, = capture['request']['records']
+        entry['source']['label'] = '关于分组与提纲的通知'
+        entry['platform_item'] = dict(kind='announcement', due=None, submitted=False)
+        entry['record'].update(text='明天加入课程微信群。后天提交提纲。', published_at=dict(value='2026-10-01',basis='source'),
+                               references=[], body_status='complete')
+        view, = self.sync_native(capture)['requests']
+        with patch.object(app.recognition._ACTIVE,'acquire',side_effect=AssertionError('model queue')):
+            status, batches = self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
+        self.assertEqual(status, 200, batches)
+        card, = [item['candidate'] for item in batches[0]['items']]
+        self.assertEqual((card['title'], card['content_type'], card['description']),
+                         ('分组与提纲', 'notice', entry['record']['text']))
+        self.assertIsNone(card['deadline']['value'])
+        self.assertEqual(self.sync_native(capture)['requests'], [])
+
     def mixed_capture(self,state,when='2026-10-10T10:00:00+08:00'):
         capture=self.native_capture(state,when)
         record=capture['request']['records'][0]['record']
@@ -335,6 +886,60 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.drafts[record['input_id']]=json.dumps(dict(tasks=[first,second]))
         return capture
 
+    def test_legacy_file_listing_uses_page_on_retry_and_upgrades_links_in_place(self):
+        import reprocessing
+        capture=self.native_capture('active')
+        entry,=capture['request']['records']
+        entry['platform_item']=dict(kind='listed_assignment',due=None,submitted=False)
+        entry['source']['label']='第3讲作业'
+        file=dict(ref_id='file:1',kind='attachment',label='练习.pdf',read_state='complete',text='附件中写着明天截止')
+        record=entry['record']
+        record.update(input_id='pku:source:fixture',text='第3讲作业\n已附加文件:\n练习.pdf\n(162.8 KB)',
+                      body_status='complete',references=[file])
+        rid=self.sync_native(capture)['requests'][0]['request_id']
+        with patch.object(teaching.teaching_assets,'load',side_effect=AssertionError('read original')), \
+             patch.object(teaching.teaching_assets,'enrich',side_effect=AssertionError('read file')), \
+             patch.object(teaching,'live_options',side_effect=AssertionError('called model')):
+            status,batches=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=rid))
+            self.assertEqual(status,200,batches)
+            task,=self.call('/workspace')[1]['tasks']['value']
+            self.assertIsNone(task['due'])
+            with app.connection() as db:
+                old=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+                replay=deepcopy(old)
+                replay['request_id']='reprocessing:test'
+                output,_=reprocessing.recognize_saved(replay,True,app.ApiError,attachments=teaching.attachment_context(db,self.uid,rid))
+                self.assertEqual(output['status'],'success')
+                self.assertEqual(replay['records'][0]['record']['references'],[])
+            record['references']=[]
+            link=dict(ref_id='file:1',label='练习.pdf',url='https://course.pku.edu.cn/bbcswebdav/1')
+            entry['page_attachments']=[link]
+            self.assertEqual(self.sync_native(capture)['requests'],[])
+            with app.connection() as db:
+                current=teaching.resolve_snapshot(db,self.uid,rid,app.ApiError)
+                self.assertEqual(current['records'][0]['record']['snapshot_id'],old['records'][0]['record']['snapshot_id'])
+                self.assertEqual(current['records'][0]['page_attachments'],[link])
+            evidence=self.call('/recognition/task-evidence',dict(task_id=task['id']))[1]['evidence']
+            self.assertEqual(evidence[0]['attachments'], [link])
+            record['text']+='\n周五截止。'
+            self.assertNotEqual(self.sync_native(capture)['requests'][0]['request_id'],rid)
+            self.assertEqual(teaching.teaching_platform.route(entry),'platform')
+
+    def test_listed_assignment_with_two_requirements_saves_one_assignment_and_deadline(self):
+        capture = self.mixed_capture('active')
+        entry, = capture['request']['records']
+        entry['platform_item'] = dict(kind='listed_assignment', due=None, submitted=False)
+        entry['source']['label'] = '第二次作业'
+        rid = self.sync_native(capture)['requests'][0]['request_id']
+        with patch.object(teaching, '_extract', side_effect=AssertionError('unexpected model')):
+            status, batches = self.call('/recognition/batches', dict(contract_version=teaching.RUN, request_id=rid))
+        self.assertEqual(status, 200, batches)
+        task, = self.call('/workspace')[1]['tasks']['value']
+        self.assertEqual(task['due']['date'], '2026-10-23')
+        self.assertIn('作业', task['title'])
+        self.assertIn('提交后另需阅读补充材料', task['description'])
+        self.assertEqual(self.sync_native(capture)['requests'], [])
+
     def test_submitted_unknown_scope_is_recognized_but_needs_manual_review(self):
         capture=self.native_capture('submitted')
         result=self.sync_native(capture)
@@ -342,9 +947,10 @@ class TeachingIntegrationTests(unittest.TestCase):
         item=self.run_request(result['requests'][0])['items'][0]
         self.assertTrue(item['candidate']['needs_review'])
         self.assertIn('尚未明确对应哪些行动',' '.join(item['candidate']['review_reasons']))
-        self.assertEqual(item['state'], 'applied')
+        self.assertEqual(item['state'], 'pending')
         self.assertEqual(self.sync_native(capture)['requests'],[])
-        self.assertEqual(self.call('/workspace')[1]['tasks']['value'][0]['status'],'not_started')
+        app.initialize(recover=False)
+        self.assertFalse(self.call('/workspace')[1].get('tasks', {}).get('value'))
 
     def test_native_submitted_assignment_filtered_without_cross_source_matching(self):
         capture=self.native_capture('submitted')
@@ -370,7 +976,8 @@ class TeachingIntegrationTests(unittest.TestCase):
             record['text']+=f'\n补充说明{version}。'
             record['collected_at']=f'2026-10-10T10:0{version}:00+08:00'
             self.drafts[iid]=json.dumps(dict(tasks=[dict(deepcopy(template),title=f'练习 {version}-{index}') for index in range(50)]))
-            self.assertEqual(len(self.run_request(self.sync_native(capture)['requests'][0])['items']),50)
+            with patch.object(teaching.teaching_identity, 'ambiguous_legacy_assignment', return_value=False):
+                self.assertEqual(len(self.run_request(self.sync_native(capture)['requests'][0])['items']),50)
         with app.connection() as db:
             detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
             self.assertEqual(len(detail['observation']['actions']),100)
@@ -383,7 +990,7 @@ class TeachingIntegrationTests(unittest.TestCase):
         capture['request']['records'][0]['record']['text']+='\n第三次补充。'
         capture['request']['records'][0]['record']['collected_at']='2026-10-10T10:02:00+08:00'
         batch=self.run_request(self.sync_native(capture)['requests'][0])
-        self.assertEqual(len(batch['items']),1);self.assertEqual(batch['items'][0]['state'],'applied')
+        self.assertEqual(len(batch['items']),1);self.assertEqual(batch['items'][0]['state'],'pending')
         self.assertFalse(batch['result']['errors'])
         with app.connection() as db:
             self.assertEqual(db.execute('SELECT count(*) FROM recognition_candidates').fetchone()[0],101)
@@ -403,7 +1010,7 @@ class TeachingIntegrationTests(unittest.TestCase):
         saved=self.call('/recognition/reprocessing/runs/'+run['run_id'])[1]
         self.assertEqual(saved['state'],'succeeded',saved)
         with app.connection() as db:
-            self.assertEqual(db.execute("SELECT count(*) FROM recognition_candidates WHERE state='pending'").fetchone()[0],0)
+            self.assertEqual(db.execute("SELECT count(*) FROM recognition_candidates WHERE state='pending'").fetchone()[0],1)
             self.assertEqual(db.execute('SELECT count(*) FROM recognition_batches').fetchone()[0],3)
             detail=json.loads(db.execute('SELECT detail FROM submission_controls').fetchone()[0])
             self.assertEqual(detail['observation']['scope'],'unknown')
@@ -418,7 +1025,7 @@ class TeachingIntegrationTests(unittest.TestCase):
         batch=self.run_request(self.sync_native(capture)['requests'][0])
         by_title={i['candidate']['title']:i for i in batch['items']}
         self.assertEqual(by_title['提交第二次作业']['state'],'ignored')
-        self.assertEqual(by_title['阅读补充材料']['state'],'applied')
+        self.assertEqual(by_title['阅读补充材料']['state'],'pending')
         self.assertFalse(by_title['阅读补充材料']['candidate']['needs_review'])
 
     def test_recognized_native_assignment_completes_when_later_submitted(self):
@@ -534,7 +1141,7 @@ class TeachingIntegrationTests(unittest.TestCase):
             original=db.execute('SELECT result FROM recognition_batches').fetchone()[0]
         self.sync_native(self.mixed_capture('submitted','2026-10-10T11:00:00+08:00'))
         stored=self.call('/recognition/batches')[1][0]
-        self.assertEqual([i['state'] for i in stored['items']],['applied','applied'])
+        self.assertEqual([i['state'] for i in stored['items']],['pending','pending'])
         self.assertTrue(all(i['candidate']['needs_review'] for i in stored['items']))
         self.assertEqual(stored['result']['status'],'success')
         self.assertEqual(len(stored['result']['tasks']),2)
@@ -543,7 +1150,7 @@ class TeachingIntegrationTests(unittest.TestCase):
             self.assertEqual([tuple(r) for r in db.execute('SELECT id,candidate,state,version,resolution FROM recognition_candidates ORDER BY id')],before)
             self.assertEqual(db.execute('SELECT result FROM recognition_batches').fetchone()[0],original)
         for item in stored['items']:
-            self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+            self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],400)
 
     def test_submitted_preserves_applied_tasks_and_user_ignored_decisions(self):
         sync=self.sync_native(self.native_capture('active'));view=sync['requests'][0]
@@ -586,10 +1193,13 @@ class TeachingIntegrationTests(unittest.TestCase):
                 self.assertEqual(self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=rid))[0],409)
             model.assert_not_called()
             current=self.call('/recognition/batches')[1][0]['items']
-            self.assertEqual([(i['id'],i['state'],i['version']) for i in current],[(i['id'],'applied',2) for i in items])
+            self.assertEqual({i['id'] for i in current},{i['id'] for i in items})
             self.assertTrue(all('来源核对状态尚未明确解除' in ' '.join(i['candidate']['review_reasons']) for i in current))
-            for item in current:
-                self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],200)
+            app.initialize(recover=False)
+            self.assertFalse(self.call('/workspace')[1].get('tasks', {}).get('value'))
+            for item in self.call('/recognition/batches')[1][0]['items']:
+                self.assertEqual(item['state'], 'ignored')
+                self.assertEqual(self.call('/recognition/candidates/'+item['id']+'/resolve',dict(action='create',auto_apply=True,version=1))[0],409)
         with app.connection() as db:
             self.assertEqual(db.execute('SELECT review_pending FROM teaching_submission_sources').fetchone()[0],1)
 
@@ -599,8 +1209,10 @@ class TeachingIntegrationTests(unittest.TestCase):
         capture=self.native_capture('unknown','2026-10-10T11:00:00+08:00');capture['assignment']=None
         self.assertEqual(self.sync_native(capture)['requests'],[])
         item=self.call('/recognition/batches')[1][0]['items'][0]
-        self.assertEqual(item['state'],'applied')
+        self.assertEqual(item['state'],'pending')
         self.assertTrue(item['candidate']['needs_review'])
+        app.initialize(recover=False)
+        self.assertFalse(self.call('/workspace')[1].get('tasks', {}).get('value'))
         with app.connection() as db:
             row=db.execute('SELECT state,review_pending FROM teaching_submission_sources').fetchone()
             self.assertEqual(tuple(row),('unknown',1))
@@ -765,11 +1377,11 @@ class TeachingIntegrationTests(unittest.TestCase):
         view=sync['requests'][0];iid=view['records'][0]['input_id']
         self.drafts[iid]=empty_reply(request['records'][0]['record'],'incomplete')
         batch=self.run_request(view)
-        self.assertEqual(batch['result']['errors'][0]['code'],'incomplete_source')
-        self.assertFalse(batch['result']['errors'][0]['retryable'])
+        self.assertEqual(batch['result']['errors'],[])
+        self.assertEqual(batch['result']['status'],'no_tasks')
         with patch.object(teaching,'recognize') as model:
             status,result=self.call('/recognition/retry',dict(contract_version=teaching.RUN,request_id=view['request_id']))
-            self.assertEqual(status,409);self.assertIn('不会补抓',result['error'])
+            self.assertEqual(status,200,result)
             # Collection time alone does not make the same missing data retryable.
             unchanged=deepcopy(request);unchanged['records'][0]['record']['collected_at']='2026-10-11T10:00:00+08:00'
             with app.connection() as db:
@@ -786,6 +1398,22 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.drafts[iid]=empty_reply(record)
         self.assertEqual(self.run_request(fresh)['result']['status'],'no_tasks')
         self.assertEqual(len(self.call('/recognition/batches')[1]),2)
+
+    def test_captured_platform_item_survives_empty_partial_read(self):
+        for kind,expected in [('listed_assignment','task'),('announcement','notice')]:
+            with self.subTest(kind=kind):
+                capture=self.native_capture('unknown')
+                entry,=capture['request']['records']
+                record=entry['record']
+                record['body_status']='partial'
+                entry['platform_item']=dict(kind=kind,due=None,submitted=False)
+                record['text'] = entry['source']['label']
+                with patch.object(teaching,'_extract',side_effect=AssertionError('unexpected model')):
+                    result,policy=teaching.recognize(capture['request'],app.ApiError)
+                teaching.validate_current_result(capture['request'],result,policy,app.ApiError)
+                item,=teaching.result_view(capture['request'],result)['tasks']
+                self.assertEqual(item['content_type'],expected)
+                self.assertIsNone(item['deadline']['value'])
 
     def test_no_tasks_and_multiple_tasks_are_distinct(self):
         request,sync=self.capture(('explicit-complete','explicit-complete'))

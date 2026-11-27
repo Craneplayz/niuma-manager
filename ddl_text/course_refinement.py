@@ -112,7 +112,10 @@ relevance 只能为 current/ongoing/uncertain。原本 current/ongoing 的状态
     def call(current, feedback):
         return adapter.client.complete_json(instructions, json.dumps(dict(payload, **(feedback or {})), ensure_ascii=False), current)
 
-    remaining = settings.timeout_seconds - (time.monotonic() - started)
+    # Leave room inside the enclosing worker deadline for the validated
+    # primary result to be serialized and returned on a slow provider call.
+    reserve = min(8.0, settings.timeout_seconds * 0.15)
+    remaining = settings.timeout_seconds - (time.monotonic() - started) - reserve
     try:
         if remaining <= 0: raise AgentError('agent_timeout', True, 'model_timeout')
         return recover(call, compile_updates, replace(settings, timeout_seconds=remaining))

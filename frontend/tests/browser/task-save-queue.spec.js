@@ -147,22 +147,36 @@ test('trash recovery becomes available as soon as the pending deletion is acknow
   } finally { f.release(); }
 });
 
-test('new tasks get stable unique identities while earlier operations are still saving', async ({ page }) => {
+test('text submissions wait for earlier edits and use distinct receipts without provisional task writes', async ({ page }) => {
   const f = await openApp(page);
+  const submissions = [], jobs = [];
+  await page.route('**/api/recognition/text-jobs', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      submissions.push(body);
+      jobs.push({ request_id: body.request_id, state: 'queued' });
+    }
+    await route.fulfill({ json: { contract_version: 'text-import-jobs/0.1', jobs } });
+  });
   try {
     await row(page, 'a').locator('[data-task-complete]').click();
     await expect.poll(() => f.writes.length).toBe(1);
-    for (const title of ['排队添加一', '排队添加二']) {
-      await page.locator('[data-action="task-new"]').click();
-      await drawer(page).locator('#quick-text').fill(title);
-      await drawer(page).getByRole('button', { name: '加入', exact: true }).click();
-      await expect(drawer(page)).not.toBeVisible();
-      await expect(page.locator('.task-title').filter({ hasText: title })).toBeVisible();
-    }
-    expect(f.writes).toHaveLength(1); f.release();
-    await expect.poll(() => f.tasks.length).toBe(6);
-    expect(new Set(f.tasks.map(task => task.id)).size).toBe(6);
-    expect(f.tasks.slice(-2).map(task => task.title)).toEqual(['排队添加一', '排队添加二']);
-    expect(f.tasks.slice(-2).every(task => Array.isArray(task.plans) && Array.isArray(task.subtasks))).toBe(true);
+    await page.locator('[data-action="task-new"]').click();
+    await drawer(page).locator('#quick-text').fill('排队添加一');
+    await drawer(page).getByRole('button', { name: '加入', exact: true }).click();
+    await expect(page.locator('#quick-task-form')).toHaveAttribute('aria-busy', 'true');
+    expect(submissions).toHaveLength(0);
+    f.release();
+    await expect(drawer(page)).not.toBeVisible();
+    await expect.poll(() => submissions.length).toBe(1);
+    await page.locator('[data-action="task-new"]').click();
+    await drawer(page).locator('#quick-text').fill('排队添加二');
+    await drawer(page).getByRole('button', { name: '加入', exact: true }).click();
+    await expect(drawer(page)).not.toBeVisible();
+    expect(submissions.map(body => body.records[0].text)).toEqual(['排队添加一', '排队添加二']);
+    expect(new Set(submissions.map(body => body.request_id)).size).toBe(2);
+    expect(f.writes).toHaveLength(1);
+    expect(f.tasks).toHaveLength(4);
+    await expect(page.locator('.task-title').filter({ hasText: '排队添加' })).toHaveCount(0);
   } finally { f.release(); }
 });

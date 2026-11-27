@@ -132,7 +132,7 @@ class CourseContextTests(unittest.TestCase):
         self.assertGreater(target['records'][0]['record']['course_context']['omitted_documents'],0)
 
     def test_new_material_changes_only_dependent_revision_and_does_not_loop(self):
-        target=request('assignment','第四章书面作业。');self.save(target)
+        target=request('assignment','第四章书面作业，期限按教学大纲。');self.save(target)
         context.remember(self.db,'u','a',target['records'][0],[])
         self.save(request('unrelated','欢迎大家。'))
         self.assertEqual(context.refresh_dependents(self.db,'u','a'),[])
@@ -147,6 +147,50 @@ class CourseContextTests(unittest.TestCase):
         material['records'][0]['record']['text']+='更正：改为12月21日。';self.save(material)
         self.assertFalse(context.current(self.db,'u','a',chosen))
         self.assertEqual(len(context.refresh_dependents(self.db,'u','a')),1)
+
+    def test_only_explicit_references_select_other_course_materials(self):
+        from server.teaching_platform import route
+        notice = request('实验提交规则通知', '统一提交规则。')
+        notice['records'][0]['platform_item'] = {'kind': 'announcement'}
+        self.save(notice)
+        self.save(request('高级渲染', '实验课程相关课件。'))
+        target = request('lab', '请提交实验，截止时间按此前通知执行。')['records'][0]
+        target['platform_item'] = {'kind': 'native_assignment', 'due': None}
+        for text in ('截止时间按此前通知执行。', '提交要求见《实验提交规则通知》。'):
+            target['record']['text'] = text
+            self.assertEqual(route(target), 'platform')
+            self.assertEqual(context.select(self.db,'u','a',target), [])
+            # Older captures without trusted platform facts still resolve explicit references.
+            legacy = {k:v for k,v in target.items() if k!='platform_item'}
+            self.assertEqual([s['request']['request_id'] for s in context.select(self.db,'u','a',legacy)],
+                             [notice['request_id']])
+        target = legacy
+        self.save(request('其他课程通知', '选修课安排。'))
+        target['record']['text'] = '截止时间按此前通知执行。'
+        self.assertEqual(context.select(self.db,'u','a',target), [])
+        target['record']['text'] = '截止时间按此前通知《实验提交规则通知》执行。'
+        self.assertEqual([s['request']['request_id'] for s in context.select(self.db,'u','a',target)],
+                         [notice['request_id']])
+        for text in ('考试范围以课程课件和 Lab 为主。', '提交要求详见附件。', '拓展阅读见《高级渲染》。'):
+            target['record']['text'] = text
+            self.assertEqual(context.select(self.db,'u','a',target), [])
+
+    def test_upgrade_discards_old_implicit_dependencies_without_requeueing(self):
+        target = request('lab', '请完成实验，要求见本作业附件。')
+        self.save(target)
+        other = request('lecture', '教学大纲与实验说明。')
+        self.save(other)
+        old_selection = [dict(request=other, digest='old', readiness='old')]
+        entry = target['records'][0]
+        context.remember(self.db,'u','a',entry,old_selection)
+        self.db.execute('CREATE TABLE recognition_batches(user_id TEXT, request_id TEXT, request TEXT)')
+        batch = deepcopy(target)
+        context.attach(batch, [other])
+        self.db.execute('INSERT INTO recognition_batches VALUES(?,?,?)',
+                        ('u', target['request_id'], json.dumps(batch)))
+        for _ in range(2):
+            context.migrate_implicit_dependencies(self.db)
+            self.assertEqual(context.refresh_dependents(self.db,'u','a'), [])
 
     def test_dependency_identity_ignores_rank_but_detects_content_and_membership(self):
         selected=[dict(request=request(name,'课程大纲。'),digest=name,readiness='ready') for name in ('a','z')]

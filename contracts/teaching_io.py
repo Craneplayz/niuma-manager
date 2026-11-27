@@ -45,6 +45,14 @@ def check_request(request):
         r=entry['record'];validate_record(r)
         require(r['input_id'] not in seen,'duplicate input_id');seen.add(r['input_id'])
         if entry['source']['url'] is not None:check_source_url(entry['source']['url'])
+        if 'page_attachments' in entry:
+            links=entry['page_attachments']
+            require(len({link['ref_id'] for link in links}) == len(links), 'duplicate attachment')
+            require(all(ref['kind'] not in ('attachment','content_image') for ref in r['references']), 'unexpected file evidence')
+        for attachment in entry.get('page_attachments', []):
+            if attachment['url'] is not None:
+                check_source_url(attachment['url'])
+                require(attachment['url'].startswith('https://course.pku.edu.cn/'), 'invalid attachment origin')
         for field in ('label','course_or_project'):
             value=entry['source'][field]
             require(value is None or value.strip() and not any(ord(c)<32 or ord(c)==127 for c in value),'invalid source label')
@@ -65,16 +73,30 @@ def aggregate_status(rows):
     return 'success' if any(r['decisions'] for r in rows) else 'no_tasks'
 
 
+def course_content_page(entry):
+    """An authenticated page-only capture explicitly placed in the course content section."""
+    page_capture = 'page_attachments' in entry or entry['record']['input_id'].startswith('pku:source:')
+    return page_capture and bool(re.search(
+        r'^栏目：[ \t]*(?:教学内容|course content)[ \t]*$', entry['record']['source_metadata_text'], re.I | re.M))
+
+
 def check_pair(request,result,*,verified_snapshot_digests=()):
     check_request(request);check_shape('result',result)
     trusted=verified_set(request,verified_snapshot_digests)
     require(result['request_id']==request['request_id'],'request identity mismatch')
     rows=result['record_results']
-    model_routing = result.get('classification_mode') == 'model-v1'
+    model_routing = result.get('classification_mode') in ('model-v1','platform-v1','text-v0.2')
     require(len(rows)==len(request['records']),'record count mismatch')
     candidates=set()
     for entry,row in zip(request['records'],rows):
         r=entry['record'];verified=snapshot_digest(entry) in trusted
+        mode = result.get('classification_mode')
+        if mode in ('platform-v1', 'text-v0.2'):
+            kind = entry.get('platform_item', {}).get('kind')
+            allowed = kind == 'announcement' if mode == 'text-v0.2' else (
+                kind in ('native_assignment', 'listed_assignment', 'gradebook_assignment', 'announcement')
+                or kind is None and course_content_page(entry))
+            require(verified and allowed, 'classification requires matching captured platform facts')
         require(row['input_id']==r['input_id'] and row['snapshot_id']==r['snapshot_id'],'record identity mismatch')
         require(row['source']==entry['source'],'source metadata changed')
         status=row['status'];decisions=row['decisions']

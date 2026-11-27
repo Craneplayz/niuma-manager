@@ -13,13 +13,13 @@ const LABELS = {
 };
 const RECORD_LABELS = {
   queued: "等待识别", running: "正在识别", succeeded: "已识别", failed: "识别失败",
-  incomplete: "来源待补全", cancelled: "未处理", interrupted: "已中断",
+  incomplete: "已处理", cancelled: "未处理", interrupted: "已中断",
 };
 const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-const needsCollection = (record) => record.state === "incomplete" || ["source_incomplete", "source_changed", "source_missing"].includes(record.error?.code);
+const needsCollection = (record) => ["source_changed", "source_missing", "collection_failed"].includes(record.error?.code);
 const retryable = (record) => !record.recovered && !needsCollection(record) && (["cancelled", "interrupted"].includes(record.state) || record.state === "failed" && record.error?.retryable === true);
 const recoverable = record => !record.recovered && (retryable(record) || needsCollection(record));
-const unresolved = record => !record.recovered && ["failed", "incomplete", "cancelled", "interrupted"].includes(record.state);
+const unresolved = record => !record.recovered && ["failed", "cancelled", "interrupted"].includes(record.state);
 const usefulRecord = record => record.added > 0 || record.review > 0 || record.recovered || unresolved(record);
 const runError = run => run.error && !run.records.some(record => record.recovered && record.error?.code === run.error.code && record.error?.message === run.error.message) ? run.error : null;
 const usefulRun = run => Boolean(runError(run) || !run.records.length && ["failed", "interrupted"].includes(run.state) || run.updated_tasks?.length || run.records.some(usefulRecord));
@@ -81,8 +81,7 @@ export function createSourceSyncUI(host) {
   let locatedRun = null, linkedRuns = new Map(), locateController = null;
   let recoveryHighlight = null;
   const categories = new Map(), selectedProblems = new Map();
-  let lastCheck = null;
-  const manualRuns = new Set(), announced = new Set();
+  let lastCheck = null, pendingManualRun = null, dismissQuietToast = null;
   const active = () => runs.some((run) => ACTIVE.has(run.state));
   const stamp = () => ({ generation, account: host.accountVersion() });
   const current = (value) => value.generation === generation && value.account === host.accountVersion() && host.isAuthenticated() && !host.isDemo();
@@ -107,6 +106,7 @@ export function createSourceSyncUI(host) {
   }
   function cancelRead() {
     readSequence++;
+    if (loading) { refreshSequence++; refreshing = false; }
     readController?.abort();
     readController = null; loading = false;
     clearPoll();
@@ -120,10 +120,12 @@ export function createSourceSyncUI(host) {
     error = null; pendingOperation = consumed = focusedRun = actionInFlight = null;
     locatedRun = null; linkedRuns.clear();
     showHistory = false; categories.clear(); selectedProblems.clear();
-    lastCheck = null; manualRuns.clear(); announced.clear();
+    lastCheck = null; clearCompletionNotice();
   }
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
   function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
+  // Only the first progress read is needed to discover an already running import.
+  function blocksStart() { syncAccount(); return writing || active() || (!loaded && loading); }
   function isRunning() { syncAccount(); return writing || active(); }
   function progressLabel() {
     syncAccount();
@@ -182,17 +184,22 @@ export function createSourceSyncUI(host) {
     else if (runs[index].revision <= run.revision) runs = runs.map((item, at) => at === index ? run : item);
     loaded = true;
   }
+  function clearCompletionNotice() {
+    pendingManualRun = null;
+    dismissQuietToast?.();
+    dismissQuietToast = null;
+  }
   function notifyQuiet() {
-    for (const id of manualRuns) {
-      const run = runs.find(item => item.run_id === id);
-      const quiet = run ? run.state === "succeeded" && !usefulRun(run)
-        : lastCheck?.run_id === id && lastCheck.state === "succeeded" && !lastCheck.changed;
-      if (quiet && !announced.has(id)) {
-        announced.add(id); manualRuns.delete(id);
-        if (focusedRun === id) focusedRun = null;
-        host.toast?.("已检查，没有新内容");
-      }
-    }
+    if (!pendingManualRun || active()) return;
+    const run = runs.find(item => item.run_id === pendingManualRun);
+    // Quiet runs drop out of history. Only their own final receipt confirms completion.
+    const receipt = run || (lastCheck?.run_id === pendingManualRun ? lastCheck : null);
+    if (!receipt) return;
+    const id = pendingManualRun;
+    pendingManualRun = null;
+    if (receipt.state !== "succeeded" || (run ? usefulRun(run) : receipt.changed)) return;
+    if (focusedRun === id) focusedRun = null;
+    dismissQuietToast = host.toast?.("已检查，没有新内容");
   }
   async function changed(valid) {
     const fingerprint = JSON.stringify(runs);
@@ -225,12 +232,23 @@ export function createSourceSyncUI(host) {
       if (!valid()) return false;
       if (response?.contract_version !== VERSION || !Array.isArray(response.runs) || response.runs.length > 20) throw new Error("导入服务版本不匹配，请刷新或更新服务。");
       lastCheck = checkLast(response.last_check);
+      const wasActive = active();
       acceptList(response.runs.map(checkRun));
-      focusedRun = runs.find(run => ACTIVE.has(run.state))?.run_id || focusedRun;
+      if (pendingOperation) {
+        const confirmed = runs.find(run => run.operation_id === pendingOperation.id);
+        if (confirmed) {
+          pendingManualRun = confirmed.run_id;
+          pendingOperation = null;
+        }
+      }
+      const running = runs.find(run => ACTIVE.has(run.state));
+      if (running && running.run_id !== pendingManualRun) clearCompletionNotice();
+      focusedRun = running?.run_id || focusedRun;
       const focused = runs.find(run => run.run_id === focusedRun);
       // A quiet scheduled run may finish entirely between polls and only update last_check.
       if (focused && !ACTIVE.has(focused.state) && lastCheck && lastCheck.run_id !== focused.run_id &&
           Date.parse(lastCheck.updated_at) > Date.parse(focused.updated_at)) focusedRun = null;
+      if (!wasLoaded || wasActive !== active()) redraw();
       const refreshed = await changed(valid);
       if (valid() && refreshed) notifyQuiet();
       return refreshed;
@@ -247,7 +265,8 @@ export function createSourceSyncUI(host) {
   }
   async function act(action, id = null, selection = null) {
     if (!allowed() || writing) return false;
-    if (action !== "stop" && (active() || loading || refreshing || host.isImportBusy())) {
+    const blocked = action === "start" ? blocksStart() : isBusy();
+    if (action !== "stop" && (blocked || host.isImportBusy())) {
       error = { message: "请先等待当前导入完成，再继续操作。" }; redraw(); return false;
     }
     let selected = selection;
@@ -271,7 +290,10 @@ export function createSourceSyncUI(host) {
       ...(action === "start" ? { sources: ["teaching_web"] } : { request_ids: selected }),
     };
     writeController = controller; writing = true; error = null; actionInFlight = action;
-    if (action === "start") focusedRun = null;
+    if (action !== "stop") {
+      clearCompletionNotice();
+      focusedRun = null;
+    }
     redraw();
     let requested = false;
     try {
@@ -284,10 +306,12 @@ export function createSourceSyncUI(host) {
       if (!current(value)) return false;
       acceptRun(checkRun(run));
       focusedRun = run.run_id;
-      if (action !== "stop") manualRuns.add(run.run_id);
-      if (action !== "stop") pendingOperation = null;
-      await changed(() => current(value));
-      if (current(value)) notifyQuiet();
+      if (action !== "stop") {
+        pendingManualRun = run.run_id;
+        pendingOperation = null;
+      }
+      const refreshed = await changed(() => current(value));
+      if (current(value) && refreshed) notifyQuiet();
       return current(value);
     } catch (cause) {
       if (current(value)) error = !requested && action !== "stop"
@@ -317,7 +341,7 @@ export function createSourceSyncUI(host) {
     return !request && plan.whole ? start() : Promise.resolve(false);
   }
   function guidance(record) {
-    if (needsCollection(record)) return "来源内容尚未完整取得，处理时会先重新获取这条来源。";
+    if (needsCollection(record)) return "处理时会重新获取这条教学网页面。";
     if (record.error?.code === "model_configuration" || record.error?.code === "agent_unavailable" && !record.error.retryable) return "请修复模型配置后重新获取来源。";
     if (["cancelled", "interrupted"].includes(record.state)) return "已保存内容保留，可继续处理。";
     if (record.error?.code === "agent_timeout") return "识别超时，可稍后重试。";
@@ -435,7 +459,7 @@ export function createSourceSyncUI(host) {
     const superseded = newest && newest.run !== run;
     const recovered = record.recovered || superseded && newest.record.state === "succeeded";
     const blocked = isBusy() || host.isImportBusy();
-    const formatted = report(needsCollection(record) ? { ...record.error, code: "source_incomplete" } : record.error, guidance(record));
+    const formatted = report(record.error, guidance(record));
     const status = recovered ? "后续已恢复。" : superseded ? `后续${RECORD_LABELS[newest.record.state]}。` : null;
     return `<div class="sync-problem" role="region" aria-label="${esc(record.label)}的处理情况"><strong>${esc(record.label)}</strong>${status ? `<p class="status-note">${esc(status)}</p>` : errorMarkup(formatted, JSON.stringify(["source-sync", run.run_id, record.request_id]))}${!status && !ACTIVE.has(run.state) && recoverable(record) && record.request_id ? `<button class="btn quiet" type="button" data-source-sync-action="recover" data-source-sync-run="${esc(run.run_id)}" data-source-sync-request="${esc(record.request_id)}" ${blocked ? "disabled" : ""}>处理本条</button>` : ""}</div>`;
   }
@@ -479,10 +503,10 @@ export function createSourceSyncUI(host) {
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
   }
-  function renderProgress() {
+  function renderProgress(scheduleBusy = false) {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
-    const run = currentRun(), starting = ["start", "retry", "recover"].includes(actionInFlight);
+    const run = currentRun(), starting = scheduleBusy || ["start", "retry", "recover"].includes(actionInFlight);
     if (!run && !error && !starting && !lastCheck) return "";
     const checked = lastCheck && !run && !starting ? `<p class="status-note" data-source-sync-last-check>上次检查 <time datetime="${esc(lastCheck.updated_at)}">${esc(new Date(lastCheck.updated_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</time> · ${lastCheck.state === "succeeded" ? lastCheck.changed ? "有新结果" : "无新内容" : esc(LABELS[lastCheck.state])}</p>` : "";
     const content = `${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}${checked}`;
@@ -500,7 +524,7 @@ export function createSourceSyncUI(host) {
     const ordinary = all.filter(entry => !required.includes(entry)).slice(0, Math.max(0, 20 - required.length));
     const history = all.filter(entry => required.includes(entry) || ordinary.includes(entry));
     if (!history.length) return "";
-    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary><button type="button" class="btn quiet" data-import-action="refresh">刷新</button>${history.map(entry => entry.html).join("")}</details>`;
+    return `<details class="import-history" data-source-sync-history ${showHistory ? "open" : ""}><summary>历史导入 · ${history.length}</summary>${history.map(entry => entry.html).join("")}</details>`;
   }
   async function click(button) {
     const data = button?.dataset, action = data?.sourceSyncAction;
@@ -563,5 +587,5 @@ export function createSourceSyncUI(host) {
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
+  return { renderProgress, renderHistory, clearCompletionNotice, click, toggle, reset, load, start, stop, canStop, isBusy, blocksStart, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
 }

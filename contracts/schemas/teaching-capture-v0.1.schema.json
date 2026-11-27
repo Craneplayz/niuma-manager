@@ -171,6 +171,89 @@
                   "course_or_project"
                 ],
                 "additionalProperties": false
+              },
+              "page_attachments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "ref_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "url": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ref_id",
+                    "label",
+                    "url"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 50
+              },
+              "platform_item": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "native_assignment",
+                      "gradebook_assignment",
+                      "listed_assignment",
+                      "announcement"
+                    ]
+                  },
+                  "due": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "submitted": {
+                    "type": "boolean"
+                  },
+                  "gradebook_id": {
+                    "type": "string",
+                    "pattern": "^_[0-9]+_[0-9]+$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "due",
+                  "submitted"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [

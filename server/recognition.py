@@ -50,65 +50,72 @@ def recognize(request, ApiError, *, on_admitted=None):
         raise error
     try:
         if on_admitted is not None: on_admitted()
-        endpoint = os.environ.get('TEXT_HARNESS_URL')
-        if endpoint:
-            headers = {'Content-Type': 'application/json'}
-            if os.environ.get('TEXT_HARNESS_TOKEN'):
-                headers['Authorization'] = 'Bearer ' + os.environ['TEXT_HARNESS_TOKEN']
-            try:
-                with operations.span('model_call','recognition.harness'),urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=95) as response:
-                    return json.loads(response.read(2000000))
-            except HTTPError as error:
-                busy = error.code == 503
-                diagnostics.event('harness',http_status=error.code,status='failed')
-                error.close()
-                failure=ApiError(503 if busy else 502,'文本识别服务调用失败')
-                failure.code, failure.diagnostic='agent_unavailable','model_busy' if busy else 'model_unavailable'
-                raise failure from None
-            except Exception as cause:
-                from ddl_text import diagnostics as trace
-                from urllib.error import URLError
-                reason = ('model_timeout' if isinstance(cause,TimeoutError) or isinstance(cause,URLError) and isinstance(cause.reason,TimeoutError)
-                    else 'provider_response' if isinstance(cause,(ValueError,UnicodeError))
-                    else 'model_unavailable' if isinstance(cause,(OSError,URLError)) else 'internal_error')
-                trace.failure(cause,stage='harness',reason=reason)
-                failure=ApiError(502,'文本识别服务调用失败')
-                failure.code='invalid_agent_output' if reason=='provider_response' else 'agent_timeout' if reason=='model_timeout' else 'agent_unavailable'
-                failure.diagnostic=reason
-                raise failure from None
-        try:
-            options = live_options(model_env_path(ROOT))
-            if not options['key'].strip():
-                raise ValueError('missing credential')
-            adapter = ExtractionAdapter(operations.observe_chat(make_client(options)))
-            settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
-                                timeout_seconds=90, max_retries=0,
-                                thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
-        except (OSError, ValueError, TypeError, KeyError):
-            error = ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥')
-            error.code = 'model_configuration'
-            raise error from None
-        try:
-            policy = text_policy_manifest(settings,provider='qiniu' if options['provider']=='qiniu' else 'codex')
-            if policy['components'] != _POLICY_COMPONENTS:
-                raise ValueError('policy_changed_after_startup')
-        except (OSError,ValueError,KeyError,TypeError):
-            error=ApiError(503,'识别规则与当前进程不一致，请重启后端后重试')
-            error.code, error.diagnostic='agent_unavailable','recognition_rules'
-            raise error from None
-        _EXECUTION.policy = policy
-        diagnostics.event('configuration',model=settings.model,provider=options['provider'],
-                          timeout_seconds=settings.timeout_seconds,policy_version=policy['version'])
-        try:
-            return process_request(request, adapter, settings, budget_seconds=90, diagnostic_event=diagnostics.event)
-        except Exception as cause:
-            from ddl_text import diagnostics as trace
-            trace.failure(cause, stage='text_server')
-            error = ApiError(502, '识别程序发生内部异常，请反馈诊断编号')
-            error.code, error.diagnostic = 'agent_unavailable', 'internal_error'
-            raise error from None
+        return recognize_admitted(request, ApiError)
     finally:
         _ACTIVE.release()
+
+
+def recognize_admitted(request, ApiError):
+    """Run the text extractor when the caller already owns a shared model slot."""
+    _EXECUTION.policy = None
+    endpoint = os.environ.get('TEXT_HARNESS_URL')
+    if endpoint:
+        headers = {'Content-Type': 'application/json'}
+        if os.environ.get('TEXT_HARNESS_TOKEN'):
+            headers['Authorization'] = 'Bearer ' + os.environ['TEXT_HARNESS_TOKEN']
+        try:
+            with operations.span('model_call','recognition.harness'),urlopen(Request(endpoint, json.dumps(request).encode(), headers), timeout=95) as response:
+                return json.loads(response.read(2000000))
+        except HTTPError as error:
+            busy = error.code == 503
+            diagnostics.event('harness',http_status=error.code,status='failed')
+            error.close()
+            failure=ApiError(503 if busy else 502,'文本识别服务调用失败')
+            failure.code, failure.diagnostic='agent_unavailable','model_busy' if busy else 'model_unavailable'
+            raise failure from None
+        except Exception as cause:
+            from ddl_text import diagnostics as trace
+            from urllib.error import URLError
+            reason = ('model_timeout' if isinstance(cause,TimeoutError) or isinstance(cause,URLError) and isinstance(cause.reason,TimeoutError)
+                else 'provider_response' if isinstance(cause,(ValueError,UnicodeError))
+                else 'model_unavailable' if isinstance(cause,(OSError,URLError)) else 'internal_error')
+            trace.failure(cause,stage='harness',reason=reason)
+            failure=ApiError(502,'文本识别服务调用失败')
+            failure.code='invalid_agent_output' if reason=='provider_response' else 'agent_timeout' if reason=='model_timeout' else 'agent_unavailable'
+            failure.diagnostic=reason
+            raise failure from None
+    try:
+        options = live_options(model_env_path(ROOT))
+        if not options['key'].strip():
+            raise ValueError('missing credential')
+        adapter = ExtractionAdapter(operations.observe_chat(make_client(options)))
+        settings = Settings(mode='real', model=options['model'], endpoint=options['endpoint'],
+                            timeout_seconds=90, max_retries=0,
+                            thinking_mode='disabled' if options['model'].startswith('deepseek/') else None)
+    except (OSError, ValueError, TypeError, KeyError):
+        error = ApiError(503, '文本识别配置不可用，请检查当前环境的模型配置文件或环境变量中的模型配置与密钥')
+        error.code = 'model_configuration'
+        raise error from None
+    try:
+        policy = text_policy_manifest(settings,provider='qiniu' if options['provider']=='qiniu' else 'codex')
+        if policy['components'] != _POLICY_COMPONENTS:
+            raise ValueError('policy_changed_after_startup')
+    except (OSError,ValueError,KeyError,TypeError):
+        error=ApiError(503,'识别规则与当前进程不一致，请重启后端后重试')
+        error.code, error.diagnostic='agent_unavailable','recognition_rules'
+        raise error from None
+    _EXECUTION.policy = policy
+    diagnostics.event('configuration',model=settings.model,provider=options['provider'],
+                      timeout_seconds=settings.timeout_seconds,policy_version=policy['version'])
+    try:
+        return process_request(request, adapter, settings, budget_seconds=90, diagnostic_event=diagnostics.event)
+    except Exception as cause:
+        from ddl_text import diagnostics as trace
+        trace.failure(cause, stage='text_server')
+        error = ApiError(502, '识别程序发生内部异常，请反馈诊断编号')
+        error.code, error.diagnostic = 'agent_unavailable', 'internal_error'
+        raise error from None
+
 
 
 def initialize(db):
@@ -169,7 +176,7 @@ def batches(db,uid):
                 # preserving storage IDs, review state and user resolutions.
                 # Stored cards also carry user-decision guards from reprocessing.
                 card=dict(cards.get(item['candidate']['candidate_id'],item['candidate']))
-                if json.loads(row['result']).get('classification_mode')==teaching.CLASSIFICATION_MODE:
+                if json.loads(row['result']).get('classification_mode') in teaching.CLASSIFICATION_MODES:
                     for field in ('notice_type','needs_review','review_reasons'):
                         card[field]=item['candidate'][field]
                 item['candidate'] = teaching.submission.decorate(db,uid,row['request_id'],card)
@@ -323,11 +330,21 @@ def route(handler,db,uid,path,body,ApiError):
             if not batch: continue
             item=json.loads(candidate['candidate'])
             request=json.loads(batch['request'])
+            attachments=[]
             if request.get('contract_version')=='0.4':
                 import teaching
+                entry=next((e for e in request['records'] if e['record']['input_id']==item.get('input_id')),None)
+                if entry is not None:
+                    if 'page_attachments' not in entry or any(link['url'] is None for link in entry['page_attachments']):
+                        # A pre-upgrade result can share its snapshot with the refreshed link index.
+                        current=db.execute('SELECT request FROM teaching_sources WHERE user_id=? AND request_id=? AND input_id=?',
+                            (uid,candidate['request_id'],item['input_id'])).fetchone()
+                        if current: entry=json.loads(current['request'])['records'][0]
+                    attachments=entry.get('page_attachments', [dict(label=r['label'],url=None)
+                        for r in entry['record']['references'] if r['kind'] in teaching.teaching_platform.FILE_KINDS])
                 request=teaching.request_view(request)
             record=next((r for r in request.get('records',[]) if r.get('input_id')==item.get('input_id')),{})
-            evidence.append(dict(action=history.get('action'),quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
+            evidence.append(dict(action=history.get('action'),attachments=attachments,quotes=item.get('evidence',[]),basis=item.get('deadline',{}).get('basis'),sources=item.get('sources',[]),original=record.get('text',''),sourceUrl=record.get('source_url'),sourceLabel=record.get('source_label'),platform=record.get('platform')))
         handler.reply(200,dict(evidence=evidence));return True
     if path=='/api/recognition/imports' and handler.command=='POST':
         ids=body.get('request_ids')
@@ -381,13 +398,31 @@ def route(handler,db,uid,path,body,ApiError):
 
 def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=None):
     """Materialize new items in the recognition transaction, preserving prior decisions."""
+    assignment = None
+    platform_entry = None
     if request.get('contract_version') == '0.4':
         import teaching
+        state = teaching.submission.for_request(db, uid, request['request_id'])
+        # An explicit user reopen is a user decision. Background writes and startup
+        # migrations must respect the live submission latch in this transaction.
+        if candidate_id is None and state and (state['review_pending'] or state['state'] == 'submitted'):
+            return set()
+        if candidate_id is None and teaching.teaching_identity.ambiguous_legacy_assignment(db, uid, request['request_id'], state):
+            return set()
+        if not db.execute('SELECT 1 FROM teaching_submission_requests WHERE user_id=? AND account=? AND request_id=?',
+                          (uid, teaching.submission.controls.current_account(db, uid), request['request_id'])).fetchone():
+            return set()
+        if len(request['records']) == 1:
+            entry = request['records'][0]
+            platform_entry = entry if entry.get('platform_item') else None
+            if entry.get('platform_item', {}).get('kind') in teaching.teaching_identity.ASSIGNMENT_KINDS:
+                assignment = request
         request = teaching.request_view(request)
     records = {r['input_id']: r for r in request['records']}
     rows = db.execute("""SELECT id,version,candidate FROM recognition_candidates
         WHERE user_id=? AND request_id=? AND state='pending' AND (? IS NULL OR id=?)""",
         (uid, request['request_id'], candidate_id, candidate_id)).fetchall()
+    created = set()
     for row in rows:
         candidate = json.loads(row['candidate'])
         record = records[candidate['input_id']]
@@ -430,9 +465,23 @@ def publish_results(db, uid, request, ApiError, *, source=None, candidate_id=Non
         course = settings.get('course', candidate['course_or_project'] or settings.get('default_course'))
         draft = dict(title=candidate['title'], description=description, course=course, due=when,
                      content_type=candidate.get('content_type', 'task') if candidate['notice_type'] == 'create' else 'notice')
-        resolve_candidate(db, uid, row['id'], dict(action='create', version=row['version'], draft=draft, auto_apply=True),
+        operation = dict(action='create', draft=draft)
+        if assignment:
+            # Legacy split results retain their evidence, never pick one by position.
+            if candidate['candidate_id'] not in ('platform-assignment', candidate['input_id'] + ':assignment'):
+                continue
+            draft['content_type'] = 'task'
+            operation = teaching.teaching_identity.assignment_publication(db, uid, assignment, row['id'], draft)
+            if operation is None:
+                continue
+        resolve_candidate(db, uid, row['id'], dict(operation, version=row['version'], auto_apply=True),
                           ApiError, direct_add=True, source_range=source_range, source=source)
-    return {row['id'] for row in rows}
+        if platform_entry and operation['draft']['title'] == candidate['title']:
+            import teaching_titles
+            teaching_titles.enqueue(db, uid, platform_entry, row['id'], candidate['title'])
+        if operation['action'] == 'create':
+            created.add(row['id'])
+    return created
 
 
 def current_legacy_task(candidate, record, now):
@@ -610,11 +659,16 @@ def resolve_candidate(db, uid, cid, body, ApiError, *, intent=None, direct_add=F
             target['status']='completed'
             target['completedAt']=intent['completedAt'] if intent is not None else datetime.now(usage.TZ).date().isoformat()
         entry = dict(storageId=cid, requestId=row['request_id'], candidateId=c['candidate_id'], action=action)
-        if direct_add and c['notice_type'] in ('update', 'postpone', 'cancel'):
+        from teaching_identity import CHANGED_SOURCE_REVIEW, GRADEBOOK_REVIEW
+        source_change = c['notice_type'] == 'uncertain' and any(
+            reason in (CHANGED_SOURCE_REVIEW, GRADEBOOK_REVIEW) for reason in c.get('review_reasons', []))
+        if direct_add and action == 'create' and (c['notice_type'] in ('update', 'postpone', 'cancel') or source_change):
             entry['noticeType'] = c['notice_type']
         target.setdefault('recognitionHistory', []).append(entry)
         db.execute('INSERT INTO workspace VALUES(?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET value=excluded.value,version=excluded.version',(uid,'tasks',json.dumps(tasks),version+1))
         if record_usage: usage.workspace_changes(db,uid,json.loads(taskrow['value']) if taskrow else [],tasks)
     db.execute('UPDATE recognition_candidates SET state=?,version=version+1,resolution=? WHERE id=?',('ignored' if action=='ignore' else 'applied',canonical,cid))
-    if action!='ignore': submission_runtime.candidate_applied(db,uid,cid,target['id'])
+    if action!='ignore':
+        submission_runtime.candidate_applied(db, uid, cid, target['id'],
+            same_assignment=direct_add and action == 'update' and 'source_draft' in body)
     return

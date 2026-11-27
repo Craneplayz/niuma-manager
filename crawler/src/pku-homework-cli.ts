@@ -1,9 +1,7 @@
 import { scrapePkuHomeworks } from "./pku-homework.js";
 import { toRecognitionRequests } from "./pku-recognition.js";
-import { toTeachingRequests, toTeachingCaptures, toTeachingAssetManifest } from "./pku-teaching.js";
+import { toTeachingRequests, toTeachingCaptures } from "./pku-teaching.js";
 import { toTeachingRequests as exportEvidence } from "./pku-teaching-evidence.js";
-import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import { collectionFailureEvent, CollectionFailure } from "./collection-failure.js";
 
 let exporting = false;
@@ -27,7 +25,7 @@ try {
       throw new Error("source diagnosis requires all four target options, raw format, and no term/section scan options");
     }
     const targetSource = targetValues.every(Boolean) ? { url: targetValues[0]!, itemId: targetValues[1]!, course: targetValues[2]!, section: targetValues[3]! } : undefined;
-    const result = await scrapePkuHomeworks({ term, ...(targetSource ? { targetSource } : {}), allSections: args.includes("--all-sections"), ...(["teaching", "teaching-capture"].includes(format) ? { teachingSections: true } : {}),
+    const result = await scrapePkuHomeworks({ term, ...(format === "teaching-capture" ? { pageOnly: true } : {}), ...(targetSource ? { targetSource } : {}), allSections: args.includes("--all-sections"), ...(["teaching", "teaching-capture"].includes(format) ? { teachingSections: true } : {}),
       ...(args.includes("--observe-downloads") ? { downloadObserver: (event: import("./producer-observation.js").DownloadObservation) => { console.error(JSON.stringify(event)); } } : {}) });
     exporting = true;
     if (format === "teaching-v04") {
@@ -36,12 +34,8 @@ try {
       if (output.requests.length) console.log(output.requests.map(request => JSON.stringify(request)).join("\n"));
       if (output.skipped.length) process.exitCode = 2;
     } else if (format !== "raw") {
-      const requests = format === "teaching-capture" ? toTeachingCaptures(result.source_records, requestId)
+      const requests = format === "teaching-capture" ? toTeachingCaptures(result.source_records, requestId, { pageOnly: true })
         : format === "teaching" ? toTeachingRequests(result.source_records, requestId) : toRecognitionRequests(result.source_records, requestId);
-      if (format === "teaching-capture" && process.env.PKU_ATTACHMENT_DIR) {
-        const assets = toTeachingAssetManifest(result.source_records);
-        await writeFile(path.join(process.env.PKU_ATTACHMENT_DIR, "manifest.json"), JSON.stringify(assets), { mode: 0o600 });
-      }
       // Convert the entire run before writing anything, so a conversion error is explicit.
       console.log(requests.map((request) => JSON.stringify(request)).join("\n"));
     } else {

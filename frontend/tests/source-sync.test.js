@@ -58,7 +58,7 @@ function fixture(initial = []) {
   let ui;
   const host = {
     accountVersion: () => account, isAuthenticated: () => authenticated, isDemo: () => demo,
-    toast: message => messages.push(message),
+    toast: message => { messages.push(message); },
     revealImportResult: id => revealed.push(id),
     clearImportResultHighlight: () => highlightClears++,
     isImportBusy: () => otherBusy, render: () => renders++,
@@ -221,13 +221,50 @@ check('a network-uncertain start reuses its operation id without render resubmis
   });
   assert.equal(await f.ui.start(), false);
   markup(f.ui); markup(f.ui); assert.equal(f.posts().length, 1);
+  const other = syncRun({id: 'scheduled:other', state: 'crawling', states: []});
+  other.operation_id = 'scheduled:other-operation';
+  other.trigger = 'scheduled';
+  f.setRuns([other]);
+  await f.ui.load();
+  f.setRuns([]);
+  f.setLastCheck({run_id: other.run_id, state: 'succeeded', updated_at: other.updated_at, trigger: 'scheduled', changed: false});
+  await f.ui.load();
   assert.equal(await f.ui.start(), true);
   assert.equal(f.posts()[0].body.operation_id, f.posts()[1].body.operation_id);
   assert.equal(f.ui.isBusy(), true);
   await f.ui.start(); assert.equal(f.posts().length, 2, 'an active run cannot start competing work');
 });
 
-check('completed server task creation refreshes both tasks and candidates while the completion stays locked', async () => {
+check('a progress read confirming the lost start by operation id makes the next click a new check', async () => {
+  const f = fixture();
+  let firstRun;
+  f.setAPI((call, normal) => {
+    if (call.path !== API || call.method !== 'POST') return normal(call);
+    if (!firstRun) {
+      firstRun = normal(call);
+      firstRun.operation_id = call.body.operation_id;
+      f.setRuns([firstRun]);
+      throw new Error('start response lost after acceptance');
+    }
+    if (call.body.operation_id === firstRun.operation_id) {
+      return {...firstRun, state: 'succeeded', revision: firstRun.revision + 1};
+    }
+    return normal(call);
+  });
+  assert.equal(await f.ui.start(), false);
+  await f.ui.load();
+  assert.equal(f.ui.canStop(), true);
+  f.setRuns([]);
+  f.setLastCheck({run_id: firstRun.run_id, state: 'succeeded', updated_at: firstRun.updated_at, trigger: 'manual', changed: false});
+  await f.ui.load();
+  const beforeStart = [...f.messages];
+  assert.equal(await f.ui.start(), true);
+  assert.notEqual(f.posts()[1].body.operation_id, firstRun.operation_id);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, beforeStart);
+});
+
+check('starting during a completion refresh preserves results and ignores the superseded read', async () => {
   const active = syncRun({state: 'recognizing', states: ['running']}), f = fixture([active]);
   await f.ui.load();
   const finished = syncRun({added: 1}); finished.revision = 2;
@@ -241,9 +278,11 @@ check('completed server task creation refreshes both tasks and candidates while 
     return true;
   });
   const reading = f.ui.load(); await new Promise(resolve => setImmediate(resolve));
-  await f.ui.start(); assert.equal(f.posts().length, 0); assert.equal(f.ui.isBusy(), true);
-  refresh.resolve(); await reading;
-  assert.equal(f.ui.isBusy(), false);
+  const starting = f.ui.start();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.posts().length, 1);
+  refresh.resolve(); await reading; await starting;
+  assert.equal(f.ui.canStop(), true);
   assert.deepEqual(f.remote.observed, {tasks: [{id: 'automatically-created'}], batches: [{items: [{state: 'applied'}]}]});
   assert.equal(f.calls.some(call => call.path.endsWith('/resolve')), false);
 });
@@ -303,7 +342,8 @@ check('account switching while a start waits cannot submit to the new account', 
 });
 
 check('single and batch retry select only the latest recoverable attempts', async () => {
-  const old = syncRun({state: 'failed', states: ['failed','failed','incomplete']}), child = syncRun({id: 'run:child'});
+  const old = syncRun({state: 'failed', states: ['failed','failed','failed']}), child = syncRun({id: 'run:child'});
+  old.records[2].error = {code:'source_missing',message:'网页未取得',retryable:false};
   child.parent_run_id = old.run_id;
   const f = fixture([child, old]); await f.ui.load();
   assert.doesNotMatch(markup(f.ui), /后续已恢复|本轮记录保留/); assert.match(markup(f.ui), /处理未完成 · 2/);
@@ -330,7 +370,8 @@ check('a lost single retry response reuses operation identity and never includes
 });
 
 check('incomplete or changed sources offer recollection and configuration failures avoid futile retries', async () => {
-  const run = syncRun({state: 'failed', states: ['incomplete','failed','failed']});
+  const run = syncRun({state: 'failed', states: ['failed','failed','failed']});
+  run.records[0].error = {code:'source_missing',message:'网页未取得',retryable:false};
   run.records[0].label = '<script>unsafe</script>';
   run.records[1].error = {code: 'source_changed', message: '来源变化', retryable: true};
   run.records[2].error = {code: 'model_configuration', message: '配置不可用', retryable: false};
@@ -338,13 +379,14 @@ check('incomplete or changed sources offer recollection and configuration failur
   await category(f.ui, run.run_id, 'error'); await problem(f.ui, run.run_id, 0);
   const html = markup(f.ui);
   assert.match(html, /data-source-sync-action="recover"/); assert.doesNotMatch(html, /data-source-sync-action="retry"|data-source-sync-action="collect"/);
-  assert.match(html, /完整通知/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
+  assert.match(html, /教学网页面/); assert.doesNotMatch(html, /<script>|story-|draft-card/);
   await f.ui.click(button('recover',run.run_id)); assert.equal(f.posts()[0].path, `${API}/${encodeURIComponent(run.run_id)}/recover`);
   assert.deepEqual(f.posts()[0].body.request_ids,['sync:0','sync:1']);
 });
 
 check('one recovery action scopes mixed errors and never includes successful content or pending review', async () => {
-  const run=syncRun({state:'partial_success',states:['succeeded','succeeded','failed','incomplete'],added:1});
+  const run=syncRun({state:'partial_success',states:['succeeded','succeeded','failed','failed'],added:1});
+  run.records[3].error={code:'source_missing',message:'网页未取得',retryable:false};
   run.records[1].review=1;run.counts.review=1;
   const f=fixture([run]);await f.ui.load();
   const html=markup(f.ui);assert.match(html,/处理未完成 · 2/);
@@ -537,6 +579,86 @@ check('a manually requested quiet check gives one temporary notification after i
   await f.ui.load();await f.ui.load();
   assert.deepEqual(f.messages,['已检查，没有新内容']);assert.equal(f.ui.renderHistory(),'');
   assert.doesNotMatch(f.ui.renderProgress(),/导入完成/);
+});
+
+check('starting a new check while the previous quiet result refreshes only announces the new completion', async () => {
+  const f = fixture();
+  await f.ui.start();
+  const previousCheck = {run_id: 'run:1', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'manual', changed: false};
+  f.setLastCheck(previousCheck);
+  f.setRuns([]);
+  const refreshing = deferred(), workspace = deferred();
+  f.setAPI((call, normal) => {
+    if (call.path === '/api/workspace') {
+      refreshing.resolve();
+      return workspace.wait;
+    }
+    return normal(call);
+  });
+  const previousRead = f.ui.load();
+  await refreshing.wait;
+  assert.equal(f.ui.blocksStart(), false);
+  f.setAPI(null);
+  assert.equal(await f.ui.start(), true);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, []);
+  workspace.resolve({tasks: []});
+  await previousRead;
+  await f.ui.load();
+  assert.deepEqual(f.messages, []);
+  assert.doesNotMatch(f.ui.renderProgress(), /无新内容/);
+
+  f.setLastCheck({...previousCheck, run_id: 'run:2', updated_at: '2026-10-16T01:32:00Z'});
+  f.setRuns([]);
+  await f.ui.load();
+  await f.ui.load();
+  assert.deepEqual(f.messages, ['已检查，没有新内容']);
+});
+
+check('returning to a different active run retires the old quiet notification even after the new run stops', async () => {
+  const f = fixture();
+  await f.ui.setVisible(true);
+  await f.ui.start();
+  f.ui.setVisible(false);
+  const quiet = {run_id: 'run:1', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'manual', changed: false};
+  const scheduled = syncRun({id: 'scheduled:next', state: 'crawling', states: []});
+  scheduled.trigger = 'scheduled';
+  f.setLastCheck(quiet);
+  f.setRuns([scheduled]);
+  await f.ui.setVisible(true);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, []);
+
+  // The stop response only updates the run. The previous completion is still the cached last check.
+  await f.ui.stop();
+  assert.equal(f.ui.isRunning(), false);
+  assert.deepEqual(f.messages, []);
+});
+
+check('a delayed poll from a stopped run cannot announce or replace the recovery that follows it', async () => {
+  const f = fixture();
+  await f.ui.start();
+  const running = syncRun({id: 'run:1', state: 'recognizing', states: ['running']});
+  f.setRuns([running]);
+  await f.ui.load();
+  const delayed = deferred();
+  f.setAPI((call, normal) => call.path === API && call.method === 'GET' ? delayed.wait : normal(call));
+  const polling = f.ui.load();
+  await f.ui.stop();
+  await f.ui.click(button('recover', running.run_id));
+  assert.equal(f.posts().at(-1).path, API + '/run%3A1/retry');
+  delayed.resolve({contract_version: VERSION, runs: [running], last_check: null});
+  await polling;
+  assert.match(f.ui.progressLabel(), /等待导入/);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, []);
+
+  f.setAPI(null);
+  f.setRuns([syncRun({id: running.run_id, state: 'stopped', states: ['interrupted']})]);
+  f.setLastCheck({run_id: 'run:retry:2', state: 'succeeded', updated_at: '2026-10-16T01:35:00Z', trigger: 'manual', changed: false});
+  await f.ui.load();
+  await f.ui.load();
+  assert.deepEqual(f.messages, ['已检查，没有新内容']);
 });
 
 check('a collection error remains visible even with no created tasks and no records', async () => {

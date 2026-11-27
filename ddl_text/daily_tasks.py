@@ -1,6 +1,6 @@
 """Calendar expansion of explicitly bounded daily tasks in manual quick entry."""
 from copy import deepcopy
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 import re
 from zoneinfo import ZoneInfo
 
@@ -44,16 +44,17 @@ def day_count(text):
 
 
 def requested_days(days, match, anchor):
+    """Intersect ordinal days before converting them to supported dates."""
     if '工作日' in match['cadence']:
-        days = [day for day in days if day.weekday() < 5]
+        days = [day for day in days if (day - 1) % 7 < 5]
     if not match['day']:
         return days
     pivot = anchor.toordinal() + DAY_OFFSETS[match['day']]
     if match['edge'] in ('之前', '以前'):
-        return [day for day in days if day.toordinal() < pivot]
+        return [day for day in days if day < pivot]
     if match['edge'] in ('之后', '以后'):
         pivot += 1
-    return [day for day in days if day.toordinal() >= pivot]
+    return [day for day in days if day >= pivot]
 
 
 def daily_windows(text, anchor, weeks):
@@ -62,12 +63,13 @@ def daily_windows(text, anchor, weeks):
     for index, match in enumerate(schedules):
         if match['week']:
             name = {'这': '本', '本': '本', '上': '上', '下': '下'}[match['week']] + '周'
-            days = [date.fromisoformat(day) for day in weeks[name] if day]
+            first = anchor.toordinal() - anchor.weekday() + {'上周': -7, '本周': 0, '下周': 7}[name]
+            days = list(range(first, first + 7))
         else:
             count = day_count(match['count'])
-            if not 1 <= count <= 100 or anchor.toordinal() + count - 1 > date.max.toordinal():
+            if not 1 <= count <= 100:
                 continue
-            days = [anchor + timedelta(days=n) for n in range(count)]
+            days = list(range(anchor.toordinal(), anchor.toordinal() + count))
         days = requested_days(days, match, anchor)
         phrase = match.group()
         end = schedules[index + 1].start() if index + 1 < len(schedules) else len(text)
@@ -75,7 +77,10 @@ def daily_windows(text, anchor, weeks):
         if followup:
             days = requested_days(days, followup, anchor)
             phrase = followup['request']
-        dates = [day.isoformat() for day in days]
+        # Apply the requested intersection before checking representability. Keep
+        # missing dates, as weeks already does, so a selected range cannot shrink.
+        dates = [date.fromordinal(day).isoformat() if 1 <= day <= date.max.toordinal() else None
+                 for day in days]
         # Identical reminder wording can refer to different schedules. In that
         # case let the model resolve the dates without offering an ambiguous key.
         if phrase in windows and windows[phrase] != dates:
@@ -113,6 +118,7 @@ def expand_daily(task, phrase, days, record):
     clock = task['deadline']
     require(task['notice_type'] == 'create' and phrase in record['text'])
     require(any(e['input_id'] == record['input_id'] and phrase in e['quote'] for e in task['evidence']))
+    require(all(days))
     if not days:
         return
     require(clock['status'] in ('explicit', 'inferred') and clock['value'] and

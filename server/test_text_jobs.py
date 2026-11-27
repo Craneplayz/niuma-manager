@@ -182,6 +182,79 @@ class TextJobsTests(unittest.TestCase):
             self.assertEqual(task['course'], '研讨课')
         self.assertEqual(len({t['id'] for t in saved}), 7)
 
+    def test_daily_intersections_and_calendar_limits_are_atomic(self):
+        from ddl_text.contracts import normalize_record
+        from ddl_text.extraction import compile_drafts
+        from ddl_text.time_validation import quick_reference
+
+        cases = [
+            ('after', '2026-11-26', '本周每天读书，帮我在今天之后的每天都设一个待办。',
+             [('读书', '今天之后的每天', '2026-11-27')], [f'2026-11-{d}' for d in range(27, 30)]),
+            ('inclusive', '2026-11-26', '本周从今天起每日读书',
+             [('读书', '本周从今天起每日', '2026-11-26')], [f'2026-11-{d}' for d in range(26, 30)]),
+            ('before', '2026-11-26', '本周今天之前每天读书',
+             [('读书', '本周今天之前每天', '2026-11-23')], [f'2026-11-{d}' for d in range(23, 26)]),
+            ('empty', '2026-11-29', '本周每天读书，帮我在今天之后的每天设置一个待办。',
+             [('读书', '今天之后的每天', None)], []),
+            ('empty-and-single', '2026-11-29', '本周每天读书，帮我在今天之后的每天设置一个待办。明天交报告。',
+             [('读书', '今天之后的每天', None), ('交报告', None, '2026-11-30')], ['2026-11-30']),
+            ('two-actions', '2026-11-26', '本周每天读书，本周每天散步，今天之后的每天都设一个任务',
+             [('读书', '本周每天', '2026-11-23'), ('散步', '今天之后的每天', '2026-11-27')],
+             sorted([f'2026-11-{d}' for d in range(23, 30)] + [f'2026-11-{d}' for d in range(27, 30)])),
+            ('upper-week', '9999-12-30', '本周每天读书', [('读书', '本周每天', '9999-12-27')], None),
+            ('upper-count', '9999-12-31', '未来三天每天读书', [('读书', '未来三天每天', '9999-12-31')], None),
+            ('lower-week', '0001-01-01', '上周每天读书', [('读书', '上周每天', None)], None),
+            ('invalid-and-single', '9999-12-30', '本周每天读书；还要交报告。',
+             [('交报告', None, None), ('读书', '本周每天', '9999-12-27')], None),
+            ('unselected', '9999-12-31', '本周每天有读书活动，但我只参加周五。',
+             [('读书', None, '9999-12-31')], ['9999-12-31']),
+            ('upper-valid-intersection', '9999-12-31', '本周今天之前每天读书',
+             [('读书', '本周今天之前每天', '9999-12-27')], [f'9999-12-{d}' for d in range(27, 31)]),
+            ('upper-workdays', '9999-12-31', '本周每个工作日读书',
+             [('读书', '本周每个工作日', '9999-12-27')], [f'9999-12-{d}' for d in range(27, 32)]),
+            ('upper-empty', '9999-12-31', '下周今天之前每天读书',
+             [('读书', '下周今天之前每天', None)], []),
+        ]
+        for name, anchor, text, templates, expected in cases:
+            with self.subTest(name=name):
+                request = copy.deepcopy(self.request)
+                request['request_id'] = 'quick-add:intersection-' + name
+                request['records'][0].update(text=text, timezone='Asia/Shanghai',
+                    published_at=dict(value=anchor, precision='date', basis='source'))
+                before = self.call('/workspace')[1].get('tasks', dict(value=[]))
+                def recognize(current, ApiError, **kwargs):
+                    record = normalize_record(current['records'][0], '0.2')
+                    record['quick_reference'] = quick_reference(record)
+                    evidence = dict(input_id=record['input_id'], quote=text)
+                    drafts = []
+                    for title, phrase, value in templates:
+                        times = [dict(evidence, kind='event_start', normalized=dict(value=value, precision='date',
+                            derivation='relative', anchor='quick_reference', basis='来源本地日历'))] if value else []
+                        drafts.append(dict(title=title, description='', prerequisites=[], notice_type='create',
+                            target=None, course=None, evidence=[evidence], times=times, review_reasons=[], repeat_window=phrase))
+                    tasks = compile_drafts(json.dumps(dict(tasks=drafts)), record)
+                    status = 'success' if tasks else 'no_tasks'
+                    return dict(contract_version='0.2', request_id=current['request_id'], status=status,
+                        record_results=[dict(input_id=record['input_id'], status=status,
+                            task_ids=[task['candidate_id'] for task in tasks], warnings=[])], tasks=tasks, errors=[])
+                with patch.object(recognition, 'recognize', side_effect=recognize) as model:
+                    self.assertEqual(self.call(body=request)[0], 200)
+                    text_jobs.wait_for_jobs(app.DB)
+                    job = next(job for job in self.call()[1]['jobs'] if job['request_id'] == request['request_id'])
+                    after = self.call('/workspace')[1].get('tasks', dict(value=[]))
+                    self.assertEqual(job['state'], 'failed' if expected is None else 'success' if expected else 'no_tasks')
+                    if expected is None or not expected:
+                        self.assertEqual(after, before)
+                    else:
+                        saved = [task for task in after['value'] if task.get('recognitionHistory', [{}])[0].get('requestId') == request['request_id']]
+                        self.assertEqual(sorted(task['due']['date'] for task in saved), expected)
+                        self.assertEqual(len({task['id'] for task in saved}), len(expected))
+                    self.assertEqual(self.call(body=request)[0], 200)
+                    text_jobs.wait_for_jobs(app.DB)
+                    self.assertEqual(model.call_count, 1)
+                    self.assertEqual(self.call('/workspace')[1].get('tasks', dict(value=[])), after)
+                    self.assertEqual(self.call('/workspace', uid='B')[1].get('tasks', dict(value=[]))['value'], [])
+
     def test_acceptance_reload_duplicate_and_candidate_persistence(self):
         with patch.object(recognition,'recognize',self.recognize):
             status,envelope = self.call(body=self.request)

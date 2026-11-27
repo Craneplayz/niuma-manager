@@ -99,16 +99,17 @@ export function createImportUI(host) {
       else host.toast(status.message);
     },
   });
-  const syncIsActive = () => sourceSync.isBusy();
+  const syncBlocked = () => busy || credentialsLoading || stopping || sourceSync.blocksStart();
   const syncOwnsBatch = batch => batch?.sourceSyncManaged === true || sourceSync.ownsRequest(batch?.request?.request_id);
   const refreshSourceSync = () => sourceSync.load();
   const schedule = createSyncScheduleUI({
     ...host, isDemo: demo, isConnected: () => Boolean(credentials?.configured),
-    isBusy: () => blocked() || stopping || sourceSync.isBusy(),
+    isBusy: syncBlocked,
     isRunning: () => sourceSync.isRunning(),
     getProgressLabel: () => sourceSync.progressLabel(),
     canStop: () => sourceSync.canStop(),
     isStopping: () => stopping,
+    onStarting: sourceSync.clearCompletionNotice,
     start: () => sourceSync.start(),
   });
   // Background teaching runs own their start/stop controls, not the whole import page.
@@ -243,7 +244,7 @@ export function createImportUI(host) {
   }
   function teachingPanel() {
     const connected = credentials?.configured;
-    return `<section class="teaching-source"><div class="teaching-import"><div class="teaching-account"><h2>教学网</h2><div class="teaching-connection"><span class="status-note">${credentialsLoading ? "正在读取连接…" : connected ? "已连接 " + esc(credentials.username) : "连接账号，获取课程作业与通知"}</span>${connected ? `<button class="btn quiet" type="button" data-import-action="credentials" ${credentialsBlocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>${schedule.render()}</div>${credentialsError ? `<div class="teaching-connection-error">${errorMarkup(credentialsError, 'teaching_sync')}<button class="btn quiet" type="button" data-import-action="refresh-credentials">重试读取连接</button></div>` : ''}${sourceSync.renderProgress()}</section>`;
+    return `<section class="teaching-source"><div class="teaching-import"><div class="teaching-account"><h2>教学网</h2><div class="teaching-connection"><span class="status-note">${credentialsLoading ? "正在读取连接…" : connected ? "已连接 " + esc(credentials.username) : "连接账号，获取课程作业与通知"}</span>${connected ? `<button class="btn quiet" type="button" data-import-action="credentials" ${credentialsBlocked() ? "disabled" : ""}>管理连接</button>` : ""}</div></div>${schedule.render()}</div>${credentialsError ? `<div class="teaching-connection-error">${errorMarkup(credentialsError, 'teaching_sync')}<button class="btn quiet" type="button" data-import-action="refresh-credentials">重试读取连接</button></div>` : ''}${sourceSync.renderProgress(schedule.isBusy())}</section>`;
   }
   function independentHistory() {
     const groups = new Map(), tasks = host.getState().tasks || [];
@@ -365,7 +366,7 @@ export function createImportUI(host) {
       }
       return;
     }
-    if (blocked() || syncIsActive()) return;
+    if (syncBlocked()) return;
     if (!credentials?.configured) { openCredentials(); return; }
     await schedule.start();
   }
@@ -462,10 +463,6 @@ export function createImportUI(host) {
     }
     if (action === "stop") {
       controller?.abort();
-      return true;
-    }
-    if (action === "refresh") {
-      if (allowed()) { await host.refresh(); await load(); await refreshSourceSync(); }
       return true;
     }
     if (action === "credentials") {

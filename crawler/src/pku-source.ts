@@ -44,6 +44,7 @@ export interface CourseSourceRecord {
   publication_raw: string | null;
   collected_at: string;
   references: SourceReference[];
+  gradebook?: import("./pku-gradebook.js").GradebookItem;
   assignment?: { state: "active" | "submitted" | "unknown"; due_raw: string | null };
   warnings: string[];
   provenance?: CourseProvenance;
@@ -118,6 +119,10 @@ export function parseSourcePublication(raw: string | null): PublicationTime {
   return { value: clock ? dt.toISO({ suppressMilliseconds: true }) : dt.toISODate(), precision: clock ? "datetime" : "date", basis: "source" };
 }
 
+export function courseItemInputId(origin: string, course: string, kind: "announcement" | "content", id: string) {
+  return `pku:source:${sha256(JSON.stringify([origin, course, kind, id]))}`;
+}
+
 /** Collect every substantive listing item, without deciding whether it is a task. */
 export function extractCourseSourcesFromHtml(html: string, context: SourceContext): CourseSourceRecord[] {
   const $ = load(html);
@@ -148,12 +153,12 @@ export function extractCourseSourcesFromHtml(html: string, context: SourceContex
     const url = new URL(cleanPageUrl);
     if (item.attr("id")) url.hash = item.attr("id")!;
     const kind = announcement ? "announcement" : /\/webapps\/assignment\//i.test(href) ? "assignment" : "content";
-    const identity = id
-      ? [url.origin, url.searchParams.get("course_id") ?? context.course, kind === "announcement" ? "announcement" : "content", id]
-      : [cleanPageUrl, title, body];
+    const inputId = id
+      ? courseItemInputId(url.origin, url.searchParams.get("course_id") ?? context.course, announcement ? "announcement" : "content", id)
+      : `pku:source:${sha256(JSON.stringify([cleanPageUrl, title, body]))}`;
     const textQuality = !body ? (title ? "summary" : "missing") : references.length ? "partial" : "complete";
     records.push({
-      input_id: `pku:source:${sha256(JSON.stringify(identity))}`,
+      input_id: inputId,
       source_item_id: id ?? null, source_url: url.href, course: context.course, section: context.section,
       kind, title, body, text_quality: textQuality,
       body_evidence: makeBodyEvidence(title, body, !body ? (title ? "summary" : "missing") : kind === "assignment" ? "partial" : "complete"),

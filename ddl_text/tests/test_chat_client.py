@@ -3,6 +3,8 @@
 import json
 import os
 import socket
+import ssl
+from http.client import IncompleteRead
 import tempfile
 import threading
 import time
@@ -148,10 +150,12 @@ class ChatClientTests(unittest.TestCase):
 
     def test_thinking_is_explicit_opt_in_and_truncation_is_diagnosable(self):
         from dataclasses import replace
-        self.client.complete_json('rules','{}',replace(self.settings,thinking_mode='disabled'))
+        self.client.complete_json('rules','{}',replace(self.settings,thinking_mode='disabled',max_output_tokens=160))
         self.assertEqual(self.calls[-1][2]['thinking'],{'type':'disabled'})
+        self.assertEqual(self.calls[-1][2]['max_tokens'],160)
         self.generate()
         self.assertNotIn('thinking',self.calls[-1][2])
+        self.assertEqual(self.calls[-1][2]['max_tokens'],8192)
         self.reply={'choices':[{'finish_reason':'length','message':{'content':'','reasoning_content':'private reasoning'}}]}
         with self.assertRaises(AgentError) as caught:self.generate()
         self.assertEqual(caught.exception.diagnostic,'output_truncated')
@@ -167,6 +171,21 @@ class ChatClientTests(unittest.TestCase):
             with self.assertRaises(AgentError) as caught:
                 self.generate()
             self.assertEqual(caught.exception.code, 'agent_timeout')
+
+    def test_connection_loss_allows_retry_and_certificate_errors_keep_configuration_guidance(self):
+        for error, retryable in ((ConnectionResetError(), True), (IncompleteRead(b''), True),
+                                 (URLError(ConnectionRefusedError()), True),
+                                 (URLError(ssl.SSLCertVerificationError()), False),
+                                 (URLError('unknown url type'), False)):
+            with self.subTest(error=error), patch('ddl_text.chat_client.build_opener') as opener:
+                opener.return_value.open.side_effect = error
+                with self.assertRaises(AgentError) as caught:
+                    self.generate()
+                self.assertEqual(caught.exception.code, 'agent_unavailable')
+                self.assertEqual(caught.exception.retryable, retryable)
+                self.assertEqual(caught.exception.diagnostic,
+                                 'model_unavailable' if retryable else 'model_configuration')
+                opener.return_value.open.assert_called_once()
 
     def test_hung_http_is_bounded_by_worker_deadline(self):
         self.delay = 2

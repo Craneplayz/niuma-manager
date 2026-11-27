@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { DateTime } from "luxon";
-import type { CourseSourceRecord } from "./pku-source.js";
+import { parseSourcePublication, type CourseSourceRecord } from "./pku-source.js";
 import { toTeachingRequests as exportEvidence } from "./pku-teaching-evidence.js";
 import { isPkuAssignmentUrl } from "./pku-assignment.js";
 
@@ -19,16 +19,46 @@ function assignmentScope(source: CourseSourceRecord): boolean {
   return /^(?:课程作业|作业|assignments?|homework)$/i.test(source.section.trim());
 }
 
+// Only observed platform fields enter the programmatic route. Unread or
+// unparseable native dates stay on the existing evidence-based route.
+function platformItem(source: CourseSourceRecord) {
+  if (source.kind === "announcement") return {kind: "announcement", due: null, submitted: false} as const;
+  // Teachers also post assignments as ordinary items in the assignments section.
+  if (source.kind === "content" && source.source_item_id && source.title.trim() && assignmentScope(source))
+    return {kind: "listed_assignment", due: null, submitted: false} as const;
+  if (source.kind !== "assignment") return;
+  if (source.input_id.startsWith("pku:gradebook:") && source.gradebook)
+    return {kind: "gradebook_assignment", due: source.gradebook.due, submitted: source.gradebook.submitted} as const;
+  const native = source.references.find(ref => ref.kind === "detail" && isPkuAssignmentUrl(ref.url));
+  if (!native || !source.title.trim()) return;
+  const target = new URL(native.url);
+  if (target.searchParams.get("content_id") !== source.source_item_id ||
+      target.searchParams.get("course_id") !== new URL(source.source_url).searchParams.get("course_id")) return;
+  const gradeIdentity = source.gradebook?.contentId === source.source_item_id && source.gradebook
+    ? {gradebook_id: source.gradebook.id} : {};
+  const listed = {kind: "listed_assignment", due: null, submitted: Boolean(gradeIdentity.gradebook_id && source.gradebook?.submitted), ...gradeIdentity} as const;
+  if (source.assignment?.state !== "active" || source.gradebook?.submitted ||
+      !source.body_evidence?.included_reference_urls.includes(native.url)) return listed;
+  const raw = source.assignment.due_raw;
+  const due = parseSourcePublication(raw).value;
+  if (raw && !due) return listed;
+  if (due && source.gradebook?.due && DateTime.fromISO(due).toMillis() !== DateTime.fromISO(source.gradebook.due).toMillis()) return listed;
+  return {kind: "native_assignment", due: due ?? source.gradebook?.due ?? null, submitted: false,
+    ...gradeIdentity} as const;
+}
+
 /** A native v0.4 projection; successful detail text is already part of teacher_body. */
-export function toTeachingRequests(sources: CourseSourceRecord[], requestId: string = randomUUID()) {
+export function toTeachingRequests(sources: CourseSourceRecord[], requestId: string = randomUUID(), pageOnly = false) {
   if (new Set(sources.map(source => source.input_id)).size !== sources.length) throw new Error("teaching_export_rejected:duplicate_input_id");
   const entries = [...sources].sort((a, b) => teachingPriority(a) - teachingPriority(b)).map((source) => {
-    const output = exportEvidence([source], `capture:${digest(source.input_id)}`);
+    const output = exportEvidence([source], `capture:${digest(source.input_id)}`, pageOnly);
     if (output.skipped.length || output.requests.length !== 1) {
       throw new Error(`teaching_export_rejected:${output.skipped[0]?.reason ?? "empty_request"}`);
     }
     const entry = output.requests[0].records[0];
-    const sourceMetadata = `课程：${source.course}\n栏目：${source.section}${source.course_term_label ? `\n课程列表学期：${source.course_term_label}` : ""}\n${entry.record.source_metadata_text}`.trim();
+    const platform = platformItem(source);
+    const deadline = platform?.due ? "\n平台到期时间：" + platform.due : "";
+    const sourceMetadata = `课程：${source.course}\n栏目：${source.section}${source.course_term_label ? `\n课程列表学期：${source.course_term_label}` : ""}\n${entry.record.source_metadata_text}${deadline}`.trim();
     if (sourceMetadata.length > 4096 || entry.record.text.length + sourceMetadata.length + entry.record.references.reduce((total, ref) => total + (ref.text?.length ?? 0), 0) > 100_000) throw new Error("teaching_export_rejected:aggregate_evidence_too_large");
     const detailUnread = source.references.some(ref => ref.kind === "detail" && ref.read_status !== "complete");
     let term = null;
@@ -46,16 +76,16 @@ export function toTeachingRequests(sources: CourseSourceRecord[], requestId: str
             { part_id: "source_metadata", quote: `栏目：${source.section}` }] };
       }
     }
-    return { record: { ...entry.record, source_metadata_text: sourceMetadata, body_status: detailUnread && entry.record.body_status === "complete" ? "partial" : entry.record.body_status, course_term: term }, source: entry.source };
+    return { ...entry, ...(platform ? {platform_item: platform} : {}), record: { ...entry.record, source_metadata_text: sourceMetadata, body_status: detailUnread && entry.record.body_status === "complete" ? "partial" : entry.record.body_status, course_term: term } };
   });
   // One bounded item per request: a slow record never spends the next record's budget.
   return entries.map((entry, index) => ({ contract_version: "0.4", request_id: `${requestId}:${index}`, records: [entry] }));
 }
 
 /** Trusted process output only: the public v0.4 model request stays unchanged. */
-export function toTeachingCaptures(sources: CourseSourceRecord[], requestId?: string) {
+export function toTeachingCaptures(sources: CourseSourceRecord[], requestId?: string, { pageOnly = false } = {}) {
   const ordered = [...sources].sort((a, b) => teachingPriority(a) - teachingPriority(b));
-  return toTeachingRequests(ordered, requestId).map((request, index) => {
+  return toTeachingRequests(ordered, requestId, pageOnly).map((request, index) => {
     const record = request.records[0].record;
     const source = ordered[index];
     const native = source.references.find(ref => ref.kind === 'detail' && isPkuAssignmentUrl(ref.url));

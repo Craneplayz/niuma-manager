@@ -21,6 +21,7 @@ import source_jobs
 import submission_runtime
 import public_sources
 import source_schedule
+import teaching_titles
 import wechat_media
 import manual_materials
 import task_decomposition
@@ -99,6 +100,7 @@ def initialize(recover=True):
         usage.initialize(db)
         error_reports.initialize(db)
         source_sync.initialize(db)
+        source_sync.teaching.upgrade_platform_fields(db)
         source_jobs.initialize(db, recover=recover)
         source_schedule.initialize(db)
         public_sources.initialize(db,recover=recover)
@@ -715,6 +717,9 @@ if __name__=='__main__':
         with ThreadingHTTPServer((host,port),Handler) as server:
             initialize()
             scheduler_stop=source_schedule.start_worker(DB,ApiError)
+            titles_stop=teaching_titles.start_worker(DB)
             print('牛马管理器 API: http://'+host+':'+str(port)+' ['+runtime_environment.environment()+']',flush=True)
             try: server.serve_forever()
-            finally: scheduler_stop.set()
+            finally:
+                scheduler_stop.set()
+                titles_stop.set()

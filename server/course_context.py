@@ -13,12 +13,13 @@ import time
 from jsonschema import ValidationError
 
 from contracts import course_context as contract
+from server.teaching_platform import course_references, page_only, route
 
 MAX_SOURCES = 6
 PART_BUDGET = 4000
 READ_BUDGET_SECONDS = 45
 _READ_LOCK = threading.Lock()
-POLICY = re.compile(r'教学大纲|课程大纲|课程安排|教学计划|教学日历|考核|提交规则|课程说明|课程介绍|课程要求|评分标准|截止规则|所有.{0,8}作业|统一.{0,12}提交|syllabus|schedule|calendar|assessment|submission\s+policy', re.I)
+POLICY = re.compile(r'教学大纲|课程大纲|课程规定|课程规则|课程安排|教学计划|教学日历|考核|提交规则|课程说明|课程介绍|课程要求|评分标准|截止规则|所有.{0,8}作业|统一.{0,12}提交|syllabus|schedule|calendar|assessment|submission\s+policy', re.I)
 
 
 def initialize(db):
@@ -78,7 +79,9 @@ def catalog(db, uid, account, scoped=None):
         text=searchable(other)
         groups.setdefault(scope,[]).append(dict(request=request,digest=digest,tokens=terms(text),policy=bool(POLICY.search(text)),
             has_files=any(r['kind'] in ('attachment','content_image') for r in other['record']['references'])))
-    by_request={m['request']['request_id']:m for group in groups.values() for m in group}
+    by_request={m['request']['request_id']:m for group in groups.values() for m in group
+                if not page_only(m['request']['records'][0])}
+    if not by_request: return groups
     # Ordinary filenames often hide the actual syllabus/rules. Search completed
     # private read caches too; they are hints only until prepare rechecks the
     # reader version and binds actual excerpts. Original blobs are never loaded.
@@ -94,10 +97,30 @@ def catalog(db, uid, account, scoped=None):
     return groups
 
 
+def matches_reference(target, material):
+    entry = material['request']['records'][0]
+    labels = [entry['source'].get('label') or '', *(r.get('label') or '' for r in entry['record']['references'])]
+    if target.startswith('《'):
+        return any(target[1:-1] in label.casefold() for label in labels)
+    if target.endswith(('通知', '公告', 'announcement')):
+        return (entry.get('platform_item', {}).get('kind') == 'announcement'
+                or any('通知' in label or '公告' in label for label in labels))
+    if target.endswith(('大纲', 'syllabus')):
+        return bool({'大纲', 'syllabus'} & material['tokens'])
+    if target.endswith(('规定', '规则', 'policy')):
+        return material['policy']
+    if target.endswith(('日历', 'calendar', '安排', 'schedule')):
+        return bool({'日历', 'calendar', '安排', 'schedule'} & material['tokens'])
+    return '课件' in material['tokens']
+
+
 def select(db, uid, account, entry, *, materials=None, receipts=None):
+    targets = course_references(entry)
+    if not targets or route(entry) in ('platform', 'text'): return []
     scoped = contract.scope(entry['record'])
     if scoped is None: return []
     query = terms(searchable(entry)); selected = []
+    notices = []
     if materials is None: materials=catalog(db,uid,account,scoped)
     if receipts is None: receipts={}
     for material in materials.get(scoped,[]):
@@ -106,14 +129,22 @@ def select(db, uid, account, entry, *, materials=None, receipts=None):
         if record['input_id']==entry['record']['input_id']: continue
         if (term['starts_on'],term['ends_on']) != (current['starts_on'],current['ends_on']): continue
         overlap=len(query & material['tokens']); policy=material['policy']
-        if not policy and overlap < 2 and not material['has_files']: continue
-        selected.append(dict(request=request,digest=material['digest'],score=20*policy+min(overlap,15)+int(material['has_files'])))
+        matched = [target for target in targets if matches_reference(target, material)]
+        if not matched: continue
+        item = dict(request=request,digest=material['digest'],score=20*policy+min(overlap,15)+int(material['has_files']))
+        if all(target.endswith(('通知', '公告', 'announcement')) for target in matched):
+            notices.append(item)
+        else:
+            selected.append(item)
+    # Without a title, “此前通知” can identify one notice, but not one of several.
+    if len(notices) == 1:
+        selected.extend(notices)
     # Capture order must not change selection or cause periodic re-recognition.
     selected.sort(key=lambda x:(-x['score'],x['request']['records'][0]['record']['input_id']))
     selected=selected[:MAX_SOURCES]
     for item in selected:
         rid=item['request']['request_id']
-        if rid not in receipts: receipts[rid]=completed_receipts(db,uid,account,rid)
+        if rid not in receipts: receipts[rid]=[] if page_only(item['request']['records'][0]) else completed_receipts(db,uid,account,rid)
         item['observed_receipts']=receipts[rid]
         item['readiness']=contract.revision(receipts[rid])
     return selected
@@ -133,6 +164,7 @@ def catalog_revision(db, uid, account, entry):
     work. Raw additions, removals and edits still invalidate the save, including
     sources outside the selected top-K. Request IDs are execution identities.
     """
+    if not course_references(entry) or route(entry) in ('platform','text'): return contract.revision([])
     scope = contract.scope(entry['record'])
     if scope is None: return contract.revision([])
     rows = db.execute('''SELECT s.input_id,s.digest,s.request FROM teaching_sources s
@@ -194,6 +226,8 @@ def dependency_fingerprint(selected, own_readiness):
 
 
 def remember(db, uid, account, entry, selected, *, own_readiness=None, references=None, files=()):
+    if own_readiness is None and page_only(entry):
+        own_readiness=contract.revision([])
     if own_readiness is None:
         row=db.execute('SELECT request_id FROM teaching_sources WHERE user_id=? AND account=? AND input_id=?',
                        (uid,account,entry['record']['input_id'])).fetchone()
@@ -201,6 +235,30 @@ def remember(db, uid, account, entry, selected, *, own_readiness=None, reference
         own_readiness=readiness(db,uid,account,row[0],references=references,observed=observed) if row else contract.revision([])
     db.execute('INSERT OR REPLACE INTO teaching_context_dependencies VALUES(?,?,?,?)',
                (uid,account,entry['record']['input_id'],dependency_fingerprint(selected,own_readiness)))
+
+
+def migrate_implicit_dependencies(db):
+    """Drop legacy peer dependencies without scheduling a fresh model attempt."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recognition_batches'").fetchone():
+        return
+    db.execute('CREATE TABLE IF NOT EXISTS teaching_migrations(name TEXT PRIMARY KEY)')
+    if not db.execute("INSERT OR IGNORE INTO teaching_migrations VALUES ('explicit-course-references-v1')").rowcount:
+        return
+    rows = db.execute("""SELECT s.user_id,s.account,s.request_id,s.request,b.request
+        FROM teaching_context_dependencies d JOIN teaching_sources s USING(user_id,account,input_id)
+        JOIN recognition_batches b ON b.user_id=s.user_id AND b.request_id=s.request_id
+        WHERE json_type(b.request,'$.records[0].record.course_context')='object'""")
+    for uid, account, rid, capture, batch in rows:
+        entry = json.loads(capture)['records'][0]
+        if course_references(entry):
+            continue
+        # A primary attachment completed after the old attempt still warrants
+        # a refresh. Only acknowledge its text if that attempt actually saw it.
+        references = json.loads(batch)['records'][0]['record']['references']
+        own = readiness(db, uid, account, rid, references=references)
+        db.execute("""UPDATE teaching_context_dependencies SET fingerprint=?
+            WHERE user_id=? AND account=? AND input_id=?""",
+            (dependency_fingerprint([], own), uid, account, entry['record']['input_id']))
 
 
 def window(text, query, budget):
@@ -349,12 +407,17 @@ def refresh_dependents(db, uid, account):
         JOIN teaching_context_dependencies d USING(user_id,account,input_id)
         WHERE s.user_id=? AND s.account=?''',(uid,account)).fetchall()
     if not rows: return changed
-    materials=catalog(db,uid,account); receipts={}
+    materials=None; receipts={}
     for raw,previous in rows:
         request=json.loads(raw); entry=request['records'][0]
+        # Page-derived cards cannot change when another course document changes.
+        if route(entry) == 'platform':
+            continue
+        if materials is None and course_references(entry):
+            materials=catalog(db,uid,account)
         chosen=select(db,uid,account,entry,materials=materials,receipts=receipts)
         rid=request['request_id']
-        if rid not in receipts: receipts[rid]=completed_receipts(db,uid,account,rid)
+        if rid not in receipts: receipts[rid]=[] if page_only(entry) else completed_receipts(db,uid,account,rid)
         own_readiness=contract.revision(receipts[rid])
         if dependency_fingerprint(chosen,own_readiness)==previous: continue
         old=request['request_id']; request['request_id']='teaching:'+secrets.token_hex(16)

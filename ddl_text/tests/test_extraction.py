@@ -154,6 +154,41 @@ class ExtractionTests(unittest.TestCase):
         with self.assertRaises(AgentError):
             compile_tasks(record, draft(record, title='读书', repeat_window=None))
 
+    def test_daily_calendar_limits_apply_to_selected_intersections_only(self):
+        from ddl_text.time_validation import quick_reference
+
+        def record(text, anchor='9999-12-31'):
+            result = message(text, platform='manual', published_at=dict(value=anchor, precision='date', basis='source'))
+            result['contract_version'] = '0.2'
+            result['quick_reference'] = quick_reference(result)
+            return result
+
+        for text, phrase, anchor in [
+            ('本周每天读书', '本周每天', '9999-12-31'),
+            ('未来三天每天读书', '未来三天每天', '9999-12-31'),
+            ('上周每天读书', '上周每天', '0001-01-01'),
+        ]:
+            with self.subTest(text=text, anchor=anchor):
+                current = record(text, anchor)
+                self.assertIn(None, current['quick_reference']['daily_windows'][phrase])
+                with self.assertRaises(AgentError):
+                    compile_tasks(current, draft(current, repeat_window=phrase))
+
+        current = record('本周每天有读书活动，但我只参加周五。')
+        single = draft(current, repeat_window=None, times=[time_ref(current, '周五', '9999-12-31')])
+        self.assertEqual(compile_tasks(current, single)[0]['deadline']['value'], '9999-12-31')
+        for text, phrase, expected in [
+            ('本周今天之前每天读书', '本周今天之前每天', [f'9999-12-{d}' for d in range(27, 31)]),
+            ('本周每个工作日读书', '本周每个工作日', [f'9999-12-{d}' for d in range(27, 32)]),
+            ('下周今天之前每天读书', '下周今天之前每天', []),
+        ]:
+            with self.subTest(text=text):
+                current = record(text)
+                self.assertEqual(current['quick_reference']['daily_windows'][phrase], expected)
+                times = [time_ref(current, text, expected[0], kind='event_start')] if expected else []
+                tasks = compile_tasks(current, draft(current, repeat_window=phrase, times=times))
+                self.assertEqual([task['deadline']['value'] for task in tasks], expected)
+
     def test_daily_windows_use_local_week_and_preserve_time_across_dst(self):
         from ddl_text.daily_tasks import shift_local
         from ddl_text.time_validation import quick_reference

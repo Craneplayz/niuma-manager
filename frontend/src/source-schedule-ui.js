@@ -88,6 +88,7 @@ export function createSyncScheduleUI(host) {
     else if (interval !== null && !stopping && !draft.consent) error = "请先同意按所选频率获取并识别教学网内容。";
     if (error) { host.render(); return false; }
     phase = stopping ? "stopping" : "starting";
+    if (!stopping) host.onStarting?.();
     host.render();
     try {
       if (stopping || state.enabled || interval !== null) {
@@ -164,7 +165,7 @@ export function createSyncScheduleUI(host) {
       ${connected ? `<select id="teaching-frequency" aria-label="执行频率" data-sync-schedule-field="interval" ${disabled || !draft ? "disabled" : ""}><option value="once" ${!draft || draft.interval === "once" ? "selected" : ""}>单次</option>${INTERVALS.map(([n, text]) => `<option value="${n}" ${draft?.interval === String(n) ? "selected" : ""} ${state && !state.available ? "disabled" : ""}>${text}</option>`).join("")}<option value="custom" ${draft?.interval === "custom" ? "selected" : ""} ${state && !state.available ? "disabled" : ""}>自定义间隔</option></select>${draft?.interval === "custom" ? `<label class="teaching-custom"><input id="teaching-interval" aria-label="间隔分钟数" type="number" min="15" max="10080" step="1" value="${esc(draft.minutes)}" data-sync-schedule-field="minutes" ${disabled ? "disabled" : ""}>分钟</label>` : ""}` : ""}
       <button class="btn primary" type="button" aria-busy="${spinning}" ${progress ? `aria-describedby="teaching-run-status" title="${esc(progress)}"` : ""} data-import-action="sync" ${actionDisabled ? "disabled" : ""}>${indicator}${label}</button></div>
       ${progress ? `<span id="teaching-run-status" class="sr-only" role="status">${esc(progress)}</span>` : ""}
-      ${connected && draft?.interval !== "once" && draft && !unchanged() ? `<label class="teaching-consent"><input id="teaching-consent" type="checkbox" data-sync-schedule-field="consent" ${draft.consent ? "checked" : ""} ${disabled ? "disabled" : ""}><span>允许定期获取教学网内容（含附件）用于识别，关闭网页后仍会运行。</span></label>` : ""}
+      ${connected && draft?.interval !== "once" && draft && !unchanged() ? `<label class="teaching-consent"><input id="teaching-consent" type="checkbox" data-sync-schedule-field="consent" ${draft.consent ? "checked" : ""} ${disabled ? "disabled" : ""}><span>允许定期读取教学网网页并识别作业和通知。关闭网页后仍会运行。</span></label>` : ""}
       ${connected && state && !state.available ? '<p class="status-note">定时同步暂不可用，可进行单次识别。</p>' : ""}
       ${connected && state?.error && !error ? `<p class="status-note">${esc(state.error.message)}</p>` : ""}
       ${error ? `<p class="error" role="alert">${esc(error)}${needsReload ? '<button class="btn quiet" type="button" data-sync-schedule-action="reload">重新读取</button>' : ""}</p>` : ""}

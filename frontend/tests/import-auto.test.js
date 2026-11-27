@@ -194,13 +194,13 @@ const noClientRecognition = f => {
   assert.equal(f.calls.some(call => call.method === 'POST' && ['/api/recognition/batches','/api/recognition/retry'].includes(call.path) && call.body.contract_version !== '0.2'), false);
 };
 
-check('returning to import unlocks controls for either read order with empty or completed progress', async t => {
+check('returning to import can start once during either background read and stop the active run', async t => {
   for (const withHistory of [false, true]) for (const progressLast of [true, false]) {
-    const f = fixture();
+    const f = fixture({ startState: 'recognizing' });
     let onRender = () => {};
     f.host.render = () => onRender();
     const ui = await ready(f, t);
-    if (withHistory) await sync(ui);
+    if (withHistory) { await sync(ui); f.finish(); await ui.loadSourceSync(); }
     let visible = false, html = '';
     onRender = () => {
       ui.setVisible(visible);
@@ -208,23 +208,25 @@ check('returning to import unlocks controls for either read order with empty or 
     };
     f.host.render();
     const credentialReads = f.calls.filter(call => call.path === '/api/sources/credentials').length;
-    // Returning reuses the account's teaching connection. Candidate and run
-    // reads remain independent and must unlock in either completion order.
     const gate = f.pauseNext(progressLast ? 'runs' : 'batches'); t.after(gate.release);
     visible = true; f.host.render();
     const loading = ui.load();
     await gate.entered;
     if (progressLast) await loading;
     else await new Promise(resolve => setImmediate(resolve));
-    assert.match(html,/data-import-action="sync"[^>]*disabled/);
-
-    const reads = f.calls.filter(call => call.path === '/api/workspace').length;
+    assert.match(html, /data-import-action="sync"[^>]*>开始识别/);
+    assert.doesNotMatch(html, /data-import-action="sync"[^>]*disabled|data-import-action="refresh"/);
+    const post = f.pauseNext('start'); t.after(post.release);
+    const starting = sync(ui);
+    await post.entered;
+    await sync(ui);
+    assert.equal(f.starts().length, Number(withHistory) + 1);
+    post.release(); await starting;
     gate.release(); await loading; await new Promise(resolve => setImmediate(resolve));
-    for (const control of ['data-import-action="sync"', 'data-import-action="refresh"'])
-      assert.doesNotMatch(html, new RegExp(control + '[^>]*disabled'), control + ' unlocks after unchanged progress');
-    assert.equal(f.calls.filter(call => call.path === '/api/workspace').length, reads, 'unchanged progress does not reload the workspace');
-    assert.equal(f.calls.filter(call => call.path === '/api/sources/credentials').length, credentialReads, 'returning reuses the known teaching connection');
-    assert.equal(f.starts().length, Number(withHistory), 'returning never starts another import');
+    assert.match(html, /停止导入/);
+    await sync(ui);
+    assert.equal(f.accounts.A.runs[0].state, 'stopped');
+    assert.equal(f.calls.filter(call => call.path === '/api/sources/credentials').length, credentialReads);
     ui.setVisible(false);
   }
 });
@@ -324,11 +326,11 @@ check('an old run-list response cannot restore a previous account run or its imp
   await new Promise(resolve => setImmediate(resolve));await sync(ui);assert.equal(f.starts().at(-1).account, 'B');noClientRecognition(f);
 });
 
-check('terminal task refresh blocks duplicate sync', async t => {
+check('a finished run can start again while its saved tasks are being read', async t => {
   const f = fixture({startState: 'recognizing'}), ui = await ready(f, t);await sync(ui);f.finish();
   const gate = f.pauseNext('workspace');t.after(gate.release);const refreshing = ui.loadSourceSync();await gate.entered;
   await sync(ui);
-  assert.equal(f.starts().length, 1);
+  assert.equal(f.starts().length, 2);
   gate.release();await refreshing;assert.equal(f.state.tasks.length, 2);
   noClientRecognition(f);
 });

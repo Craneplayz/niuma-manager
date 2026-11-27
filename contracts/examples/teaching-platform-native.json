@@ -1,0 +1,42 @@
+{
+  "contract_version": "teaching-capture/0.1",
+  "request": {
+    "contract_version": "0.4",
+    "request_id": "synthetic-native:0",
+    "records": [
+      {
+        "platform_item": {
+          "kind": "native_assignment",
+          "due": "2026-12-02T01:30:00+08:00",
+          "submitted": false
+        },
+        "record": {
+          "input_id": "pku:source:e7759b9d7fb044561ce6e9d27bf353814512766e63482af950764fdb8f7d4e1e",
+          "source_item_id": "_3_1",
+          "course_id": "_1_1",
+          "snapshot_id": "pku:snapshot:c074f3e4e777b789f8dc78a3c07a2c026127372ac3c21aee2ba1a4f7592967ae",
+          "platform": "teaching_web",
+          "text": "第四章作业\n\n请提交报告。\n到期日期：2026年12月2日 星期三 上午1:30",
+          "body_status": "complete",
+          "source_metadata_text": "课程：合成课\n栏目：课程作业\n\n平台到期时间：2026-12-02T01:30:00+08:00",
+          "references": [],
+          "published_at": null,
+          "collected_at": "2026-11-01T08:00:00+08:00",
+          "timezone": "Asia/Shanghai",
+          "course_term": null
+        },
+        "source": {
+          "label": "第四章作业",
+          "url": "https://course.pku.edu.cn/webapps/blackboard/content/listContent.jsp?course_id=_1_1&content_id=_2_1",
+          "course_or_project": "合成课"
+        }
+      }
+    ]
+  },
+  "assignment": {
+    "course_id": "_1_1",
+    "content_id": "_3_1",
+    "state": "active",
+    "basis": "active_assignment_page"
+  }
+}

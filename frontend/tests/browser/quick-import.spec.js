@@ -24,7 +24,11 @@ async function workspace(page) {
     }
     if (path === "/api/recognition/text-jobs") {
       json = { contract_version: "text-import-jobs/0.1", jobs: [] };
-      if (req.method() === "POST") requests.push(req.postDataJSON());
+      if (req.method() === "POST") {
+        const body = req.postDataJSON();
+        requests.push(body);
+        json.jobs.push({ request_id: body.request_id, state: "queued" });
+      }
     }
     await route.fulfill({ status, json });
   });
