@@ -70,6 +70,17 @@ def initialize(db):
         module TEXT NOT NULL, model TEXT NOT NULL, at REAL NOT NULL, duration_ms INTEGER NOT NULL,
         status TEXT NOT NULL, calls INTEGER NOT NULL, tokens INTEGER, known_calls INTEGER NOT NULL, score INTEGER CHECK (score BETWEEN 1 AND 5),
         ordinal INTEGER, prompted INTEGER NOT NULL DEFAULT 0)''')
+    column = "SELECT 1 FROM pragma_table_info('model_exposures') WHERE name='known_calls'"
+    if not db.execute(column).fetchone():
+        owns_transaction = not db.in_transaction
+        if owns_transaction:
+            db.execute('BEGIN IMMEDIATE')
+        if not db.execute(column).fetchone():
+            db.execute('ALTER TABLE model_exposures ADD COLUMN known_calls INTEGER NOT NULL DEFAULT 0')
+            # The original writer supplied a total only when all reported calls had usage.
+            db.execute('UPDATE model_exposures SET known_calls=calls WHERE tokens IS NOT NULL')
+        if owns_transaction:
+            db.commit()
     db.execute('CREATE INDEX IF NOT EXISTS model_exposure_actor ON model_exposures(experiment,actor,at)')
 
 

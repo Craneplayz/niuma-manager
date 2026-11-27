@@ -10,6 +10,7 @@ import time
 from urllib.parse import unquote
 
 import recognition
+from server import operations
 from server import recognition_diagnostics as diagnostics
 from contracts.recognition_errors import describe
 from server.model_queue import cancel_if
@@ -27,7 +28,7 @@ def stamp():
 
 @contextmanager
 def connection(path):
-    db = sqlite3.connect(path, timeout=20)
+    db = sqlite3.connect(path, timeout=20, factory=operations.TimedConnection)
     db.row_factory = sqlite3.Row
     try:
         with db: yield db

@@ -90,6 +90,21 @@ class ModelExperimentTests(TestCase):
         with patch.dict(os.environ,NIUMA_EXPERIMENT_B_ENDPOINT='https://example.test/v1'):
             self.assertIsNone(experiment.assignment(self.uid))
 
+    def test_legacy_exposures_keep_ratings_and_usage_on_upgrade(self):
+        with operations.connection(app.DB) as db:
+            experiment.initialize(db)
+            db.execute('ALTER TABLE model_exposures DROP COLUMN known_calls')
+            db.executemany('''INSERT INTO model_exposures VALUES
+                (?, ?, ?, 'A', 'text', 'legacy', strftime('%s','now'), 25,'success',2,?,?,?,0)''',
+                [('1'*32,'test-models',experiment.actor(self.uid,'test-models'),13,5,1),
+                 ('2'*32,'test-models',experiment.actor(self.uid,'test-models'),None,2,2)])
+        with patch.dict(os.environ,NIUMA_ADMIN_USER_IDS=self.uid):
+            self.assertEqual(self.call('/admin/auth/login',{'email':'usage@example.test','password':'Usage-Test-2026!'})[0],200)
+            row, = self.call('/admin/model-experiment')[1]['rows']
+        self.assertEqual((row['tokens'],row['measuredCalls'],row['missingCalls'],row['feedback']),(13,2,2,2))
+        self.result('text')
+        self.assertEqual([r['score'] for r in self.call('/usage/model-experiment')[1]['results']],[None,2,5])
+
     def test_planning_commit_and_decomposition_capture_actual_transport_usage(self):
         from ddl_text import chat_client
         from test_task_decomposition_api import EXAMPLES
