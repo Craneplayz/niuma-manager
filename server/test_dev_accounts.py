@@ -130,7 +130,9 @@ class DevAccountTests(unittest.TestCase):
         public_user = dict(user, avatar=None)
         self.assertEqual(result, {'user': public_user})
         self.assertEqual(call('/auth/me'), (200, {'user': public_user}))
-        self.assertEqual(call('/workspace'), (200, {}))
+        self.assertEqual(call('/workspace'), (200, {
+            'taskWriteOwner': user['id'], 'taskWriteGeneration': 0,
+        }))
         self.assertEqual(call('/admin/auth/login', dict(email=user['email'], password=PASSWORD))[0], 403)
 
     def test_worker_rejects_production_unmanaged_and_mismatched_environments_before_creating_storage(self):
