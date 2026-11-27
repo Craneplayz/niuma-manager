@@ -88,6 +88,7 @@ export function createSyncScheduleUI(host) {
     else if (interval !== null && !stopping && !draft.consent) error = "请先同意按所选频率获取并识别教学网内容。";
     if (error) { host.render(); return false; }
     phase = stopping ? "stopping" : "starting";
+    if (!stopping) host.onStarting?.();
     host.render();
     try {
       if (stopping || state.enabled || interval !== null) {

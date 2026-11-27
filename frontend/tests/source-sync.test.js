@@ -58,7 +58,7 @@ function fixture(initial = []) {
   let ui;
   const host = {
     accountVersion: () => account, isAuthenticated: () => authenticated, isDemo: () => demo,
-    toast: message => messages.push(message),
+    toast: message => { messages.push(message); },
     revealImportResult: id => revealed.push(id),
     clearImportResultHighlight: () => highlightClears++,
     isImportBusy: () => otherBusy, render: () => renders++,
@@ -221,10 +221,47 @@ check('a network-uncertain start reuses its operation id without render resubmis
   });
   assert.equal(await f.ui.start(), false);
   markup(f.ui); markup(f.ui); assert.equal(f.posts().length, 1);
+  const other = syncRun({id: 'scheduled:other', state: 'crawling', states: []});
+  other.operation_id = 'scheduled:other-operation';
+  other.trigger = 'scheduled';
+  f.setRuns([other]);
+  await f.ui.load();
+  f.setRuns([]);
+  f.setLastCheck({run_id: other.run_id, state: 'succeeded', updated_at: other.updated_at, trigger: 'scheduled', changed: false});
+  await f.ui.load();
   assert.equal(await f.ui.start(), true);
   assert.equal(f.posts()[0].body.operation_id, f.posts()[1].body.operation_id);
   assert.equal(f.ui.isBusy(), true);
   await f.ui.start(); assert.equal(f.posts().length, 2, 'an active run cannot start competing work');
+});
+
+check('a progress read confirming the lost start by operation id makes the next click a new check', async () => {
+  const f = fixture();
+  let firstRun;
+  f.setAPI((call, normal) => {
+    if (call.path !== API || call.method !== 'POST') return normal(call);
+    if (!firstRun) {
+      firstRun = normal(call);
+      firstRun.operation_id = call.body.operation_id;
+      f.setRuns([firstRun]);
+      throw new Error('start response lost after acceptance');
+    }
+    if (call.body.operation_id === firstRun.operation_id) {
+      return {...firstRun, state: 'succeeded', revision: firstRun.revision + 1};
+    }
+    return normal(call);
+  });
+  assert.equal(await f.ui.start(), false);
+  await f.ui.load();
+  assert.equal(f.ui.canStop(), true);
+  f.setRuns([]);
+  f.setLastCheck({run_id: firstRun.run_id, state: 'succeeded', updated_at: firstRun.updated_at, trigger: 'manual', changed: false});
+  await f.ui.load();
+  const beforeStart = [...f.messages];
+  assert.equal(await f.ui.start(), true);
+  assert.notEqual(f.posts()[1].body.operation_id, firstRun.operation_id);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, beforeStart);
 });
 
 check('starting during a completion refresh preserves results and ignores the superseded read', async () => {
@@ -542,6 +579,86 @@ check('a manually requested quiet check gives one temporary notification after i
   await f.ui.load();await f.ui.load();
   assert.deepEqual(f.messages,['已检查，没有新内容']);assert.equal(f.ui.renderHistory(),'');
   assert.doesNotMatch(f.ui.renderProgress(),/导入完成/);
+});
+
+check('starting a new check while the previous quiet result refreshes only announces the new completion', async () => {
+  const f = fixture();
+  await f.ui.start();
+  const previousCheck = {run_id: 'run:1', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'manual', changed: false};
+  f.setLastCheck(previousCheck);
+  f.setRuns([]);
+  const refreshing = deferred(), workspace = deferred();
+  f.setAPI((call, normal) => {
+    if (call.path === '/api/workspace') {
+      refreshing.resolve();
+      return workspace.wait;
+    }
+    return normal(call);
+  });
+  const previousRead = f.ui.load();
+  await refreshing.wait;
+  assert.equal(f.ui.blocksStart(), false);
+  f.setAPI(null);
+  assert.equal(await f.ui.start(), true);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, []);
+  workspace.resolve({tasks: []});
+  await previousRead;
+  await f.ui.load();
+  assert.deepEqual(f.messages, []);
+  assert.doesNotMatch(f.ui.renderProgress(), /无新内容/);
+
+  f.setLastCheck({...previousCheck, run_id: 'run:2', updated_at: '2026-10-16T01:32:00Z'});
+  f.setRuns([]);
+  await f.ui.load();
+  await f.ui.load();
+  assert.deepEqual(f.messages, ['已检查，没有新内容']);
+});
+
+check('returning to a different active run retires the old quiet notification even after the new run stops', async () => {
+  const f = fixture();
+  await f.ui.setVisible(true);
+  await f.ui.start();
+  f.ui.setVisible(false);
+  const quiet = {run_id: 'run:1', state: 'succeeded', updated_at: '2026-10-16T01:30:00Z', trigger: 'manual', changed: false};
+  const scheduled = syncRun({id: 'scheduled:next', state: 'crawling', states: []});
+  scheduled.trigger = 'scheduled';
+  f.setLastCheck(quiet);
+  f.setRuns([scheduled]);
+  await f.ui.setVisible(true);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, []);
+
+  // The stop response only updates the run. The previous completion is still the cached last check.
+  await f.ui.stop();
+  assert.equal(f.ui.isRunning(), false);
+  assert.deepEqual(f.messages, []);
+});
+
+check('a delayed poll from a stopped run cannot announce or replace the recovery that follows it', async () => {
+  const f = fixture();
+  await f.ui.start();
+  const running = syncRun({id: 'run:1', state: 'recognizing', states: ['running']});
+  f.setRuns([running]);
+  await f.ui.load();
+  const delayed = deferred();
+  f.setAPI((call, normal) => call.path === API && call.method === 'GET' ? delayed.wait : normal(call));
+  const polling = f.ui.load();
+  await f.ui.stop();
+  await f.ui.click(button('recover', running.run_id));
+  assert.equal(f.posts().at(-1).path, API + '/run%3A1/retry');
+  delayed.resolve({contract_version: VERSION, runs: [running], last_check: null});
+  await polling;
+  assert.match(f.ui.progressLabel(), /等待导入/);
+  assert.equal(f.ui.canStop(), true);
+  assert.deepEqual(f.messages, []);
+
+  f.setAPI(null);
+  f.setRuns([syncRun({id: running.run_id, state: 'stopped', states: ['interrupted']})]);
+  f.setLastCheck({run_id: 'run:retry:2', state: 'succeeded', updated_at: '2026-10-16T01:35:00Z', trigger: 'manual', changed: false});
+  await f.ui.load();
+  await f.ui.load();
+  assert.deepEqual(f.messages, ['已检查，没有新内容']);
 });
 
 check('a collection error remains visible even with no created tasks and no records', async () => {

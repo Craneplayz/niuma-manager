@@ -81,8 +81,7 @@ export function createSourceSyncUI(host) {
   let locatedRun = null, linkedRuns = new Map(), locateController = null;
   let recoveryHighlight = null;
   const categories = new Map(), selectedProblems = new Map();
-  let lastCheck = null;
-  const manualRuns = new Set(), announced = new Set();
+  let lastCheck = null, pendingManualRun = null, dismissQuietToast = null;
   const active = () => runs.some((run) => ACTIVE.has(run.state));
   const stamp = () => ({ generation, account: host.accountVersion() });
   const current = (value) => value.generation === generation && value.account === host.accountVersion() && host.isAuthenticated() && !host.isDemo();
@@ -121,7 +120,7 @@ export function createSourceSyncUI(host) {
     error = null; pendingOperation = consumed = focusedRun = actionInFlight = null;
     locatedRun = null; linkedRuns.clear();
     showHistory = false; categories.clear(); selectedProblems.clear();
-    lastCheck = null; manualRuns.clear(); announced.clear();
+    lastCheck = null; clearCompletionNotice();
   }
   function syncAccount() { if (account !== host.accountVersion()) reset(); }
   function isBusy() { syncAccount(); if (loading) renderedWhileLoading = true; return loading || writing || refreshing || active(); }
@@ -185,17 +184,22 @@ export function createSourceSyncUI(host) {
     else if (runs[index].revision <= run.revision) runs = runs.map((item, at) => at === index ? run : item);
     loaded = true;
   }
+  function clearCompletionNotice() {
+    pendingManualRun = null;
+    dismissQuietToast?.();
+    dismissQuietToast = null;
+  }
   function notifyQuiet() {
-    for (const id of manualRuns) {
-      const run = runs.find(item => item.run_id === id);
-      const quiet = run ? run.state === "succeeded" && !usefulRun(run)
-        : lastCheck?.run_id === id && lastCheck.state === "succeeded" && !lastCheck.changed;
-      if (quiet && !announced.has(id)) {
-        announced.add(id); manualRuns.delete(id);
-        if (focusedRun === id) focusedRun = null;
-        host.toast?.("已检查，没有新内容");
-      }
-    }
+    if (!pendingManualRun || active()) return;
+    const run = runs.find(item => item.run_id === pendingManualRun);
+    // Quiet runs drop out of history. Only their own final receipt confirms completion.
+    const receipt = run || (lastCheck?.run_id === pendingManualRun ? lastCheck : null);
+    if (!receipt) return;
+    const id = pendingManualRun;
+    pendingManualRun = null;
+    if (receipt.state !== "succeeded" || (run ? usefulRun(run) : receipt.changed)) return;
+    if (focusedRun === id) focusedRun = null;
+    dismissQuietToast = host.toast?.("已检查，没有新内容");
   }
   async function changed(valid) {
     const fingerprint = JSON.stringify(runs);
@@ -230,7 +234,16 @@ export function createSourceSyncUI(host) {
       lastCheck = checkLast(response.last_check);
       const wasActive = active();
       acceptList(response.runs.map(checkRun));
-      focusedRun = runs.find(run => ACTIVE.has(run.state))?.run_id || focusedRun;
+      if (pendingOperation) {
+        const confirmed = runs.find(run => run.operation_id === pendingOperation.id);
+        if (confirmed) {
+          pendingManualRun = confirmed.run_id;
+          pendingOperation = null;
+        }
+      }
+      const running = runs.find(run => ACTIVE.has(run.state));
+      if (running && running.run_id !== pendingManualRun) clearCompletionNotice();
+      focusedRun = running?.run_id || focusedRun;
       const focused = runs.find(run => run.run_id === focusedRun);
       // A quiet scheduled run may finish entirely between polls and only update last_check.
       if (focused && !ACTIVE.has(focused.state) && lastCheck && lastCheck.run_id !== focused.run_id &&
@@ -277,7 +290,10 @@ export function createSourceSyncUI(host) {
       ...(action === "start" ? { sources: ["teaching_web"] } : { request_ids: selected }),
     };
     writeController = controller; writing = true; error = null; actionInFlight = action;
-    if (action === "start") focusedRun = null;
+    if (action !== "stop") {
+      clearCompletionNotice();
+      focusedRun = null;
+    }
     redraw();
     let requested = false;
     try {
@@ -290,10 +306,12 @@ export function createSourceSyncUI(host) {
       if (!current(value)) return false;
       acceptRun(checkRun(run));
       focusedRun = run.run_id;
-      if (action !== "stop") manualRuns.add(run.run_id);
-      if (action !== "stop") pendingOperation = null;
-      await changed(() => current(value));
-      if (current(value)) notifyQuiet();
+      if (action !== "stop") {
+        pendingManualRun = run.run_id;
+        pendingOperation = null;
+      }
+      const refreshed = await changed(() => current(value));
+      if (current(value) && refreshed) notifyQuiet();
       return current(value);
     } catch (cause) {
       if (current(value)) error = !requested && action !== "stop"
@@ -485,10 +503,10 @@ export function createSourceSyncUI(host) {
   function currentRun() {
     return runs.find(run => ACTIVE.has(run.state)) || runs.find(run => run.run_id === focusedRun && usefulRun(run));
   }
-  function renderProgress() {
+  function renderProgress(scheduleBusy = false) {
     syncAccount();
     if (host.isDemo() || !host.isAuthenticated()) return "";
-    const run = currentRun(), starting = ["start", "retry", "recover"].includes(actionInFlight);
+    const run = currentRun(), starting = scheduleBusy || ["start", "retry", "recover"].includes(actionInFlight);
     if (!run && !error && !starting && !lastCheck) return "";
     const checked = lastCheck && !run && !starting ? `<p class="status-note" data-source-sync-last-check>上次检查 <time datetime="${esc(lastCheck.updated_at)}">${esc(new Date(lastCheck.updated_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</time> · ${lastCheck.state === "succeeded" ? lastCheck.changed ? "有新结果" : "无新内容" : esc(LABELS[lastCheck.state])}</p>` : "";
     const content = `${errorMarkup(error)}${error ? `<button class="btn quiet" type="button" data-source-sync-action="refresh" ${loading || writing || refreshing ? "disabled" : ""}>刷新进度</button>` : ""}${run ? runMarkup(run, latestAttempts(), true) : ""}${checked}`;
@@ -569,5 +587,5 @@ export function createSourceSyncUI(host) {
     if (!loaded && !loading && !writing && !error) return load();
     poll();
   }
-  return { renderProgress, renderHistory, click, toggle, reset, load, start, stop, canStop, isBusy, blocksStart, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
+  return { renderProgress, renderHistory, clearCompletionNotice, click, toggle, reset, load, start, stop, canStop, isBusy, blocksStart, isRunning, progressLabel, ownsRequest, setVisible, cancelRecoveryNavigation, dismissRecoveryHighlight };
 }
