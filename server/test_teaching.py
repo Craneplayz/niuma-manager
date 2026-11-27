@@ -403,6 +403,89 @@ class TeachingIntegrationTests(unittest.TestCase):
         self.assertEqual(status,200,result)
         return result
 
+    def test_native_assignment_displays_shared_teacher_text_once_and_keeps_raw_evidence(self):
+        fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'
+        request = json.loads(fixture.read_text())['request']
+        entry, = request['records']
+        record = entry['record']
+        label = entry['source']['label']
+        files = '已附加文件:\n实验说明.pdf\n(512 KB)'
+        shared = '请完成实验并提交报告。\n教师要求在 12 月 1 日 23:59 前提交。'
+        extra = '附上运行截图。\n到期日期：2026年12月2日 星期三 上午1:30'
+        due = '2026-12-02T01:30:00+08:00'
+        entry['platform_item']['due'] = due
+        record['source_metadata_text'] = '平台到期时间：' + due
+        for listing, detail, expected in [
+            (files + '\n' + shared, shared + '\n' + extra, files + '\n' + shared + '\n' + extra),
+            (files + '\n' + shared, shared, files + '\n' + shared),
+            (shared + '\n' + extra, files + '\n' + shared, files + '\n' + shared + '\n' + extra),
+            # Similar or apparently repeated instructions under different headings retain both contexts.
+            ('第一次实验\n提交 A.zip', '第二次实验\n提交 B.zip', None),
+            ('第一题\n上传报告\n第二题\n上传报告', '上传报告\n附运行截图', None),
+        ]:
+            with self.subTest(listing=listing, detail=detail):
+                raw_detail = f'列表正文：{listing}\n\n作业详情：{detail}'
+                record['text'] = label + '\n\n' + raw_detail
+                result, manifest = teaching.recognize(request, app.ApiError)
+                teaching.validate_current_result(request, result, manifest, app.ApiError)
+                item, = teaching.result_view(request, result)['tasks']
+                self.assertEqual(item['description'], expected if expected is not None else raw_detail)
+                self.assertEqual(item['deadline']['value'], due)
+                decision, = result['record_results'][0]['decisions']
+                self.assertEqual(decision['pair']['record']['text'], label + '\n\n' + raw_detail)
+
+    def test_existing_platform_fields_upgrade_in_place_without_overwriting_user_decisions(self):
+        capture = json.loads((Path(__file__).parents[1] / 'contracts/examples/teaching-platform-native.json').read_text())
+        entry, = capture['request']['records']
+        raw = '列表正文：附实验说明.pdf\n请提交报告。\n\n作业详情：请提交报告。\n附上截图。'
+        entry['record']['text'] = entry['source']['label'] + '\n' + raw
+        notice = self.native_capture('unknown')
+        notice['assignment'] = None
+        e, = notice['request']['records']
+        e['platform_item'] = dict(kind='announcement', due=None, submitted=False)
+        e['source']['label'] = '课程分组安排'
+        e['record'].update(text='课程分组安排\n明晚6:40-8:30为第一次小班课。', references=[],
+                           published_at=dict(value='2026-09-15T13:00:00+08:00', basis='source'))
+        with patch.object(teaching.teaching_platform, 'assignment_description', side_effect=lambda body: body), \
+             patch.object(teaching.teaching_platform, 'body_deadline', return_value=teaching.teaching_platform.deadline()):
+            for fixture in (capture, notice):
+                view, = self.sync_native(fixture)['requests']
+                status, batches = self.call('/recognition/retry', dict(contract_version=teaching.RUN, request_id=view['request_id']))
+                self.assertEqual(status, 200, batches)
+        with app.connection() as db:
+            db.execute("DELETE FROM teaching_migrations WHERE name='platform-notice-time-and-detail-v1'")
+            tasks, version = teaching.submission.controls.workspace(db, self.uid)
+            lab, meeting = tasks
+            self.assertEqual((lab['description'], meeting['due']), (raw, None))
+            for change in ('manual', 'review', 'other-account', 'deleted', 'none'):
+                with self.subTest(change=change):
+                    db.execute('SAVEPOINT original')
+                    if change == 'manual':
+                        altered = deepcopy(tasks)
+                        altered[0]['description'] = raw + ' 我的备注'
+                        altered[1]['due'] = dict(date='2027-01-01', precision='date')
+                        db.execute("UPDATE workspace SET value=? WHERE user_id=? AND name='tasks'", (json.dumps(altered), self.uid))
+                    elif change == 'review':
+                        db.execute('UPDATE teaching_submission_sources SET review_pending=1')
+                    elif change == 'other-account':
+                        db.execute("UPDATE source_credentials SET username='another-school-account'")
+                    elif change == 'deleted':
+                        db.execute("UPDATE workspace SET value='[]' WHERE user_id=? AND name='tasks'", (self.uid,))
+                    before = teaching.submission.controls.workspace(db, self.uid)
+                    teaching.upgrade_platform_fields(db)
+                    after = teaching.submission.controls.workspace(db, self.uid)
+                    if change == 'none':
+                        fixed, new_version = after
+                        self.assertEqual(new_version, version + 1)
+                        self.assertEqual(fixed[0], dict(lab, description='附实验说明.pdf\n请提交报告。\n附上截图。'))
+                        self.assertEqual(fixed[1], dict(meeting, due=dict(date='2026-09-16', time='18:40', precision='datetime')))
+                    else:
+                        self.assertEqual(before, after)
+                    teaching.upgrade_platform_fields(db)
+                    self.assertEqual(teaching.submission.controls.workspace(db, self.uid), after)
+                    db.execute('ROLLBACK TO original')
+                    db.execute('RELEASE original')
+
     def test_platform_assignment_without_model_is_idempotent_and_protects_user(self):
         import recognition
         fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'
@@ -674,6 +757,50 @@ class TeachingIntegrationTests(unittest.TestCase):
         entry['record']['published_at']['value'] = '2026-12-20'
         entry['record']['text'] = 'The lecture has been moved to January 4.'
         self.assertEqual(teaching.teaching_platform.body_deadline(entry,notice=True)['value'], '2027-01-04')
+
+    def test_relative_event_clock_uses_only_source_publication_and_course_timezone(self):
+        capture = self.native_capture('unknown')
+        entry, = capture['request']['records']
+        entry['platform_item'] = dict(kind='announcement', due=None, submitted=False)
+        entry['source']['label'] = '上课分组'
+        body = '同学们好，明晚6:40-8:30为第一次小班课，请提前查看分组。'
+        record = entry['record']
+        # The same timestamp is already the next calendar day in the course timezone.
+        record.update(text=body, timezone='Asia/Shanghai', references=[],
+                      published_at=dict(value='2026-09-14T22:30:00Z', basis='source'))
+        result, manifest = teaching.recognize(capture['request'], app.ApiError)
+        teaching.validate_current_result(capture['request'], result, manifest, app.ApiError)
+        notice, = teaching.result_view(capture['request'], result)['tasks']
+        self.assertEqual((notice['content_type'], notice['description'], notice['deadline']['value']),
+                         ('notice', body, '2026-09-16T18:40:00+08:00'))
+        due = teaching.teaching_platform.body_deadline(entry, notice=True)
+        self.assertEqual((due['derivation'], due['anchor'], due['evidence']),
+                         ('relative', 'published_at', [dict(part_id='body', quote='明晚6:40')]))
+        for publication in (None, dict(value='2026-09-15', basis='unverified')):
+            record['published_at'] = publication
+            self.assertIsNone(teaching.teaching_platform.body_deadline(entry, notice=True)['value'])
+
+    def test_relative_event_clock_requires_unambiguous_event_start(self):
+        entry = self.native_capture('unknown')['request']['records'][0]
+        entry['source']['label'] = '课程安排'
+        entry['record'].update(timezone='Asia/Shanghai', published_at=dict(value='2026-12-31',basis='source'))
+        for body, expected in [
+            ('讲座将于明天上午9:15开始。', '2027-01-01T09:15:00+08:00'),
+            ('讲座明晚18:40举行。', '2027-01-01T18:40:00+08:00'),
+            ('明晚6:40开小班课。', '2027-01-01T18:40:00+08:00'),
+            ('讲座将于明晚6:40结束。', None),
+            ('讲座结束时间为明晚6:40。', None),
+            ('小班课资料将于明晚6:40发布。', None),
+            ('明晚6:40为准备下一次考试。', None),
+            ('明晚6:40-8:30为第一次小班课，现已取消。', None),
+            ('考试定于明晚8:30。讲座定于后天15:10。', None),
+            ('明晚12:00为第一次小班课。', None),
+            ('明晚7:80为第一次小班课。', None),
+        ]:
+            with self.subTest(body=body):
+                entry['record']['text'] = body
+                self.assertEqual(teaching.teaching_platform.body_deadline(entry, notice=True)['value'], expected)
+                self.assertIsNone(teaching.teaching_platform.body_deadline(entry)['value'])
 
     def test_new_column_identity_retires_existing_review_without_a_second_task(self):
         fixture = Path(__file__).resolve().parents[1] / 'contracts/examples/teaching-platform-native.json'

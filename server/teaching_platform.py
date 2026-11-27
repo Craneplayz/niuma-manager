@@ -1,5 +1,5 @@
 """Project authenticated platform facts and shared text results onto teaching decisions."""
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 import hashlib
 from pathlib import Path
@@ -7,6 +7,7 @@ import re
 
 from contracts.teaching_io import canonical, course_content_page
 from ddl_text import course_facts
+from ddl_text.time_validation import RELATIVE_DAYS
 
 
 _COMPONENTS = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
@@ -111,6 +112,28 @@ def result(request, decisions):
                 policy_version=manifest['version'], status=status, record_results=[row]), manifest
 
 
+def assignment_description(detail):
+    """Merge an unambiguous overlap between the crawler's two teacher-text blocks."""
+    marker = '\n\n作业详情：'
+    if not detail.startswith('列表正文：') or detail.count(marker) != 1:
+        return detail
+    listing, _, description = detail.removeprefix('列表正文：').partition(marker)
+    if not listing or not description:
+        return detail
+
+    # Match whole lines in their original order. An attachment list can precede
+    # the shared instructions and platform metadata can follow them on either page.
+    listing_lines, detail_lines = listing.split('\n'), description.split('\n')
+    for first, second in ((listing_lines, detail_lines), (detail_lines, listing_lines)):
+        if not second[0] or first.count(second[0]) != 1:
+            continue
+        start = first.index(second[0])
+        overlap = min(len(first) - start, len(second))
+        if first[start:start + overlap] == second[:overlap]:
+            return '\n'.join(first + second[overlap:])
+    return detail
+
+
 def assignment(request):
     entry, = request['records']
     r, item = entry['record'], entry['platform_item']
@@ -133,7 +156,8 @@ def assignment(request):
     if detail and (relation != 'unknown' or item['submitted']):
         evidence.append(dict(part_id='body', quote=detail[:2048]))
     filtered = '成绩明细已明确标为已提交。' if item['submitted'] else None
-    d = decision(entry, 'platform-assignment', title, detail[:4096], evidence,
+    description = assignment_description(detail) if item['kind'] == 'native_assignment' else detail
+    d = decision(entry, 'platform-assignment', title, description[:4096], evidence,
                  due, reasons=reasons, relation=relation, filtered=filtered)
     return result(request, [d])
 
@@ -173,14 +197,32 @@ _EVENT_AT = re.compile(r'(?:将(?:在|于)|定于|安排在|举行时间|开始�
                        r'\b(?:held|scheduled|takes? place|starts?|begins?|is|will be)\s+(?:on\s+)?|\b(?:exam|midterm|lecture|seminar|meeting)\s+on)\s*$', re.I)
 _CLOCK_RANGE = re.compile(r'^[ \t]*[-~～–—至][ \t]*\d{1,2}[：:]\d{2}(?![\d:])')
 _UNPARSED_TIME = re.compile(r'^\s*(?:[:：]|\d|[上下]午|晚上|中午|凌晨|至|到|[-~～–—]|[ap]\.?m\b|[+-]\d|Z\b|(?:at|from)\s+\d)', re.I)
+_RELATIVE_CLOCK = re.compile(
+    r'(?P<day_word>' + '|'.join(sorted(RELATIVE_DAYS, key=len, reverse=True)) + r')[ \t]*'
+    r'(?P<period>上午|下午|晚上|早上|凌晨|中午)?[ \t]*(?P<hour>\d{1,2})'
+    r'(?:[：:](?P<minute>\d{2})|[点时](?:(?P<cnminute>\d{1,2})分)?)(?![\d半刻分])')
+_EVENT_NOUN = r'小班课|大班课|课程|考试|测验|测试|答辩|讲座|研讨会|报告会|说明会'
+_EVENT_AFTER_CLOCK = re.compile(
+    rf'^\s*(?:(?:为|是|有|召开|举行|举办|开)[^，,。；;！？!?\n]{{0,24}}?(?:{_EVENT_NOUN})'
+    r'(?=[，,。；;！？!?\s]|$)|上课|开课)')
+
+
+def publication_day(record):
+    publication = record.get('published_at')
+    if not publication or publication['basis'] != 'source':
+        return None
+    value = publication['value']
+    if len(value) == 10:
+        return date.fromisoformat(value)
+    instant = datetime.fromisoformat(value.replace('Z', '+00:00').replace('z', '+00:00'))
+    return instant.astimezone(ZoneInfo(record['timezone'])).date() if instant.tzinfo else None
 
 
 def anchored_day(record, month, day, year, *, notice):
     if year:
         return date(int(year), month, day), None
     term = record.get('course_term')
-    publication = record.get('published_at')
-    published = date.fromisoformat(publication['value'][:10]) if publication and publication['basis'] == 'source' else None
+    published = publication_day(record)
     if term and (term['applies_to'] == 'current_assignment' or notice):
         start, end = date.fromisoformat(term['starts_on']), date.fromisoformat(term['ends_on'])
         if not published or start <= published <= end:
@@ -219,12 +261,45 @@ def normalized_date(record, match, *, notice):
     return deadline(value, [dict(part_id='body', quote=match[0])], 'missing_year' if anchor else 'absolute', anchor)
 
 
+def relative_event_time(record, match):
+    published = publication_day(record)
+    if published is None:
+        raise ValueError('relative event needs a publication date')
+    word, period = match['day_word'], match['period']
+    implicit = {'早': '早上', '晚': '晚上'}.get(word[-1])
+    if implicit and period and implicit != period:
+        raise ValueError('conflicting periods')
+    period = implicit or period
+    hour = int(match['hour'])
+    if period == '晚上':
+        if 5 <= hour <= 11:
+            hour += 12
+        if not 17 <= hour <= 23:
+            raise ValueError('ambiguous evening clock')
+    elif period in ('下午', '中午'):
+        if 1 <= hour <= 11:
+            hour += 12
+        if hour < 12 or (period == '中午' and hour > 13):
+            raise ValueError('ambiguous afternoon clock')
+    elif period and hour >= 12:
+        raise ValueError('ambiguous morning clock')
+    day = published + timedelta(days=RELATIVE_DAYS[word])
+    clock = time(hour, int(match['minute'] or match['cnminute'] or 0))
+    local = datetime.combine(day, clock, ZoneInfo(record['timezone']))
+    if local.utcoffset() != local.replace(fold=1).utcoffset():
+        raise ValueError('ambiguous local clock')
+    return deadline(local.isoformat(), [dict(part_id='body', quote=match[0])], 'relative', 'published_at')
+
+
 def body_deadline(entry, *, notice=False):
     record, text = entry['record'], entry['record']['text']
     if (_CANCEL if notice else _UNCERTAIN).search(text):
         return deadline()
     regular, revised = {}, {}
-    for match in _DATE.finditer(text):
+    dates = list(_DATE.finditer(text))
+    if notice:
+        dates.extend(_RELATIVE_CLOCK.finditer(text))
+    for match in dates:
         before = text[max(0, match.start() - 90):match.start()]
         after = text[match.end():match.end() + 48]
         # Ignore the superseded date when the teacher explicitly contrasts it with a new one.
@@ -235,6 +310,19 @@ def body_deadline(entry, *, notice=False):
         event = (notice and _EVENT_AT.search(before) and _EVENT.search((entry['source']['label'] or '') + ' ' + clause)
                  and not re.search(r'发布|上传|资料|课件|\b(?:posted|uploaded|published|materials)\b', clause[-24:], re.I)
                  and not re.match(r'^\s*(?:发布|上传)', after))
+        relative = match.re is _RELATIVE_CLOCK
+        if relative:
+            # A teacher can put the time before the class name, after an optional end clock.
+            span = _CLOCK_RANGE.match(after)
+            tail = after[span.end():] if span else after
+            following = _EVENT_AFTER_CLOCK.match(tail)
+            event = (event or following and not re.search(r'报名|复习|备考|准备|资料|课件|发布|上传', following[0])
+                     or _EVENT.search(clause) and re.match(r'^\s*(?:举行|召开|开始|开讲|上课)(?=[，,。；;！？!?\s]|$)', tail))
+            context = (entry['source']['label'] or '') + ' ' + re.split(r'[。；;\n]', before)[-1]
+            if (not event and not (changed and _EVENT.search(context))
+                    or re.search(r'(?:结束|散场|截止)(?:时间)?[为是：:]?\s*$', before)
+                    or re.match(r'^\s*(?:结束|散场|发布|上传|截止)', tail)):
+                continue
         if not (changed or event or _BEFORE_DATE.search(before) or _AFTER_DATE.search(after)):
             continue
         # A time range attached to an event supplies its start. A malformed time,
@@ -242,8 +330,8 @@ def body_deadline(entry, *, notice=False):
         if _UNPARSED_TIME.match(after) and not ((event or changed) and match['hour'] and _CLOCK_RANGE.match(after)):
             return deadline()
         try:
-            day = normalized_date(record, match, notice=notice)
-        except ValueError:
+            day = relative_event_time(record, match) if relative else normalized_date(record, match, notice=notice)
+        except (ValueError, OverflowError):
             return deadline()
         values = revised if changed else regular
         values[day['value']] = day

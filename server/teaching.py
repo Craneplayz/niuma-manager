@@ -1,5 +1,6 @@
 """Authenticated teaching snapshots -> v0.4 recognition -> existing workspace cards."""
 from copy import deepcopy
+from datetime import datetime
 import hashlib
 import json
 if __package__:
@@ -112,6 +113,91 @@ def upgrade_display_titles(db):
             db.execute("UPDATE workspace SET value=?,version=version+1 WHERE user_id=? AND name='tasks'", (json.dumps(tasks),uid))
 
 
+def refreshed_platform_field(request, card, field, current):
+    entry, = request['records']
+    if field == 'description':
+        raw = entry['record']['text'].removeprefix(entry['source']['label'] or '').strip()
+        if entry.get('platform_item', {}).get('kind') != 'native_assignment' or card.get(field) != raw[:4096] or current != card[field]:
+            return None
+        value = teaching_platform.assignment_description(raw)[:4096]
+        if value == current:
+            return None
+        card[field] = value
+        return value
+    if card.get('deadline', {}).get('status') != 'not_provided':
+        return None
+    result, _ = teaching_platform.classify(request)
+    decisions = result['record_results'][0]['decisions']
+    if len(decisions) != 1:
+        return None
+    decision, = decisions
+    due = decision['pair']['assessment']['deadline']
+    if (decision['pair']['assessment']['candidate_id'] != card.get('candidate_id')
+            or decision.get('content_type') != 'notice' or due['derivation'] != 'relative'
+            or due['anchor'] != 'published_at' or due['precision'] != 'datetime'):
+        return None
+    # The parser already expresses this timestamp in the course timezone.
+    stamp = datetime.fromisoformat(due['value'])
+    value = dict(date=stamp.date().isoformat(), time=stamp.strftime('%H:%M'), precision='datetime')
+    fresh = candidate_view(decision, entry, model_routing=True, single=True)
+    card.update(deadline=fresh['deadline'], evidence=fresh['evidence'])
+    return value
+
+
+def upgrade_platform_fields(db):
+    """Refresh untouched display fields from the same, still-current platform source."""
+    if not db.execute("INSERT OR IGNORE INTO teaching_migrations VALUES ('platform-notice-time-and-detail-v1')").rowcount:
+        return
+    for uid, username in db.execute('SELECT user_id,username FROM source_credentials'):
+        tasks, version = submission.controls.workspace(db, uid)
+        acct = account(username)
+        changed = False
+        for task in tasks:
+            history = task.get('recognitionHistory') or []
+            if (not history or task.get('source') != '教学网' or task.get('recycleBin')
+                    or task.get('status') in ('completed', 'cancelled')):
+                continue
+            last = history[-1]
+            candidate_id = last.get('candidateId')
+            if candidate_id == 'platform-assignment' and (task.get('description') or '').startswith('列表正文：'):
+                field = 'description'
+            elif candidate_id in ('platform-announcement', 'course-content-item') and task.get('content_type') == 'notice' and task.get('due') is None:
+                field = 'due'
+            else:
+                continue
+            row = db.execute("""SELECT s.request,c.candidate,c.resolution FROM recognition_candidates c
+                JOIN teaching_sources s ON s.user_id=c.user_id AND s.request_id=c.request_id
+                JOIN recognition_batches b ON b.user_id=c.user_id AND b.request_id=c.request_id
+                JOIN teaching_submission_sources st ON st.user_id=s.user_id AND st.account=s.account AND st.input_id=s.input_id
+                WHERE c.id=? AND c.user_id=? AND c.request_id=? AND s.account=? AND c.state='applied'
+                  AND json_extract(b.result,'$.classification_mode')='platform-v1'
+                  AND st.review_pending=0 AND st.state!='submitted'""",
+                (last.get('storageId'), uid, last.get('requestId'), acct)).fetchone()
+            if not row:
+                continue
+            card = json.loads(row['candidate'])
+            resolution = json.loads(row['resolution'] or '{}')
+            baseline = resolution.get('source_draft', resolution.get('draft', {}))
+            if (not resolution.get('auto_apply') or field not in baseline or task.get(field) != baseline[field]
+                    or card.get('candidate_id') != candidate_id):
+                continue
+            request = json.loads(row['request'])
+            entry, = request['records']
+            if card.get('input_id') != entry['record']['input_id']:
+                continue
+            value = refreshed_platform_field(request, card, field, task.get(field))
+            if value is None:
+                continue
+            task[field] = value
+            resolution.setdefault('source_draft', dict(baseline))[field] = value
+            db.execute('UPDATE recognition_candidates SET candidate=?,resolution=? WHERE user_id=? AND id=?',
+                       (json.dumps(card), json.dumps(resolution), uid, last['storageId']))
+            changed = True
+        if changed:
+            db.execute("UPDATE workspace SET value=?,version=? WHERE user_id=? AND name='tasks'",
+                       (json.dumps(tasks), version+1, uid))
+
+
 def account(username):
     return hashlib.sha256(username.encode()).hexdigest()
 
@@ -145,7 +231,8 @@ def candidate_view(decision, entry, *, model_routing=False, single=False):
     inferred = known and ((not model_routing and 'original_age_unknown' in codes)
                           or d['derivation'] == 'course_rule'
                           or d['derivation'] == 'missing_year' and (entry.get('platform_item') or teaching_platform.route(entry) == 'platform')
-                          or entry.get('platform_item', {}).get('kind') == 'announcement' and d['derivation'] in ('relative','offset')
+                          or decision.get('content_type') == 'notice' and teaching_platform.route(entry) == 'platform'
+                          and d['derivation'] in ('relative','offset')
                           or any(q['part_id'] in context for q in d['evidence']))
     evidence = []; by_quote = {}
     sources=[dict(input_id=r['input_id'],platform=r['platform'],url=source['url'],label=source['label'],source_item_id=r['source_item_id'])]

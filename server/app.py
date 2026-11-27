@@ -100,6 +100,7 @@ def initialize(recover=True):
         usage.initialize(db)
         error_reports.initialize(db)
         source_sync.initialize(db)
+        source_sync.teaching.upgrade_platform_fields(db)
         source_jobs.initialize(db, recover=recover)
         source_schedule.initialize(db)
         public_sources.initialize(db,recover=recover)
