@@ -543,7 +543,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload['completionHistory']=[dict(f,task=next(t for t in tasks if t['id']==f['taskId'])) for f in payload['completionHistory'] if any(t['id']==f['taskId'] for t in tasks)]
                 for task in payload['tasks']:
                     task.pop('estimatedMinutes',None)
-                result=planning.plan(payload,ApiError)
+                from server import model_experiment
+                result, exposure=model_experiment.run(db,uid,'estimation',planning.plan,payload,ApiError)
                 try:
                     scheduled={block['taskId'] for block in result.get('blocks',[])}
                     payload['existingPlans'].extend(dict(plan,taskId=task['id']) for task in tasks if task['id'] not in scheduled for plan in task['plans'] if plan['id'] in replace_plans.get(task['id'],[]))
@@ -557,6 +558,7 @@ class Handler(BaseHTTPRequestHandler):
                 if timetable_version!=timetable.read(db,uid)['version']: raise ApiError(409,'课表已变化，请重新规划')
                 result['timetableVersion']=timetable_version
                 db.execute('INSERT INTO proposals VALUES(?,?,?,?,0)',(payload['requestId'],uid,rows['tasks']['version'],json.dumps(dict(result,replacePlanIds=replace_plans))))
+                model_experiment.accept(db,exposure,'success')
                 return self.reply(200,result)
             if path=='/api/planning/apply' and self.command=='POST':
                 db.execute('BEGIN IMMEDIATE')

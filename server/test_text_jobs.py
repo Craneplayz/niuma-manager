@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -16,6 +17,7 @@ from urllib.request import Request, urlopen
 import app
 import recognition
 import text_jobs
+from server import model_experiment, operations
 
 FIXTURE = json.loads((Path(__file__).resolve().parents[1]/'contracts/text-to-app/text-contract-v0.2.json').read_text())
 CONTRACTS = Path(__file__).resolve().parents[1]/'contracts'
@@ -109,6 +111,32 @@ class TextJobsTests(unittest.TestCase):
         self.assertEqual(self.call(body=self.request)[0],200)
         text_jobs.wait_for_jobs(app.DB)
         self.assertEqual(self.calls,1)
+
+    def test_experiment_scores_only_after_text_job_commits(self):
+        def recognize(request, error, *, on_admitted):
+            on_admitted()
+            model_experiment.options(dict(provider='qiniu',key='synthetic-a',model='synthetic-a',
+                                          endpoint='https://api.qnaigc.com/v1'))
+            operations.emit('model_call')
+            self.started.set()
+            self.assertTrue(self.release.wait(10))
+            return self.outcome(request,task=True)
+
+        config = dict(NIUMA_EXPERIMENT_ID='test-text-job', NIUMA_EXPERIMENT_SALT='test'*10,
+                      NIUMA_EXPERIMENT_B_MODEL='google/gemini-3.1-flash-lite',
+                      NIUMA_EXPERIMENT_B_ENDPOINT='https://api.modelink.ai/v1',
+                      NIUMA_EXPERIMENT_B_KEY='synthetic-b', NIUMA_EXPERIMENT_ACCOUNTS='A')
+        with patch.dict(os.environ,config), patch.object(recognition,'recognize',recognize):
+            self.assertEqual(self.call(body=self.request)[0],200)
+            self.assertTrue(self.started.wait(3))
+            self.assertEqual(self.call('/usage/model-experiment')[1]['results'],[])
+            self.release.set()
+            text_jobs.wait_for_jobs(app.DB)
+            self.assertEqual(self.job()['state'],'success')
+            self.assertEqual(len(self.call('/recognition/batches')[1][0]['items']),1)
+            result, = self.call('/usage/model-experiment')[1]['results']
+            self.assertEqual((result['module'],result['ordinal']),('text',1))
+            self.assertEqual(self.call('/usage/model-experiment',{'id':result['id'],'score':4})[0],200)
 
     def test_stop_rejects_late_results_and_stale_retry_is_idempotent(self):
         with patch.object(recognition,'recognize',self.recognize):

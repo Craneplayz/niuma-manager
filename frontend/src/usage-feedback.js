@@ -1,6 +1,80 @@
 import { userErrorMarkup } from "./user-errors.js";
 import {api,session,accountVersion} from './team-store.js';
 let offeredFor=null;
+let experimentEnabled=false, experimentBusy=false, experimentTimer;
+const modules={text:'文本识别', teaching:'教学网识别', decomposition:'任务拆解', estimation:'工时估计'};
+const experimentPath='/api/usage/model-experiment';
+const currentAccount=()=>[accountVersion(),session.user?.id];
+const sameAccount=([epoch,uid])=>accountVersion()===epoch&&session.user?.id===uid&&!session.changing;
+
+function evaluationForm(result, account, afterSave) {
+ const form=document.createElement('form');
+ const label=document.createElement('p');
+ label.textContent=`${modules[result.module]||'模型结果'} · 第 ${result.ordinal} 条 · ${new Date(result.at*1000).toLocaleString('zh-CN')}`;
+ form.append(label);
+ form.insertAdjacentHTML('beforeend', '<div class="usage-rating-options" role="group" aria-label="给结果打 1 至 5 分">'+[1,2,3,4,5].map(score=>`<button class="btn" type="submit" value="${score}" aria-label="${score}分" aria-pressed="${score===result.score}">${score}</button>`).join('')+'</div><span role="status"></span>');
+ const status=form.querySelector('[role=status]');
+ if(result.score)status.textContent=`已评价：${result.score} 分`;
+ form.onsubmit=async event=>{
+  event.preventDefault();event.stopPropagation();
+  if(!event.submitter||!sameAccount(account))return;
+  const buttons=[...form.querySelectorAll('button')];
+  buttons.forEach(button=>button.disabled=true);
+  try{
+   const score=Number(event.submitter.value);
+   await api(experimentPath,{id:result.id,score});
+   if(sameAccount(account)&&form.isConnected){
+    status.textContent=`已评价：${score} 分`;
+    buttons.forEach(button=>button.setAttribute('aria-pressed',String(Number(button.value)===score)));
+    afterSave?.();
+   }
+  }catch(error){if(sameAccount(account))status.innerHTML=userErrorMarkup(error,'feedback');}
+  finally{buttons.forEach(button=>button.disabled=false);}
+ };
+ return form;
+}
+
+async function experimentHistory(details, before) {
+ const account=currentAccount();
+ const list=details.querySelector('[data-experiment-results]');
+ try {
+  const page=await api(experimentPath+(before?'?before='+encodeURIComponent(before):''));
+  if(!sameAccount(account)||!details.isConnected)return;
+  if(!before)list.replaceChildren();
+  list.querySelector('[data-experiment-next]')?.remove();
+  for(const result of page.results)list.append(evaluationForm(result,account));
+  if(!list.childElementCount)list.textContent='还没有可评价的模型结果。';
+  if(page.next){
+   const more=document.createElement('button');more.type='button';more.dataset.experimentNext='';more.textContent='查看更多结果';
+   more.onclick=()=>void experimentHistory(details,page.next);list.append(more);
+  }
+ }catch{if(sameAccount(account)&&details.isConnected)list.textContent='暂时无法读取，重新展开可重试。';}
+}
+
+async function experimentPrompt(){
+ if(!experimentEnabled||experimentBusy||!session.user||session.changing||document.visibilityState!=='visible'||document.querySelector('dialog[open]'))return;
+ const account=currentAccount();
+ experimentBusy=true;
+ try{
+  const state=await api(experimentPath);
+  if(!state.promptDue||!sameAccount(account)||document.visibilityState!=='visible'||document.querySelector('dialog[open]'))return;
+  const {result}=await api(experimentPath+'/prompt',{});
+  if(!result||!sameAccount(account))return;
+  const dialog=document.createElement('dialog');
+  dialog.id='model-experiment-prompt';dialog.setAttribute('aria-label','评价模型结果');
+  dialog.innerHTML='<h2>这次结果好用吗？</h2><p>每两条生成结果邀请评价一次，跳过后仍可在账户反馈里评价。</p>';
+  const skip=document.createElement('button');skip.type='button';skip.className='btn';skip.textContent='暂不评价';
+  skip.onclick=()=>dialog.close();
+  dialog.append(evaluationForm(result,account,()=>dialog.close()),skip);
+  dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+  document.body.append(dialog);dialog.showModal();
+ }catch{}finally{experimentBusy=false;}
+}
+
+document.addEventListener('toggle',event=>{
+ const details=event.target;
+ if(details.matches?.('[data-experiment-history]')&&details.open)void experimentHistory(details);
+},true);
 const ratingPrompts = [
  '抱歉没能让您满意，请问有哪些地方需要改进？',
  '感谢您的反馈，哪些体验还不够好？',
@@ -131,7 +205,7 @@ function showRating(uid) {
 }
 
 export function feedbackBox(){
- return session.user?`<section class="account-feedback"><h3>使用反馈</h3><form id="usage-feedback-form"><label class="field">有什么可以改进？<textarea name="message" maxlength="2000" required rows="3" placeholder="写下你的建议…"></textarea></label><button class="btn" type="submit">发送反馈</button><div role="status" data-feedback-status></div></form></section>`:'';
+ return session.user?`<section class="account-feedback"><h3>使用反馈</h3><form id="usage-feedback-form"><label class="field">有什么可以改进？<textarea name="message" maxlength="2000" required rows="3" placeholder="写下你的建议…"></textarea></label><button class="btn" type="submit">发送反馈</button><div role="status" data-feedback-status></div></form><details data-experiment-history ${experimentEnabled?'':'hidden'}><summary>评价已有模型结果</summary><div data-experiment-results></div></details></section>`:'';
 }
 export async function usageVisit(){
  if(document.visibilityState==='hidden')return;
@@ -146,7 +220,14 @@ export async function usageVisit(){
    return;
   }
   const result=await api('/api/usage/visit',{});
-  if(session.user?.id!==uid||!result.offerRating)return;
+  if(session.user?.id!==uid)return;
+  if(result.modelExperiment&&!experimentEnabled){
+   experimentEnabled=true;
+   document.querySelectorAll('[data-experiment-history]').forEach(el=>el.hidden=false);
+   experimentTimer=setInterval(()=>void experimentPrompt(),12000);
+   void experimentPrompt();
+  }
+  if(!result.offerRating)return;
   showRating(uid);
  }catch{if(offeredFor===key)offeredFor=null;} // Analytics failure must not block ordinary use.
 }
@@ -156,7 +237,7 @@ export async function submitUsageFeedback(form){
  try{await api('/api/usage/feedback',{kind:'feedback',message:new FormData(form).get('message')});form.reset();status.textContent='已收到，谢谢你的反馈。';}
  catch(error){status.innerHTML=userErrorMarkup(error,'feedback');}finally{button.disabled=false;}
 }
-window.addEventListener('niuma:account-reset',()=>{offeredFor=null;document.querySelector('#usage-rating')?.remove();});
+window.addEventListener('niuma:account-reset',()=>{offeredFor=null;experimentEnabled=false;clearInterval(experimentTimer);document.querySelector('#model-experiment-prompt')?.remove();document.querySelector('#usage-rating')?.remove();});
 document.addEventListener('submit',event=>{if(event.target.id==='usage-feedback-form'){event.preventDefault();event.stopImmediatePropagation();void submitUsageFeedback(event.target);}},true);
 document.addEventListener('click',()=>{if(session.user)void usageVisit();});
 window.addEventListener('niuma:session-ready',()=>{void usageVisit();});

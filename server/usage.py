@@ -161,8 +161,13 @@ def summary(db, start, end):
         methodology='从启用记录后统计；流程量不是同批次转化漏斗；耗时含排队，中位数为常规样本中位数，P95使用最近秩 ceil(0.95×n)；不推断历史行为或模型正确率。')
 
 def route(handler, db, uid, path, body, error):
+    from server import model_experiment
+    if path in ('/api/usage/model-experiment','/api/usage/model-experiment/prompt'):
+        return model_experiment.route(handler,db,uid,path,body,error)
     if path=='/api/usage/visit' and handler.command=='POST':
-        return handler.reply(200,visit(db,uid)) or True
+        result=visit(db,uid)
+        if model_experiment.assignment(uid):result['modelExperiment']=True
+        return handler.reply(200,result) or True
     if path=='/api/usage/feedback' and handler.command=='POST':
         kind,score,message = body.get('kind'),body.get('score'),body.get('message','')
         if kind not in ('feedback','rating') or not isinstance(message,str) or len(message)>2000:
@@ -177,6 +182,7 @@ def route(handler, db, uid, path, body, error):
     if path.startswith('/api/admin/'):
         if not admin(uid,db): raise error(403,'此账号没有后台访问权限')
         from server import model_evaluations
+        if model_experiment.route(handler,db,uid,path,body,error):return True
         if model_evaluations.route(handler,path,error):return True
         if path=='/api/admin/operations' and handler.command=='GET':
             from server import operations

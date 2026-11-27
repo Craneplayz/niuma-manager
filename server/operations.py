@@ -137,9 +137,16 @@ class TimedConnection(sqlite3.Connection):
         if not hasattr(self,'_observations'):self._observations=[]
         self._observations.append((captured(),stage,fields))
 
+    def on_commit(self, callback, *args):
+        if not hasattr(self, '_commit_callbacks'):self._commit_callbacks=[]
+        self._commit_callbacks.append((callback,args))
+
     def _flush_observations(self):
         values=getattr(self,'_observations',[])
         self._observations=[]
+        callbacks=getattr(self,'_commit_callbacks',[])
+        self._commit_callbacks=[]
+        for callback,args in callbacks:callback(*args)
         for context,stage,fields in values:
             with scope(**context):emit(stage,**fields)
 
@@ -149,10 +156,12 @@ class TimedConnection(sqlite3.Connection):
                 with span('commit'):result=super().__exit__(kind,value,traceback)
             except Exception:
                 self._observations=[]
+                self._commit_callbacks=[]
                 raise
             self._flush_observations()
             return result
         self._observations=[]
+        self._commit_callbacks=[]
         return super().__exit__(kind,value,traceback)
 
     def execute(self,sql,parameters=()):
@@ -164,12 +173,14 @@ class TimedConnection(sqlite3.Connection):
             with span('commit'):result=super().commit()
         except Exception:
             self._observations=[]
+            self._commit_callbacks=[]
             raise
         self._flush_observations()
         return result
 
     def rollback(self):
         self._observations=[]
+        self._commit_callbacks=[]
         return super().rollback()
 
 
